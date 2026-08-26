@@ -1,0 +1,2 @@
+# ".." keeps Clippy's built-in list (BTreeMap, OAuth, ...) and appends ours.
+doc-valid-idents = ["ITSaNAS", "XChaCha20", "ChaCha20", "Poly1305", "Ed25519", "X25519", "BLAKE3", "Argon2id", "FastCDC", "BIP", "QUIC", "SecOps", ".."]

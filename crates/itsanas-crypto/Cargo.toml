@@ -1,0 +1,28 @@
+[package]
+name = "itsanas-crypto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+argon2 = "0.5.3"
+bip39 = "2.2.2"
+blake3 = "1.8.7"
+chacha20poly1305 = { version = "0.11.0", features = ["alloc"] }
+ed25519-dalek = { version = "3.0.0", features = ["rand_core", "zeroize", "serde"] }
+getrandom = "0.4.3"
+serde = { version = "1.0.229", features = ["derive"] }
+subtle = "2.6.1"
+thiserror = "2.0.20"
+x25519-dalek = { version = "3.0.0", features = ["static_secrets", "zeroize"] }
+zeroize = "1.9.0"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+hex = "0.4.3"
+proptest = "1.11.0"

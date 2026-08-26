@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Never commit key material or live node state, even from a scratch test run.
+*.keystore
+*.itsanas-key
+/testdata/
+/.itsanas/
