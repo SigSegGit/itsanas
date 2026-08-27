@@ -60,6 +60,16 @@ Consequences worth stating:
 - There is no certificate authority, no certificate pinning and no X.509 parsing
   anywhere in the trusted path.
 - An observer cannot correlate two connections by their certificates.
+
+  **But local discovery is a separate matter, and it is weaker.** A node
+  announcing itself on the local network broadcasts its device id in the clear,
+  because the device id *is* the Ed25519 verifying key and nobody could check
+  the signature without it. So somebody on two different networks — a café, then
+  a hotel — can tell it is the same machine. What they cannot tell is *whose*:
+  the account is carried as a keyed tag, not as the user id, so they cannot
+  learn who owns it and cannot tell that two of your machines belong together.
+  Turn discovery off with `itsanas daemon --no-discovery` if even that is too
+  much for the network you are on.
 - A node answers any device that authenticates, including one it has never met —
   that is what lets anyone offer storage. Everything it can serve is sealed or
   signed, and it now knows *which* device it served.

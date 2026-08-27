@@ -13,16 +13,17 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M1b Published test fixtures | `itsanas-testkit` | ✅ **done** | 7 |
 | M2 Chunking and local store | `itsanas-store` | ✅ **done** | 115 unit + 29 integration |
 | M3 Sync engine | `itsanas-sync` | ✅ **done** | 12 unit + 19 convergence |
-| M4 Network transport | `itsanas-wire`, `itsanas-tls`, `itsanas-net` | ✅ **done** | 17 + 11 + 40 |
-| M4b Local discovery | `itsanas-discover` | ✅ **done** | 33 + 4 |
+| M4 Network transport | `itsanas-wire`, `itsanas-tls`, `itsanas-net` | ✅ **done** | 17 + 11 + 45 |
+| M4b Local discovery | `itsanas-discover` | ✅ **done** | 36 + 7 |
 | M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not executed** | 29 |
 | M6 Coordinator | `itsanas-coord` | 🟨 **library done, no server** | 47 |
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 53 |
 | M8 Three-device bring-up | — | ⬜ not started | — |
-| M9 Measurement | `itsanas bench` | ✅ **done**, and it found two problems | 4 |
-| M10 Pack files | `itsanas-store` | ⬜ **next**, decided by M9 | — |
+| M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion | 4 |
+| M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 | — |
 
-**520 tests, 2 of them `#[ignore]`d into the slow job.**
+**535 tests, 2 of them `#[ignore]`d into the slow job, and six of them red-team
+tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
 narrowed. The cryptography, the local store, the merge rules, the transport and
@@ -503,15 +504,49 @@ which any amount of tuning fixes:
 - 14.7 million inodes on the Pi's array, every one of them touched by a full
   verification pass.
 
-**Decision: pack files.** Chunks append into large segment files, with an index
+
+#### Finding 3 — the correction: saving a document *is* instant
+
+The first two findings were measured with the wrong question. Throughput on
+256 MiB answers "how long does the archive take"; nobody waits for the archive.
+What a person waits for is a save. Nicolas put it exactly: *if copying a film
+takes two hours I do not care; if you cannot save a Word document on the fly,
+that is serious.*
+
+So `itsanas bench` now measures that too — repeated saves of realistic sizes,
+each to a fresh path so deduplication cannot answer for free, timed from the
+caller handing over bytes to the change being sealed into a log segment peers
+can pull. Same laptop:
+
+| What | Size | Typical | p95 | Worst |
+| --- | --- | --- | --- | --- |
+| a note | 4 KiB | 6.6 ms | 7.8 ms | 11 ms |
+| a spreadsheet | 64 KiB | 7.8 ms | 11 ms | 12 ms |
+| a Word document | 512 KiB | 28 ms | 32 ms | 34 ms |
+| a big PDF | 4 MiB | 167 ms | 187 ms | 204 ms |
+| a photo burst | 32 MiB | 1.45 s | 1.56 s | 1.56 s |
+
+**Everything a person saves by hand is under 200 ms, and most of it is under
+30 ms.** The per-chunk `fsync` that costs a factor of two on a 256 MiB archive
+costs four milliseconds on a spreadsheet, which is nothing.
+
+That reorders the plan. Pack files remain the right answer to 14.7 million
+files, and they are an **archive** problem — the first terabyte, and the
+`blobs().addresses()` walk on every sync round — not a "cannot use it" problem.
+The daily experience is already good, and the first two findings were quietly
+scoped as though it were not.
+
+**Decision: pack files, and not urgently.** Chunks append into large segment files, with an index
 in redb mapping chunk to (pack, offset, length). One `fsync` per closed pack
 rather than per chunk; the have/missing exchange reads the index instead of the
 filesystem; garbage collection becomes compaction. This is what git packfiles,
 restic, Borg and casync all converged on, for these reasons.
 
-It is the next substantial piece of work, ahead of the coordinator, because it
-decides whether the Raspberry Pi with a 1 TB array — the machine this project
-exists for — works at all.
+It is not the next piece of work. Finding 3 showed the daily experience is
+already fine, so packs are scheduled for when the archive matters: before the
+Pi's 1 TB array is filled, and before `blobs().addresses()` walks a tree that
+large on every round. The coordinator comes first, because escrow recovery is an
+acceptance test and this is not.
 
 ---
 

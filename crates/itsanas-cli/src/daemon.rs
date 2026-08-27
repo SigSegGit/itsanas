@@ -247,15 +247,17 @@ fn sync_loop(
 
         if Instant::now() >= next_sync {
             // Configured peers first: somebody typed those in, so they are
-            // wanted even if they are also on the local network.
+            // wanted even if they are also on the local network — and being in
+            // the configuration is itself the evidence that they are real, so
+            // they are confirmed on contact without having to earn it.
             let mut reached: BTreeSet<DeviceId> = BTreeSet::new();
             for peer in &node.config.peers {
                 if shutdown.load(Ordering::Relaxed) {
                     break;
                 }
-                if let Some(device) = sync_once(node, peer, None, true) {
-                    neighbourhood.confirm(device);
-                    reached.insert(device);
+                if let Some(outcome) = sync_once(node, peer, None, true) {
+                    neighbourhood.confirm(outcome.device);
+                    reached.insert(outcome.device);
                 }
             }
 
@@ -263,6 +265,7 @@ fn sync_loop(
             // that announced it, so an address answering as somebody else is
             // refused rather than trusted: discovery says who might be there,
             // never who is.
+            let mut strangers_dialled = 0usize;
             for candidate in neighbourhood.dial_order(node.store.owner()) {
                 if shutdown.load(Ordering::Relaxed) {
                     break;
@@ -270,18 +273,38 @@ fn sync_loop(
                 if reached.contains(&candidate.device) {
                     continue;
                 }
+
+                // Dialling costs a handshake and a round trip, and minting the
+                // identity that provoked it cost an attacker nothing. Confirmed
+                // peers are always dialled; unconfirmed ones are rationed, so a
+                // flood cannot consume the interval that real syncing needs.
+                let known = neighbourhood.is_confirmed(&candidate.device);
+                if !known {
+                    if strangers_dialled >= discovery::NEW_PEERS_PER_ROUND {
+                        continue;
+                    }
+                    strangers_dialled += 1;
+                }
+
                 // A stranger that does not answer is not news — this network is
                 // built out of machines that are usually off. One of your own
                 // machines failing to answer is worth saying.
-                let reachable = sync_once(
+                let outcome = sync_once(
                     node,
                     &candidate.address.to_string(),
                     Some(candidate.device),
                     candidate.mine,
                 );
-                if let Some(device) = reachable {
-                    neighbourhood.confirm(device);
-                    reached.insert(device);
+
+                if let Some(outcome) = outcome {
+                    reached.insert(outcome.device);
+                    // Authenticating proves possession of a keypair that cost
+                    // nothing to generate. Only doing something a real host
+                    // does — storing our data, or serving us our own work —
+                    // earns a place a stranger cannot take.
+                    if outcome.earned_trust {
+                        neighbourhood.confirm(outcome.device);
+                    }
                 }
             }
             next_sync = Instant::now() + interval;
@@ -392,26 +415,34 @@ fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
     }
 }
 
+/// What one round against one peer established.
+#[derive(Clone, Copy, Debug)]
+struct Outcome {
+    /// Which device actually answered.
+    device: DeviceId,
+    /// Whether it did something only a real host does.
+    ///
+    /// Deliberately separate from "it answered". A device key is a free
+    /// keypair, so authenticating identifies a peer and vouches for nothing.
+    earned_trust: bool,
+}
+
 /// One round against one peer. Never propagates an error.
 ///
 /// A peer being unreachable is the normal state of this network, not a fault:
 /// the whole design is built around machines that are usually off. Treating it
 /// as an error would mean the daemon exits every time someone shuts a laptop.
 ///
-/// `expect` pins which device must answer, and returns the device that did.
-/// Answering at all means it completed a mutually authenticated handshake,
-/// which is the only evidence available on a bare network that a device is real
-/// rather than a keypair somebody minted a second ago — so the caller uses it
-/// to protect the entry from being evicted by a flood of strangers.
-///
-/// The device is returned even when the round itself failed. Reaching a machine
-/// and then falling out with it says nothing about whether the machine exists.
+/// `expect` pins which device must answer. The device is reported even when the
+/// round then failed — reaching a machine and falling out with it says nothing
+/// about whether the machine exists — but `earned_trust` is only set when the
+/// peer stored something of ours or served us our own work.
 fn sync_once(
     node: &Node,
     peer: &str,
     expect: Option<DeviceId>,
     announce_failure: bool,
-) -> Option<DeviceId> {
+) -> Option<Outcome> {
     let mut client = match PeerClient::connect(peer, &node.device, node.store.owner(), expect) {
         Ok(client) => client,
         Err(error) => {
@@ -423,29 +454,38 @@ fn sync_once(
     };
     let answered = client.peer_device();
 
-    match session::round(&node.store, &node.vault, &mut client) {
-        Ok(report) if report.changed_anything() => {
-            println!(
-                "{peer}: sent {} ({} chunks, {} segments), received {} files, {} conflicts{}",
-                format_size(report.push.bytes_sent),
-                report.push.chunks_accepted,
-                report.push.segments_accepted,
-                report.pull.adopted,
-                report.pull.conflicted,
-                if report.pull.deferred > 0 {
-                    format!(", {} deferred", report.pull.deferred)
-                } else {
-                    String::new()
-                }
-            );
+    let earned_trust = match session::round(&node.store, &node.vault, &mut client) {
+        Ok(report) => {
+            if report.changed_anything() {
+                println!(
+                    "{peer}: sent {} ({} chunks, {} segments), received {} files, {} conflicts{}",
+                    format_size(report.push.bytes_sent),
+                    report.push.chunks_accepted,
+                    report.push.segments_accepted,
+                    report.pull.adopted,
+                    report.pull.conflicted,
+                    if report.pull.deferred > 0 {
+                        format!(", {} deferred", report.pull.deferred)
+                    } else {
+                        String::new()
+                    }
+                );
+            }
+            // A quiet round is the common case. Saying so every five minutes
+            // would fill a journal with nothing and train the operator to
+            // ignore it.
+            report.peer_earned_trust()
         }
-        // A quiet round is the common case. Saying so every five minutes would
-        // fill a journal with nothing and train the operator to ignore it.
-        Ok(_) => {}
-        Err(error) => println!("{peer}: failed ({error})"),
-    }
+        Err(error) => {
+            println!("{peer}: failed ({error})");
+            false
+        }
+    };
 
-    Some(answered)
+    Some(Outcome {
+        device: answered,
+        earned_trust,
+    })
 }
 
 fn install_signal_handler() -> Result<()> {

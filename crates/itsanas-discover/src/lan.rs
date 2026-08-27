@@ -242,7 +242,7 @@ mod tests {
             .expect("the announcement did not arrive");
 
         assert_eq!(heard.device, keys.device_id());
-        assert_eq!(heard.owner, owner());
+        assert_eq!(heard.owner_tag, crate::beacon::owner_tag(owner()));
         assert_eq!(heard.port, 9797);
         assert!(from.is_loopback());
     }

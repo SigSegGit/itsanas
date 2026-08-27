@@ -136,6 +136,8 @@ Each of these has a test that fails if it is:
 | Availability affects entitlement, never placement | The decision that risks data must not depend on the untrusted coordinator | ECONOMICS.md §3; placement takes no availability input |
 | The vault takes no keys in any constructor | "A host cannot read what it stores" is structural, not a matter of nobody having written the call | `vault.rs` has no key parameter anywhere |
 | Symlinks are skipped, never followed | A link to `~/.ssh` inside the folder would upload a private key | `symlinks_are_skipped_rather_than_followed` |
+| Completing a handshake earns a peer nothing | Device keys are free keypairs, so authenticating identifies a peer and vouches for nothing. Treating it as trust turns the anti-flood measure into the flood's best tool | `red_team_a_flood_of_authenticating_strangers_cannot_take_over_the_table`, `red_team_a_peer_that_only_answered_the_phone_has_earned_nothing` |
+| The user id is never broadcast, only a keyed tag of it | A user id is a public key; announcing it every 30 seconds on a café network tells the room whose machine this is | `red_team_the_user_id_never_appears_on_the_wire` |
 | A replication target counts this device | Off by one means the repair loop keeps two copies while reporting three, invisibly, until two machines die instead of three | `a_target_counts_this_device_so_three_asks_for_two_elsewhere` |
 | A peer is recorded as a holder only when it accepted or already had the chunk | Recording a refusal as storage is indistinguishable from safety until the local disk dies | `a_host_that_refuses_to_store_is_not_recorded_as_holding_anything` |
 | A discovery beacon's address comes from the UDP source, never from the packet | A self-declared address lets any node redirect traffic to a machine that is not it | `a_new_device_is_recorded_with_the_address_it_was_heard_from` |
@@ -181,19 +183,11 @@ side coming back, a deletion removing it from both, both folders byte-identical.
    `under_replicated` and the `itsanas status` report. What is still missing is
    a repair loop that *chooses* peers to fix a shortfall, rather than relying on
    a node pushing to every peer it has.
-2. **Pack files.** Decided by measurement, not taste — see
-   [ROADMAP.md](ROADMAP.md) M9. One file per chunk means 14.7 million files per
-   terabyte, `blobs().addresses()` walking all of them on every sync round, and
-   19 MiB/s of write throughput against 229 MiB/s of sealing. Chunks should
-   append into large packs with an index in redb; `fsync` once per closed pack;
-   the have/missing exchange reads the index rather than the filesystem;
-   garbage collection becomes compaction. **This is ahead of the coordinator**
-   because it decides whether the Pi works at all.
-3. **Coordinator server and client.** The library (`coord`) is complete and
+2. **Coordinator server and client.** The library (`coord`) is complete and
    tested; nothing serves it. Needs: a protocol enum, a `service.rs` handling
    requests against `Directory`, and a TLS server reusing `itsanas-tls` and
    `wire::Connection`. Then a `itsanas-coordinator` binary.
-4. **~~Signed node-set epochs~~ — cancelled.** This was going to be the
+3. **~~Signed node-set epochs~~ — cancelled.** This was going to be the
    coordinator publishing a membership list everyone agreed on. Requiring every
    peer to hold the same list *is* an agreement protocol, and ITSaNAS does not
    need one: every chunk has exactly one owner who already keeps a log of it.
@@ -228,7 +222,11 @@ side coming back, a deletion removing it from both, both folders byte-identical.
 - **One process per node.** The index is under an exclusive lock, so commands
   refuse to run while the daemon holds it. A local control socket is the fix.
 - **The blob layout does not reach a terabyte.** Measured, not suspected: see
-  [ROADMAP.md](ROADMAP.md) M9. Pack files are the decided answer and are next.
+  [ROADMAP.md](ROADMAP.md) M9. One file per chunk is 14.7 million files per
+  terabyte, and `blobs().addresses()` walks all of them on every sync round.
+  Pack files are the decided answer, scheduled after the coordinator because
+  M9's third measurement showed the *daily* experience is already fine — a Word
+  document saves in 28 ms.
 - **No file-level sharing between users.** Not needed for mutual storage;
   `UserKeys::agree` exists, is tested, and is deliberately unused until it is.
 

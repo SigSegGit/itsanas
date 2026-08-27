@@ -58,6 +58,31 @@ pub struct RoundReport {
 }
 
 impl RoundReport {
+    /// Whether the peer did something only a real host could do.
+    ///
+    /// **Not the same as "the round succeeded".** Completing a mutually
+    /// authenticated handshake proves possession of a device key, and a device
+    /// key is a free keypair anybody can mint a second before dialling. So a
+    /// successful connection is an *identification*, never a credential.
+    ///
+    /// What this asks instead is whether the peer put itself to some cost on
+    /// our behalf: it accepted data, or it holds data of ours it did not have
+    /// to keep, or it served us work from one of our other devices. Any of
+    /// those is expensive to fake at scale, because faking it means actually
+    /// storing the data — at which point the peer is a real host and the
+    /// distinction has stopped mattering.
+    ///
+    /// Callers use it to decide who deserves a place that a stranger cannot
+    /// take. Getting this wrong turns an anti-flood measure into the flood's
+    /// best tool: see `docs/TESTING.md`, `itsanas-cli` red-team tests.
+    #[must_use]
+    pub const fn peer_earned_trust(&self) -> bool {
+        self.push.chunks_accepted > 0
+            || self.push.segments_accepted > 0
+            || self.push.holders_recorded > 0
+            || self.pull.adopted > 0
+    }
+
     /// Whether this round moved anything at all.
     #[must_use]
     pub const fn changed_anything(&self) -> bool {
@@ -262,5 +287,68 @@ impl ChunkSource for VaultChunks<'_> {
         self.vault
             .get_chunk(owner, address)
             .map_err(|error| itsanas_sync::SyncError::Source(error.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn nothing() -> RoundReport {
+        RoundReport::default()
+    }
+
+    #[test]
+    fn red_team_a_peer_that_only_answered_the_phone_has_earned_nothing() {
+        // THE ATTACK: a device key is a free keypair. An attacker mints one,
+        // answers a dial, completes a mutually authenticated handshake, and
+        // does nothing else. If that counted as evidence of being a real host,
+        // the attacker would earn a place in the neighbour table that no
+        // stranger can take — and could then repeat it until the table held
+        // nothing else, evicting the machines that actually hold data.
+        //
+        // If this test fails, the anti-flood measure has become the flood's
+        // best tool.
+        assert!(
+            !nothing().peer_earned_trust(),
+            "authenticating alone was treated as trustworthy"
+        );
+    }
+
+    #[test]
+    fn red_team_a_failed_round_earns_nothing() {
+        // Connecting and then falling over is not a contribution.
+        let mut report = RoundReport::default();
+        report.push.chunks_offered = 500;
+        report.push.segments_offered = 20;
+        assert!(
+            !report.peer_earned_trust(),
+            "offering data the peer never took was treated as the peer storing it"
+        );
+    }
+
+    #[test]
+    fn a_peer_that_accepted_our_data_has_earned_it() {
+        let mut report = RoundReport::default();
+        report.push.chunks_accepted = 1;
+        assert!(report.peer_earned_trust());
+    }
+
+    #[test]
+    fn a_peer_that_already_held_our_data_has_earned_it() {
+        // The steady state for a peer that has been hosting for weeks: nothing
+        // to send, nothing to fetch, and it is still the most valuable node
+        // this device knows. Requiring fresh transfer would demote every
+        // long-standing host to stranger the moment it caught up.
+        let mut report = RoundReport::default();
+        report.push.holders_recorded = 40;
+        assert!(report.peer_earned_trust());
+    }
+
+    #[test]
+    fn a_peer_that_served_us_our_own_work_has_earned_it() {
+        let mut report = RoundReport::default();
+        report.pull.adopted = 3;
+        assert!(report.peer_earned_trust());
     }
 }

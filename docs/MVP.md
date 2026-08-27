@@ -252,20 +252,23 @@ Measured against §3, not against the roadmap.
 | E — never awake together | ✅ *in the laboratory* | `a_host_relays_one_device_to_another_that_it_never_met`; never done with real power cycles |
 | F — delete survives absence | ✅ *in the laboratory* | The local ledger and the 27-case decision matrix; never done across a real reboot |
 | G — two edits, no loss | ✅ *in the laboratory* | Conflict siblings, tested through a real socket |
-| H — cheap to run | ❌ | `itsanas bench` now exists and found the answer is no at scale: 19 MiB/s of local write, so 15 hours for a terabyte, and 14.7 million files to hold it. Pack files are the decided fix |
+| H — cheap to run | 🟨 | Measured. **Saving a document is instant** — 4 KiB in 6.6 ms, a 512 KiB Word document in 28 ms, a 4 MiB PDF in 167 ms. Archive throughput is poor (19 MiB/s, 14.7 million files per terabyte) and pack files are the decided fix, but that is a first-fill problem, not a daily one. Idle CPU and battery over 24 hours are still unmeasured |
 | I — coordinator outage | 🟨 | Nothing to switch off yet. Stronger than it was: local discovery means a household keeps working with no server in the design at all, not merely with one that is down |
 | J — reboots cleanly | ❓ | Never tested. The index is transactional, which is a reason for confidence, not evidence |
 
-**The critical path is now H**, which turned out to be the item that could
-invalidate the project — exactly as this document predicted, and for a reason
-nobody had looked at. `itsanas bench` measured it: 19 MiB/s of local write and
-14.7 million files per terabyte. The Raspberry Pi with a 1 TB array is the
-machine this project exists for, and the current blob layout does not reach it.
+**The critical path is D and the remote half of A**, both blocked on the
+coordinator server.
 
-After that, D and the remote half of A, both blocked on the coordinator server.
+H was briefly the critical path and then was not, which is worth recording
+because the mistake is instructive. `itsanas bench` measured throughput first and
+concluded the storage layer was the emergency: 19 MiB/s and 14.7 million files
+per terabyte. But throughput answers "how long does the archive take", and nobody
+waits for the archive. Measuring the thing a person actually waits for — a save —
+gave 6.6 ms for a note and 28 ms for a Word document. Pack files are still the
+right answer to the archive; they are not an obstacle to using the thing.
 
-That ordering is the plan: pack files, then the coordinator, then escrow
-recovery, then the fleet bring-up. It is reflected in
+That ordering is the plan: the coordinator, then escrow recovery, then the fleet
+bring-up, then pack files before the array is filled. It is reflected in
 [ROADMAP.md](ROADMAP.md) and [HANDOVER.md](HANDOVER.md) §8.
 
 ### Test I is now a stronger claim than it was

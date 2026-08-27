@@ -221,9 +221,10 @@ This is tolerated, deliberately, and bounded:
   lying about uptime lets anyone read a byte or delete one.
 - **Nothing a coordinator says reaches placement.** This is a rule, not an
   accident: the decision that risks *data* must never depend on a number an
-  untrusted party produced. An owner chooses its own replicas from peers it has
-  itself reached, and records the choice in its own log — see
-  [DESIGN.md](DESIGN.md) §8. A lie about uptime can therefore cost fairness and
+  untrusted party produced. An owner records which peers hold each of its
+  chunks, from peers it has itself reached — see [DESIGN.md](DESIGN.md) §8. The
+  *recording* is built; the *choosing* is not, and at a household size the
+  policy is "offer to every peer", which is correct by accident. A lie about uptime can therefore cost fairness and
   cannot cost a replica.
 
   > Owner-recorded placement is **built**: the `HOLDERS` table records which

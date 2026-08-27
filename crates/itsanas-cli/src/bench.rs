@@ -131,13 +131,13 @@ impl Stage {
 }
 
 /// Run the benchmark and print a report.
-pub fn run(size: u64) -> Result<()> {
+pub fn run(size: u64, quick: bool) -> Result<()> {
     let size = size.max(1024 * 1024);
-    measure(size)
+    measure(size, quick)
 }
 
 /// Time each stage against a real store in a scratch directory.
-fn measure(size: u64) -> Result<()> {
+fn measure(size: u64, quick: bool) -> Result<()> {
     let dir = tempfile::Builder::new()
         .prefix("itsanas-bench-")
         .tempdir()
@@ -183,6 +183,14 @@ fn measure(size: u64) -> Result<()> {
     }
     verify_round_trip(&sink, size)?;
 
+    // Captured before the latency stage writes its own samples into the same
+    // store. Reading it afterwards reported the overhead of the throughput file
+    // as five times its input, which is the sort of confident wrong number a
+    // benchmark exists to avoid producing.
+    let throughput_stats = store.stats().ok();
+
+    let latency = latency_stage(&store, quick)?;
+
     stages.push(Stage {
         name: "  + store read",
         bytes: size,
@@ -190,7 +198,8 @@ fn measure(size: u64) -> Result<()> {
         note: "index, read blobs, open, verify, reassemble".to_owned(),
     });
 
-    report(&stages, size, &store);
+    report(&stages, size, throughput_stats.as_ref());
+    report_latency(&latency);
     Ok(())
 }
 
@@ -261,6 +270,163 @@ fn crypto_stages(size: u64, user: &UserKeys) -> Result<Vec<Stage>> {
     Ok(stages)
 }
 
+/// Sizes a person actually saves, and how many times each is measured.
+///
+/// The throughput figures above answer "how long does the archive take". This
+/// answers the question that decides whether the thing is usable: **when I hit
+/// save, does it feel instant?** A film taking two hours is a background job. A
+/// document taking two seconds is a tool nobody keeps.
+const DOCUMENT_SIZES: [(&str, u64, usize); 5] = [
+    ("a note", 4 * 1024, 60),
+    ("a spreadsheet", 64 * 1024, 60),
+    ("a Word document", 512 * 1024, 40),
+    ("a big PDF", 4 * 1024 * 1024, 20),
+    ("a photo burst", 32 * 1024 * 1024, 5),
+];
+
+/// The threshold below which a save is indistinguishable from instant.
+///
+/// Not a number picked for comfort: it is roughly the point at which a person
+/// stops perceiving a delay as a delay. Anything under it, the operation feels
+/// like it already happened.
+const FEELS_INSTANT: Duration = Duration::from_millis(100);
+
+/// How long one save takes, from a caller handing over bytes to the file being
+/// durably stored and announced.
+struct Latency {
+    label: &'static str,
+    size: u64,
+    samples: Vec<Duration>,
+}
+
+impl Latency {
+    /// The sample at the given percentile, samples already sorted.
+    fn at(&self, percentile: f64) -> Duration {
+        if self.samples.is_empty() {
+            return Duration::ZERO;
+        }
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss
+        )]
+        let index = (((self.samples.len() - 1) as f64) * percentile).round() as usize;
+        self.samples[index]
+    }
+
+    fn worst(&self) -> Duration {
+        self.samples.last().copied().unwrap_or(Duration::ZERO)
+    }
+}
+
+/// Time repeated saves of realistic document sizes.
+///
+/// Each iteration writes to a **different logical path**, so nothing is
+/// measuring an overwrite of something already chunked and already on disk.
+/// Reusing one path would let deduplication answer instantly and produce a
+/// number that means nothing.
+fn latency_stage(store: &Store, quick: bool) -> Result<Vec<Latency>> {
+    let mut out = Vec::new();
+
+    for (label, size, iterations) in DOCUMENT_SIZES {
+        let iterations = if quick { iterations.min(5) } else { iterations };
+        let mut samples = Vec::with_capacity(iterations);
+
+        for index in 0..iterations {
+            // Fresh bytes each time: identical content would deduplicate to
+            // nothing and the second save would be free.
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"itsanas latency sample");
+            hasher.update(&size.to_le_bytes());
+            hasher.update(&index.to_le_bytes());
+            let mut generator = Generated {
+                xof: hasher.finalize_xof(),
+                remaining: size,
+            };
+
+            let path = format!("bench/save-{size}-{index}.bin");
+            let start = Instant::now();
+            store
+                .write_stream(&path, &mut generator)
+                .map_err(|error| CliError::Usage(format!("save failed: {error}")))?;
+            // A save is not finished when the bytes are on this disk: it is
+            // finished when the change has been sealed into a log segment that
+            // peers can pull. Measuring only the write would flatter the
+            // number by leaving out the part the user is waiting for.
+            store
+                .flush_segment()
+                .map_err(|error| CliError::Usage(format!("flush failed: {error}")))?;
+            samples.push(start.elapsed());
+        }
+
+        samples.sort_unstable();
+        out.push(Latency {
+            label,
+            size,
+            samples,
+        });
+    }
+
+    Ok(out)
+}
+
+/// Print the latency table and say plainly whether it is good enough.
+fn report_latency(rows: &[Latency]) {
+    println!();
+    println!("saving a file — the number that decides whether this is usable");
+    println!(
+        "{:<18} {:>10} {:>10} {:>10} {:>10}",
+        "what", "size", "typical", "p95", "worst"
+    );
+    let rule = "-".repeat(62);
+    println!("{rule}");
+
+    let mut worst_offender: Option<&Latency> = None;
+    for row in rows {
+        println!(
+            "{:<18} {:>10} {:>10} {:>10} {:>10}",
+            row.label,
+            format_size(row.size),
+            millis(row.at(0.5)),
+            millis(row.at(0.95)),
+            millis(row.worst())
+        );
+        if row.at(0.95) > FEELS_INSTANT
+            && worst_offender.is_none_or(|current| row.at(0.95) > current.at(0.95))
+        {
+            worst_offender = Some(row);
+        }
+    }
+
+    println!();
+    match worst_offender {
+        None => println!(
+            "  Every one of these is under {}. Saving a document is instant.",
+            millis(FEELS_INSTANT)
+        ),
+        Some(row) => println!(
+            "  {} ({}) takes {} at the 95th percentile, over the {} that reads \
+             as instant. That is the thing to fix.",
+            row.label,
+            format_size(row.size),
+            millis(row.at(0.95)),
+            millis(FEELS_INSTANT)
+        ),
+    }
+}
+
+/// A duration in the unit a person reads without converting.
+fn millis(duration: Duration) -> String {
+    let ms = duration.as_secs_f64() * 1000.0;
+    if ms < 10.0 {
+        format!("{ms:.1}ms")
+    } else if ms < 1000.0 {
+        format!("{ms:.0}ms")
+    } else {
+        format!("{:.2}s", ms / 1000.0)
+    }
+}
+
 /// Confirm what came back is what went in.
 ///
 /// A benchmark of a broken path is worse than no benchmark, because it produces
@@ -305,7 +471,7 @@ fn verify_round_trip(sink: &Sink, size: u64) -> Result<()> {
     // the row format below and cannot drift apart.
     clippy::print_literal
 )]
-fn report(stages: &[Stage], size: u64, store: &Store) {
+fn report(stages: &[Stage], size: u64, stats: Option<&itsanas_store::StoreStats>) {
     println!(
         "{:<22} {:>12} {:>12}   {}",
         "stage", "throughput", "elapsed", "notes"
@@ -342,7 +508,7 @@ fn report(stages: &[Stage], size: u64, store: &Store) {
         }
     }
 
-    if let Ok(stats) = store.stats() {
+    if let Some(stats) = stats {
         println!();
         println!("on disk");
         println!(

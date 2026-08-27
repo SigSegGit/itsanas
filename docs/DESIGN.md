@@ -399,7 +399,11 @@ the single test that would catch this being quietly weakened.
 
 - No X.509 validation in the trusted path. The certificate is a key transport
   for the handshake and nothing else.
-- An observer cannot correlate two connections by certificate.
+- An observer cannot correlate two connections by certificate. This holds for
+  the TLS layer only: the discovery beacon in §9 broadcasts a device id in the
+  clear, because it is the verifying key, so a machine remains linkable across
+  networks by anyone listening on both. The account behind it is not — that
+  travels as a keyed tag.
 - Device revocation is a coordinator concern (`NodeClaim.revoked`), not a
   certificate-expiry concern. Nothing has to be reissued when a device leaves.
 
@@ -474,10 +478,19 @@ operation log listing their own chunks. The owner knows what they stored, so the
 owner can record *where they put it*, in their own log, which already replicates
 to blind hosts.
 
-Placement therefore becomes: the owner picks replicas from peers it knows and can
-reach, records the choice, and repairs when the count drops. Rendezvous hashing
-survives — it still spreads load proportionally over the peers an owner knows —
-but it no longer requires the world to agree.
+Placement therefore becomes: the owner records which peers hold each chunk, and
+repairs when the count drops. Rendezvous hashing survives as the rule for
+*choosing* targets — it still spreads load proportionally over the peers an
+owner knows — but it no longer requires the world to agree.
+
+> **Recorded, not yet chosen.** The ledger is built and filled on every sync
+> round. Nothing selects replicas from it: `session::push` offers everything to
+> every peer, so at a household size the placement policy is "everyone", which
+> happens to be right. `under_replicated` feeds `itsanas status` and drives
+> nothing. At thirty peers, pushing to all of them means thirty copies of
+> everything and contradicts the 3x contribution ratio in
+> [ECONOMICS.md](ECONOMICS.md) §1 — so a real selection step is needed before
+> the network grows, not before it works.
 
 This is not a concession. Third-party repair was never possible anyway: a host
 holds opaque bytes and cannot read an owner's log to learn what is missing.

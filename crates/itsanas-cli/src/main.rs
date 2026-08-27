@@ -182,6 +182,9 @@ enum Command {
         /// Generated on the fly, so a large size costs no extra memory.
         #[arg(long, default_value = "256M")]
         size: String,
+        /// Fewer samples: a rough answer in a fraction of the time.
+        #[arg(long)]
+        quick: bool,
     },
     /// Reclaim space from files that were deleted or overwritten.
     Gc {
@@ -248,7 +251,7 @@ fn run() -> Result<()> {
         Command::Sync { address } => sync(&home, address.as_deref()),
         Command::Peer { action } => peer(&home, action),
         Command::Doctor { deep } => doctor(&home, deep),
-        Command::Bench { size } => bench::run(parse_size(&size)?),
+        Command::Bench { size, quick } => bench::run(parse_size(&size)?, quick),
         Command::Gc { grace } => gc(&home, grace),
     }
 }

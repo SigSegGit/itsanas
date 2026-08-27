@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 524 tests across 18 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 535 tests across 18 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
@@ -33,6 +33,30 @@ not the system works is worse than no test, because it buys false confidence.
 
 Where a security claim is made anywhere in the documentation, there is a test
 here that would fail if the claim were false.
+
+## Red-team tests
+
+A test whose name begins `red_team_` describes an **attack**. It passes when the
+attack fails. Each one names the attacker, what it costs them, and what they get
+if the test ever goes green for the wrong reason — because a security test whose
+failure message is `assertion failed: !x` teaches nobody anything at three in the
+morning.
+
+They exist because an ordinary test found nothing here. The eviction protection
+in `itsanas-discover` had a test that passed while the daemon above it was
+handing protection to every stranger that dialled: the test **confirmed the
+honest peer and nobody else**, encoding the assumption instead of checking it.
+The attack was found by reading the code, not by running the suite. These tests
+are the answer to that.
+
+| Test | The attack it defeats |
+| --- | --- |
+| **`red_team_a_flood_of_authenticating_strangers_cannot_take_over_the_table`** | A device id is a free keypair. Mint 600, have every one claim the victim's owner tag so they sort to the front of the dial order, answer every dial correctly and store nothing. If merely authenticating earned protection, they would all become unevictable, fill the table, and the real Raspberry Pi would be refused entry forever while every node reported discovery as working. One laptop on the same wifi could silently stop a household syncing. |
+| **`red_team_dialling_strangers_is_rationed_so_a_flood_cannot_eat_the_interval`** | Three hundred minted identities announce themselves. Without a cap the daemon opens three hundred connections per round and spends the whole sync interval shaking hands with machines that store nothing. |
+| **`red_team_a_peer_that_only_answered_the_phone_has_earned_nothing`** | The rule underneath both of the above: completing a mutually authenticated handshake proves possession of a keypair generated a second earlier. It identifies a peer; it vouches for nothing. |
+| **`red_team_a_failed_round_earns_nothing`** | Offering data a peer never took is not the peer storing it. |
+| **`red_team_the_user_id_never_appears_on_the_wire`** | Sit on a café or hotel network and listen. A user id is a public key; broadcasting it every thirty seconds would tell the room whose machine this is. The announcement carries a keyed tag instead. |
+| **`red_team_a_stranger_cannot_compute_the_tag_without_knowing_the_user_id`** | Claiming to be one of the victim's own machines buys priority in their dial order. A guessable tag would hand that over for free; a keyed derivation means you must already know who you are targeting. |
 
 ## How to run
 
@@ -437,7 +461,7 @@ about reading.
 
 ---
 
-# `itsanas-net` — unit tests (25)
+# `itsanas-net` — unit tests (30)
 
 ## `protocol` — messages and challenges (9)
 
@@ -484,6 +508,17 @@ and is catalogued with that crate.
 
 ---
 
+## `session` — what a round establishes (5)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_peer_that_only_answered_the_phone_has_earned_nothing`** | See **Red-team tests** above. |
+| **`red_team_a_failed_round_earns_nothing`** | See **Red-team tests** above. |
+| `a_peer_that_already_held_our_data_has_earned_it` | The steady state of a host that has been storing for weeks: nothing to send, nothing to fetch, and still the most valuable peer this node knows. Requiring fresh transfer would demote every long-standing host to stranger the moment it caught up. |
+| `a_peer_that_accepted_our_data_has_earned_it` / `a_peer_that_served_us_our_own_work_has_earned_it` | The two ways a peer proves it is real: it stored something, or it gave us something of ours. |
+
+---
+
 # `itsanas-net` — two-node tests (15)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
@@ -508,7 +543,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 
 ---
 
-# `itsanas-cli` — unit tests (33)
+# `itsanas-cli` — unit tests (36)
 
 ## `bench` — measuring this machine (4)
 
@@ -523,12 +558,15 @@ a benchmark that measures a broken path produces a confident wrong number.
 | `a_stage_that_took_no_measurable_time_reports_zero_rather_than_infinity` | Dividing by a zero duration gives `inf`, which formats as a nonsense size and reads as a spectacular result. |
 | `durations_are_reported_in_units_a_person_can_act_on` | "15.3 hours" is a decision; "55080 seconds" is arithmetic homework. |
 
-## `discovery` — the daemon's use of local discovery (4)
+## `discovery` — the daemon's use of local discovery (7)
 
 | Test | What it proves |
 | --- | --- |
 | **`a_confirmed_device_survives_a_flood_of_strangers`** | The eviction attack at the layer the daemon actually uses. Without confirming a device after a successful authenticated round, anyone on the network can push the Raspberry Pi out of the laptop's table and the two stop finding each other while both believe discovery is working. |
 | `a_discovered_device_becomes_something_to_dial` | Discovery produces an address *and* the device to pin, which is what stops an address answering as somebody else being trusted. |
+| **`red_team_a_flood_of_authenticating_strangers_cannot_take_over_the_table`** | See **Red-team tests** above. This is the one that found a real bug. |
+| **`red_team_dialling_strangers_is_rationed_so_a_flood_cannot_eat_the_interval`** | A flood cannot consume the interval real syncing needs. |
+| `a_confirmed_peer_is_still_dialled_every_round_however_many_strangers_arrive` | The ration limits strangers, never work: three real machines still sync every round on a noisy network. |
 | `the_neighbourhood_is_empty_until_something_is_heard` | No invented peers. |
 | `the_poll_is_short_enough_that_shutdown_feels_immediate` | A Ctrl-C must not wait out an announce interval. |
 
@@ -676,7 +714,7 @@ destructive if wrong.
 
 ---
 
-# `itsanas-discover` — serverless local discovery (33)
+# `itsanas-discover` — serverless local discovery (36)
 
 The only parser in the project fed unsolicited packets by anybody, with no
 handshake in front of it. Everything else sits behind TLS and behind a peer that
@@ -684,7 +722,7 @@ has already proved which device it is, so this crate is tested the way a network
 edge has to be: every corruption, every truncation, and the failure modes of the
 hardware it will actually run on.
 
-## `beacon` — the announcement (11)
+## `beacon` — the announcement (14)
 
 | Test | What it proves |
 | --- | --- |
@@ -694,6 +732,9 @@ hardware it will actually run on.
 | **`arbitrary_garbage_never_panics`** | Anything at all arrives on a UDP port, including another protocol's traffic on a machine that reuses the number. |
 | **`a_signature_from_another_domain_does_not_verify_here`** | Domain separation checked rather than assumed: a signature the device made for the peer protocol must not be replayable as a presence announcement. |
 | **`an_ancient_clock_still_produces_a_valid_announcement`** | A Raspberry Pi 4 has no real-time clock and announces itself believing it is 1970. It must still be findable, or a machine that just came back is invisible until NTP runs. |
+| **`red_team_the_user_id_never_appears_on_the_wire`** | See **Red-team tests** above. |
+| **`red_team_a_stranger_cannot_compute_the_tag_without_knowing_the_user_id`** | See **Red-team tests** above. |
+| `the_tag_is_stable_so_a_household_keeps_recognising_itself` | The tag is deliberately not rotated on a clock: a Pi 4 has no RTC and boots in 1970, and a daily tag would make its own household treat it as a stranger exactly when it came back from a power cut. |
 | `the_layout_is_exactly_as_documented` | The wire format is a compatibility commitment. If it drifts, an older build on another machine stops finding this one and the symptom is "discovery silently does nothing". |
 | `an_unknown_version_is_refused_not_guessed_at` | No optimistic reinterpretation of a future format, whose fields may mean something else entirely at these offsets. |
 | `foreign_traffic_is_discarded_on_the_magic_rather_than_the_signature` | Sharing a port with something else costs one comparison, not a signature check per packet. |

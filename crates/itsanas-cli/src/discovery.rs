@@ -95,6 +95,14 @@ impl Neighbourhood {
         }
     }
 
+    /// Whether a device has already earned a place a stranger cannot take.
+    #[must_use]
+    pub fn is_confirmed(&self, device: &DeviceId) -> bool {
+        self.table
+            .lock()
+            .is_ok_and(|table| table.is_protected(device))
+    }
+
     /// How many devices are currently known.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -113,6 +121,15 @@ impl Default for Neighbourhood {
         Self::new()
     }
 }
+
+/// How many devices this node has never confirmed it will dial in one round.
+///
+/// A flood of freshly minted identities costs an attacker nothing. Without a
+/// cap, one round would open a connection to every one of them — up to the
+/// whole table — and spend the interval doing it instead of syncing with the
+/// machines that matter. Confirmed peers are dialled regardless of this: the
+/// limit is on strangers, not on work.
+pub const NEW_PEERS_PER_ROUND: usize = 4;
 
 /// Announce this node and record what is heard, until shutdown.
 ///
@@ -192,7 +209,7 @@ fn report(
         return;
     };
 
-    let mine = announcement.owner == owner;
+    let mine = announcement.owner_tag == itsanas_discover::beacon::owner_tag(owner);
     let whose = if mine { "your" } else { "another user's" };
 
     match table.record(announcement, from, now_unix()) {
@@ -214,6 +231,8 @@ fn report(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use itsanas_crypto::ID_LEN;
     use itsanas_discover::Announcement;
 
@@ -248,10 +267,15 @@ mod tests {
 
     #[test]
     fn a_confirmed_device_survives_a_flood_of_strangers() {
-        // The eviction attack, at the layer the daemon actually uses. Without
-        // confirmation after a successful round, anyone on the network can
-        // push the Raspberry Pi out of the laptop's table and the two stop
-        // finding each other while both believe discovery is working.
+        // The mechanism in isolation: a protected entry is not evicted.
+        //
+        // This test confirms only the honest device, which is an *assumption*
+        // about what the daemon does rather than a check of it — and the
+        // assumption was wrong when this was written: the daemon confirmed
+        // every peer that authenticated, strangers included, so the protection
+        // could be turned against the table it protected.
+        // `red_team_a_flood_of_authenticating_strangers_cannot_take_over_the_table`
+        // is the test that checks the rule instead of assuming it.
         let hood = Neighbourhood::new();
         let real = DeviceKeys::generate().unwrap();
 
@@ -291,6 +315,173 @@ mod tests {
         let hood = Neighbourhood::new();
         assert!(hood.is_empty());
         assert!(hood.dial_order(owner()).is_empty());
+    }
+
+    /// One round of the daemon's dialling rule, without the sockets.
+    ///
+    /// Mirrors `daemon::sync_loop`: dial in the table's order, ration how many
+    /// unconfirmed devices are contacted, and confirm only those that earned
+    /// it. `useful` decides what each dialled peer turns out to be.
+    fn one_round(hood: &Neighbourhood, owner: UserId, useful: &dyn Fn(&DeviceId) -> bool) -> usize {
+        let mut strangers = 0usize;
+        let mut dialled = 0usize;
+        for candidate in hood.dial_order(owner) {
+            let known = hood.is_confirmed(&candidate.device);
+            if !known {
+                if strangers >= NEW_PEERS_PER_ROUND {
+                    continue;
+                }
+                strangers += 1;
+            }
+            dialled += 1;
+            if useful(&candidate.device) {
+                hood.confirm(candidate.device);
+            }
+        }
+        dialled
+    }
+
+    #[test]
+    fn red_team_a_flood_of_authenticating_strangers_cannot_take_over_the_table() {
+        // THE ATTACK, end to end at the layer the daemon uses.
+        //
+        // Device ids are free keypairs. An attacker mints more of them than the
+        // table holds, has every one of them claim the victim's owner id — an
+        // unauthenticated field, so that is free too — and answers every dial
+        // correctly while storing nothing.
+        //
+        // Claiming the owner id puts them at the FRONT of the dial order, which
+        // is the ordering meant to reach your own machines first. If merely
+        // authenticating earned protection, they would all become unevictable,
+        // fill the table, and the real Raspberry Pi would be refused entry
+        // forever — while every node reported discovery as working.
+        //
+        // If this test fails, one laptop on the same wifi can silently stop a
+        // household from syncing.
+        let hood = Neighbourhood::new();
+        let pi = DeviceKeys::generate().unwrap();
+
+        report(
+            &hood,
+            &heard(&pi, owner(), 9797),
+            "192.168.1.20".parse().unwrap(),
+            owner(),
+        );
+
+        let attackers: Vec<DeviceKeys> =
+            (0..600).map(|_| DeviceKeys::generate().unwrap()).collect();
+        let attacker_ids: BTreeSet<DeviceId> =
+            attackers.iter().map(DeviceKeys::device_id).collect();
+
+        for (index, attacker) in attackers.iter().enumerate() {
+            report(
+                &hood,
+                // Claiming the victim's own owner id: nothing prevents it, and
+                // it is what buys priority in the dial order.
+                &heard(attacker, owner(), 9797),
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+                    10,
+                    u8::try_from((index >> 8) & 0xff).unwrap(),
+                    u8::try_from(index & 0xff).unwrap(),
+                    1,
+                )),
+                owner(),
+            );
+            // The Pi does its job whenever it is reached; the attackers never
+            // store anything, which is the only cheap way to run this attack.
+            one_round(&hood, owner(), &|device| !attacker_ids.contains(device));
+        }
+
+        assert!(
+            hood.is_confirmed(&pi.device_id()),
+            "the honest peer never earned protection"
+        );
+        assert!(
+            hood.dial_order(owner())
+                .iter()
+                .any(|candidate| candidate.device == pi.device_id()),
+            "600 strangers evicted the only machine holding the data"
+        );
+
+        let protected_attackers = attacker_ids
+            .iter()
+            .filter(|device| hood.is_confirmed(device))
+            .count();
+        assert_eq!(
+            protected_attackers, 0,
+            "{protected_attackers} strangers became unevictable by answering the phone"
+        );
+    }
+
+    #[test]
+    fn red_team_dialling_strangers_is_rationed_so_a_flood_cannot_eat_the_interval() {
+        // THE ATTACK: a thousand minted identities announce themselves. Without
+        // a cap the daemon opens a thousand connections in one round, spending
+        // the whole sync interval on handshakes with machines that store
+        // nothing, while the real peers wait.
+        let hood = Neighbourhood::new();
+        for index in 0..300u16 {
+            let attacker = DeviceKeys::generate().unwrap();
+            report(
+                &hood,
+                &heard(&attacker, owner(), 9797),
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+                    10,
+                    u8::try_from(index >> 8).unwrap(),
+                    u8::try_from(index & 0xff).unwrap(),
+                    1,
+                )),
+                owner(),
+            );
+        }
+
+        let dialled = one_round(&hood, owner(), &|_| false);
+        assert!(
+            dialled <= NEW_PEERS_PER_ROUND,
+            "dialled {dialled} unknown peers in one round; the cap is {NEW_PEERS_PER_ROUND}"
+        );
+    }
+
+    #[test]
+    fn a_confirmed_peer_is_still_dialled_every_round_however_many_strangers_arrive() {
+        // The cap rations strangers. It must not ration work: a household with
+        // three real machines and a noisy network still syncs every round.
+        let hood = Neighbourhood::new();
+        let mine: Vec<DeviceKeys> = (0..3).map(|_| DeviceKeys::generate().unwrap()).collect();
+        for (index, device) in mine.iter().enumerate() {
+            report(
+                &hood,
+                &heard(device, owner(), 9797),
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+                    192,
+                    168,
+                    1,
+                    u8::try_from(index).unwrap() + 10,
+                )),
+                owner(),
+            );
+            hood.confirm(device.device_id());
+        }
+        for index in 0..200u16 {
+            let stranger = DeviceKeys::generate().unwrap();
+            report(
+                &hood,
+                &heard(&stranger, owner(), 9797),
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+                    10,
+                    u8::try_from(index >> 8).unwrap(),
+                    u8::try_from(index & 0xff).unwrap(),
+                    1,
+                )),
+                owner(),
+            );
+        }
+
+        let dialled = one_round(&hood, owner(), &|_| false);
+        assert!(
+            dialled >= mine.len(),
+            "only {dialled} peers were dialled; the three real machines must always be"
+        );
     }
 
     #[test]

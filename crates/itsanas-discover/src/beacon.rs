@@ -22,13 +22,33 @@
 //! That proves exactly one thing: **the sender holds the private key for the
 //! device id it claims.** Nobody can advertise somebody else's device.
 //!
-//! It does **not** prove the claimed `owner`. Binding a device to a user needs
-//! the owner-signed claim that lives in `itsanas-coord`, which a node on a bare
-//! LAN has no way to obtain. The owner field is therefore a *hint* used to sort
-//! candidates — try my own machines first — and never an authorisation. Acting
-//! on it as though it were would be the mistake this paragraph exists to
-//! prevent: the peer protocol above already treats every caller as a stranger,
-//! and everything it will serve is sealed or signed.
+//! It does **not** prove the owner tag it carries. Binding a device to a user
+//! needs the owner-signed claim that lives in `itsanas-coord`, which a node on a
+//! bare LAN has no way to obtain. The tag is a *hint* used to sort candidates —
+//! try my own machines first — and never an authorisation. Acting on it as
+//! though it were would be the mistake this paragraph exists to prevent: the
+//! peer protocol above already treats every caller as a stranger, and everything
+//! it will serve is sealed or signed.
+//!
+//! # The owner is not sent in the clear
+//!
+//! What travels is `BLAKE3_keyed(user id, domain)`, not the user id. Anybody
+//! who already knows the user id computes the same tag and recognises their own
+//! machines; anybody who does not sees an opaque 32 bytes.
+//!
+//! That buys two things. A user id is a public key, so broadcasting it every
+//! thirty seconds on whatever network the laptop is attached to would tell every
+//! café and hotel exactly whose machine this is. And an attacker who cannot
+//! compute the tag cannot claim to be one of your machines, which is what buys
+//! priority in the dial order — so the cheapest version of that attack needs
+//! them to know who you are first.
+//!
+//! **It does not make a device unlinkable.** The device id is the Ed25519
+//! verifying key and has to travel in the clear, or nobody could check the
+//! signature without already knowing the device. So an observer on two networks
+//! can still tell it is the same machine. They cannot tell whose, and they
+//! cannot tell that two of your machines belong together. That is the whole of
+//! the claim, and `docs/SECURITY.md` says so rather than implying more.
 //!
 //! # The address is not in the packet
 //!
@@ -51,6 +71,25 @@ use crate::error::{DiscoverError, Result};
 /// Distinct from every other signing domain in the project, so that a signature
 /// made for one purpose can never be replayed as another.
 pub const BEACON_DOMAIN: &str = "itsanas v1 local discovery beacon";
+
+/// Domain for deriving the owner tag from a user id.
+pub const OWNER_TAG_DOMAIN: &str = "itsanas v1 local discovery owner tag";
+
+/// The value a node broadcasts in place of its user id.
+///
+/// Deterministic and unkeyed by anything secret — a user id *is* public — so
+/// this is not confidentiality, it is the difference between a stranger having
+/// to already know you and a stranger learning it by listening. Deliberately
+/// not rotated on a clock: a Raspberry Pi 4 has no real-time clock and boots
+/// believing it is 1970, and a rotating tag would make its own household stop
+/// recognising it exactly when it came back.
+#[must_use]
+pub fn owner_tag(owner: UserId) -> [u8; ID_LEN] {
+    *blake3::Hasher::new_derive_key(OWNER_TAG_DOMAIN)
+        .update(owner.as_bytes())
+        .finalize()
+        .as_bytes()
+}
 
 /// The first bytes of every announcement.
 ///
@@ -85,8 +124,12 @@ const _: () = assert!(OFF_SIGNATURE == SIGNED_LEN);
 /// was valid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Announcement {
-    /// The user the sender claims to belong to. A hint, never an authorisation.
-    pub owner: UserId,
+    /// Who the sender claims to belong to, as [`owner_tag`] of their user id.
+    ///
+    /// Compare against `owner_tag(my_user_id)` to recognise your own machines.
+    /// Unverified — anybody able to compute the tag may claim it — so it orders
+    /// candidates and authorises nothing.
+    pub owner_tag: [u8; ID_LEN],
     /// The sender's device, proved by the signature.
     pub device: DeviceId,
     /// The TCP port the sender is serving the peer protocol on.
@@ -102,7 +145,7 @@ impl Announcement {
         let mut packet = [0u8; BEACON_LEN];
         packet[OFF_MAGIC..OFF_VERSION].copy_from_slice(&MAGIC);
         packet[OFF_VERSION] = BEACON_VERSION;
-        packet[OFF_OWNER..OFF_DEVICE].copy_from_slice(owner.as_bytes());
+        packet[OFF_OWNER..OFF_DEVICE].copy_from_slice(&owner_tag(owner));
         packet[OFF_DEVICE..OFF_PORT].copy_from_slice(keys.device_id().as_bytes());
         packet[OFF_PORT..OFF_TIME].copy_from_slice(&port.to_be_bytes());
         packet[OFF_TIME..OFF_SIGNATURE].copy_from_slice(&now_unix.to_be_bytes());
@@ -133,8 +176,8 @@ impl Announcement {
             return Err(DiscoverError::UnknownVersion { got: version });
         }
 
-        let mut owner = [0u8; ID_LEN];
-        owner.copy_from_slice(&packet[OFF_OWNER..OFF_DEVICE]);
+        let mut owner_tag = [0u8; ID_LEN];
+        owner_tag.copy_from_slice(&packet[OFF_OWNER..OFF_DEVICE]);
         let mut device = [0u8; ID_LEN];
         device.copy_from_slice(&packet[OFF_DEVICE..OFF_PORT]);
 
@@ -161,7 +204,7 @@ impl Announcement {
         time.copy_from_slice(&packet[OFF_TIME..OFF_SIGNATURE]);
 
         Ok(Self {
-            owner: UserId::from_bytes(owner),
+            owner_tag,
             device: DeviceId::from_bytes(device),
             port,
             sent_unix: u64::from_be_bytes(time),
@@ -188,7 +231,7 @@ mod tests {
         let parsed = Announcement::parse(&packet).unwrap();
 
         assert_eq!(parsed.device, k.device_id());
-        assert_eq!(parsed.owner, owner());
+        assert_eq!(parsed.owner_tag, owner_tag(owner()));
         assert_eq!(parsed.port, 9797);
         assert_eq!(parsed.sent_unix, 1_700_000_000);
     }
@@ -330,6 +373,72 @@ mod tests {
             Announcement::parse(&packet),
             Err(DiscoverError::BadSignature)
         ));
+    }
+
+    #[test]
+    fn red_team_the_user_id_never_appears_on_the_wire() {
+        // THE ATTACK: sit on a café or hotel network and listen. If the user id
+        // travelled in the clear, every announcement would say whose machine
+        // this is — a stable public key, broadcast every thirty seconds, on
+        // whatever network the laptop happens to be attached to.
+        //
+        // If this test fails, running the daemon in public tells the room who
+        // you are.
+        let real_owner = UserId::from_bytes([0x5A; ID_LEN]);
+        let packet = Announcement::seal(&keys(), real_owner, 9797, 1_700_000_000);
+
+        assert!(
+            !packet
+                .windows(ID_LEN)
+                .any(|window| window == real_owner.as_bytes()),
+            "the user id was broadcast in the clear"
+        );
+    }
+
+    #[test]
+    fn red_team_a_stranger_cannot_compute_the_tag_without_knowing_the_user_id() {
+        // THE ATTACK: claiming to be one of the victim's own machines buys a
+        // place at the front of their dial order. If the tag were guessable —
+        // a constant, a truncation, anything derived from public framing — a
+        // stranger would get that priority for free.
+        //
+        // The tag is a keyed derivation of the user id, so computing it means
+        // already knowing who the target is. That does not make it a secret; it
+        // makes it something you have to have been told.
+        let mine = owner_tag(UserId::from_bytes([1; ID_LEN]));
+        let theirs = owner_tag(UserId::from_bytes([2; ID_LEN]));
+        assert_ne!(mine, theirs);
+        assert_ne!(mine, [0u8; ID_LEN]);
+        assert_ne!(mine, [1u8; ID_LEN], "the tag is not the user id itself");
+
+        // One flipped bit in the user id changes the whole tag: no partial
+        // match lets an observer bracket a guess.
+        let mut near = [1u8; ID_LEN];
+        near[31] ^= 1;
+        let close = owner_tag(UserId::from_bytes(near));
+        assert!(
+            mine.iter()
+                .zip(close.iter())
+                .filter(|(a, b)| a == b)
+                .count()
+                < ID_LEN / 2,
+            "a near-miss user id produced a near-miss tag"
+        );
+    }
+
+    #[test]
+    fn the_tag_is_stable_so_a_household_keeps_recognising_itself() {
+        // Deliberately not rotated on a clock. A Raspberry Pi 4 has no
+        // real-time clock and boots believing it is 1970; a tag that changed
+        // daily would make its own household treat it as a stranger exactly
+        // when it came back from a power cut.
+        let owner = UserId::from_bytes([9; ID_LEN]);
+        assert_eq!(owner_tag(owner), owner_tag(owner));
+
+        let early = Announcement::parse(&Announcement::seal(&keys(), owner, 9797, 0)).unwrap();
+        let later =
+            Announcement::parse(&Announcement::seal(&keys(), owner, 9797, 2_000_000_000)).unwrap();
+        assert_eq!(early.owner_tag, later.owner_tag);
     }
 
     #[test]

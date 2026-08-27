@@ -22,6 +22,16 @@ use std::time::Duration;
 use itsanas_crypto::{DeviceKeys, ID_LEN, UserId};
 use itsanas_discover::{DEFAULT_PORT, Lan};
 
+/// First six bytes of a tag, for a diagnostic line.
+fn hex_short(bytes: &[u8; 32]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(12);
+    for byte in &bytes[..6] {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
 fn main() {
     let listen = std::env::args().nth(1).as_deref() == Some("listen");
 
@@ -49,7 +59,7 @@ fn main() {
                 Ok(Some((heard, from))) => println!(
                     "heard {} (owner {}) at {}:{}",
                     heard.device.short(),
-                    heard.owner.short(),
+                    &hex_short(&heard.owner_tag),
                     from,
                     heard.port
                 ),

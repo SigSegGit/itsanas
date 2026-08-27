@@ -39,9 +39,9 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
 
-use itsanas_crypto::{DeviceId, UserId};
+use itsanas_crypto::{DeviceId, ID_LEN, UserId};
 
-use crate::beacon::Announcement;
+use crate::beacon::{Announcement, owner_tag};
 
 /// How many devices a node remembers hearing from.
 ///
@@ -53,8 +53,11 @@ pub const DEFAULT_CAPACITY: usize = 128;
 /// A device heard from on the local network.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Neighbour {
-    /// The user this device claims to belong to. Unverified — a sorting hint.
-    pub owner: UserId,
+    /// Who this device claims to belong to, as a tag rather than a user id.
+    ///
+    /// Unverified. Anybody who knows a user id can compute its tag and claim
+    /// it, so this orders candidates and authorises nothing.
+    pub owner_tag: [u8; ID_LEN],
     /// The device, proved by the announcement's signature.
     pub device: DeviceId,
     /// Where to reach it: the UDP source address, with the announced TCP port.
@@ -142,7 +145,7 @@ impl Neighbours {
     pub fn record(&mut self, announcement: &Announcement, source: IpAddr, now: u64) -> Heard {
         let address = SocketAddr::new(source, announcement.port);
         let fresh = Neighbour {
-            owner: announcement.owner,
+            owner_tag: announcement.owner_tag,
             device: announcement.device,
             address,
             sent_unix: announcement.sent_unix,
@@ -222,15 +225,18 @@ impl Neighbours {
     /// syncing. Within each group the order is by device id, so it is stable
     /// and two machines produce the same list.
     ///
-    /// `owner` is matched against the announcement's unverified owner field, so
-    /// a stranger can put themselves in the first group. That costs them a dial
-    /// they would have received anyway from the second group, and gains them
-    /// nothing: the caller pins the device id, and the peer protocol serves
-    /// strangers only sealed and signed objects.
+    /// The announcement's owner tag is unverified, so a stranger who knows this
+    /// user's id can compute it and put themselves in the first group. That
+    /// gains them one earlier dial and nothing else: the caller pins the device
+    /// id, the peer protocol serves strangers only sealed and signed objects,
+    /// and a peer earns a permanent place only by storing something. A stranger
+    /// who does *not* know the user id cannot even reach the first group, which
+    /// is the point of the tag.
     #[must_use]
     pub fn dial_order(&self, owner: UserId) -> Vec<Candidate> {
+        let tag = owner_tag(owner);
         let (mine, theirs): (Vec<&Neighbour>, Vec<&Neighbour>) =
-            self.entries.values().partition(|n| n.owner == owner);
+            self.entries.values().partition(|n| n.owner_tag == tag);
         mine.into_iter()
             .map(|n| Candidate {
                 device: n.device,

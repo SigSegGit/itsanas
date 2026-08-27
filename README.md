@@ -11,14 +11,16 @@ reboots — and your data stays available and stays in sync.
 > **Status: early, but it runs.** Two machines keep a folder in sync over an
 > encrypted, mutually authenticated connection: drop a file in, it appears on
 > the other; delete it, it goes from both. Machines on the same network find
-> each other with nothing configured. 499 tests.
+> each other with nothing configured. 535 tests, six of them red-team.
 >
-> What is missing: `itsanas bench` measured the store and the answer at scale is
-> not good enough — one file per chunk means 14.7 million files per terabyte and
-> 19 MiB/s of write throughput, so pack files are next. There is also no
-> coordinator server, so a machine on a *different* network still has to be
-> added by hand, and no repair execution. See [docs/ROADMAP.md](docs/ROADMAP.md)
-> and [docs/MVP.md](docs/MVP.md).
+> Saving is fast — a 512 KiB document is stored, sealed and announced in 28 ms,
+> measured by `itsanas bench`. Filling a terabyte is not: one file per chunk
+> means 14.7 million of them, so pack files are planned.
+>
+> What is missing: no coordinator server, so a machine on a *different* network
+> still has to be added by hand, and no recovery from a passphrase alone. No
+> repair execution. See [docs/ROADMAP.md](docs/ROADMAP.md) and
+> [docs/MVP.md](docs/MVP.md).
 > Nothing here is ready to hold data you care about yet.
 
 ## The idea in one picture
