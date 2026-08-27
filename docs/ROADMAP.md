@@ -16,14 +16,14 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M4 Network transport | `itsanas-wire`, `itsanas-tls`, `itsanas-net` | ✅ **done** | 17 + 11 + 45 |
 | M4b Local discovery | `itsanas-discover` | ✅ **done** | 36 + 7 |
 | M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not executed** | 29 |
-| M6 Coordinator | `itsanas-coord` | 🟨 **library done, no server** | 47 |
+| M6 Coordinator | `itsanas-coord`, `itsanas-coordinator` | ✅ **done** | 55 + 12 |
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 53 |
 | M8 Three-device bring-up | — | ⬜ not started | — |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion | 4 |
 | M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 | — |
 
-**535 tests, 2 of them `#[ignore]`d into the slow job, and six of them red-team
-tests that pass when an attack fails.**
+**560 test functions, 2 of them `#[ignore]`d into the slow job, and thirteen of
+them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
 narrowed. The cryptography, the local store, the merge rules, the transport and
@@ -32,10 +32,10 @@ folders identical over an encrypted, mutually authenticated connection.
 
 What is missing before this is a *network* rather than a personal sync tool:
 
-- **No coordinator server.** Machines on one network now find each other with
-  no server at all (M4b), which covers a household. A machine on a *different*
-  network still has to be added by hand. The coordinator library is complete;
-  nothing serves it.
+- ~~**No coordinator server.**~~ Built. `itsanas-coordinator` serves the address
+  book and the escrow locker; `itsanas coordinator`, `itsanas register` and
+  `itsanas login --from` are wired. **Recovering an account from a passphrase
+  alone works** — verified with the real binaries, not only in tests.
 - **Placement is recorded but not acted on.** A node now knows which peers
   hold each of its chunks, records it on every sync round, and `itsanas status`
   says plainly whether the data exists anywhere else. What is missing is a

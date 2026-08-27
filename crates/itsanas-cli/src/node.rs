@@ -35,7 +35,15 @@ use crate::{
 ///
 /// Distinguishes the on-device keystore from the coordinator-hosted escrow blob,
 /// so one can never be substituted for the other.
-const KEYSTORE_LABEL: &str = "itsanas/keystore/local";
+pub(crate) const KEYSTORE_LABEL: &str = "itsanas/keystore/local";
+
+/// Label for the escrow copy a coordinator holds.
+///
+/// Deliberately different from [`KEYSTORE_LABEL`]. The two containers hold the
+/// same secrets under different threat models — one on a disk the owner
+/// controls, one on a machine that may be stolen — and a shared label would
+/// mean a copy of either could be dropped in as the other.
+pub(crate) const ESCROW_LABEL: &str = "itsanas/keystore/escrow";
 
 /// The secrets a node needs to operate.
 #[derive(Serialize, Deserialize)]
@@ -57,6 +65,18 @@ pub struct Node {
     /// never hand a key to a caller, and the transport needs one to prove which
     /// device it is.
     pub device: DeviceKeys,
+    /// The account's own key schedule.
+    ///
+    /// Needed to sign a registration and a device enrolment, which are the two
+    /// things a coordinator must not be able to forge. The store holds its own
+    /// copy and will not hand it back — deliberately, since a store that could
+    /// return a key would be one call away from leaking it.
+    pub user: UserKeys,
+    /// The secrets this machine holds, encoded exactly as the keystore has them.
+    ///
+    /// Kept so that an escrow copy can be sealed under a different label
+    /// without deriving anything a second time. Zeroized with the node.
+    pub secrets: zeroize::Zeroizing<Vec<u8>>,
 }
 
 impl Node {
@@ -64,7 +84,7 @@ impl Node {
         home.join("keystore.bin")
     }
 
-    fn config_path(home: &Path) -> PathBuf {
+    pub fn config_path(home: &Path) -> PathBuf {
         home.join("config")
     }
 
@@ -102,6 +122,27 @@ impl Node {
         }
 
         let master = MasterSecret::from_recovery_phrase(phrase)?;
+        Self::write_new(home, passphrase, username, &master)
+    }
+
+    /// Create a node from the secrets held in a recovery container.
+    ///
+    /// The container carries the account identity; the device key is generated
+    /// fresh, because this is a different machine and a device key identifies a
+    /// machine rather than a person. Losing the old laptop then revokes one
+    /// enrolment rather than rotating the whole identity.
+    pub fn restore_from_secrets(
+        home: &Path,
+        passphrase: &str,
+        username: &str,
+        secrets: &[u8],
+    ) -> Result<Self> {
+        if Self::exists(home) {
+            return Err(CliError::NodeExists(home.to_owned()));
+        }
+
+        let recovered: NodeSecrets = postcard::from_bytes(secrets)?;
+        let master = MasterSecret::from_bytes(recovered.master);
         Self::write_new(home, passphrase, username, &master)
     }
 
@@ -146,7 +187,7 @@ impl Node {
         };
         config.save(&Self::config_path(home))?;
 
-        Self::assemble(home, config, master, &device)
+        Self::assemble(home, config, master, &device, encoded)
     }
 
     /// Open an existing node.
@@ -175,7 +216,7 @@ impl Node {
         let device = DeviceKeys::from_seed(&SecretBytes::new(secrets.device_seed));
 
         let config = Config::load(&Self::config_path(home))?;
-        Self::assemble(home, config, &master, &device)
+        Self::assemble(home, config, &master, &device, plaintext)
     }
 
     fn assemble(
@@ -183,6 +224,7 @@ impl Node {
         config: Config,
         master: &MasterSecret,
         device: &DeviceKeys,
+        secrets: Vec<u8>,
     ) -> Result<Self> {
         let user = UserKeys::derive(master);
 
@@ -212,6 +254,8 @@ impl Node {
             store,
             vault,
             device: DeviceKeys::from_seed(&device.seed()),
+            user: UserKeys::derive(master),
+            secrets: zeroize::Zeroizing::new(secrets),
         })
     }
 

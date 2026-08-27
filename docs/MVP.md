@@ -245,10 +245,10 @@ Measured against §3, not against the roadmap.
 
 | Test | Status | What is missing |
 | --- | --- | --- |
-| A — install and enrol | 🟨 | **Machines on one network now find each other with nothing configured.** A machine on a different network still needs `itsanas peer add`, which needs the coordinator |
+| A — install and enrol | 🟨 | Machines on one network find each other with nothing configured; machines elsewhere are found through a coordinator, which is now built. Untested on the real fleet |
 | B — a file appears | 🟨 | Works between peers that have found each other; the discovery half is done, the sync round on top of it is not yet exercised across two real machines |
 | C — blind hosting | ✅ *in the laboratory* | Proven by `a_host_stores_a_strangers_data_and_cannot_read_a_byte_of_it`; never done on real machines |
-| D — recovery from nothing | 🟨 | Works with the 24 words. Escrow login by username and passphrase is not wired |
+| D — recovery from nothing | 🟨 | **Works with the passphrase alone**, verified with the real binaries: a fresh home recovered the same user id from `itsanas login --username X --from <coordinator>`, with a new device id. A wrong passphrase is refused and a withdrawn container says so. Untested on the real fleet, and no data has been pulled back yet |
 | E — never awake together | ✅ *in the laboratory* | `a_host_relays_one_device_to_another_that_it_never_met`; never done with real power cycles |
 | F — delete survives absence | ✅ *in the laboratory* | The local ledger and the 27-case decision matrix; never done across a real reboot |
 | G — two edits, no loss | ✅ *in the laboratory* | Conflict siblings, tested through a real socket |
@@ -256,8 +256,9 @@ Measured against §3, not against the roadmap.
 | I — coordinator outage | 🟨 | Nothing to switch off yet. Stronger than it was: local discovery means a household keeps working with no server in the design at all, not merely with one that is down |
 | J — reboots cleanly | ❓ | Never tested. The index is transactional, which is a reason for confidence, not evidence |
 
-**The critical path is D and the remote half of A**, both blocked on the
-coordinator server.
+**The critical path is now the fleet itself.** Everything the acceptance tests
+need is built; none of it has been run on four real machines, and three of the
+ten tests have never been attempted at all.
 
 H was briefly the critical path and then was not, which is worth recording
 because the mistake is instructive. `itsanas bench` measured throughput first and

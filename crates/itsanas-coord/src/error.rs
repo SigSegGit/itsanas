@@ -28,6 +28,15 @@ pub enum CoordError {
     #[error("refused: {0}")]
     Rejected(&'static str),
 
+    /// Something the transport or the peer refused, with a runtime reason.
+    ///
+    /// Separate from [`CoordError::Rejected`], which carries a compile-time
+    /// constant naming a rule this build enforces. This one carries text
+    /// assembled at runtime, often about a stranger's connection — keeping them
+    /// apart means the rules stay greppable.
+    #[error("{0}")]
+    Transport(String),
+
     #[error("the username {0:?} is already registered to a different key")]
     NameTaken(String),
 

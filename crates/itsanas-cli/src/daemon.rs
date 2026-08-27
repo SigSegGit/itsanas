@@ -35,10 +35,17 @@
 //!
 //! # Finding peers
 //!
-//! A third thread announces this node on the local network and records what it
-//! hears, so machines in one house find each other with nothing configured.
-//! Discovered devices are dialled after the configured ones, own machines
-//! first, each pinned to the device id that announced it. See `discovery`.
+//! Three ways, in order of how much they need. A third thread announces this
+//! node on the local network and records what it hears, so machines in one
+//! house find each other with nothing configured. Addresses in the
+//! configuration are dialled first, because somebody typed them. And if a
+//! coordinator is configured, each round publishes this node's address there
+//! and asks where the account's other devices are — which is the only one of
+//! the three that reaches a machine on a different network.
+//!
+//! Every candidate is dialled with its device id pinned, so an address that
+//! answers as somebody else is refused. Discovery of any kind says who *might*
+//! be there; the TLS layer decides who is.
 //!
 //! # What it does not do yet
 //!
@@ -59,6 +66,7 @@ use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
 
 use crate::{
     config::format_size,
+    coordinator,
     discovery::{self, Neighbourhood},
     error::{CliError, Result},
     node::Node,
@@ -152,6 +160,10 @@ pub fn run(node: &Node, listen: Option<&str>, interval: Duration, discover: bool
     } else {
         println!("  peers     {}", node.config.peers.join(", "));
     }
+    match &node.config.coordinator {
+        Some(address) => println!("  coordinator {address}"),
+        None => println!("  coordinator none (`itsanas coordinator <host:port>`)"),
+    }
     match &lan {
         Some(_) => println!(
             "  discovery on, udp {} — machines on this network find each other",
@@ -187,7 +199,7 @@ pub fn run(node: &Node, listen: Option<&str>, interval: Duration, discover: bool
             });
         }
 
-        sync_loop(node, interval, shutdown, &neighbourhood);
+        sync_loop(node, interval, shutdown, &neighbourhood, bound);
     });
 
     println!("stopped.");
@@ -200,6 +212,7 @@ fn sync_loop(
     interval: Duration,
     shutdown: &AtomicBool,
     neighbourhood: &Neighbourhood,
+    bound: std::net::SocketAddr,
 ) {
     let folder = match open_folder(node) {
         Ok(folder) => folder,
@@ -246,67 +259,7 @@ fn sync_loop(
         }
 
         if Instant::now() >= next_sync {
-            // Configured peers first: somebody typed those in, so they are
-            // wanted even if they are also on the local network — and being in
-            // the configuration is itself the evidence that they are real, so
-            // they are confirmed on contact without having to earn it.
-            let mut reached: BTreeSet<DeviceId> = BTreeSet::new();
-            for peer in &node.config.peers {
-                if shutdown.load(Ordering::Relaxed) {
-                    break;
-                }
-                if let Some(outcome) = sync_once(node, peer, None, true) {
-                    neighbourhood.confirm(outcome.device);
-                    reached.insert(outcome.device);
-                }
-            }
-
-            // Then whatever announced itself here. Each is pinned to the device
-            // that announced it, so an address answering as somebody else is
-            // refused rather than trusted: discovery says who might be there,
-            // never who is.
-            let mut strangers_dialled = 0usize;
-            for candidate in neighbourhood.dial_order(node.store.owner()) {
-                if shutdown.load(Ordering::Relaxed) {
-                    break;
-                }
-                if reached.contains(&candidate.device) {
-                    continue;
-                }
-
-                // Dialling costs a handshake and a round trip, and minting the
-                // identity that provoked it cost an attacker nothing. Confirmed
-                // peers are always dialled; unconfirmed ones are rationed, so a
-                // flood cannot consume the interval that real syncing needs.
-                let known = neighbourhood.is_confirmed(&candidate.device);
-                if !known {
-                    if strangers_dialled >= discovery::NEW_PEERS_PER_ROUND {
-                        continue;
-                    }
-                    strangers_dialled += 1;
-                }
-
-                // A stranger that does not answer is not news — this network is
-                // built out of machines that are usually off. One of your own
-                // machines failing to answer is worth saying.
-                let outcome = sync_once(
-                    node,
-                    &candidate.address.to_string(),
-                    Some(candidate.device),
-                    candidate.mine,
-                );
-
-                if let Some(outcome) = outcome {
-                    reached.insert(outcome.device);
-                    // Authenticating proves possession of a keypair that cost
-                    // nothing to generate. Only doing something a real host
-                    // does — storing our data, or serving us our own work —
-                    // earns a place a stranger cannot take.
-                    if outcome.earned_trust {
-                        neighbourhood.confirm(outcome.device);
-                    }
-                }
-            }
+            let reached = one_round(node, shutdown, neighbourhood, bound);
             next_sync = Instant::now() + interval;
 
             // Say it once, rather than leaving someone watching a silent
@@ -340,6 +293,115 @@ fn sync_loop(
 
         wait_for_work(folder.as_ref(), next_sync, shutdown);
     }
+}
+
+/// One pass over every way this node knows of reaching a peer.
+///
+/// In order: addresses somebody typed into the configuration; the account's
+/// other devices as the coordinator reports them, if one is configured; and
+/// whatever announced itself on the local network. Each is dialled with its
+/// device id pinned wherever one is known, so an address that answers as
+/// somebody else is refused rather than trusted.
+fn one_round(
+    node: &Node,
+    shutdown: &AtomicBool,
+    neighbourhood: &Neighbourhood,
+    bound: std::net::SocketAddr,
+) -> BTreeSet<DeviceId> {
+    // Configured peers first: somebody typed those in, so they are
+    // wanted even if they are also on the local network — and being in
+    // the configuration is itself the evidence that they are real, so
+    // they are confirmed on contact without having to earn it.
+    let mut reached: BTreeSet<DeviceId> = BTreeSet::new();
+    for peer in &node.config.peers {
+        if shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+        if let Some(outcome) = sync_once(node, peer, None, true) {
+            neighbourhood.confirm(outcome.device);
+            reached.insert(outcome.device);
+        }
+    }
+
+    // Then whatever announced itself here. Each is pinned to the device
+    // that announced it, so an address answering as somebody else is
+    // refused rather than trusted: discovery says who might be there,
+    // never who is.
+    // The coordinator, if there is one. Failures here are ordinary:
+    // it may be down, and a node whose peers are already known keeps
+    // working without it. That is the point of it carrying nothing
+    // vital.
+    let mut from_coordinator: Vec<(DeviceId, String)> = Vec::new();
+    if node.config.coordinator.is_some() {
+        let now = itsanas_discover::now_unix();
+        let listen = bound.to_string();
+        if let Err(error) = coordinator::announce(node, &listen, now) {
+            println!("coordinator: could not announce ({error})");
+        }
+        match coordinator::peers(node, node.store.owner()) {
+            Ok(found) => from_coordinator = found,
+            Err(error) => println!("coordinator: could not list peers ({error})"),
+        }
+    }
+
+    for (device, address) in &from_coordinator {
+        if shutdown.load(Ordering::Relaxed) || reached.contains(device) {
+            continue;
+        }
+        // Pinned: the coordinator supplies addresses and is not trusted
+        // to say who lives at one.
+        if let Some(outcome) = sync_once(node, address, Some(*device), true) {
+            reached.insert(outcome.device);
+            if outcome.earned_trust {
+                neighbourhood.confirm(outcome.device);
+            }
+        }
+    }
+
+    let mut strangers_dialled = 0usize;
+    for candidate in neighbourhood.dial_order(node.store.owner()) {
+        if shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+        if reached.contains(&candidate.device) {
+            continue;
+        }
+
+        // Dialling costs a handshake and a round trip, and minting the
+        // identity that provoked it cost an attacker nothing. Confirmed
+        // peers are always dialled; unconfirmed ones are rationed, so a
+        // flood cannot consume the interval that real syncing needs.
+        let known = neighbourhood.is_confirmed(&candidate.device);
+        if !known {
+            if strangers_dialled >= discovery::NEW_PEERS_PER_ROUND {
+                continue;
+            }
+            strangers_dialled += 1;
+        }
+
+        // A stranger that does not answer is not news — this network is
+        // built out of machines that are usually off. One of your own
+        // machines failing to answer is worth saying.
+        let outcome = sync_once(
+            node,
+            &candidate.address.to_string(),
+            Some(candidate.device),
+            candidate.mine,
+        );
+
+        if let Some(outcome) = outcome {
+            reached.insert(outcome.device);
+            // Authenticating proves possession of a keypair that cost
+            // nothing to generate. Only doing something a real host
+            // does — storing our data, or serving us our own work —
+            // earns a place a stranger cannot take.
+            if outcome.earned_trust {
+                neighbourhood.confirm(outcome.device);
+            }
+        }
+    }
+
+    reached
 }
 
 /// Block until the folder changes, the next sync is due, or shutdown.

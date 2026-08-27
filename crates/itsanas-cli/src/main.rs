@@ -13,6 +13,7 @@
 
 mod bench;
 mod config;
+mod coordinator;
 mod daemon;
 mod discovery;
 mod error;
@@ -73,13 +74,22 @@ enum Command {
         #[arg(long)]
         username: String,
     },
-    /// Restore an existing account on this machine from its recovery phrase.
+    /// Restore an existing account on this machine.
+    ///
+    /// From the 24-word phrase by default, or from a coordinator with
+    /// `--from <host:port>` if the account lodged a recovery container.
     Login {
         #[arg(long)]
         username: String,
         /// Read the 24-word phrase from this file instead of prompting.
         #[arg(long)]
         phrase_file: Option<PathBuf>,
+        /// Recover from this coordinator using the passphrase alone.
+        #[arg(long, conflicts_with = "phrase_file")]
+        from: Option<String>,
+        /// The device that coordinator must prove itself to be.
+        #[arg(long, requires = "from")]
+        device: Option<String>,
     },
     /// Show this node's identity, contents and hosting.
     Status,
@@ -159,6 +169,38 @@ enum Command {
         /// Peer address, e.g. `pi.local:9797`. Omit to use configured peers.
         address: Option<String>,
     },
+    /// Set, or show, the coordinator this node uses.
+    ///
+    /// A coordinator is optional. Machines on the same network find each other
+    /// with no server at all; what this adds is reaching a machine on a
+    /// *different* network, and recovering an account from a passphrase.
+    Coordinator {
+        /// `host:port`. Omit to show the current setting.
+        address: Option<String>,
+        /// The device the coordinator must prove itself to be.
+        ///
+        /// Get it with `itsanas-coordinator --identity`. Without it an address
+        /// that resolves elsewhere is trusted; with it, refused.
+        #[arg(long)]
+        device: Option<String>,
+        /// Stop using a coordinator.
+        #[arg(long, conflicts_with_all = ["address", "device"])]
+        forget: bool,
+    },
+    /// Register this account and device with the configured coordinator.
+    Register {
+        /// Also lodge a recovery container sealed under this machine's passphrase.
+        ///
+        /// It lets a new machine be restored with a username and a passphrase
+        /// instead of 24 words. The trade is real: anybody who steals the
+        /// coordinator's database can attack that passphrase offline, so it is
+        /// off unless asked for, and `--withdraw-recovery` takes it back.
+        #[arg(long)]
+        recovery: bool,
+        /// Withdraw a previously lodged recovery container.
+        #[arg(long, conflicts_with = "recovery")]
+        withdraw_recovery: bool,
+    },
     /// Add a peer to the configuration.
     Peer {
         #[command(subcommand)]
@@ -227,7 +269,24 @@ fn run() -> Result<()> {
         Command::Login {
             username,
             phrase_file,
-        } => login(&home, &username, phrase_file.as_deref()),
+            from,
+            device,
+        } => login(
+            &home,
+            &username,
+            phrase_file.as_deref(),
+            from.as_deref(),
+            device.as_deref(),
+        ),
+        Command::Coordinator {
+            address,
+            device,
+            forget,
+        } => coordinator_setting(&home, address.as_deref(), device.as_deref(), forget),
+        Command::Register {
+            recovery,
+            withdraw_recovery,
+        } => register(&home, recovery, withdraw_recovery),
         Command::Status => status(&home),
         Command::Whoami => whoami(&home),
         Command::Ls => list(&home),
@@ -353,9 +412,19 @@ fn init(home: &Path, username: &str) -> Result<()> {
     Ok(())
 }
 
-fn login(home: &Path, username: &str, phrase_file: Option<&std::path::Path>) -> Result<()> {
+fn login(
+    home: &Path,
+    username: &str,
+    phrase_file: Option<&std::path::Path>,
+    from: Option<&str>,
+    device: Option<&str>,
+) -> Result<()> {
     if Node::exists(home) {
         return Err(CliError::NodeExists(home.to_path_buf()));
+    }
+
+    if let Some(address) = from {
+        return login_from_coordinator(home, username, address, device);
     }
 
     let phrase = if let Some(path) = phrase_file {
@@ -494,6 +563,146 @@ fn status(home: &Path) -> Result<()> {
         for peer in &node.config.peers {
             println!("  peer            {peer}");
         }
+    }
+
+    Ok(())
+}
+
+/// Restore an account from a coordinator, using a passphrase alone.
+///
+/// The machine has nothing: no device key, no account, no store. It fetches the
+/// sealed container by name, opens it with the passphrase, and writes a local
+/// keystore from what was inside — with a **new device key**, because the
+/// container carries the account's identity and this is a different machine.
+fn login_from_coordinator(
+    home: &Path,
+    username: &str,
+    address: &str,
+    device: Option<&str>,
+) -> Result<()> {
+    let expect = device.map(coordinator::parse_device).transpose()?;
+
+    println!("Recovering {username:?} from {address}.");
+    println!("This needs the passphrase the container was sealed with, which is");
+    println!("the passphrase of whichever machine lodged it — not necessarily one");
+    println!("you have used on this machine.");
+    let secret = passphrase(false)?;
+
+    let secrets = coordinator::fetch_escrow(address, expect, username, &secret)?;
+    let node = Node::restore_from_secrets(home, &secret, username, &secrets)?;
+
+    println!();
+    println!("Account restored.");
+    println!("  user id : {}", node.store.owner());
+    println!(
+        "  device  : {} (new for this machine)",
+        node.store.device_id()
+    );
+    println!();
+    println!("Your 24-word phrase is unchanged and still the ultimate backup:");
+    println!("this recovered the same identity, it did not create a new one.");
+    println!();
+    println!("Nothing has been downloaded yet. Run `itsanas sync` once a peer is");
+    println!("reachable, or `itsanas register` to publish this device's address.");
+
+    Ok(())
+}
+
+/// Set, show, or forget the coordinator this node uses.
+fn coordinator_setting(
+    home: &Path,
+    address: Option<&str>,
+    device: Option<&str>,
+    forget: bool,
+) -> Result<()> {
+    let mut config = config::Config::load(&Node::config_path(home))?;
+
+    if forget {
+        config.coordinator = None;
+        config.coordinator_device = None;
+        config.save(&Node::config_path(home))?;
+        println!("no coordinator configured. Machines on this network still find");
+        println!("each other; machines elsewhere now need `itsanas peer add`.");
+        return Ok(());
+    }
+
+    if let Some(address) = address {
+        if let Some(device) = device {
+            // Parsed now rather than at first use, so a mistyped id fails while
+            // the person who typed it is still looking at it.
+            coordinator::parse_device(device)?;
+        }
+        config.coordinator = Some(address.to_owned());
+        config.coordinator_device = device.map(str::to_owned);
+        config.save(&Node::config_path(home))?;
+        println!("coordinator set to {address}");
+        if let Some(device) = device {
+            println!("  pinned to device {device}");
+        } else {
+            println!("  not pinned. Anything answering at that address is trusted to");
+            println!("  be the coordinator. Pin it with --device <id> from");
+            println!("  `itsanas-coordinator --identity`.");
+        }
+        return Ok(());
+    }
+
+    if let Some(address) = &config.coordinator {
+        println!("{address}");
+        match &config.coordinator_device {
+            Some(device) => println!("  pinned to device {device}"),
+            None => println!("  not pinned"),
+        }
+    } else {
+        println!("no coordinator configured");
+    }
+    Ok(())
+}
+
+/// Register this account and device, and optionally lodge a recovery container.
+fn register(home: &Path, recovery: bool, withdraw: bool) -> Result<()> {
+    let node = open(home)?;
+    let now = itsanas_discover::now_unix();
+
+    coordinator::register(&node, now)?;
+    println!(
+        "registered {:?} and enrolled this device",
+        node.config.username
+    );
+
+    // Publishing the address is part of registering, not a separate step: a
+    // device nobody can reach has not really joined anything.
+    let listen = node.config.listen.clone();
+    match coordinator::announce(&node, &listen, now) {
+        Ok(()) => println!("announced {listen}"),
+        Err(error) => println!("could not announce an address: {error}"),
+    }
+
+    if withdraw {
+        coordinator::set_escrow(&node, None, &[])?;
+        println!("recovery container withdrawn. This account can now only be");
+        println!("restored with its 24-word phrase.");
+        return Ok(());
+    }
+
+    if recovery {
+        println!();
+        println!("Lodging a recovery container. Enter this machine's passphrase again:");
+        let secret = passphrase(false)?;
+        coordinator::set_escrow(&node, Some(&secret), &node.secrets)?;
+        println!("recovery container lodged.");
+        println!(
+            "  A new machine can now run `itsanas login --username {} \\",
+            node.config.username
+        );
+        println!(
+            "    --from {}`",
+            node.config
+                .coordinator
+                .as_deref()
+                .unwrap_or("<coordinator>")
+        );
+        println!("  Anybody who steals the coordinator's database can attack that");
+        println!("  passphrase offline. Withdraw it with `itsanas register --withdraw-recovery`.");
     }
 
     Ok(())

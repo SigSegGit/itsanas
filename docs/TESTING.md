@@ -1,6 +1,7 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 535 tests across 18 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 560 test functions across 21 binaries, 2 of them
+`#[ignore]`d, plus 2 doctests. Thirteen are red-team tests.**
 
 | Binary | Tests |
 | --- | --- |
@@ -57,6 +58,13 @@ are the answer to that.
 | **`red_team_a_failed_round_earns_nothing`** | Offering data a peer never took is not the peer storing it. |
 | **`red_team_the_user_id_never_appears_on_the_wire`** | Sit on a café or hotel network and listen. A user id is a public key; broadcasting it every thirty seconds would tell the room whose machine this is. The announcement carries a keyed tag instead. |
 | **`red_team_a_stranger_cannot_compute_the_tag_without_knowing_the_user_id`** | Claiming to be one of the victim's own machines buys priority in their dial order. A guessable tag would hand that over for free; a keyed derivation means you must already know who you are targeting. |
+| **`red_team_grinding_one_account_is_cut_off_after_a_few_attempts`** | The escrow blob is fetchable by anyone with a username, because a machine recovering from nothing has nothing to prove with. Grinding it is the attack, and the rate limit is the only defence — the single job a central component does better than a distributed one. |
+| **`red_team_flooding_invented_names_cannot_reset_a_real_account_counter`** | The limiter is a table a stranger writes into. Evicting to make room would let an attacker clear their own counter. |
+| **`red_team_reconnecting_does_not_reset_the_escrow_attempt_budget`** | A per-connection budget is no budget: reconnecting costs a handshake and buys a fresh one. |
+| **`red_team_an_unenrolled_device_cannot_overwrite_someone_elses_escrow`** | Substituting a container whose passphrase you chose. |
+| **`red_team_a_device_cannot_publish_an_address_for_a_device_it_does_not_own`** | Black-holing a member's machines through the address book. |
+| **`red_team_a_name_cannot_be_taken_over_by_a_different_key`** | Sending everyone who looks a member up to an impostor. |
+| **`red_team_an_oversized_username_is_refused_before_the_directory_sees_it`** | A megabyte where a name is expected. |
 
 ## How to run
 
@@ -543,7 +551,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 
 ---
 
-# `itsanas-cli` — unit tests (36)
+# `itsanas-cli` — unit tests (39)
 
 ## `bench` — measuring this machine (4)
 
@@ -772,6 +780,42 @@ hardware it will actually run on.
 | `a_broadcasting_socket_asks_the_kernel_for_broadcast` | Without `SO_BROADCAST` nothing reaches 255.255.255.255 and every send still reports success. |
 | `two_nodes_on_one_machine_refuse_to_share_a_port` | Better a refusal at start-up than a second node whose discovery quietly never works. |
 | `the_announce_interval_is_not_expensive_to_leave_running` | An acceptance criterion, not a preference: the first version that keeps a laptop awake gets uninstalled. Under half a megabyte a day, and one lost packet never forgets a peer. |
+
+---
+
+---
+
+# `itsanas-coord` — the coordinator server (12 integration, 8 unit)
+
+A real coordinator on a real socket: real directory, real TLS with device
+authentication, real signatures, real framing. `tests/coordinator.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`escrow_is_stored_by_an_enrolled_device_and_recovered_by_name_alone`** | MVP acceptance test D at the protocol layer. A machine with no device, no account and no key fetches the sealed container using only the username, and the passphrase is what opens it. |
+| **`red_team_reconnecting_does_not_reset_the_escrow_attempt_budget`** | The escrow blob is the one thing reachable without proving anything, so the rate limit is the whole defence. A per-connection counter would be no counter: an attacker reconnects, pays one handshake, and works through a word list. |
+| **`red_team_an_unenrolled_device_cannot_overwrite_someone_elses_escrow`** | Replacing a member's container with one whose passphrase you chose would either take their account or — quieter — destroy their ability to recover, discovered on the day they needed it. |
+| **`red_team_a_device_cannot_publish_an_address_for_a_device_it_does_not_own`** | Announcing somebody else's device at an address you control black-holes their machines. TLS pinning stops data being exposed; nothing else stops the denial of service. |
+| **`red_team_a_name_cannot_be_taken_over_by_a_different_key`** | A username pointing at the wrong key sends everyone looking that member up to an impostor. |
+| **`red_team_an_oversized_username_is_refused_before_the_directory_sees_it`** | Nothing downstream has to be robust against a caller-chosen length. |
+| `escrow_is_off_until_a_blob_is_stored_and_can_be_withdrawn_again` | Passphrase recovery is a trade, so it is opt-in *and* reversible. Without the second half the only safe choice would be never to use it. |
+| `a_member_registers_enrols_a_device_and_is_then_findable_by_name` | The ordinary path end to end: after this, somebody who knows only a username can reach the machines. |
+| `a_connection_that_asks_too_much_is_told_why_rather_than_cut_off` | A silent close surfaces as "connection aborted by your host software", which reads like a firewall and sends whoever is debugging it an hour in the wrong direction. |
+| `the_peer_list_is_bounded_however_many_devices_a_user_enrols` | A member with a thousand devices is not a way to make the coordinator send a thousand records to anybody who asks. |
+| `a_version_mismatch_is_refused_rather_than_guessed_at` / `asking_about_an_unknown_name_says_so_rather_than_inventing_one` | No optimistic guessing, no invented answers. |
+
+Unit tests in `service.rs` and `protocol.rs` cover the limiter's arithmetic and
+the open-request list:
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_grinding_one_account_is_cut_off_after_a_few_attempts`** | The limiter does what the whole centralisation argument rests on. |
+| **`red_team_flooding_invented_names_cannot_reset_a_real_account_counter`** | The limiter is itself a table a stranger writes into. A full table that evicted the oldest entry would let an attacker clear their own counter by inventing names. |
+| **`only_hello_and_escrow_retrieval_are_reachable_without_proving_anything`** | The hostile-internet argument rests on this list being two items long, so it is asserted rather than described. |
+| `a_log_line_never_contains_anything_a_caller_wrote` | Otherwise a stranger picks their username and writes into the operator's journal. |
+| `the_budget_comes_back_after_the_window` | Somebody who mistypes five times is not locked out of their own account for good. |
+| `expired_windows_are_forgotten_so_the_table_does_not_fill_with_history` / `a_name_that_was_never_asked_about_is_allowed_once_the_table_has_room` | The bound holds without leaking history. |
+| `a_request_round_trips_through_postcard` | The encoding. |
 
 ---
 

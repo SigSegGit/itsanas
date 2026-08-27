@@ -332,7 +332,7 @@ becomes a real problem, the answer is invitation, not a bigger number.
 
 ---
 
-## 7. What the coordinator is, and is not ⬜ **specified only**
+## 7. What the coordinator is, and is not ✅ **built**
 
 It is a **notice board**. It holds:
 

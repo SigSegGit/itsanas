@@ -10,6 +10,8 @@ description = "The ITSaNAS coordinator: a signed notice board that holds no keys
 
 [dependencies]
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+itsanas-tls = { version = "0.1.0", path = "../itsanas-tls" }
+rustls = { version = "0.23.35", default-features = false, features = ["ring", "std", "logging"] }
 itsanas-wire = { version = "0.1.0", path = "../itsanas-wire" }
 postcard = { version = "1.1.1", default-features = false, features = ["use-std"] }
 redb = "2.6.0"

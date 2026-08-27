@@ -11,15 +11,15 @@ reboots — and your data stays available and stays in sync.
 > **Status: early, but it runs.** Two machines keep a folder in sync over an
 > encrypted, mutually authenticated connection: drop a file in, it appears on
 > the other; delete it, it goes from both. Machines on the same network find
-> each other with nothing configured. 535 tests, six of them red-team.
+> each other with nothing configured, and an account can be recovered on a
+> fresh machine from a passphrase alone. 560 tests, thirteen of them red-team.
 >
 > Saving is fast — a 512 KiB document is stored, sealed and announced in 28 ms,
 > measured by `itsanas bench`. Filling a terabyte is not: one file per chunk
 > means 14.7 million of them, so pack files are planned.
 >
-> What is missing: no coordinator server, so a machine on a *different* network
-> still has to be added by hand, and no recovery from a passphrase alone. No
-> repair execution. See [docs/ROADMAP.md](docs/ROADMAP.md) and
+> What is missing: none of it has been run on four real machines yet, and there
+> is no repair execution. See [docs/ROADMAP.md](docs/ROADMAP.md) and
 > [docs/MVP.md](docs/MVP.md).
 > Nothing here is ready to hold data you care about yet.
 
@@ -89,7 +89,8 @@ nothing is lost.
 | `itsanas-tls` | TLS 1.3 with device authentication bound to the channel, no certificate authority | **implemented** |
 | `itsanas-net` | Peer protocol, encrypted transport, sync sessions, proof-of-storage challenges | **implemented** |
 | `itsanas-placement` | Rendezvous hashing, replication targets, repair planning | **implemented** (execution pending) |
-| `itsanas-coord` | Device certificates and revocation, measured availability, accounting, directory | **library implemented**, server pending |
+| `itsanas-coord` | Device claims and revocation, measured availability, accounting, directory, coordinator protocol and server | **implemented** |
+| `itsanas-coordinator` | The coordinator binary: address book and escrow locker | **implemented** |
 | `itsanas-folder` | A real directory mirrored into the store and back: import, export, delete, file watching | **implemented** |
 | `itsanas-cli` (`itsanas`) | Command line and daemon: init, login, folder, put, get, sync, serve, daemon, doctor | **implemented** |
 

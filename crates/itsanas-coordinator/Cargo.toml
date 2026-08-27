@@ -1,0 +1,22 @@
+[package]
+name = "itsanas-coordinator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The ITSaNAS coordinator server: an address book that holds no keys and no data"
+
+[[bin]]
+name = "itsanas-coordinator"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.51", features = ["derive", "env"] }
+ctrlc = "3.5.0"
+itsanas-coord = { version = "0.1.0", path = "../itsanas-coord" }
+itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+
+[lints]
+workspace = true

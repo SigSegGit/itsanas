@@ -87,7 +87,8 @@ store      chunking, blob store, index, operation log, vault, version vectors
 sync       version-vector merge, conflict resolution, convergence simulation
 net        peer protocol, TLS transport, push/pull sessions
 placement  rendezvous hashing (integer, no floats), repair planning
-coord      device certificates, accounting, directory  ← library only, no server
+coord      device certificates, accounting, directory, protocol, server, client
+coordinator  the `itsanas-coordinator` binary: address book and escrow locker
 folder     a real directory mirrored into the store and back, with a watcher
 cli        `itsanas` binary: commands + daemon
 ```
@@ -183,7 +184,14 @@ side coming back, a deletion removing it from both, both folders byte-identical.
    `under_replicated` and the `itsanas status` report. What is still missing is
    a repair loop that *chooses* peers to fix a shortfall, rather than relying on
    a node pushing to every peer it has.
-2. **Coordinator server and client.** The library (`coord`) is complete and
+2. ~~**Coordinator server and client.**~~ **Done.** `protocol.rs`, `service.rs`,
+   `server.rs` and the `itsanas-coordinator` binary, plus CLI wiring:
+   `itsanas coordinator`, `itsanas register [--recovery]`,
+   `itsanas login --from`. The daemon announces its address each round and
+   dials whatever the coordinator reports, pinned.
+
+   What is left here: nothing blocking. The old note said the library was
+   complete and
    tested; nothing serves it. Needs: a protocol enum, a `service.rs` handling
    requests against `Directory`, and a TLS server reusing `itsanas-tls` and
    `wire::Connection`. Then a `itsanas-coordinator` binary.

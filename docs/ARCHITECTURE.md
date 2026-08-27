@@ -233,26 +233,27 @@ VM on a Freebox Delta.
 > finds them with signed UDP announcements; see §6.1. What follows is only about
 > reaching a machine on a *different* network.
 >
-> **No coordinator server exists.** `itsanas-coord` is a tested library — claims,
-> revocation, presence, measured availability, accounting, account directory,
-> escrow storage — with nothing serving it and no client speaking to it. The
-> list below is what it is *for*; [ROADMAP.md](ROADMAP.md) M6 is the status.
-> Until it is built, peers are configured by hand and there is no node set, so
-> nothing in §4 that depends on one runs either.
+> **Built**, as `itsanas-coordinator`. It does the two jobs below and nothing
+> else: the node set it once published was cancelled, because placement is
+> recorded by the owner — see [DESIGN.md](DESIGN.md) §8.
 
-**What it will do**
+**What it does**
 
 1. Account directory: `username → user public key`. Prevents name squatting and
    impersonation.
 2. Presence: which device keys belong to which user, pledged capacity, last
    seen, reachable addresses.
-3. Publishes the signed **node-set epoch** so every peer computes identical
-   placement.
-4. Stores each user's opaque, passphrase-encrypted **escrow blob** for
-   new-device login.
-5. May relay for peers that cannot be dialled directly. **Not built** — a node
-   behind NAT can already push, and `session::drain_vault` means the node it
-   pushed to still applies what arrived.
+3. Stores each user's opaque, passphrase-encrypted **escrow blob**, so a fresh
+   machine can be restored with a username and a passphrase. This is the one
+   job where a central component beats a distributed one, because it is the
+   only place a rate limit can exist — see [DESIGN.md](DESIGN.md) §8.
+
+It no longer publishes a node set, and it never held accounting state. Both were
+removed rather than implemented.
+
+**Not built:** relaying for peers that cannot be dialled directly. A node behind
+NAT can already push, and `session::drain_vault` means the node it pushed to
+still applies what arrived.
 
 **What it explicitly cannot do**
 

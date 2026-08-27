@@ -25,6 +25,10 @@ pub enum CliError {
     #[error("synced folder: {0}")]
     Folder(#[from] itsanas_folder::FolderError),
 
+    /// Something the coordinator, or the connection to it, refused.
+    #[error("coordinator: {0}")]
+    Coord(#[from] itsanas_coord::CoordError),
+
     #[error("encoding: {0}")]
     Encoding(#[from] postcard::Error),
 

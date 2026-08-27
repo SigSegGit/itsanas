@@ -42,6 +42,19 @@ pub struct Config {
     pub listen: String,
     /// Peers to sync with, as `host:port`.
     pub peers: Vec<String>,
+    /// A coordinator to register with, announce to, and look peers up on.
+    ///
+    /// Optional, and a node without one is fully working: machines on the same
+    /// network find each other with no server at all. What it adds is reaching
+    /// a machine on a *different* network, and recovery from a passphrase.
+    pub coordinator: Option<String>,
+
+    /// The device the coordinator must prove itself to be, if known.
+    ///
+    /// An address is configuration, not a promise about who answers there. Pin
+    /// this and a redirected address is refused rather than trusted.
+    pub coordinator_device: Option<String>,
+
     /// The directory kept in step with the store, if one is configured.
     ///
     /// Optional on purpose: a node can be a pure host, offering space and
@@ -56,6 +69,8 @@ impl Default for Config {
             pledge_bytes: DEFAULT_PLEDGE_BYTES,
             listen: DEFAULT_LISTEN.to_owned(),
             peers: Vec::new(),
+            coordinator: None,
+            coordinator_device: None,
             folder: None,
         }
     }
@@ -74,6 +89,12 @@ impl Config {
         let _ = writeln!(out, "listen = {}", self.listen);
         if let Some(folder) = &self.folder {
             let _ = writeln!(out, "folder = {}", folder.display());
+        }
+        if let Some(coordinator) = &self.coordinator {
+            let _ = writeln!(out, "coordinator = {coordinator}");
+        }
+        if let Some(device) = &self.coordinator_device {
+            let _ = writeln!(out, "coordinator_device = {device}");
         }
         for peer in &self.peers {
             let _ = writeln!(out, "peer = {peer}");
@@ -119,11 +140,13 @@ impl Config {
                     })?;
                 }
                 "folder" => config.folder = Some(PathBuf::from(value)),
+                "coordinator" => config.coordinator = Some(value.to_owned()),
+                "coordinator_device" => config.coordinator_device = Some(value.to_owned()),
                 "peer" => peers.push(value.to_owned()),
                 other => {
                     return Err(CliError::Config(format!(
                         "line {}: unknown setting {other:?}. Known settings: \
-                         username, pledge_bytes, listen, folder, peer",
+                         username, pledge_bytes, listen, folder, peer,                          coordinator, coordinator_device",
                         number + 1
                     )));
                 }
@@ -251,6 +274,8 @@ mod tests {
             pledge_bytes: 10 * 1024 * 1024 * 1024,
             listen: "127.0.0.1:9797".to_owned(),
             peers: vec!["pi.local:9797".to_owned(), "vm.local:9797".to_owned()],
+            coordinator: None,
+            coordinator_device: None,
             folder: Some(PathBuf::from("/home/nicolas/ITSaNAS")),
         };
 

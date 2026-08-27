@@ -427,9 +427,9 @@ porting later is a contained change rather than a rewrite.
 
 ## 8. Decentralisation, and the coordinator
 
-> **Not built.** This section is the design for a component that does not exist
-> as a running service; `itsanas-coord` is the library half. See
-> [ROADMAP.md](ROADMAP.md) M6.
+> **Built**, as `itsanas-coordinator`, and smaller than this section originally
+> described: the signed node-set epoch and the global accounting are gone. What
+> runs is an address book and an escrow locker.
 
 ### The question, asked properly
 

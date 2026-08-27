@@ -720,6 +720,7 @@ dependencies = [
  "blake3",
  "clap",
  "ctrlc",
+ "itsanas-coord",
  "itsanas-crypto",
  "itsanas-discover",
  "itsanas-folder",
@@ -739,12 +740,24 @@ name = "itsanas-coord"
 version = "0.1.0"
 dependencies = [
  "itsanas-crypto",
+ "itsanas-tls",
  "itsanas-wire",
  "postcard",
  "redb",
+ "rustls",
  "serde",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "itsanas-coordinator"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "ctrlc",
+ "itsanas-coord",
+ "itsanas-crypto",
 ]
 
 [[package]]

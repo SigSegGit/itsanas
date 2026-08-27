@@ -3,10 +3,10 @@
 Getting two machines syncing. Every command below has been run; the output is
 copied from a real session rather than written from memory.
 
-> **Before you start.** Nothing here should hold data you care about yet. There
-> is no coordinator, so members cannot find each other and peers are configured
-> by hand; nothing carries out a repair plan; and no host is challenged on a
-> schedule. [ROADMAP.md](ROADMAP.md) is honest about all of it.
+> **Before you start.** Nothing here should hold data you care about yet.
+> Nothing carries out a repair plan, no host is challenged on a schedule, and
+> none of this has been run on four real machines.
+> [ROADMAP.md](ROADMAP.md) is honest about all of it.
 
 ## Build
 
@@ -164,6 +164,58 @@ To avoid typing the address every time:
 itsanas peer add 192.168.1.20:9797
 itsanas sync              # uses every configured peer
 ```
+
+## 5b. Reaching a machine somewhere else, and recovering from nothing
+
+Everything above works on one network with no server. Two things need one: a
+machine on a *different* network, and restoring an account from a passphrase
+instead of 24 words.
+
+On an always-on machine with a public address — a VPS, or a VM on a Freebox
+Delta:
+
+```bash
+itsanas-coordinator --state /var/lib/itsanas-coordinator --listen 0.0.0.0:9898
+```
+
+It prints its device id at start-up. Pin it, or an address that resolves
+somewhere else is trusted:
+
+```bash
+itsanas coordinator coord.example.net:9898 --device <the id it printed>
+itsanas register
+```
+
+`register` claims the username, enrols this device, and publishes its address.
+The daemon then republishes and asks for the account's other devices each round.
+
+To make passphrase recovery possible, lodge a container:
+
+```bash
+itsanas register --recovery
+```
+
+Then a brand-new machine needs neither the 24 words nor an address:
+
+```bash
+itsanas login --username nicolas --from coord.example.net:9898
+```
+
+```text
+Account restored.
+  user id : 7d572490c91f20dd12798a1edf2625be048a467ff41ca51570867c91bdec436e
+  device  : a863c43c0f6985781768f0dc2ec61b1cfda5c28928a6877deb47d009f43484c7 (new for this machine)
+```
+
+Same identity, new device key. **The trade, plainly:** anybody who steals the
+coordinator's database can attack that passphrase offline. Five attempts per
+account per quarter-hour is what stands in their way, plus the Argon2id cost.
+It is off until you ask for it, and `itsanas register --withdraw-recovery`
+takes it back — after which only the 24 words work.
+
+The coordinator holds no keys, no chunks and no plaintext, and it can be
+switched off without stopping anything already known. That is deliberate;
+[DESIGN.md](DESIGN.md) §8 works through why it holds so little.
 
 ## 6. Check on it
 
