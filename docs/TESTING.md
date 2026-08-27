@@ -1,10 +1,11 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 302 tests across 10 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 331 tests across 11 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
 | `itsanas-cli` unit | 21 |
+| `itsanas-placement` unit | 29 |
 | `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-store` unit | 88 |
@@ -513,6 +514,45 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 
 ---
 
+# `itsanas-placement` — unit tests (29)
+
+## `nodeset` — where a chunk belongs (16)
+
+| Test | What it proves |
+| --- | --- |
+| **`removing_a_node_moves_only_that_nodes_share`** | The M5 exit criterion, and stronger than the usual phrasing: **zero** chunks move between two *surviving* nodes. With modulo hashing almost everything moves, which at real scale means re-uploading the whole network. |
+| **`adding_a_node_only_pulls_in_its_own_share`** | The same property in the other direction. |
+| **`distribution_matches_pledged_capacity`** | A node pledging 4× holds roughly 4× as many chunks, measured over 20 000 chunks across a 1:8 spread. Without this the "mutual" in mutual storage is a fiction and the small nodes carry the network. |
+| **`no_floating_point_is_involved`** | Greps the module's own source for `f64`, `.ln(`, `.powf`. `f64::ln` is libm-dependent and two platforms can differ in the last ulp, which would make two machines disagree about where a chunk lives — silently, with no error. |
+| **`placement_is_deterministic`** / **`the_answer_does_not_depend_on_the_order_the_set_was_built_in`** | Two peers given the same membership by different routes reach the same answer. |
+| **`a_users_own_devices_always_hold_their_own_data`** | A user whose peers have all left must still be able to read their own files. |
+| **`owner_affinity_does_not_starve_a_user_with_many_devices`** | Documents the deliberate current behaviour when a user has more devices than the replication factor — right for availability, wrong for durability, and the fix belongs with the repair loop. |
+| **`one_enormous_node_cannot_take_over_the_swarm`** | The slot cap bounds how much of the network's data can be concentrated on the single machine most worth attacking. |
+| **`different_owners_get_different_placements_for_the_same_chunk_id`** | Placement must not reintroduce the cross-user correlation that blinded chunk ids remove. |
+| **`a_replica_set_never_contains_the_same_node_twice`** | Three replicas on one machine is one replica with extra steps, and would make the durability accounting a lie. |
+| `identical_capacities_distribute_evenly` | No node is starved; none is favoured. |
+| `a_swarm_smaller_than_the_replication_factor_returns_everyone` / `an_empty_swarm_places_nothing_rather_than_panicking` / `asking_for_zero_replicas_returns_none` | Edges. |
+| `duplicate_and_zero_capacity_nodes_are_refused` | Malformed membership is rejected at construction. |
+
+## `repair` — noticing a chunk is running out of copies (13)
+
+| Test | What it proves |
+| --- | --- |
+| **`a_chunk_nobody_holds_is_planned_for_rather_than_overlooked`** | The case that loses data. A chunk absent from the census would be invisible to repair. |
+| **`a_swarm_too_small_to_meet_the_floor_raises_an_alert`** | Silence would mean a user believing they have three replicas when the network can only ever give them two. |
+| **`a_chunk_with_a_single_copy_left_is_flagged_as_critical`** | The difference between "a node is having an evening off" and "one more failure and this is gone". |
+| **`an_offline_node_is_not_a_reason_to_move_data`** | A sleeping node will come back. Re-placing its chunks would mean the network churns every time somebody shuts a laptop — but the shortfall is still reported. |
+| **`repair_never_plans_a_deletion`** | An over-replicated chunk is wasted space; a wrongly deleted one is gone. The plan type has no deletion variant, and this test makes adding one a deliberate act. |
+| **`repair_never_sends_a_chunk_to_a_node_that_should_not_hold_it`** | Otherwise repair slowly spreads every chunk to every node and capacity accounting stops meaning anything. |
+| **`a_holder_that_has_left_the_swarm_does_not_count_towards_the_floor`** | Counting a decommissioned machine means believing in a replica that no longer exists. |
+| **`the_census_counts_distinct_holders_not_repeated_claims`** | A peer answering twice must not inflate the replica count into a false sense of safety. |
+| `one_missing_replica_produces_exactly_one_push_to_the_right_node` | The ordinary case, exactly. |
+| `a_fully_replicated_chunk_needs_nothing` | No make-work. |
+| `a_plan_is_deterministic_and_ordered` | Two nodes produce comparable plans, so an operator can diff two logs. |
+| `an_empty_census_produces_an_empty_plan` / `nothing_is_planned_when_no_node_is_reachable` | Edges. |
+
+---
+
 # Planned tests
 
 Listed here so the gap between what is claimed and what is verified stays
@@ -565,13 +605,16 @@ corruption of a valid frame, and against arbitrary garbage. Still outstanding:
   these tests should port unchanged. That is the point of the split, and it is
   worth checking rather than assuming.
 
-## M5 — placement
+## M5 — remaining
 
-- Removing one node from a 20-node simulated swarm moves only that node's share
-  of chunks (rendezvous hashing's minimal-disruption property, measured).
-- Weighted distribution matches pledged capacity within tolerance.
-- A chunk dropping below the replication floor is repaired without intervention.
-- Owner affinity: a user's own devices always appear in their replica set.
+Minimal disruption, weighted distribution and owner affinity are all measured
+above. What is not yet tested, because it is not yet built:
+
+- **A chunk dropping below the floor is repaired without intervention.** The
+  plan is computed and tested; nothing executes it. The end-to-end test needs
+  the daemon.
+- **A peer that fails a storage challenge is recorded as unreliable**, and
+  repair stops counting it towards the floor.
 
 ## M6 — coordinator
 

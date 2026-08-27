@@ -11,10 +11,10 @@ a bug.
 | M0 Repository, CI, licence | — | ✅ **done** | CI runs 7 jobs |
 | M1 Cryptographic core | `itsanas-crypto` | ✅ **done** | 64 unit + 15 property |
 | M1b Published test fixtures | `itsanas-testkit` | ✅ **done** | 7 |
-| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 87 unit + 27 integration + 1 doc |
+| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 88 unit + 27 integration + 1 doc |
 | M3 Sync engine | `itsanas-sync` | 🟨 **mostly done** | 12 unit + 19 convergence + 1 doc |
 | M4 Network transport | `itsanas-net` | 🟨 **works over TCP; QUIC pending** | 38 unit + 11 two-node |
-| M5 Placement and repair | `itsanas-placement` | 🟨 **hosting works; placement pending** | (vault: 14 of the store's unit tests) |
+| M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not yet executed** | 29 unit + vault's 16 |
 | M6 Coordinator | `itsanas-coord` | ⬜ not started | — |
 | M7 Daemon and CLI | `itsanas-cli`, `itsanas-daemon` | 🟨 **CLI works; no daemon** | 21 unit |
 | M8 Three-device bring-up | — | ⬜ not started | — |
@@ -25,13 +25,24 @@ are implemented and tested. Two processes now sync a real file over a real
 socket, a node hosts another user's data without being able to read it, and a
 host relays one device's work to another device it has never met.
 
-What is still missing before this is safe to rely on: the transport is plain
-TCP, so it protects your *data* but exposes chunk identifiers and sizes to
-anyone on the network path — it refuses to bind a non-loopback address unless
-you override it. There is no placement policy, so nothing decides *which* hosts
-should hold a given chunk, and no repair loop, so nothing notices when a chunk
-drops below its replication floor. There is no coordinator and no daemon, so
-peers must be pointed at each other by hand.
+There is a working command line: `itsanas init | put | get | sync | serve |
+doctor`, walked through in [QUICKSTART.md](QUICKSTART.md).
+
+What is still missing before this is safe to rely on:
+
+- **The transport is plain TCP.** It protects your *data* — everything on the
+  wire is sealed — but exposes chunk identifiers, sizes and timing to anyone on
+  the network path. It refuses to bind a non-loopback address unless you
+  override it. Use a VPN or an SSH tunnel between machines.
+- **Nothing runs on its own.** There is no daemon, so `itsanas sync` is a thing
+  you run or a thing cron runs, and only one process may hold a node at a time.
+- **Placement is decided but not executed.** The rules for which hosts should
+  hold a chunk, and the repair plan for one that has too few copies, are
+  implemented and tested — but nothing yet carries that plan out.
+- **Nothing challenges a host on a schedule.** The proof-of-storage primitive
+  works over the wire; a host that quietly discards data is currently caught
+  only by accident.
+- **There is no coordinator**, so peers must be pointed at each other by hand.
 
 ---
 
@@ -210,30 +221,50 @@ other people's data: `Vault` stores and serves foreign sealed objects, verifies
 segment signatures before accepting them, refuses a segment that does not
 continue the chain it already holds, and enforces a pledged-capacity limit.
 
-Still to build, and the actual substance of M5:
+Implemented:
 
-- Rendezvous hashing with capacity weights; owner affinity.
-- Replica target tracking; repair loop; proof-of-storage *verification* on a
-  schedule (the challenge/proof primitive exists and is tested; nothing runs it
-  periodically yet).
-- Quota and fair-share accounting beyond the single pledged-bytes ceiling.
+- **Rendezvous hashing with capacity weights**, and **no floating point**.
+  `DESIGN.md` originally specified `weight / -ln(uniform_hash(…))`, which is
+  correct mathematics and a latent bug: `f64::ln` is libm-dependent, two
+  platforms can differ in the last ulp, and when two candidates land that close
+  the Pi and the laptop disagree about where a chunk lives — silently, with no
+  error and no way to notice except by losing data. The weighting is done with
+  integer slots instead: a node's score is the highest hash across its slots,
+  and the chance of holding the swarm's highest hash is exactly its share of the
+  slots. Same proportionality, computed identically everywhere.
+- **A slot cap**, so one enormous pledge cannot concentrate the network's data
+  on the single machine most worth attacking.
+- **Owner affinity**: a user's own devices always appear in their own replica
+  sets, so a user whose peers have all left can still read their own files.
+- **Repair planning**: which chunks are short of the replication floor, what to
+  send where, and what is still at risk afterwards. Pure — no sockets, no store,
+  no clock — so the cases that matter (nothing holds this chunk; the swarm is
+  too small to meet its own floor; a holder has left) are ordinary unit tests.
+- **Repair never plans a deletion.** An over-replicated chunk is wasted space; a
+  wrongly deleted one is gone. Reclaiming excess needs certainty the other
+  copies exist, which needs scheduled storage challenges.
+- **An offline node is not a reason to move data.** Placement is computed over
+  the whole swarm and only the *sending* is restricted to what is reachable, so
+  the network does not churn every time somebody shuts a laptop.
 
-**Exit criteria:** removing a node from a simulated swarm moves only that node's
-share of chunks; a chunk that drops below the replication floor is restored
-without operator action.
+**Exit criteria — met for the decision, not the execution.** Removing a node
+from a 20-node swarm disturbs only chunks that node held, and *zero* chunks move
+between two surviving nodes; distribution tracks pledged capacity within 20%
+across a 1:8 capacity spread. Repair correctly plans the restoration of a chunk
+below the floor — but nothing runs that plan yet.
+
+**Still outstanding for M5:**
+
+- **Executing the plan.** The planner is wired to nothing. It needs a loop that
+  builds a census by asking peers, runs the plan, and pushes — which needs the
+  daemon (M7) to have somewhere to live and the coordinator (M6) to supply an
+  agreed node set.
+- **Scheduled proof-of-storage.** The challenge primitive works and is tested
+  over the wire; nothing issues challenges periodically or records the results,
+  so a host that quietly discards data is currently detected only by accident.
+- Fair-share accounting beyond the single pledged-bytes ceiling.
 
 ---
-
-## Not started
-
-### M6 — Coordinator (`itsanas-coord`)
-
-- Account directory, presence, signed node-set epochs, escrow blob storage.
-- Deployable as a container to an OVH VPS or a Freebox ARM VM.
-
-**Exit criteria:** a new device logs in with username plus passphrase and
-recovers the full account; a test proves the coordinator's stored state contains
-no plaintext and no usable key material.
 
 ### M7 — Daemon and CLI 🟨 (`itsanas-cli`, `itsanas-daemon`)
 
@@ -269,6 +300,17 @@ Still to build, and the substance of M7:
 **Exit criteria:** the folder-that-just-syncs experience, plus an alert that
 actually fires when node count drops below the replication floor or a sync round
 stops completing.
+
+## Not started
+
+### M6 — Coordinator (`itsanas-coord`)
+
+- Account directory, presence, signed node-set epochs, escrow blob storage.
+- Deployable as a container to an OVH VPS or a Freebox ARM VM.
+
+**Exit criteria:** a new device logs in with username plus passphrase and
+recovers the full account; a test proves the coordinator's stored state contains
+no plaintext and no usable key material.
 
 ### M8 — Three-device bring-up
 

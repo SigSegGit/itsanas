@@ -597,6 +597,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "itsanas-placement"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "itsanas-crypto",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "itsanas-store"
 version = "0.1.0"
 dependencies = [

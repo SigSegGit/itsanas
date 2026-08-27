@@ -72,7 +72,7 @@ nothing is lost.
 | `itsanas-store` | Content-defined chunking, blob store, operation log, local index | **implemented** |
 | `itsanas-sync` | Version vectors, log merge, conflict materialisation, convergence simulation | **implemented** |
 | `itsanas-net` | Peer protocol, TCP transport, sync sessions, proof-of-storage challenges | **implemented** (QUIC pending) |
-| `itsanas-placement` | Rendezvous hashing, replication targets, repair, quota accounting | planned |
+| `itsanas-placement` | Rendezvous hashing, replication targets, repair planning | **implemented** (execution pending) |
 | `itsanas-coord` | Optional control-plane service: directory, presence, relay | planned |
 | `itsanas-cli` (`itsanas`) | The command-line interface: init, login, put, get, sync, serve, doctor | **implemented** |
 | `itsanas-daemon` | Background service; syncs on its own | planned |
