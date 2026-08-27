@@ -14,6 +14,7 @@
 //! are recorded in `docs/ROADMAP.md` rather than glossed over.
 
 mod config;
+mod daemon;
 mod error;
 mod node;
 
@@ -109,6 +110,21 @@ enum Command {
         #[arg(long)]
         allow_public: bool,
     },
+    /// Serve peers and sync on a timer, in one process, until interrupted.
+    ///
+    /// This is how a node is meant to run. `serve` and `sync` cannot run
+    /// simultaneously against the same node — the index is held under an
+    /// exclusive lock — so two cron entries would fight. The daemon does both,
+    /// and unlocks the keys once instead of on every scheduled sync.
+    Daemon {
+        #[arg(long)]
+        listen: Option<String>,
+        #[arg(long)]
+        allow_public: bool,
+        /// Seconds between sync rounds.
+        #[arg(long, default_value_t = daemon::DEFAULT_INTERVAL.as_secs())]
+        interval: u64,
+    },
     /// Run one sync round against a peer.
     Sync {
         /// Peer address, e.g. `pi.local:9797`. Omit to use configured peers.
@@ -178,6 +194,16 @@ fn run() -> Result<()> {
             listen,
             allow_public,
         } => serve(&home, listen.as_deref(), allow_public),
+        Command::Daemon {
+            listen,
+            allow_public,
+            interval,
+        } => daemon::run(
+            &open(&home)?,
+            listen.as_deref(),
+            allow_public,
+            std::time::Duration::from_secs(interval.max(1)),
+        ),
         Command::Sync { address } => sync(&home, address.as_deref()),
         Command::Peer { action } => peer(&home, action),
         Command::Doctor { deep } => doctor(&home, deep),

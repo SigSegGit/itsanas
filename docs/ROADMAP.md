@@ -16,7 +16,7 @@ a bug.
 | M4 Network transport | `itsanas-net` | 🟨 **works over TCP; QUIC pending** | 38 unit + 11 two-node |
 | M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not yet executed** | 29 unit + vault's 16 |
 | M6 Coordinator | `itsanas-coord` | ⬜ not started | — |
-| M7 Daemon and CLI | `itsanas-cli`, `itsanas-daemon` | 🟨 **CLI works; no daemon** | 21 unit |
+| M7 Daemon and CLI | `itsanas-cli` | 🟨 **CLI and daemon work; no file watching** | 23 unit |
 | M8 Three-device bring-up | — | ⬜ not started | — |
 
 **Nothing in this repository should hold data you care about yet.** The
@@ -284,18 +284,39 @@ serve | sync | doctor | gc`
 - `pledge` warns rather than silently dropping data when lowered below what is
   already stored.
 
-Still to build, and the substance of M7:
+The **daemon** (`itsanas daemon`) serves peers and syncs on a timer in one
+process. That it is one process is not a convenience: the index is held under an
+exclusive lock, so `serve` and `sync` cannot run simultaneously against the same
+node and two cron entries would fight. It also means the passphrase is entered
+once rather than paying a full Argon2id derivation on every scheduled sync.
 
-- **The daemon.** Nothing syncs on its own; `itsanas sync` is a thing you run or
-  a thing cron runs. This is also why only one process may hold a node at a time
-  — a running `serve` locks the index, so `itsanas ls` against the same home
-  refuses to start. The error says so, but it is a workaround, not a design.
-- File watching (`notify`) with debounce and a periodic rescan — carried over
-  from M3, since the watcher needs a long-running process to live in.
-- Windows service and systemd unit.
+Verified: two daemons on one machine, a file written before either started, and
+the second node had it without anyone running `sync`.
+
+- An unreachable peer is logged, not fatal — the whole design is built around
+  machines that are usually off.
+- A quiet round prints nothing. Saying "nothing happened" every five minutes
+  fills a journal with noise and trains the operator to ignore it.
+- The listener stopping does not take sync down with it: a node that cannot
+  accept connections can still push to its peers.
+
+Still to build:
+
+- **File watching** (`notify`) with debounce and a periodic rescan — carried
+  over from M3. Files currently enter the store through `itsanas put`, not by
+  appearing in a folder, so this is not yet the folder-that-just-syncs
+  experience.
+- **Repair execution.** The daemon is the loop M5's planner needs, but building
+  a census means asking every peer what it holds, and knowing who "every peer"
+  is needs M6's node set.
+- **Scheduled storage challenges**, for the same reason.
+- Windows service and systemd unit definitions.
 - Alerting on the conditions in
   [ARCHITECTURE.md §7](ARCHITECTURE.md#7-operational-behaviour). None of them
   are wired to anything yet.
+- While the daemon runs, other commands against the same home still refuse to
+  start. The daemon covers the common case; a local control socket would be the
+  real fix.
 
 **Exit criteria:** the folder-that-just-syncs experience, plus an alert that
 actually fires when node count drops below the replication floor or a sync round

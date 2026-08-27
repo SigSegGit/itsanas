@@ -1,10 +1,10 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 331 tests across 11 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 333 tests across 11 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
-| `itsanas-cli` unit | 21 |
+| `itsanas-cli` unit | 23 |
 | `itsanas-placement` unit | 29 |
 | `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
@@ -483,7 +483,20 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 
 ---
 
-# `itsanas-cli` — unit tests (21)
+# `itsanas-cli` — unit tests (23)
+
+## `daemon` — pacing (2)
+
+| Test | What it proves |
+| --- | --- |
+| `the_default_interval_is_neither_a_busy_loop_nor_an_hour` | Too short and three machines polling each other is a constant load on a Pi; too long and the thing feels broken. |
+| `shutdown_is_noticed_quickly_enough_to_feel_immediate` | A Ctrl-C that took a whole interval to be noticed would be indistinguishable from a hang. |
+
+The daemon's real behaviour — that two nodes converge with nobody running
+`sync` — is verified by running it, not by a unit test. The loop itself is
+twenty lines around `session::round`, which the two-node suite covers
+thoroughly; a test with a fake clock around it would assert that the loop calls
+the function, which is not a property worth having a test for.
 
 ## `node` — identity on disk (9)
 

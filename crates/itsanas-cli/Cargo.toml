@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5.51", features = ["derive", "env"] }
+ctrlc = "3.5.0"
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
 itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
 itsanas-store = { version = "0.1.0", path = "../itsanas-store" }

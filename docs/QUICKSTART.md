@@ -170,15 +170,50 @@ relaying for your own devices
 
 ## Running it unattended
 
-There is no daemon yet, so use whatever your machine already has. The passphrase
-comes from `ITSANAS_PASSPHRASE` when there is no terminal to prompt at — which
-means anything able to read the process's environment can read it, so this is a
-trade you are making, not a default.
-
 ```bash
-# systemd timer, cron, Task Scheduler — every 15 minutes
-ITSANAS_PASSPHRASE=... itsanas sync
+itsanas peer add 192.168.1.20:9797
+itsanas daemon --interval 300
 ```
+
+`daemon` serves peers *and* syncs on a timer, in one process:
+
+```text
+itsanas daemon
+  serving   127.0.0.1:9797
+  pledged   10.0 GiB
+  interval  300s
+  peers     192.168.1.20:9797
+
+Ctrl-C to stop.
+
+192.168.1.20:9797: sent 0 B (0 chunks, 0 segments), received 1 files, 0 conflicts
+```
+
+Both halves in one process is not tidiness — it is the only arrangement that
+works. The index is held under an exclusive lock, so `serve` and `sync` cannot
+run at the same time against the same node, and two cron entries would fight
+over it. It also means the passphrase is entered once instead of paying a full
+Argon2id derivation on every scheduled sync.
+
+A quiet round prints nothing, so a journal only shows real activity. An
+unreachable peer is logged and the loop continues — machines being off is the
+normal state of this network, not a fault.
+
+For a service manager, the passphrase comes from `ITSANAS_PASSPHRASE` when there
+is no terminal to prompt at. Anything able to read the process's environment can
+then read it, so this is a trade you are making, not a default.
+
+```ini
+# /etc/systemd/system/itsanas.service
+[Service]
+Environment=ITSANAS_PASSPHRASE=…
+ExecStart=/usr/local/bin/itsanas --home /var/lib/itsanas daemon
+Restart=always
+```
+
+**Not yet the folder-that-just-syncs experience.** The daemon does not watch the
+filesystem; files enter through `itsanas put`. And while it runs, other commands
+against the same home still refuse to start — stop it first.
 
 ## Three machines
 

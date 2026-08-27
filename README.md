@@ -74,8 +74,7 @@ nothing is lost.
 | `itsanas-net` | Peer protocol, TCP transport, sync sessions, proof-of-storage challenges | **implemented** (QUIC pending) |
 | `itsanas-placement` | Rendezvous hashing, replication targets, repair planning | **implemented** (execution pending) |
 | `itsanas-coord` | Optional control-plane service: directory, presence, relay | planned |
-| `itsanas-cli` (`itsanas`) | The command-line interface: init, login, put, get, sync, serve, doctor | **implemented** |
-| `itsanas-daemon` | Background service; syncs on its own | planned |
+| `itsanas-cli` (`itsanas`) | Command line and daemon: init, login, put, get, sync, serve, daemon, doctor | **implemented** |
 
 ## Documentation
 
