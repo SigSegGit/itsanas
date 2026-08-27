@@ -399,6 +399,24 @@ impl Directory {
         Ok(())
     }
 
+    /// When **this coordinator** last heard from a device, by its own clock.
+    ///
+    /// Distinct from the `at_unix` inside a presence, which is the announcing
+    /// device's opinion of the time and therefore not evidence: a Raspberry Pi
+    /// with no real-time clock says 1970, and anybody who wants to sort first
+    /// can say whatever they like. Ordering and expiry use this instead.
+    pub fn last_seen(&self, device: DeviceId) -> Result<Option<u64>> {
+        let txn = self.db.begin_read()?;
+        let availability = txn.open_table(AVAILABILITY)?;
+        match availability.get(device.to_bytes().as_slice())? {
+            Some(value) => {
+                let record: AvailabilityRecord = postcard::from_bytes(value.value())?;
+                Ok(Some(record.last_seen_unix))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Where a device was last seen.
     pub fn presence_of(&self, device: DeviceId) -> Result<Option<SignedPresence>> {
         let txn = self.db.begin_read()?;

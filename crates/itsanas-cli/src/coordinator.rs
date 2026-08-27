@@ -41,7 +41,7 @@ pub fn dial(node: &Node) -> Result<CoordClient> {
         .map(parse_device)
         .transpose()?;
 
-    CoordClient::connect(address, &node.device, node.store.owner(), expect)
+    CoordClient::connect(address, &node.device, expect)
         .map_err(|error| CliError::Usage(format!("{address}: {error}")))
 }
 
@@ -174,7 +174,7 @@ pub fn fetch_escrow(
     // A throwaway device key: this machine has no identity yet, and the
     // coordinator does not need it to have one.
     let device = itsanas_crypto::DeviceKeys::generate()?;
-    let mut client = CoordClient::connect(address, &device, UserId::from_bytes([0; 32]), expect)
+    let mut client = CoordClient::connect(address, &device, expect)
         .map_err(|error| CliError::Usage(format!("{address}: {error}")))?;
 
     let blob = match client.ask(&Request::GetEscrow {

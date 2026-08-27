@@ -56,8 +56,8 @@ fn with_coordinator<T>(body: impl FnOnce(std::net::SocketAddr, &Directory) -> T)
     })
 }
 
-fn dial(address: std::net::SocketAddr, keys: &DeviceKeys, owner: &UserKeys) -> CoordClient {
-    CoordClient::connect(address, keys, owner.user_id(), None).expect("dial the coordinator")
+fn dial(address: std::net::SocketAddr, keys: &DeviceKeys, _owner: &UserKeys) -> CoordClient {
+    CoordClient::connect(address, keys, None).expect("dial the coordinator")
 }
 
 // ---------------------------------------------------------------------------

@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use itsanas_crypto::{DeviceId, DeviceKeys, UserId};
+use itsanas_crypto::{DeviceId, DeviceKeys};
 use itsanas_tls::{Authenticated, Identity, accept, connect};
 use itsanas_wire::Connection;
 use rustls::{ClientConfig, ServerConfig};
@@ -185,17 +185,12 @@ fn serve_one(
         .map_err(|error| CoordError::Transport(format!("handshake failed: {error}")))?;
 
     for served in 0..=MAX_REQUESTS_PER_CONNECTION {
-        if served == MAX_REQUESTS_PER_CONNECTION {
-            // Say so before closing. A silent close gives the caller an opaque
-            // "connection aborted by your host software", which reads like a
-            // firewall and sends whoever is debugging it a long way in the
-            // wrong direction.
-            let _ = connection.send(&Response::Refused(format!(
-                "this connection has made its {MAX_REQUESTS_PER_CONNECTION} requests;                  open another"
-            )));
-            return Ok(());
-        }
-
+        // The request is read *before* the budget is checked, and that ordering
+        // is load-bearing rather than tidy. Closing a socket that still has
+        // unread incoming data makes Windows send an RST, which discards
+        // whatever was in the send buffer — so a refusal written before reading
+        // never arrives, and the caller sees "connection aborted by your host
+        // software" instead. Which reads like a firewall, and is not.
         let request: Request = match connection.receive() {
             // A clean close between messages is how a well-behaved client
             // leaves, and a malformed frame is how a scanner does. Neither is
@@ -203,6 +198,13 @@ fn serve_one(
             Ok(Some(request)) => request,
             Ok(None) | Err(_) => return Ok(()),
         };
+
+        if served == MAX_REQUESTS_PER_CONNECTION {
+            let _ = connection.send(&Response::Refused(format!(
+                "this connection has made its {MAX_REQUESTS_PER_CONNECTION} requests;                  open another"
+            )));
+            return Ok(());
+        }
 
         let response = {
             // Held only across one request, and only escrow fetches touch it.
@@ -231,15 +233,19 @@ pub struct CoordClient {
 }
 
 impl CoordClient {
-    /// Dial `address` and agree a protocol version.
-    ///
     /// `expect` pins which device must answer where one is known. A coordinator
     /// address is configuration, and configuration is not a promise about who
     /// lives there.
+    ///
+    ///
+    /// Takes no user id, deliberately, unlike `PeerClient::connect`. A
+    /// coordinator connection is authenticated by *device*, and every request
+    /// that concerns an account carries its own signature — so an owner
+    /// parameter here would be decoration, and a parameter that decorates is
+    /// one a reader assumes is checked.
     pub fn connect(
         address: impl ToSocketAddrs,
         device: &DeviceKeys,
-        owner: UserId,
         expect: Option<DeviceId>,
     ) -> Result<Self> {
         let target = address
@@ -267,7 +273,7 @@ impl CoordClient {
 
         let Authenticated { peer, connection } = connect(&config, device, stream, expect)
             .map_err(|error| CoordError::Transport(format!("handshake failed: {error}")))?;
-        let _ = (owner, peer);
+        let _ = peer;
 
         let mut client = Self { connection };
 

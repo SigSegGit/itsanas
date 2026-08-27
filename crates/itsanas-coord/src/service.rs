@@ -36,6 +36,14 @@ pub const ESCROW_ATTEMPTS: u32 = 5;
 /// How long that window lasts.
 pub const ESCROW_WINDOW: Duration = Duration::from_secs(15 * 60);
 
+/// How long an address stays worth handing out after it was last confirmed.
+///
+/// A device that announced once and vanished should stop being suggested. This
+/// network is built out of machines that are usually off, so the window is
+/// generous — but not unbounded, because every stale address is a dial that
+/// every peer pays for on every round, forever.
+pub const PRESENCE_TTL: u64 = 7 * 24 * 3600;
+
 /// How many usernames the limiter remembers at once.
 ///
 /// The limiter is itself a table a stranger can write into, one entry per name
@@ -193,7 +201,7 @@ impl<'a> CoordService<'a> {
                 }
             }
 
-            Request::Peers { user } => Ok(Response::Peers(self.peers_of(*user)?)),
+            Request::Peers { user } => Ok(Response::Peers(self.peers_of(*user, now_unix)?)),
 
             Request::PutEscrow { blob } => self.put_escrow(caller, blob.as_deref(), now_unix),
 
@@ -217,23 +225,37 @@ impl<'a> CoordService<'a> {
         }
     }
 
-    /// Live, reachable devices for `user`, newest first, bounded.
-    fn peers_of(&self, user: UserId) -> Result<Vec<Presence>> {
+    /// Live, reachable devices for `user`, most recently confirmed first.
+    ///
+    /// Ordered and expired by **this coordinator's** record of when it last
+    /// heard from each device, never by the `at_unix` inside the presence. That
+    /// number is the announcing device's opinion of the time: a Raspberry Pi
+    /// with no real-time clock reports 1970 and would sort last forever, and
+    /// anybody who wanted to sort first could simply say so. The same mistake
+    /// was made and removed in `itsanas-discover`; it does not get to come back
+    /// here.
+    fn peers_of(&self, user: UserId, now: u64) -> Result<Vec<Presence>> {
         let mut out = Vec::new();
         for claim in self.directory.live_claims()? {
             if claim.claim.owner != user {
                 continue;
             }
-            if let Some(presence) = self.directory.presence_of(claim.claim.device)? {
-                out.push(presence.presence);
+            let device = claim.claim.device;
+            let Some(presence) = self.directory.presence_of(device)? else {
+                continue;
+            };
+            let seen = self.directory.last_seen(device)?.unwrap_or(0);
+            if now.saturating_sub(seen) > PRESENCE_TTL {
+                continue;
             }
+            out.push((seen, presence.presence));
         }
 
-        // Newest first so a client tries the most likely address, then by
-        // device id so two clients asking at the same moment get the same list.
-        out.sort_by(|a, b| b.at_unix.cmp(&a.at_unix).then(a.device.cmp(&b.device)));
+        // Then by device id, so two clients asking at the same moment get the
+        // same list rather than a shuffling one.
+        out.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.device.cmp(&b.1.device)));
         out.truncate(MAX_PEERS_RETURNED);
-        Ok(out)
+        Ok(out.into_iter().map(|(_, presence)| presence).collect())
     }
 
     /// Store or withdraw an escrow blob, if the caller is a device of the owner.
