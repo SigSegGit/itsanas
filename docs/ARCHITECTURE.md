@@ -158,9 +158,12 @@ Properties that matter here:
   should own, not a reshuffle of the whole keyspace.
 - **Owner affinity.** A user's own devices are always preferred replicas, so
   reading your own data never depends on anyone else being online.
-- **Anchors.** At least one replica should sit on a node that is actually up.
-  Durability and availability are separate purchases — see
-  [ECONOMICS.md](ECONOMICS.md) §2 for the arithmetic that forces this.
+
+**What placement does not do yet.** It weights by pledged capacity and nothing
+else. It has no notion of an *anchor* — a node that is actually up — so nothing
+guarantees a replica lands somewhere reachable while your own machines sleep.
+Durability and availability are separate purchases and only the first is
+implemented; [ECONOMICS.md](ECONOMICS.md) §2 has the arithmetic and the gap.
 
 ### 4.2 Redundancy
 
@@ -175,6 +178,11 @@ A background loop tracks live replica counts. A chunk below target replication �
 because a node left, or has been unreachable past a threshold — is re-pushed to
 the next-best nodes by rendezvous score.
 
+> **Planning only.** `placement::repair::plan` computes what should be pushed
+> where, deterministically, and is tested. Nothing calls it: building the census
+> it needs means querying every peer about what it holds, which needs the node
+> set the coordinator would publish. The daemon runs no repair loop.
+
 ### 4.4 Proof of storage
 
 Hosts are challenged periodically:
@@ -186,15 +194,28 @@ host     → verifier: BLAKE3_keyed(nonce, ciphertext)
 
 The verifier re-derives the expected ciphertext locally (deterministic sealing
 makes this possible) and compares. A host that discarded the data, or corrupted
-it, cannot answer. The same signal feeds quota accounting, so pledged capacity
-that is not actually being provided stops earning storage.
+it, cannot answer.
+
+> **The challenge works; nothing schedules it and nothing records the answer.**
+> It can be issued over the wire today and there is a test for it. The intended
+> consequence — a failed challenge marking a host unreliable, so pledged
+> capacity that is not actually provided stops earning storage — needs a
+> reputation store that does not exist. Until it does, a host that quietly
+> discards data is caught only by accident.
 
 ## 5. The coordinator
 
 Optional, and deliberately minimal. Intended to run on a small OVH VPS or an ARM
 VM on a Freebox Delta.
 
-**What it does**
+> **No coordinator server exists.** `itsanas-coord` is a tested library — claims,
+> revocation, presence, measured availability, accounting, account directory,
+> escrow storage — with nothing serving it and no client speaking to it. The
+> list below is what it is *for*; [ROADMAP.md](ROADMAP.md) M6 is the status.
+> Until it is built, peers are configured by hand and there is no node set, so
+> nothing in §4 that depends on one runs either.
+
+**What it will do**
 
 1. Account directory: `username → user public key`. Prevents name squatting and
    impersonation.
@@ -251,7 +272,15 @@ prerequisite for security.
 ## 7. Operational behaviour
 
 The daemon is meant to be invisible: a folder that syncs. Invisible systems fail
-silently, so the daemon raises explicit alerts when:
+silently, so the daemon should raise explicit alerts on the conditions below.
+
+> **No alerting exists.** The daemon logs sync rounds and unreachable peers and
+> nothing else; `itsanas status` and `itsanas doctor` are the only ways to learn
+> the node's condition, and both have to be run by hand. Most of these
+> conditions cannot even be evaluated yet, because they need the node set. This
+> table is the specification.
+
+Conditions that must eventually alert:
 
 | Condition | Why it matters |
 | --- | --- |

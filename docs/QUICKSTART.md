@@ -196,7 +196,7 @@ itsanas daemon --interval 300
 
 ```text
 itsanas daemon
-  serving   127.0.0.1:9797
+  serving   0.0.0.0:9797
   pledged   10.0 GiB
   interval  300s
   peers     192.168.1.20:9797

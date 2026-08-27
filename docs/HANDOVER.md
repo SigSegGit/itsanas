@@ -23,11 +23,34 @@ repository without asking.
 the same commit as the code they describe**. If a document disagrees with the
 code, the code is right and the document is a bug. Keep doing this.
 
+**Tense discipline, which is the rule that stops the drift.** Present indicative
+means *it runs today and a named test proves it*. Anything else carries a
+visible marker — ECONOMICS.md has a legend at the top and every section is
+tagged ✅ / 🟨 / ⬜. This exists because the failure mode is not lying, it is
+elegance: a mechanism reads better in the present tense, so a document written
+to decide what to build slides into describing it as built. That happened here —
+`itsanas evict`, the anchor placement rule and challenge-based reputation were
+all described as working before any of them existed, and one of them then
+propagated into three other documents.
+
+The practical test before committing a document: **for every present-tense
+sentence, can you name the test or the function?** If not, mark it or cut it.
+
+Documents organised by *state* (ROADMAP) do not drift, because the form has an
+obvious place to write "not done". Documents organised by *mechanism*
+(ARCHITECTURE, DESIGN, ECONOMICS) drift, because they do not. That is a property
+of the plan, not of anybody's attentiveness — which is why the markers are
+mandatory rather than encouraged.
+
 Test counts in TESTING.md are mechanical:
 
 ```bash
-cargo test --workspace -- --list
+cargo test --workspace --all-features -- --list
 ```
+
+That prints 464: **462 test functions across 17 binaries** (2 of them
+`#[ignore]`d, which is the figure ROADMAP and TESTING both quote) **plus 2
+doctests**. Quote the 462 and say what it excludes, or the number drifts.
 
 ## 3. Verify a clean tree in one go
 
@@ -66,7 +89,32 @@ Dependency direction is strict: `crypto → store → sync → net → cli`, wit
 `wire`/`tls` beside them and `coord` deliberately unable to reach `store` or
 `sync`.
 
-## 5. Decisions that must not be quietly reversed
+## 5. Reading the code: a route, not a tour
+
+Nobody reads 22 000 lines. This is the shortest path to the point where the rest
+of the code stops surprising you — roughly two hours, in this order. Every file
+listed has a module doc comment stating what it is for and what it refuses to
+do; read those first and the bodies second.
+
+| # | File | Lines | Why this one |
+| --- | --- | --- | --- |
+| 1 | `crypto/src/kdf.rs` | 158 | The key schedule. Everything else derives from here, so it is the shortest file that changes how you read all the others. |
+| 2 | `crypto/src/seal.rs` | 561 | Deterministic vs randomised sealing, and what goes into the associated data. The single most consequential design decision in the project — dedup, remote audit and blinded addressing all fall out of it. |
+| 3 | `store/src/version.rs` | 310 | Version vectors and the dominance test. Every convergence property in the system is this file being right. |
+| 4 | `folder/src/decision.rs` | 238 | `decide(on_disk, in_store, ledger)`, a pure function over three hashes with an exhaustive 27-case test. This is where "the folder syncs" actually happens, and it is small enough to hold in your head entirely. |
+| 5 | `tls/src/auth.rs` | 182 | Why the device identity is not in the certificate. Short, and it is the whole transport security argument. |
+| 6 | `store/src/oplog.rs` | 714 | Segments, chaining, and the tail-truncation gap documented at the top. Read the module comment even if you skip the body. |
+
+After those six, the shape of everything else is predictable. `chunker.rs`,
+`nodeset.rs` and `vault.rs` are each large but locally understandable, and
+`accounting.rs` is pure integer arithmetic with [ECONOMICS.md](ECONOMICS.md) as
+its commentary.
+
+**What to read when you have to change something:** the tests. They are named as
+sentences and [TESTING.md](TESTING.md) says what each one proves, so the fastest
+way to learn what a module guarantees is its test module, not its body.
+
+## 6. Decisions that must not be quietly reversed
 
 Each of these has a test that fails if it is:
 
@@ -84,7 +132,7 @@ Each of these has a test that fails if it is:
 | Streaming boundaries match slice boundaries exactly | Otherwise one file stored via two paths dedups against nothing | `streaming_and_slicing_agree_on_every_boundary` |
 | Published test identities are refused by `Store::open` | Their phrases are in the docs | `the_published_test_identities_are_refused_...` |
 
-## 6. What is built and working
+## 7. What is built and working
 
 - **Local store**: content-defined chunking, sealed content-addressed blobs,
   transactional index, chained operation log, GC with grace, integrity check.
@@ -97,8 +145,9 @@ Each of these has a test that fails if it is:
 - **Folder**: import/export/delete, conflict handling, watcher with debounce,
   periodic and deep rescans, atomic streamed export.
 - **Daemon**: serve + sync + reconcile in one process.
-- **Placement**: weighted rendezvous hashing, owner affinity, anchors, repair
-  *planning*.
+- **Placement**: weighted rendezvous hashing, owner affinity, repair
+  *planning*. **No anchor rule and no availability input** — see
+  [ECONOMICS.md](ECONOMICS.md) §2.
 - **Coordinator library**: device claims and revocation, presence, measured
   availability, accounting, account directory, escrow storage.
 
@@ -106,7 +155,7 @@ Verified by running it, not only by tests: two daemons, a file dropped in one
 folder appearing in the other, an edit propagating, a file created on the far
 side coming back, a deletion removing it from both, both folders byte-identical.
 
-## 7. What is next, in order
+## 8. What is next, in order
 
 1. **Coordinator server and client.** The library (`coord`) is complete and
    tested; nothing serves it. Needs: a protocol enum, a `service.rs` handling
@@ -129,7 +178,7 @@ side coming back, a deletion removing it from both, both folders byte-identical.
 8. **Raspberry Pi bring-up.** Never run on ARM. Only `cargo check` for
    aarch64 has been done, and blake3 needs a cross C compiler.
 
-## 8. Known gaps, deliberately open
+## 9. Known gaps, deliberately open
 
 - **Tail truncation.** A host can serve an internally consistent *prefix* of a
   segment chain. Detecting it needs signed, timestamped head records gossiped
@@ -146,7 +195,7 @@ side coming back, a deletion removing it from both, both folders byte-identical.
 - **No file-level sharing between users.** Not needed for mutual storage;
   `UserKeys::agree` exists, is tested, and is deliberately unused until it is.
 
-## 9. Open, waiting on Nicolas
+## 10. Open, waiting on Nicolas
 
 Three things are deliberately not decided, and none of them should be decided
 unilaterally:
@@ -161,7 +210,7 @@ unilaterally:
    puts `itsanas.exe` on the PATH. Not done — it writes outside the repository.
    [QUICKSTART.md](QUICKSTART.md) is the walkthrough once it is.
 
-## 10. Working style Nicolas expects
+## 11. Working style Nicolas expects
 
 - Blunt assessments. Say "you are wrong here" and then show why.
 - Tests must state what they would catch. A test whose failure message does not

@@ -11,9 +11,23 @@ giving, and nothing decided what to do about it.
 Everything here is a decision, not a description. Where a decision is arbitrary,
 it says so. Where it is forced by arithmetic, the arithmetic is shown.
 
+> **This is a specification, and most of it is not built yet.** Reading a
+> mechanism here does not mean the code does it. Every section carries one of
+> these markers, and the rule for the whole document is that an unmarked
+> present-tense sentence is a bug in the document:
+>
+> | Marker | Meaning |
+> | --- | --- |
+> | ✅ **built** | Implemented and covered by tests named in [TESTING.md](TESTING.md) |
+> | 🟨 **partly built** | The rule exists in code; the thing that would apply it does not |
+> | ⬜ **specified only** | Decided here, no code. Nothing enforces it today |
+>
+> [ROADMAP.md](ROADMAP.md) is the authority on status; if the two disagree,
+> ROADMAP is right.
+
 ---
 
-## 1. The core exchange
+## 1. The core exchange ✅ **built**
 
 > **Pledge three times what you store.**
 
@@ -51,7 +65,7 @@ standing without asking permission.
 
 ---
 
-## 2. The uptime problem, which is bigger than it looks
+## 2. The uptime problem, which is bigger than it looks 🟨 **partly built**
 
 Nicolas's observation, which turned out to be structural rather than a detail:
 
@@ -106,22 +120,36 @@ qualifies. A laptop does not.
 
 This makes Nicolas's "reserve" idea — his own always-on equipment absorbing the
 uncertainty of everyone else's laptops — **not a nice-to-have but the thing that
-makes the network work at all**. It is therefore a first-class placement rule
-rather than a special-cased favour, and any member who runs an always-on machine
-becomes an anchor automatically. No configuration, no blessing, no central
-decision.
+makes the network work at all**. The decision that follows is that it must be a
+first-class placement rule rather than a special-cased favour: any member who
+runs an always-on machine becomes an anchor automatically, with no
+configuration, no blessing and no central decision.
 
-### A network with no anchors
+> ⚠️ **Not built.** `accounting.rs` computes `is_anchor` and `has_anchor` from
+> measured availability, and that part is tested. **`itsanas-placement` knows
+> nothing about anchors**: `NodeSet::replicas_for` takes an owner, a chunk and a
+> count, and weights only by pledged capacity. Nothing today guarantees that one
+> replica lands on a machine that is up. Wiring this is part of M5 and needs the
+> node set a coordinator would publish — see [ROADMAP.md](ROADMAP.md) M5/M6.
 
-It still works, and it says so. Placement falls back to three replicas chosen
-normally, the coordinator marks the swarm `anchorless`, and clients warn that
-files may be unreadable when peers are asleep. Data is still safe; it is just
-not always reachable. Failing loudly here is the whole point — the alternative
-is a member discovering it at the moment they need a file.
+### A network with no anchors ⬜ **specified only**
+
+The intended behaviour: placement falls back to three replicas chosen normally,
+the coordinator marks the swarm `anchorless`, and clients warn that files may be
+unreadable when peers are asleep. Data stays safe; it is just not always
+reachable, and the member is told so. Failing loudly is the whole point — the
+alternative is discovering it at the moment you need a file.
+
+None of the warning exists yet. There is no coordinator and placement has no
+anchor concept, so **today every swarm is the anchorless case and nothing says
+so**. That is the honest reading of the current state: durability is
+implemented, availability is not, and the silence is the part to fix first —
+before the placement rule, because a wrong belief about availability is worse
+than a known absence of it.
 
 ---
 
-## 3. What a pledge is actually worth
+## 3. What a pledge is actually worth 🟨 **partly built**
 
 ```
 effective contribution  =  pledged bytes × availability
@@ -138,7 +166,9 @@ people who discover this are the ones who lose files.
 ### How availability is measured, and who can lie about it
 
 The coordinator observes presence and publishes a smoothed estimate in the
-signed node-set epoch. It is therefore in a position to lie: inflating a
+signed node-set epoch. (`Directory::tick` measures availability from observed
+presence and is tested; the signed epoch that would carry it, `NodeSetEpoch`,
+does not exist yet.) A coordinator is therefore in a position to lie: inflating a
 colluder's availability lets them store more than they contribute; deflating an
 honest member's is denial of service.
 
@@ -149,11 +179,18 @@ This is tolerated, deliberately, and bounded:
   model already grants.
 - The damage is economic, never confidential and never destructive. No amount of
   lying about uptime lets anyone read a byte or delete one.
-- **Availability affects entitlement only.** It does not affect placement.
-  Placement uses *locally observed* reliability — whether a host answered this
-  node's own storage challenges — which no third party can forge. The decision
-  that risks data does not depend on the untrusted party. The decision that
-  risks fairness does.
+- **Availability affects entitlement only.** It does not affect placement, and
+  this is a rule, not an accident: the decision that risks *data* must never
+  depend on a number the untrusted coordinator produces. Placement is computed
+  from the signed node set and pledged capacity alone, which every peer can
+  recompute identically. A lie about uptime therefore costs fairness and cannot
+  cost a replica.
+
+  > ⚠️ The intended second half — placement additionally preferring hosts that
+  > answered **this node's own** storage challenges, which no third party can
+  > forge — is **not built**. The challenge protocol works and is tested;
+  > nothing records the result, so no reputation exists to consult. Until it
+  > does, placement has no reliability input at all.
 - Members pin the last node set they saw and can change coordinator without
   losing anything, because the coordinator holds no data and no keys.
 
@@ -164,7 +201,7 @@ holiday.
 
 ---
 
-## 4. Reducing what you offer
+## 4. Reducing what you offer ⬜ **specified only**
 
 A member may lower their pledge at any time. Nobody should be trapped in a
 network by their own disk.
@@ -177,7 +214,9 @@ serving everything it already accepted and simply accepts nothing new. It stays
 a good citizen for the data it already holds while draining naturally as peers
 delete files and repair moves replicas elsewhere.
 
-A node that wants its space back *now* uses `itsanas evict`, which:
+A node that wants its space back *now* uses `itsanas evict`. **This command does
+not exist**; what follows is the specification for it. Today, lowering a pledge
+is the only exit, and it drains at whatever rate peers delete files:
 
 1. announces the eviction to the coordinator, so repair can start immediately;
 2. keeps serving every affected chunk for `EVICTION_NOTICE` (7 days) while other
@@ -191,7 +230,7 @@ the network survives both — it just does more work for the second.
 
 ---
 
-## 5. When a member takes more than they give
+## 5. When a member takes more than they give 🟨 **partly built**
 
 Their entitlement drops below their usage. This happens innocently: a disk dies,
 a machine is retired, a member's uptime falls after a job change.
@@ -221,15 +260,18 @@ Fourteen and sixty days are arbitrary. They are chosen to be longer than a
 holiday and shorter than a forgotten machine, and they are configuration, not
 constants in the protocol.
 
-### Grace is entered on a schedule, not on a spike
+### Grace is entered on a schedule, not on a spike ⬜ **specified only**
 
-State transitions use a smoothed usage figure over seven days. A member who
+State transitions are meant to use a usage figure smoothed over seven days.
+`Assessment` documents this as its caller's responsibility and is tested against
+whatever figure it is handed; the caller that would do the smoothing is part of
+the coordinator server and does not exist. A member who
 copies a large folder in and deletes it an hour later has not defaulted on
 anything, and a system that reacts within the hour would tell them they had.
 
 ---
 
-## 6. Joining, and the bootstrapping problem
+## 6. Joining, and the bootstrapping problem 🟨 **partly built**
 
 A new member has contributed nothing and has data to protect. Requiring
 contribution before storage means nobody can ever start.
@@ -246,7 +288,7 @@ becomes a real problem, the answer is invitation, not a bigger number.
 
 ---
 
-## 7. What the coordinator is, and is not
+## 7. What the coordinator is, and is not ⬜ **specified only**
 
 It is a **notice board**. It holds:
 
@@ -270,18 +312,22 @@ This is the property that keeps the coordinator from becoming the product.
 
 ## 8. Constants, in one place
 
-| Name | Value | Kind |
-| --- | --- | --- |
-| `CONTRIBUTION_RATIO` | 3 | Forced: equals the replication factor |
-| `REPLICATION_FLOOR` | 3 | Judgement: smallest R where one loss is not an emergency |
-| `ANCHOR_AVAILABILITY` | 0.90 | Judgement |
-| `AVAILABILITY_FLOOR` | 0.05 | Judgement: stops a holiday becoming a default |
-| `GRACE` | 14 days | Judgement: longer than a holiday |
-| `DEFAULT_AFTER` | 60 days | Judgement: shorter than a forgotten machine |
-| `EVICTION_NOTICE` | 7 days | Judgement |
-| `JOINING_ALLOWANCE` | 10 GB | Judgement |
-| `JOINING_PERIOD` | 30 days | Judgement |
-| `USAGE_SMOOTHING` | 7 days | Judgement: longer than a transient copy |
+"Live" means a constant in the code that something reads. "Paper" means the
+number is decided here and nothing consumes it.
+
+| Identifier in the code | Value | Kind | Status |
+| --- | --- | --- | --- |
+| `accounting::CONTRIBUTION_RATIO` | 3 | Forced: equals the replication factor | live |
+| `repair::DEFAULT_REPLICATION_FLOOR` | 3 | Judgement: smallest R where one loss is not an emergency | live |
+| `accounting::ANCHOR_AVAILABILITY_PER_MILLE` | 900 (0.90) | Judgement | live, but only to *label* an anchor — placement never reads it |
+| `accounting::AVAILABILITY_FLOOR_PER_MILLE` | 50 (0.05) | Judgement: stops a holiday becoming a default | live |
+| `accounting::GRACE_SECONDS` | 14 days | Judgement: longer than a holiday | live |
+| `accounting::DEFAULT_AFTER_SECONDS` | 60 days | Judgement: shorter than a forgotten machine | live |
+| `accounting::JOINING_ALLOWANCE` | 10 GiB | Judgement | live |
+| `accounting::JOINING_PERIOD_SECONDS` | 30 days | Judgement | live |
+| `directory::SMOOTHING_ALPHA_PER_MILLE` | 10 | Judgement: how fast measured availability moves | live |
+| `EVICTION_NOTICE` | 7 days | Judgement | **paper** — no such constant; no eviction exists |
+| `USAGE_SMOOTHING` | 7 days | Judgement: longer than a transient copy | **paper** — `Assessment` documents that its caller must smooth; no caller exists |
 
 ---
 

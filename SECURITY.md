@@ -2,9 +2,16 @@
 
 ## Status
 
-ITSaNAS is pre-release. The cryptographic core is implemented and tested; the
-storage, sync and network layers are not yet written. **Do not use it for data
-you cannot afford to lose or to leak.** It has had no external audit.
+ITSaNAS is pre-release and has had no external audit. **Do not use it for data
+you cannot afford to lose or to leak.**
+
+What exists and is tested: the cryptographic core, the local store, the sync
+engine, the TLS transport and peer protocol, and a synced folder. What does not
+exist yet, and matters to this document: no coordinator server, so there is no
+node set and no revocation distribution; no scheduled storage challenges, so a
+host that discards data is caught only by accident; no repair execution, so a
+chunk that falls below its replication target stays there. Full status in
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Threat model
 
@@ -39,8 +46,6 @@ service and partition attempts, not data.
   own data, so you are never locked out of your files, but replication targets
   need peers.
 
-## Published test keys — not a vulnerability
-
 ## Transport
 
 Every peer connection is TLS 1.3 with both ends authenticated by their device
@@ -65,6 +70,8 @@ Consequences worth stating:
 roughly how much. Hiding that needs padding and cover traffic, which remains a
 deliberate non-goal.
 
+## Published test keys — not a vulnerability
+
 The recovery phrases and private keys in [docs/TEST-USERS.md](docs/TEST-USERS.md)
 are public **by design**, so anyone can reproduce the test suite. Those three
 identities are refused by `itsanas_store::Store::open`, which calls
@@ -78,9 +85,11 @@ node **accepts** one of them.
 
 ## Reporting a vulnerability
 
-Report privately through GitHub's **Report a vulnerability** button on the
-Security tab of the repository, or by email to
-`nicolas.girard.e@gmail.com`.
+By email to `nicolas.girard.e@gmail.com`.
+
+There is no public repository yet, so there is no GitHub Security tab to report
+through. When one exists, its **Report a vulnerability** button becomes the
+preferred channel and this section will say so.
 
 Please include what you were able to do, not just what looks wrong. A working
 proof of concept — a case where a host reads plaintext, forges a signed log

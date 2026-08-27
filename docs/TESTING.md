@@ -408,24 +408,6 @@ about reading.
 
 # `itsanas-net` — unit tests (25)
 
-## `wire` — framing (12)
-
-Every byte parsed here comes from a stranger's computer.
-
-| Test | What it proves |
-| --- | --- |
-| **`an_oversized_length_is_rejected_before_anything_is_allocated`** | Five bytes on the wire asking the peer to reserve four gigabytes. On a Raspberry Pi a handful of these is fatal. |
-| **`every_truncation_of_a_valid_frame_is_an_error_and_never_a_panic`** | Every prefix of a valid frame, rejected rather than half-parsed. |
-| **`corrupting_any_byte_never_panics`** | Every single-bit corruption of every byte. The decoder may reject; it may not abort the process. |
-| **`arbitrary_garbage_never_panics`** | Random bytes fed to both the one-shot decoder and the streaming reader. |
-| **`the_reader_does_not_grow_without_bound_on_a_stalled_frame`** | A peer that sends a header then trickles bytes forever cannot make the buffer exceed one maximum frame. |
-| **`a_frame_split_across_reads_is_reassembled`** | The normal case on a real stream, byte by byte. |
-| **`an_unknown_wire_version_is_refused_not_guessed_at`** | No silent reinterpretation of a future format. |
-| `a_frame_exactly_at_the_limit_is_accepted_and_one_byte_over_is_not` | The boundary is where it is documented to be. |
-| `several_frames_in_one_read_are_all_returned` | Batched arrivals are all delivered, leaving nothing buffered. |
-| `the_header_is_exactly_as_documented` | The layout matches the doc comment. |
-| `a_frame_round_trips` / `an_empty_payload_is_a_valid_frame` | The basic paths. |
-
 ## `protocol` — messages and challenges (9)
 
 | Test | What it proves |
@@ -459,13 +441,15 @@ Every byte parsed here comes from a stranger's computer.
 | `a_peer_can_fetch_this_nodes_own_segments_and_chunks` | The basic serving path. |
 | `the_segment_limit_is_clamped_to_the_protocol_maximum` | Limits are applied. |
 
-## `transport` — exposure control (3)
+## `transport` — binding and serving (2)
 
 | Test | What it proves |
 | --- | --- |
-| **`binding_a_public_address_is_refused_by_default`** | The default has to be the safe one. Someone bringing up a node on the Pi will type an address and press enter, and the failure mode of getting this wrong is silent metadata exposure that nobody notices. The refusal must also explain itself. |
-| `loopback_binds_without_an_override` | The safe case is not made annoying. |
-| `an_explicit_override_allows_a_public_bind` | The escape hatch is real, not a lie. |
+| `binding_a_public_address_no_longer_needs_an_override` | Documents a deliberate *removal*. Binding a public address used to be refused, because the transport leaked chunk identifiers and sizes to anyone on the path. TLS closed that, so the refusal became cargo cult and was deleted. The test exists so that nobody restores the refusal believing it was ever a security control. |
+| `loopback_still_binds` | The ordinary case did not regress while the above changed. |
+
+Authentication is not tested here. It lives one layer down, in `itsanas-tls`,
+and is catalogued with that crate.
 
 ---
 
@@ -634,30 +618,58 @@ destructive if wrong.
 
 ---
 
-# `itsanas-wire` (17), `itsanas-tls` (11), `itsanas-coord` (47)
+# `itsanas-wire` — framing (17)
 
-Catalogued at the level of what each guards rather than test by test, because
-these three are newer than the rest and the properties matter more than the
-names.
+Every byte parsed here comes from a stranger's computer.
 
-**`itsanas-wire`** — framing and the generic `Connection`. Oversized lengths
-refused before allocating; every truncation and every single-bit corruption of a
-valid frame rejected rather than half-parsed; arbitrary garbage never panics; a
-stalled frame cannot grow the buffer without bound; a clean close between
-messages is not an error but a close *part-way through* one is, because
-discarding a partial frame would let a peer truncate a response and have it
-treated as complete.
+| Test | What it proves |
+| --- | --- |
+| **`an_oversized_length_is_rejected_before_anything_is_allocated`** | Five bytes on the wire asking the peer to reserve four gigabytes. On a Raspberry Pi a handful of these is fatal. |
+| **`every_truncation_of_a_valid_frame_is_an_error_and_never_a_panic`** | Every prefix of a valid frame, rejected rather than half-parsed. |
+| **`corrupting_any_byte_never_panics`** | Every single-bit corruption of every byte. The decoder may reject; it may not abort the process. |
+| **`arbitrary_garbage_never_panics`** | Random bytes fed to both the one-shot decoder and the streaming reader. |
+| **`the_reader_does_not_grow_without_bound_on_a_stalled_frame`** | A peer that sends a header then trickles bytes forever cannot make the buffer exceed one maximum frame. |
+| **`a_frame_split_across_reads_is_reassembled`** | The normal case on a real stream, byte by byte. |
+| **`an_unknown_wire_version_is_refused_not_guessed_at`** | No silent reinterpretation of a future format. |
+| `a_frame_exactly_at_the_limit_is_accepted_and_one_byte_over_is_not` | The boundary is where it is documented to be. |
+| `several_frames_in_one_read_are_all_returned` | Batched arrivals are all delivered, leaving nothing buffered. |
+| `the_header_is_exactly_as_documented` | The layout matches the doc comment. |
+| `a_frame_round_trips` / `an_empty_payload_is_a_valid_frame` | The basic paths. |
 
-**`itsanas-tls`** — the property everything rests on is
-`a_proof_from_one_session_is_worthless_in_another`: a man in the middle who
-terminates TLS has two sessions with two different exporters, so a captured
-proof cannot be relayed. Also: claiming to be another device fails;
-`the_payload_never_reaches_the_socket_in_plaintext` records every byte written
-to the socket and scans it for a canary; dialling a device and reaching a
-different one is refused; a server learns who called without being told in
-advance; every process presents a different certificate.
+The five remaining tests cover `Connection`, the generic `Read + Write` wrapper:
 
-**`itsanas-coord`** — device claims cannot be forged, retimed or stripped of
+| Test | What it proves |
+| --- | --- |
+| **`a_close_part_way_through_a_message_is_an_error`** | A peer that hangs up mid-frame must not have its partial response treated as complete. This is the difference between a truncated answer and a short one. |
+| `a_clean_close_between_messages_is_not_an_error` | The legitimate case is not turned into a failure. |
+| `an_oversized_frame_is_refused_rather_than_buffered_towards` | The limit is enforced on the streaming path too, not only the one-shot decoder. |
+| `a_message_round_trips` / `several_messages_come_back_in_order` | The basic paths, and that nothing is left buffered between messages. |
+
+---
+
+# `itsanas-tls` — device authentication (11)
+
+Six unit tests in `auth.rs`, five integration tests in `tests/handshake.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_proof_from_one_session_is_worthless_in_another`** | The property the whole transport rests on. A man in the middle who terminates TLS has two sessions with two different exporters, so a captured proof cannot be relayed into the other one. If this test is ever weakened, authentication becomes replayable and nothing else in the crate catches it. |
+| **`the_payload_never_reaches_the_socket_in_plaintext`** | Records every byte actually written to the socket and scans it for a canary. Proves the encryption is on the wire, not merely configured. |
+| **`dialling_a_device_and_reaching_a_different_one_is_refused`** / `dialling_a_known_peer_refuses_a_different_answer` | An address that resolves to the wrong machine is refused rather than trusted — the coordinator hands out addresses and is not trusted to say who lives at one. Tested at both the proof layer and the socket layer. |
+| `claiming_to_be_another_device_fails` / `a_tampered_signature_is_refused` | The two direct forgeries. |
+| `an_honest_proof_identifies_the_device` / `the_proof_round_trips_through_the_wire` | The mechanism works, and works through framing. |
+| `a_server_learns_who_called_without_being_told_in_advance` | A node can serve a device it has never met, which is what lets anyone offer storage. |
+| `every_process_presents_a_different_certificate` | Certificates are anonymous and disposable, so an observer cannot correlate two connections by them. |
+| `two_devices_authenticate_each_other_and_exchange_a_message` | End to end over a real socket. |
+
+---
+
+# `itsanas-coord` — claims, directory, accounting (47)
+
+Catalogued by property rather than test by test: the crate is a library with no
+server yet, and what matters is which rule each group of tests pins down.
+
+**Claims and revocation.** Device claims cannot be forged, retimed or stripped of
 their revocation; a claim dated far in the future is refused, because
 supersession is by timestamp and such a claim could never be replaced; replaying
 an old enrolment cannot un-revoke a stolen laptop; presence is signed by the

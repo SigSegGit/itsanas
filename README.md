@@ -97,6 +97,7 @@ nothing is lost.
 | [docs/TESTING.md](docs/TESTING.md) | **Every test catalogued** with the property it proves, and what each CI job is for |
 | [docs/TEST-USERS.md](docs/TEST-USERS.md) | The three published test identities, keys in plaintext |
 | [SECURITY.md](SECURITY.md) | Threat model and how to report a vulnerability |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Build requirements, the CI gates, and the three house rules |
 
 ## Test users
 
@@ -117,7 +118,9 @@ cargo run -p itsanas-testkit --bin generate-fixtures
 
 ## Building
 
-Requires a recent stable Rust toolchain.
+**Requires Rust 1.88 or newer** — the code uses let-chains, so edition 2024 on
+its own is not enough and an older toolchain fails with a parse error rather
+than a version message.
 
 ```bash
 cargo test --workspace
@@ -132,13 +135,11 @@ cargo test --workspace -- --ignored
 
 ## Contributing
 
-Bug reports and patches welcome. Three house rules, all enforced by CI:
-
-- `cargo clippy --workspace --all-targets` must be clean at `-D warnings`.
-- New behaviour comes with a test that would fail without it. Tests that assert
-  an attack *fails* are as valuable as tests that assert a feature works.
-- Every test gets an entry in [docs/TESTING.md](docs/TESTING.md) stating what it
-  proves. If that sentence cannot be written, the test should not exist.
+Bug reports and patches welcome. [CONTRIBUTING.md](CONTRIBUTING.md) has the
+build requirements, the CI gates you can run locally, and the three house rules
+— tests that would fail without the change, an entry in
+[docs/TESTING.md](docs/TESTING.md) saying what each proves, and documentation
+updated in the same commit as the code.
 
 ## Licence
 

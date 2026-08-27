@@ -259,22 +259,30 @@ a single point of concentration.
 Determinism across architectures is not a nicety here. It is the property that
 lets placement work with no agreement protocol at all.
 
-### Anchors: availability is a separate purchase from durability
+### Anchors: decided, not built
 
 Replication buys durability. It does not buy availability, and conflating the
 two produces absurd numbers: with a replica online a quarter of the time,
 reaching 99 % availability needs `ln(0.01) / ln(0.75)` ≈ **16 replicas**.
 
-So they are bought separately: three replicas for durability — a switched-off
-laptop still holds the bytes — **plus at least one replica on a node that is
-actually up**. Any always-on machine becomes such an anchor automatically; no
-node is special by configuration.
+The decision is therefore to buy them separately: three replicas for durability —
+a switched-off laptop still holds the bytes — plus at least one replica on a
+node that is actually up, an *anchor*, which any always-on machine becomes
+automatically.
 
-The corollary is a rule that is easy to get wrong: **measured availability
-affects entitlement only, never placement.** Placement is computed from the
-signed node set alone, so the decision that risks data never depends on the
-untrusted coordinator's opinion of who is reliable. [ECONOMICS.md](ECONOMICS.md)
-carries the arithmetic.
+**None of that is implemented.** `NodeSet::replicas_for` takes an owner, a chunk
+and a count; it has no availability input and no anchor concept. `is_anchor`
+exists only in `coord::accounting`, where it labels a member's standing. Wiring
+the rule into placement needs the signed node set a coordinator would publish,
+so it is blocked behind M6 — see [ROADMAP.md](ROADMAP.md).
+
+One constraint on how it gets wired, worth fixing now because it is easy to get
+backwards: **measured availability may affect entitlement, never placement.**
+Placement must stay computable from the signed node set alone, so the decision
+that risks data never depends on the untrusted coordinator's opinion of who is
+reliable. An anchor rule that reads a coordinator-published availability number
+would violate this; one that reads a locally observed challenge history would
+not. [ECONOMICS.md](ECONOMICS.md) §3 carries the argument.
 
 ### Owner affinity
 
@@ -380,6 +388,10 @@ porting later is a contained change rather than a rewrite.
 ---
 
 ## 8. The coordinator
+
+> **Not built.** This section is the design for a component that does not exist
+> as a running service; `itsanas-coord` is the library half. See
+> [ROADMAP.md](ROADMAP.md) M6.
 
 ### Why there is one at all
 
