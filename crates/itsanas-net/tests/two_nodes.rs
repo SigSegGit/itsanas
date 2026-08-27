@@ -843,3 +843,183 @@ fn a_metadata_round_offers_the_log_but_sends_no_chunks() {
         );
     });
 }
+
+#[test]
+fn a_metadata_round_makes_the_file_listable_before_it_is_downloaded() {
+    // The behaviour everyone expects from a phone client: everything is
+    // listed, tapping one downloads it. Before the catalogue existed, a
+    // metadata round left the file invisible — deferred means no index entry,
+    // and `list` reports the index. A client could show only what it had
+    // already downloaded, which on a metered connection is nothing.
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+
+    laptop
+        .store
+        .write_file("photos/holiday.jpg", b"pretend this is a large photograph")
+        .expect("write");
+    laptop
+        .store
+        .write_file("notes/todo.txt", b"milk")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+
+    assert!(
+        itsanas_store::catalogue(&phone.store, &phone.vault)
+            .expect("catalogue")
+            .is_empty(),
+        "a phone that has synced nothing should know of nothing"
+    );
+
+    with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        session::pull_scoped(
+            &phone.store,
+            &phone.vault,
+            &mut client,
+            session::Scope::Metadata,
+        )
+        .expect("metadata pull");
+    });
+
+    // The index still holds nothing — no half-written state.
+    assert!(phone.store.list().expect("list").is_empty());
+
+    let known = itsanas_store::catalogue(&phone.store, &phone.vault).expect("catalogue");
+    let paths: Vec<&str> = known.iter().map(|k| k.path.as_str()).collect();
+    assert_eq!(paths, vec!["notes/todo.txt", "photos/holiday.jpg"]);
+    assert!(
+        known
+            .iter()
+            .all(|k| k.presence == itsanas_store::Presence::Absent),
+        "nothing was downloaded, so nothing should claim to be here"
+    );
+    assert_eq!(
+        known
+            .iter()
+            .find(|k| k.path == "notes/todo.txt")
+            .expect("listed")
+            .size,
+        4,
+        "the size comes from the log, so it is known before the content is"
+    );
+
+    // On wifi.
+    with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        session::pull_scoped(
+            &phone.store,
+            &phone.vault,
+            &mut client,
+            session::Scope::Everything,
+        )
+        .expect("content pull");
+    });
+
+    let known = itsanas_store::catalogue(&phone.store, &phone.vault).expect("catalogue");
+    assert_eq!(known.len(), 2, "the same two files, not four");
+    assert!(
+        known
+            .iter()
+            .all(|k| k.presence == itsanas_store::Presence::Local),
+        "everything was downloaded, so nothing should still be marked absent"
+    );
+    assert_eq!(
+        itsanas_store::absent_count(&phone.store, &phone.vault).expect("count"),
+        0
+    );
+}
+
+#[test]
+fn a_file_deleted_elsewhere_is_never_offered_for_download() {
+    // A phone that lists a file deleted a week ago, and downloads it when
+    // tapped, has resurrected it. The catalogue reads the log's last word,
+    // which is the delete.
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+
+    laptop
+        .store
+        .write_file("gone.txt", b"temporary")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    laptop.store.remove_file("gone.txt").expect("remove");
+    laptop.store.flush_segment().expect("flush");
+
+    with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        session::pull_scoped(
+            &phone.store,
+            &phone.vault,
+            &mut client,
+            session::Scope::Metadata,
+        )
+        .expect("metadata pull");
+    });
+
+    assert!(
+        itsanas_store::catalogue(&phone.store, &phone.vault)
+            .expect("catalogue")
+            .is_empty(),
+        "a deleted file was offered for download"
+    );
+}
+
+#[test]
+fn a_delete_racing_an_edit_still_leaves_the_file_listed() {
+    // The asymmetry the whole merge design rests on: a delete concurrent with
+    // an edit loses, because an unexpected file costs a second and a lost edit
+    // is unrecoverable. A listing that applied the opposite rule would hide a
+    // file the merge engine is about to keep — and the person looking at the
+    // phone would conclude their edit was lost.
+    let master = alice();
+    let laptop = node(&master, 1);
+    let pi = node(&master, 2);
+    let phone = node(&master, 3);
+
+    laptop.store.write_file("doc.txt", b"base").expect("write");
+    laptop.store.flush_segment().expect("flush");
+
+    // The Pi learns about the file, then the two lose sight of each other.
+    with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &pi.device, pi.store.owner(), None).expect("dial");
+        session::round(&pi.store, &pi.vault, &mut client).expect("round");
+    });
+    assert!(pi.store.read_file("doc.txt").expect("read").is_some());
+
+    // Apart: one edits, the other deletes.
+    laptop.store.write_file("doc.txt", b"edited").expect("edit");
+    laptop.store.flush_segment().expect("flush");
+    pi.store.remove_file("doc.txt").expect("delete");
+    pi.store.flush_segment().expect("flush");
+
+    // The phone hears both sides and downloads nothing.
+    for host in [&laptop, &pi] {
+        with_server(host, Pledge { bytes: 1 << 30 }, |address| {
+            let mut client = PeerClient::connect(address, &phone.device, phone.store.owner(), None)
+                .expect("dial");
+            session::pull_scoped(
+                &phone.store,
+                &phone.vault,
+                &mut client,
+                session::Scope::Metadata,
+            )
+            .expect("metadata pull");
+        });
+    }
+
+    let known = itsanas_store::catalogue(&phone.store, &phone.vault).expect("catalogue");
+    assert_eq!(
+        known.len(),
+        1,
+        "the edit lost to a concurrent delete in the listing, got {known:?}"
+    );
+    assert_eq!(known[0].path, "doc.txt");
+    assert_eq!(known[0].presence, itsanas_store::Presence::Absent);
+}

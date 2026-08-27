@@ -140,6 +140,7 @@ Each of these has a test that fails if it is:
 | Symlinks are skipped, never followed | A link to `~/.ssh` inside the folder would upload a private key | `symlinks_are_skipped_rather_than_followed` |
 | Completing a handshake earns a peer nothing | Device keys are free keypairs, so authenticating identifies a peer and vouches for nothing. Treating it as trust turns the anti-flood measure into the flood's best tool | `red_team_a_flood_of_authenticating_strangers_cannot_take_over_the_table`, `red_team_a_peer_that_only_answered_the_phone_has_earned_nothing` |
 | The user id is never broadcast, only a keyed tag of it | A user id is a public key; announcing it every 30 seconds on a café network tells the room whose machine this is | `red_team_the_user_id_never_appears_on_the_wire` |
+| A listing shows files not downloaded, and never writes an index entry for one | An index entry means a readable file, which the conflict and delete logic both assume. Faking one is a bug nobody can locate later | `a_metadata_round_makes_the_file_listable_before_it_is_downloaded`; `catalogue.rs` derives, never records |
 | A peer's own clock never decides ordering or expiry, anywhere | It is an attacker-controlled integer, and a Pi 4 with no RTC reports 1970. Made twice — in discovery, then again in the coordinator's peer list — and removed twice | `a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address`; `CoordService::peers_of` uses `Directory::last_seen` |
 | The escrow rate limit lives on the server, not the connection | Reconnecting costs a handshake and would buy a fresh budget, which is no budget | `red_team_reconnecting_does_not_reset_the_escrow_attempt_budget` |
 | A replication target counts this device | Off by one means the repair loop keeps two copies while reporting three, invisibly, until two machines die instead of three | `a_target_counts_this_device_so_three_asks_for_two_elsewhere` |
@@ -238,9 +239,6 @@ side coming back, a deletion removing it from both, both folders byte-identical.
   cost is what carries the weight until then.
 - **A stale address is handed out for a week.** `PRESENCE_TTL` bounds it, but
   every peer pays a dial for every stale entry until it expires.
-- **A file you have not downloaded is invisible.** A metadata-only round keeps
-  the segments but writes no index entry, so nothing lists it. Blocks the
-  browse-then-download behaviour a phone needs. See [ROADMAP.md](ROADMAP.md) M11.
 - **The blob layout does not reach a terabyte.** Measured, not suspected: see
   [ROADMAP.md](ROADMAP.md) M9. One file per chunk is 14.7 million files per
   terabyte, and `blobs().addresses()` walks all of them on every sync round.

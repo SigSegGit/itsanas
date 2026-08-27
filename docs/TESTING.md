@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 560 test functions across 21 binaries, 2 of them
+**Last updated: 2026-08-28 — 576 test functions across 22 binaries, 2 of them
 `#[ignore]`d, plus 2 doctests. Thirteen are red-team tests.**
 
 | Binary | Tests |
@@ -527,7 +527,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (15)
+# `itsanas-net` — two-node tests (20)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -537,6 +537,11 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_sync_round_records_which_peer_now_holds_this_nodes_data`** | The replacement for a coordinator-published node set, end to end over a socket. Without it the repair loop has no idea whether a chunk exists anywhere but on this disk, and the honest answer to "is my data safe?" is "no idea". |
 | **`a_peer_that_already_had_the_data_is_still_recorded_as_holding_it`** | The property that makes the ledger converge rather than only grow. A device restored from its recovery phrase learns where its data lives by *asking*, instead of re-uploading its whole store to find out — and the answer costs nothing extra, since it is the same round trip that decides what to send. |
 | **`a_host_that_refuses_to_store_is_not_recorded_as_holding_anything`** | A node that pledged nothing still answers, because refusing to host does not stop it being a peer. Recording it as a holder would let a node believe its data was replicated onto a machine that declined it — the worst possible error, indistinguishable from safety until the local disk dies. |
+| **`a_metadata_round_makes_the_file_listable_before_it_is_downloaded`** | The behaviour everyone expects from a phone: everything listed, tap one to download it. Before the catalogue, a metadata round left the file invisible — deferred means no index entry, and a client on a metered connection could show nothing at all. |
+| **`a_metadata_round_learns_what_changed_without_downloading_it`** | The other half: nothing is fetched, nothing is half-written, and a later round on an unmetered connection completes it. Writing this test is what found that deferred work was never retried. |
+| **`a_delete_racing_an_edit_still_leaves_the_file_listed`** | The listing applies the same asymmetry as the merge engine. A listing that hid a file the engine is about to keep would tell somebody their edit was lost. |
+| **`a_file_deleted_elsewhere_is_never_offered_for_download`** | A client that listed a file deleted last week, and fetched it when tapped, would have resurrected it. |
+| `a_metadata_round_offers_the_log_but_sends_no_chunks` | The upload direction: a photo taken on mobile data does not upload itself, and the peer still learns it happened. |
 | **`two_nodes_sync_a_file_over_a_real_socket`** | The M4 exit criterion. |
 | **`a_host_stores_a_strangers_data_and_cannot_read_a_byte_of_it`** | Alice's whole corpus pushed to Bob's node, then every byte Bob holds scanned for Alice's canary. |
 | **`a_host_relays_one_device_to_another_that_it_never_met`** | The architecture's whole reason for existing, over a socket: the Pi pushes and powers off, the VM pulls the Pi's work from a host it has never met. |

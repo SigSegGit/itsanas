@@ -49,6 +49,7 @@
 //! ```
 
 pub mod blob;
+pub mod catalogue;
 pub mod chunker;
 pub mod error;
 pub mod holders;
@@ -61,6 +62,7 @@ pub mod vault;
 pub mod version;
 
 pub use blob::BlobStore;
+pub use catalogue::{Known, Presence, absent_count, catalogue};
 pub use chunker::split_stream;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};

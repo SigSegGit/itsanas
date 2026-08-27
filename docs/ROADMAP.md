@@ -19,12 +19,12 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M6 Coordinator | `itsanas-coord`, `itsanas-coordinator` | ✅ **done** | 55 + 12 |
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 53 |
 | M8 Three-device bring-up | — | ⬜ not started | — |
-| M11 A catalogue of known-but-absent files | `itsanas-store` | ⬜ **next**, blocks browse-then-download | — |
+| M11 A catalogue of known-but-absent files | `itsanas-store` | ✅ **done** | 5 |
 | M12 Android shell | — | ⬜ core verified, shell not written | 11 (policy) |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion | 4 |
 | M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 | — |
 
-**571 test functions, 2 of them `#[ignore]`d into the slow job, and thirteen of
+**576 test functions, 2 of them `#[ignore]`d into the slow job, and thirteen of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -606,29 +606,48 @@ no plaintext and no usable key material.
 
 ---
 
-### M11 — Knowing about a file you have not downloaded ⬜
+### M11 — Knowing about a file you have not downloaded ✅ (`itsanas-store`)
 
-The gap that stands between the current code and the behaviour everyone expects
-from a phone client: everything listed, tap one to download it.
+The behaviour everyone expects from a phone: everything listed, tap one to
+download it. `catalogue.rs`.
 
-Half of it works. A metadata round — `session::Scope::Metadata` — fetches,
-verifies and keeps the signed log segments without downloading any content, so a
-phone on mobile data learns that work is waiting and the next round on Wi-Fi
-resumes instead of restarting.
+A metadata round keeps the signed log segments without downloading content, so
+every operation comes back deferred — nothing half-written. But deferred means
+no index entry, so `Store::list` reported nothing and a client on a metered
+connection could show an empty screen for an account full of files.
 
-**The other half does not.** A deferred operation writes no index entry, so
-`Store::list` does not report it. The paths are in the outcomes `apply_segments`
-returns and in the vault's segments; nothing keeps them anywhere a browser could
-read them. Until something does, a client can list only what it has already
-downloaded.
+**Derived from the vault, not recorded.** A table updated as segments arrive
+would read faster and would drift, and the day the two disagreed the one the
+user sees is the wrong one. The walk is read-only, cannot be stale, and has no
+repair path to write because there is nothing to repair.
 
-This belongs in the core rather than in any shell — a desktop on a tethered
-connection wants exactly the same thing.
+Deliberately *not* done: writing an index entry for an absent file. Faster
+still, and it breaks the invariant the rest of the store leans on — a listed
+file is a readable file, which the conflict and delete logic both assume.
 
-Not attempted yet, and the shape is not obvious: an index entry whose content is
-absent would break the invariant that a listed file is readable, which the
-delete and conflict logic leans on. A separate read-only catalogue derived from
-the vault does not break anything and costs a walk.
+The listing applies the same delete-versus-edit asymmetry as the merge engine,
+because a listing that hid a file the engine is about to keep would tell
+somebody their edit was lost.
+
+`itsanas ls` now shows it, and `itsanas sync --metadata-only` reaches the mode
+from the command line — a laptop tethered to a phone wants it as much as a phone
+does:
+
+```text
+         8 B  not here  notes/todo.txt
+   292.9 KiB  not here  photos/holiday.jpg
+
+2 file(s) are known but not downloaded. `itsanas sync` fetches them.
+```
+
+Verified by running it: two real devices of one account, a metadata round
+reporting two deferred operations and downloading nothing, the listing above,
+then a full round after which both files are local and the content matches by
+SHA-256.
+
+**Cost:** O(history) of segment decoding per call, no network. The same walk
+`pull` already does on every content round. It joins the queue behind pack
+files rather than being a new class of problem.
 
 ---
 

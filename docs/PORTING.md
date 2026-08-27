@@ -186,22 +186,23 @@ verified one.*
 | A replacement for `itsanas-folder` | `notify` plus scoped storage: an app may not watch an arbitrary directory since Android 10 | medium |
 | A replacement for `itsanas-cli` | no terminal, no `argv`, no signals | medium |
 | A foreground service | the system kills background processes; periodic work goes through `WorkManager` | medium |
-| A catalogue of known-but-absent files | see below — this is the one that is missing from the *core*, not from the shell | medium |
 
-### The gap in the core, stated plainly
+### The browse-then-download behaviour — built
 
-The browse-then-download behaviour people expect from Drive needs the file list
-to be current while the contents are not. Half of that works: a metadata round
-fetches, verifies and keeps the signed log segments.
+`itsanas_store::catalogue` reports every file the account has, marking each
+`Local` or `Absent`, by combining the index with a walk of the vault's log
+segments. So a client on a metered connection shows the whole account and
+fetches on demand, which is the Drive model.
 
-**The other half does not.** A deferred operation writes no index entry, so
-`Store::list` does not report it. The paths exist in the returned outcomes and
-in the vault's segments; nothing keeps them anywhere a browser could read.
-Presenting "known, not downloaded" needs a catalogue derived from the vault, and
-that catalogue does not exist. It belongs in the core, not in the Android shell,
-because a desktop on a metered connection wants exactly the same thing.
+Derived from the vault rather than recorded in a table, so it cannot go stale.
+It does not write an index entry for an absent file: that would break the
+invariant that a listed file is readable, which the conflict and delete logic
+both assume.
 
-Until it exists, an Android client can list only what it has already downloaded.
+Reachable from the command line too — `itsanas sync --metadata-only`, then
+`itsanas ls` — because a laptop tethered to a phone wants it as much as a phone
+does. This was the last piece missing from the *core*; what remains for Android
+is shell work.
 
 ### The sync policy, decided
 

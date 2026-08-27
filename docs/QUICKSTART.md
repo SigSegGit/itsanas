@@ -158,6 +158,28 @@ itsanas get archive/big.bin ./recovered.bin
 sha256sum ./recovered.bin ./big.bin   # identical
 ```
 
+### On a connection that costs money
+
+A laptop tethered to a phone, or a machine on a capped link, can take the log
+without the files:
+
+```bash
+itsanas sync 192.168.1.20:9797 --metadata-only
+itsanas ls
+```
+
+```text
+         8 B  not here  notes/todo.txt
+   292.9 KiB  not here  photos/holiday.jpg
+
+2 file(s) are known but not downloaded. `itsanas sync` fetches them.
+```
+
+Everything is listed at its real size; nothing was downloaded. A later
+`itsanas sync` without the flag fetches them. Nothing is half-written in
+between: an operation is either applied with its content or left for later,
+which is the same guarantee a sleeping peer already gets.
+
 To avoid typing the address every time:
 
 ```bash

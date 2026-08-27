@@ -168,6 +168,13 @@ enum Command {
     Sync {
         /// Peer address, e.g. `pi.local:9797`. Omit to use configured peers.
         address: Option<String>,
+        /// Exchange the log but download nothing.
+        ///
+        /// For an expensive connection — mobile data, or a laptop tethered to a
+        /// phone. Files appear in `itsanas ls` marked "not here", and a later
+        /// round without this flag fetches them.
+        #[arg(long)]
+        metadata_only: bool,
     },
     /// Set, or show, the coordinator this node uses.
     ///
@@ -307,7 +314,18 @@ fn run() -> Result<()> {
             std::time::Duration::from_secs(interval.max(1)),
             !no_discovery,
         ),
-        Command::Sync { address } => sync(&home, address.as_deref()),
+        Command::Sync {
+            address,
+            metadata_only,
+        } => sync(
+            &home,
+            address.as_deref(),
+            if metadata_only {
+                session::Scope::Metadata
+            } else {
+                session::Scope::Everything
+            },
+        ),
         Command::Peer { action } => peer(&home, action),
         Command::Doctor { deep } => doctor(&home, deep),
         Command::Bench { size, quick } => bench::run(parse_size(&size)?, quick),
@@ -716,20 +734,34 @@ fn whoami(home: &Path) -> Result<()> {
 
 fn list(home: &Path) -> Result<()> {
     let node = open(home)?;
-    let entries = node.store.entries()?;
 
-    if entries.is_empty() {
+    // Everything this account has, not everything this machine downloaded. A
+    // node that synced on a metered connection knows about files whose contents
+    // it never fetched, and listing only what is local would tell somebody
+    // their files were gone.
+    let known = itsanas_store::catalogue(&node.store, &node.vault)?;
+
+    if known.is_empty() {
         println!("(no files)");
         return Ok(());
     }
 
-    for (path, entry) in entries {
-        println!(
-            "{:>12}  {:>5} chunks  {}",
-            format_size(entry.size),
-            entry.chunks.len(),
-            path
-        );
+    let mut absent = 0usize;
+    for entry in &known {
+        match entry.presence {
+            itsanas_store::Presence::Local => {
+                println!("{:>12}            {}", format_size(entry.size), entry.path);
+            }
+            itsanas_store::Presence::Absent => {
+                absent += 1;
+                println!("{:>12}  not here  {}", format_size(entry.size), entry.path);
+            }
+        }
+    }
+
+    if absent > 0 {
+        println!();
+        println!("{absent} file(s) are known but not downloaded. `itsanas sync` fetches them.");
     }
 
     Ok(())
@@ -941,7 +973,7 @@ fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn sync(home: &Path, address: Option<&str>) -> Result<()> {
+fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()> {
     let node = open(home)?;
 
     let targets: Vec<String> = match address {
@@ -974,7 +1006,7 @@ fn sync(home: &Path, address: Option<&str>) -> Result<()> {
                 }
             };
 
-        match session::round(&node.store, &node.vault, &mut client) {
+        match session::round_scoped(&node.store, &node.vault, &mut client, scope) {
             Ok(report) => {
                 any_succeeded = true;
                 println!(
