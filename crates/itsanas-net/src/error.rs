@@ -12,8 +12,14 @@ pub enum NetError {
     #[error("i/o: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("tls: {0}")]
+    Tls(#[from] itsanas_tls::TlsError),
+
     #[error("framing: {0}")]
     Wire(#[from] itsanas_wire::WireError),
+
+    #[error("stream: {0}")]
+    Stream(#[from] itsanas_wire::StreamError),
 
     #[error("peer speaks protocol version {found}; this build speaks {supported}")]
     UnsupportedProtocolVersion { found: u16, supported: u16 },

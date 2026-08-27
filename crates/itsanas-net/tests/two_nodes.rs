@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
 use itsanas_net::{
-    Exposure, PeerClient, PeerServer, PeerService, Pledge,
+    PeerClient, PeerServer, PeerService, Pledge,
     protocol::{Request, Response},
     session,
 };
@@ -23,14 +23,16 @@ struct Node {
     _dir: tempfile::TempDir,
     store: Store,
     vault: Vault,
+    device: DeviceKeys,
 }
 
 fn node(master: &MasterSecret, device_seed: u8) -> Node {
     let dir = tempfile::tempdir().expect("temp dir");
+    let device = DeviceKeys::from_seed(&SecretBytes::new([device_seed; 32]));
     let store = Store::open_for_testing(
         dir.path().join("store"),
         UserKeys::derive(master),
-        DeviceKeys::from_seed(&SecretBytes::new([device_seed; 32])),
+        DeviceKeys::from_seed(&device.seed()),
         ChunkerConfig::default(),
     )
     .expect("store");
@@ -40,6 +42,7 @@ fn node(master: &MasterSecret, device_seed: u8) -> Node {
         _dir: dir,
         store,
         vault,
+        device,
     }
 }
 
@@ -56,7 +59,7 @@ fn with_server<T>(
     pledge: Pledge,
     body: impl FnOnce(std::net::SocketAddr) -> T,
 ) -> T {
-    let server = PeerServer::bind("127.0.0.1:0", Exposure::LocalOnly).expect("bind loopback");
+    let server = PeerServer::bind("127.0.0.1:0").expect("bind loopback");
     let address = server.local_addr().expect("local address");
     let shutdown = AtomicBool::new(false);
 
@@ -64,7 +67,7 @@ fn with_server<T>(
 
     std::thread::scope(|scope| {
         scope.spawn(|| {
-            let _ = server.serve_until(&service, &shutdown);
+            let _ = server.serve_until(&service, &server_node.device, &shutdown);
         });
 
         let outcome = body(address);
@@ -92,7 +95,7 @@ fn two_nodes_sync_a_file_over_a_real_socket() {
 
     with_server(&laptop, Pledge::gigabytes(1), |address| {
         let mut client =
-            PeerClient::connect(address, pi.store.device_id(), pi.store.owner()).expect("connect");
+            PeerClient::connect(address, &pi.device, pi.store.owner(), None).expect("connect");
 
         assert_eq!(
             client.peer_device(),
@@ -128,8 +131,7 @@ fn a_larger_file_survives_the_wire_byte_for_byte() {
     assert!(entry.chunks.len() > 10, "the test payload was too small");
 
     with_server(&laptop, Pledge::gigabytes(1), |address| {
-        let mut client =
-            PeerClient::connect(address, pi.store.device_id(), pi.store.owner()).unwrap();
+        let mut client = PeerClient::connect(address, &pi.device, pi.store.owner(), None).unwrap();
         session::round(&pi.store, &pi.vault, &mut client).unwrap();
     });
 
@@ -154,8 +156,7 @@ fn syncing_twice_transfers_nothing_the_second_time() {
     laptop.store.flush_segment().unwrap();
 
     with_server(&laptop, Pledge::gigabytes(1), |address| {
-        let mut client =
-            PeerClient::connect(address, pi.store.device_id(), pi.store.owner()).unwrap();
+        let mut client = PeerClient::connect(address, &pi.device, pi.store.owner(), None).unwrap();
 
         let first = session::round(&pi.store, &pi.vault, &mut client).unwrap();
         assert!(first.changed_anything());
@@ -196,7 +197,7 @@ fn a_node_that_only_ever_accepts_connections_still_learns_what_was_pushed_to_it(
 
     with_server(&listener, Pledge::gigabytes(1), |address| {
         let mut client =
-            PeerClient::connect(address, dialler.store.device_id(), dialler.store.owner()).unwrap();
+            PeerClient::connect(address, &dialler.device, dialler.store.owner(), None).unwrap();
         session::push(&dialler.store, &mut client).expect("push");
     });
 
@@ -246,8 +247,9 @@ fn a_host_stores_a_strangers_data_and_cannot_read_a_byte_of_it() {
     with_server(&bob_host, Pledge::gigabytes(1), |address| {
         let mut client = PeerClient::connect(
             address,
-            alice_device.store.device_id(),
+            &alice_device.device,
             alice_device.store.owner(),
+            None,
         )
         .unwrap();
 
@@ -316,13 +318,13 @@ fn a_host_relays_one_device_to_another_that_it_never_met() {
     with_server(&host, Pledge::gigabytes(1), |address| {
         // The Pi uploads, then conceptually powers off.
         let mut pi_client =
-            PeerClient::connect(address, pi.store.device_id(), pi.store.owner()).unwrap();
+            PeerClient::connect(address, &pi.device, pi.store.owner(), None).unwrap();
         session::push(&pi.store, &mut pi_client).unwrap();
         drop(pi_client);
 
         // The VM arrives later and has never met the Pi.
         let mut vm_client =
-            PeerClient::connect(address, vm.store.device_id(), vm.store.owner()).unwrap();
+            PeerClient::connect(address, &vm.device, vm.store.owner(), None).unwrap();
         let report = session::round(&vm.store, &vm.vault, &mut vm_client).unwrap();
         assert!(
             report.pull.adopted > 0,
@@ -360,8 +362,7 @@ fn a_storage_challenge_works_over_the_wire() {
 
     with_server(&host, Pledge::gigabytes(1), |server_address| {
         let mut client =
-            PeerClient::connect(server_address, owner.store.device_id(), owner.store.owner())
-                .unwrap();
+            PeerClient::connect(server_address, &owner.device, owner.store.owner(), None).unwrap();
 
         // Before storing anything, the host cannot pass.
         assert!(
@@ -399,7 +400,7 @@ fn a_peer_cannot_push_a_forged_segment_into_a_host() {
 
     with_server(&host, Pledge::gigabytes(1), |address| {
         let mut client =
-            PeerClient::connect(address, owner.store.device_id(), owner.store.owner()).unwrap();
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).unwrap();
 
         assert!(
             !client.store_segment(&envelope).unwrap(),
@@ -420,7 +421,7 @@ fn a_host_that_has_pledged_nothing_refuses_to_store_but_still_answers() {
 
     with_server(&host, Pledge::NONE, |address| {
         let mut client =
-            PeerClient::connect(address, owner.store.device_id(), owner.store.owner()).unwrap();
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).unwrap();
 
         let report = session::push(&owner.store, &mut client).unwrap();
         assert_eq!(
@@ -448,7 +449,7 @@ fn a_malformed_request_gets_a_refusal_rather_than_a_dropped_connection() {
 
     with_server(&host, Pledge::gigabytes(1), |address| {
         let mut client =
-            PeerClient::connect(address, peer.store.device_id(), peer.store.owner()).unwrap();
+            PeerClient::connect(address, &peer.device, peer.store.owner(), None).unwrap();
 
         let response = client
             .request(&Request::Segments {
@@ -472,8 +473,7 @@ fn a_peer_asking_about_an_unknown_user_gets_an_empty_answer() {
 
     with_server(&host, Pledge::gigabytes(1), |address| {
         let mut client =
-            PeerClient::connect(address, stranger.store.device_id(), stranger.store.owner())
-                .unwrap();
+            PeerClient::connect(address, &stranger.device, stranger.store.owner(), None).unwrap();
 
         assert_eq!(
             client.heads(stranger.store.owner()).unwrap(),
@@ -499,8 +499,7 @@ fn concurrent_edits_on_two_machines_converge_over_a_socket() {
     laptop.store.flush_segment().unwrap();
 
     with_server(&laptop, Pledge::gigabytes(1), |address| {
-        let mut client =
-            PeerClient::connect(address, pi.store.device_id(), pi.store.owner()).unwrap();
+        let mut client = PeerClient::connect(address, &pi.device, pi.store.owner(), None).unwrap();
         session::round(&pi.store, &pi.vault, &mut client).unwrap();
     });
     assert_eq!(pi.store.read_file("doc.txt").unwrap().unwrap(), b"base");
@@ -514,8 +513,7 @@ fn concurrent_edits_on_two_machines_converge_over_a_socket() {
     // Two rounds: the first carries each side's work across, the second lets
     // the laptop see what the Pi pushed.
     with_server(&laptop, Pledge::gigabytes(1), |address| {
-        let mut client =
-            PeerClient::connect(address, pi.store.device_id(), pi.store.owner()).unwrap();
+        let mut client = PeerClient::connect(address, &pi.device, pi.store.owner(), None).unwrap();
         session::round(&pi.store, &pi.vault, &mut client).unwrap();
         session::round(&pi.store, &pi.vault, &mut client).unwrap();
     });

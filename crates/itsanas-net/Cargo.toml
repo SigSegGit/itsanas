@@ -12,6 +12,8 @@ description = "Peer protocol and transport for ITSaNAS"
 blake3 = "1.8.7"
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
 itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
+itsanas-tls = { version = "0.1.0", path = "../itsanas-tls" }
+rustls = { version = "0.23.35", default-features = false }
 itsanas-sync = { version = "0.1.0", path = "../itsanas-sync", default-features = false }
 itsanas-wire = { version = "0.1.0", path = "../itsanas-wire" }
 postcard = { version = "1.1.1", default-features = false, features = ["use-std"] }

@@ -1,0 +1,29 @@
+[package]
+name = "itsanas-tls"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Mutually authenticated TLS between ITSaNAS devices, with no certificate authority"
+
+[dependencies]
+itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+itsanas-wire = { version = "0.1.0", path = "../itsanas-wire" }
+serde = { version = "1.0.229", features = ["derive"] }
+rcgen = { version = "0.14.5", default-features = false, features = ["crypto", "ring", "pem"] }
+# The `ring` provider rather than the default aws-lc-rs: aws-lc-rs needs cmake
+# and a full C toolchain, which makes cross-compiling for the Raspberry Pi
+# markedly harder. ring is the lighter of the two and the one that already
+# cross-compiles everywhere.
+rustls = { version = "0.23.35", default-features = false, features = ["ring", "std", "logging"] }
+rustls-pki-types = "1.14.0"
+thiserror = "2.0.20"
+
+[dev-dependencies]
+itsanas-wire = { version = "0.1.0", path = "../itsanas-wire" }
+
+[lints]
+workspace = true
+

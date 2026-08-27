@@ -12,8 +12,10 @@
 //! recursion, and no allocation sized by a number the peer chose until that
 //! number has been checked.
 
+mod stream;
 mod wire;
 
+pub use stream::{Connection, StreamError};
 pub use wire::{
     FrameReader, HEADER_LEN, MAX_FRAME_LEN, WIRE_VERSION, WireError, decode, encode, payload_len,
 };

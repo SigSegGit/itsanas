@@ -23,8 +23,13 @@ use crate::error::{CliError, Result};
 /// fill someone's disk on their behalf.
 pub const DEFAULT_PLEDGE_BYTES: u64 = 0;
 
-/// Default listen address: loopback only.
-pub const DEFAULT_LISTEN: &str = "127.0.0.1:9797";
+/// Default listen address: every interface.
+///
+/// Listening publicly by default is safe now that every connection is TLS with
+/// both ends proving which device they are, and it is what a node in a network
+/// has to do to be reachable. Before that it was not, and the default was
+/// loopback with an explicit override.
+pub const DEFAULT_LISTEN: &str = "0.0.0.0:9797";
 
 /// A node's non-secret settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -281,10 +286,9 @@ mod tests {
         // Assuming otherwise fills someone's disk on their behalf.
         let config = Config::default();
         assert_eq!(config.pledge_bytes, 0);
-        assert!(
-            config.listen.starts_with("127.0.0.1"),
-            "the default listen address is not loopback"
-        );
+        // Listening publicly is safe because the transport authenticates both
+        // ends; what must stay zero is what the node gives away.
+        assert_eq!(config.pledge_bytes, 0);
         assert!(config.peers.is_empty());
     }
 

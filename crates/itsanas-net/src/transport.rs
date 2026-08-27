@@ -1,52 +1,58 @@
-//! Moving frames between two machines.
+//! Moving frames between two machines, encrypted and mutually authenticated.
 //!
-//! # Read this before exposing a node to a network you do not control
+//! # What changed, and why the warnings are gone
 //!
-//! **This transport is plain TCP. It is not encrypted and it does not
-//! authenticate the peer.**
+//! This transport used to be plain TCP. Your *data* was never at risk — chunk
+//! bodies and log segments are sealed before they reach the wire — but an
+//! observer on the path saw chunk identifiers, object sizes and timing. The
+//! threat model grants a host all three, because a host stores the chunks; it
+//! does not grant them to an arbitrary network between two of your machines.
+//! `PeerServer::bind` therefore refused non-loopback addresses.
 //!
-//! What that does *not* cost: confidentiality of your data. Everything that
-//! crosses this wire was already sealed by [`itsanas_crypto`] — chunk bodies
-//! are ciphertext, segment bodies are ciphertext, and a segment envelope is
-//! signed, so a man in the middle can neither read a payload nor forge one that
-//! a peer will accept.
+//! It no longer needs to. Every connection is TLS 1.3, and both ends prove
+//! which device they are by signing the session's exporter value with their
+//! device key ([`itsanas_tls`]). A man in the middle who terminates TLS gets a
+//! different exporter and cannot forge either signature, so the encryption is
+//! bound to the identity rather than sitting beside it.
 //!
-//! What it does cost: **metadata**. A passive observer on the path sees chunk
-//! identifiers, object sizes, and timing. The threat model already grants a
-//! *host* all three — a host stores the chunks, so of course it knows their
-//! addresses and sizes — but it does not grant them to an arbitrary network
-//! between two of your own machines. An observer who records chunk ids can tell
-//! when you touch the same file again, and can correlate two of your devices.
+//! The certificates are anonymous and regenerated every start-up. That is not
+//! a weakness — see [`itsanas_tls::session`] — and it means an observer cannot
+//! correlate two connections by their certificates either.
 //!
-//! Because of that, [`PeerServer::bind`] refuses a non-loopback address unless
-//! the caller explicitly opts in. QUIC with TLS and device-key authentication
-//! is the remaining M4 work; until it lands, run this over loopback, a VPN, or
-//! an SSH tunnel.
+//! # Serving strangers is still deliberate
+//!
+//! A node answers any device that authenticates, including one it has never
+//! met. That is what lets somebody offer storage to the network at all.
+//! Everything it can serve is sealed or signed, so serving it to the wrong
+//! person reveals nothing, and how much it will *store* is bounded by the
+//! pledge. What is new is that the node now knows *who* it served, which is
+//! what any future policy would need.
 //!
 //! # Why blocking sockets and threads
 //!
 //! A node talks to a handful of peers, not ten thousand. A thread per
 //! connection costs a few megabytes and buys code that can be read top to
 //! bottom. Async would buy scalability this design does not need, at the price
-//! of an executor in every signature. The framing and protocol layers are
-//! transport-agnostic, so swapping this for QUIC later touches nothing above
-//! it.
+//! of an executor in every signature.
 
 use std::{
-    io::{Read as _, Write as _},
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
-use itsanas_crypto::{ChunkId, DeviceId, ObjectId, UserId};
+use itsanas_crypto::{ChunkId, DeviceId, DeviceKeys, ObjectId, UserId};
 use itsanas_store::SegmentEnvelope;
+use itsanas_tls::{Authenticated, Identity};
+use itsanas_wire::Connection;
 
 use crate::{
     error::{NetError, Result},
     protocol::{Head, PROTOCOL_VERSION, Request, Response},
     service::PeerService,
-    wire::{self, FrameReader},
 };
 
 /// How long a read or write may stall before the connection is abandoned.
@@ -55,47 +61,30 @@ use crate::{
 /// holds a thread forever, and enough of them exhaust the node.
 pub const IO_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Whether a listener may bind somewhere other than loopback.
-///
-/// Spelled out as an enum rather than a `bool` so that the decision is legible
-/// at the call site: `Exposure::LocalOnly` and `Exposure::Anywhere` say what
-/// they mean, where `true` would not.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Exposure {
-    /// Refuse to bind anything but a loopback address.
-    LocalOnly,
-    /// Bind whatever was asked for, accepting the metadata exposure described
-    /// in the module docs.
-    Anywhere,
-}
-
 /// Accepts peer connections and answers them from a [`PeerService`].
 #[derive(Debug)]
 pub struct PeerServer {
     listener: TcpListener,
+    config: Arc<rustls_config::Server>,
+}
+
+/// Keeps the rustls type out of this module's public signatures.
+mod rustls_config {
+    pub type Server = rustls::ServerConfig;
 }
 
 impl PeerServer {
     /// Bind a listener.
     ///
-    /// Refuses a non-loopback address under [`Exposure::LocalOnly`], because
-    /// this transport exposes metadata to anyone on the path.
-    pub fn bind(address: impl ToSocketAddrs, exposure: Exposure) -> Result<Self> {
+    /// Any address is acceptable. The transport is encrypted and both ends are
+    /// authenticated, so exposing it to a network is a normal thing to do.
+    pub fn bind(address: impl ToSocketAddrs) -> Result<Self> {
         let resolved: Vec<SocketAddr> = address.to_socket_addrs()?.collect();
-
-        if exposure == Exposure::LocalOnly
-            && let Some(public) = resolved.iter().find(|a| !a.ip().is_loopback())
-        {
-            return Err(NetError::Refused(format!(
-                "refusing to bind {public}: this transport is unencrypted and \
-                 exposes chunk identifiers and sizes to anyone on the path. \
-                 Pass Exposure::Anywhere to override, and prefer a VPN or an \
-                 SSH tunnel until QUIC lands"
-            )));
-        }
+        let identity = Identity::generate()?;
 
         Ok(Self {
             listener: TcpListener::bind(resolved.as_slice())?,
+            config: identity.server_config()?,
         })
     }
 
@@ -105,9 +94,9 @@ impl PeerServer {
     }
 
     /// Accept one connection and serve it until the peer closes.
-    pub fn serve_one(&self, service: &PeerService<'_>) -> Result<()> {
+    pub fn serve_one(&self, service: &PeerService<'_>, device: &DeviceKeys) -> Result<()> {
         let (stream, _) = self.listener.accept()?;
-        serve_connection(stream, service)
+        self.serve_connection(stream, service, device)
     }
 
     /// Serve until `shutdown` is set.
@@ -115,16 +104,21 @@ impl PeerServer {
     /// One connection at a time, deliberately: a node talks to a handful of
     /// peers, and serialising them means the store is never touched
     /// concurrently by two peers doing unrelated things.
-    pub fn serve_until(&self, service: &PeerService<'_>, shutdown: &AtomicBool) -> Result<()> {
+    pub fn serve_until(
+        &self,
+        service: &PeerService<'_>,
+        device: &DeviceKeys,
+        shutdown: &AtomicBool,
+    ) -> Result<()> {
         self.listener.set_nonblocking(true)?;
 
         while !shutdown.load(Ordering::Relaxed) {
             match self.listener.accept() {
                 Ok((stream, _)) => {
                     stream.set_nonblocking(false)?;
-                    // One peer misbehaving must not stop the server. Log-worthy,
-                    // not fatal.
-                    let _ = serve_connection(stream, service);
+                    // One peer misbehaving must not stop the server. A failed
+                    // handshake is the most ordinary thing on a public port.
+                    let _ = self.serve_connection(stream, service, device);
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(20));
@@ -135,84 +129,61 @@ impl PeerServer {
 
         Ok(())
     }
-}
 
-fn serve_connection(stream: TcpStream, service: &PeerService<'_>) -> Result<()> {
-    stream.set_read_timeout(Some(IO_TIMEOUT))?;
-    stream.set_write_timeout(Some(IO_TIMEOUT))?;
+    fn serve_connection(
+        &self,
+        stream: TcpStream,
+        service: &PeerService<'_>,
+        device: &DeviceKeys,
+    ) -> Result<()> {
+        stream.set_read_timeout(Some(IO_TIMEOUT))?;
+        stream.set_write_timeout(Some(IO_TIMEOUT))?;
 
-    let mut connection = Connection::new(stream);
+        let Authenticated {
+            peer,
+            mut connection,
+        } = itsanas_tls::accept(&self.config, device, stream)?;
+        let _ = peer;
 
-    loop {
-        let request: Request = match connection.receive()? {
-            Some(request) => request,
-            // A clean close between requests is how a peer says goodbye.
-            None => return Ok(()),
-        };
-
-        let response = service.handle(&request)?;
-        connection.send(&response)?;
-    }
-}
-
-/// One end of a framed conversation.
-#[derive(Debug)]
-struct Connection {
-    stream: TcpStream,
-    reader: FrameReader,
-}
-
-impl Connection {
-    fn new(stream: TcpStream) -> Self {
-        Self {
-            stream,
-            reader: FrameReader::new(),
-        }
-    }
-
-    fn send<T: serde::Serialize>(&mut self, message: &T) -> Result<()> {
-        let frame = wire::encode(message)?;
-        self.stream.write_all(&frame)?;
-        self.stream.flush()?;
-        Ok(())
-    }
-
-    /// Read until one whole message has arrived.
-    ///
-    /// `Ok(None)` means the peer closed cleanly between messages. A close
-    /// *mid-message* is an error, because silently discarding a partial frame
-    /// would let a peer truncate a response and have it treated as complete.
-    fn receive<T: for<'de> serde::Deserialize<'de>>(&mut self) -> Result<Option<T>> {
         loop {
-            if let Some(message) = self.reader.next_message()? {
-                return Ok(Some(message));
-            }
+            let request: Request = match connection.receive()? {
+                Some(request) => request,
+                // A clean close between requests is how a peer says goodbye.
+                None => return Ok(()),
+            };
 
-            let mut buffer = [0u8; 16 * 1024];
-            match self.stream.read(&mut buffer)? {
-                0 => {
-                    return if self.reader.buffered() == 0 {
-                        Ok(None)
-                    } else {
-                        Err(NetError::ConnectionClosed)
-                    };
-                }
-                read => self.reader.push(&buffer[..read]),
-            }
+            let response = service.handle(&request)?;
+            connection.send(&response)?;
         }
     }
 }
 
 /// A connection to a peer, from the asking side.
-#[derive(Debug)]
 pub struct PeerClient {
-    connection: Connection,
+    connection: Connection<itsanas_tls::session::ClientStream<TcpStream>>,
     peer_device: DeviceId,
 }
 
+impl std::fmt::Debug for PeerClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeerClient")
+            .field("peer_device", &self.peer_device)
+            .finish_non_exhaustive()
+    }
+}
+
 impl PeerClient {
-    /// Connect and complete the opening exchange.
-    pub fn connect(address: impl ToSocketAddrs, device: DeviceId, owner: UserId) -> Result<Self> {
+    /// Connect, authenticate, and complete the opening exchange.
+    ///
+    /// `expect` pins which device must answer. Pass it whenever the identity is
+    /// known — addresses come from the coordinator, and the coordinator is not
+    /// trusted to say who lives at one.
+    pub fn connect(
+        address: impl ToSocketAddrs,
+        device: &DeviceKeys,
+        owner: UserId,
+        expect: Option<DeviceId>,
+    ) -> Result<Self> {
         let address = address
             .to_socket_addrs()?
             .next()
@@ -223,26 +194,29 @@ impl PeerClient {
         stream.set_write_timeout(Some(IO_TIMEOUT))?;
         stream.set_nodelay(true)?;
 
+        let identity = Identity::generate()?;
+        let Authenticated { peer, connection } =
+            itsanas_tls::connect(&identity.client_config()?, device, stream, expect)?;
+
         let mut client = Self {
-            connection: Connection::new(stream),
-            peer_device: DeviceId::from_bytes([0; 32]),
+            connection,
+            peer_device: peer,
         };
 
-        // Version negotiation before anything else, so an incompatible peer
-        // fails immediately and legibly rather than on some later message.
+        // Version negotiation after authentication, so an incompatible peer
+        // fails legibly rather than on some later message.
         match client.request(&Request::Hello {
             protocol: PROTOCOL_VERSION,
-            device,
+            device: device.device_id(),
             owner,
         })? {
-            Response::Hello { protocol, device } => {
+            Response::Hello { protocol, .. } => {
                 if protocol != PROTOCOL_VERSION {
                     return Err(NetError::UnsupportedProtocolVersion {
                         found: protocol,
                         supported: PROTOCOL_VERSION,
                     });
                 }
-                client.peer_device = device;
             }
             Response::Refused(reason) => return Err(NetError::Refused(reason)),
             _ => {
@@ -253,7 +227,7 @@ impl PeerClient {
         Ok(client)
     }
 
-    /// The device on the other end, as it identified itself.
+    /// The device on the other end, as it *proved* itself — not as it claimed.
     #[must_use]
     pub const fn peer_device(&self) -> DeviceId {
         self.peer_device
@@ -261,8 +235,7 @@ impl PeerClient {
 
     /// Send a request and wait for its response.
     pub fn request(&mut self, request: &Request) -> Result<Response> {
-        self.connection.send(request)?;
-        self.connection.receive()?.ok_or(NetError::ConnectionClosed)
+        Ok(self.connection.exchange(request)?)
     }
 
     /// Ask what chains the peer holds for `owner`.
@@ -382,29 +355,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn binding_a_public_address_is_refused_by_default() {
-        // The default has to be the safe one. Someone bringing up a node on the
-        // Pi will type an address and press enter, and the failure mode of
-        // getting this wrong is silent metadata exposure, which nobody notices.
-        let error = PeerServer::bind("0.0.0.0:0", Exposure::LocalOnly)
-            .expect_err("binding a wildcard address should be refused");
-
-        assert!(
-            matches!(&error, NetError::Refused(reason) if reason.contains("unencrypted")),
-            "the refusal did not explain why: {error}"
-        );
-    }
-
-    #[test]
-    fn loopback_binds_without_an_override() {
-        let server = PeerServer::bind("127.0.0.1:0", Exposure::LocalOnly).unwrap();
-        assert!(server.local_addr().unwrap().ip().is_loopback());
-    }
-
-    #[test]
-    fn an_explicit_override_allows_a_public_bind() {
-        let server = PeerServer::bind("0.0.0.0:0", Exposure::Anywhere)
-            .expect("an explicit override must work, or the escape hatch is a lie");
+    fn binding_a_public_address_no_longer_needs_an_override() {
+        // It used to be refused, because the transport leaked chunk identifiers
+        // and sizes to anyone on the path. TLS closed that, so keeping the
+        // refusal would be cargo cult.
+        let server = PeerServer::bind("0.0.0.0:0").expect("a public bind should work");
         assert_eq!(server.local_addr().unwrap().ip().to_string(), "0.0.0.0");
+    }
+
+    #[test]
+    fn loopback_still_binds() {
+        let server = PeerServer::bind("127.0.0.1:0").unwrap();
+        assert!(server.local_addr().unwrap().ip().is_loopback());
     }
 }

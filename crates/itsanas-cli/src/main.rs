@@ -7,11 +7,9 @@
 //!
 //! # What this is not yet
 //!
-//! There is no background daemon, so nothing syncs on its own — `itsanas sync`
-//! is a thing you run, or a thing cron runs. And the transport is plain TCP, so
-//! `itsanas serve` refuses to listen on anything but loopback unless you pass
-//! `--allow-public` and accept the metadata exposure that comes with it. Both
-//! are recorded in `docs/ROADMAP.md` rather than glossed over.
+//! There is no repair execution and no scheduled storage challenge — both need
+//! the coordinator to say who the peers are. Recorded in `docs/ROADMAP.md`
+//! rather than glossed over.
 
 mod config;
 mod daemon;
@@ -26,7 +24,7 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use itsanas_net::{Exposure, PeerClient, PeerServer, PeerService, Pledge, session};
+use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
 
 use crate::{
     config::{format_size, parse_size},
@@ -124,10 +122,6 @@ enum Command {
         /// Address to listen on. Defaults to the configured `listen`.
         #[arg(long)]
         listen: Option<String>,
-        /// Permit binding a non-loopback address, accepting that this
-        /// transport exposes chunk identifiers and sizes to the network.
-        #[arg(long)]
-        allow_public: bool,
     },
     /// Serve peers and sync on a timer, in one process, until interrupted.
     ///
@@ -138,8 +132,6 @@ enum Command {
     Daemon {
         #[arg(long)]
         listen: Option<String>,
-        #[arg(long)]
-        allow_public: bool,
         /// Seconds between sync rounds.
         #[arg(long, default_value_t = daemon::DEFAULT_INTERVAL.as_secs())]
         interval: u64,
@@ -211,18 +203,10 @@ fn run() -> Result<()> {
         Command::Folder { path } => folder(&home, path.as_deref()),
         Command::Scan { deep } => scan(&home, deep),
         Command::Pledge { size } => pledge(&home, &size),
-        Command::Serve {
-            listen,
-            allow_public,
-        } => serve(&home, listen.as_deref(), allow_public),
-        Command::Daemon {
-            listen,
-            allow_public,
-            interval,
-        } => daemon::run(
+        Command::Serve { listen } => serve(&home, listen.as_deref()),
+        Command::Daemon { listen, interval } => daemon::run(
             &open(&home)?,
             listen.as_deref(),
-            allow_public,
             std::time::Duration::from_secs(interval.max(1)),
         ),
         Command::Sync { address } => sync(&home, address.as_deref()),
@@ -646,17 +630,11 @@ fn pledge(home: &Path, size: &str) -> Result<()> {
     Ok(())
 }
 
-fn serve(home: &Path, listen: Option<&str>, allow_public: bool) -> Result<()> {
+fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
     let node = open(home)?;
     let address = listen.unwrap_or(&node.config.listen);
 
-    let exposure = if allow_public {
-        Exposure::Anywhere
-    } else {
-        Exposure::LocalOnly
-    };
-
-    let server = PeerServer::bind(address, exposure)?;
+    let server = PeerServer::bind(address)?;
     let bound = server.local_addr()?;
 
     let service = PeerService::new(
@@ -671,12 +649,6 @@ fn serve(home: &Path, listen: Option<&str>, allow_public: bool) -> Result<()> {
     println!("  user id  {}", node.store.owner());
     println!("  device   {}", node.store.device_id());
     println!("  pledged  {}", format_size(node.config.pledge_bytes));
-    if allow_public {
-        println!();
-        println!("WARNING: this transport is not encrypted. Your data stays sealed,");
-        println!("but anyone on the network path can see chunk identifiers, object");
-        println!("sizes and timing. Prefer a VPN or an SSH tunnel until QUIC lands.");
-    }
     println!();
     println!("Press Ctrl-C to stop.");
 
@@ -684,7 +656,7 @@ fn serve(home: &Path, listen: Option<&str>, allow_public: bool) -> Result<()> {
     // process directly. Every write is committed before its command returns, so
     // an abrupt stop loses nothing.
     let shutdown = AtomicBool::new(false);
-    server.serve_until(&service, &shutdown)?;
+    server.serve_until(&service, &node.device, &shutdown)?;
 
     Ok(())
 }
@@ -711,19 +683,16 @@ fn sync(home: &Path, address: Option<&str>) -> Result<()> {
         print!("{target}: ");
         let _ = std::io::stdout().flush();
 
-        let mut client = match PeerClient::connect(
-            target.as_str(),
-            node.store.device_id(),
-            node.store.owner(),
-        ) {
-            Ok(client) => client,
-            Err(error) => {
-                // One unreachable peer must not abort the others: the whole
-                // point is that peers come and go.
-                println!("unreachable ({error})");
-                continue;
-            }
-        };
+        let mut client =
+            match PeerClient::connect(target.as_str(), &node.device, node.store.owner(), None) {
+                Ok(client) => client,
+                Err(error) => {
+                    // One unreachable peer must not abort the others: the whole
+                    // point is that peers come and go.
+                    println!("unreachable ({error})");
+                    continue;
+                }
+            };
 
         match session::round(&node.store, &node.vault, &mut client) {
             Ok(report) => {

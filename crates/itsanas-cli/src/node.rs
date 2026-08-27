@@ -51,6 +51,12 @@ pub struct Node {
     pub config: Config,
     pub store: Store,
     pub vault: Vault,
+    /// This machine's signing key.
+    ///
+    /// Kept beside the store rather than fetched out of it: the store must
+    /// never hand a key to a caller, and the transport needs one to prove which
+    /// device it is.
+    pub device: DeviceKeys,
 }
 
 impl Node {
@@ -205,6 +211,7 @@ impl Node {
             config,
             store,
             vault,
+            device: DeviceKeys::from_seed(&device.seed()),
         })
     }
 

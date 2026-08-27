@@ -45,7 +45,7 @@ use std::{
 };
 
 use itsanas_folder::{Folder, Watcher, watch};
-use itsanas_net::{Exposure, PeerClient, PeerServer, PeerService, Pledge, session};
+use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
 
 use crate::{
     config::format_size,
@@ -90,20 +90,9 @@ const SETTLE_LIMIT: Duration = Duration::from_secs(10);
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 /// Run until interrupted.
-pub fn run(
-    node: &Node,
-    listen: Option<&str>,
-    allow_public: bool,
-    interval: Duration,
-) -> Result<()> {
+pub fn run(node: &Node, listen: Option<&str>, interval: Duration) -> Result<()> {
     let address = listen.unwrap_or(&node.config.listen);
-    let exposure = if allow_public {
-        Exposure::Anywhere
-    } else {
-        Exposure::LocalOnly
-    };
-
-    let server = PeerServer::bind(address, exposure)?;
+    let server = PeerServer::bind(address)?;
     let bound = server.local_addr()?;
 
     let service = PeerService::new(
@@ -132,18 +121,13 @@ pub fn run(
     } else {
         println!("  peers     {}", node.config.peers.join(", "));
     }
-    if allow_public {
-        println!();
-        println!("WARNING: this transport is not encrypted. Your data stays sealed, but");
-        println!("anyone on the network path sees chunk identifiers, sizes and timing.");
-    }
     println!();
     println!("Ctrl-C to stop.");
     println!();
 
     std::thread::scope(|scope| {
         scope.spawn(|| {
-            if let Err(error) = server.serve_until(&service, shutdown) {
+            if let Err(error) = server.serve_until(&service, &node.device, shutdown) {
                 // The sync loop can carry on without the listener; a node that
                 // cannot accept connections can still push to its peers. Say so
                 // loudly rather than exiting and taking sync down with it.
@@ -302,7 +286,7 @@ fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
 /// the whole design is built around machines that are usually off. Treating it
 /// as an error would mean the daemon exits every time someone shuts a laptop.
 fn sync_once(node: &Node, peer: &str) {
-    let mut client = match PeerClient::connect(peer, node.store.device_id(), node.store.owner()) {
+    let mut client = match PeerClient::connect(peer, &node.device, node.store.owner(), None) {
         Ok(client) => client,
         Err(error) => {
             println!("{peer}: unreachable ({error})");
