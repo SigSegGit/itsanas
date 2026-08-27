@@ -1,20 +1,18 @@
 [package]
-name = "itsanas-net"
+name = "itsanas-coord"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Peer protocol and transport for ITSaNAS"
+description = "The ITSaNAS coordinator: a signed notice board that holds no keys and no data"
 
 [dependencies]
-blake3 = "1.8.7"
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
-itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
-itsanas-sync = { version = "0.1.0", path = "../itsanas-sync", default-features = false }
 itsanas-wire = { version = "0.1.0", path = "../itsanas-wire" }
 postcard = { version = "1.1.1", default-features = false, features = ["use-std"] }
+redb = "2.6.0"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"
 
@@ -22,5 +20,4 @@ thiserror = "2.0.20"
 workspace = true
 
 [dev-dependencies]
-itsanas-testkit = { version = "0.1.0", path = "../itsanas-testkit" }
 tempfile = "3.23.0"

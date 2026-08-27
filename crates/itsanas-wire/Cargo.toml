@@ -1,0 +1,20 @@
+[package]
+name = "itsanas-wire"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Length-prefixed framing for every ITSaNAS protocol"
+
+[dependencies]
+postcard = { version = "1.1.1", default-features = false, features = ["use-std"] }
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+blake3 = "1.8.7"

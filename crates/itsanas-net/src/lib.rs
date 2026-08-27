@@ -27,7 +27,8 @@ pub mod protocol;
 pub mod service;
 pub mod session;
 pub mod transport;
-pub mod wire;
+/// Framing, re-exported so callers of this crate need not name a second one.
+pub use itsanas_wire as wire;
 
 pub use error::{NetError, Result};
 pub use protocol::{Head, PROTOCOL_VERSION, Request, Response, challenge_holds, challenge_proof};

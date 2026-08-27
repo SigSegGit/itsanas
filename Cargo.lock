@@ -632,6 +632,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "itsanas-coord"
+version = "0.1.0"
+dependencies = [
+ "itsanas-crypto",
+ "itsanas-wire",
+ "postcard",
+ "redb",
+ "serde",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "itsanas-crypto"
 version = "0.1.0"
 dependencies = [
@@ -673,6 +686,7 @@ dependencies = [
  "itsanas-store",
  "itsanas-sync",
  "itsanas-testkit",
+ "itsanas-wire",
  "postcard",
  "serde",
  "tempfile",
@@ -723,6 +737,16 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "itsanas-crypto",
+]
+
+[[package]]
+name = "itsanas-wire"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "postcard",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]

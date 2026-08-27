@@ -26,7 +26,23 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::{NetError, Result};
+/// Everything that can go wrong reading a frame.
+#[derive(Debug, thiserror::Error)]
+pub enum WireError {
+    #[error("encoding: {0}")]
+    Encoding(#[from] postcard::Error),
+
+    #[error("the frame is incomplete")]
+    Truncated,
+
+    #[error("peer sent a {len}-byte frame; this build accepts at most {max}")]
+    FrameTooLarge { len: usize, max: usize },
+
+    #[error("peer speaks wire version {found}; this build speaks {supported}")]
+    UnsupportedWireVersion { found: u8, supported: u8 },
+}
+
+type Result<T> = std::result::Result<T, WireError>;
 
 /// Wire format version. Bumped when the framing itself changes, not when a
 /// message variant is added.
@@ -48,7 +64,7 @@ pub fn encode<T: Serialize>(message: &T) -> Result<Vec<u8>> {
     let payload = postcard::to_stdvec(message)?;
 
     if payload.len() > MAX_FRAME_LEN {
-        return Err(NetError::FrameTooLarge {
+        return Err(WireError::FrameTooLarge {
             len: payload.len(),
             max: MAX_FRAME_LEN,
         });
@@ -71,13 +87,13 @@ pub fn encode<T: Serialize>(message: &T) -> Result<Vec<u8>> {
 /// *before* reserving space for it.
 pub fn payload_len(header: &[u8]) -> Result<usize> {
     if header.len() < HEADER_LEN {
-        return Err(NetError::Truncated);
+        return Err(WireError::Truncated);
     }
 
     match header[0] {
         WIRE_VERSION => {}
         found => {
-            return Err(NetError::UnsupportedWireVersion {
+            return Err(WireError::UnsupportedWireVersion {
                 found,
                 supported: WIRE_VERSION,
             });
@@ -87,7 +103,7 @@ pub fn payload_len(header: &[u8]) -> Result<usize> {
     let len = u32::from_le_bytes(header[1..HEADER_LEN].try_into().expect("4 bytes")) as usize;
 
     if len > MAX_FRAME_LEN {
-        return Err(NetError::FrameTooLarge {
+        return Err(WireError::FrameTooLarge {
             len,
             max: MAX_FRAME_LEN,
         });
@@ -102,7 +118,7 @@ pub fn decode<T: for<'de> Deserialize<'de>>(frame: &[u8]) -> Result<T> {
 
     let payload = frame
         .get(HEADER_LEN..HEADER_LEN + len)
-        .ok_or(NetError::Truncated)?;
+        .ok_or(WireError::Truncated)?;
 
     Ok(postcard::from_bytes(payload)?)
 }
@@ -215,7 +231,7 @@ mod tests {
 
         assert!(matches!(
             decode::<Sample>(&frame),
-            Err(NetError::UnsupportedWireVersion { found: 99, .. })
+            Err(WireError::UnsupportedWireVersion { found: 99, .. })
         ));
     }
 
@@ -227,7 +243,7 @@ mod tests {
         header.extend_from_slice(&u32::MAX.to_le_bytes());
 
         match payload_len(&header) {
-            Err(NetError::FrameTooLarge { len, max }) => {
+            Err(WireError::FrameTooLarge { len, max }) => {
                 assert_eq!(len, u32::MAX as usize);
                 assert_eq!(max, MAX_FRAME_LEN);
             }

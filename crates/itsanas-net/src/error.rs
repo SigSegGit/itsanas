@@ -12,14 +12,8 @@ pub enum NetError {
     #[error("i/o: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("the frame is incomplete")]
-    Truncated,
-
-    #[error("peer sent a {len}-byte frame; this build accepts at most {max}")]
-    FrameTooLarge { len: usize, max: usize },
-
-    #[error("peer speaks wire version {found}; this build speaks {supported}")]
-    UnsupportedWireVersion { found: u8, supported: u8 },
+    #[error("framing: {0}")]
+    Wire(#[from] itsanas_wire::WireError),
 
     #[error("peer speaks protocol version {found}; this build speaks {supported}")]
     UnsupportedProtocolVersion { found: u16, supported: u16 },
