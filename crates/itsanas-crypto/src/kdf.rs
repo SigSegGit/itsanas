@@ -15,7 +15,14 @@ use crate::secret::{SecretBytes, SymmetricKey};
 /// Ed25519 master signing key: the user's permanent identity.
 pub const CTX_USER_SIGNING: &str = "itsanas v1 user master signing key";
 /// X25519 master agreement key: used to wrap keys to a user's other devices.
+///
+/// This derives the *static secret* from the master secret. The output of a
+/// Diffie-Hellman exchange using that secret is hashed under
+/// [`CTX_USER_DH_OUTPUT`] instead — a raw DH result and a long-term secret are
+/// different kinds of material and must not share a derivation context.
 pub const CTX_USER_AGREEMENT: &str = "itsanas v1 user master agreement key";
+/// Shared secret produced by an X25519 exchange, before use as a wrapping key.
+pub const CTX_USER_DH_OUTPUT: &str = "itsanas v1 user agreement shared secret";
 /// Root key for sealing file chunks.
 pub const CTX_USER_CHUNK_DATA: &str = "itsanas v1 user chunk data key";
 /// Key that blinds plaintext hashes into storage-visible chunk identifiers.
@@ -32,6 +39,7 @@ pub const CTX_SIGNED_MESSAGE: &str = "itsanas v1 signed message digest";
 pub const ALL_CONTEXTS: &[&str] = &[
     CTX_USER_SIGNING,
     CTX_USER_AGREEMENT,
+    CTX_USER_DH_OUTPUT,
     CTX_USER_CHUNK_DATA,
     CTX_USER_BLINDING,
     CTX_USER_OPLOG,

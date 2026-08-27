@@ -32,6 +32,13 @@ use crate::{
 /// On-disk and on-wire format version for sealed objects.
 pub const SEAL_VERSION: u8 = 1;
 
+/// Canonical [`SealContext::purpose`] for a file chunk.
+///
+/// Defined here rather than in the storage layer so that every crate that seals
+/// or opens a chunk agrees on the exact string. A typo would not fail loudly —
+/// it would derive a different key and produce chunks nothing else can read.
+pub const CHUNK_PURPOSE: &str = "chunk";
+
 const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 24;
 const TAG_LEN: usize = 16;
@@ -108,6 +115,24 @@ fn check_version(sealed: &[u8], kind: &'static str) -> Result<()> {
 }
 
 /// Seal a content-addressed object. Identical inputs produce identical output.
+///
+/// # Precondition
+///
+/// **`context.address` must be a collision-resistant function of `plaintext`.**
+///
+/// The key and the nonce are both derived from the address alone. If a caller
+/// seals two different plaintexts under one address, they encrypt two messages
+/// under the same key *and* the same nonce, which for a stream cipher leaks the
+/// XOR of the plaintexts and destroys the Poly1305 authentication guarantee.
+/// This is the single sharpest edge in the crate.
+///
+/// This function cannot check that precondition — it never sees how the address
+/// was produced. Callers should therefore use
+/// [`UserKeys::seal_chunk`](crate::identity::UserKeys::seal_chunk), which
+/// derives the address from the plaintext itself and makes the unsafe
+/// combination unreachable. Reach for this function directly only when
+/// implementing a new content-addressed object kind, and derive its address by
+/// hashing its content.
 pub fn seal_deterministic(
     root: &SymmetricKey,
     context: &SealContext<'_>,
@@ -442,6 +467,80 @@ mod tests {
 
         let sealed = seal_deterministic(root, &context, b"").unwrap();
         assert_eq!(open_deterministic(root, &context, &sealed).unwrap(), b"");
+    }
+
+    #[test]
+    fn reusing_one_address_for_two_plaintexts_leaks_their_xor() {
+        // This test asserts a *vulnerability*, deliberately. It exists so that
+        // nobody can read `seal_deterministic`'s signature, conclude the
+        // address is just a label, and pass something unrelated to the content.
+        //
+        // Key and nonce both come from the address. Two plaintexts under one
+        // address therefore share a keystream, and XORing the ciphertexts
+        // recovers the XOR of the plaintexts without any key at all.
+        let keys = user(15);
+        let root = keys.chunk_root();
+        let context = ctx(keys.user_id(), b"one-address-two-messages");
+
+        let first = b"attack at dawn!!";
+        let second = b"retreat at dusk!";
+
+        let sealed_first = seal_deterministic(root, &context, first).unwrap();
+        let sealed_second = seal_deterministic(root, &context, second).unwrap();
+
+        // Skip the version byte; compare the ciphertext bodies.
+        let recovered: Vec<u8> = sealed_first[1..=first.len()]
+            .iter()
+            .zip(&sealed_second[1..=second.len()])
+            .map(|(a, b)| a ^ b)
+            .collect();
+        let expected: Vec<u8> = first.iter().zip(second).map(|(a, b)| a ^ b).collect();
+
+        assert_eq!(
+            recovered, expected,
+            "the keystream-reuse failure mode changed; re-derive whether \
+             seal_deterministic's precondition is still what the docs claim"
+        );
+
+        // And the safe path makes this unreachable: distinct content always
+        // lands at distinct addresses, so the collision above cannot arise.
+        assert_ne!(
+            keys.chunk_id(first),
+            keys.chunk_id(second),
+            "two different plaintexts hashed to one chunk address"
+        );
+    }
+
+    #[test]
+    fn seal_chunk_derives_its_own_address_so_the_precondition_cannot_be_broken() {
+        let keys = user(16);
+
+        let (address, sealed) = keys.seal_chunk(b"content addressed by itself").unwrap();
+        assert_eq!(address, keys.chunk_id(b"content addressed by itself"));
+        assert_eq!(
+            keys.open_chunk(&address, &sealed).unwrap(),
+            b"content addressed by itself"
+        );
+
+        // Identical content re-seals to identical bytes, which is what makes
+        // deduplication and remote audit work.
+        let (again, sealed_again) = keys.seal_chunk(b"content addressed by itself").unwrap();
+        assert_eq!(address, again);
+        assert_eq!(sealed, sealed_again);
+
+        // Different content never collides.
+        let (other, _) = keys.seal_chunk(b"something else entirely").unwrap();
+        assert_ne!(address, other);
+    }
+
+    #[test]
+    fn a_chunk_cannot_be_opened_at_an_address_it_was_not_sealed_under() {
+        let keys = user(17);
+        let (address, sealed) = keys.seal_chunk(b"payload").unwrap();
+        let (other, _) = keys.seal_chunk(b"different payload").unwrap();
+
+        assert!(keys.open_chunk(&other, &sealed).is_err());
+        assert!(keys.open_chunk(&address, &sealed).is_ok());
     }
 
     #[test]

@@ -18,9 +18,7 @@ use std::{
     time::Duration,
 };
 
-use itsanas_crypto::{
-    ChunkId, DeviceKeys, SealContext, UserId, UserKeys, open_deterministic, seal_deterministic,
-};
+use itsanas_crypto::{ChunkId, DeviceKeys, UserId, UserKeys, is_published_test_identity};
 
 use crate::{
     blob::BlobStore,
@@ -32,7 +30,11 @@ use crate::{
 };
 
 /// Seal purpose for file chunks.
-pub const CHUNK_SEAL_PURPOSE: &str = "chunk";
+///
+/// Re-exported from the crypto crate so there is exactly one definition: a
+/// second copy that drifted would derive different keys and silently produce
+/// chunks nothing else can read.
+pub use itsanas_crypto::seal::CHUNK_PURPOSE as CHUNK_SEAL_PURPOSE;
 
 /// A device's local state.
 #[derive(Debug)]
@@ -97,17 +99,50 @@ pub struct StoreStats {
 
 impl Store {
     /// Open (creating if needed) a store at `root`.
+    ///
+    /// Refuses the published test identities. Their recovery phrases are
+    /// printed in `docs/TEST-USERS.md`, so anyone at all can derive their keys;
+    /// a store holding real data under one of them offers no protection
+    /// whatsoever.
     pub fn open(root: impl AsRef<Path>, user: UserKeys, device: DeviceKeys) -> Result<Self> {
-        Self::open_with_chunker(root, user, device, ChunkerConfig::default())
+        Self::open_inner(root, user, device, ChunkerConfig::default(), false)
     }
 
-    /// Open with a non-default chunker, for tests and for tuning experiments.
+    /// Open with a non-default chunker, for tuning experiments.
     pub fn open_with_chunker(
         root: impl AsRef<Path>,
         user: UserKeys,
         device: DeviceKeys,
         chunker: ChunkerConfig,
     ) -> Result<Self> {
+        Self::open_inner(root, user, device, chunker, false)
+    }
+
+    /// Open a store for one of the published test identities.
+    ///
+    /// Exists so the fixture users in `itsanas-testkit` can be exercised
+    /// end to end. Named to be impossible to reach for by accident, and never
+    /// called from a code path that handles a real user's data.
+    pub fn open_for_testing(
+        root: impl AsRef<Path>,
+        user: UserKeys,
+        device: DeviceKeys,
+        chunker: ChunkerConfig,
+    ) -> Result<Self> {
+        Self::open_inner(root, user, device, chunker, true)
+    }
+
+    fn open_inner(
+        root: impl AsRef<Path>,
+        user: UserKeys,
+        device: DeviceKeys,
+        chunker: ChunkerConfig,
+        allow_published_test_identity: bool,
+    ) -> Result<Self> {
+        if !allow_published_test_identity && is_published_test_identity(&user.user_id()) {
+            return Err(StoreError::PublishedTestIdentity(user.user_id().short()));
+        }
+
         let root = root.as_ref().to_owned();
         std::fs::create_dir_all(&root).map_err(|error| StoreError::io(root.clone(), error))?;
 
@@ -143,15 +178,6 @@ impl Store {
         &self.chunker
     }
 
-    /// The sealing context for one chunk.
-    fn chunk_context<'a>(&self, address: &'a ChunkId) -> SealContext<'a> {
-        SealContext {
-            purpose: CHUNK_SEAL_PURPOSE,
-            owner: self.user.user_id(),
-            address: address.as_bytes(),
-        }
-    }
-
     // ----------------------------------------------------------------- write
 
     /// Chunk, seal and store `plaintext` under the logical path `path`.
@@ -164,12 +190,9 @@ impl Store {
 
         let mut chunks = Vec::new();
         for chunk in self.chunker.split(plaintext) {
-            let address = self.user.chunk_id(chunk.data);
-            let sealed = seal_deterministic(
-                self.user.chunk_root(),
-                &self.chunk_context(&address),
-                chunk.data,
-            )?;
+            // `seal_chunk` derives the address from the content itself, so the
+            // fixed-nonce construction's precondition cannot be violated here.
+            let (address, sealed) = self.user.seal_chunk(chunk.data)?;
             self.blobs.put(&address, &sealed)?;
             chunks.push(address);
         }
@@ -241,11 +264,7 @@ impl Store {
                 .get(address)?
                 .ok_or_else(|| StoreError::MissingChunk(address.short()))?;
 
-            let chunk = open_deterministic(
-                self.user.chunk_root(),
-                &self.chunk_context(address),
-                &sealed,
-            )?;
+            let chunk = self.user.open_chunk(address, &sealed)?;
             plaintext.extend_from_slice(&chunk);
         }
 

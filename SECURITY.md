@@ -43,8 +43,11 @@ service and partition attempts, not data.
 
 The recovery phrases and private keys in [docs/TEST-USERS.md](docs/TEST-USERS.md)
 are public **by design**, so anyone can reproduce the test suite. Those three
-identities are refused by production code
-(`itsanas_crypto::is_published_test_identity`).
+identities are refused by `itsanas_store::Store::open`, which calls
+`itsanas_crypto::is_published_test_identity`. The fixtures themselves reach a
+store only through `Store::open_for_testing`, a separate and deliberately
+awkward constructor. Every layer added above the store must apply the same check
+at its own entry point.
 
 Please do not report them as a leak. Do report it if you find a path where a
 node **accepts** one of them.

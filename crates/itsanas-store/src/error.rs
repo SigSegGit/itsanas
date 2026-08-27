@@ -48,6 +48,12 @@ pub enum StoreError {
     #[error("store at {0} is already locked by another process")]
     Locked(PathBuf),
 
+    #[error(
+        "refusing to open a store for published test identity {0}: its recovery \
+         phrase is printed in the documentation, so its data is public"
+    )]
+    PublishedTestIdentity(String),
+
     #[error("{0}")]
     Corrupt(String),
 }

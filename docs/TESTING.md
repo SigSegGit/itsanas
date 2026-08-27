@@ -1,6 +1,18 @@
 # Test Catalogue
 
-**Last updated: 2026-08-26 — 78 tests across 3 test binaries.**
+**Last updated: 2026-08-27 — 167 tests across 5 binaries, plus 1 doctest.**
+
+| Binary | Tests |
+| --- | --- |
+| `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
+| `itsanas-crypto` property (`tests/properties.rs`) | 15 |
+| `itsanas-store` unit | 59 |
+| `itsanas-store` integration (`tests/store.rs`) | 22 |
+| `itsanas-testkit` unit | 7 |
+
+These counts are mechanical — regenerate them with
+`cargo test --workspace -- --list`. If this table disagrees with that command,
+the table is the bug.
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -27,7 +39,7 @@ Defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 | --- | --- | --- |
 | **lint** | `cargo fmt --check`, `cargo clippy -D warnings` | Style drift and lint debt compound. Clippy's `pedantic` set catches real bugs in crypto code — sign confusion, lossy casts, misused ranges. |
 | **test** | `cargo test --workspace` on Ubuntu, Windows, macOS | ITSaNAS must run on a Windows laptop and a Linux Pi simultaneously. Path handling, endianness assumptions and filesystem semantics differ; a Linux-only suite would not notice. |
-| **slow-tests** | `cargo test -- --ignored --test-threads 1` | Tests marked `#[ignore]` run *production* cost parameters — real 64 MiB Argon2id, and later large simulated swarms. Too slow for every push, far too important to never run. |
+| **slow-tests** | `cargo test -- --ignored --test-threads 1` | One test is currently marked `#[ignore]`: the real 64 MiB Argon2id cost. Too slow for every push, far too important to never run. Large simulated swarms will join it at M5. |
 | **cross-build** | `cargo build --release --target aarch64-unknown-linux-gnu` | The Raspberry Pi 4B+ is a first-class deployment target. Catching a dependency that does not cross-compile at PR time is much cheaper than at deploy time. |
 | **minimum-rust-version** | `cargo check` on the pinned MSRV | Prevents accidentally requiring a newer toolchain than the documented minimum, which would break users on distro Rust. |
 | **supply-chain** | `cargo deny check` | Fails on any unpatched advisory, any yanked crate, and any licence not compatible with AGPL-3.0. For a system whose entire value is "your host cannot read your data", a vulnerable crypto dependency is a release blocker. |
@@ -38,7 +50,7 @@ against a dependency surfaces even when nobody has pushed for a month.
 
 ---
 
-# `itsanas-crypto` — unit tests (56)
+# `itsanas-crypto` — unit tests (64)
 
 ## `secret` — secret hygiene (4)
 
@@ -49,7 +61,7 @@ against a dependency surfaces even when nobody has pushed for a month.
 | `random_secrets_differ` | Two freshly drawn secrets differ and neither is all-zero. Catches a miswired CSPRNG returning a constant — the failure mode that silently makes every key identical. |
 | `from_slice_rejects_wrong_length` | 31- and 33-byte inputs are refused. Prevents a truncated key being silently zero-padded into a weak key. |
 
-## `kdf` — key derivation (6)
+## `kdf` — key derivation (7)
 
 | Test | What it proves |
 | --- | --- |
@@ -69,7 +81,7 @@ against a dependency surfaces even when nobody has pushed for a month.
 | `parsing_rejects_bad_input` | Empty, non-hex, too-short and too-long inputs are all refused rather than being silently padded or truncated into a valid-looking identifier. |
 | `hex_rendering_is_lowercase_and_zero_padded` | Encoding is canonical. Without this, `0x05` could render as `5` and produce a 63-character identifier that fails to round trip. |
 
-## `identity` — identity and signatures (13)
+## `identity` — identity and signatures (17)
 
 | Test | What it proves |
 | --- | --- |
@@ -89,7 +101,7 @@ against a dependency surfaces even when nobody has pushed for a month.
 | `device_keys_are_independent_of_the_user_master` | Device keys are independently random and restorable from their seed, so revoking a stolen laptop never requires rotating the user's identity. |
 | `secrets_are_redacted_in_debug_output` | `MasterSecret` and `UserKeys` never print key material even when logged wholesale. |
 
-## `seal` — authenticated encryption (13)
+## `seal` — authenticated encryption (16)
 
 The security core. Most of these assert that an **attack fails**.
 
@@ -109,7 +121,7 @@ The security core. Most of these assert that an **attack fails**.
 | `empty_plaintext_is_a_valid_object` | A zero-byte file is a legitimate object, not an edge case that errors. |
 | `associated_data_encoding_is_unambiguous` | Length-prefixing makes `("ab","c")` and `("a","bc")` distinct contexts, so binding cannot be bypassed by shifting a field boundary. |
 
-## `keystore` — passphrase-protected storage (12)
+## `keystore` — passphrase-protected storage (13)
 
 | Test | What it proves |
 | --- | --- |
@@ -169,7 +181,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 | Test | What it proves |
 | --- | --- |
 | **`corpus_matches_its_published_digests`** | Every fixture file hashes to its pinned digest, and the corpus digest matches. The tamper check: since the corpus is generated from seeds in source, altering the test data requires editing reviewed code *and* moves a digest published in the documentation. |
-| **`every_fixture_identity_is_banned_in_production`** | All three published users are refused by production. Their keys are printed in the README; this is what stops that being an attack. |
+| **`every_fixture_identity_is_banned_in_production`** | All three published users are refused by production. Their keys are printed in [TEST-USERS.md](TEST-USERS.md); this is what stops that being an attack. Enforcement is tested at the store layer by `the_published_test_identities_are_refused_by_the_normal_constructor`. |
 | `recovery_phrases_rebuild_the_documented_identities` | Each phrase in the docs reconstructs exactly the user id claimed beside it. Ties documentation to code — a stale doc fails CI. |
 | `canaries_are_unique_and_actually_present_in_plaintext` | Each canary is unique, genuinely present in its owner's plaintext, and absent from everyone else's. Without this, the on-disk plaintext-leak tests would pass **vacuously** — searching for a string that was never there. |
 | `the_shared_document_gets_a_different_address_for_every_user` | On real corpus data: three users holding byte-identical content derive three unrelated chunk ids. |
@@ -178,28 +190,143 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
+# `itsanas-store` — unit tests (59)
+
+## `chunker` — content-defined chunking (13)
+
+| Test | What it proves |
+| --- | --- |
+| **`the_gear_table_is_pinned_forever`** | The 256-entry gear table hashes to a fixed digest. If it ever changes, every chunk boundary in the network moves: existing stores stop deduplicating against new writes and every client re-uploads every file. This is the test that makes deriving the table safer than pasting one in. |
+| **`inserting_a_byte_at_the_front_shifts_only_local_boundaries`** | Over 90% of chunks survive a one-byte prefix insertion into 4 MiB. This is the entire reason content-defined chunking exists; with fixed-size chunking it finds zero. |
+| `editing_the_middle_leaves_both_ends_intact` | The same property for a mid-file insertion. |
+| **`the_average_chunk_size_is_close_to_the_target`** | Empirical mean chunk size is within 2× of the configured average. A mistranscribed cut mask still produces valid, reassembling chunks — just at the wrong size, quietly wrecking the dedup/overhead trade-off. Nothing else would catch that. |
+| `chunks_reassemble_into_the_original_bytes` | Chunking loses and reorders nothing, across six sizes from 0 to 1 MiB. |
+| `chunking_is_deterministic` | Two runs agree on boundaries, so two devices will too. |
+| `size_bounds_are_respected` | Every non-final chunk sits within min and max. |
+| **`highly_repetitive_data_still_terminates_and_respects_the_maximum`** | Long runs of one byte are the pathological case for a rolling hash — the hash can settle into a state where the mask never matches. Proves the max-size ceiling stops that producing one enormous chunk. |
+| `a_buffer_shorter_than_the_minimum_is_one_chunk` | The minimum is enforced. |
+| `offsets_are_contiguous_and_start_at_zero` | Chunk offsets tile the input exactly. |
+| `an_empty_buffer_produces_no_chunks` | Zero-length input is not a special case that panics. |
+| `invalid_configurations_are_rejected` | Out-of-order or zero bounds fail at construction. |
+| **`small_configurations_do_not_panic_on_mask_lookup`** | Extreme averages do not index off the end of the mask table. This test found a real bug: the loose mask index overran for any average above 2^27. |
+
+## `blob` — content-addressed storage (11)
+
+| Test | What it proves |
+| --- | --- |
+| `round_trips_what_it_was_given` | Sealed bytes come back byte-identical. |
+| **`storing_the_same_address_twice_writes_once`** | Deduplication actually saves a write rather than silently rewriting. |
+| **`a_blob_lands_at_a_sharded_path_not_a_flat_one`** | Two-level fan-out is real. A flat directory degrades badly at a million chunks on both ext4 and NTFS. |
+| **`files_that_are_not_blobs_are_ignored_by_the_scan`** | Garbage collection deletes what the scan reports, so a scan that reported a foreign file would delete a stranger's data. |
+| **`no_staging_file_survives_a_successful_write`** | The write-then-rename path cleans up, so writes do not leak a temp file each time. |
+| **`sweeping_removes_crash_leftovers_but_not_blobs`** | Crash recovery removes abandoned staging files and touches nothing else. |
+| `removal_is_idempotent` | Deleting twice is not an error. |
+| `addresses_lists_everything_across_the_fan_out` | The scan finds blobs in every shard directory. |
+| `a_missing_address_is_none_not_an_error` | Absence is a value, not a failure. |
+| `an_empty_blob_is_storable_and_distinguishable_from_a_missing_one` | Zero-length content is not confused with absence. |
+| `total_bytes_counts_stored_bytes` | Size accounting is correct. |
+
+## `index` — transactional metadata (11)
+
+| Test | What it proves |
+| --- | --- |
+| **`two_files_sharing_a_chunk_both_hold_it`** | Deleting one of two files that share a chunk does not take the other's data with it. |
+| **`a_file_that_repeats_a_chunk_counts_each_occurrence`** | A file of ten identical blocks references one chunk ten times. Getting this wrong frees live data on the first delete. |
+| **`a_chunk_can_be_resurrected_before_it_is_collected`** | Restoring identical content before GC runs takes the chunk out of the collection queue, so GC does not delete a blob that is live again. |
+| `overwriting_a_file_releases_only_the_chunks_it_stopped_using` | An overwrite computes the right delta rather than releasing everything. |
+| `adding_a_file_references_its_chunks` | Reference counts go up on write. |
+| `a_fresh_index_reads_as_empty_rather_than_erroring` | A brand-new store reads empty instead of failing on a table that was never written. |
+| `state_survives_reopening` | Data is durable across a process restart. |
+| `files_come_back_sorted_so_two_devices_agree_on_order` | Iteration order is deterministic, which matters once two devices compare listings. |
+| `a_file_round_trips` | Entries store and load unchanged. |
+| `removing_an_absent_file_is_a_no_op` | Deleting nothing is not an error. |
+| `forgetting_a_chunk_clears_both_tables` | Post-GC cleanup leaves no half-state. |
+
+## `oplog` — the operation log (15)
+
+| Test | What it proves |
+| --- | --- |
+| **`a_host_can_verify_a_segment_without_being_able_to_read_it`** | The entire bargain: hosts police authenticity, owners read. A stranger's key cannot open the body. |
+| **`the_sealed_body_does_not_leak_the_path_in_plaintext`** | A filename does not appear in the encoded segment. Without this, hosts learn what their peers store. |
+| **`a_host_dropping_a_segment_from_the_middle_is_detected`** | The concrete attack: a host holds segments 1–3 and serves only 1 and 3, hiding whatever change 2 carried. The chain link catches it. |
+| **`a_sequence_gap_is_detected_even_when_the_chain_links_up`** | A compromised device cannot skip sequence numbers while chaining correctly and leave a peer believing its history is complete. |
+| **`an_envelope_that_lies_about_its_body_is_caught_on_open`** | A validly re-signed envelope claiming the wrong sequence range is still rejected, because the body is cross-checked against the envelope's claims. |
+| **`tampering_with_any_envelope_field_invalidates_the_signature`** | Five separate fields, each mutated independently. |
+| **`a_segment_signed_by_another_device_is_rejected`** | One device cannot forge a segment attributed to another. |
+| **`malformed_bytes_do_not_panic_the_decoder`** | Every truncation and 200 single-byte corruptions of a valid segment return errors rather than panicking. A host controls these bytes entirely. |
+| `two_segments_with_identical_entries_are_still_distinct_objects` | Randomised sealing and random object ids stop two identical batches colliding in the blob store. |
+| `a_valid_chain_validates` | The honest case passes. |
+| `a_chain_whose_first_segment_claims_a_predecessor_is_still_walked` | Starting mid-chain is legitimate for a peer catching up. |
+| `an_empty_chain_is_vacuously_valid` | Nothing to check is not an error. |
+| `an_empty_segment_is_refused` | No wasting a sequence number and an object id on nothing. |
+| `a_segment_round_trips_for_its_owner` | The happy path works. |
+| `encoding_round_trips_through_the_wire_format` | Serialisation preserves everything, including verifiability. |
+
+## `path` — logical path validation (9)
+
+Paths arrive from a peer's operation log, so they are attacker-controlled the
+moment the sync engine starts materialising files.
+
+| Test | What it proves |
+| --- | --- |
+| **`traversal_is_rejected_in_every_position`** | `..` is refused leading, trailing and interior. Without this a peer writes `../../../.ssh/authorized_keys`. |
+| **`absolute_paths_are_rejected`** | Unix absolute paths and Windows drive-letter prefixes both refused. |
+| **`backslashes_are_rejected_rather_than_translated`** | Translating would make `a\b` and `a/b` name one file on Windows and two on Linux, so the devices would diverge. |
+| **`windows_device_names_are_rejected`** | The Pi will happily create `com1.txt`; the laptop must never try to open a serial port. Includes negative cases (`console.txt`, `com10`) so the rule is not over-broad. |
+| **`trailing_spaces_and_dots_are_rejected`** | Windows silently strips these, so `evil.txt ` and `evil.txt` would collide on one device and not another. |
+| `control_characters_are_rejected` | NUL, newline, carriage return and tab refused. |
+| `malformed_separators_are_rejected` | Empty, doubled and trailing separators refused. |
+| `oversized_paths_and_components_are_rejected` | Bounds enforced, so one log entry cannot make the index enormous. |
+| `ordinary_paths_are_accepted` | The rules are not so strict that normal filenames — including Unicode and dotfiles — break. |
+
+---
+
+# `itsanas-store` — integration tests (22)
+
+Full path from plaintext to disk and back. `tests/store.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`alices_entire_corpus_round_trips_byte_identical`** | M2 exit criterion. Every fixture file survives chunking, sealing, storage and reassembly unchanged. |
+| **`no_users_plaintext_ever_touches_the_disk`** | M2 exit criterion, and the single most important property in the project. Both canaries are scanned against both stores — a user's own store must not leak their plaintext either, because that laptop can be stolen. Includes a vacuity check proving the canary really is in the plaintext, so the scan cannot pass by scanning nothing. |
+| **`an_insertion_at_the_start_of_a_large_file_reuses_almost_every_chunk`** | M2 exit criterion, end to end through the real store. |
+| **`two_users_storing_the_same_document_produce_unrelated_chunk_ids`** | Two users storing byte-identical content get disjoint addresses. If addresses were plain content hashes a host could correlate users and confirm guessed files. |
+| **`one_users_store_cannot_be_opened_with_another_users_keys`** | Sealing is bound to the owner, not merely to the directory. |
+| **`the_published_test_identities_are_refused_by_the_normal_constructor`** | The claim README.md and SECURITY.md both make. Before this test the ban-list function was defined, exported, and called by nothing. |
+| **`a_chunk_served_under_the_wrong_address_does_not_decrypt`** | The substitution attack, with two genuine chunks from the same user. |
+| **`a_corrupted_blob_is_detected_and_never_returned_as_content`** | A flipped bit in stored ciphertext surfaces as an error, not as data. |
+| **`a_deleted_blob_is_reported_rather_than_silently_returning_short_data`** | A missing chunk fails the read instead of returning a truncated file. |
+| **`garbage_collection_honours_the_grace_period`** | Nothing is deleted inside the grace window — a peer may still be fetching it — and everything is once the window passes. |
+| **`deleting_one_of_two_identical_files_keeps_the_other_readable`** | GC with shared chunks does not destroy live data. |
+| **`unsealed_writes_survive_a_restart_and_are_announced_afterwards`** | Simulates a power cut between a write and the next flush. The entry is not lost, so the peer still learns the file exists. |
+| **`every_write_is_announced_in_the_log_exactly_once`** | Sequence numbers are dense from 1, and a second flush re-emits nothing — so a peer never replays an entry twice. |
+| **`the_segment_chain_links_up_across_many_flushes`** | Five flushes produce a chain with no gaps and non-overlapping sequence ranges. |
+| `identical_files_stored_twice_occupy_one_copy_on_disk` | Deduplication measured in bytes on disk, not merely in chunk ids. |
+| `overwriting_a_file_eventually_reclaims_the_bytes_it_stopped_using` | 1 MiB overwritten by 1 KiB drops below a tenth of the original size after GC. |
+| `a_store_reopens_with_everything_intact` | Everything survives a restart, and the reopened store reports healthy. |
+| `a_healthy_store_reports_healthy` | The integrity check does not cry wolf on a good store, and writing files leaves no orphan blobs. |
+| `the_store_rejects_paths_that_would_escape_the_sync_root` | Path validation is wired into the store, not merely available. |
+| `a_file_larger_than_one_chunk_uses_several_and_still_verifies` | Multi-chunk files reassemble and hash correctly. |
+| `an_empty_file_is_stored_and_distinguishable_from_a_missing_one` | Zero chunks is a valid file, distinct from absence. |
+| `a_non_default_chunker_still_round_trips` | The tuning knob does not produce unreadable data. |
+
+---
+
 # Planned tests
 
 Listed here so the gap between what is claimed and what is verified stays
 visible. These land with the milestones in [ROADMAP.md](ROADMAP.md).
 
-## M2 — store
+## M2 — remaining
 
-- Alice's full corpus written and read back byte-identical, digest for digest.
-- **Plaintext-leak scan**: after Alice replicates to Bob, scan every byte of
-  Bob's storage directory for `ITSANAS-CANARY-ALICE-4f21c8d0`. Any hit fails.
-  Repeated for all six ordered user pairs.
-- **Storage accounting**: pledged bytes, bytes actually on disk, and bytes
-  accounted for in the index agree within the documented overhead — so a node
-  cannot silently under-provide or over-report.
-- **Data-presence audit**: after replication, assert Bob's store contains the
-  expected chunk count for Alice, that each is byte-identical to what Alice
-  would re-derive, and that Bob cannot decrypt any of them.
-- Chunk-boundary stability: inserting a byte at the start of a 1 MiB file
-  re-chunks only the neighbourhood, not the whole file.
-- Empty file, 1-byte file, and file exactly on a chunk boundary.
-- Garbage collection never removes a referenced chunk; a crash mid-write leaves
-  no torn object.
+Deferred to the milestone that makes them meaningful — they need a second node,
+which does not exist until M4:
+
+- **Storage accounting**: pledged bytes, bytes on disk and bytes in the index
+  agree within the documented overhead, so a node cannot silently under-provide.
+- **Data-presence audit**: after replication, Bob's store holds the expected
+  chunk count for Alice, each byte-identical to what Alice would re-derive, and
+  Bob can decrypt none of them.
 
 ## M3 — sync
 

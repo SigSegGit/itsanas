@@ -50,15 +50,78 @@ impl KdfParams {
         lanes: 1,
     };
 
-    /// Deliberately weak parameters for tests, so the suite stays fast.
+    /// Deliberately weak parameters, so the test suite stays fast.
     ///
-    /// Never reachable from production code paths: nothing but `#[cfg(test)]`
-    /// and benchmarks constructs this.
+    /// This is ordinary public API — it has to be, because integration tests in
+    /// sibling crates use it — so nothing stops production code from reaching
+    /// for it by mistake. [`Self::meets_production_floor`] is the guard: any
+    /// code path that locks a real user's secret must check it and refuse.
     pub const INSECURE_FOR_TESTS: Self = Self {
         memory_kib: 8,
         iterations: 1,
         lanes: 1,
     };
+
+    /// Largest cost this build will run, in kibibytes (1 GiB).
+    ///
+    /// The escrow blob arrives from the coordinator, which is untrusted, and
+    /// [`Keystore::unlock`] must run the KDF *before* the AEAD tag can be
+    /// checked — there is no way to authenticate first. Binding the parameters
+    /// into the associated data stops an attacker lowering the cost; only a
+    /// hard ceiling stops them raising it. Without this, a hostile coordinator
+    /// serves a blob claiming 4 TiB of Argon2 memory and every client that
+    /// tries to log in dies allocating.
+    pub const MAX_MEMORY_KIB: u32 = 1024 * 1024;
+
+    /// Largest pass count this build will run.
+    pub const MAX_ITERATIONS: u32 = 16;
+
+    /// Largest degree of parallelism this build will run.
+    pub const MAX_LANES: u8 = 8;
+
+    /// Minimum cost considered acceptable for a real user's secret.
+    ///
+    /// 19 MiB with 2 passes is the OWASP Argon2id floor.
+    pub const MIN_PRODUCTION_MEMORY_KIB: u32 = 19 * 1024;
+    /// Minimum pass count considered acceptable for a real user's secret.
+    pub const MIN_PRODUCTION_ITERATIONS: u32 = 2;
+
+    /// Whether these parameters are strong enough to protect a real secret.
+    ///
+    /// Call this before locking anything that matters, and refuse if it is
+    /// false. [`Self::INSECURE_FOR_TESTS`] deliberately fails it.
+    #[must_use]
+    pub const fn meets_production_floor(self) -> bool {
+        self.memory_kib >= Self::MIN_PRODUCTION_MEMORY_KIB
+            && self.iterations >= Self::MIN_PRODUCTION_ITERATIONS
+            && self.lanes >= 1
+    }
+
+    /// Reject costs this build refuses to run at all.
+    ///
+    /// Applied when parsing untrusted bytes, not when a local caller chooses
+    /// parameters, so tests can still use cheap settings.
+    fn check_runnable(self) -> Result<()> {
+        if self.memory_kib > Self::MAX_MEMORY_KIB {
+            return Err(CryptoError::Kdf(
+                "keystore demands more Argon2id memory than this build will allocate",
+            ));
+        }
+        if self.iterations > Self::MAX_ITERATIONS {
+            return Err(CryptoError::Kdf(
+                "keystore demands more Argon2id passes than this build will run",
+            ));
+        }
+        if self.lanes > Self::MAX_LANES {
+            return Err(CryptoError::Kdf(
+                "keystore demands more Argon2id lanes than this build will run",
+            ));
+        }
+        if self.memory_kib == 0 || self.iterations == 0 || self.lanes == 0 {
+            return Err(CryptoError::Kdf("keystore Argon2id cost is zero"));
+        }
+        Ok(())
+    }
 
     fn derive(self, passphrase: &str, salt: &[u8]) -> Result<SymmetricKey> {
         let params = Params::new(
@@ -167,12 +230,17 @@ impl Keystore {
         let lanes = bytes[10];
         let salt: [u8; SALT_LEN] = bytes[11..HEADER_LEN].try_into().expect("salt length");
 
+        let params = KdfParams {
+            memory_kib,
+            iterations,
+            lanes,
+        };
+        // Rejected at parse time rather than at unlock time, so no caller can
+        // hold a Keystore that will detonate the moment it is used.
+        params.check_runnable()?;
+
         Ok(Self {
-            params: KdfParams {
-                memory_kib,
-                iterations,
-                lanes,
-            },
+            params,
             salt,
             sealed: bytes[HEADER_LEN..].to_vec(),
         })
@@ -291,6 +359,70 @@ mod tests {
             tampered.unlock("pass", LABEL).is_err(),
             "an attacker rewrote the Argon2id cost downward and the container \
              still opened, making offline cracking cheap"
+        );
+    }
+
+    #[test]
+    fn an_absurd_kdf_cost_is_refused_at_parse_time() {
+        // The escrow blob comes from the untrusted coordinator, and unlock has
+        // to run Argon2id before any tag can be checked. A hostile coordinator
+        // that could name the cost could kill every client trying to log in.
+        let store = Keystore::lock("pass", LABEL, b"payload", TEST).unwrap();
+
+        for (offset, value) in [
+            (2, u32::MAX),                      // memory_kib
+            (2, KdfParams::MAX_MEMORY_KIB + 1), // just over the ceiling
+            (6, u32::MAX),                      // iterations
+            (6, KdfParams::MAX_ITERATIONS + 1), // just over the ceiling
+        ] {
+            let mut bytes = store.to_bytes();
+            bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+
+            assert!(
+                Keystore::from_bytes(&bytes).is_err(),
+                "a keystore claiming {value} at offset {offset} parsed \
+                 successfully; unlocking it would exhaust the machine"
+            );
+        }
+
+        let mut too_many_lanes = store.to_bytes();
+        too_many_lanes[10] = KdfParams::MAX_LANES + 1;
+        assert!(Keystore::from_bytes(&too_many_lanes).is_err());
+
+        let mut zero_cost = store.to_bytes();
+        zero_cost[6..10].copy_from_slice(&0u32.to_le_bytes());
+        assert!(Keystore::from_bytes(&zero_cost).is_err());
+    }
+
+    #[test]
+    fn the_production_floor_rejects_the_parameters_the_tests_use() {
+        assert!(
+            !KdfParams::INSECURE_FOR_TESTS.meets_production_floor(),
+            "the deliberately weak test parameters passed the production floor, \
+             so the guard protects nothing"
+        );
+        assert!(
+            KdfParams::RECOMMENDED.meets_production_floor(),
+            "the recommended parameters fail their own floor"
+        );
+
+        // The floor is the OWASP Argon2id minimum, so anything at or above it
+        // passes and anything below it does not.
+        assert!(
+            KdfParams {
+                memory_kib: KdfParams::MIN_PRODUCTION_MEMORY_KIB,
+                iterations: KdfParams::MIN_PRODUCTION_ITERATIONS,
+                lanes: 1,
+            }
+            .meets_production_floor()
+        );
+        assert!(
+            !KdfParams {
+                memory_kib: KdfParams::MIN_PRODUCTION_MEMORY_KIB - 1,
+                iterations: KdfParams::MIN_PRODUCTION_ITERATIONS,
+                lanes: 1,
+            }
+            .meets_production_floor()
         );
     }
 

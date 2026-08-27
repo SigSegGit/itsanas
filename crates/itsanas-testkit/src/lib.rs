@@ -122,9 +122,13 @@ fn build(username: &'static str, canary: &'static str, files: Vec<TestFile>) -> 
 
     TestUser {
         username,
+        // These users are published on purpose, so the phrase is deliberately
+        // copied out of its zeroizing wrapper and kept in an ordinary String.
         recovery_phrase: master
             .to_recovery_phrase()
-            .expect("fixture entropy is always 32 bytes"),
+            .expect("fixture entropy is always 32 bytes")
+            .as_str()
+            .to_owned(),
         keys: UserKeys::derive(&master),
         master,
         canary,

@@ -68,8 +68,8 @@ plaintext chunk
    │              opaque to everyone else     → host learns nothing
    │
    └─ ciphertext = XChaCha20-Poly1305(
-                     key   = HKDF(user.chunk_root, context),
-                     nonce = HKDF(user.chunk_root, context ‖ "/nonce"),
+                     key   = BLAKE3_XOF(user.chunk_root, context),
+                     nonce = BLAKE3_XOF(user.chunk_root, context ‖ "/nonce"),
                      aad   = version ‖ purpose ‖ owner_id ‖ chunk_id)
 ```
 

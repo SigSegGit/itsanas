@@ -11,12 +11,13 @@ use core::fmt;
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use x25519_dalek::{PublicKey as AgreementPublic, StaticSecret as AgreementSecret};
-use zeroize::Zeroize as _;
+use zeroize::{Zeroize as _, Zeroizing};
 
 use crate::{
     error::{CryptoError, Result},
     ids::{ChunkId, DeviceId, ID_LEN, UserId},
     kdf,
+    seal::{self, SealContext},
     secret::{SecretBytes, SymmetricKey},
 };
 
@@ -49,9 +50,16 @@ impl MasterSecret {
     }
 
     /// Render as a 24-word BIP-39 English recovery phrase.
-    pub fn to_recovery_phrase(&self) -> Result<String> {
+    ///
+    /// The phrase *is* the master secret in another encoding, so the returned
+    /// [`Zeroizing<String>`] wipes its heap buffer on drop. That is not
+    /// airtight — `bip39` builds intermediate `String`s this crate cannot
+    /// reach, and any `String` can be reallocated by growth, leaving copies
+    /// behind — but it removes the longest-lived copy, which is the one a core
+    /// dump or a swapped-out page is most likely to catch.
+    pub fn to_recovery_phrase(&self) -> Result<Zeroizing<String>> {
         bip39::Mnemonic::from_entropy(self.0.expose())
-            .map(|mnemonic| mnemonic.to_string())
+            .map(|mnemonic| Zeroizing::new(mnemonic.to_string()))
             .map_err(|err| CryptoError::BadMnemonic(err.to_string()))
     }
 
@@ -328,12 +336,73 @@ impl UserKeys {
     }
 
     /// Derive a shared secret with another user, for wrapping keys to them.
-    #[must_use]
-    pub fn agree(&self, their_agreement: &[u8; 32]) -> SymmetricKey {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CryptoError::Malformed`] if the peer's key is a low-order
+    /// point. X25519 accepts such points and produces the identity — 32 zero
+    /// bytes — as the "shared" secret. Since the coordinator is explicitly
+    /// untrusted and is the thing that hands out other users' public keys, a
+    /// malicious one could otherwise serve an all-zero agreement key and know
+    /// every secret subsequently wrapped to that peer.
+    pub fn agree(&self, their_agreement: &[u8; 32]) -> Result<SymmetricKey> {
         let shared = self
             .agreement
             .diffie_hellman(&AgreementPublic::from(*their_agreement));
-        kdf::derive(kdf::CTX_USER_AGREEMENT, shared.as_bytes())
+
+        if !shared.was_contributory() {
+            return Err(CryptoError::Malformed(
+                "agreement key is a low-order point; the shared secret would be \
+                 attacker-known",
+            ));
+        }
+
+        // A raw Diffie-Hellman output and a long-term static secret are
+        // different kinds of material, so they get different contexts. Sharing
+        // one would mean a value derived from a peer-influenced exchange lands
+        // in the same key space as one derived from the master secret alone.
+        Ok(kdf::derive(kdf::CTX_USER_DH_OUTPUT, shared.as_bytes()))
+    }
+
+    /// Seal a file chunk at the address derived from its own content.
+    ///
+    /// This is the API every caller should use. [`seal::seal_deterministic`]
+    /// accepts an arbitrary address, and its fixed-nonce construction is only
+    /// safe while that address is a function of the plaintext; deriving the
+    /// address here makes the unsafe combination unreachable rather than merely
+    /// discouraged.
+    ///
+    /// Returns the blinded address and the sealed bytes. Identical content
+    /// always yields both identically, which is what makes deduplication and
+    /// remote storage audits work.
+    pub fn seal_chunk(&self, plaintext: &[u8]) -> Result<(ChunkId, Vec<u8>)> {
+        let address = self.chunk_id(plaintext);
+        let sealed = seal::seal_deterministic(
+            &self.chunk_root,
+            &SealContext {
+                purpose: seal::CHUNK_PURPOSE,
+                owner: self.user_id(),
+                address: address.as_bytes(),
+            },
+            plaintext,
+        )?;
+        Ok((address, sealed))
+    }
+
+    /// Open a chunk sealed by [`Self::seal_chunk`].
+    ///
+    /// Fails if `sealed` was not the chunk stored at `address` — which is
+    /// exactly what a host substituting one chunk for another produces.
+    pub fn open_chunk(&self, address: &ChunkId, sealed: &[u8]) -> Result<Vec<u8>> {
+        seal::open_deterministic(
+            &self.chunk_root,
+            &SealContext {
+                purpose: seal::CHUNK_PURPOSE,
+                owner: self.user_id(),
+                address: address.as_bytes(),
+            },
+            sealed,
+        )
     }
 }
 
@@ -440,7 +509,7 @@ mod tests {
         // Swap two words: still all-valid vocabulary, but the checksum must fail.
         words.swap(0, 1);
         let swapped = words.join(" ");
-        if swapped != phrase {
+        if swapped != *phrase {
             assert!(
                 MasterSecret::from_recovery_phrase(&swapped).is_err(),
                 "a transposed recovery phrase decoded successfully, so a user \
@@ -600,8 +669,67 @@ mod tests {
         let bob = UserKeys::derive(&master(12));
 
         assert_eq!(
-            alice.agree(&bob.public().agreement),
-            bob.agree(&alice.public().agreement)
+            alice.agree(&bob.public().agreement).unwrap(),
+            bob.agree(&alice.public().agreement).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_low_order_agreement_key_is_refused() {
+        // The coordinator is untrusted and it is what hands out other users'
+        // public keys. If it could serve a low-order point, X25519 would return
+        // the identity — 32 zero bytes — and the coordinator would know every
+        // secret wrapped to that peer.
+        let alice = UserKeys::derive(&master(13));
+
+        // The canonical small-order Curve25519 points.
+        let all_zero = [0u8; 32];
+        let one = {
+            let mut point = [0u8; 32];
+            point[0] = 1;
+            point
+        };
+        let order_eight = [
+            0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f,
+            0xc4, 0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16,
+            0x5f, 0x49, 0xb8, 0x00,
+        ];
+
+        for (name, point) in [
+            ("all-zero", all_zero),
+            ("one", one),
+            ("order-eight", order_eight),
+        ] {
+            assert!(
+                alice.agree(&point).is_err(),
+                "the {name} low-order point was accepted as an agreement key; \
+                 the resulting 'shared' secret is known to the attacker"
+            );
+        }
+
+        // A genuine peer key still works.
+        let bob = UserKeys::derive(&master(14));
+        assert!(alice.agree(&bob.public().agreement).is_ok());
+    }
+
+    #[test]
+    fn the_shared_secret_is_not_the_raw_diffie_hellman_output() {
+        // A raw DH result and a long-term secret must not share a derivation
+        // context, or a peer-influenced value lands in the same key space as
+        // one derived from the master secret alone.
+        let alice = UserKeys::derive(&master(15));
+        let bob = UserKeys::derive(&master(16));
+
+        let agreed = alice.agree(&bob.public().agreement).unwrap();
+        let raw = x25519_dalek::StaticSecret::from(
+            *kdf::derive(kdf::CTX_USER_AGREEMENT, master(15).expose()).expose(),
+        )
+        .diffie_hellman(&AgreementPublic::from(bob.public().agreement));
+
+        assert_ne!(
+            agreed.expose(),
+            raw.as_bytes(),
+            "the wrapping key is the unhashed Diffie-Hellman output"
         );
     }
 

@@ -68,7 +68,8 @@ nothing is lost.
 | Crate | What it does | Status |
 | --- | --- | --- |
 | `itsanas-crypto` | Identity, key schedule, sealing, blinded addressing, keystore | **implemented** |
-| `itsanas-store` | Content-defined chunking, blob store, operation log, local index | planned |
+| `itsanas-testkit` | The three published test users, their generated corpus and canaries | **implemented** |
+| `itsanas-store` | Content-defined chunking, blob store, operation log, local index | **implemented** |
 | `itsanas-sync` | Version vectors, log merge, conflict materialisation, file watching | planned |
 | `itsanas-net` | QUIC transport, peer protocol, proof-of-storage challenges | planned |
 | `itsanas-placement` | Rendezvous hashing, replication targets, repair, quota accounting | planned |
@@ -94,7 +95,8 @@ in [docs/TEST-USERS.md](docs/TEST-USERS.md) so anyone can clone the repository
 and reproduce every encryption, sync and adversarial test byte for byte.
 
 Publishing working private keys is safe here because of three enforced
-mechanisms: production **refuses** those identities outright, the corpus is
+mechanisms: `Store::open` **refuses** those identities outright — the fixtures
+have to go through an explicitly named testing constructor — the corpus is
 **generated from source** so there is no data file to tamper with, and every
 byte is **pinned by digest** and checked in CI.
 
@@ -110,8 +112,8 @@ Requires a recent stable Rust toolchain.
 cargo test --workspace
 ```
 
-The expensive tests — real 64 MiB Argon2id parameters, large simulated swarms —
-are marked `#[ignore]` so the normal suite stays fast. CI runs them separately:
+One test — the real 64 MiB Argon2id cost — is marked `#[ignore]` so the normal
+suite stays fast. CI runs it separately:
 
 ```bash
 cargo test --workspace -- --ignored

@@ -12,13 +12,53 @@ use itsanas_crypto::{ChunkId, DeviceKeys, MasterSecret, UserKeys};
 use itsanas_store::{ChunkerConfig, Operation, Store, validate_chain};
 use itsanas_testkit as testkit;
 
+/// Open a store, permitting the published fixture identities.
+///
+/// Most of these tests deliberately use Alice and Bob, whose recovery phrases
+/// are printed in the documentation. `Store::open` refuses those identities —
+/// see `the_published_test_identities_are_refused_by_the_normal_constructor` —
+/// so the fixtures go through the explicitly-named testing constructor.
 fn store_for(master: &MasterSecret, root: &Path) -> Store {
-    Store::open(
+    Store::open_for_testing(
         root,
         UserKeys::derive(master),
         DeviceKeys::generate().expect("device key"),
+        ChunkerConfig::default(),
     )
     .expect("store opens")
+}
+
+#[test]
+fn the_published_test_identities_are_refused_by_the_normal_constructor() {
+    // README.md and SECURITY.md both promise this. Before this test existed the
+    // check was defined, exported, and called by nothing.
+    for user in testkit::everyone() {
+        let dir = tempfile::tempdir().unwrap();
+        let opened = Store::open(
+            dir.path(),
+            UserKeys::derive(&user.master),
+            DeviceKeys::generate().unwrap(),
+        );
+
+        assert!(
+            opened.is_err(),
+            "{} opened a normal store despite having a published recovery \
+             phrase; real data stored under it would be readable by anyone",
+            user.username
+        );
+    }
+
+    // An ordinary identity is unaffected.
+    let dir = tempfile::tempdir().unwrap();
+    assert!(
+        Store::open(
+            dir.path(),
+            UserKeys::derive(&MasterSecret::from_bytes([99; 32])),
+            DeviceKeys::generate().unwrap(),
+        )
+        .is_ok(),
+        "the ban list rejected an ordinary identity"
+    );
 }
 
 /// Every byte on disk under `root`, concatenated. Used for leak scans.
