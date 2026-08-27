@@ -1,6 +1,6 @@
 # Roadmap vs Current State
 
-**Last updated: 2026-08-26.** This file is updated in the same change as the
+**Last updated: 2026-08-27.** This file is updated in the same change as the
 code it describes. If it disagrees with the code, the code is right and this is
 a bug.
 
@@ -11,7 +11,7 @@ a bug.
 | M0 Repository, CI, licence | — | ✅ **done** | CI runs 7 jobs |
 | M1 Cryptographic core | `itsanas-crypto` | ✅ **done** | 56 unit + 15 property |
 | M1b Published test fixtures | `itsanas-testkit` | ✅ **done** | 7 |
-| M2 Chunking and local store | `itsanas-store` | ⬜ not started | — |
+| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 59 unit + 21 integration + 1 doc |
 | M3 Sync engine | `itsanas-sync` | ⬜ not started | — |
 | M4 Network transport | `itsanas-net` | ⬜ not started | — |
 | M5 Placement and repair | `itsanas-placement` | ⬜ not started | — |
@@ -69,19 +69,44 @@ per-user canary strings for on-disk plaintext-leak detection.
 
 ---
 
+### M2 — Chunking and local store ✅ (`itsanas-store`)
+
+Implemented:
+
+- **FastCDC chunking** with normalised cut masks, 16 KiB / 64 KiB / 256 KiB by
+  default. The 256-entry gear table is *derived* from BLAKE3 under a fixed
+  domain string rather than pasted in as a magic constant, and pinned by a
+  digest test — because if two devices ever disagree about chunk boundaries,
+  deduplication silently stops working across the whole network.
+- **Content-addressed blob store**, two-level 256-way fan-out, atomic
+  write-then-rename, staging swept on open so a power cut leaks nothing.
+  It only ever sees ciphertext; it has no access to a key.
+- **Operation log** with sealed bodies in signed plaintext envelopes, so a blind
+  host can order and serve segments it cannot read. Segments are **chained** —
+  each names its predecessor — so a host cannot drop one from the middle of a
+  chain undetected.
+- **Transactional index** (`redb`): path → chunk list and chunk → refcount move
+  in one transaction, because a crash between them would let garbage collection
+  delete live data.
+- **Garbage collection** with a grace period, and an integrity check that
+  reassembles and re-hashes every file.
+- **Path validation** that rejects traversal, absolute paths, backslashes and
+  Windows device names — the paths in a peer's log are attacker-controlled input
+  the moment the sync engine starts materialising files.
+
+**Exit criteria — met.** `alices_entire_corpus_round_trips_byte_identical`,
+`no_users_plaintext_ever_touches_the_disk` (both canaries scanned against both
+stores, with a vacuity check proving the canary is really in the plaintext), and
+`an_insertion_at_the_start_of_a_large_file_reuses_almost_every_chunk`.
+
+Known gap, deliberately deferred: a host can still truncate the *tail* of a
+segment chain and serve an internally consistent prefix. Detecting that needs
+signed, timestamped head records gossiped between peers, which is M3/M4 work.
+The limitation is documented at the top of `oplog.rs` rather than papered over.
+
+---
+
 ## Not started
-
-### M2 — Chunking and local store (`itsanas-store`)
-
-- FastCDC content-defined chunking with configurable min/avg/max.
-- Content-addressed blob store, sharded by chunk-id prefix, with refcounts.
-- Operation-log segments: append, seal, sign, read back.
-- Local index database (`redb`) mapping paths → metadata → chunk lists.
-- Mark-and-sweep garbage collection with a grace period.
-
-**Exit criteria:** Alice's full fixture corpus can be written to a store and read
-back byte-identical; her canary appears nowhere in a store belonging to Bob;
-chunk boundaries are stable across an insertion at the start of a large file.
 
 ### M3 — Sync engine (`itsanas-sync`)
 

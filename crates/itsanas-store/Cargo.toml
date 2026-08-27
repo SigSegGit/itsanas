@@ -1,0 +1,26 @@
+[package]
+name = "itsanas-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Chunking, content-addressed blob storage and the operation log for ITSaNAS"
+
+[dependencies]
+blake3 = "1.8.7"
+getrandom = "0.4.3"
+itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+postcard = { version = "1.1.1", features = ["use-std"] }
+redb = "2.6.0"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+itsanas-testkit = { version = "0.1.0", path = "../itsanas-testkit" }
+proptest = "1.11.0"
+tempfile = "3.23.0"
