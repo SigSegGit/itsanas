@@ -19,7 +19,9 @@ use std::{
     time::Duration,
 };
 
-use itsanas_crypto::{ChunkId, DeviceId, DeviceKeys, UserId, UserKeys, is_published_test_identity};
+use itsanas_crypto::{
+    ChunkId, DeviceId, DeviceKeys, ObjectId, UserId, UserKeys, is_published_test_identity,
+};
 
 use crate::{
     blob::BlobStore,
@@ -458,6 +460,16 @@ impl Store {
     /// Segments from `position` onwards, for a peer catching up.
     pub fn segments_from(&self, position: u64) -> Result<Vec<SegmentEnvelope>> {
         self.index.segments_from(position)
+    }
+
+    /// The most recent segment this device wrote, if any.
+    pub fn head_segment(&self) -> Result<Option<ObjectId>> {
+        self.index.head_segment()
+    }
+
+    /// How many segments this device's chain holds.
+    pub fn chain_length(&self) -> Result<u64> {
+        self.index.chain_length()
     }
 
     // --------------------------------------------------------- housekeeping

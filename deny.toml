@@ -12,6 +12,10 @@ yanked = "deny"
 version = 2
 # AGPL-3.0 can absorb these; anything else needs a deliberate decision.
 allow = [
+    # The project's own licence. Every workspace member carries it, so leaving
+    # it out fails the check on our own crates before any dependency is
+    # considered.
+    "AGPL-3.0-or-later",
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "MIT",

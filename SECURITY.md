@@ -41,6 +41,23 @@ service and partition attempts, not data.
 
 ## Published test keys — not a vulnerability
 
+## The transport is not yet encrypted
+
+`itsanas-net` currently speaks plain TCP. Your **data** is not at risk from
+this — chunk bodies and log-segment bodies are sealed before they reach the
+wire, and segment envelopes are signed, so a man in the middle can neither read
+a payload nor forge one a peer will accept.
+
+Your **metadata** is. An observer on the network path sees chunk identifiers,
+object sizes and timing. The threat model grants a host all three; it does not
+grant them to an arbitrary network between two of your own machines. An observer
+recording chunk identifiers can tell when you touch the same file again and can
+correlate two of your devices.
+
+`PeerServer::bind` therefore refuses a non-loopback address unless the caller
+explicitly overrides it. Until QUIC with TLS lands, run ITSaNAS over loopback, a
+VPN, or an SSH tunnel.
+
 The recovery phrases and private keys in [docs/TEST-USERS.md](docs/TEST-USERS.md)
 are public **by design**, so anyone can reproduce the test suite. Those three
 identities are refused by `itsanas_store::Store::open`, which calls

@@ -71,7 +71,7 @@ nothing is lost.
 | `itsanas-testkit` | The three published test users, their generated corpus and canaries | **implemented** |
 | `itsanas-store` | Content-defined chunking, blob store, operation log, local index | **implemented** |
 | `itsanas-sync` | Version vectors, log merge, conflict materialisation, convergence simulation | **implemented** |
-| `itsanas-net` | QUIC transport, peer protocol, proof-of-storage challenges | planned |
+| `itsanas-net` | Peer protocol, TCP transport, sync sessions, proof-of-storage challenges | **implemented** (QUIC pending) |
 | `itsanas-placement` | Rendezvous hashing, replication targets, repair, quota accounting | planned |
 | `itsanas-coord` | Optional control-plane service: directory, presence, relay | planned |
 | `itsanas-daemon` / `itsanas` | The node and its command-line interface | planned |

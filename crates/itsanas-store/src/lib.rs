@@ -55,6 +55,7 @@ pub mod index;
 pub mod oplog;
 pub mod path;
 pub mod store;
+pub mod vault;
 pub mod version;
 
 pub use blob::BlobStore;
@@ -65,4 +66,5 @@ pub use oplog::{
     FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
 };
 pub use store::{GcReport, IntegrityReport, Store, StoreStats};
+pub use vault::{Vault, VaultStats};
 pub use version::{CausalOrder, VersionVector};

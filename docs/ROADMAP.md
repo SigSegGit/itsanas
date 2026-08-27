@@ -11,20 +11,27 @@ a bug.
 | M0 Repository, CI, licence | — | ✅ **done** | CI runs 7 jobs |
 | M1 Cryptographic core | `itsanas-crypto` | ✅ **done** | 64 unit + 15 property |
 | M1b Published test fixtures | `itsanas-testkit` | ✅ **done** | 7 |
-| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 73 unit + 27 integration + 1 doc |
+| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 87 unit + 27 integration + 1 doc |
 | M3 Sync engine | `itsanas-sync` | 🟨 **mostly done** | 12 unit + 19 convergence + 1 doc |
-| M4 Network transport | `itsanas-net` | ⬜ not started | — |
-| M5 Placement and repair | `itsanas-placement` | ⬜ not started | — |
+| M4 Network transport | `itsanas-net` | 🟨 **works over TCP; QUIC pending** | 38 unit + 11 two-node |
+| M5 Placement and repair | `itsanas-placement` | 🟨 **hosting works; placement pending** | (vault: 14 of the store's unit tests) |
 | M6 Coordinator | `itsanas-coord` | ⬜ not started | — |
 | M7 Daemon and CLI | `itsanas-daemon`, `itsanas` | ⬜ not started | — |
 | M8 Three-device bring-up | — | ⬜ not started | — |
 
 **Nothing in this repository should hold data you care about yet.** The
-cryptographic guarantees, the local store and the merge rules are implemented
-and tested, and three simulated devices converge correctly through every
-adversarial scenario the suite throws at them. But no byte has ever crossed a
-real network: there is no transport, no placement, no coordinator and no daemon.
-Until M4 exists, "sync" means "sync between processes on one machine".
+cryptographic guarantees, the local store, the merge rules and the peer protocol
+are implemented and tested. Two processes now sync a real file over a real
+socket, a node hosts another user's data without being able to read it, and a
+host relays one device's work to another device it has never met.
+
+What is still missing before this is safe to rely on: the transport is plain
+TCP, so it protects your *data* but exposes chunk identifiers and sizes to
+anyone on the network path — it refuses to bind a non-loopback address unless
+you override it. There is no placement policy, so nothing decides *which* hosts
+should hold a given chunk, and no repair loop, so nothing notices when a chunk
+drops below its replication floor. There is no coordinator and no daemon, so
+peers must be pointed at each other by hand.
 
 ---
 
@@ -152,27 +159,72 @@ would never have stopped.
 
 ---
 
-## Not started
+### M4 — Network transport 🟨 (`itsanas-net`)
 
-### M4 — Network transport (`itsanas-net`)
+Implemented:
 
-- QUIC transport with Ed25519 device identity, hole punching, relay fallback.
-- Peer protocol: head announce, segment fetch, chunk push/pull, storage
-  challenge.
-- Wire decoder fuzzing.
+- **Framing** with a fixed header, an explicit length and a hard ceiling.
+  Every byte comes from a stranger's computer, so the decoder is deliberately
+  boring: no recursion, and no allocation sized by a number the peer chose until
+  that number has been checked.
+- **Peer protocol**: hello with version negotiation, head announce, segment
+  fetch with resume, chunk fetch, batched *which of these do you lack*, chunk
+  and segment push, and storage challenges.
+- **A service layer** that answers requests from a store and a vault, with no
+  sockets in it, so every rule about what a peer may obtain is tested directly.
+- **A vault** (`itsanas_store::Vault`) holding other users' sealed objects. It
+  takes no keys in any constructor, so there is no code path from "a peer asked
+  me something" to "I decrypted something of theirs".
+- **A TCP transport** with timeouts, which refuses to bind a non-loopback
+  address unless explicitly overridden.
+- **Sessions**: push and pull halves that compose into a full sync round.
+  Fetched segments are retained in the vault, which is what lets a node relay
+  one device's work to another and gives the next pull a free resume point.
 
-**Exit criteria:** two processes on different hosts sync a file; the decoder
-survives a fuzzing campaign without a panic.
+**Exit criterion — met for the protocol, partly for the transport.** Two
+processes sync a real file over a real socket; a host stores a stranger's data
+and cannot read a byte of it; a host relays one device to another that it never
+met; concurrent edits converge over the wire. The decoder is exercised against
+every truncation and every single-bit corruption of a valid frame, and against
+arbitrary garbage — but that is a hand-written adversarial suite, not the fuzzing
+campaign the original criterion asked for.
 
-### M5 — Placement and repair (`itsanas-placement`)
+**Still outstanding for M4:**
+
+- **QUIC with TLS and device-key authentication.** The current transport is
+  plain TCP. Data confidentiality does not depend on it — everything on the wire
+  is already sealed, and segment envelopes are signed — but a passive observer
+  sees chunk identifiers, sizes and timing, which the threat model grants to a
+  *host* and not to an arbitrary network. `PeerServer::bind` refuses non-loopback
+  addresses by default because of this. Until QUIC lands, run over loopback, a
+  VPN, or an SSH tunnel.
+- NAT hole punching and relay fallback, which QUIC is a prerequisite for.
+- A real fuzzing campaign (`cargo-fuzz`) against the decoder.
+
+---
+
+### M5 — Placement and repair 🟨 (`itsanas-placement`)
+
+The **hosting** half arrived early, because M4's protocol needed somewhere to put
+other people's data: `Vault` stores and serves foreign sealed objects, verifies
+segment signatures before accepting them, refuses a segment that does not
+continue the chain it already holds, and enforces a pledged-capacity limit.
+
+Still to build, and the actual substance of M5:
 
 - Rendezvous hashing with capacity weights; owner affinity.
-- Replica target tracking; repair loop; proof-of-storage verification.
-- Quota and fair-share accounting.
+- Replica target tracking; repair loop; proof-of-storage *verification* on a
+  schedule (the challenge/proof primitive exists and is tested; nothing runs it
+  periodically yet).
+- Quota and fair-share accounting beyond the single pledged-bytes ceiling.
 
 **Exit criteria:** removing a node from a simulated swarm moves only that node's
 share of chunks; a chunk that drops below the replication floor is restored
 without operator action.
+
+---
+
+## Not started
 
 ### M6 — Coordinator (`itsanas-coord`)
 

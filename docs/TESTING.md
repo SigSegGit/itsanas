@@ -1,15 +1,17 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 217 tests across 7 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 280 tests across 9 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
 | `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
-| `itsanas-store` unit | 73 |
+| `itsanas-store` unit | 87 |
 | `itsanas-store` integration (`tests/store.rs`) | 27 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 19 |
+| `itsanas-net` unit | 38 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 11 |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with
@@ -370,6 +372,115 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
+# `itsanas-store` — the vault (14 of the store's unit tests)
+
+Storage for *other people's* data. The vault holds no keys and no constructor
+takes one, so these tests are about accepting, serving and accounting — never
+about reading.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_segment_with_a_bad_signature_is_refused_before_it_is_stored`** | A host that stored unverified envelopes would be a convenient way to attribute garbage to someone else's device. |
+| **`a_segment_that_does_not_continue_the_chain_is_refused`** | Otherwise a host can be induced to store a chain with a hole and then serve that hole to a peer as though it were complete. |
+| **`re_offering_the_current_tip_is_accepted_as_a_no_op`** | Peers re-offer freely — there is no acknowledgement telling them to stop — so this must neither error nor duplicate. |
+| **`an_owner_whose_chunks_are_held_but_whose_log_is_not_still_counts`** | Guards a real bug this suite caught: the owner list was derived from the segment table alone, so a host storing chunks but no segments reported zero bytes and its quota was blind to the bulk of what it held. |
+| **`two_owners_chunks_do_not_collide_even_at_the_same_address`** | Chunk ids are blinded per user so a collision should not happen, but correctness must not depend on that. |
+| **`one_owners_segments_are_never_served_under_another_owners_name`** | Owner scoping is real, not incidental. |
+| **`resuming_after_an_unknown_segment_returns_nothing_rather_than_everything`** | An unrecognised resume point must not cause the whole chain to be re-sent. |
+| **`resuming_after_a_segment_skips_what_the_caller_already_has`** | The resume path works, so a catching-up peer does not re-download its own history. |
+| `a_chain_is_stored_and_served_in_order` | What comes back validates as a chain. |
+| `the_limit_caps_the_response` | One request cannot ask for unbounded work. |
+| `heads_are_reported_per_device_and_scoped_to_one_owner` | Head reporting is per device and does not leak across owners. |
+| `stats_account_for_every_owner` | Quota accounting sums correctly. |
+| `a_chunk_round_trips_without_the_vault_ever_holding_a_key` | The basic path. |
+| `everything_survives_reopening` | Durable across a restart. |
+
+---
+
+# `itsanas-net` — unit tests (38)
+
+## `wire` — framing (12)
+
+Every byte parsed here comes from a stranger's computer.
+
+| Test | What it proves |
+| --- | --- |
+| **`an_oversized_length_is_rejected_before_anything_is_allocated`** | Five bytes on the wire asking the peer to reserve four gigabytes. On a Raspberry Pi a handful of these is fatal. |
+| **`every_truncation_of_a_valid_frame_is_an_error_and_never_a_panic`** | Every prefix of a valid frame, rejected rather than half-parsed. |
+| **`corrupting_any_byte_never_panics`** | Every single-bit corruption of every byte. The decoder may reject; it may not abort the process. |
+| **`arbitrary_garbage_never_panics`** | Random bytes fed to both the one-shot decoder and the streaming reader. |
+| **`the_reader_does_not_grow_without_bound_on_a_stalled_frame`** | A peer that sends a header then trickles bytes forever cannot make the buffer exceed one maximum frame. |
+| **`a_frame_split_across_reads_is_reassembled`** | The normal case on a real stream, byte by byte. |
+| **`an_unknown_wire_version_is_refused_not_guessed_at`** | No silent reinterpretation of a future format. |
+| `a_frame_exactly_at_the_limit_is_accepted_and_one_byte_over_is_not` | The boundary is where it is documented to be. |
+| `several_frames_in_one_read_are_all_returned` | Batched arrivals are all delivered, leaving nothing buffered. |
+| `the_header_is_exactly_as_documented` | The layout matches the doc comment. |
+| `a_frame_round_trips` / `an_empty_payload_is_a_valid_frame` | The basic paths. |
+
+## `protocol` — messages and challenges (9)
+
+| Test | What it proves |
+| --- | --- |
+| **`a_proof_for_one_nonce_does_not_answer_another`** | Otherwise a host computes one proof, throws the chunk away, and answers every future challenge from cache. |
+| **`a_proof_requires_the_actual_bytes`** | A host that discarded the chunk fails. |
+| **`a_single_bit_of_difference_fails_the_challenge`** | Corruption is caught, not just deletion. |
+| **`an_unbounded_segment_request_is_not_acceptable`** | One request cannot ask a peer to assemble everything it holds. |
+| **`a_maximum_size_chunk_fits_in_one_frame`** | The largest legitimate message fits the frame limit, so normal operation does not hit it. |
+| `every_request_variant_round_trips_through_the_wire` | A variant that fails to encode is a runtime failure on a live connection. |
+| `every_response_variant_round_trips_through_the_wire` | The same, for responses. |
+| `a_hello_from_a_different_protocol_version_is_not_acceptable` | Version negotiation is real. |
+| `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
+
+## `service` — what a peer may obtain (14)
+
+| Test | What it proves |
+| --- | --- |
+| **`what_a_peer_fetches_is_useless_without_the_key`** | The reason there is no access-control list. The served bytes contain no plaintext, and a stranger's keys cannot open them. |
+| **`a_node_stores_and_serves_a_strangers_chunk_without_reading_it`** | The mutual-storage bargain in one test: the host serves back exactly what it took, cannot open it, and the guest can. |
+| **`a_host_that_discarded_a_chunk_cannot_fake_the_proof`** | Deleting to save space is detected. |
+| **`storing_beyond_the_pledge_is_refused`** | Otherwise "pledge 10 GB" is meaningless and the disk fills. |
+| **`a_bad_request_never_becomes_a_local_error`** | A peer must not be able to decide when this node reports a fault. |
+| **`a_forged_segment_is_refused_rather_than_stored`** | Signature checking is wired into the service, not merely available. |
+| **`an_unknown_chunk_is_none_rather_than_an_error`** | "I do not have it" is ordinary. |
+| `a_storage_challenge_passes_when_held_and_fails_when_not` | Both directions. |
+| `a_node_that_pledged_nothing_still_serves_its_own_data` | Hosting nothing must not break syncing your own devices. |
+| `heads_for_an_unknown_owner_are_empty_rather_than_an_error` | No invented chains. |
+| `hello_reports_this_nodes_device_and_agrees_on_a_version` | The opening exchange. |
+| `a_hello_from_a_future_protocol_version_is_refused_not_guessed_at` | No optimistic guessing. |
+| `a_peer_can_fetch_this_nodes_own_segments_and_chunks` | The basic serving path. |
+| `the_segment_limit_is_clamped_to_the_protocol_maximum` | Limits are applied. |
+
+## `transport` — exposure control (3)
+
+| Test | What it proves |
+| --- | --- |
+| **`binding_a_public_address_is_refused_by_default`** | The default has to be the safe one. Someone bringing up a node on the Pi will type an address and press enter, and the failure mode of getting this wrong is silent metadata exposure that nobody notices. The refusal must also explain itself. |
+| `loopback_binds_without_an_override` | The safe case is not made annoying. |
+| `an_explicit_override_allows_a_public_bind` | The escape hatch is real, not a lie. |
+
+---
+
+# `itsanas-net` — two-node tests (11)
+
+Real stores, real chunking, real sealing, real signatures, real TCP.
+`tests/two_nodes.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`two_nodes_sync_a_file_over_a_real_socket`** | The M4 exit criterion. |
+| **`a_host_stores_a_strangers_data_and_cannot_read_a_byte_of_it`** | Alice's whole corpus pushed to Bob's node, then every byte Bob holds scanned for Alice's canary. |
+| **`a_host_relays_one_device_to_another_that_it_never_met`** | The architecture's whole reason for existing, over a socket: the Pi pushes and powers off, the VM pulls the Pi's work from a host it has never met. |
+| **`syncing_twice_transfers_nothing_the_second_time`** | Without the have/missing exchange this re-uploads everything every round, which at real sizes saturates the link forever. |
+| **`concurrent_edits_on_two_machines_converge_over_a_socket`** | The convergence property, through the real protocol, so a transport bug that lost or reordered work shows up. |
+| **`a_peer_cannot_push_a_forged_segment_into_a_host`** | End to end, not just at the service layer. |
+| **`a_storage_challenge_works_over_the_wire`** | Including that the owner re-derives the expected bytes rather than keeping a second copy — which is what makes remote audit possible at all. |
+| **`a_malformed_request_gets_a_refusal_rather_than_a_dropped_connection`** | A peer cannot kill a sync round by sending something silly. |
+| **`a_host_that_has_pledged_nothing_refuses_to_store_but_still_answers`** | Refusing to store does not make a node stop being a peer. |
+| `a_larger_file_survives_the_wire_byte_for_byte` | Multi-chunk fetch and reassembly. |
+| `a_peer_asking_about_an_unknown_user_gets_an_empty_answer` | No invented chains over the wire either. |
+
+---
+
 # Planned tests
 
 Listed here so the gap between what is claimed and what is verified stays
@@ -405,12 +516,22 @@ by nothing that decides anything. A test asserting that a wrong clock changes
 nothing would be asserting the absence of code that does not exist, which is the
 kind of test this project treats as worse than none.
 
-## M4 — network
+## M4 — remaining
 
-- Wire-decoder fuzzing (`cargo-fuzz`), no panics.
-- A malicious peer returning garbage, wrong-but-valid, or truncated chunks is
-  detected and the chunk refetched elsewhere.
-- A peer that fails a storage challenge is marked unreliable.
+The decoder is already exercised against every truncation and every single-bit
+corruption of a valid frame, and against arbitrary garbage. Still outstanding:
+
+- **A real fuzzing campaign** (`cargo-fuzz`). The hand-written adversarial suite
+  covers the inputs someone thought of, which is exactly the set a fuzzer is
+  needed to go beyond.
+- **Refetch elsewhere**: a peer returning a chunk that fails to open is detected
+  today (the AEAD tag catches it), but nothing yet retries the fetch against a
+  different host — there is no placement layer to supply one.
+- **Reputation**: a peer that fails a storage challenge should be marked
+  unreliable. The challenge works; nothing records the result yet.
+- **QUIC**: everything above the transport is transport-agnostic and tested, so
+  these tests should port unchanged. That is the point of the split, and it is
+  worth checking rather than assuming.
 
 ## M5 — placement
 

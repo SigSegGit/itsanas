@@ -1,19 +1,19 @@
 [package]
-name = "itsanas-store"
+name = "itsanas-net"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Chunking, content-addressed blob storage and the operation log for ITSaNAS"
+description = "Peer protocol and transport for ITSaNAS"
 
 [dependencies]
 blake3 = "1.8.7"
-getrandom = "0.4.3"
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
+itsanas-sync = { version = "0.1.0", path = "../itsanas-sync", default-features = false }
 postcard = { version = "1.1.1", default-features = false, features = ["use-std"] }
-redb = "2.6.0"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"
 
@@ -22,5 +22,4 @@ workspace = true
 
 [dev-dependencies]
 itsanas-testkit = { version = "0.1.0", path = "../itsanas-testkit" }
-proptest = "1.11.0"
 tempfile = "3.23.0"
