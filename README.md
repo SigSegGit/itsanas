@@ -13,10 +13,12 @@ reboots — and your data stays available and stays in sync.
 > the other; delete it, it goes from both. Machines on the same network find
 > each other with nothing configured. 499 tests.
 >
-> What is missing before it is a *network* rather than a household sync tool:
-> no coordinator server, so a machine on a *different* network still has to be
-> added by hand; no repair execution; no scheduled storage challenges. See
-> [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/MVP.md](docs/MVP.md).
+> What is missing: `itsanas bench` measured the store and the answer at scale is
+> not good enough — one file per chunk means 14.7 million files per terabyte and
+> 19 MiB/s of write throughput, so pack files are next. There is also no
+> coordinator server, so a machine on a *different* network still has to be
+> added by hand, and no repair execution. See [docs/ROADMAP.md](docs/ROADMAP.md)
+> and [docs/MVP.md](docs/MVP.md).
 > Nothing here is ready to hold data you care about yet.
 
 ## The idea in one picture

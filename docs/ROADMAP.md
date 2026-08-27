@@ -19,6 +19,8 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M6 Coordinator | `itsanas-coord` | 🟨 **library done, no server** | 47 |
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 53 |
 | M8 Three-device bring-up | — | ⬜ not started | — |
+| M9 Measurement | `itsanas bench` | ✅ **done**, and it found two problems | 4 |
+| M10 Pack files | `itsanas-store` | ⬜ **next**, decided by M9 | — |
 
 **520 tests, 2 of them `#[ignore]`d into the slow job.**
 
@@ -455,6 +457,61 @@ Still to build:
 **Exit criteria:** the folder-that-just-syncs experience, plus an alert that
 actually fires when node count drops below the replication floor or a sync round
 stops completing.
+
+---
+
+### M9 — Measurement, and what it found ✅ then ❌ (`itsanas bench`)
+
+`itsanas bench` ships as a command rather than living in `cargo bench`, because
+the question was never "is the laptop fast enough". It generates incompressible
+data on the fly, pushes it through chunking, sealing, a real store write and a
+real store read, checks the round trip by hash, and prints how long a full disk
+would take.
+
+It was run once and immediately found two things, which is what it was for.
+
+#### Finding 1 — the write path is dominated by per-chunk file operations
+
+Windows laptop, 256 MiB, 3585 chunks. Sealing alone runs at 229 MiB/s, so
+cryptography is not the bottleneck by a factor of twelve:
+
+| Configuration | Write | Extrapolated to 1 TB |
+| --- | --- | --- |
+| `fsync` + staging file + rename (**what ships**) | 19.0 MiB/s | 15.3 hours |
+| `fsync`, written straight to its final path | 27.9 MiB/s | 10.4 hours |
+| staging + rename, no `fsync` | 37.0 MiB/s | 7.9 hours |
+| straight to final path, no `fsync` | 66.9 MiB/s | 4.4 hours |
+
+Both costs are per **chunk**, and a chunk averages 73 KiB.
+
+**Nothing was changed on the strength of this.** Each variant was measured and
+then reverted: `blob.rs` is the write path of a backup system, and a 47 % gain is
+not a reason to alter its durability argument at the end of a long session.
+Dropping the staging file needs the existence check to become size-aware, or a
+half-written blob is silently accepted as complete and never rewritten.
+
+#### Finding 2 — the layout does not reach a terabyte, and that is the real one
+
+At a 73 KiB average, **1 TB is 14.7 million files**. Two consequences, neither of
+which any amount of tuning fixes:
+
+- `session::push` calls `blobs().addresses()` **on every sync round**, which
+  walks the whole tree and returns every identifier in one `Vec` — about 470 MB
+  of resident memory at that scale, on a machine chosen partly because it is
+  cheap. This directly contradicts the bounded-memory property the store claims
+  everywhere else.
+- 14.7 million inodes on the Pi's array, every one of them touched by a full
+  verification pass.
+
+**Decision: pack files.** Chunks append into large segment files, with an index
+in redb mapping chunk to (pack, offset, length). One `fsync` per closed pack
+rather than per chunk; the have/missing exchange reads the index instead of the
+filesystem; garbage collection becomes compaction. This is what git packfiles,
+restic, Borg and casync all converged on, for these reasons.
+
+It is the next substantial piece of work, ahead of the coordinator, because it
+decides whether the Raspberry Pi with a 1 TB array — the machine this project
+exists for — works at all.
 
 ---
 

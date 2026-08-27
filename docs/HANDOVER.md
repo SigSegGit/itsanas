@@ -181,11 +181,19 @@ side coming back, a deletion removing it from both, both folders byte-identical.
    `under_replicated` and the `itsanas status` report. What is still missing is
    a repair loop that *chooses* peers to fix a shortfall, rather than relying on
    a node pushing to every peer it has.
-2. **Coordinator server and client.** The library (`coord`) is complete and
+2. **Pack files.** Decided by measurement, not taste — see
+   [ROADMAP.md](ROADMAP.md) M9. One file per chunk means 14.7 million files per
+   terabyte, `blobs().addresses()` walking all of them on every sync round, and
+   19 MiB/s of write throughput against 229 MiB/s of sealing. Chunks should
+   append into large packs with an index in redb; `fsync` once per closed pack;
+   the have/missing exchange reads the index rather than the filesystem;
+   garbage collection becomes compaction. **This is ahead of the coordinator**
+   because it decides whether the Pi works at all.
+3. **Coordinator server and client.** The library (`coord`) is complete and
    tested; nothing serves it. Needs: a protocol enum, a `service.rs` handling
    requests against `Directory`, and a TLS server reusing `itsanas-tls` and
    `wire::Connection`. Then a `itsanas-coordinator` binary.
-3. **~~Signed node-set epochs~~ — cancelled.** This was going to be the
+4. **~~Signed node-set epochs~~ — cancelled.** This was going to be the
    coordinator publishing a membership list everyone agreed on. Requiring every
    peer to hold the same list *is* an agreement protocol, and ITSaNAS does not
    need one: every chunk has exactly one owner who already keeps a log of it.
@@ -219,6 +227,8 @@ side coming back, a deletion removing it from both, both folders byte-identical.
   ISP.
 - **One process per node.** The index is under an exclusive lock, so commands
   refuse to run while the daemon holds it. A local control socket is the fix.
+- **The blob layout does not reach a terabyte.** Measured, not suspected: see
+  [ROADMAP.md](ROADMAP.md) M9. Pack files are the decided answer and are next.
 - **No file-level sharing between users.** Not needed for mutual storage;
   `UserKeys::agree` exists, is tested, and is deliberately unused until it is.
 

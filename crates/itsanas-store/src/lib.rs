@@ -61,6 +61,7 @@ pub mod vault;
 pub mod version;
 
 pub use blob::BlobStore;
+pub use chunker::split_stream;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};
 pub use holders::{AtRisk, Holder};

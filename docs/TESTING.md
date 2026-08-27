@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 520 tests across 18 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 524 tests across 18 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
@@ -508,7 +508,20 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 
 ---
 
-# `itsanas-cli` — unit tests (29)
+# `itsanas-cli` — unit tests (33)
+
+## `bench` — measuring this machine (4)
+
+`itsanas bench` exists because "will this work on a Raspberry Pi" can only be
+answered by the person holding one. Its own correctness matters more than most:
+a benchmark that measures a broken path produces a confident wrong number.
+
+| Test | What it proves |
+| --- | --- |
+| **`the_generator_produces_exactly_what_was_asked_for`** | Every throughput figure divides by this. A generator quietly delivering fewer bytes would inflate all of them. |
+| **`the_generator_is_deterministic_so_the_check_at_the_end_is_meaningful`** | The round-trip check compares what was read back against a second run of the generator. Non-deterministic and every run fails; constant and the check proves nothing. |
+| `a_stage_that_took_no_measurable_time_reports_zero_rather_than_infinity` | Dividing by a zero duration gives `inf`, which formats as a nonsense size and reads as a spectacular result. |
+| `durations_are_reported_in_units_a_person_can_act_on` | "15.3 hours" is a decision; "55080 seconds" is arithmetic homework. |
 
 ## `discovery` — the daemon's use of local discovery (4)
 

@@ -11,6 +11,7 @@
 //! the coordinator to say who the peers are. Recorded in `docs/ROADMAP.md`
 //! rather than glossed over.
 
+mod bench;
 mod config;
 mod daemon;
 mod discovery;
@@ -169,6 +170,19 @@ enum Command {
         #[arg(long)]
         deep: bool,
     },
+    /// Measure this machine: how fast it chunks, seals, stores and reads.
+    ///
+    /// The question is not whether a laptop is fast enough — it is whether a
+    /// Raspberry Pi is, and the only person who can answer that is the person
+    /// holding one. Nothing here touches your account: a throwaway identity and
+    /// a scratch directory are made for the run and deleted after it.
+    Bench {
+        /// How much data to push through each stage, e.g. `64M`, `1G`.
+        ///
+        /// Generated on the fly, so a large size costs no extra memory.
+        #[arg(long, default_value = "256M")]
+        size: String,
+    },
     /// Reclaim space from files that were deleted or overwritten.
     Gc {
         /// How long a chunk must have been unreferenced, in seconds.
@@ -234,6 +248,7 @@ fn run() -> Result<()> {
         Command::Sync { address } => sync(&home, address.as_deref()),
         Command::Peer { action } => peer(&home, action),
         Command::Doctor { deep } => doctor(&home, deep),
+        Command::Bench { size } => bench::run(parse_size(&size)?),
         Command::Gc { grace } => gc(&home, grace),
     }
 }

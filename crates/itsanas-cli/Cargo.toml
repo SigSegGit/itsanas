@@ -13,6 +13,7 @@ name = "itsanas"
 path = "src/main.rs"
 
 [dependencies]
+blake3 = "1.8.7"
 clap = { version = "4.5.51", features = ["derive", "env"] }
 ctrlc = "3.5.0"
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
@@ -24,6 +25,7 @@ itsanas-sync = { version = "0.1.0", path = "../itsanas-sync", default-features =
 postcard = { version = "1.1.1", default-features = false, features = ["use-std"] }
 rpassword = "7.4.0"
 serde = { version = "1.0.229", features = ["derive"] }
+tempfile = "3.23.0"
 thiserror = "2.0.20"
 zeroize = "1.9.0"
 
@@ -31,5 +33,4 @@ zeroize = "1.9.0"
 workspace = true
 
 [dev-dependencies]
-blake3 = "1.8.7"
-tempfile = "3.23.0"
+# blake3 and tempfile are ordinary dependencies now: `itsanas bench` ships.
