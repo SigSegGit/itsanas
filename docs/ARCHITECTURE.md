@@ -2,6 +2,7 @@
 
 > Companion documents: [ROADMAP.md](ROADMAP.md) (what is built vs planned),
 > [DESIGN.md](DESIGN.md) (why each mechanism works the way it does),
+> [ECONOMICS.md](ECONOMICS.md) (what a member gives and gets),
 > [TESTING.md](TESTING.md) (every automated test and what it proves),
 > [TEST-USERS.md](TEST-USERS.md) (the published fixture identities).
 
@@ -25,16 +26,18 @@ Three properties have to hold at once, and each one constrains the design:
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│  itsanas (CLI)          itsanas-daemon (background service)           │
+│  itsanas (CLI, and `itsanas daemon` as the background service)      │
 │  init / login / pledge  file watcher, sync loop, repair loop, alerts  │
 ├───────────────────────────────────────────────────────────────────────┤
 │  itsanas-sync                      itsanas-placement                  │
 │  version vectors, op-log merge,    rendezvous hashing, replica        │
 │  conflict materialisation          targets, repair, quota accounting  │
 ├───────────────────────────────────────────────────────────────────────┤
-│  itsanas-store                     itsanas-net                        │
-│  FastCDC chunking, blob store,     QUIC transport, peer protocol,     │
-│  op-log segments, local index      proof-of-storage challenges        │
+│  itsanas-store   itsanas-folder    itsanas-net                        │
+│  FastCDC chunking, blob store,     peer protocol, sessions,           │
+│  op-log, index, vault, a synced    proof-of-storage challenges        │
+│  directory with a watcher          ├─ itsanas-tls  (device auth)      │
+│                                    └─ itsanas-wire (framing)          │
 ├───────────────────────────────────────────────────────────────────────┤
 │  itsanas-crypto                                                       │
 │  identity, key schedule, sealing, blinded addressing, keystore        │
@@ -54,9 +57,10 @@ auditable in isolation.
 
 ### 3.1 Chunks
 
-A file is split by content-defined chunking (FastCDC, ~1 MiB average). Splitting
-on content rather than offset means inserting a byte at the start of a large
-file re-chunks only the neighbourhood of the edit, not the whole file.
+A file is split by content-defined chunking (FastCDC; 16 KiB minimum, 64 KiB
+average, 256 KiB maximum). Splitting on content rather than offset means
+inserting a byte at the start of a large file re-chunks only the neighbourhood
+of the edit, not the whole file.
 
 Each chunk is sealed independently:
 
@@ -118,7 +122,7 @@ edits are **materialised side by side**:
 
 ```
 report.pdf
-report.conflict-pi4-20260826T142233Z.pdf
+report.conflict-a3f21c8d0e91-7.pdf
 ```
 
 Nothing is silently overwritten and nothing is discarded. Deletes are
@@ -133,9 +137,18 @@ Placement uses **rendezvous (highest-random-weight) hashing** over the signed
 node set, weighted by pledged capacity:
 
 ```
-score(node, chunk) = weight(node) / -ln(uniform_hash(node_id ‖ chunk_id))
-replicas = top R nodes by score
+slots(node)        = clamp(pledge / smallest pledge in the swarm, 1, 64)
+score(node, chunk) = max over its slots of BLAKE3(node ‖ slot ‖ owner ‖ chunk)
+replicas           = top R nodes by score
 ```
+
+**No floating point, deliberately.** The textbook weighted formula is
+`weight / -ln(uniform_hash(…))`, and `f64::ln` is the platform's libm: two
+machines can differ in the last unit in the last place, and when two candidates
+land that close the Pi and the laptop disagree about where a chunk lives —
+silently, permanently, with no error. Taking the maximum over integer slots
+gives the same proportionality (the chance of holding the swarm's highest hash
+is exactly a node's share of the slots) computed identically everywhere.
 
 Properties that matter here:
 
@@ -145,6 +158,9 @@ Properties that matter here:
   should own, not a reshuffle of the whole keyspace.
 - **Owner affinity.** A user's own devices are always preferred replicas, so
   reading your own data never depends on anyone else being online.
+- **Anchors.** At least one replica should sit on a node that is actually up.
+  Durability and availability are separate purchases — see
+  [ECONOMICS.md](ECONOMICS.md) §2 for the arithmetic that forces this.
 
 ### 4.2 Redundancy
 
@@ -188,7 +204,9 @@ VM on a Freebox Delta.
    placement.
 4. Stores each user's opaque, passphrase-encrypted **escrow blob** for
    new-device login.
-5. Runs a QUIC relay for peers that cannot hole-punch.
+5. May relay for peers that cannot be dialled directly. **Not built** — a node
+   behind NAT can already push, and `session::drain_vault` means the node it
+   pushed to still applies what arrived.
 
 **What it explicitly cannot do**
 
@@ -208,10 +226,27 @@ later without touching a single byte of the data plane.
 
 ## 6. Transport
 
-QUIC, with Ed25519 device keys as the peer identity, giving mutual
-authentication from the handshake with no certificate authority. NAT traversal
-uses hole punching with relay fallback — necessary because the target
-deployments sit behind a Freebox and consumer NAT.
+TLS 1.3 over TCP, with mutual authentication by device key and no certificate
+authority.
+
+Authentication sits *above* TLS rather than inside the certificate. Certificates
+are anonymous and regenerated every start-up; each side proves itself by signing
+the TLS session's **exporter value** with its device key. A man in the middle who
+terminates TLS has two sessions with two different exporters, so a proof from one
+is worthless in the other and they cannot produce their own. Two consequences:
+no X.509 parsing anywhere in the trusted path, and an observer cannot correlate
+two connections by their certificates.
+
+Dialling pins the expected device id wherever one is known, so an address that
+resolves to the wrong machine is refused rather than trusted — the coordinator
+hands out addresses and is not trusted to say who lives at one.
+
+**NAT traversal is not built.** A node behind NAT can push but cannot be dialled.
+That is less limiting than it sounds: `session::drain_vault` means a node that
+only ever accepts connections still learns what was pushed to it, so work flows
+in both directions as long as one side can dial. Hole punching and relay
+fallback would want QUIC, which is now an optimisation rather than a
+prerequisite for security.
 
 ## 7. Operational behaviour
 

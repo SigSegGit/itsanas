@@ -1,21 +1,25 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 393 tests across 13 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 462 tests across 17 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
-| `itsanas-cli` unit | 25 |
-| `itsanas-folder` unit | 31 |
-| `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-placement` unit | 29 |
 | `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
-| `itsanas-store` unit | 92 |
-| `itsanas-store` integration (`tests/store.rs`) | 27 |
+| `itsanas-wire` unit | 17 |
+| `itsanas-tls` unit | 6 |
+| `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
+| `itsanas-store` unit | 97 |
+| `itsanas-store` integration (`tests/store.rs`) | 29 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 19 |
-| `itsanas-net` unit | 38 |
+| `itsanas-net` unit | 25 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 12 |
+| `itsanas-placement` unit | 29 |
+| `itsanas-coord` unit | 47 |
+| `itsanas-folder` unit | 31 |
+| `itsanas-folder` integration (`tests/folder.rs`) | 22 |
+| `itsanas-cli` unit | 25 |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with
@@ -47,10 +51,11 @@ Defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 | --- | --- | --- |
 | **lint** | `cargo fmt --check`, `cargo clippy -D warnings` | Style drift and lint debt compound. Clippy's `pedantic` set catches real bugs in crypto code — sign confusion, lossy casts, misused ranges. |
 | **test** | `cargo test --workspace` on Ubuntu, Windows, macOS | ITSaNAS must run on a Windows laptop and a Linux Pi simultaneously. Path handling, endianness assumptions and filesystem semantics differ; a Linux-only suite would not notice. |
-| **slow-tests** | `cargo test -- --ignored --test-threads 1` | One test is currently marked `#[ignore]`: the real 64 MiB Argon2id cost. Too slow for every push, far too important to never run. Large simulated swarms will join it at M5. |
+| **slow-tests** | `cargo test -- --ignored --test-threads 1` | Two tests are marked `#[ignore]`: the real 64 MiB Argon2id cost, and a 64 MiB streaming round trip that takes ~45s in a debug build. Too slow for every push, far too important to never run. |
 | **cross-build** | `cargo build --release --target aarch64-unknown-linux-gnu` | The Raspberry Pi 4B+ is a first-class deployment target. Catching a dependency that does not cross-compile at PR time is much cheaper than at deploy time. |
 | **minimum-rust-version** | `cargo check` on the pinned MSRV | Prevents accidentally requiring a newer toolchain than the documented minimum, which would break users on distro Rust. |
 | **supply-chain** | `cargo deny check` | Fails on any unpatched advisory, any yanked crate, and any licence not compatible with AGPL-3.0. For a system whose entire value is "your host cannot read your data", a vulnerable crypto dependency is a release blocker. |
+| **documentation** | `cargo doc` with `RUSTDOCFLAGS=-D warnings` | Broken intra-doc links are the quietest kind of rot: the documentation keeps claiming a relationship the code no longer has, and nothing fails until a reader clicks it. |
 | **coverage** | `cargo llvm-cov` | Not a target to game — used to spot whole modules or error paths with no test at all. |
 
 The workflow also runs **weekly on a schedule**, so a newly published advisory
@@ -198,7 +203,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (59)
+# `itsanas-store` — unit tests (97)
 
 ## `chunker` — content-defined chunking (13)
 
@@ -289,7 +294,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (22)
+# `itsanas-store` — integration tests (29)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -401,7 +406,7 @@ about reading.
 
 ---
 
-# `itsanas-net` — unit tests (38)
+# `itsanas-net` — unit tests (25)
 
 ## `wire` — framing (12)
 
@@ -464,7 +469,7 @@ Every byte parsed here comes from a stranger's computer.
 
 ---
 
-# `itsanas-net` — two-node tests (11)
+# `itsanas-net` — two-node tests (12)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -485,7 +490,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 
 ---
 
-# `itsanas-cli` — unit tests (23)
+# `itsanas-cli` — unit tests (25)
 
 ## `daemon` — pacing (2)
 
@@ -629,6 +634,45 @@ destructive if wrong.
 
 ---
 
+# `itsanas-wire` (17), `itsanas-tls` (11), `itsanas-coord` (47)
+
+Catalogued at the level of what each guards rather than test by test, because
+these three are newer than the rest and the properties matter more than the
+names.
+
+**`itsanas-wire`** — framing and the generic `Connection`. Oversized lengths
+refused before allocating; every truncation and every single-bit corruption of a
+valid frame rejected rather than half-parsed; arbitrary garbage never panics; a
+stalled frame cannot grow the buffer without bound; a clean close between
+messages is not an error but a close *part-way through* one is, because
+discarding a partial frame would let a peer truncate a response and have it
+treated as complete.
+
+**`itsanas-tls`** — the property everything rests on is
+`a_proof_from_one_session_is_worthless_in_another`: a man in the middle who
+terminates TLS has two sessions with two different exporters, so a captured
+proof cannot be relayed. Also: claiming to be another device fails;
+`the_payload_never_reaches_the_socket_in_plaintext` records every byte written
+to the socket and scans it for a canary; dialling a device and reaching a
+different one is refused; a server learns who called without being told in
+advance; every process presents a different certificate.
+
+**`itsanas-coord`** — device claims cannot be forged, retimed or stripped of
+their revocation; a claim dated far in the future is refused, because
+supersession is by timestamp and such a claim could never be replaced; replaying
+an old enrolment cannot un-revoke a stolen laptop; presence is signed by the
+device and a claim by the owner, so a laptop changing networks never needs the
+key that can revoke everything; a username cannot be taken over by another key
+and re-registering cannot reset the joining date; a device cannot be claimed
+without an account or by two accounts; **a node cannot inflate its own
+availability by saying so** — a single heartbeat buys only the floor; a
+coordinator that was itself offline for a year does not annihilate everyone's
+standing; escrow is off until asked for; the accounting floors entitlement
+against the member, clamps availability at both ends, and permits reclaiming
+only in the harshest state.
+
+---
+
 # Planned tests
 
 Listed here so the gap between what is claimed and what is verified stays
@@ -677,9 +721,10 @@ corruption of a valid frame, and against arbitrary garbage. Still outstanding:
   different host — there is no placement layer to supply one.
 - **Reputation**: a peer that fails a storage challenge should be marked
   unreliable. The challenge works; nothing records the result yet.
-- **QUIC**: everything above the transport is transport-agnostic and tested, so
-  these tests should port unchanged. That is the point of the split, and it is
-  worth checking rather than assuming.
+- **QUIC**: the transport is TLS 1.3 over TCP and fully tested; QUIC is now only
+  wanted for NAT hole punching. Everything above the transport is
+  transport-agnostic, so these tests should port unchanged — which is the point
+  of the split, and worth checking rather than assuming.
 
 ## M5 — remaining
 

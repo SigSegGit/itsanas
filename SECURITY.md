@@ -41,22 +41,29 @@ service and partition attempts, not data.
 
 ## Published test keys — not a vulnerability
 
-## The transport is not yet encrypted
+## Transport
 
-`itsanas-net` currently speaks plain TCP. Your **data** is not at risk from
-this — chunk bodies and log-segment bodies are sealed before they reach the
-wire, and segment envelopes are signed, so a man in the middle can neither read
-a payload nor forge one a peer will accept.
+Every peer connection is TLS 1.3 with both ends authenticated by their device
+key. Certificates are anonymous and regenerated on every start-up; identity is
+proved one layer up, by each side signing the TLS session's exporter value
+(`itsanas-tls`). A man in the middle who terminates TLS gets a different
+exporter, so a captured proof is worthless to them and they cannot make their
+own.
 
-Your **metadata** is. An observer on the network path sees chunk identifiers,
-object sizes and timing. The threat model grants a host all three; it does not
-grant them to an arbitrary network between two of your own machines. An observer
-recording chunk identifiers can tell when you touch the same file again and can
-correlate two of your devices.
+Consequences worth stating:
 
-`PeerServer::bind` therefore refuses a non-loopback address unless the caller
-explicitly overrides it. Until QUIC with TLS lands, run ITSaNAS over loopback, a
-VPN, or an SSH tunnel.
+- There is no certificate authority, no certificate pinning and no X.509 parsing
+  anywhere in the trusted path.
+- An observer cannot correlate two connections by their certificates.
+- A node answers any device that authenticates, including one it has never met —
+  that is what lets anyone offer storage. Everything it can serve is sealed or
+  signed, and it now knows *which* device it served.
+- Dialling a peer pins the expected device id where one is known, so an address
+  that resolves to the wrong machine is refused rather than trusted.
+
+**Still visible to an observer:** that two ITSaNAS nodes are talking, when, and
+roughly how much. Hiding that needs padding and cover traffic, which remains a
+deliberate non-goal.
 
 The recovery phrases and private keys in [docs/TEST-USERS.md](docs/TEST-USERS.md)
 are public **by design**, so anyone can reproduce the test suite. Those three

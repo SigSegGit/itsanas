@@ -2,50 +2,43 @@
 
 **Last updated: 2026-08-27.** This file is updated in the same change as the
 code it describes. If it disagrees with the code, the code is right and this is
-a bug.
+a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 
 ## Current state at a glance
 
 | Milestone | Crate | Status | Tests |
 | --- | --- | --- | --- |
-| M0 Repository, CI, licence | — | ✅ **done** | CI runs 7 jobs |
+| M0 Repository, CI, licence | — | ✅ **done** | 7 CI jobs, all gates green locally |
 | M1 Cryptographic core | `itsanas-crypto` | ✅ **done** | 64 unit + 15 property |
 | M1b Published test fixtures | `itsanas-testkit` | ✅ **done** | 7 |
-| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 88 unit + 27 integration + 1 doc |
-| M3 Sync engine | `itsanas-sync` | 🟨 **mostly done** | 12 unit + 19 convergence + 1 doc |
-| M4 Network transport | `itsanas-net` | 🟨 **works over TCP; QUIC pending** | 38 unit + 11 two-node |
-| M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not yet executed** | 29 unit + vault's 16 |
-| M6 Coordinator | `itsanas-coord` | ⬜ not started | — |
-| M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 31 unit + 22 integration |
+| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 97 unit + 29 integration |
+| M3 Sync engine | `itsanas-sync` | ✅ **done** | 12 unit + 19 convergence |
+| M4 Network transport | `itsanas-wire`, `itsanas-tls`, `itsanas-net` | ✅ **done** | 17 + 11 + 37 |
+| M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not executed** | 29 |
+| M6 Coordinator | `itsanas-coord` | 🟨 **library done, no server** | 47 |
+| M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 53 |
 | M8 Three-device bring-up | — | ⬜ not started | — |
 
-**Nothing in this repository should hold data you care about yet.** The
-cryptographic guarantees, the local store, the merge rules and the peer protocol
-are implemented and tested. Two processes now sync a real file over a real
-socket, a node hosts another user's data without being able to read it, and a
-host relays one device's work to another device it has never met.
+**462 tests, 2 of them `#[ignore]`d into the slow job.**
 
-There is a working command line and a folder that syncs: point `itsanas folder`
-at a directory, run `itsanas daemon`, and files put in it reach your other
-machines while files deleted from it are deleted everywhere.
-[QUICKSTART.md](QUICKSTART.md) walks two machines through it.
+**Nothing here should hold data you care about yet**, but the reason has
+narrowed. The cryptography, the local store, the merge rules, the transport and
+the synced folder all work and are tested, and two daemons genuinely keep two
+folders identical over an encrypted, mutually authenticated connection.
 
-What is still missing before this is safe to rely on:
+What is missing before this is a *network* rather than a personal sync tool:
 
-- **The transport is plain TCP.** It protects your *data* — everything on the
-  wire is sealed — but exposes chunk identifiers, sizes and timing to anyone on
-  the network path. It refuses to bind a non-loopback address unless you
-  override it. Use a VPN or an SSH tunnel between machines.
-- **Only one process may hold a node at a time.** `itsanas daemon` does the
-  serving and the syncing together, so this rarely bites — but while it runs,
-  other commands against the same home refuse to start.
-- **Placement is decided but not executed.** The rules for which hosts should
-  hold a chunk, and the repair plan for one that has too few copies, are
-  implemented and tested — but nothing yet carries that plan out.
-- **Nothing challenges a host on a schedule.** The proof-of-storage primitive
-  works over the wire; a host that quietly discards data is currently caught
-  only by accident.
-- **There is no coordinator**, so peers must be pointed at each other by hand.
+- **No coordinator server.** The library is complete — device certificates,
+  revocation, measured availability, the accounting from
+  [ECONOMICS.md](ECONOMICS.md) — but nothing serves it. Without it there is no
+  way for one member to learn that another exists.
+- **Placement is decided but not executed.** Nothing carries out a repair plan,
+  because knowing who the peers are needs the node set the coordinator publishes.
+- **Nothing challenges a host on a schedule**, so a host that quietly discards
+  data is caught only by accident.
+- **Recovery from username plus passphrase is not wired.** The escrow container
+  exists and is tested; `itsanas login` still requires the 24 words.
+- **Never run on a Raspberry Pi.** Only `cargo check` for aarch64.
 
 ---
 
@@ -81,9 +74,10 @@ Implemented:
 - **Published-identity ban list.** Production refuses the three fixture users
   whose keys are printed in the docs.
 
-Not yet implemented in this crate: key wrapping to other users' devices (the
-X25519 agreement primitive exists, the certificate format does not), and device
-revocation certificates.
+Device certificates and revocation moved to `itsanas-coord` (`claim.rs`), where
+they belong: they are statements a coordinator records, not primitives. Key
+wrapping to other users is deliberately unbuilt — mutual *storage* needs no key
+exchange, so `UserKeys::agree` is kept, tested and unused until sharing exists.
 
 ### M1b — Published test fixtures ✅ (`itsanas-testkit`)
 
@@ -130,7 +124,7 @@ The limitation is documented at the top of `oplog.rs` rather than papered over.
 
 ---
 
-### M3 — Sync engine 🟨 (`itsanas-sync`)
+### M3 — Sync engine ✅ (`itsanas-sync`)
 
 Implemented:
 
@@ -173,7 +167,7 @@ would never have stopped.
 
 ---
 
-### M4 — Network transport 🟨 (`itsanas-net`)
+### M4 — Network transport ✅ (`itsanas-wire`, `itsanas-tls`, `itsanas-net`)
 
 Implemented:
 
@@ -195,25 +189,44 @@ Implemented:
   Fetched segments are retained in the vault, which is what lets a node relay
   one device's work to another and gives the next pull a free resume point.
 
-**Exit criterion — met for the protocol, partly for the transport.** Two
-processes sync a real file over a real socket; a host stores a stranger's data
-and cannot read a byte of it; a host relays one device to another that it never
-met; concurrent edits converge over the wire. The decoder is exercised against
-every truncation and every single-bit corruption of a valid frame, and against
-arbitrary garbage — but that is a hand-written adversarial suite, not the fuzzing
-campaign the original criterion asked for.
+**Encryption and authentication** (`itsanas-tls`). Every connection is TLS 1.3,
+with both ends proving which device they are.
+
+Authentication sits *above* TLS rather than in the certificate. The obvious
+design puts the device's Ed25519 key in its certificate and compares it against
+the expected id, which needs X.509 parsing in the trusted path to get the key
+back out. Instead the certificates are anonymous and regenerated every start-up,
+and each side signs the TLS session's **exporter value** with its device key. A
+man in the middle who terminates TLS has two sessions with two different
+exporters, so a proof from one is worthless in the other and they cannot make
+their own. Two things fall out: no certificate parser anywhere, and an observer
+cannot correlate two connections by their certificates.
+
+`ring` rather than the default `aws-lc-rs` provider: aws-lc-rs needs cmake and a
+full C toolchain, which makes cross-compiling for the Pi markedly harder.
+
+This removed `Exposure` and the CLI's `--allow-public`. Both existed only
+because the transport leaked chunk identifiers, sizes and timing; keeping them
+would be cargo cult. The default listen address is now `0.0.0.0:9797`, because a
+node in a network has to be reachable.
+
+**Exit criteria — met.** Two processes sync a real file over a real socket; a
+host stores a stranger's data and cannot read a byte of it; a host relays one
+device to another it never met; concurrent edits converge over the wire; a
+recording of everything written to the socket contains no plaintext; dialling a
+device and reaching a different one is refused.
 
 **Still outstanding for M4:**
 
-- **QUIC with TLS and device-key authentication.** The current transport is
-  plain TCP. Data confidentiality does not depend on it — everything on the wire
-  is already sealed, and segment envelopes are signed — but a passive observer
-  sees chunk identifiers, sizes and timing, which the threat model grants to a
-  *host* and not to an arbitrary network. `PeerServer::bind` refuses non-loopback
-  addresses by default because of this. Until QUIC lands, run over loopback, a
-  VPN, or an SSH tunnel.
-- NAT hole punching and relay fallback, which QUIC is a prerequisite for.
-- A real fuzzing campaign (`cargo-fuzz`) against the decoder.
+- **A real fuzzing campaign** (`cargo-fuzz`) against the decoder. It is currently
+  exercised against every truncation and every single-bit corruption of a valid
+  frame, and against arbitrary garbage — a hand-written adversarial suite, which
+  covers the inputs somebody thought of.
+- **NAT traversal.** A node behind NAT can push but cannot be dialled. Partly
+  mitigated already: `session::drain_vault` means a node that only ever accepts
+  connections still learns what was pushed to it. Hole punching and relay
+  fallback would want QUIC, which is now an optimisation rather than a
+  prerequisite for security.
 
 ---
 
@@ -269,7 +282,7 @@ below the floor — but nothing runs that plan yet.
 
 ---
 
-### M7 — Daemon and CLI 🟨 (`itsanas-cli`, `itsanas-daemon`)
+### M7 — Daemon, CLI and synced folder 🟨 (`itsanas-cli`, `itsanas-folder`)
 
 The **CLI** landed early, because without it none of the layers below could be
 exercised by a human. See [QUICKSTART.md](QUICKSTART.md) for a walkthrough whose
@@ -359,16 +372,63 @@ Still to build:
 actually fires when node count drops below the replication floor or a sync round
 stops completing.
 
-## Not started
+---
 
-### M6 — Coordinator (`itsanas-coord`)
+### M6 — Coordinator 🟨 (`itsanas-coord`)
 
-- Account directory, presence, signed node-set epochs, escrow blob storage.
-- Deployable as a container to an OVH VPS or a Freebox ARM VM.
+**This is where the next session should start.** The library is complete and
+tested; nothing serves it, so no member can yet learn that another exists.
+
+Implemented:
+
+- **Device certificates** (`claim.rs`) — the piece M1 listed as missing. Two
+  signatures because they change at different rates: a *claim* ("this device is
+  mine, it pledges this much") signed by the master key and changing rarely, and
+  a *presence* ("reachable here, now") signed by the device key and changing
+  constantly. One message carrying both would put the key that can revoke every
+  device into use every few minutes.
+
+  Revocation falls out of it: claims are signed by the user's key, not the
+  device's, so whoever holds a stolen laptop cannot un-revoke it or move it. A
+  one-hour clock-skew ceiling stops a claim dated in the future being
+  unreplaceable — including by its owner trying to revoke it.
+
+- **Accounting** (`accounting.rs`) — [ECONOMICS.md](ECONOMICS.md) made
+  executable, in integers for the same reason placement is. A quarter-uptime
+  laptop earns a quarter of what the same disk earns always-on. Availability has
+  a floor so a holiday is not a default and a ceiling so a dishonest coordinator
+  cannot mint entitlement. Only the harshest state permits reclaiming, and even
+  then a member's data survives on their own machines.
+
+- **Directory** (`directory.rs`) — accounts, claims, presence, escrow, usage.
+  Availability is *measured* (did I hear from you since the last tick, folded
+  into a weighted average), not asserted, so a node cannot inflate its uptime by
+  saying so; a single heartbeat buys only the floor. A coordinator that was
+  itself offline for a year does not come back and annihilate everyone's
+  standing. Usernames are lowercase ASCII only, because a directory is read
+  aloud and typed back in. Escrow is opt-in and off by default.
+
+**Still outstanding for M6, in order:**
+
+1. **A protocol and a server.** Request/response enum, a `service.rs` handling
+   requests against `Directory`, and a TLS server reusing `itsanas-tls` and
+   `itsanas_wire::Connection`. Then an `itsanas-coordinator` binary.
+2. **Signed node-set epochs.** Does not exist yet. The coordinator signs, peers
+   pin, `itsanas-placement` consumes. This is what makes placement usable.
+3. **CLI wiring**: `itsanas register`, a coordinator address in the config, peer
+   lookup by username, and passing the discovered device id as `PeerClient`'s
+   `expect` argument — currently always `None`.
+4. **Escrow recovery**: `itsanas login --username X` fetching the blob. The
+   container works and is tested; only the wiring is missing. This is the
+   recovery story originally asked for.
 
 **Exit criteria:** a new device logs in with username plus passphrase and
 recovers the full account; a test proves the coordinator's stored state contains
 no plaintext and no usable key material.
+
+---
+
+## Not started
 
 ### M8 — Three-device bring-up
 

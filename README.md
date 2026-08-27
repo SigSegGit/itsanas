@@ -8,8 +8,13 @@ files live encrypted on their machines, theirs live encrypted on yours, and
 nobody can open anybody else's. Devices come and go — laptops sleep, a Pi
 reboots — and your data stays available and stays in sync.
 
-> **Status: early.** The cryptographic core is implemented and tested. The
-> store, sync engine, network layer and daemon are being built on top of it.
+> **Status: early, but it runs.** Two machines keep a folder in sync over an
+> encrypted, mutually authenticated connection: drop a file in, it appears on
+> the other; delete it, it goes from both. 462 tests.
+>
+> What is missing before it is a *network* rather than a personal sync tool:
+> there is no coordinator server, so members cannot find each other and peers
+> are configured by hand. See [docs/ROADMAP.md](docs/ROADMAP.md).
 > Nothing here is ready to hold data you care about yet.
 
 ## The idea in one picture
@@ -39,8 +44,8 @@ whether two of its users are storing the same file.
 - **Recoverable from nothing.** A 24-word recovery phrase reconstructs your
   entire identity on a brand-new machine, and your data is pulled back from
   whichever peers are up.
-- **Fair.** You get storage roughly in proportion to what you provide, verified
-  by periodic proofs rather than trust.
+- **Fair.** Pledge three times what you store, weighted by how reliably your
+  machines are actually reachable. The rules are in [docs/ECONOMICS.md](docs/ECONOMICS.md).
 - **Small trusted surface.** There is an optional coordinator, and it is
   deliberately not trusted with data, keys, or plaintext of any kind.
 
@@ -60,7 +65,7 @@ are already sitting on other people's machines. Your laptop wakes up hours
 later, pulls those segments from whoever happens to be online, replays them, and
 converges — without the Pi ever coming back. Concurrent edits are detected by
 version vector and materialised side by side as
-`report.conflict-<device>-<timestamp>.pdf`; nothing is silently overwritten and
+`report.conflict-<device>-<sequence>.pdf`; nothing is silently overwritten and
 nothing is lost.
 
 ## Repository layout
@@ -71,9 +76,11 @@ nothing is lost.
 | `itsanas-testkit` | The three published test users, their generated corpus and canaries | **implemented** |
 | `itsanas-store` | Content-defined chunking, blob store, operation log, local index | **implemented** |
 | `itsanas-sync` | Version vectors, log merge, conflict materialisation, convergence simulation | **implemented** |
-| `itsanas-net` | Peer protocol, TCP transport, sync sessions, proof-of-storage challenges | **implemented** (QUIC pending) |
+| `itsanas-wire` | Length-prefixed framing and a stream-agnostic connection | **implemented** |
+| `itsanas-tls` | TLS 1.3 with device authentication bound to the channel, no certificate authority | **implemented** |
+| `itsanas-net` | Peer protocol, encrypted transport, sync sessions, proof-of-storage challenges | **implemented** |
 | `itsanas-placement` | Rendezvous hashing, replication targets, repair planning | **implemented** (execution pending) |
-| `itsanas-coord` | Optional control-plane service: directory, presence, relay | planned |
+| `itsanas-coord` | Device certificates and revocation, measured availability, accounting, directory | **library implemented**, server pending |
 | `itsanas-folder` | A real directory mirrored into the store and back: import, export, delete, file watching | **implemented** |
 | `itsanas-cli` (`itsanas`) | Command line and daemon: init, login, folder, put, get, sync, serve, daemon, doctor | **implemented** |
 
@@ -81,6 +88,8 @@ nothing is lost.
 
 | Document | What is in it |
 | --- | --- |
+| [docs/HANDOVER.md](docs/HANDOVER.md) | **Start here to pick the project up cold** — state, decisions that must not be reversed, what is next |
+| [docs/ECONOMICS.md](docs/ECONOMICS.md) | **The bargain**: what a member gives, what they get, and what happens when they stop |
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | **Get two machines syncing** — every command shown has been run, with its real output |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Global architecture: layers, data model, placement, coordinator, transport |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | **Roadmap versus current state** — what is built, what is not, with exit criteria |
@@ -114,8 +123,8 @@ Requires a recent stable Rust toolchain.
 cargo test --workspace
 ```
 
-One test — the real 64 MiB Argon2id cost — is marked `#[ignore]` so the normal
-suite stays fast. CI runs it separately:
+Two tests — the real 64 MiB Argon2id cost and a 64 MiB streaming round trip —
+are marked `#[ignore]` so the normal suite stays fast. CI runs them separately:
 
 ```bash
 cargo test --workspace -- --ignored

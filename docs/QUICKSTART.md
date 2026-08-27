@@ -3,11 +3,10 @@
 Getting two machines syncing. Every command below has been run; the output is
 copied from a real session rather than written from memory.
 
-> **Before you start.** Nothing here should hold data you care about yet. The
-> transport is unencrypted (it protects your *data*, not your *metadata* — see
-> [SECURITY.md](../SECURITY.md)), there is no daemon so nothing syncs on its
-> own, and there is no placement layer so nothing decides which hosts should
-> hold what. [ROADMAP.md](ROADMAP.md) is honest about all of it.
+> **Before you start.** Nothing here should hold data you care about yet. There
+> is no coordinator, so members cannot find each other and peers are configured
+> by hand; nothing carries out a repair plan; and no host is challenged on a
+> schedule. [ROADMAP.md](ROADMAP.md) is honest about all of it.
 
 ## Build
 
@@ -99,13 +98,13 @@ itsanas serve
 ```
 
 ```text
-serving on 127.0.0.1:9797
+serving on 0.0.0.0:9797
 ```
 
-`serve` refuses a non-loopback address unless you pass `--allow-public`. That is
-deliberate: this transport is unencrypted, and while your data stays sealed, an
-observer on the path sees chunk identifiers and sizes. Use a VPN or an SSH
-tunnel between machines until QUIC lands.
+Every connection is TLS 1.3, and both ends prove which device they are by
+signing the session's exporter value with their device key. Listening on a real
+network is a normal thing to do; there is no override to pass and no warning to
+read.
 
 > **One process at a time.** While `serve` is running, other commands against
 > the same `--home` will refuse to start:
@@ -116,8 +115,8 @@ tunnel between machines until QUIC lands.
 > `itsanas serve` is running. Stop it and try again.
 > ```
 >
-> This is what the daemon in M7 exists to fix. Until then, stop the server when
-> you want to run something else.
+> Use `itsanas daemon`, which does both. A local control socket would remove
+> the restriction entirely and is not built.
 
 ## 4. Bring up a second machine
 
@@ -246,7 +245,7 @@ Two machines, each with a folder, one pointed at the other:
 # on the laptop
 itsanas folder ~/ITSaNAS
 itsanas pledge 10G
-itsanas daemon --listen 0.0.0.0:9797 --allow-public   # over a VPN
+itsanas daemon                                        # listens on 0.0.0.0:9797
 
 # on the Pi
 itsanas folder /srv/itsanas
@@ -275,6 +274,6 @@ That is tested end to end in
 | `already open in another process` | `itsanas serve` is running against the same home. Stop it. |
 | `wrong passphrase, or the keystore has been tampered with` | Exactly that. The two are indistinguishable on purpose. |
 | `no node found at …` | Run `init` for a new account or `login` to restore one. |
-| `refusing to bind …: this transport is unencrypted` | Use loopback, or pass `--allow-public` having read [SECURITY.md](../SECURITY.md). |
+| `expected to reach device X but Y answered` | The address resolved to the wrong machine. Refused on purpose — the coordinator is not trusted to say who lives at an address. |
 | `sync` reports `deferred` | A peer had the log but not yet the chunks. Sync again once the device holding them is up. |
 | `doctor` reports missing chunks | Those files cannot be read until the chunks are refetched from a peer. |

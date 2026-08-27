@@ -1,7 +1,10 @@
 # Design Notes
 
 Why each mechanism is the way it is, and what was rejected. Structural overview
-lives in [ARCHITECTURE.md](ARCHITECTURE.md); this document is the reasoning.
+lives in [ARCHITECTURE.md](ARCHITECTURE.md); this document is the reasoning. The
+one set of decisions kept out of here is the economic contract — what a member
+gives, gets, and loses — which has its own document, [ECONOMICS.md](ECONOMICS.md),
+because it is the part a member has to understand before joining.
 
 ---
 
@@ -222,8 +225,9 @@ retention window, so a delete racing an edit cannot destroy the edit.
 ### Rendezvous hashing, not consistent hashing
 
 ```
-score(node, chunk) = weight(node) / -ln(uniform_hash(node_id ‖ chunk_id))
-replicas = top R nodes by score
+slots(node)        = clamp(pledge / smallest pledge in the swarm, 1, 64)
+score(node, chunk) = max over its slots of BLAKE3(node ‖ slot ‖ owner ‖ chunk)
+replicas           = top R nodes by score
 ```
 
 Rendezvous hashing wins here on three counts:
@@ -236,6 +240,41 @@ Rendezvous hashing wins here on three counts:
   one pledging 500 GB.
 - **Minimal disruption, provably.** Removing a node moves only that node's
   chunks. Nothing else reshuffles.
+
+### Rejected: the textbook weighted formula
+
+This document originally specified `weight / -ln(uniform_hash(…))`. That is
+correct mathematics and a latent data-loss bug. `f64::ln` is the platform's
+libm: two machines can differ in the last unit in the last place, and when two
+candidates land that close the Pi and the laptop disagree about where a chunk
+lives — silently, permanently, with no error raised and no way to notice except
+by losing data.
+
+Integer slots give the same proportionality with no floating point anywhere: a
+node holds slots in proportion to its pledge, its score is the highest hash
+across them, and the chance of holding the swarm's highest hash is exactly its
+share of the slots. Slots are capped at 64 so one enormous member cannot become
+a single point of concentration.
+
+Determinism across architectures is not a nicety here. It is the property that
+lets placement work with no agreement protocol at all.
+
+### Anchors: availability is a separate purchase from durability
+
+Replication buys durability. It does not buy availability, and conflating the
+two produces absurd numbers: with a replica online a quarter of the time,
+reaching 99 % availability needs `ln(0.01) / ln(0.75)` ≈ **16 replicas**.
+
+So they are bought separately: three replicas for durability — a switched-off
+laptop still holds the bytes — **plus at least one replica on a node that is
+actually up**. Any always-on machine becomes such an anchor automatically; no
+node is special by configuration.
+
+The corollary is a rule that is easy to get wrong: **measured availability
+affects entitlement only, never placement.** Placement is computed from the
+signed node set alone, so the decision that risks data never depends on the
+untrusted coordinator's opinion of who is reliable. [ECONOMICS.md](ECONOMICS.md)
+carries the arithmetic.
 
 ### Owner affinity
 
@@ -280,7 +319,67 @@ heavier; they are not worth it at this scale.
 
 ---
 
-## 7. The coordinator
+## 7. Transport authentication
+
+### The problem with putting the identity in the certificate
+
+The obvious design is a self-signed certificate whose public key *is* the device
+key, and pinning. It works, and it drags X.509 parsing into the trusted path for
+no gain: certificates carry names, extensions, validity windows and encodings
+that all have to be parsed before the peer is authenticated. Historically that
+is where TLS implementations get broken.
+
+It also makes every connection linkable. A static certificate is a stable
+identifier visible to anyone on the path, so an observer can tell that the same
+device connected twice, from two networks, without breaking anything.
+
+### Chosen: anonymous certificates, authentication bound to the channel
+
+Certificates are self-signed, throwaway, and regenerated on every start-up. They
+authenticate nobody. Once the handshake completes, each side signs the session's
+**TLS exporter value** (RFC 5705) with its device key and sends the signature
+over the established channel:
+
+```
+proof = Ed25519_sign(device_key,
+                     "itsanas v1 device channel authentication" ‖ exporter)
+```
+
+A man in the middle who terminates TLS has two sessions with two different
+exporters. A proof from one session is worthless in the other, and it cannot
+produce a valid one for its own session without the device key. So the identity
+is bound to *this* channel rather than to a credential that can be replayed.
+
+The regression test is `a_proof_from_one_session_is_worthless_in_another`. It is
+the single test that would catch this being quietly weakened.
+
+**Consequences:**
+
+- No X.509 validation in the trusted path. The certificate is a key transport
+  for the handshake and nothing else.
+- An observer cannot correlate two connections by certificate.
+- Device revocation is a coordinator concern (`NodeClaim.revoked`), not a
+  certificate-expiry concern. Nothing has to be reissued when a device leaves.
+
+### Dialling pins the expected device
+
+`PeerClient::connect` takes an optional expected device id and refuses the
+connection if a different device answers. The coordinator hands out addresses;
+it is not trusted to say who lives at one. Where the caller does not yet know
+which device to expect — a first contact — it passes `None` and gets an
+authenticated but unpinned peer, which is exactly as much as is actually known.
+
+### Rejected for now: QUIC
+
+QUIC would bring 0-RTT resumption, no head-of-line blocking, and the machinery
+NAT hole punching wants. It was not the right first move: TLS-over-TCP gets the
+same confidentiality and the same authentication with a much smaller dependency
+surface, and everything above the transport is transport-agnostic and tested, so
+porting later is a contained change rather than a rewrite.
+
+---
+
+## 8. The coordinator
 
 ### Why there is one at all
 
@@ -299,7 +398,7 @@ Its entire remit is control plane:
 | Presence and addresses | Metadata the peers exchange anyway |
 | Signed node-set epoch | Signed; peers pin the last set they saw |
 | Escrow blob storage | Argon2id-sealed under a passphrase it never sees |
-| QUIC relay | Relays ciphertext it cannot open |
+| Relay (not built) | Would relay ciphertext it cannot open |
 
 A compromised coordinator gets denial of service, lies about who is online, and
 partition attempts. It does not get plaintext, keys, or the ability to forge a
@@ -322,7 +421,7 @@ backup**. Escrow is a convenience; the phrase is the guarantee.
 
 ---
 
-## 8. Operational design
+## 9. Operational design
 
 ### It should feel like a folder
 
@@ -350,7 +449,7 @@ is a first-class alert rather than an afterthought.
 
 ---
 
-## 9. Language and dependencies
+## 10. Language and dependencies
 
 **Rust**, because: one static binary per platform with no runtime to install on
 a Pi or a VM; clean cross-compilation to `x86_64-pc-windows-msvc` and
