@@ -226,12 +226,14 @@ This is tolerated, deliberately, and bounded:
   [DESIGN.md](DESIGN.md) §8. A lie about uptime can therefore cost fairness and
   cannot cost a replica.
 
-  > ⚠️ **Not built.** Owner-recorded placement is decided and not yet
-  > implemented; `itsanas-placement` currently computes replica sets from
-  > pledged capacity over a node set that nothing publishes. The intended
-  > reliability input — hosts that answered **this node's own** storage
-  > challenges, which no third party can forge — also does not exist: the
-  > challenge protocol works and is tested, but nothing records the result.
+  > Owner-recorded placement is **built**: the `HOLDERS` table records which
+  > peers hold each chunk, filled on every sync round, and `itsanas status`
+  > reports whether the data exists anywhere but this disk.
+  >
+  > ⚠️ The intended reliability input — preferring hosts that answered **this
+  > node's own** storage challenges, which no third party can forge — is not.
+  > The challenge protocol works and is tested; nothing records the result, so
+  > there is no reputation to consult.
 - Members pin the last node set they saw and can change coordinator without
   losing anything, because the coordinator holds no data and no keys.
 

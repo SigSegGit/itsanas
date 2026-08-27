@@ -51,6 +51,7 @@
 pub mod blob;
 pub mod chunker;
 pub mod error;
+pub mod holders;
 pub mod index;
 pub mod local;
 pub mod oplog;
@@ -62,6 +63,7 @@ pub mod version;
 pub use blob::BlobStore;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};
+pub use holders::{AtRisk, Holder};
 pub use index::Index;
 pub use local::LocalState;
 pub use oplog::{

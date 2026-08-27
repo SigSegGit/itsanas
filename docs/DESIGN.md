@@ -259,6 +259,40 @@ a single point of concentration.
 Determinism across architectures is not a nicety here. It is the property that
 lets placement work with no agreement protocol at all.
 
+### Where a replica actually is: recorded, not derived
+
+Rendezvous hashing answers "where *should* this chunk go". It does not answer
+"where *is* it", and the original design closed that gap with a
+coordinator-published node set that every peer agreed on — which is a consensus
+protocol wearing a different hat. See §8.
+
+The answer is that the owner writes it down. A `HOLDERS` table in the store maps
+each chunk to the devices known to hold it, keyed `chunk_id || device_id` so that
+every holder of one chunk is one contiguous range.
+
+Two decisions inside it are worth stating because both are easy to get wrong:
+
+**It is filled from what a peer says it does *not* need.** A push round already
+asks the peer which chunks are missing, in order to decide what to send.
+Everything the peer did not ask for, it already has — so that same answer is
+recorded. The ledger therefore converges on every round rather than only growing
+when this node uploads something, and a device restored from its recovery phrase
+learns where its data lives by asking instead of re-uploading its whole store to
+find out.
+
+**A replication target counts this device.** A target of three asks for two
+remote holders, because the copy on this disk is the third. The alternative — an
+implicit `+1` at each call site — is the unwritten rule that produces a repair
+loop quietly keeping two copies while reporting three, wrong in a direction
+nothing reports until two machines die instead of three. It is pinned by
+`a_target_counts_this_device_so_three_asks_for_two_elsewhere`.
+
+**What a record means:** this device sent the chunk, and that device said it
+accepted it. Evidence, not proof. A host that accepted and then deleted still
+has a record until a storage challenge fails. That is the honest position, and
+it is why challenges exist — without a ledger there is nothing to challenge,
+because nothing knows who to ask.
+
 ### Anchors: decided, not built
 
 Replication buys durability. It does not buy availability, and conflating the

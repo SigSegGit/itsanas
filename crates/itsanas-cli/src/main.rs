@@ -41,6 +41,13 @@ use crate::{
 /// not a default.
 const PASSPHRASE_ENV: &str = "ITSANAS_PASSPHRASE";
 
+/// How many machines should hold each chunk, this one included.
+///
+/// Three is the smallest number where losing one machine is not an emergency
+/// and two have to fail at once to lose anything. The reasoning, and why the
+/// contribution ratio is the same number, is in `docs/ECONOMICS.md` §1.
+const REPLICATION_TARGET: usize = 3;
+
 #[derive(Parser)]
 #[command(
     name = "itsanas",
@@ -399,6 +406,37 @@ fn status(home: &Path) -> Result<()> {
     if store.pending_collection > 0 {
         println!("  awaiting gc     {} chunks", store.pending_collection);
     }
+
+    // The question a backup tool exists to answer, and the one it is easiest
+    // to leave unanswered: does this data exist anywhere other than this disk?
+    // A count of files says nothing about that.
+    println!();
+    println!("is it anywhere else?");
+    let alone = node.store.under_replicated(2)?;
+    let short = node.store.under_replicated(REPLICATION_TARGET)?;
+    if store.live_chunks == 0 {
+        println!("  nothing stored yet");
+    } else if alone.is_empty() && short.is_empty() {
+        println!("  yes            every chunk is on at least {REPLICATION_TARGET} machines");
+    } else {
+        if alone.is_empty() {
+            println!("  partly         every chunk is on at least one other machine");
+        } else {
+            println!(
+                "  NO             {} of {} chunks exist only on this machine",
+                alone.len(),
+                store.live_chunks
+            );
+        }
+        if !short.is_empty() {
+            println!(
+                "  below target   {} chunks are on fewer than {REPLICATION_TARGET} machines",
+                short.len()
+            );
+        }
+        println!("                 run `itsanas sync`, or add a peer, to spread it");
+    }
+    println!("  placements     {} recorded", store.holder_records);
     // The vault holds two different things. Reporting them as one number
     // tells the operator they are hosting for a stranger when they are only
     // relaying their own account between their own machines.

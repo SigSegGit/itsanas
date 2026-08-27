@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 499 tests across 18 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 520 tests across 18 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
@@ -203,7 +203,38 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (97)
+# `itsanas-store` — unit tests (115)
+
+## `holders` — the placement ledger's key layout (5)
+
+| Test | What it proves |
+| --- | --- |
+| **`every_holder_of_one_chunk_sorts_together`** | Why the chunk comes first in the composite key. If the device sorted first, "who holds this chunk?" would walk the whole table, which on a Pi with a million chunks is the difference between a repair pass that finishes and one that does not. |
+| `a_chunk_held_only_here_is_flagged_as_the_only_copy` | The alert condition is distinguishable from an ordinary shortfall: everything else is background work, this one is a disk failure away from loss. |
+| `a_chunk_held_more_widely_than_its_target_has_no_shortfall` | Saturating rather than wrapping. An underflow here would ask the repair loop for four billion pushes. |
+| `a_key_round_trips_through_its_two_halves` / `a_key_of_the_wrong_length_is_refused_rather_than_guessed_at` | The encoding, and that a key written by something else is refused rather than reinterpreted. |
+
+## `index` — the placement ledger (13)
+
+Where this node's data actually went. This is what replaced the coordinator's
+signed node-set epoch: an owner who already keeps a log of their own chunks can
+record where they put them, and then no global membership list has to be agreed
+by anybody. See [DESIGN.md](DESIGN.md) §8.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_target_counts_this_device_so_three_asks_for_two_elsewhere`** | The counting convention, pinned. Off by one here means the repair loop targets two copies while reporting three, and nothing ever says so — it surfaces as data loss after two machines die instead of after three. |
+| **`the_chunks_closest_to_being_lost_are_reported_first`** | A repair pass on a laptop is interrupted by the lid closing. Ordered by chunk id, the work done before the interruption would be random with respect to risk, and the chunk with one copy left could wait behind a thousand that had two. |
+| **`recording_the_same_holder_twice_refreshes_rather_than_duplicates`** | A peer syncing hourly acknowledges the same chunks every hour. One row per acknowledgement would grow the ledger without bound and inflate the replica count — wrong in the direction that hides a real shortage. |
+| **`forgetting_a_device_clears_it_from_every_chunk_and_nothing_else`** | A peer that left stops being evidence for every chunk at once, and every other device's records survive. Otherwise losing one peer looks like losing all of them and the node re-uploads its entire store. |
+| **`collecting_a_chunk_takes_its_holder_records_with_it`** | Garbage collection does not leave the repair loop working to restore the replication of a chunk that no longer exists. |
+| **`the_ledger_survives_reopening`** | It is the only record of where this node put its data. Losing it on restart would make every node re-upload everything after a reboot. |
+| `forgetting_a_holder_leaves_the_others_alone` | One failed storage challenge removes one host, not all of them. Removing more would make a single bad answer start a repair storm. |
+| `an_unreferenced_chunk_is_not_reported_as_under_replicated` | Deleted and overwritten data is on its way out; restoring its replication is work done to keep something nobody wants. |
+| `holders_come_back_sorted_so_two_devices_agree_on_order` | Two nodes comparing ledgers see the same order. |
+| `holders_are_kept_apart_by_chunk` / `a_recorded_holder_comes_back` | The basic paths. |
+| `recording_a_batch_matches_recording_one_at_a_time` | A sync round commits once rather than once per chunk, which on an SD card is most of the time spent. |
+| `recording_an_empty_batch_does_nothing_rather_than_opening_a_transaction` | A quiet round costs no write. |
 
 ## `chunker` — content-defined chunking (13)
 
@@ -453,13 +484,16 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (12)
+# `itsanas-net` — two-node tests (15)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
 
 | Test | What it proves |
 | --- | --- |
+| **`a_sync_round_records_which_peer_now_holds_this_nodes_data`** | The replacement for a coordinator-published node set, end to end over a socket. Without it the repair loop has no idea whether a chunk exists anywhere but on this disk, and the honest answer to "is my data safe?" is "no idea". |
+| **`a_peer_that_already_had_the_data_is_still_recorded_as_holding_it`** | The property that makes the ledger converge rather than only grow. A device restored from its recovery phrase learns where its data lives by *asking*, instead of re-uploading its whole store to find out — and the answer costs nothing extra, since it is the same round trip that decides what to send. |
+| **`a_host_that_refuses_to_store_is_not_recorded_as_holding_anything`** | A node that pledged nothing still answers, because refusing to host does not stop it being a peer. Recording it as a holder would let a node believe its data was replicated onto a machine that declined it — the worst possible error, indistinguishable from safety until the local disk dies. |
 | **`two_nodes_sync_a_file_over_a_real_socket`** | The M4 exit criterion. |
 | **`a_host_stores_a_strangers_data_and_cannot_read_a_byte_of_it`** | Alice's whole corpus pushed to Bob's node, then every byte Bob holds scanned for Alice's canary. |
 | **`a_host_relays_one_device_to_another_that_it_never_met`** | The architecture's whole reason for existing, over a socket: the Pi pushes and powers off, the VM pulls the Pi's work from a host it has never met. |

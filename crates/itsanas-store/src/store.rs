@@ -27,6 +27,7 @@ use crate::{
     blob::BlobStore,
     chunker::ChunkerConfig,
     error::{Result, StoreError},
+    holders::{AtRisk, Holder},
     index::{Index, now_unix},
     local::LocalState,
     oplog::{
@@ -106,6 +107,11 @@ pub struct StoreStats {
     pub files: u64,
     pub live_chunks: usize,
     pub pending_collection: usize,
+    /// How many (chunk, device) acknowledgements the placement ledger holds.
+    ///
+    /// Reported so an operator can see that replication is being recorded at
+    /// all. Zero with a non-empty store means every chunk exists only here.
+    pub holder_records: u64,
     pub bytes_on_disk: u64,
     pub segments: u64,
     pub unsealed_entries: usize,
@@ -638,12 +644,50 @@ impl Store {
         Ok(report)
     }
 
+    // ------------------------------------------------------- where it went
+
+    /// Record that `device` acknowledged holding these chunks.
+    ///
+    /// This is the replacement for a coordinator-published node set: an owner
+    /// who already keeps a log of their own chunks writes down where they put
+    /// them, and nothing has to agree with anybody about membership. See
+    /// `holders.rs`.
+    pub fn record_holders(&self, chunks: &[ChunkId], device: &DeviceId) -> Result<()> {
+        self.index.record_holders(chunks, device, now_unix())
+    }
+
+    /// Every other device known to hold `chunk`.
+    pub fn remote_holders(&self, chunk: &ChunkId) -> Result<Vec<Holder>> {
+        self.index.remote_holders(chunk)
+    }
+
+    /// Withdraw the record that `device` holds `chunk`.
+    ///
+    /// For a failed storage challenge: a record is evidence that a host once
+    /// accepted a chunk, never proof that it still has it.
+    pub fn forget_holder(&self, chunk: &ChunkId, device: &DeviceId) -> Result<()> {
+        self.index.forget_holder(chunk, device)
+    }
+
+    /// Withdraw every record naming `device`, for a peer that has left.
+    pub fn forget_device(&self, device: &DeviceId) -> Result<usize> {
+        self.index.forget_device(device)
+    }
+
+    /// Live chunks held by fewer than `target` devices, worst first.
+    ///
+    /// `target` counts this device: a target of three asks for two elsewhere.
+    pub fn under_replicated(&self, target: usize) -> Result<Vec<AtRisk>> {
+        self.index.under_replicated(target)
+    }
+
     /// Coarse statistics, cheap enough for a status command.
     pub fn stats(&self) -> Result<StoreStats> {
         Ok(StoreStats {
             files: self.index.file_count()?,
             live_chunks: self.index.referenced_chunks()?.len(),
             pending_collection: self.index.unreferenced_chunks()?.len(),
+            holder_records: self.index.holder_records()?,
             bytes_on_disk: self.blobs.total_bytes()?,
             segments: self.index.chain_length()?,
             unsealed_entries: self.index.pending_entries()?.len(),

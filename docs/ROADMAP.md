@@ -11,16 +11,16 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M0 Repository, CI, licence | — | ✅ **done** | 7 CI jobs, all gates green locally |
 | M1 Cryptographic core | `itsanas-crypto` | ✅ **done** | 64 unit + 15 property |
 | M1b Published test fixtures | `itsanas-testkit` | ✅ **done** | 7 |
-| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 97 unit + 29 integration |
+| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 115 unit + 29 integration |
 | M3 Sync engine | `itsanas-sync` | ✅ **done** | 12 unit + 19 convergence |
-| M4 Network transport | `itsanas-wire`, `itsanas-tls`, `itsanas-net` | ✅ **done** | 17 + 11 + 37 |
+| M4 Network transport | `itsanas-wire`, `itsanas-tls`, `itsanas-net` | ✅ **done** | 17 + 11 + 40 |
 | M4b Local discovery | `itsanas-discover` | ✅ **done** | 33 + 4 |
 | M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not executed** | 29 |
 | M6 Coordinator | `itsanas-coord` | 🟨 **library done, no server** | 47 |
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 53 |
 | M8 Three-device bring-up | — | ⬜ not started | — |
 
-**499 tests, 2 of them `#[ignore]`d into the slow job.**
+**520 tests, 2 of them `#[ignore]`d into the slow job.**
 
 **Nothing here should hold data you care about yet**, but the reason has
 narrowed. The cryptography, the local store, the merge rules, the transport and
@@ -33,10 +33,11 @@ What is missing before this is a *network* rather than a personal sync tool:
   no server at all (M4b), which covers a household. A machine on a *different*
   network still has to be added by hand. The coordinator library is complete;
   nothing serves it.
-- **Placement is decided but not executed.** Nothing carries out a repair plan.
-  The design changed here: placement is to be **recorded by the owner** rather
-  than derived from a coordinator-published node set, which removes the global
-  agreement problem — see [DESIGN.md](DESIGN.md) §8. Neither is implemented.
+- **Placement is recorded but not acted on.** A node now knows which peers
+  hold each of its chunks, records it on every sync round, and `itsanas status`
+  says plainly whether the data exists anywhere else. What is missing is a
+  repair loop that *chooses* peers to fix a shortfall — which matters once
+  there are more peers than a node pushes to anyway.
 - **Nothing challenges a host on a schedule**, so a host that quietly discards
   data is caught only by accident.
 - **Recovery from username plus passphrase is not wired.** The escrow container
@@ -273,7 +274,47 @@ machine with several networks.
 
 ---
 
-### M5 — Placement and repair 🟨 (`itsanas-placement`)
+### M5a — The placement ledger ✅ (`itsanas-store`)
+
+The coordinator's hardest job, removed rather than implemented.
+
+Placement was going to come from a coordinator-published **signed node-set
+epoch**, so every peer computed identical rendezvous placement "with no
+agreement protocol". That phrasing hid the problem: requiring every peer to hold
+the same membership list *is* an agreement protocol. It was consensus by decree.
+
+It is also unnecessary. A global content store must answer "who holds this
+block?" for an arbitrary asker; ITSaNAS never asks that. Every chunk has exactly
+one owner, who already keeps an operation log of it — so the owner can simply
+record where they put it.
+
+- `HOLDERS` table, keyed `chunk_id || device_id`, so every holder of one chunk
+  is a contiguous range.
+- Filled by `session::push`, from information the round already had: whatever a
+  peer did *not* ask for, it already holds. The ledger therefore **converges on
+  every sync** rather than only recording new uploads, which is what lets a
+  restored device learn where its data lives by asking instead of re-uploading.
+- `under_replicated(target)` counts this device, so a target of three asks for
+  two elsewhere. That convention is pinned by a test, because off-by-one here is
+  invisible until two machines die instead of three.
+- `itsanas status` answers the question a backup tool exists for:
+
+```text
+is it anywhere else?
+  NO             1 of 1 chunks exist only on this machine
+  below target   1 chunks are on fewer than 3 machines
+                 run `itsanas sync`, or add a peer, to spread it
+  placements     0 recorded
+```
+
+Verified by running two real nodes: before a sync the answer is `NO`, after one
+it is `partly`, and a second round sends nothing while the ledger stays intact.
+
+**Cancelled as a result:** signed node-set epochs. Nothing needs them.
+
+---
+
+### M5b — Placement and repair 🟨 (`itsanas-placement`)
 
 The **hosting** half arrived early, because M4's protocol needed somewhere to put
 other people's data: `Vault` stores and serves foreign sealed objects, verifies

@@ -14,11 +14,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use itsanas_crypto::{ChunkId, ObjectId};
+use itsanas_crypto::{ChunkId, DeviceId, ObjectId};
 use redb::{Database, ReadableTable, TableDefinition};
 
 use crate::{
     error::{Result, StoreError},
+    holders::{self, AtRisk, Holder},
     local::LocalState,
     oplog::{FileEntry, LogEntry, SegmentEnvelope, Tombstone},
 };
@@ -47,6 +48,17 @@ const TOMBSTONES: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("tombs
 const LOCAL: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("local_state");
 /// Small named scalars: next sequence number, head segment, chain length.
 const META: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("meta");
+
+/// Which devices are known to hold each chunk.
+///
+/// Key is `chunk_id || device_id`, so every holder of one chunk is a contiguous
+/// range. Value is this node's clock when the holder acknowledged it.
+///
+/// This is what replaced the coordinator's signed node-set epoch: an owner who
+/// already keeps a log of their own chunks can record where they put them, and
+/// then no global membership list has to be agreed by anybody. See
+/// `holders.rs` for the argument.
+const HOLDERS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holders");
 
 const META_NEXT_SEQUENCE: &str = "next_sequence";
 const META_HEAD_SEGMENT: &str = "head_segment";
@@ -95,6 +107,7 @@ impl Index {
             let _ = txn.open_table(TOMBSTONES)?;
             let _ = txn.open_table(LOCAL)?;
             let _ = txn.open_table(META)?;
+            let _ = txn.open_table(HOLDERS)?;
         }
         txn.commit()?;
 
@@ -346,6 +359,20 @@ impl Index {
     pub fn forget_chunk(&self, chunk: &ChunkId) -> Result<()> {
         let txn = self.db.begin_write()?;
         {
+            // The holder ledger goes with it. Leaving the rows behind would
+            // leave the repair loop working to restore the replication of a
+            // chunk that no longer exists anywhere and should not.
+            let mut holders = txn.open_table(HOLDERS)?;
+            let doomed: Vec<Vec<u8>> = holders
+                .range(
+                    holders::range_start(chunk).as_slice()..=holders::range_end(chunk).as_slice(),
+                )?
+                .filter_map(|row| row.ok().map(|(key, _)| key.value().to_vec()))
+                .collect();
+            for key in doomed {
+                holders.remove(key.as_slice())?;
+            }
+
             let mut refs = txn.open_table(CHUNK_REFS)?;
             let mut unreferenced = txn.open_table(UNREFERENCED)?;
             refs.remove(chunk.as_bytes().as_slice())?;
@@ -546,6 +573,180 @@ impl Index {
             Some(value) => Ok(Some(ObjectId::from_slice(value.value())?)),
             None => Ok(None),
         }
+    }
+
+    // -------------------------------------------------------------- holders
+
+    /// Record that `device` acknowledged holding `chunk`, at local time `now`.
+    ///
+    /// Idempotent: a repeated acknowledgement refreshes the timestamp rather
+    /// than adding a second row, so a peer that is synced with hourly keeps one
+    /// entry rather than a thousand.
+    pub fn record_holder(&self, chunk: &ChunkId, device: &DeviceId, now: u64) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut holders = txn.open_table(HOLDERS)?;
+            holders.insert(holders::key(chunk, device).as_slice(), now)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Record many acknowledgements in one transaction.
+    ///
+    /// A sync round accepts chunks in batches, and one commit per chunk would
+    /// make a large first upload spend most of its time in fsync — on a
+    /// Raspberry Pi with an SD card, considerably more than most.
+    pub fn record_holders(&self, chunks: &[ChunkId], device: &DeviceId, now: u64) -> Result<()> {
+        if chunks.is_empty() {
+            return Ok(());
+        }
+        let txn = self.db.begin_write()?;
+        {
+            let mut holders = txn.open_table(HOLDERS)?;
+            for chunk in chunks {
+                holders.insert(holders::key(chunk, device).as_slice(), now)?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Drop the record that `device` holds `chunk`.
+    ///
+    /// Called when a storage challenge fails. A record is evidence that a host
+    /// once accepted a chunk, not proof that it still has it, and this is how
+    /// the evidence gets withdrawn.
+    pub fn forget_holder(&self, chunk: &ChunkId, device: &DeviceId) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut holders = txn.open_table(HOLDERS)?;
+            holders.remove(holders::key(chunk, device).as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Drop every record naming `device`, whatever the chunk.
+    ///
+    /// For a peer that has left, or been revoked. Returns how many were
+    /// dropped, so the caller can say what a departure actually cost.
+    pub fn forget_device(&self, device: &DeviceId) -> Result<usize> {
+        let txn = self.db.begin_write()?;
+        let dropped;
+        {
+            let mut holders = txn.open_table(HOLDERS)?;
+
+            // Collected before removing: redb will not let the table be
+            // mutated while an iterator over it is alive, and a device that
+            // left may be named by every row in the table.
+            let mut doomed: Vec<Vec<u8>> = Vec::new();
+            for row in holders.iter()? {
+                let (key, _) = row?;
+                if holders::split(key.value()).is_some_and(|(_, held)| held == *device) {
+                    doomed.push(key.value().to_vec());
+                }
+            }
+
+            dropped = doomed.len();
+            for key in doomed {
+                holders.remove(key.as_slice())?;
+            }
+        }
+        txn.commit()?;
+        Ok(dropped)
+    }
+
+    /// Every **other** device known to hold `chunk`, sorted by device id.
+    ///
+    /// This device is never in the result. Whether the chunk is on this disk is
+    /// a question for the blob store, not for a ledger of acknowledgements.
+    pub fn remote_holders(&self, chunk: &ChunkId) -> Result<Vec<Holder>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(HOLDERS)?;
+
+        let mut out = Vec::new();
+        for row in table
+            .range(holders::range_start(chunk).as_slice()..=holders::range_end(chunk).as_slice())?
+        {
+            let (key, value) = row?;
+            if let Some((_, device)) = holders::split(key.value()) {
+                out.push(Holder {
+                    device,
+                    confirmed_unix: value.value(),
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// How many **other** devices are known to hold `chunk`.
+    ///
+    /// Add one for this device before comparing against a replication target,
+    /// or use [`Index::under_replicated`], which does it for you.
+    pub fn remote_holder_count(&self, chunk: &ChunkId) -> Result<usize> {
+        Ok(self.remote_holders(chunk)?.len())
+    }
+
+    /// Live chunks held by fewer than `target` devices, worst first.
+    ///
+    /// **`target` counts this device.** A target of three asks for two remote
+    /// holders, because the copy on this disk is the third. This is the one
+    /// place the two are added up, and it is here rather than at every call
+    /// site so that no caller has to remember to do it.
+    ///
+    /// Ordered by how close each chunk is to being lost rather than by chunk
+    /// id, so a repair pass that is interrupted — a laptop closing, a Pi
+    /// rebooting — has spent its time on the chunks with the least margin.
+    /// Ordering by id would make the work random with respect to risk.
+    pub fn under_replicated(&self, target: usize) -> Result<Vec<AtRisk>> {
+        let txn = self.db.begin_read()?;
+        let refs = txn.open_table(CHUNK_REFS)?;
+        let holders_table = txn.open_table(HOLDERS)?;
+
+        let mut out = Vec::new();
+        for row in refs.iter()? {
+            let (key, value) = row?;
+            if value.value() == 0 {
+                continue;
+            }
+            let chunk = ChunkId::from_slice(key.value())?;
+            let held_by = holders_table
+                .range(
+                    holders::range_start(&chunk).as_slice()..=holders::range_end(&chunk).as_slice(),
+                )?
+                .count();
+            // The copy on this disk. Referenced chunks are the ones this
+            // node's own files use, so the blob is here unless a pull left the
+            // entry ahead of its data — which `doctor` reports separately, and
+            // which would make this an under-count rather than an over-count.
+            let held_by = held_by + 1;
+            if held_by < target {
+                out.push(AtRisk {
+                    chunk,
+                    held_by,
+                    target,
+                });
+            }
+        }
+
+        out.sort_by_key(|risk| (risk.held_by, risk.chunk));
+        Ok(out)
+    }
+
+    /// How many (chunk, device) records the ledger holds.
+    ///
+    /// For `itsanas status`, so an operator can see the ledger growing rather
+    /// than having to take its existence on trust.
+    pub fn holder_records(&self) -> Result<u64> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(HOLDERS)?;
+        let mut count = 0u64;
+        for row in table.iter()? {
+            row?;
+            count += 1;
+        }
+        Ok(count)
     }
 }
 
@@ -756,5 +957,217 @@ mod tests {
         assert_eq!(index.reference_count(&chunk(9)).unwrap(), 0);
         assert!(index.unreferenced_chunks().unwrap().is_empty());
         assert!(index.referenced_chunks().unwrap().is_empty());
+    }
+
+    // -------------------------------------------------------------- holders
+
+    fn device(byte: u8) -> DeviceId {
+        DeviceId::from_bytes([byte; 32])
+    }
+
+    #[test]
+    fn a_recorded_holder_comes_back() {
+        let (_dir, index) = index();
+        index
+            .record_holder(&chunk(1), &device(7), 1_700_000_000)
+            .unwrap();
+
+        let holders = index.remote_holders(&chunk(1)).unwrap();
+        assert_eq!(holders.len(), 1);
+        assert_eq!(holders[0].device, device(7));
+        assert_eq!(holders[0].confirmed_unix, 1_700_000_000);
+    }
+
+    #[test]
+    fn recording_the_same_holder_twice_refreshes_rather_than_duplicates() {
+        // A peer that syncs hourly acknowledges the same chunks every hour. One
+        // row per acknowledgement would grow the ledger without bound and make
+        // the replica count wrong in the direction that hides a real shortage.
+        let (_dir, index) = index();
+        index.record_holder(&chunk(1), &device(7), 100).unwrap();
+        index.record_holder(&chunk(1), &device(7), 900).unwrap();
+
+        let holders = index.remote_holders(&chunk(1)).unwrap();
+        assert_eq!(holders.len(), 1);
+        assert_eq!(holders[0].confirmed_unix, 900);
+    }
+
+    #[test]
+    fn holders_are_kept_apart_by_chunk() {
+        let (_dir, index) = index();
+        index.record_holder(&chunk(1), &device(7), 1).unwrap();
+        index.record_holder(&chunk(2), &device(8), 1).unwrap();
+        index.record_holder(&chunk(2), &device(9), 1).unwrap();
+
+        assert_eq!(index.remote_holder_count(&chunk(1)).unwrap(), 1);
+        assert_eq!(index.remote_holder_count(&chunk(2)).unwrap(), 2);
+        assert_eq!(index.remote_holder_count(&chunk(3)).unwrap(), 0);
+    }
+
+    #[test]
+    fn holders_come_back_sorted_so_two_devices_agree_on_order() {
+        let (_dir, index) = index();
+        for byte in [9u8, 2, 5, 1] {
+            index.record_holder(&chunk(1), &device(byte), 1).unwrap();
+        }
+        let order: Vec<DeviceId> = index
+            .remote_holders(&chunk(1))
+            .unwrap()
+            .into_iter()
+            .map(|h| h.device)
+            .collect();
+        assert_eq!(
+            order,
+            vec![device(1), device(2), device(5), device(9)],
+            "two nodes comparing ledgers must see the same order"
+        );
+    }
+
+    #[test]
+    fn forgetting_a_holder_leaves_the_others_alone() {
+        // Called when a storage challenge fails. Removing more than the host
+        // that failed would make one bad answer look like a mass departure and
+        // start a repair storm.
+        let (_dir, index) = index();
+        index.record_holder(&chunk(1), &device(7), 1).unwrap();
+        index.record_holder(&chunk(1), &device(8), 1).unwrap();
+
+        index.forget_holder(&chunk(1), &device(7)).unwrap();
+
+        let holders = index.remote_holders(&chunk(1)).unwrap();
+        assert_eq!(holders.len(), 1);
+        assert_eq!(holders[0].device, device(8));
+    }
+
+    #[test]
+    fn forgetting_a_device_clears_it_from_every_chunk_and_nothing_else() {
+        // A peer that left, or a laptop that was revoked. Its acknowledgements
+        // stop being evidence for every chunk at once, and the records for
+        // every other device have to survive — otherwise losing one peer looks
+        // like losing all of them and the node re-uploads its entire store.
+        let (_dir, index) = index();
+        for c in 1..=5u8 {
+            index.record_holder(&chunk(c), &device(7), 1).unwrap();
+            index.record_holder(&chunk(c), &device(8), 1).unwrap();
+        }
+
+        assert_eq!(index.forget_device(&device(7)).unwrap(), 5);
+
+        for c in 1..=5u8 {
+            let holders = index.remote_holders(&chunk(c)).unwrap();
+            assert_eq!(holders.len(), 1, "chunk {c}");
+            assert_eq!(holders[0].device, device(8));
+        }
+    }
+
+    #[test]
+    fn a_target_counts_this_device_so_three_asks_for_two_elsewhere() {
+        // The counting convention, pinned. Getting this off by one means the
+        // repair loop targets two copies while reporting three, and nothing
+        // ever says so — it shows up as data loss after two machines die
+        // instead of after three.
+        let (_dir, index) = index();
+        index.put_file("a", &entry(&[1])).unwrap();
+
+        assert_eq!(
+            index.under_replicated(3).unwrap()[0].held_by,
+            1,
+            "with no remote holders, the local copy is the only one"
+        );
+
+        index.record_holder(&chunk(1), &device(7), 1).unwrap();
+        assert_eq!(index.under_replicated(3).unwrap()[0].held_by, 2);
+
+        index.record_holder(&chunk(1), &device(8), 1).unwrap();
+        assert!(
+            index.under_replicated(3).unwrap().is_empty(),
+            "two remote holders plus this device meets a target of three"
+        );
+    }
+
+    #[test]
+    fn the_chunks_closest_to_being_lost_are_reported_first() {
+        // A repair pass on a laptop gets interrupted by the lid closing. If the
+        // order were by chunk id, the work done before the interruption would
+        // be random with respect to risk, and the chunk with one copy left
+        // could wait behind a thousand that had two.
+        let (_dir, index) = index();
+        index.put_file("a", &entry(&[1, 2, 3])).unwrap();
+        index.record_holder(&chunk(2), &device(7), 1).unwrap();
+        index.record_holder(&chunk(3), &device(7), 1).unwrap();
+        index.record_holder(&chunk(3), &device(8), 1).unwrap();
+
+        let risky = index.under_replicated(4).unwrap();
+        let order: Vec<usize> = risky.iter().map(|r| r.held_by).collect();
+        assert_eq!(order, vec![1, 2, 3], "worst first");
+        assert!(risky[0].only_copy());
+    }
+
+    #[test]
+    fn an_unreferenced_chunk_is_not_reported_as_under_replicated() {
+        // Overwritten or deleted data is waiting for garbage collection. Asking
+        // the repair loop to restore its replication would be work done to keep
+        // something that is on its way out.
+        let (_dir, index) = index();
+        index.put_file("a", &entry(&[1])).unwrap();
+        index.remove_file("a", &tombstone()).unwrap();
+
+        assert!(index.under_replicated(3).unwrap().is_empty());
+    }
+
+    #[test]
+    fn collecting_a_chunk_takes_its_holder_records_with_it() {
+        // Otherwise the ledger accumulates rows for chunks that no longer
+        // exist, and the count an operator reads to see whether the thing is
+        // working drifts upward forever.
+        let (_dir, index) = index();
+        index.record_holder(&chunk(1), &device(7), 1).unwrap();
+        index.record_holder(&chunk(1), &device(8), 1).unwrap();
+        assert_eq!(index.holder_records().unwrap(), 2);
+
+        index.forget_chunk(&chunk(1)).unwrap();
+
+        assert_eq!(index.holder_records().unwrap(), 0);
+        assert!(index.remote_holders(&chunk(1)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_ledger_survives_reopening() {
+        // It is the only record of where this node put its data. Losing it on a
+        // restart would make every node re-upload everything after a reboot.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.redb");
+        {
+            let index = Index::open(&path).unwrap();
+            index.record_holder(&chunk(1), &device(7), 42).unwrap();
+        }
+        let index = Index::open(&path).unwrap();
+        assert_eq!(
+            index.remote_holders(&chunk(1)).unwrap()[0].confirmed_unix,
+            42
+        );
+    }
+
+    #[test]
+    fn recording_a_batch_matches_recording_one_at_a_time() {
+        let (_dir, index) = index();
+        index
+            .record_holders(&[chunk(1), chunk(2), chunk(3)], &device(7), 5)
+            .unwrap();
+
+        for c in 1..=3u8 {
+            assert_eq!(
+                index.remote_holders(&chunk(c)).unwrap()[0].device,
+                device(7)
+            );
+        }
+        assert_eq!(index.holder_records().unwrap(), 3);
+    }
+
+    #[test]
+    fn recording_an_empty_batch_does_nothing_rather_than_opening_a_transaction() {
+        let (_dir, index) = index();
+        index.record_holders(&[], &device(7), 5).unwrap();
+        assert_eq!(index.holder_records().unwrap(), 0);
     }
 }

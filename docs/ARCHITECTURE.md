@@ -173,7 +173,27 @@ is deliberately shaped for Reed–Solomon so that erasure coding can replace
 replication once a swarm has enough independent nodes — RS(4,2) gives the same
 two-failure tolerance at 1.5× overhead instead of 3×.
 
-### 4.3 Repair
+### 4.3 Where a replica is, as opposed to where it should be
+
+Rendezvous hashing says where a chunk *should* live. Where it *does* live is
+recorded by the owner, in a `HOLDERS` table alongside the index, filled on every
+sync round from what a peer says it already has.
+
+This replaced a coordinator-published node set, and it is strictly smaller: no
+membership to agree, no epoch to pin, and nothing that stops working when the
+coordinator does. [DESIGN.md](DESIGN.md) §8 has the argument for why ITSaNAS
+never needed global agreement here — every chunk has exactly one owner, who
+already keeps a log of it.
+
+`itsanas status` reports it as the question it answers:
+
+```text
+is it anywhere else?
+  NO             1 of 1 chunks exist only on this machine
+  below target   1 chunks are on fewer than 3 machines
+```
+
+### 4.4 Repair
 
 A background loop tracks live replica counts. A chunk below target replication —
 because a node left, or has been unreachable past a threshold — is re-pushed to
@@ -184,7 +204,7 @@ the next-best nodes by rendezvous score.
 > it needs means querying every peer about what it holds, which needs the node
 > set the coordinator would publish. The daemon runs no repair loop.
 
-### 4.4 Proof of storage
+### 4.5 Proof of storage
 
 Hosts are challenged periodically:
 

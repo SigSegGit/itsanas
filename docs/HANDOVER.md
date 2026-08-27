@@ -136,6 +136,8 @@ Each of these has a test that fails if it is:
 | Availability affects entitlement, never placement | The decision that risks data must not depend on the untrusted coordinator | ECONOMICS.md §3; placement takes no availability input |
 | The vault takes no keys in any constructor | "A host cannot read what it stores" is structural, not a matter of nobody having written the call | `vault.rs` has no key parameter anywhere |
 | Symlinks are skipped, never followed | A link to `~/.ssh` inside the folder would upload a private key | `symlinks_are_skipped_rather_than_followed` |
+| A replication target counts this device | Off by one means the repair loop keeps two copies while reporting three, invisibly, until two machines die instead of three | `a_target_counts_this_device_so_three_asks_for_two_elsewhere` |
+| A peer is recorded as a holder only when it accepted or already had the chunk | Recording a refusal as storage is indistinguishable from safety until the local disk dies | `a_host_that_refuses_to_store_is_not_recorded_as_holding_anything` |
 | A discovery beacon's address comes from the UDP source, never from the packet | A self-declared address lets any node redirect traffic to a machine that is not it | `a_new_device_is_recorded_with_the_address_it_was_heard_from` |
 | The discovery table is bounded and confirmed peers are protected | Device ids are free keypairs, so a flood is cheap; without this it evicts the machines that matter | `a_flood_of_strangers_cannot_evict_a_known_peer`, `the_table_never_grows_past_its_capacity` |
 | The sender's clock decides nothing in discovery | A Pi 4 has no RTC and boots in 1970; superseding by sender clock strands it at a stale address | `a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address` |
@@ -152,6 +154,9 @@ Each of these has a test that fails if it is:
   tombstones, deferred operations, deterministic 3-device simulation.
 - **Network**: TLS 1.3, device-authenticated, peer protocol with resume and
   batched have/missing, vault for foreign data, storage challenges, relaying.
+- **Placement ledger**: which peers hold each chunk, recorded on every sync and
+  converging from what a peer says it already has. `itsanas status` reports
+  whether the data exists anywhere but this disk.
 - **Discovery**: machines on one network find each other with nothing
   configured — signed 147-byte UDP announcements, a bounded table, own devices
   dialled first, each pinned to the device that announced it. Verified against a
@@ -171,11 +176,11 @@ side coming back, a deletion removing it from both, both folders byte-identical.
 
 ## 8. What is next, in order
 
-1. **Owner-recorded placement.** Decided in [DESIGN.md](DESIGN.md) §8 and not
-   built. The owner picks replicas from peers it has reached and records the
-   choice in its own log, replacing the coordinator-published node set. This is
-   ahead of the coordinator now, because it is what removes the coordinator's
-   hardest job rather than implementing it.
+1. ~~**Owner-recorded placement.**~~ **Done.** The `HOLDERS` table in the store,
+   filled by `session::push` from what the peer says it already has, plus
+   `under_replicated` and the `itsanas status` report. What is still missing is
+   a repair loop that *chooses* peers to fix a shortfall, rather than relying on
+   a node pushing to every peer it has.
 2. **Coordinator server and client.** The library (`coord`) is complete and
    tested; nothing serves it. Needs: a protocol enum, a `service.rs` handling
    requests against `Directory`, and a TLS server reusing `itsanas-tls` and

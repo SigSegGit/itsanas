@@ -102,6 +102,15 @@ itsanas doctor          # on machine 2: it can account for the bytes, not read t
 structure. Machine 2 can say how much space it is lending and to whom, and
 nothing else.
 
+On machine 1, `itsanas status` should meanwhile say the data *is* elsewhere:
+
+```text
+is it anywhere else?
+  yes            every chunk is on at least 3 machines
+```
+
+The two together are the whole claim: replicated, and unreadable where it went.
+
 **This is the test that justifies the project.** If it fails, stop.
 
 ### D. Recovery from nothing

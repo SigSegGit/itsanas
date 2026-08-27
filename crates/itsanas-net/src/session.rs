@@ -22,6 +22,7 @@
 //! which costs nothing to track and is correct after a crash.
 
 use std::cell::RefCell;
+use std::collections::BTreeSet;
 
 use itsanas_crypto::{ChunkId, UserId};
 use itsanas_store::{SegmentEnvelope, Store, Vault};
@@ -41,6 +42,12 @@ pub struct PushReport {
     pub chunks_offered: usize,
     pub chunks_accepted: usize,
     pub bytes_sent: u64,
+    /// Chunks this peer is now known to hold, whether just sent or already had.
+    ///
+    /// Counted separately from `chunks_accepted` because the two answer
+    /// different questions: how much work this round did, and how much of this
+    /// node's data now exists somewhere other than this disk.
+    pub holders_recorded: usize,
 }
 
 /// What a whole round did.
@@ -87,6 +94,7 @@ impl ChunkSource for RemoteChunks<'_> {
 /// Offer this device's segments and any chunks the peer lacks.
 pub fn push(store: &Store, client: &mut PeerClient) -> Result<PushReport> {
     let owner = store.owner();
+    let peer = client.peer_device();
     let mut report = PushReport::default();
 
     for envelope in store.segments()? {
@@ -105,6 +113,19 @@ pub fn push(store: &Store, client: &mut PeerClient) -> Result<PushReport> {
     let addresses = store.blobs().addresses()?;
     for batch in addresses.chunks(MAX_HAVE_BATCH) {
         let missing = client.missing_chunks(owner, batch.to_vec())?;
+        let wanted: BTreeSet<ChunkId> = missing.iter().copied().collect();
+
+        // What the peer did *not* ask for, it already has. That answer costs
+        // nothing extra — it is the same round trip that decides what to send —
+        // and it is what makes the placement ledger converge on every sync
+        // rather than only recording chunks this node happened to upload. A
+        // node restored from its recovery phrase learns where its data lives by
+        // asking, instead of re-uploading everything to find out.
+        let mut confirmed: Vec<ChunkId> = batch
+            .iter()
+            .filter(|address| !wanted.contains(address))
+            .copied()
+            .collect();
 
         for address in missing {
             let Some(sealed) = store.blobs().get(&address)? else {
@@ -117,8 +138,12 @@ pub fn push(store: &Store, client: &mut PeerClient) -> Result<PushReport> {
             if client.store_chunk(owner, address, sealed)? {
                 report.chunks_accepted += 1;
                 report.bytes_sent = report.bytes_sent.saturating_add(len);
+                confirmed.push(address);
             }
         }
+
+        report.holders_recorded += confirmed.len();
+        store.record_holders(&confirmed, &peer)?;
     }
 
     Ok(report)
