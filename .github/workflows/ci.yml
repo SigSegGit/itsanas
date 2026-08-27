@@ -97,6 +97,24 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --workspace --release --target aarch64-unknown-linux-gnu
 
+  android-core:
+    name: Core compiles for Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      # The whole data path, checked for Android on every push. Not the whole
+      # workspace: `ring` assembles its own primitives and needs the NDK, which
+      # is a build-tool requirement rather than a code one and is documented in
+      # docs/PORTING.md. Everything here is pure Rust, so a change that makes
+      # the core unbuildable for a phone fails now rather than on the day
+      # somebody tries to build the app.
+      - run: |
+          cargo check --target aarch64-linux-android             -p itsanas-crypto -p itsanas-store -p itsanas-sync             -p itsanas-policy -p itsanas-discover -p itsanas-placement             -p itsanas-wire
+
   minimum-rust-version:
     name: Minimum supported Rust version
     runs-on: ubuntu-latest

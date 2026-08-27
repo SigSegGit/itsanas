@@ -29,9 +29,16 @@
 //! the files themselves is megabytes or gigabytes.
 //!
 //! So on an expensive connection this does the cheap half automatically and
-//! leaves the expensive half to a deliberate act. The result is the behaviour
-//! people already expect from Drive and Dropbox — everything is listed,
-//! tapping one downloads it — arrived at from the cost rather than copied.
+//! leaves the expensive half to a deliberate act. That is the shape of the
+//! behaviour people already expect from Drive and Dropbox, arrived at from the
+//! cost rather than copied.
+//!
+//! **The other half of that behaviour is not built.** Fetching the segments
+//! makes the *next* content round instant and lets this device relay work
+//! onwards; it does not yet make the files appear in a listing, because a
+//! deferred operation writes no index entry. "Everything is listed, tap one to
+//! download it" needs a catalogue derived from the vault, and that does not
+//! exist. See `docs/ROADMAP.md`.
 
 #![forbid(unsafe_code)]
 
@@ -112,10 +119,12 @@ impl Default for Settings {
 pub enum Scope {
     /// Do not connect.
     Nothing,
-    /// Exchange log segments and heads, so the file list is current. Kilobytes.
+    /// Exchange log segments and heads. Kilobytes.
     ///
-    /// Enough to show every file and every change. Content arrives when asked
-    /// for, which is what a phone wants anyway.
+    /// Enough to know that work is waiting, to relay it onwards, and to make
+    /// the next content round resume rather than restart. Not yet enough to
+    /// *show* the files: that needs a catalogue derived from the vault, which
+    /// is not built.
     Metadata,
     /// Metadata and file contents. Megabytes to gigabytes.
     Everything,

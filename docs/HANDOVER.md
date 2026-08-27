@@ -82,6 +82,7 @@ crypto     identity, key schedule, sealing, blinded addressing, keystore
 testkit    Alice/Bob/Carol — published test users, generated corpus, canaries
 wire       length-prefixed framing + a generic Connection<S: Read + Write>
 discover   signed UDP announcements on the local network; no server involved
+policy     when and how much to sync: metered connection, battery, attention
 tls        anonymous TLS + device authentication bound to the channel
 store      chunking, blob store, index, operation log, vault, version vectors
 sync       version-vector merge, conflict resolution, convergence simulation
@@ -237,6 +238,9 @@ side coming back, a deletion removing it from both, both folders byte-identical.
   cost is what carries the weight until then.
 - **A stale address is handed out for a week.** `PRESENCE_TTL` bounds it, but
   every peer pays a dial for every stale entry until it expires.
+- **A file you have not downloaded is invisible.** A metadata-only round keeps
+  the segments but writes no index entry, so nothing lists it. Blocks the
+  browse-then-download behaviour a phone needs. See [ROADMAP.md](ROADMAP.md) M11.
 - **The blob layout does not reach a terabyte.** Measured, not suspected: see
   [ROADMAP.md](ROADMAP.md) M9. One file per chunk is 14.7 million files per
   terabyte, and `blobs().addresses()` walks all of them on every sync round.

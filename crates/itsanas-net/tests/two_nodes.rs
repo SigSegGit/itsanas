@@ -719,13 +719,16 @@ fn a_host_that_refuses_to_store_is_not_recorded_as_holding_anything() {
 
 #[test]
 fn a_metadata_round_learns_what_changed_without_downloading_it() {
-    // What a phone on mobile data needs: the file list current, the files
-    // themselves left alone until somebody taps one. The alternative — refusing
-    // to sync at all on an expensive connection — shows a stale list, which is
-    // indistinguishable from a broken application.
+    // What a phone on mobile data needs: know that work is waiting, keep the
+    // verified segments so the next round on wifi resumes instead of starting
+    // over, and download nothing.
     //
     // Nothing may be half-written. An operation is either applied with its
     // content or deferred, which is the same guarantee a sleeping peer gets.
+    //
+    // Note what is *not* asserted: that the file appears in a listing. It does
+    // not, because a deferred operation writes no index entry, and pretending
+    // otherwise here is how that gap would stay hidden.
     let master = alice();
     let laptop = node(&master, 1);
     let phone = node(&master, 2);

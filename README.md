@@ -91,6 +91,7 @@ nothing is lost.
 | `itsanas-placement` | Rendezvous hashing, replication targets, repair planning | **implemented** (execution pending) |
 | `itsanas-coord` | Device claims and revocation, measured availability, accounting, directory, coordinator protocol and server | **implemented** |
 | `itsanas-coordinator` | The coordinator binary: address book and escrow locker | **implemented** |
+| `itsanas-policy` | When and how much to sync: metered connections, battery, attention | **implemented** |
 | `itsanas-folder` | A real directory mirrored into the store and back: import, export, delete, file watching | **implemented** |
 | `itsanas-cli` (`itsanas`) | Command line and daemon: init, login, folder, put, get, sync, serve, daemon, doctor | **implemented** |
 
@@ -101,6 +102,7 @@ nothing is lost.
 | [docs/HANDOVER.md](docs/HANDOVER.md) | **Start here to pick the project up cold** — state, decisions that must not be reversed, what is next |
 | [docs/MVP.md](docs/MVP.md) | **What has to be true before this is worth using**, as tests you run on your own machines |
 | [docs/ECONOMICS.md](docs/ECONOMICS.md) | **The bargain**: what a member gives, what they get, and what happens when they stop |
+| [docs/PORTING.md](docs/PORTING.md) | **Which machines this runs on**, what is verified on each, and what a phone would still need |
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | **Get two machines syncing** — every command shown has been run, with its real output |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Global architecture: layers, data model, placement, coordinator, transport |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | **Roadmap versus current state** — what is built, what is not, with exit criteria |

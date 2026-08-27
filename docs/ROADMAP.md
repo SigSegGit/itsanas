@@ -19,10 +19,12 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M6 Coordinator | `itsanas-coord`, `itsanas-coordinator` | ✅ **done** | 55 + 12 |
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 53 |
 | M8 Three-device bring-up | — | ⬜ not started | — |
+| M11 A catalogue of known-but-absent files | `itsanas-store` | ⬜ **next**, blocks browse-then-download | — |
+| M12 Android shell | — | ⬜ core verified, shell not written | 11 (policy) |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion | 4 |
 | M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 | — |
 
-**560 test functions, 2 of them `#[ignore]`d into the slow job, and thirteen of
+**571 test functions, 2 of them `#[ignore]`d into the slow job, and thirteen of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -601,6 +603,32 @@ Implemented:
 **Exit criteria:** a new device logs in with username plus passphrase and
 recovers the full account; a test proves the coordinator's stored state contains
 no plaintext and no usable key material.
+
+---
+
+### M11 — Knowing about a file you have not downloaded ⬜
+
+The gap that stands between the current code and the behaviour everyone expects
+from a phone client: everything listed, tap one to download it.
+
+Half of it works. A metadata round — `session::Scope::Metadata` — fetches,
+verifies and keeps the signed log segments without downloading any content, so a
+phone on mobile data learns that work is waiting and the next round on Wi-Fi
+resumes instead of restarting.
+
+**The other half does not.** A deferred operation writes no index entry, so
+`Store::list` does not report it. The paths are in the outcomes `apply_segments`
+returns and in the vault's segments; nothing keeps them anywhere a browser could
+read them. Until something does, a client can list only what it has already
+downloaded.
+
+This belongs in the core rather than in any shell — a desktop on a tethered
+connection wants exactly the same thing.
+
+Not attempted yet, and the shape is not obvious: an index entry whose content is
+absent would break the invariant that a listed file is readable, which the
+delete and conflict logic leans on. A separate read-only catalogue derived from
+the vault does not break anything and costs a walk.
 
 ---
 

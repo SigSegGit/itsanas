@@ -119,9 +119,9 @@ impl ChunkSource for RemoteChunks<'_> {
 /// Offer this device's segments and any chunks the peer lacks.
 /// How much of a round to do.
 ///
-/// A phone on mobile data, and a laptop tethered to one, both want the file
-/// list without the files. Learning *what* changed means exchanging signed log
-/// segments — kilobytes. Fetching the changes themselves is megabytes.
+/// A phone on mobile data, and a laptop tethered to one, both want to know what
+/// changed without paying to download it. Exchanging signed log segments is
+/// kilobytes; fetching the changes themselves is megabytes.
 ///
 /// The deferred path this relies on was not added for it: applying an operation
 /// whose chunks are unavailable already leaves local state untouched and asks
@@ -242,11 +242,19 @@ pub fn pull(store: &Store, vault: &Vault, client: &mut PeerClient) -> Result<Syn
 /// Fetch what the peer has from this user's *other* devices, and merge it, at
 /// `scope`.
 ///
-/// At [`Scope::Metadata`] the segments are still fetched, verified and kept —
-/// so the file list is current and this node can relay them onwards — and every
-/// operation whose chunks would have to be downloaded comes back as `deferred`.
-/// Nothing is half-written: an operation is either applied with its content or
-/// left for later, which is the same guarantee a sleeping peer already gets.
+/// At [`Scope::Metadata`] the segments are still fetched, verified and kept, so
+/// this node can relay them onwards and the next content round resumes instead
+/// of starting over. Every operation whose chunks would have to be downloaded
+/// comes back as `deferred`. Nothing is half-written: an operation is either
+/// applied with its content or left for later, which is the same guarantee a
+/// sleeping peer already gets.
+///
+/// **What this does not yet do is show you the file.** A deferred operation
+/// writes no index entry, so `Store::list` does not report it — the paths are
+/// in the returned outcomes and in the vault's segments, and nothing keeps them
+/// anywhere a browser could read. Presenting "known but not downloaded", the
+/// way a phone client should, needs a catalogue derived from the vault that
+/// does not exist yet. Recorded in `docs/ROADMAP.md`.
 pub fn pull_scoped(
     store: &Store,
     vault: &Vault,
