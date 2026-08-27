@@ -327,7 +327,38 @@ impl Vault {
         Ok(out)
     }
 
-    /// What this vault is holding.
+    /// What this vault holds for one owner.
+    ///
+    /// Worth separating from [`Self::stats`], because a vault legitimately
+    /// holds two very different things: other people's data, which is the
+    /// hosting bargain, and *your own account's* segments from your other
+    /// devices, which is what lets this machine relay them onwards. Reporting
+    /// the two as one number tells an operator they are hosting for a stranger
+    /// when they are not.
+    pub fn stats_for(&self, owner: UserId) -> Result<VaultStats> {
+        let blobs = self.blobs_for(owner)?;
+        let prefix = owner.as_bytes();
+
+        let txn = self.db.begin_read()?;
+        let lengths = txn.open_table(CHAIN_LENGTHS)?;
+
+        let mut segments = 0u64;
+        for row in lengths.iter()? {
+            let (key, value) = row?;
+            if key.value().starts_with(prefix) {
+                segments = segments.saturating_add(value.value());
+            }
+        }
+
+        Ok(VaultStats {
+            owners: 1,
+            chunks: blobs.addresses()?.len(),
+            segments,
+            bytes: blobs.total_bytes()?,
+        })
+    }
+
+    /// What this vault is holding, in total.
     pub fn stats(&self) -> Result<VaultStats> {
         let owners = self.owners()?;
         let mut stats = VaultStats {
@@ -690,6 +721,43 @@ mod tests {
             stats.bytes, 900,
             "a chunk-only owner was invisible to accounting"
         );
+    }
+
+    #[test]
+    fn per_owner_stats_separate_hosting_from_relaying() {
+        // A vault holds two different things: other people's data, and your own
+        // account's segments from your other devices. Reporting them as one
+        // number tells an operator they are hosting for a stranger when they
+        // are not.
+        let (_dir, vault) = vault();
+        let mine = keys(21);
+        let stranger = keys(22);
+        let dev = device(21);
+
+        vault.put_segment(&segment(&mine, &dev, None, 1)).unwrap();
+        vault
+            .put_chunk(
+                stranger.user_id(),
+                &ChunkId::from_bytes([1; 32]),
+                &[0u8; 500],
+            )
+            .unwrap();
+
+        let own = vault.stats_for(mine.user_id()).unwrap();
+        assert_eq!(own.segments, 1);
+        assert_eq!(
+            own.bytes, 0,
+            "no foreign chunks are held for my own account"
+        );
+
+        let theirs = vault.stats_for(stranger.user_id()).unwrap();
+        assert_eq!(theirs.bytes, 500);
+        assert_eq!(theirs.segments, 0);
+
+        let total = vault.stats().unwrap();
+        assert_eq!(total.owners, 2);
+        assert_eq!(total.bytes, 500);
+        assert_eq!(total.segments, 1);
     }
 
     #[test]

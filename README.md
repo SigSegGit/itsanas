@@ -74,12 +74,14 @@ nothing is lost.
 | `itsanas-net` | Peer protocol, TCP transport, sync sessions, proof-of-storage challenges | **implemented** (QUIC pending) |
 | `itsanas-placement` | Rendezvous hashing, replication targets, repair, quota accounting | planned |
 | `itsanas-coord` | Optional control-plane service: directory, presence, relay | planned |
-| `itsanas-daemon` / `itsanas` | The node and its command-line interface | planned |
+| `itsanas-cli` (`itsanas`) | The command-line interface: init, login, put, get, sync, serve, doctor | **implemented** |
+| `itsanas-daemon` | Background service; syncs on its own | planned |
 
 ## Documentation
 
 | Document | What is in it |
 | --- | --- |
+| [docs/QUICKSTART.md](docs/QUICKSTART.md) | **Get two machines syncing** — every command shown has been run, with its real output |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Global architecture: layers, data model, placement, coordinator, transport |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | **Roadmap versus current state** — what is built, what is not, with exit criteria |
 | [docs/DESIGN.md](docs/DESIGN.md) | Every mechanism explained in detail, including what was rejected and why |

@@ -16,7 +16,7 @@ a bug.
 | M4 Network transport | `itsanas-net` | 🟨 **works over TCP; QUIC pending** | 38 unit + 11 two-node |
 | M5 Placement and repair | `itsanas-placement` | 🟨 **hosting works; placement pending** | (vault: 14 of the store's unit tests) |
 | M6 Coordinator | `itsanas-coord` | ⬜ not started | — |
-| M7 Daemon and CLI | `itsanas-daemon`, `itsanas` | ⬜ not started | — |
+| M7 Daemon and CLI | `itsanas-cli`, `itsanas-daemon` | 🟨 **CLI works; no daemon** | 21 unit |
 | M8 Three-device bring-up | — | ⬜ not started | — |
 
 **Nothing in this repository should hold data you care about yet.** The
@@ -235,12 +235,36 @@ without operator action.
 recovers the full account; a test proves the coordinator's stored state contains
 no plaintext and no usable key material.
 
-### M7 — Daemon and CLI (`itsanas-daemon`, `itsanas`)
+### M7 — Daemon and CLI 🟨 (`itsanas-cli`, `itsanas-daemon`)
 
-- Background service; Windows service and systemd unit.
-- `itsanas init | login | pledge | status | doctor`.
-- Alerting on the conditions listed in
-  [ARCHITECTURE.md §7](ARCHITECTURE.md#7-operational-behaviour).
+The **CLI** landed early, because without it none of the layers below could be
+exercised by a human. See [QUICKSTART.md](QUICKSTART.md) for a walkthrough whose
+output was copied from a real session.
+
+`itsanas init | login | whoami | status | ls | put | get | rm | pledge | peer |
+serve | sync | doctor | gc`
+
+- Identity created or restored from a 24-word phrase, sealed under a passphrase
+  at production Argon2id cost, with the device seed sealed alongside it.
+- The recovery phrase is shown once and never written to disk — enforced by a
+  test that scans the whole node directory for it.
+- Published test identities are refused as real accounts, with an explanation.
+- `serve` refuses a non-loopback address unless explicitly overridden.
+- `pledge` warns rather than silently dropping data when lowered below what is
+  already stored.
+
+Still to build, and the substance of M7:
+
+- **The daemon.** Nothing syncs on its own; `itsanas sync` is a thing you run or
+  a thing cron runs. This is also why only one process may hold a node at a time
+  — a running `serve` locks the index, so `itsanas ls` against the same home
+  refuses to start. The error says so, but it is a workaround, not a design.
+- File watching (`notify`) with debounce and a periodic rescan — carried over
+  from M3, since the watcher needs a long-running process to live in.
+- Windows service and systemd unit.
+- Alerting on the conditions in
+  [ARCHITECTURE.md §7](ARCHITECTURE.md#7-operational-behaviour). None of them
+  are wired to anything yet.
 
 **Exit criteria:** the folder-that-just-syncs experience, plus an alert that
 actually fires when node count drops below the replication floor or a sync round

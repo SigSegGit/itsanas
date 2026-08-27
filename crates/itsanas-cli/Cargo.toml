@@ -1,0 +1,32 @@
+[package]
+name = "itsanas-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Command-line interface for ITSaNAS"
+
+[[bin]]
+name = "itsanas"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.51", features = ["derive", "env"] }
+itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
+itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
+itsanas-sync = { version = "0.1.0", path = "../itsanas-sync", default-features = false }
+postcard = { version = "1.1.1", default-features = false, features = ["use-std"] }
+rpassword = "7.4.0"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.20"
+zeroize = "1.9.0"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+blake3 = "1.8.7"
+tempfile = "3.23.0"

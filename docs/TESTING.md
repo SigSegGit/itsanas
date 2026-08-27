@@ -1,12 +1,13 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 280 tests across 9 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 302 tests across 10 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
+| `itsanas-cli` unit | 21 |
 | `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
-| `itsanas-store` unit | 87 |
+| `itsanas-store` unit | 88 |
 | `itsanas-store` integration (`tests/store.rs`) | 27 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 19 |
@@ -478,6 +479,37 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_host_that_has_pledged_nothing_refuses_to_store_but_still_answers`** | Refusing to store does not make a node stop being a peer. |
 | `a_larger_file_survives_the_wire_byte_for_byte` | Multi-chunk fetch and reassembly. |
 | `a_peer_asking_about_an_unknown_user_gets_an_empty_answer` | No invented chains over the wire either. |
+
+---
+
+# `itsanas-cli` — unit tests (21)
+
+## `node` — identity on disk (9)
+
+| Test | What it proves |
+| --- | --- |
+| **`the_phrase_is_not_written_anywhere_under_the_node_directory`** | Scans every file under the node's home for the phrase. A recovery phrase stored on the machine it protects is not a backup, it is an extra copy for an attacker to find. |
+| **`the_phrase_does_not_leak_through_debug`** | The single most likely way for a phrase to escape is a stray `dbg!` or a derived `Debug`. |
+| **`a_published_test_phrase_is_refused_as_a_real_account`** | Restoring Alice's published phrase as a real account is refused, with an explanation. |
+| **`the_device_identity_also_survives_a_restart`** | If the device key changed on every start, every restart would look like a new device to the version vectors and history would fragment. |
+| **`creating_over_an_existing_node_is_refused`** | Overwriting would destroy the master secret and make every chunk stored under it permanently unreadable. |
+| **`a_phrase_round_trips_through_restore`** | Same account, *different* device id — two machines sharing a device identity would share a sequence counter and fork the log. |
+| **`opening_a_missing_node_says_what_to_do_about_it`** | The error names both `init` and `login`. |
+| `a_created_node_reopens_with_the_same_identity` | Reopening does not orphan the data. |
+| `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
+
+## `config` — settings (12)
+
+| Test | What it proves |
+| --- | --- |
+| **`an_unknown_setting_is_an_error_rather_than_being_ignored`** | A silently discarded typo is how a node ends up pledging nothing while its operator believes it pledged a terabyte. |
+| **`defaults_are_safe`** | Pledge defaults to zero and listen defaults to loopback. A node that has not said what it offers has not offered any. |
+| **`a_nonsense_size_is_refused_rather_than_read_as_zero`** | Reading "ten gigabytes" as 0 would silently disable hosting. |
+| `a_malformed_line_names_its_line_number` | Errors are actionable. |
+| `an_overflowing_size_is_refused` | `999999999999T` does not wrap. |
+| `sizes_parse_the_way_people_write_them` | `500`, `1K`, `2MB`, `10G`, `1TiB`. |
+| `sizes_format_readably` / `formatting_never_panics_at_the_extremes` | Output is legible at every magnitude. |
+| `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
 
 ---
 

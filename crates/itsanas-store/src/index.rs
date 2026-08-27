@@ -65,7 +65,15 @@ pub struct Index {
 impl Index {
     /// Open or create the index at `path`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let db = Database::create(path.as_ref())?;
+        let path = path.as_ref();
+        let db = Database::create(path).map_err(|error| match error {
+            // redb takes an exclusive lock on the file. Reporting that as a
+            // generic database error leaves the operator staring at "cannot
+            // acquire lock" with no idea which of their own processes is
+            // holding it, so it gets its own variant and its own advice.
+            redb::DatabaseError::DatabaseAlreadyOpen => StoreError::Locked(path.to_owned()),
+            other => StoreError::from(other),
+        })?;
 
         // Create every table up front. redb returns an error when a read
         // transaction opens a table that has never been written, so a fresh

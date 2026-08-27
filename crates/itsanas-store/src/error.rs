@@ -45,7 +45,11 @@ pub enum StoreError {
     #[error("invalid chunker configuration: {0}")]
     ChunkerConfig(&'static str),
 
-    #[error("store at {0} is already locked by another process")]
+    #[error(
+        "{0} is already open in another process.\n\
+         Only one process at a time may hold a node's state — most likely \
+         `itsanas serve` is running. Stop it and try again."
+    )]
     Locked(PathBuf),
 
     #[error(
