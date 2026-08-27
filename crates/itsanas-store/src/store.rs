@@ -28,6 +28,7 @@ use crate::{
     chunker::ChunkerConfig,
     error::{Result, StoreError},
     index::{Index, now_unix},
+    local::LocalState,
     oplog::{
         FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
     },
@@ -308,6 +309,26 @@ impl Store {
     /// Every tombstone this store holds.
     pub fn tombstones(&self) -> Result<Vec<(String, Tombstone)>> {
         self.index.tombstones()
+    }
+
+    /// What this device last saw on disk at `path`.
+    pub fn local_state(&self, path: &str) -> Result<Option<LocalState>> {
+        self.index.get_local_state(path)
+    }
+
+    /// Record what this device just wrote to, or read from, disk.
+    pub fn set_local_state(&self, path: &str, state: &LocalState) -> Result<()> {
+        self.index.set_local_state(path, state)
+    }
+
+    /// Forget a path's disk state, after removing it from disk.
+    pub fn clear_local_state(&self, path: &str) -> Result<()> {
+        self.index.clear_local_state(path)
+    }
+
+    /// Every path this device believes it has on disk.
+    pub fn local_states(&self) -> Result<Vec<(String, LocalState)>> {
+        self.index.local_states()
     }
 
     /// Install an entry that arrived from a peer, without logging it again.

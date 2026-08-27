@@ -1,19 +1,21 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 333 tests across 11 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 393 tests across 13 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
-| `itsanas-cli` unit | 23 |
+| `itsanas-cli` unit | 25 |
+| `itsanas-folder` unit | 31 |
+| `itsanas-folder` integration (`tests/folder.rs`) | 22 |
 | `itsanas-placement` unit | 29 |
 | `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
-| `itsanas-store` unit | 88 |
+| `itsanas-store` unit | 92 |
 | `itsanas-store` integration (`tests/store.rs`) | 27 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 19 |
 | `itsanas-net` unit | 38 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 11 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 12 |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with
@@ -563,6 +565,67 @@ the function, which is not a property worth having a test for.
 | `a_fully_replicated_chunk_needs_nothing` | No make-work. |
 | `a_plan_is_deterministic_and_ordered` | Two nodes produce comparable plans, so an operator can diff two logs. |
 | `an_empty_census_produces_an_empty_plan` / `nothing_is_planned_when_no_node_is_reachable` | Edges. |
+
+---
+
+# `itsanas-folder` — unit tests (31)
+
+## `decision` — what should happen to one path (15)
+
+A pure function of three content hashes: what is on disk, what the store says,
+and what this device last put there. Every branch is a unit test because
+several of them are hard to stage on a real filesystem and all of them are
+destructive if wrong.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_file_that_was_never_downloaded_is_exported_not_deleted`** | The most dangerous confusion in the design. A device that has never had a file must not read its absence as a deletion — that would announce the removal of everything its owner has. |
+| **`deleting_from_the_store_only_ever_follows_a_recorded_local_file`** | Exhaustive over all 27 combinations: the destructive action is unreachable unless the ledger says this device genuinely had the file. |
+| **`a_stale_ledger_alone_never_moves_data`** | Whatever the ledger says, if disk and store agree the answer is bookkeeping — never an upload, download or delete. |
+| **`the_same_edit_made_twice_is_not_a_conflict`** | Both sides changed to identical content. A sibling here would litter the folder for nothing. |
+| **`a_delete_racing_an_edit_brings_the_file_back`** / **`an_edit_racing_a_delete_keeps_the_edit`** | Matches the sync engine: an unexpected file costs a second, a lost edit is unrecoverable. |
+| **`no_input_combination_panics_or_is_undecided`** | All 27 shapes of the problem are decided. |
+| `a_new_local_file_is_imported` / `an_edited_local_file_is_imported` / `a_file_the_user_deleted_is_removed_from_the_store` / `a_remote_edit_is_written_out` / `a_remotely_deleted_file_is_removed_from_disk` / `two_different_edits_keep_both` / `both_sides_deleting_agrees` / `nothing_to_do_when_all_three_agree` | The ordinary cases. |
+
+## `scan` — reading the folder safely (12)
+
+| Test | What it proves |
+| --- | --- |
+| **`a_logical_path_can_never_escape_the_folder`** | Traversal, absolute paths, drive letters and Windows device names all refused. These strings arrive in a peer's log, so a path that escaped would let a peer write anywhere on the disk. |
+| **`symlinks_are_skipped_rather_than_followed`** (unix) | A link inside the folder pointing at `~/.ssh` would otherwise quietly upload a private key, and the user would see only a harmless-looking file. |
+| **`operating_system_debris_is_ignored`** | Every machine writes its own `.DS_Store`; syncing them means they fight forever. |
+| **`the_staging_directory_is_never_synced`** | Otherwise the folder syncs its own scratch space back and forth. |
+| **`nested_directories_become_slash_separated_logical_paths`** | Backslashes must not leak into logical paths, or one file has two names on two machines. |
+| `round_tripping_a_path_through_the_filesystem_and_back_is_stable` | The mapping is a genuine round trip. |
+| Others | Flat scans, empty folders, missing folders, sizes and mtimes, paths outside the root. |
+
+## `watch` — noticing changes (4)
+
+| Test | What it proves |
+| --- | --- |
+| **`the_debounce_is_long_enough_to_outlast_an_editor_save`** | Acting on the first event would import a half-written file, and because the store hashes what it reads, that truncation would become a real version and replicate. |
+| **`watching_a_missing_directory_is_an_error_rather_than_silence`** | Silently watching nothing would mean the daemon believes it is reacting when it is not. |
+| `a_real_change_is_noticed` / `a_quiet_folder_times_out_rather_than_blocking_forever` | It works, and it does not hang. |
+
+---
+
+# `itsanas-folder` — integration tests (22)
+
+| Test | What it proves |
+| --- | --- |
+| **`a_brand_new_device_downloads_everything_and_deletes_nothing`** | The catastrophe. An empty folder on a device that has never synced must produce downloads, not a mass deletion. |
+| **`a_file_the_user_deletes_is_deleted_everywhere`** | The counterpart — a genuine delete must propagate, with a tombstone so an offline device does not resurrect it. |
+| **`an_imported_file_is_announced_to_peers_not_just_stored_locally`** | A real bug found by running two daemons: the reconciler wrote to the store but never sealed a log segment, so files looked synced on the machine that had them and existed nowhere else. |
+| **`a_deletion_is_announced_to_peers_too`** | The same, for deletes. |
+| **`a_pass_that_changes_nothing_does_not_produce_an_empty_segment`** | Flushing unconditionally would mint a segment on every idle scan and grow the log without bound. |
+| **`reconciling_twice_does_nothing_the_second_time`** | A non-idempotent reconciler means a daemon uploads the folder forever and never settles. |
+| **`a_local_edit_colliding_with_a_remote_one_keeps_both`** | Both survive, and the sibling keeps its extension so it still opens in the right application. |
+| **`a_deep_pass_catches_an_edit_the_fast_path_misses`** | Documents the size-and-mtime gap and proves the deep scan closes it. |
+| **`deleting_the_last_file_in_a_tree_prunes_the_empty_directories`** | Without it, every machine slowly fills with empty directories nothing removes. |
+| **`no_staging_file_survives_a_reconcile`** | Every export would otherwise leak a temp file. |
+| `a_second_device_reproduces_the_folder_exactly` | Two machines, one folder content, byte for byte. |
+| `a_full_corpus_round_trips_through_a_folder_byte_for_byte` | A real data set, unchanged. |
+| Others | New files, edits, remote changes, remote deletes, nested directories, delete/edit races, identical concurrent edits, empty folders. |
 
 ---
 

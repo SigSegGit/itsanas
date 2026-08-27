@@ -58,8 +58,22 @@ pub fn wins_original_path(left: (DeviceId, u64), right: (DeviceId, u64)) -> bool
 /// Windows would refuse to open at all.
 #[must_use]
 pub fn sibling_path(path: &str, device: DeviceId, sequence: u64) -> String {
-    let suffix = format!("{CONFLICT_MARKER}-{}-{sequence}", device.short());
+    with_marker(
+        path,
+        &format!("{CONFLICT_MARKER}-{}-{sequence}", device.short()),
+    )
+}
 
+/// Insert `marker` before a path's extension.
+///
+/// Exposed because more than one kind of conflict needs a sibling name — a
+/// concurrent edit between two devices, and a local edit that collided with an
+/// incoming one in a synced folder. The rules for where the marker goes are
+/// fiddly enough (dotfiles, multi-dot names, dots in directory names) that a
+/// second copy would drift, and the two would start producing different names
+/// for the same file.
+#[must_use]
+pub fn with_marker(path: &str, marker: &str) -> String {
     // Split on the last dot of the final component only, so a directory called
     // `my.files` does not swallow the marker.
     let (directory, name) = match path.rfind('/') {
@@ -68,12 +82,12 @@ pub fn sibling_path(path: &str, device: DeviceId, sequence: u64) -> String {
     };
 
     // A leading dot is part of the name (`.bashrc`), not an extension marker.
-    match name[1..].rfind('.') {
+    match name.get(1..).and_then(|rest| rest.rfind('.')) {
         Some(index) => {
             let split = index + 1;
-            format!("{directory}{}.{suffix}{}", &name[..split], &name[split..])
+            format!("{directory}{}.{marker}{}", &name[..split], &name[split..])
         }
-        None => format!("{directory}{name}.{suffix}"),
+        None => format!("{directory}{name}.{marker}"),
     }
 }
 

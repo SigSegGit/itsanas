@@ -16,7 +16,7 @@ a bug.
 | M4 Network transport | `itsanas-net` | 🟨 **works over TCP; QUIC pending** | 38 unit + 11 two-node |
 | M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not yet executed** | 29 unit + vault's 16 |
 | M6 Coordinator | `itsanas-coord` | ⬜ not started | — |
-| M7 Daemon and CLI | `itsanas-cli` | 🟨 **CLI and daemon work; no file watching** | 23 unit |
+| M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 31 unit + 22 integration |
 | M8 Three-device bring-up | — | ⬜ not started | — |
 
 **Nothing in this repository should hold data you care about yet.** The
@@ -25,8 +25,10 @@ are implemented and tested. Two processes now sync a real file over a real
 socket, a node hosts another user's data without being able to read it, and a
 host relays one device's work to another device it has never met.
 
-There is a working command line: `itsanas init | put | get | sync | serve |
-doctor`, walked through in [QUICKSTART.md](QUICKSTART.md).
+There is a working command line and a folder that syncs: point `itsanas folder`
+at a directory, run `itsanas daemon`, and files put in it reach your other
+machines while files deleted from it are deleted everywhere.
+[QUICKSTART.md](QUICKSTART.md) walks two machines through it.
 
 What is still missing before this is safe to rely on:
 
@@ -34,8 +36,9 @@ What is still missing before this is safe to rely on:
   wire is sealed — but exposes chunk identifiers, sizes and timing to anyone on
   the network path. It refuses to bind a non-loopback address unless you
   override it. Use a VPN or an SSH tunnel between machines.
-- **Nothing runs on its own.** There is no daemon, so `itsanas sync` is a thing
-  you run or a thing cron runs, and only one process may hold a node at a time.
+- **Only one process may hold a node at a time.** `itsanas daemon` does the
+  serving and the syncing together, so this rarely bites — but while it runs,
+  other commands against the same home refuse to start.
 - **Placement is decided but not executed.** The rules for which hosts should
   hold a chunk, and the repair plan for one that has too few copies, are
   implemented and tested — but nothing yet carries that plan out.
@@ -300,12 +303,46 @@ the second node had it without anyone running `sync`.
 - The listener stopping does not take sync down with it: a node that cannot
   accept connections can still push to its peers.
 
+The **synced folder** (`itsanas-folder`) is the thing that makes this a product
+rather than a set of commands. Point it at a directory with `itsanas folder
+<path>`, and files put in it are uploaded, files deleted from it are deleted
+everywhere, and changes from other devices appear in it.
+
+Verified by running two daemons: a file dropped into one folder appeared in the
+other, an edit propagated, a file created on the *other* side came back, and a
+deletion removed it from both. Both folders ended byte-identical.
+
+- **The ledger.** A file missing from disk means either "the user deleted it" or
+  "this device never downloaded it", and the filesystem cannot tell them apart.
+  `LocalState` records what this device last put on disk, and a delete is only
+  ever acted on for a path that record covers. Without it, a brand-new device
+  would announce the deletion of every file its owner has on its first pass —
+  and every other device would obey.
+- **File watching** (`notify`) with debounce, plus a periodic rescan, because
+  every platform's watcher drops events under load and none report changes made
+  while the process was stopped. A slower **deep** rescan re-hashes everything
+  hourly, catching a file rewritten within the same second at the same length,
+  which size-and-mtime comparison cannot see.
+- **Conflicts keep both.** A local edit colliding with an incoming one moves the
+  local version aside rather than overwriting it.
+- **Symlinks are skipped, never followed** — a link inside the folder pointing
+  at `~/.ssh` would otherwise quietly upload a private key.
+- **Atomic writes.** A torn file in a synced folder is worse than a missing one:
+  the next scan would hash the partial content and replicate the truncation.
+
+Two bugs found by running it rather than by reasoning about it, both now with
+regression tests:
+
+1. The reconciler wrote to the store but never called `flush_segment`, so
+   imports were never sealed into a log segment. Files looked perfectly synced
+   on the machine that had them and existed nowhere else.
+2. A push lands in the receiving node's *vault*, and only `pull` applies
+   segments to the store — so a node that never dialled anybody held its own
+   data and never looked at it. `session::drain_vault` fixes it. Not a corner
+   case: a device behind NAT can push and cannot be dialled.
+
 Still to build:
 
-- **File watching** (`notify`) with debounce and a periodic rescan — carried
-  over from M3. Files currently enter the store through `itsanas put`, not by
-  appearing in a folder, so this is not yet the folder-that-just-syncs
-  experience.
 - **Repair execution.** The daemon is the loop M5's planner needs, but building
   a census means asking every peer what it holds, and knowing who "every peer"
   is needs M6's node set.

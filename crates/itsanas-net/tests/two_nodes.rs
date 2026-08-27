@@ -176,6 +176,54 @@ fn syncing_twice_transfers_nothing_the_second_time() {
     });
 }
 
+#[test]
+fn a_node_that_only_ever_accepts_connections_still_learns_what_was_pushed_to_it() {
+    // A real bug, found by running two daemons where only one had the other
+    // configured as a peer. A push lands in the receiving node's *vault*, and
+    // only `pull` applies segments to the store — so the node that never dialled
+    // anybody held its own data and never looked at it.
+    //
+    // Not a corner case: a device behind NAT can push and cannot be dialled, so
+    // for its peers this is the only way its work ever arrives.
+    let listener = node(&alice(), 24);
+    let dialler = node(&alice(), 25);
+
+    dialler
+        .store
+        .write_file("pushed.txt", b"sent by the device that dialled")
+        .unwrap();
+    dialler.store.flush_segment().unwrap();
+
+    with_server(&listener, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, dialler.store.device_id(), dialler.store.owner()).unwrap();
+        session::push(&dialler.store, &mut client).expect("push");
+    });
+
+    // The listener never pulled, and never will.
+    assert_eq!(
+        listener.store.read_file("pushed.txt").unwrap(),
+        None,
+        "this test is meaningless if a push alone already reached the store"
+    );
+
+    let report = session::drain_vault(&listener.store, &listener.vault).unwrap();
+
+    assert!(report.adopted > 0, "nothing was drained: {report:?}");
+    assert_eq!(
+        listener.store.read_file("pushed.txt").unwrap().unwrap(),
+        b"sent by the device that dialled",
+        "a node that only accepts connections never learned what it was holding"
+    );
+
+    // And draining again is a no-op, or a daemon would churn forever.
+    let second = session::drain_vault(&listener.store, &listener.vault).unwrap();
+    assert!(
+        !second.changed_anything(),
+        "draining twice changed state: {second:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Hosting for someone else
 // ---------------------------------------------------------------------------

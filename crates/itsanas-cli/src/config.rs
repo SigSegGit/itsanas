@@ -37,6 +37,11 @@ pub struct Config {
     pub listen: String,
     /// Peers to sync with, as `host:port`.
     pub peers: Vec<String>,
+    /// The directory kept in step with the store, if one is configured.
+    ///
+    /// Optional on purpose: a node can be a pure host, offering space and
+    /// holding other people's sealed data without syncing a folder of its own.
+    pub folder: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -46,6 +51,7 @@ impl Default for Config {
             pledge_bytes: DEFAULT_PLEDGE_BYTES,
             listen: DEFAULT_LISTEN.to_owned(),
             peers: Vec::new(),
+            folder: None,
         }
     }
 }
@@ -61,6 +67,9 @@ impl Config {
         let _ = writeln!(out, "username = {}", self.username);
         let _ = writeln!(out, "pledge_bytes = {}", self.pledge_bytes);
         let _ = writeln!(out, "listen = {}", self.listen);
+        if let Some(folder) = &self.folder {
+            let _ = writeln!(out, "folder = {}", folder.display());
+        }
         for peer in &self.peers {
             let _ = writeln!(out, "peer = {peer}");
         }
@@ -104,11 +113,12 @@ impl Config {
                         ))
                     })?;
                 }
+                "folder" => config.folder = Some(PathBuf::from(value)),
                 "peer" => peers.push(value.to_owned()),
                 other => {
                     return Err(CliError::Config(format!(
                         "line {}: unknown setting {other:?}. Known settings: \
-                         username, pledge_bytes, listen, peer",
+                         username, pledge_bytes, listen, folder, peer",
                         number + 1
                     )));
                 }
@@ -236,9 +246,33 @@ mod tests {
             pledge_bytes: 10 * 1024 * 1024 * 1024,
             listen: "127.0.0.1:9797".to_owned(),
             peers: vec!["pi.local:9797".to_owned(), "vm.local:9797".to_owned()],
+            folder: Some(PathBuf::from("/home/nicolas/ITSaNAS")),
         };
 
         assert_eq!(Config::parse(&config.render()).unwrap(), config);
+    }
+
+    #[test]
+    fn a_windows_folder_path_survives_the_round_trip() {
+        // Backslashes and a drive letter must not be mangled by a format that
+        // uses `=` as its only separator.
+        let config = Config {
+            folder: Some(PathBuf::from(r"C:\Users\SigSeg\ITSaNAS")),
+            ..Config::default()
+        };
+
+        assert_eq!(
+            Config::parse(&config.render()).unwrap().folder,
+            config.folder
+        );
+    }
+
+    #[test]
+    fn no_folder_is_a_valid_configuration() {
+        // A pure host offers space and holds other people's sealed data
+        // without syncing a folder of its own.
+        assert_eq!(Config::default().folder, None);
+        assert_eq!(Config::parse("username = host-only").unwrap().folder, None);
     }
 
     #[test]

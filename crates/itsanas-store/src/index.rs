@@ -19,6 +19,7 @@ use redb::{Database, ReadableTable, TableDefinition};
 
 use crate::{
     error::{Result, StoreError},
+    local::LocalState,
     oplog::{FileEntry, LogEntry, SegmentEnvelope, Tombstone},
 };
 
@@ -38,6 +39,12 @@ const SEGMENTS: TableDefinition<'_, u64, &[u8]> = TableDefinition::new("segments
 const PENDING: TableDefinition<'_, u64, &[u8]> = TableDefinition::new("pending");
 /// Path → postcard-encoded [`Tombstone`] for a deleted file.
 const TOMBSTONES: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("tombstones");
+/// Path → postcard-encoded [`LocalState`]: what this device last saw on disk.
+///
+/// Purely local. Never replicated, never signed, meaningless on another
+/// machine — it records what *this* device put in *its* folder, which is what
+/// makes a missing file distinguishable from a deleted one.
+const LOCAL: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("local_state");
 /// Small named scalars: next sequence number, head segment, chain length.
 const META: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("meta");
 
@@ -86,6 +93,7 @@ impl Index {
             let _ = txn.open_table(SEGMENTS)?;
             let _ = txn.open_table(PENDING)?;
             let _ = txn.open_table(TOMBSTONES)?;
+            let _ = txn.open_table(LOCAL)?;
             let _ = txn.open_table(META)?;
         }
         txn.commit()?;
@@ -177,6 +185,50 @@ impl Index {
 
         txn.commit()?;
         Ok(newly_unreferenced)
+    }
+
+    /// What this device last saw on disk at `path`.
+    pub fn get_local_state(&self, path: &str) -> Result<Option<LocalState>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(LOCAL)?;
+        match table.get(path)? {
+            Some(value) => Ok(Some(postcard::from_bytes(value.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Record what this device just wrote to, or read from, disk.
+    pub fn set_local_state(&self, path: &str, state: &LocalState) -> Result<()> {
+        let encoded = postcard::to_stdvec(state)?;
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(LOCAL)?.insert(path, encoded.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Forget a path's disk state, after removing it from disk.
+    pub fn clear_local_state(&self, path: &str) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(LOCAL)?.remove(path)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Every path this device believes it has on disk.
+    pub fn local_states(&self) -> Result<Vec<(String, LocalState)>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(LOCAL)?;
+
+        let mut out = Vec::new();
+        for row in table.iter()? {
+            let (key, value) = row?;
+            out.push((key.value().to_owned(), postcard::from_bytes(value.value())?));
+        }
+        Ok(out)
     }
 
     /// The tombstone at `path`, if it was deleted.

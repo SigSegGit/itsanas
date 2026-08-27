@@ -52,6 +52,7 @@ pub mod blob;
 pub mod chunker;
 pub mod error;
 pub mod index;
+pub mod local;
 pub mod oplog;
 pub mod path;
 pub mod store;
@@ -62,6 +63,7 @@ pub use blob::BlobStore;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};
 pub use index::Index;
+pub use local::LocalState;
 pub use oplog::{
     FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
 };

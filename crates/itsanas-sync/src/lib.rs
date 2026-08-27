@@ -42,7 +42,7 @@ pub mod error;
 pub mod sim;
 pub mod source;
 
-pub use conflict::{CONFLICT_MARKER, sibling_path, wins_original_path};
+pub use conflict::{CONFLICT_MARKER, sibling_path, wins_original_path, with_marker};
 pub use engine::{Applied, Divergence, Outcome, SyncReport, apply_segments, diff};
 pub use error::{Result, SyncError};
 pub use source::{ChunkSource, EmptySource};

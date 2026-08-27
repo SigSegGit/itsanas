@@ -58,7 +58,25 @@ machine's* copy of your keys and can be changed. The phrase **is** your identity
 anyone holding it can read everything you store, and losing both it and your
 passphrase means every byte is gone.
 
-## 2. Put something in
+## 2. Point it at a folder
+
+```bash
+itsanas folder ~/ITSaNAS
+```
+
+```text
+synced folder set to /home/nicolas/ITSaNAS
+the folder and the store already agree.
+```
+
+From here on, that directory is the product. Files you put in it are uploaded,
+files you delete from it are deleted on every machine, and changes from your
+other devices appear in it.
+
+If you point this at a directory that already has files in it, the first pass
+imports them and says how many — nothing is deleted, and nothing is overwritten.
+
+## 2b. Or drive it by hand
 
 ```bash
 itsanas put notes/hello.txt ./hello.txt
@@ -211,9 +229,36 @@ ExecStart=/usr/local/bin/itsanas --home /var/lib/itsanas daemon
 Restart=always
 ```
 
-**Not yet the folder-that-just-syncs experience.** The daemon does not watch the
-filesystem; files enter through `itsanas put`. And while it runs, other commands
-against the same home still refuse to start — stop it first.
+The daemon watches the folder, so a saved file starts syncing in under a second
+rather than waiting for the interval. The watcher is never trusted alone — every
+platform's drops events under load and none report changes made while the
+process was stopped — so a full rescan runs on the interval regardless, and an
+hourly deep rescan re-hashes everything.
+
+**One process at a time still applies.** While the daemon runs, other commands
+against the same home refuse to start. Stop it first.
+
+## What a working setup looks like
+
+Two machines, each with a folder, one pointed at the other:
+
+```bash
+# on the laptop
+itsanas folder ~/ITSaNAS
+itsanas pledge 10G
+itsanas daemon --listen 0.0.0.0:9797 --allow-public   # over a VPN
+
+# on the Pi
+itsanas folder /srv/itsanas
+itsanas pledge 500G
+itsanas peer add laptop.lan:9797
+itsanas daemon
+```
+
+Then drop a file in `~/ITSaNAS` on the laptop and watch it appear in
+`/srv/itsanas` on the Pi. Delete it, and it goes from both. Only one side needs
+the other configured as a peer — a node that only accepts connections still
+applies whatever was pushed to it.
 
 ## Three machines
 

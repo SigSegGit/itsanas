@@ -181,3 +181,61 @@ pub fn round(store: &Store, vault: &Vault, client: &mut PeerClient) -> Result<Ro
         pull: pull(store, vault, client)?,
     })
 }
+
+/// Apply this user's own segments that peers have pushed into the vault.
+///
+/// A push puts segments and chunks into the *receiving* node's vault, where
+/// they sit ready to be relayed. Nothing else picks them up: only [`pull`]
+/// applies segments to the local store, and a node that never dials anybody
+/// never pulls. Without this, a node that only ever accepts connections stays
+/// permanently ignorant of the very data it is holding.
+///
+/// That is not a corner case. Any device behind NAT can push and cannot be
+/// dialled, so for its peers this is the *only* way its work arrives.
+///
+/// Chunks come from the vault, not the network: a peer that pushed a segment
+/// pushed the chunks with it, so nothing here needs anyone to be online.
+pub fn drain_vault(store: &Store, vault: &Vault) -> Result<SyncReport> {
+    let owner = store.owner();
+    let mine = store.device_id();
+
+    let mut segments = Vec::new();
+    for (device, _, _) in vault.heads_for(owner)? {
+        if device == mine {
+            continue;
+        }
+        segments.extend(vault.segments_for(
+            owner,
+            device,
+            None,
+            usize::from(MAX_SEGMENTS_PER_REQUEST),
+        )?);
+    }
+
+    if segments.is_empty() {
+        return Ok(SyncReport::default());
+    }
+
+    let source = VaultChunks { vault, owner };
+    let (report, _) = apply_segments(store, &segments, &source)
+        .map_err(|error| NetError::Refused(error.to_string()))?;
+
+    Ok(report)
+}
+
+/// Serves chunks out of the local vault.
+struct VaultChunks<'a> {
+    vault: &'a Vault,
+    owner: UserId,
+}
+
+impl ChunkSource for VaultChunks<'_> {
+    fn fetch(&self, owner: UserId, address: &ChunkId) -> itsanas_sync::Result<Option<Vec<u8>>> {
+        if owner != self.owner {
+            return Ok(None);
+        }
+        self.vault
+            .get_chunk(owner, address)
+            .map_err(|error| itsanas_sync::SyncError::Source(error.to_string()))
+    }
+}

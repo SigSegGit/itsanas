@@ -32,6 +32,6 @@ pub mod wire;
 pub use error::{NetError, Result};
 pub use protocol::{Head, PROTOCOL_VERSION, Request, Response, challenge_holds, challenge_proof};
 pub use service::{PeerService, Pledge};
-pub use session::{PushReport, RoundReport, pull, push, round};
+pub use session::{PushReport, RoundReport, drain_vault, pull, push, round};
 pub use transport::{Exposure, IO_TIMEOUT, PeerClient, PeerServer};
 pub use wire::{FrameReader, MAX_FRAME_LEN, WIRE_VERSION};

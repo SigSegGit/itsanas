@@ -22,6 +22,9 @@ pub enum CliError {
     #[error("network: {0}")]
     Net(#[from] itsanas_net::NetError),
 
+    #[error("synced folder: {0}")]
+    Folder(#[from] itsanas_folder::FolderError),
+
     #[error("encoding: {0}")]
     Encoding(#[from] postcard::Error),
 

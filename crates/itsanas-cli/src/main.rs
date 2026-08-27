@@ -95,6 +95,25 @@ enum Command {
     },
     /// Delete a file, leaving a tombstone so it does not come back.
     Rm { path: String },
+    /// Set, or show, the directory kept in step with this account.
+    ///
+    /// Once set, files put in it are uploaded, files deleted from it are
+    /// deleted everywhere, and changes from other devices appear in it.
+    Folder {
+        /// The directory. Omit to show the current setting.
+        path: Option<PathBuf>,
+    },
+    /// Reconcile the synced folder with the store, once.
+    ///
+    /// The daemon does this continuously; this is for running it by hand.
+    Scan {
+        /// Re-hash every file instead of trusting size and modification time.
+        ///
+        /// Catches a file rewritten within the same second at exactly the same
+        /// length, which the fast path cannot see.
+        #[arg(long)]
+        deep: bool,
+    },
     /// Say how much space this node offers to other people.
     Pledge {
         /// e.g. `500M`, `10G`, `1T`.
@@ -189,6 +208,8 @@ fn run() -> Result<()> {
         Command::Put { path, source } => put(&home, &path, &source),
         Command::Get { path, destination } => get(&home, &path, destination.as_deref()),
         Command::Rm { path } => remove(&home, &path),
+        Command::Folder { path } => folder(&home, path.as_deref()),
+        Command::Scan { deep } => scan(&home, deep),
         Command::Pledge { size } => pledge(&home, &size),
         Command::Serve {
             listen,
@@ -360,6 +381,10 @@ fn status(home: &Path) -> Result<()> {
     println!("  user id         {}", node.store.owner());
     println!("  device          {}", node.store.device_id());
     println!("  home            {}", node.home.display());
+    match &node.config.folder {
+        Some(folder) => println!("  synced folder   {}", folder.display()),
+        None => println!("  synced folder   none (`itsanas folder <path>`)"),
+    }
     println!();
     println!("your data");
     println!("  files           {}", store.files);
@@ -516,6 +541,80 @@ fn remove(home: &Path, path: &str) -> Result<()> {
         println!("deleted {path}");
     } else {
         println!("no such file: {path}");
+    }
+
+    Ok(())
+}
+
+fn folder(home: &Path, path: Option<&Path>) -> Result<()> {
+    let mut node = open(home)?;
+
+    let Some(path) = path else {
+        match &node.config.folder {
+            Some(folder) => println!("{}", folder.display()),
+            None => println!("(no folder configured — `itsanas folder <path>`)"),
+        }
+        return Ok(());
+    };
+
+    // Store it absolute. A relative path would mean something different
+    // depending on where the daemon happened to be started from, which is the
+    // sort of thing that quietly syncs the wrong directory.
+    let absolute = std::path::absolute(path).map_err(|error| CliError::Io {
+        path: path.to_owned(),
+        source: error,
+    })?;
+
+    let folder = itsanas_folder::Folder::open(&absolute)?;
+
+    node.config.folder = Some(absolute.clone());
+    node.save_config()?;
+
+    println!("synced folder set to {}", absolute.display());
+
+    // Show what the first pass would do rather than doing it silently. Pointing
+    // this at an existing directory full of files is a big action, and the user
+    // should see the size of it.
+    let report = folder.reconcile(&node.store, false)?;
+    if report.changed_anything() {
+        println!("first pass: {}", report.summary());
+    } else {
+        println!("the folder and the store already agree.");
+    }
+
+    Ok(())
+}
+
+fn scan(home: &Path, deep: bool) -> Result<()> {
+    let node = open(home)?;
+
+    let Some(path) = node.config.folder.clone() else {
+        return Err(CliError::Usage(
+            "no synced folder configured. Try `itsanas folder <path>`.".to_owned(),
+        ));
+    };
+
+    let folder = itsanas_folder::Folder::open(&path)?;
+    let report = folder.reconcile(&node.store, deep)?;
+
+    println!("{}", report.summary());
+    for path in &report.imported {
+        println!("  in   {path}");
+    }
+    for path in &report.exported {
+        println!("  out  {path}");
+    }
+    for path in &report.removed_from_store {
+        println!("  del  {path} (deleted here, will be deleted everywhere)");
+    }
+    for path in &report.deleted_from_disk {
+        println!("  rm   {path} (deleted elsewhere, removed from this folder)");
+    }
+    for (original, sibling) in &report.kept_both {
+        println!("  !!   {original} conflicted — your version kept as {sibling}");
+    }
+    for (path, why) in &report.failed {
+        eprintln!("  err  {path}: {why}");
     }
 
     Ok(())

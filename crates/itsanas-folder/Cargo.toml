@@ -1,0 +1,24 @@
+[package]
+name = "itsanas-folder"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Mirroring a real directory into an ITSaNAS store, in both directions"
+
+[dependencies]
+blake3 = "1.8.7"
+itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
+itsanas-sync = { version = "0.1.0", path = "../itsanas-sync", default-features = false }
+notify = { version = "8.2.0", default-features = false, features = ["macos_fsevent"] }
+thiserror = "2.0.20"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+itsanas-testkit = { version = "0.1.0", path = "../itsanas-testkit" }
+tempfile = "3.23.0"
