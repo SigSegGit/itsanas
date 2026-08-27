@@ -243,60 +243,130 @@ impl Folder {
             }
         }
 
-        let content =
-            std::fs::read(real).map_err(|error| FolderError::io(real.to_owned(), error))?;
-        Ok(Some(*blake3::hash(&content).as_bytes()))
+        // Streamed, not slurped: a deep scan over a folder of videos would
+        // otherwise read each one entirely into memory just to hash it.
+        let file =
+            std::fs::File::open(real).map_err(|error| FolderError::io(real.to_owned(), error))?;
+
+        let mut hasher = blake3::Hasher::new();
+        hasher
+            .update_reader(file)
+            .map_err(|error| FolderError::io(real.to_owned(), error))?;
+
+        Ok(Some(*hasher.finalize().as_bytes()))
     }
 
     fn import(store: &Store, path: &str, real: &Path) -> Result<()> {
-        let content =
-            std::fs::read(real).map_err(|error| FolderError::io(real.to_owned(), error))?;
-        let hash = *blake3::hash(&content).as_bytes();
+        let file =
+            std::fs::File::open(real).map_err(|error| FolderError::io(real.to_owned(), error))?;
 
-        store.write_file(path, &content)?;
-        Self::record(store, path, real, hash)
+        let entry = store.write_stream(path, std::io::BufReader::new(file))?;
+        Self::record(store, path, real, entry.content_hash)
     }
 
-    fn export(&self, store: &Store, path: &str, real: &Path) -> Result<()> {
-        let Some(content) = store.read_file(path)? else {
-            // Decided to export something the store cannot produce. The usual
-            // cause is a chunk that has not arrived yet, and the right response
-            // is to leave the ledger alone and try again next pass.
-            return Ok(());
-        };
-
-        self.write_atomically(real, &content)?;
-        Self::record(store, path, real, *blake3::hash(&content).as_bytes())
-    }
-
-    /// Write a file without ever exposing a half-written one.
+    /// Write a file out of the store, streamed and atomically.
     ///
-    /// A torn file in a synced folder is worse than a missing one: the next
-    /// scan would hash the partial content, import it as a genuine edit, and
-    /// replicate the truncation to every other machine.
-    fn write_atomically(&self, real: &Path, content: &[u8]) -> Result<()> {
+    /// Two properties, both load-bearing:
+    ///
+    /// * **Streamed.** One chunk at a time, so exporting a 6 GB video costs a
+    ///   quarter of a megabyte rather than 6 GB.
+    /// * **Atomic.** `read_stream` can only verify the whole-file hash once the
+    ///   last byte has gone past, so bytes reach the staging file *before* they
+    ///   are known to be correct. If verification fails the staging file is
+    ///   discarded and the destination is never touched. Writing straight to
+    ///   the destination would leave corrupt content in place, and the next
+    ///   scan would hash it, import it as a genuine edit, and replicate the
+    ///   corruption to every other machine.
+    fn export(&self, store: &Store, path: &str, real: &Path) -> Result<()> {
         if let Some(parent) = real.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|error| FolderError::io(parent.to_owned(), error))?;
         }
 
-        let staging = self.root.join(STAGING_DIR);
-        std::fs::create_dir_all(&staging)
-            .map_err(|error| FolderError::io(staging.clone(), error))?;
-
-        // Named after the content, so two passes writing the same file cannot
-        // collide and a leftover is self-describing.
-        let temporary = staging.join(format!(
-            "{}.part",
-            blake3::hash(content).to_hex().split_at(24).0
-        ));
-
-        std::fs::write(&temporary, content)
+        let temporary = self.staging_path()?;
+        let file = std::fs::File::create(&temporary)
             .map_err(|error| FolderError::io(temporary.clone(), error))?;
+
+        let produced = {
+            let mut writer = std::io::BufWriter::new(&file);
+            store.read_stream(path, &mut writer)
+        };
+
+        let produced = match produced {
+            Ok(produced) => produced,
+            Err(error) => {
+                // Corrupt or incomplete. The destination keeps whatever it had.
+                drop(file);
+                let _ = std::fs::remove_file(&temporary);
+                return Err(error.into());
+            }
+        };
+
+        if !produced {
+            // Decided to export something the store cannot produce. The usual
+            // cause is a chunk that has not arrived yet, and the right response
+            // is to leave the ledger alone and try again next pass.
+            drop(file);
+            let _ = std::fs::remove_file(&temporary);
+            return Ok(());
+        }
+
+        // Durable before it is visible: a crash after the rename must not
+        // expose a file whose bytes never reached the disk.
+        file.sync_all()
+            .map_err(|error| FolderError::io(temporary.clone(), error))?;
+        drop(file);
 
         std::fs::rename(&temporary, real).map_err(|error| {
             let _ = std::fs::remove_file(&temporary);
             FolderError::io(real.to_owned(), error)
+        })?;
+
+        let entry = store
+            .stat(path)?
+            .ok_or_else(|| FolderError::io(real.to_owned(), std::io::Error::other("vanished")))?;
+
+        Self::record(store, path, real, entry.content_hash)
+    }
+
+    /// A unique name in the staging directory.
+    ///
+    /// Process id and a counter rather than the content hash, because with
+    /// streaming the hash is not known until the bytes have already been
+    /// written. Two processes against one folder would be a mistake anyway —
+    /// the index lock prevents it — but the process id costs nothing and makes
+    /// a leftover traceable.
+    fn staging_path(&self) -> Result<PathBuf> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+        let staging = self.root.join(STAGING_DIR);
+        std::fs::create_dir_all(&staging)
+            .map_err(|error| FolderError::io(staging.clone(), error))?;
+
+        Ok(staging.join(format!(
+            "{}-{}.part",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        )))
+    }
+
+    /// Copy a file within the folder without materialising it.
+    fn copy_aside(&self, from: &Path, to: &Path) -> Result<()> {
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| FolderError::io(parent.to_owned(), error))?;
+        }
+
+        let temporary = self.staging_path()?;
+        std::fs::copy(from, &temporary).map_err(|error| {
+            let _ = std::fs::remove_file(&temporary);
+            FolderError::io(from.to_owned(), error)
+        })?;
+
+        std::fs::rename(&temporary, to).map_err(|error| {
+            let _ = std::fs::remove_file(&temporary);
+            FolderError::io(to.to_owned(), error)
         })?;
 
         Ok(())
@@ -360,12 +430,11 @@ impl Folder {
         let sibling = itsanas_sync_naming::with_marker(path, &marker);
         let sibling_real = scan::to_filesystem(&self.root, &sibling)?;
 
-        let content =
-            std::fs::read(real).map_err(|error| FolderError::io(real.to_owned(), error))?;
-
-        self.write_atomically(&sibling_real, &content)?;
-        store.write_file(&sibling, &content)?;
-        Self::record(store, &sibling, &sibling_real, hash)?;
+        // Copy on disk first, then import from the copy. Both steps stream, so
+        // a conflict on a large file does not need the file in memory — and
+        // the original stays untouched until the copy has landed.
+        self.copy_aside(real, &sibling_real)?;
+        Self::import(store, &sibling, &sibling_real)?;
 
         // Now the incoming version takes the original path.
         self.export(store, path, real)?;

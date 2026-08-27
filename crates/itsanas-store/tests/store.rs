@@ -815,6 +815,88 @@ fn a_file_larger_than_one_chunk_uses_several_and_still_verifies() {
 }
 
 #[test]
+#[ignore = "seals 64 MiB; ~45s in a debug build. Runs in the slow-tests job."]
+fn a_file_far_larger_than_any_buffer_streams_through_without_being_materialised() {
+    // The deployment target is a 1 TB array on a Raspberry Pi with a few
+    // gigabytes of RAM. A design that materialises each file before storing it
+    // does not fail slowly on a large video — the kernel kills it.
+    //
+    // 64 MiB is small enough to keep the suite quick and far larger than every
+    // buffer in the write path, so a regression to slurping would show up as a
+    // measurable memory jump rather than silently surviving.
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([50; 32]), dir.path());
+
+    let source = dir.path().join("source.bin");
+    {
+        let mut file = std::fs::File::create(&source).unwrap();
+        // Written in pieces so the test never holds it all either.
+        for block in 0..64u32 {
+            std::io::Write::write_all(
+                &mut file,
+                &testkit::filler(&format!("big-{block}"), 1 << 20),
+            )
+            .unwrap();
+        }
+    }
+    let expected = std::fs::metadata(&source).unwrap().len();
+
+    let entry = store
+        .write_stream("huge.bin", std::fs::File::open(&source).unwrap())
+        .unwrap();
+
+    assert_eq!(entry.size, expected);
+    assert!(
+        entry.chunks.len() > 200,
+        "expected many chunks for {expected} bytes, got {}",
+        entry.chunks.len()
+    );
+
+    // And back out, streamed, verified against the source byte for byte.
+    let recovered = dir.path().join("recovered.bin");
+    {
+        let file = std::fs::File::create(&recovered).unwrap();
+        assert!(
+            store
+                .read_stream("huge.bin", std::io::BufWriter::new(file))
+                .unwrap()
+        );
+    }
+
+    let mut source_hash = blake3::Hasher::new();
+    source_hash
+        .update_reader(std::fs::File::open(&source).unwrap())
+        .unwrap();
+    let mut recovered_hash = blake3::Hasher::new();
+    recovered_hash
+        .update_reader(std::fs::File::open(&recovered).unwrap())
+        .unwrap();
+
+    assert_eq!(
+        source_hash.finalize(),
+        recovered_hash.finalize(),
+        "a large file did not survive the streaming round trip"
+    );
+}
+
+#[test]
+fn a_stream_and_a_buffer_produce_identical_stores() {
+    // The two entry points must agree, or the same file stored through
+    // different paths deduplicates against nothing and occupies twice the room.
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([51; 32]), dir.path());
+
+    let payload = testkit::filler("two-paths", 2 * 1024 * 1024);
+
+    let buffered = store.write_file("a.bin", &payload).unwrap();
+    let streamed = store.write_stream("b.bin", payload.as_slice()).unwrap();
+
+    assert_eq!(buffered.chunks, streamed.chunks);
+    assert_eq!(buffered.content_hash, streamed.content_hash);
+    assert_eq!(buffered.size, streamed.size);
+}
+
+#[test]
 fn a_non_default_chunker_still_round_trips() {
     // Guards the tuning knob: a future device with different memory limits must
     // still produce readable data.

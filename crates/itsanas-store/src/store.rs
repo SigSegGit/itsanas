@@ -195,12 +195,19 @@ impl Store {
 
     // ----------------------------------------------------------------- write
 
-    /// Chunk, seal and store `plaintext` under the logical path `path`.
+    /// Chunk, seal and store everything `reader` produces, under `path`.
+    ///
+    /// **This is the real write path.** Memory use is bounded by the chunker's
+    /// window — about half a megabyte at the default settings — regardless of
+    /// how large the file is. That matters more than it sounds: the deployment
+    /// target is a 1 TB array on a Raspberry Pi with a few gigabytes of RAM, and
+    /// a design that materialises each file before storing it does not fail
+    /// slowly on a 6 GB video, it gets killed by the kernel.
     ///
     /// Returns the resulting entry. The write is recorded in the operation log
     /// as a pending entry; call [`Self::flush_segment`] to seal it into a
     /// segment that peers can replicate.
-    pub fn write_file(&self, path: &str, plaintext: &[u8]) -> Result<FileEntry> {
+    pub fn write_stream<R: std::io::Read>(&self, path: &str, reader: R) -> Result<FileEntry> {
         logical_path::validate(path)?;
 
         let _guard = self.write_lock.lock().map_err(|_| {
@@ -208,13 +215,22 @@ impl Store {
         })?;
 
         let mut chunks = Vec::new();
-        for chunk in self.chunker.split(plaintext) {
+        let mut hasher = blake3::Hasher::new();
+        let mut size: u64 = 0;
+
+        crate::chunker::split_stream(&self.chunker, reader, |chunk| {
+            // Hash as we go rather than over a reassembled copy, so the
+            // whole-file digest costs no extra memory and no second pass.
+            hasher.update(chunk);
+            size += chunk.len() as u64;
+
             // `seal_chunk` derives the address from the content itself, so the
             // fixed-nonce construction's precondition cannot be violated here.
-            let (address, sealed) = self.user.seal_chunk(chunk.data)?;
+            let (address, sealed) = self.user.seal_chunk(chunk)?;
             self.blobs.put(&address, &sealed)?;
             chunks.push(address);
-        }
+            Ok(())
+        })?;
 
         // Build on whatever this path's history already is: the live entry if
         // there is one, otherwise the tombstone left by a delete, otherwise
@@ -224,9 +240,9 @@ impl Store {
         let base = self.base_version(path)?;
 
         let entry = FileEntry {
-            size: plaintext.len() as u64,
+            size,
             modified_unix: now_unix(),
-            content_hash: *blake3::hash(plaintext).as_bytes(),
+            content_hash: *hasher.finalize().as_bytes(),
             chunks,
             version: base.advanced(self.device.device_id(), sequence),
             author: self.device.device_id(),
@@ -247,6 +263,16 @@ impl Store {
         })?;
 
         Ok(entry)
+    }
+
+    /// Store a whole buffer under `path`.
+    ///
+    /// Convenience over [`Self::write_stream`] for content that is already in
+    /// memory and small enough to belong there — a note, a config file, a test
+    /// fixture. Anything read from a file should use `write_stream` and let the
+    /// bytes flow past rather than pile up.
+    pub fn write_file(&self, path: &str, plaintext: &[u8]) -> Result<FileEntry> {
+        self.write_stream(path, plaintext)
     }
 
     /// Delete a file, leaving a tombstone behind and in the log.
@@ -354,21 +380,35 @@ impl Store {
 
     // ------------------------------------------------------------------ read
 
-    /// Read a file back, verifying it end to end.
+    /// Write a file's content to `writer`, verifying it end to end.
     ///
-    /// Each chunk is authenticated by its AEAD tag, and the reassembled whole is
-    /// then checked against the hash recorded at write time. The second check is
-    /// not redundant: per-chunk tags prove each chunk is intact and correctly
+    /// Returns `false` if the path is unknown. Memory use is one chunk at a
+    /// time, so a 6 GB file costs a quarter of a megabyte rather than 6 GB.
+    ///
+    /// Each chunk is authenticated by its AEAD tag, and the whole is then
+    /// checked against the hash recorded at write time. The second check is not
+    /// redundant: per-chunk tags prove each chunk is intact and correctly
     /// addressed, but only the whole-file hash proves the *list* was not
     /// reordered or truncated.
-    pub fn read_file(&self, path: &str) -> Result<Option<Vec<u8>>> {
+    ///
+    /// # The caller must not publish the output until this returns `Ok`
+    ///
+    /// Verification necessarily happens at the end — there is nothing to hash
+    /// until the last byte has gone past. So bytes reach `writer` *before* they
+    /// are known to be correct. Write to a temporary file and rename on success,
+    /// which is what [`itsanas_folder`](https://docs.rs/itsanas-folder) does.
+    /// Writing straight to the destination would leave corrupt content in place
+    /// on failure, and the next scan would hash it and replicate the corruption.
+    pub fn read_stream<W: std::io::Write>(&self, path: &str, mut writer: W) -> Result<bool> {
         logical_path::validate(path)?;
 
         let Some(entry) = self.index.get_file(path)? else {
-            return Ok(None);
+            return Ok(false);
         };
 
-        let mut plaintext = Vec::with_capacity(usize::try_from(entry.size).unwrap_or(0));
+        let mut hasher = blake3::Hasher::new();
+        let mut written: u64 = 0;
+
         for address in &entry.chunks {
             let sealed = self
                 .blobs
@@ -376,23 +416,38 @@ impl Store {
                 .ok_or_else(|| StoreError::MissingChunk(address.short()))?;
 
             let chunk = self.user.open_chunk(address, &sealed)?;
-            plaintext.extend_from_slice(&chunk);
+            hasher.update(&chunk);
+            written += chunk.len() as u64;
+            writer.write_all(&chunk)?;
         }
 
-        if plaintext.len() as u64 != entry.size {
+        if written != entry.size {
             return Err(StoreError::Corrupt(format!(
-                "{path}: reassembled {} bytes but the index recorded {}",
-                plaintext.len(),
+                "{path}: reassembled {written} bytes but the index recorded {}",
                 entry.size
             )));
         }
-        if blake3::hash(&plaintext).as_bytes() != &entry.content_hash {
+        if hasher.finalize().as_bytes() != &entry.content_hash {
             return Err(StoreError::Corrupt(format!(
                 "{path}: reassembled content does not match its recorded hash"
             )));
         }
 
-        Ok(Some(plaintext))
+        writer.flush()?;
+        Ok(true)
+    }
+
+    /// Read a whole file into memory.
+    ///
+    /// Convenience over [`Self::read_stream`] for content small enough to
+    /// belong in memory. Anything destined for a file should use `read_stream`.
+    pub fn read_file(&self, path: &str) -> Result<Option<Vec<u8>>> {
+        let mut out = Vec::new();
+        if self.read_stream(path, &mut out)? {
+            Ok(Some(out))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Look up a file's metadata without reading its content.
@@ -551,9 +606,12 @@ impl Store {
             }
 
             if deep && !report.missing_chunks.iter().any(|(p, _)| p == &path) {
-                match self.read_file(&path) {
-                    Ok(Some(_)) => {}
-                    Ok(None) | Err(_) => report.corrupt_files.push(path.clone()),
+                // Into a sink: the point is to verify, not to keep. Reading
+                // into a buffer would make `doctor --deep` need as much memory
+                // as the largest file in the store.
+                match self.read_stream(&path, std::io::sink()) {
+                    Ok(true) => {}
+                    Ok(false) | Err(_) => report.corrupt_files.push(path.clone()),
                 }
             }
         }

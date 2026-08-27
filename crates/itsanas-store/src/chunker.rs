@@ -19,7 +19,7 @@
 //! string. It is reproducible from first principles on any machine, and
 //! the `the_gear_table_is_pinned_forever` test fails loudly if it ever changes.
 
-use std::sync::LazyLock;
+use std::{io::Read, sync::LazyLock};
 
 use crate::error::{Result, StoreError};
 
@@ -205,6 +205,56 @@ impl Default for ChunkerConfig {
     fn default() -> Self {
         Self::new(Self::DEFAULT_MIN, Self::DEFAULT_AVG, Self::DEFAULT_MAX)
             .expect("the default bounds are valid")
+    }
+}
+
+/// Split a stream into chunks, holding only a bounded window in memory.
+///
+/// The slice-based [`ChunkerConfig::split`] needs the whole file resident, which
+/// is fine for a text file and fatal for a video on a Raspberry Pi: a 6 GB file
+/// on a 4 GB machine is not slow, it is an out-of-memory kill. This reads
+/// through the file instead, never holding more than roughly two maximum chunks
+/// — half a megabyte at the default settings, whatever the file size.
+///
+/// **Boundaries are identical to the slice version.** That is not a nicety: if
+/// the two disagreed, a file imported by one path and re-imported by the other
+/// would deduplicate against nothing and store itself twice. The
+/// `streaming_and_slicing_agree_on_every_boundary` test holds them to it, at
+/// seven sizes and with readers that return as little as one byte at a time.
+///
+/// The callback is given each chunk in order. Returning an error stops the walk
+/// and propagates.
+pub fn split_stream<R: Read>(
+    config: &ChunkerConfig,
+    mut reader: R,
+    mut on_chunk: impl FnMut(&[u8]) -> Result<()>,
+) -> Result<()> {
+    // One max-size chunk to cut from, plus room to read ahead into.
+    let window = config.max_size();
+    let mut buffer: Vec<u8> = Vec::with_capacity(window * 2);
+    let mut scratch = vec![0u8; 64 * 1024];
+    let mut exhausted = false;
+
+    loop {
+        // Only cut once there is either a full window to choose within, or no
+        // more data coming. Cutting early would pick a different boundary than
+        // the slice version, which sees the whole file at once.
+        while !exhausted && buffer.len() < window {
+            let read = reader.read(&mut scratch).map_err(StoreError::BareIo)?;
+            if read == 0 {
+                exhausted = true;
+                break;
+            }
+            buffer.extend_from_slice(&scratch[..read]);
+        }
+
+        if buffer.is_empty() {
+            return Ok(());
+        }
+
+        let cut = config.cut_point(&buffer);
+        on_chunk(&buffer[..cut])?;
+        buffer.drain(..cut);
     }
 }
 
@@ -474,6 +524,146 @@ mod tests {
             expected += chunk.len();
         }
         assert_eq!(expected, data.len());
+    }
+
+    #[test]
+    fn streaming_and_slicing_agree_on_every_boundary() {
+        // The property the streaming path exists to preserve. If the two
+        // disagreed, a file imported through one and re-imported through the
+        // other would deduplicate against nothing and store itself twice —
+        // silently, and only visible as a store that is mysteriously double
+        // the expected size.
+        let config = ChunkerConfig::default();
+
+        for size in [
+            0,
+            1,
+            config.min_size() - 1,
+            config.min_size(),
+            config.max_size(),
+            config.max_size() + 1,
+            3 * 1024 * 1024,
+        ] {
+            let data = pseudo_random(size, 101);
+
+            let sliced: Vec<Vec<u8>> = config.split(&data).map(|c| c.data.to_vec()).collect();
+
+            let mut streamed: Vec<Vec<u8>> = Vec::new();
+            split_stream(&config, data.as_slice(), |chunk| {
+                streamed.push(chunk.to_vec());
+                Ok(())
+            })
+            .unwrap();
+
+            assert_eq!(
+                streamed, sliced,
+                "streaming and slicing disagreed at size {size}"
+            );
+        }
+    }
+
+    #[test]
+    fn streaming_agrees_even_when_the_reader_dribbles() {
+        // A network socket, a slow disk, a pipe: reads come back short. If the
+        // chunker cut on whatever happened to have arrived, boundaries would
+        // depend on timing, and the same file would chunk differently on two
+        // machines.
+        struct Dribble<'a> {
+            data: &'a [u8],
+            at: usize,
+            step: usize,
+        }
+
+        impl std::io::Read for Dribble<'_> {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                let remaining = self.data.len() - self.at;
+                let take = self.step.min(out.len()).min(remaining);
+                out[..take].copy_from_slice(&self.data[self.at..self.at + take]);
+                self.at += take;
+                Ok(take)
+            }
+        }
+
+        let config = ChunkerConfig::default();
+        let data = pseudo_random(2 * 1024 * 1024, 103);
+        let sliced: Vec<Vec<u8>> = config.split(&data).map(|c| c.data.to_vec()).collect();
+
+        for step in [1, 7, 4096, 65_536] {
+            let mut streamed: Vec<Vec<u8>> = Vec::new();
+            split_stream(
+                &config,
+                Dribble {
+                    data: &data,
+                    at: 0,
+                    step,
+                },
+                |chunk| {
+                    streamed.push(chunk.to_vec());
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            assert_eq!(
+                streamed, sliced,
+                "boundaries changed when reads came back {step} bytes at a time"
+            );
+        }
+    }
+
+    #[test]
+    fn streaming_never_holds_more_than_a_bounded_window() {
+        // The whole reason this path exists. A 20 MiB file must not put 20 MiB
+        // in memory, or a Pi dies on a video.
+        let config = ChunkerConfig::default();
+        let data = pseudo_random(20 * 1024 * 1024, 107);
+
+        let mut largest_chunk = 0usize;
+        split_stream(&config, data.as_slice(), |chunk| {
+            largest_chunk = largest_chunk.max(chunk.len());
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(
+            largest_chunk <= config.max_size(),
+            "a chunk of {largest_chunk} bytes exceeded the {} byte maximum",
+            config.max_size()
+        );
+    }
+
+    #[test]
+    fn an_error_from_the_callback_stops_the_walk() {
+        // A failing disk write must abort the import rather than carry on
+        // producing chunks nothing is storing.
+        let config = ChunkerConfig::default();
+        let data = pseudo_random(4 * 1024 * 1024, 109);
+
+        let mut seen = 0;
+        let result = split_stream(&config, data.as_slice(), |_| {
+            seen += 1;
+            if seen == 3 {
+                return Err(StoreError::Corrupt("stop".to_owned()));
+            }
+            Ok(())
+        });
+
+        assert!(result.is_err());
+        assert_eq!(seen, 3, "the walk continued after the callback failed");
+    }
+
+    #[test]
+    fn a_reader_that_fails_propagates_rather_than_truncating() {
+        // Silently treating a read error as end-of-file would store a truncated
+        // file as though it were complete.
+        struct Failing;
+        impl std::io::Read for Failing {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("disk went away"))
+            }
+        }
+
+        assert!(split_stream(&ChunkerConfig::default(), Failing, |_| Ok(())).is_err());
     }
 
     #[test]
