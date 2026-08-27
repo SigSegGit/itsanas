@@ -9,10 +9,10 @@ a bug.
 | Milestone | Crate | Status | Tests |
 | --- | --- | --- | --- |
 | M0 Repository, CI, licence | — | ✅ **done** | CI runs 7 jobs |
-| M1 Cryptographic core | `itsanas-crypto` | ✅ **done** | 56 unit + 15 property |
+| M1 Cryptographic core | `itsanas-crypto` | ✅ **done** | 64 unit + 15 property |
 | M1b Published test fixtures | `itsanas-testkit` | ✅ **done** | 7 |
-| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 59 unit + 21 integration + 1 doc |
-| M3 Sync engine | `itsanas-sync` | ⬜ not started | — |
+| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 73 unit + 27 integration + 1 doc |
+| M3 Sync engine | `itsanas-sync` | 🟨 **mostly done** | 12 unit + 19 convergence + 1 doc |
 | M4 Network transport | `itsanas-net` | ⬜ not started | — |
 | M5 Placement and repair | `itsanas-placement` | ⬜ not started | — |
 | M6 Coordinator | `itsanas-coord` | ⬜ not started | — |
@@ -20,8 +20,11 @@ a bug.
 | M8 Three-device bring-up | — | ⬜ not started | — |
 
 **Nothing in this repository should hold data you care about yet.** The
-cryptographic guarantees are implemented and tested; everything that would
-actually move a file between two machines is still to be written.
+cryptographic guarantees, the local store and the merge rules are implemented
+and tested, and three simulated devices converge correctly through every
+adversarial scenario the suite throws at them. But no byte has ever crossed a
+real network: there is no transport, no placement, no coordinator and no daemon.
+Until M4 exists, "sync" means "sync between processes on one machine".
 
 ---
 
@@ -106,19 +109,50 @@ The limitation is documented at the top of `oplog.rs` rather than papered over.
 
 ---
 
+### M3 — Sync engine 🟨 (`itsanas-sync`)
+
+Implemented:
+
+- **Version vectors** with happens-before comparison and concurrency detection.
+  Ordering never consults a clock: the machines disagree about the time, and the
+  cost of getting the order wrong is silently discarding someone's work.
+- **Log merge and replay** across devices, driven by a decision table covering
+  every combination of local state and incoming claim.
+- **Conflict materialisation** as sibling files. Both versions always survive.
+  The winner of the original path is chosen by a deterministic total order on
+  `(device, sequence)`, because a rule two devices could disagree about would
+  make them overwrite each other forever instead of converging.
+- **Tombstones**, so a device that was asleep during a delete does not resurrect
+  the file when it returns.
+- **Delete/edit races** resolved asymmetrically: a delete that demonstrably saw
+  the edit is honoured, a delete merely concurrent with one loses. An unexpected
+  resurrection costs a second to undo; a lost edit is unrecoverable.
+- **Deferred operations**, for when a segment arrives before the chunks it names.
+  Local state is left untouched and the operation is retried, rather than
+  materialising a file whose content cannot be read.
+- **A deterministic multi-device simulation** (`sim`) with injectable partitions
+  and power cycles. Real stores, real chunking, real sealing, real signatures;
+  only the network is simulated, by a `Cloud` that stands in for blind hosts.
+
+**Exit criteria — met.** 19 convergence scenarios, including
+`a_device_that_never_comes_back_still_gets_its_work_to_everyone_else`,
+`the_final_state_does_not_depend_on_the_order_devices_sync_in`, and
+`a_long_run_of_alternating_partitions_still_converges`. Nothing uses randomness
+or wall-clock time, so a failure reproduces exactly.
+
+One bug the tests caught while being written: a resolved conflict was re-resolved
+on every subsequent sync round, so a settle loop that stops when nothing changes
+would never have stopped.
+
+**Still outstanding for M3:**
+
+- File watching (`notify`) with debounce and a periodic full rescan. Deferred to
+  M7, where the daemon that would own the watcher actually exists — until then
+  there is no long-running process for it to run inside.
+
+---
+
 ## Not started
-
-### M3 — Sync engine (`itsanas-sync`)
-
-- Version vectors, happens-before comparison, concurrency detection.
-- Log merge and replay; conflict materialisation as sibling files.
-- Tombstones and delete/edit race handling.
-- File watching (`notify`) with debounce, plus a periodic full rescan, because
-  filesystem watchers drop events under load.
-
-**Exit criteria:** a deterministic simulation of three devices with injectable
-partitions and power cycles converges to an identical file tree in every
-scenario, including the one where the writing device never comes back online.
 
 ### M4 — Network transport (`itsanas-net`)
 

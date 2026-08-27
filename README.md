@@ -70,7 +70,7 @@ nothing is lost.
 | `itsanas-crypto` | Identity, key schedule, sealing, blinded addressing, keystore | **implemented** |
 | `itsanas-testkit` | The three published test users, their generated corpus and canaries | **implemented** |
 | `itsanas-store` | Content-defined chunking, blob store, operation log, local index | **implemented** |
-| `itsanas-sync` | Version vectors, log merge, conflict materialisation, file watching | planned |
+| `itsanas-sync` | Version vectors, log merge, conflict materialisation, convergence simulation | **implemented** |
 | `itsanas-net` | QUIC transport, peer protocol, proof-of-storage challenges | planned |
 | `itsanas-placement` | Rendezvous hashing, replication targets, repair, quota accounting | planned |
 | `itsanas-coord` | Optional control-plane service: directory, presence, relay | planned |

@@ -15,18 +15,22 @@
 
 use std::{
     path::{Path, PathBuf},
+    sync::Mutex,
     time::Duration,
 };
 
-use itsanas_crypto::{ChunkId, DeviceKeys, UserId, UserKeys, is_published_test_identity};
+use itsanas_crypto::{ChunkId, DeviceId, DeviceKeys, UserId, UserKeys, is_published_test_identity};
 
 use crate::{
     blob::BlobStore,
     chunker::ChunkerConfig,
     error::{Result, StoreError},
     index::{Index, now_unix},
-    oplog::{FileEntry, LogEntry, Operation, SegmentEnvelope, validate_chain},
+    oplog::{
+        FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
+    },
     path as logical_path,
+    version::VersionVector,
 };
 
 /// Seal purpose for file chunks.
@@ -45,6 +49,13 @@ pub struct Store {
     chunker: ChunkerConfig,
     user: UserKeys,
     device: DeviceKeys,
+    /// Serialises the read-modify-write cycle that produces a new version.
+    ///
+    /// Every mutating method takes `&self`, so two threads could otherwise read
+    /// the same base version, both stamp a successor, and produce a lost
+    /// update that looks causally valid — the worst kind, because nothing
+    /// downstream would flag it as a conflict.
+    write_lock: Mutex<()>,
 }
 
 /// What one garbage-collection pass did.
@@ -160,6 +171,7 @@ impl Store {
             chunker,
             user,
             device,
+            write_lock: Mutex::new(()),
         })
     }
 
@@ -188,6 +200,10 @@ impl Store {
     pub fn write_file(&self, path: &str, plaintext: &[u8]) -> Result<FileEntry> {
         logical_path::validate(path)?;
 
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
+
         let mut chunks = Vec::new();
         for chunk in self.chunker.split(plaintext) {
             // `seal_chunk` derives the address from the content itself, so the
@@ -197,11 +213,20 @@ impl Store {
             chunks.push(address);
         }
 
+        // Build on whatever this path's history already is: the live entry if
+        // there is one, otherwise the tombstone left by a delete, otherwise
+        // nothing. Skipping the tombstone would make re-creating a deleted file
+        // look concurrent with the delete rather than after it.
+        let sequence = self.index.next_sequence()?;
+        let base = self.base_version(path)?;
+
         let entry = FileEntry {
             size: plaintext.len() as u64,
             modified_unix: now_unix(),
             content_hash: *blake3::hash(plaintext).as_bytes(),
             chunks,
+            version: base.advanced(self.device.device_id(), sequence),
+            author: self.device.device_id(),
         };
 
         // Index first, log second. If the process dies between the two, the
@@ -210,7 +235,7 @@ impl Store {
         // file this device cannot serve.
         self.index.put_file(path, &entry)?;
         self.index.push_pending(&LogEntry {
-            sequence: self.index.next_sequence()?,
+            sequence,
             recorded_unix: entry.modified_unix,
             operation: Operation::Upsert {
                 path: path.to_owned(),
@@ -221,24 +246,87 @@ impl Store {
         Ok(entry)
     }
 
-    /// Delete a file, leaving a tombstone in the log.
+    /// Delete a file, leaving a tombstone behind and in the log.
     pub fn remove_file(&self, path: &str) -> Result<bool> {
         logical_path::validate(path)?;
+
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
 
         if self.index.get_file(path)?.is_none() {
             return Ok(false);
         }
 
-        self.index.remove_file(path)?;
+        let sequence = self.index.next_sequence()?;
+        let tombstone = Tombstone {
+            version: self
+                .base_version(path)?
+                .advanced(self.device.device_id(), sequence),
+            removed_unix: now_unix(),
+            author: self.device.device_id(),
+        };
+
+        self.index.remove_file(path, &tombstone)?;
         self.index.push_pending(&LogEntry {
-            sequence: self.index.next_sequence()?,
-            recorded_unix: now_unix(),
+            sequence,
+            recorded_unix: tombstone.removed_unix,
             operation: Operation::Remove {
                 path: path.to_owned(),
+                version: tombstone.version.clone(),
             },
         })?;
 
         Ok(true)
+    }
+
+    /// The version currently stamped on `path`, live or deleted.
+    fn base_version(&self, path: &str) -> Result<VersionVector> {
+        if let Some(entry) = self.index.get_file(path)? {
+            return Ok(entry.version);
+        }
+        if let Some(tombstone) = self.index.get_tombstone(path)? {
+            return Ok(tombstone.version);
+        }
+        Ok(VersionVector::new())
+    }
+
+    /// This device's identity, as it appears in version vectors.
+    #[must_use]
+    pub fn device_id(&self) -> DeviceId {
+        self.device.device_id()
+    }
+
+    /// The tombstone at `path`, if it was deleted.
+    pub fn tombstone(&self, path: &str) -> Result<Option<Tombstone>> {
+        logical_path::validate(path)?;
+        self.index.get_tombstone(path)
+    }
+
+    /// Every tombstone this store holds.
+    pub fn tombstones(&self) -> Result<Vec<(String, Tombstone)>> {
+        self.index.tombstones()
+    }
+
+    /// Install an entry that arrived from a peer, without logging it again.
+    ///
+    /// The peer's own segment already announces this operation; re-logging it
+    /// would attribute another device's write to this one and make the two
+    /// devices' histories disagree about who did what.
+    ///
+    /// Conflict resolution is the sync engine's job — by the time this is
+    /// called, the decision has been made.
+    pub fn adopt_entry(&self, path: &str, entry: &FileEntry) -> Result<()> {
+        logical_path::validate(path)?;
+        self.index.put_file(path, entry)?;
+        Ok(())
+    }
+
+    /// Install a tombstone that arrived from a peer, without logging it again.
+    pub fn adopt_tombstone(&self, path: &str, tombstone: &Tombstone) -> Result<()> {
+        logical_path::validate(path)?;
+        self.index.remove_file(path, tombstone)?;
+        Ok(())
     }
 
     // ------------------------------------------------------------------ read
@@ -290,6 +378,11 @@ impl Store {
         self.index.get_file(path)
     }
 
+    /// Every path and its entry, sorted by path.
+    pub fn entries(&self) -> Result<Vec<(String, FileEntry)>> {
+        self.index.files()
+    }
+
     /// Every path in the store, sorted.
     pub fn list(&self) -> Result<Vec<String>> {
         Ok(self
@@ -327,6 +420,39 @@ impl Store {
     /// This device's whole segment chain, oldest first.
     pub fn segments(&self) -> Result<Vec<SegmentEnvelope>> {
         self.index.segments()
+    }
+
+    /// Verify and open a segment belonging to this store's owner.
+    ///
+    /// Segments from a user's *other* devices open with the same key: the log
+    /// root is derived from the master secret, which every device of that user
+    /// holds. That is the whole reason a device can catch up on work done
+    /// elsewhere.
+    pub fn open_segment(&self, envelope: &SegmentEnvelope) -> Result<SegmentBody> {
+        if envelope.owner != self.owner() {
+            return Err(StoreError::Corrupt(format!(
+                "segment {} belongs to {}, not to this store's owner {}",
+                envelope.segment_id.short(),
+                envelope.owner.short(),
+                self.owner().short()
+            )));
+        }
+        envelope.open(self.user.oplog_root())
+    }
+
+    /// Store a sealed chunk fetched from a peer.
+    ///
+    /// The bytes are authenticated when they are next opened, not here — a
+    /// chunk that fails to open is caught by [`Self::read_file`], which is the
+    /// only place it could do harm.
+    pub fn put_sealed_chunk(&self, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
+        self.blobs.put(address, sealed)
+    }
+
+    /// Whether this store already holds the sealed bytes for `address`.
+    #[must_use]
+    pub fn has_chunk(&self, address: &ChunkId) -> bool {
+        self.blobs.contains(address)
     }
 
     /// Segments from `position` onwards, for a peer catching up.

@@ -35,7 +35,10 @@ use itsanas_crypto::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Result, StoreError};
+use crate::{
+    error::{Result, StoreError},
+    version::VersionVector,
+};
 
 /// Signature domain for segment envelopes.
 pub const SEGMENT_SIGNING_DOMAIN: &str = "itsanas v1 oplog segment envelope";
@@ -56,6 +59,47 @@ pub struct FileEntry {
     /// Chunk addresses in order. Concatenating their plaintexts reproduces the
     /// file exactly.
     pub chunks: Vec<ChunkId>,
+    /// What the writing device knew when it produced this version.
+    ///
+    /// This, and never a timestamp, is what decides whether one version
+    /// supersedes another or the two conflict.
+    pub version: VersionVector,
+    /// Which device wrote this version.
+    ///
+    /// Needed for conflict resolution, and not recoverable from the version
+    /// vector alone: an entry adopted from a peer carries that peer's vector,
+    /// so "whose entry is this" is genuinely separate information from "what
+    /// did its author know". Without it, a device breaking a tie would compare
+    /// the incoming version against *its own* identity rather than against the
+    /// identity of whoever actually wrote the copy it holds — and two devices
+    /// would reach different verdicts and never converge.
+    pub author: DeviceId,
+}
+
+impl FileEntry {
+    /// The `(device, sequence)` pair identifying this version for tie-breaking.
+    #[must_use]
+    pub fn authorship(&self) -> (DeviceId, u64) {
+        (self.author, self.version.get(&self.author))
+    }
+}
+
+/// The record left behind by a delete.
+///
+/// Deletes cannot simply drop the index entry. A device that was offline when
+/// the file was deleted still holds it, and on reconnecting would re-announce
+/// it as a perfectly valid write — resurrecting a file the user deliberately
+/// removed. The tombstone is what lets the returning device be told "no, this
+/// was deleted, and here is the version that deleted it".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tombstone {
+    /// What the deleting device knew.
+    pub version: VersionVector,
+    /// When the delete was recorded. Advisory; used only to decide when a
+    /// tombstone is old enough to forget.
+    pub removed_unix: u64,
+    /// Which device recorded the delete.
+    pub author: DeviceId,
 }
 
 /// A single change to the file tree.
@@ -66,7 +110,24 @@ pub enum Operation {
     /// Delete a file. Kept as a tombstone rather than dropped, so a device that
     /// was offline during the delete does not resurrect the file when it
     /// returns.
-    Remove { path: String },
+    Remove {
+        path: String,
+        /// What the deleting device knew. A delete only wins against a version
+        /// it demonstrably saw; a delete concurrent with an edit loses, because
+        /// resurrecting a file is recoverable and losing an edit is not.
+        version: VersionVector,
+    },
+}
+
+impl Operation {
+    /// The version vector this operation stamps onto its path.
+    #[must_use]
+    pub fn version(&self) -> &VersionVector {
+        match self {
+            Self::Upsert { entry, .. } => &entry.version,
+            Self::Remove { version, .. } => version,
+        }
+    }
 }
 
 impl Operation {
@@ -74,7 +135,7 @@ impl Operation {
     #[must_use]
     pub fn path(&self) -> &str {
         match self {
-            Self::Upsert { path, .. } | Self::Remove { path } => path,
+            Self::Upsert { path, .. } | Self::Remove { path, .. } => path,
         }
     }
 }
@@ -368,6 +429,8 @@ mod tests {
                     chunks: vec![ChunkId::from_bytes(
                         [u8::try_from(sequence & 0xff).expect("masked to one byte"); 32],
                     )],
+                    version: VersionVector::new().advanced(DeviceId::from_bytes([1; 32]), sequence),
+                    author: DeviceId::from_bytes([1; 32]),
                 },
             },
         }

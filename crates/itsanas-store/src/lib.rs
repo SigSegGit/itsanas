@@ -55,10 +55,14 @@ pub mod index;
 pub mod oplog;
 pub mod path;
 pub mod store;
+pub mod version;
 
 pub use blob::BlobStore;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};
 pub use index::Index;
-pub use oplog::{FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, validate_chain};
+pub use oplog::{
+    FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
+};
 pub use store::{GcReport, IntegrityReport, Store, StoreStats};
+pub use version::{CausalOrder, VersionVector};

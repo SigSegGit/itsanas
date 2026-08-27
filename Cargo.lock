@@ -516,6 +516,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "itsanas-sync"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "itsanas-crypto",
+ "itsanas-store",
+ "itsanas-testkit",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "itsanas-testkit"
 version = "0.1.0"
 dependencies = [

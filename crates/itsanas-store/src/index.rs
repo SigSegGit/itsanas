@@ -19,7 +19,7 @@ use redb::{Database, ReadableTable, TableDefinition};
 
 use crate::{
     error::{Result, StoreError},
-    oplog::{FileEntry, LogEntry, SegmentEnvelope},
+    oplog::{FileEntry, LogEntry, SegmentEnvelope, Tombstone},
 };
 
 /// Path → postcard-encoded [`FileEntry`].
@@ -36,6 +36,8 @@ const SEGMENTS: TableDefinition<'_, u64, &[u8]> = TableDefinition::new("segments
 /// flushes and a power cut would leave the index describing files that no
 /// segment ever announced — peers would never learn about them.
 const PENDING: TableDefinition<'_, u64, &[u8]> = TableDefinition::new("pending");
+/// Path → postcard-encoded [`Tombstone`] for a deleted file.
+const TOMBSTONES: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("tombstones");
 /// Small named scalars: next sequence number, head segment, chain length.
 const META: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("meta");
 
@@ -75,6 +77,7 @@ impl Index {
             let _ = txn.open_table(UNREFERENCED)?;
             let _ = txn.open_table(SEGMENTS)?;
             let _ = txn.open_table(PENDING)?;
+            let _ = txn.open_table(TOMBSTONES)?;
             let _ = txn.open_table(META)?;
         }
         txn.commit()?;
@@ -117,14 +120,22 @@ impl Index {
             newly_unreferenced = Self::apply_reference_delta(&mut refs, &mut unreferenced, &delta)?;
 
             files.insert(path, encoded.as_slice())?;
+
+            // A live file supersedes any tombstone at the same path, and the
+            // two must never coexist — a path that is both present and deleted
+            // would resolve differently depending on which table was consulted.
+            txn.open_table(TOMBSTONES)?.remove(path)?;
         }
 
         txn.commit()?;
         Ok(newly_unreferenced)
     }
 
-    /// Remove `path`. Returns the chunks that lost their last reference.
-    pub fn remove_file(&self, path: &str) -> Result<Vec<ChunkId>> {
+    /// Remove `path`, leaving `tombstone` in its place.
+    ///
+    /// Returns the chunks that lost their last reference.
+    pub fn remove_file(&self, path: &str, tombstone: &Tombstone) -> Result<Vec<ChunkId>> {
+        let encoded_tombstone = postcard::to_stdvec(tombstone)?;
         let txn = self.db.begin_write()?;
         let newly_unreferenced;
 
@@ -132,6 +143,8 @@ impl Index {
             let mut files = txn.open_table(FILES)?;
             let mut refs = txn.open_table(CHUNK_REFS)?;
             let mut unreferenced = txn.open_table(UNREFERENCED)?;
+            txn.open_table(TOMBSTONES)?
+                .insert(path, encoded_tombstone.as_slice())?;
 
             let previous: Option<FileEntry> = match files.get(path)? {
                 Some(value) => Some(postcard::from_bytes(value.value())?),
@@ -156,6 +169,42 @@ impl Index {
 
         txn.commit()?;
         Ok(newly_unreferenced)
+    }
+
+    /// The tombstone at `path`, if it was deleted.
+    pub fn get_tombstone(&self, path: &str) -> Result<Option<Tombstone>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(TOMBSTONES)?;
+        match table.get(path)? {
+            Some(value) => Ok(Some(postcard::from_bytes(value.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Every tombstone, in sorted path order.
+    pub fn tombstones(&self) -> Result<Vec<(String, Tombstone)>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(TOMBSTONES)?;
+
+        let mut out = Vec::new();
+        for row in table.iter()? {
+            let (key, value) = row?;
+            out.push((key.value().to_owned(), postcard::from_bytes(value.value())?));
+        }
+        Ok(out)
+    }
+
+    /// Forget a tombstone.
+    ///
+    /// Only safe once every device is certain to have seen the delete —
+    /// otherwise a device that missed it resurrects the file.
+    pub fn forget_tombstone(&self, path: &str) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(TOMBSTONES)?.remove(path)?;
+        }
+        txn.commit()?;
+        Ok(())
     }
 
     /// Look up one path.
@@ -460,6 +509,16 @@ mod tests {
             modified_unix: 1_700_000_000,
             content_hash: [0; 32],
             chunks: chunks.iter().copied().map(chunk).collect(),
+            version: crate::version::VersionVector::new(),
+            author: itsanas_crypto::DeviceId::from_bytes([1; 32]),
+        }
+    }
+
+    fn tombstone() -> Tombstone {
+        Tombstone {
+            version: crate::version::VersionVector::new(),
+            removed_unix: 1_700_000_100,
+            author: itsanas_crypto::DeviceId::from_bytes([1; 32]),
         }
     }
 
@@ -505,7 +564,7 @@ mod tests {
 
         assert_eq!(index.reference_count(&chunk(2)).unwrap(), 2);
 
-        let dropped = index.remove_file("a.txt").unwrap();
+        let dropped = index.remove_file("a.txt", &tombstone()).unwrap();
         assert_eq!(dropped, vec![chunk(1)]);
         assert_eq!(
             index.reference_count(&chunk(2)).unwrap(),
@@ -539,15 +598,45 @@ mod tests {
         index.put_file("repeat.bin", &entry(&[7, 7, 7])).unwrap();
         assert_eq!(index.reference_count(&chunk(7)).unwrap(), 3);
 
-        let dropped = index.remove_file("repeat.bin").unwrap();
+        let dropped = index.remove_file("repeat.bin", &tombstone()).unwrap();
         assert_eq!(dropped, vec![chunk(7)]);
         assert_eq!(index.reference_count(&chunk(7)).unwrap(), 0);
     }
 
     #[test]
-    fn removing_an_absent_file_is_a_no_op() {
+    fn removing_an_absent_file_still_records_the_tombstone() {
+        // A delete arriving from a peer for a path this device never held is
+        // the normal case, not an anomaly: the file was created and deleted
+        // while this device was offline. The tombstone must still be recorded,
+        // or a third device could later re-announce the file and resurrect it.
         let (_dir, index) = index();
-        assert_eq!(index.remove_file("never-existed").unwrap(), Vec::new());
+
+        assert_eq!(
+            index.remove_file("never-existed", &tombstone()).unwrap(),
+            Vec::new(),
+            "no chunks should be released for a file that was never here"
+        );
+        assert_eq!(
+            index.get_tombstone("never-existed").unwrap(),
+            Some(tombstone()),
+            "the delete was forgotten, so this device would resurrect the file"
+        );
+    }
+
+    #[test]
+    fn writing_a_file_clears_any_tombstone_at_that_path() {
+        // A path must never be both present and deleted: the two tables would
+        // disagree and resolution would depend on which was consulted first.
+        let (_dir, index) = index();
+
+        index.put_file("a.txt", &entry(&[1])).unwrap();
+        index.remove_file("a.txt", &tombstone()).unwrap();
+        assert!(index.get_tombstone("a.txt").unwrap().is_some());
+
+        index.put_file("a.txt", &entry(&[2])).unwrap();
+
+        assert_eq!(index.get_tombstone("a.txt").unwrap(), None);
+        assert!(index.get_file("a.txt").unwrap().is_some());
     }
 
     #[test]
@@ -557,7 +646,7 @@ mod tests {
         // will delete a blob that is live again.
         let (_dir, index) = index();
         index.put_file("a.txt", &entry(&[5])).unwrap();
-        index.remove_file("a.txt").unwrap();
+        index.remove_file("a.txt", &tombstone()).unwrap();
 
         assert_eq!(index.unreferenced_chunks().unwrap().len(), 1);
 
@@ -600,7 +689,7 @@ mod tests {
     fn forgetting_a_chunk_clears_both_tables() {
         let (_dir, index) = index();
         index.put_file("a.txt", &entry(&[9])).unwrap();
-        index.remove_file("a.txt").unwrap();
+        index.remove_file("a.txt", &tombstone()).unwrap();
 
         index.forget_chunk(&chunk(9)).unwrap();
 

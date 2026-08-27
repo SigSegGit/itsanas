@@ -1,13 +1,15 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 167 tests across 5 binaries, plus 1 doctest.**
+**Last updated: 2026-08-27 — 217 tests across 7 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
 | `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
-| `itsanas-store` unit | 59 |
-| `itsanas-store` integration (`tests/store.rs`) | 22 |
+| `itsanas-store` unit | 73 |
+| `itsanas-store` integration (`tests/store.rs`) | 27 |
+| `itsanas-sync` unit | 12 |
+| `itsanas-sync` convergence (`tests/convergence.rs`) | 19 |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with
@@ -312,6 +314,62 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 
 ---
 
+# `itsanas-sync` — unit tests (12)
+
+## `conflict` — deciding who keeps the original path (10)
+
+| Test | What it proves |
+| --- | --- |
+| **`the_winner_is_the_same_whichever_side_asks`** | The rule is antisymmetric. If it were not, both devices would each believe they won, both would write to the original path, and they would overwrite each other forever. |
+| **`the_higher_device_id_wins_regardless_of_write_count`** | A device that has written a thousand times does not thereby beat one that wrote twice — the outcome must not depend on unrelated activity elsewhere. |
+| **`the_order_is_total_so_no_pair_is_ever_undecided`** | Strict and antisymmetric across every pair, including a version against itself. |
+| **`the_marker_goes_before_the_extension`** | `report.pdf` → `report.conflict-….pdf`, not `report.pdf.conflict`, which Windows would associate with nothing. |
+| **`a_dotfile_keeps_its_leading_dot`** | `.bashrc` does not become `.conflict-….bashrc`, which would be a different, no-longer-hidden file. |
+| **`only_the_final_component_is_examined_for_an_extension`** | A directory called `my.files` does not swallow the marker. |
+| **`two_different_devices_produce_two_different_siblings`** | Three-way conflicts are rare but real; two losers colliding on one sibling path would destroy one of them. |
+| **`the_sibling_path_is_a_valid_logical_path`** | The generated name survives the store's own path validation — it is about to be written to a real store. |
+| `a_file_with_no_extension_gets_the_marker_appended` | Extension-less names are handled. |
+| `a_multi_dot_name_splits_on_the_last_dot` | `archive.tar.gz` splits sensibly. |
+
+## `engine` — sync reporting (2)
+
+| Test | What it proves |
+| --- | --- |
+| `a_report_counts_every_outcome_kind` | Each of the six outcomes is tallied, and a deferred operation asks for another round. |
+| **`a_quiet_round_reports_no_work_and_no_retry`** | A round that only recognised things it already knew reports no progress. If it reported progress, the settle loop would never terminate. |
+
+---
+
+# `itsanas-sync` — convergence tests (19)
+
+The M3 exit criteria. Real stores, real chunking, real sealing, real signatures;
+only the network is simulated. Nothing uses randomness or wall-clock time, so a
+failure reproduces exactly. `tests/convergence.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_device_that_never_comes_back_still_gets_its_work_to_everyone_else`** | The scenario the whole architecture exists for. The Pi writes at 3am, publishes, and is switched off permanently; the laptop and VM still converge on its work, having never spoken to it. |
+| **`work_propagates_through_a_third_device_that_only_relays`** | The Pi and the VM are never online simultaneously. The work still reaches the VM via the laptop. |
+| **`concurrent_edits_produce_both_files_and_lose_neither`** | Two edits during a partition yield two files on every device, with both bodies intact. |
+| **`a_three_way_conflict_produces_three_distinct_files`** | All three versions survive a full partition; none is silently dropped. |
+| **`a_sequential_edit_is_not_treated_as_a_conflict`** | The common case stays clean. If ordinary edits produced siblings the folder would fill with junk and the feature would be worse than useless. |
+| **`a_delete_racing_an_edit_never_destroys_the_edit`** | The asymmetry rule. A concurrent delete loses, because a lost edit is unrecoverable and an unexpected resurrection takes a second to undo. |
+| **`a_delete_that_saw_the_edit_is_honoured`** | The counterpart: a normal delete actually deletes, on every device. Without this the product does not work. |
+| **`an_offline_device_does_not_resurrect_a_file_deleted_while_it_slept`** | Tombstones do their job. Without them the returning device re-announces what it still holds and the file comes back from the dead everywhere. |
+| **`re_creating_a_deleted_file_works_and_converges`** | A path can go live → deleted → live again without ending up both present and deleted. |
+| **`the_final_state_does_not_depend_on_the_order_devices_sync_in`** | The same divergence healed in two opposite orders reaches an identical state. Order dependence here would be a permanent, silent disagreement in production. |
+| **`syncing_repeatedly_changes_nothing`** | Hosts re-serve segments freely and there is no acknowledgement telling them to stop, so applying an operation twice must be a no-op. |
+| **`re_resolving_a_conflict_is_idempotent`** | Guards the specific bug this suite caught: a conflict re-resolved every round means a settle loop that stops when nothing changes never stops. |
+| **`a_long_run_of_alternating_partitions_still_converges`** | Ten rounds of rotating partitions, twenty files, full agreement at the end. More history than a hand-built scenario covers. |
+| **`an_operation_whose_chunks_are_unavailable_is_deferred_not_half_applied`** | A segment can arrive before its chunks. Materialising anyway would create a file that exists but cannot be read. |
+| **`a_deferred_operation_completes_once_its_chunks_show_up`** | And the retry actually completes. |
+| **`the_hosts_hold_everything_and_can_read_none_of_it`** | Every byte the simulated hosts hold is scanned for Alice's canary *and* for each of her filenames. Includes a vacuity check proving the canary is really in the data. |
+| **`every_segment_a_host_holds_is_verifiable_by_that_host`** | Hosts cannot read segments but must be able to authenticate them, or anyone could flood a host with garbage attributed to a peer. |
+| **`a_full_corpus_converges_across_three_devices_with_partitions`** | The realistic end-to-end case: a real data set written across three devices that are never all online together, converging byte-identically. |
+| **`version_vectors_order_sequential_writes_and_flag_concurrent_ones`** | The underlying primitive, checked at the level of real stores rather than in isolation. |
+
+---
+
 # Planned tests
 
 Listed here so the gap between what is claimed and what is verified stays
@@ -328,16 +386,24 @@ which does not exist until M4:
   chunk count for Alice, each byte-identical to what Alice would re-derive, and
   Bob can decrypt none of them.
 
-## M3 — sync
+## M3 — remaining
 
-- Deterministic three-device simulation with injectable partitions and power
-  cycles; convergence asserted in every scenario.
-- **The offline-device scenario**: Bob's Pi writes, pushes, powers off
-  permanently; Alice and Carol must still converge on Bob's change.
-- Concurrent edits on two devices produce both files, neither lost.
-- Delete racing an edit never destroys the edit.
-- Rename detection does not re-upload chunk data.
-- Clock skew and a device whose clock runs backwards do not break ordering.
+The convergence suite above covers the simulation, the offline-device scenario,
+concurrent edits and the delete/edit race. Still outstanding:
+
+- **Rename detection** does not re-upload chunk data. Deduplication already makes
+  a rename cheap in bytes — the chunks are identical, so nothing is re-stored —
+  but the operation log currently records it as a delete plus a create rather
+  than as a rename, which costs a log entry and loses the user's intent.
+- **File watching**, once M7 gives it a daemon to live in: dropped `notify`
+  events under load are covered by the periodic rescan, and that rescan needs a
+  test that removes events deliberately.
+
+Deliberately *not* planned: a clock-skew test. Ordering never consults a clock —
+the version vectors carry no timestamps and `recorded_unix` is advisory and read
+by nothing that decides anything. A test asserting that a wrong clock changes
+nothing would be asserting the absence of code that does not exist, which is the
+kind of test this project treats as worse than none.
 
 ## M4 — network
 

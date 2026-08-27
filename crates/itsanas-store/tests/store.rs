@@ -9,7 +9,7 @@
 use std::{collections::HashSet, fs, path::Path, time::Duration};
 
 use itsanas_crypto::{ChunkId, DeviceKeys, MasterSecret, UserKeys};
-use itsanas_store::{ChunkerConfig, Operation, Store, validate_chain};
+use itsanas_store::{CausalOrder, ChunkerConfig, Operation, Store, validate_chain};
 use itsanas_testkit as testkit;
 
 /// Open a store, permitting the published fixture identities.
@@ -522,6 +522,107 @@ fn unsealed_writes_survive_a_restart_and_are_announced_afterwards() {
         .unwrap();
     assert_eq!(body.entries.len(), 1);
     assert_eq!(body.entries[0].operation.path(), "unannounced.txt");
+}
+
+// ---------------------------------------------------------------------------
+// Versions and tombstones
+// ---------------------------------------------------------------------------
+
+#[test]
+fn each_write_advances_this_devices_component_of_the_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([40; 32]), dir.path());
+    let device = store.device_id();
+
+    let first = store.write_file("a.txt", b"one").unwrap();
+    let second = store.write_file("a.txt", b"two").unwrap();
+
+    assert!(
+        second.version.get(&device) > first.version.get(&device),
+        "a second write did not advance the version, so peers cannot tell \
+         which of the two is newer"
+    );
+    assert_eq!(
+        first.version.compare(&second.version),
+        CausalOrder::Before,
+        "consecutive writes on one device must be causally ordered, never \
+         concurrent"
+    );
+}
+
+#[test]
+fn writes_to_different_paths_do_not_make_each_other_look_concurrent() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([41; 32]), dir.path());
+
+    let a = store.write_file("a.txt", b"first").unwrap();
+    let b = store.write_file("b.txt", b"second").unwrap();
+
+    // b was written with full knowledge of a, on the same device.
+    assert_eq!(a.version.compare(&b.version), CausalOrder::Before);
+}
+
+#[test]
+fn deleting_leaves_a_tombstone_that_supersedes_the_deleted_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([42; 32]), dir.path());
+
+    let entry = store.write_file("doomed.txt", b"content").unwrap();
+    assert!(store.remove_file("doomed.txt").unwrap());
+
+    let tombstone = store.tombstone("doomed.txt").unwrap().expect(
+        "a delete must leave a tombstone, or an offline device \
+                 resurrects the file when it returns",
+    );
+
+    assert_eq!(
+        entry.version.compare(&tombstone.version),
+        CausalOrder::Before,
+        "the tombstone does not dominate the version it deleted, so the delete \
+         would look concurrent with its own target"
+    );
+    assert_eq!(store.read_file("doomed.txt").unwrap(), None);
+    assert_eq!(store.list().unwrap(), Vec::<String>::new());
+}
+
+#[test]
+fn recreating_a_deleted_file_supersedes_the_tombstone() {
+    // Otherwise the re-creation looks concurrent with its own delete, and the
+    // file materialises as a conflict pair against a file that no longer exists.
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([43; 32]), dir.path());
+
+    store.write_file("phoenix.txt", b"first life").unwrap();
+    store.remove_file("phoenix.txt").unwrap();
+    let tombstone = store.tombstone("phoenix.txt").unwrap().unwrap();
+
+    let reborn = store.write_file("phoenix.txt", b"second life").unwrap();
+
+    assert_eq!(
+        tombstone.version.compare(&reborn.version),
+        CausalOrder::Before,
+        "re-creating a deleted file did not build on the tombstone's version"
+    );
+    assert_eq!(
+        store.tombstone("phoenix.txt").unwrap(),
+        None,
+        "the tombstone survived the re-creation; the path is now both present \
+         and deleted"
+    );
+    assert_eq!(
+        store.read_file("phoenix.txt").unwrap().unwrap(),
+        b"second life"
+    );
+}
+
+#[test]
+fn removing_a_file_that_is_not_there_reports_false_and_logs_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([44; 32]), dir.path());
+
+    assert!(!store.remove_file("never-existed.txt").unwrap());
+    assert_eq!(store.stats().unwrap().unsealed_entries, 0);
+    assert_eq!(store.tombstone("never-existed.txt").unwrap(), None);
 }
 
 // ---------------------------------------------------------------------------

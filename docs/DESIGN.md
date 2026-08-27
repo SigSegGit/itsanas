@@ -192,8 +192,20 @@ produce siblings:
 
 ```
 report.pdf
-report.conflict-pi4-20260826T142233Z.pdf
+report.conflict-a3f21c8d0e91-7.pdf
 ```
+
+The sibling is named after the **device id and sequence number** of the losing
+version, not after a timestamp. This changed during implementation, for the same
+reason the ordering does not use clocks: every device has to derive the sibling
+path identically and independently, and the devices disagree about the time.
+Device id plus sequence is already unique, and every device sees the same value.
+
+Which version keeps the original path is decided by a total order on
+`(device_id, sequence)` — highest wins. The rule is arbitrary but it must be
+*deterministic*: if two devices disagreed about who won, each would write its own
+winner to `report.pdf` and they would overwrite each other forever instead of
+converging.
 
 **Why not last-writer-wins:** it requires trusting clocks across machines, and
 it silently destroys work. A user who loses an afternoon's edits to a clock skew
