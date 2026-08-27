@@ -39,8 +39,9 @@ Three properties have to hold at once, and each one constrains the design:
 │  directory with a watcher          ├─ itsanas-tls  (device auth)      │
 │                                    └─ itsanas-wire (framing)          │
 ├───────────────────────────────────────────────────────────────────────┤
-│  itsanas-crypto                                                       │
-│  identity, key schedule, sealing, blinded addressing, keystore        │
+│  itsanas-discover                  itsanas-crypto                     │
+│  signed UDP announcements,         identity, key schedule, sealing,   │
+│  no server involved                blinded addressing, keystore       │
 └───────────────────────────────────────────────────────────────────────┘
                                     │
                     ┌───────────────┴────────────────┐
@@ -208,6 +209,10 @@ it, cannot answer.
 Optional, and deliberately minimal. Intended to run on a small OVH VPS or an ARM
 VM on a Freebox Delta.
 
+> **Machines on one network need no coordinator at all.** `itsanas-discover`
+> finds them with signed UDP announcements; see §6.1. What follows is only about
+> reaching a machine on a *different* network.
+>
 > **No coordinator server exists.** `itsanas-coord` is a tested library — claims,
 > revocation, presence, measured availability, accounting, account directory,
 > escrow storage — with nothing serving it and no client speaking to it. The
@@ -246,6 +251,25 @@ The whole surface is control-plane, which is what keeps it replaceable by a DHT
 later without touching a single byte of the data plane.
 
 ## 6. Transport
+
+### 6.1 Finding a peer
+
+On one network, nothing central is involved. A node broadcasts a fixed 147-byte
+announcement on UDP 21037, signed by its device key. Since a `DeviceId` *is* the
+Ed25519 verifying key, any receiver verifies it with no prior contact, so nobody
+can advertise a device they do not hold.
+
+The address is deliberately **not** in the packet — only the port is, and the
+address comes from the UDP source, so a node cannot advertise a machine other
+than itself. What is discovered is then dialled with the announcing device
+pinned, so an address answering as somebody else is refused: discovery says who
+*might* be worth talking to and never says who somebody *is*.
+
+Across networks, a coordinator supplies addresses. That is the only discovery job
+left for it, and [DESIGN.md](DESIGN.md) §8 explains why it is not worth replacing
+with a DHT at this size.
+
+### 6.2 The connection
 
 TLS 1.3 over TCP, with mutual authentication by device key and no certificate
 authority.

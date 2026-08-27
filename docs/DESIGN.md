@@ -387,11 +387,156 @@ porting later is a contained change rather than a rewrite.
 
 ---
 
-## 8. The coordinator
+## 8. Decentralisation, and the coordinator
 
 > **Not built.** This section is the design for a component that does not exist
 > as a running service; `itsanas-coord` is the library half. See
 > [ROADMAP.md](ROADMAP.md) M6.
+
+### The question, asked properly
+
+"Can this be done with no central component at all?" is the right question and it
+has a wrong first answer. The wrong answer is to argue about whether a server
+exists. The useful question is **what would break if the server vanished** — and
+the honest audit of that found that the design as written had made the
+coordinator load-bearing for reasons that do not survive scrutiny.
+
+The coordinator was doing five jobs. Taken one at a time, four of them either do
+not need it or should never have been given to it.
+
+#### 1. Finding machines — decentralisable, and partly done without a server
+
+Kademlia-style DHTs have solved address lookup at the scale of millions of nodes
+since 2005. The technique is not in question.
+
+What is in question is **the size at which it becomes safer than a server**. A
+DHT gets its Sybil resistance from dilution: hostile nodes have to be
+outnumbered. At ten nodes there is nothing to dilute them with, and an eclipse
+attack — feeding one member a false view of the network — costs an attacker
+almost nothing. Sybil resistance in an open DHT with no external cost function is
+an open problem, not an implementation detail. A DHT also needs bootstrap nodes,
+so it does not remove the server, it renames it.
+
+Two consequences, and the second is counter-intuitive:
+
+- **Local discovery needs no server** — a signed UDP beacon on the local network.
+  Machines in one house find each other with nothing configured. See §9.
+- **A DHT leaks more metadata than a private coordinator**, because lookups are
+  visible to strangers. Self-hosting the notice board is better for privacy than
+  publishing queries to the world.
+
+#### 2. Placement — the coordinator should never have had this job
+
+The original design had the coordinator publish a **signed node-set epoch** so
+that every peer computed identical rendezvous placement "without an agreement
+protocol". That phrasing hid the problem: requiring every peer to hold the same
+membership list *is* an agreement protocol. It was consensus by decree.
+
+It is also unnecessary, and noticing why is the useful part. A global content
+store — IPFS, a DHT — must answer "who holds this block?" for an arbitrary asker,
+and that needs global agreement about the keyspace. **ITSaNAS never asks that
+question.** Every chunk belongs to exactly one user, and that user holds an
+operation log listing their own chunks. The owner knows what they stored, so the
+owner can record *where they put it*, in their own log, which already replicates
+to blind hosts.
+
+Placement therefore becomes: the owner picks replicas from peers it knows and can
+reach, records the choice, and repairs when the count drops. Rendezvous hashing
+survives — it still spreads load proportionally over the peers an owner knows —
+but it no longer requires the world to agree.
+
+This is not a concession. Third-party repair was never possible anyway: a host
+holds opaque bytes and cannot read an owner's log to learn what is missing.
+Repair was always going to be the owner's job. The node-set epoch was solving a
+problem the system does not have.
+
+#### 3. Accounting — bilateral beats a global ledger
+
+A global entitlement figure needs a trusted accountant, which is exactly the role
+the rest of the design refuses to grant anyone.
+
+The alternative is **bilateral**: two members each track what they hold for the
+other. "I store 100 GB for Bob; Bob stores 300 GB for me" is checkable by both
+parties, forgeable by neither, and needs no bookkeeper. It is BitTorrent's
+tit-for-tat, which has held up on an openly hostile network for twenty years.
+
+Two things fall out of it that the global model had to be told:
+
+- **The 3x contribution ratio appears on its own.** Wanting three replicas of
+  100 GB means finding three counterparties and giving each 100 GB back.
+- **Availability needs no third-party measurement.** If a peer is never
+  reachable, a member gets no value from it and reduces or ends that contract.
+  Each side measures the other directly, and nobody can lie to them about it.
+
+What survives from the global model is the part that was never global: a member
+computing **their own** standing from their own pledge, availability and usage.
+That needs no coordinator, and it is what `accounting.rs` actually does.
+
+#### 4. Human-readable names — a real wall, and it is theoretical
+
+This is **Zooko's triangle** (Zooko Wilcox-O'Hearn, around 2001): a name can be
+human-meaningful, decentralised, or secure — pick two.
+
+| Way out | Cost |
+| --- | --- |
+| Blockchain naming (Namecoin, ENS) | Genuinely squares the triangle, by requiring a global consensus system. Either depend on someone else's — fees, a public ledger, a different centralisation — or run your own, which needs a validator network that does not exist here. Disproportionate. |
+| No global names | Identity *is* the public key. Syncthing's choice: device IDs are base32 keys exchanged out of band. Fully decentralised and fully secure; the user handles sixty characters. |
+| Petnames | Everyone keeps their own mapping. Decentralised and readable locally, not globally unique. SSH's `known_hosts`. |
+
+**ITSaNAS takes the second, and the username is demoted to a convenience.** The
+public key is the identity and the root of trust. This costs less than it sounds,
+because recovering your own account never needed a name: the 24 words derive the
+master secret directly, with nothing to look up and nobody to ask.
+
+#### 5. Escrow — the one place centralisation is genuinely better
+
+The escrow blob is sealed under a passphrase, so that a new machine can be
+recovered with a username and a passphrase instead of 24 words. On a coordinator,
+a thief who steals the database can attack it offline; that is already admitted
+in [ECONOMICS.md](ECONOMICS.md) §7.
+
+In a DHT it is worse. The blob would be **public by construction**: anyone can
+fetch it and grind it at leisure, with no rate limit and no trace.
+
+Centralisation offers exactly one thing here that decentralisation cannot, and it
+is the thing that matters: **somewhere to enforce a rate limit.**
+
+### The decision
+
+Not "with or without a server". **A server that carries nothing vital.**
+
+| Job | Where it lives | Why |
+| --- | --- | --- |
+| Local discovery | **No server.** Signed UDP beacon on the LAN | Free, and covers a household fleet entirely |
+| Remote discovery | Coordinator, with addresses **cached and pinned** by peers | It can be down without stopping anything already known |
+| Placement | **The owner records it.** No global node set | Removes the agreement problem entirely |
+| Accounting | **Bilateral**, per counterparty | No trusted bookkeeper, and self-enforcing |
+| Identity | **The public key.** The name is a label | No naming authority to trust or to attack |
+| Escrow | Coordinator | Only for the rate limit, with the trade written down |
+
+What this buys: the coordinator degrades to an address book and a meeting point
+for first contact — precisely the role a DHT would take over later, which is what
+makes the swap contained instead of a rewrite. The claim below that the
+coordinator "stays replaceable" was aspirational when it was written; the table
+above is what makes it true.
+
+What it still costs, stated plainly: the coordinator sees who is online and who
+asks after whom. Nothing at this scale fixes that, a DHT least of all. It can
+refuse to list a member — mitigated by the address being configuration, and by
+the member being free to run their own, or none.
+
+### Why not decentralise the rest now
+
+Because **decentralisation has a minimum viable size and this network is far
+below it.** A ten-node DHT is not decentralised, it is fragile: several thousand
+independent participants are needed before dilution works at all. Building one
+now means thousands of lines of new attack surface bought in exchange for a
+*weaker* security property than a machine the owner physically controls.
+
+The precedent is worth stating because it is the closest comparable system:
+**Syncthing, after more than a decade, still runs central discovery and relay
+servers.** Open source, self-hostable, several instances, avoidable with static
+addresses — but they exist, because nobody has found better.
 
 ### Why there is one at all
 

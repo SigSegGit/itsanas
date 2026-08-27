@@ -14,12 +14,13 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M2 Chunking and local store | `itsanas-store` | ✅ **done** | 97 unit + 29 integration |
 | M3 Sync engine | `itsanas-sync` | ✅ **done** | 12 unit + 19 convergence |
 | M4 Network transport | `itsanas-wire`, `itsanas-tls`, `itsanas-net` | ✅ **done** | 17 + 11 + 37 |
+| M4b Local discovery | `itsanas-discover` | ✅ **done** | 33 + 4 |
 | M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not executed** | 29 |
 | M6 Coordinator | `itsanas-coord` | 🟨 **library done, no server** | 47 |
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 53 |
 | M8 Three-device bring-up | — | ⬜ not started | — |
 
-**462 tests, 2 of them `#[ignore]`d into the slow job.**
+**499 tests, 2 of them `#[ignore]`d into the slow job.**
 
 **Nothing here should hold data you care about yet**, but the reason has
 narrowed. The cryptography, the local store, the merge rules, the transport and
@@ -28,12 +29,14 @@ folders identical over an encrypted, mutually authenticated connection.
 
 What is missing before this is a *network* rather than a personal sync tool:
 
-- **No coordinator server.** The library is complete — device certificates,
-  revocation, measured availability, the accounting from
-  [ECONOMICS.md](ECONOMICS.md) — but nothing serves it. Without it there is no
-  way for one member to learn that another exists.
-- **Placement is decided but not executed.** Nothing carries out a repair plan,
-  because knowing who the peers are needs the node set the coordinator publishes.
+- **No coordinator server.** Machines on one network now find each other with
+  no server at all (M4b), which covers a household. A machine on a *different*
+  network still has to be added by hand. The coordinator library is complete;
+  nothing serves it.
+- **Placement is decided but not executed.** Nothing carries out a repair plan.
+  The design changed here: placement is to be **recorded by the owner** rather
+  than derived from a coordinator-published node set, which removes the global
+  agreement problem — see [DESIGN.md](DESIGN.md) §8. Neither is implemented.
 - **Nothing challenges a host on a schedule**, so a host that quietly discards
   data is caught only by accident.
 - **Recovery from username plus passphrase is not wired.** The escrow container
@@ -227,6 +230,46 @@ device and reaching a different one is refused.
   connections still learns what was pushed to it. Hole punching and relay
   fallback would want QUIC, which is now an optimisation rather than a
   prerequisite for security.
+
+---
+
+### M4b — Local discovery ✅ (`itsanas-discover`)
+
+The first piece of the decentralisation decision recorded in
+[DESIGN.md](DESIGN.md) §8: the job the coordinator does *not* need to do.
+
+A node broadcasts a **fixed 147-byte announcement**, signed by its device key,
+on UDP 21037. Because a `DeviceId` is the Ed25519 verifying key, a receiver
+checks the signature with no prior contact and no key distribution, so nobody
+can advertise a device they do not hold.
+
+Deliberate properties, each with a test:
+
+- **The address is not in the packet.** Only the port is; the address comes from
+  the UDP source, so a node cannot advertise a different machine.
+- **The sender's clock decides nothing.** A Raspberry Pi 4 has no RTC and
+  announces itself believing it is 1970. Superseding by sender clock would make
+  a rebooted Pi unreachable until NTP ran.
+- **The table is bounded and known peers are protected.** Device ids are free
+  keypairs, so a flood is cheap; a flood can deny discovery of *new* peers and
+  cannot evict one that has already answered.
+- **The owner field is a hint, never an authorisation.** Binding a device to a
+  user needs an owner-signed claim, which a bare LAN cannot supply. It orders
+  the dial list and nothing else.
+
+Verified by running it, not only by tests: a daemon on this machine reported
+`found another user's device d56e4ff7dca9 at 192.168.19.1:9797` from a real
+IPv4 broadcast sent by `cargo run -p itsanas-discover --example probe`.
+
+**One bug found by running rather than testing.** `Lan::bind(0)` used the same
+number for the local port and the broadcast target, so an ephemeral bind sent
+every announcement to `255.255.255.255:0` — accepted by the operating system,
+delivered to nobody, reported as five successful sends. Now
+`announcing_to_port_zero_is_refused_rather_than_sent_into_the_void`.
+
+**Not covered:** IPv6 multicast, and interface selection — IPv4 global broadcast
+leaves by the default route only, which is right for a house and wrong for a
+machine with several networks.
 
 ---
 

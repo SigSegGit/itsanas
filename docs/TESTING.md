@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-08-27 — 462 tests across 17 binaries, plus 2 doctests.**
+**Last updated: 2026-08-27 — 499 tests across 18 binaries, plus 2 doctests.**
 
 | Binary | Tests |
 | --- | --- |
@@ -252,7 +252,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 | `state_survives_reopening` | Data is durable across a process restart. |
 | `files_come_back_sorted_so_two_devices_agree_on_order` | Iteration order is deterministic, which matters once two devices compare listings. |
 | `a_file_round_trips` | Entries store and load unchanged. |
-| `removing_an_absent_file_is_a_no_op` | Deleting nothing is not an error. |
+| **`removing_an_absent_file_still_records_the_tombstone`** | A device deleting a file it never downloaded must still record the deletion, or a machine that was away when a file arrived cannot take part in removing it — and the file comes back on the next sync. |
 | `forgetting_a_chunk_clears_both_tables` | Post-GC cleanup leaves no half-state. |
 
 ## `oplog` — the operation log (15)
@@ -474,7 +474,16 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 
 ---
 
-# `itsanas-cli` — unit tests (25)
+# `itsanas-cli` — unit tests (29)
+
+## `discovery` — the daemon's use of local discovery (4)
+
+| Test | What it proves |
+| --- | --- |
+| **`a_confirmed_device_survives_a_flood_of_strangers`** | The eviction attack at the layer the daemon actually uses. Without confirming a device after a successful authenticated round, anyone on the network can push the Raspberry Pi out of the laptop's table and the two stop finding each other while both believe discovery is working. |
+| `a_discovered_device_becomes_something_to_dial` | Discovery produces an address *and* the device to pin, which is what stops an address answering as somebody else being trusted. |
+| `the_neighbourhood_is_empty_until_something_is_heard` | No invented peers. |
+| `the_poll_is_short_enough_that_shutdown_feels_immediate` | A Ctrl-C must not wait out an announce interval. |
 
 ## `daemon` — pacing (2)
 
@@ -615,6 +624,66 @@ destructive if wrong.
 | `a_second_device_reproduces_the_folder_exactly` | Two machines, one folder content, byte for byte. |
 | `a_full_corpus_round_trips_through_a_folder_byte_for_byte` | A real data set, unchanged. |
 | Others | New files, edits, remote changes, remote deletes, nested directories, delete/edit races, identical concurrent edits, empty folders. |
+
+---
+
+---
+
+# `itsanas-discover` — serverless local discovery (33)
+
+The only parser in the project fed unsolicited packets by anybody, with no
+handshake in front of it. Everything else sits behind TLS and behind a peer that
+has already proved which device it is, so this crate is tested the way a network
+edge has to be: every corruption, every truncation, and the failure modes of the
+hardware it will actually run on.
+
+## `beacon` — the announcement (11)
+
+| Test | What it proves |
+| --- | --- |
+| **`a_device_cannot_advertise_a_device_it_does_not_own`** | The reason the packet is signed at all. Without it, anyone on the network claims to be the Raspberry Pi and every node dials them instead. |
+| **`corrupting_any_single_byte_is_refused_and_never_panics`** | Every single-bit flip of every one of 147 bytes. The decoder may reject; it may not take the daemon down, and it may not accept a mutated field. |
+| **`every_truncation_and_extension_is_refused_before_anything_is_read`** | The length is fixed, so every other length is rejected before a field is touched. There is no size on the wire for an attacker to lie about. |
+| **`arbitrary_garbage_never_panics`** | Anything at all arrives on a UDP port, including another protocol's traffic on a machine that reuses the number. |
+| **`a_signature_from_another_domain_does_not_verify_here`** | Domain separation checked rather than assumed: a signature the device made for the peer protocol must not be replayable as a presence announcement. |
+| **`an_ancient_clock_still_produces_a_valid_announcement`** | A Raspberry Pi 4 has no real-time clock and announces itself believing it is 1970. It must still be findable, or a machine that just came back is invisible until NTP runs. |
+| `the_layout_is_exactly_as_documented` | The wire format is a compatibility commitment. If it drifts, an older build on another machine stops finding this one and the symptom is "discovery silently does nothing". |
+| `an_unknown_version_is_refused_not_guessed_at` | No optimistic reinterpretation of a future format, whose fields may mean something else entirely at these offsets. |
+| `foreign_traffic_is_discarded_on_the_magic_rather_than_the_signature` | Sharing a port with something else costs one comparison, not a signature check per packet. |
+| `a_zero_port_is_refused` | An announcement nothing can serve is either a bug or bait for a connection that cannot succeed. |
+| `an_announcement_round_trips` | The basic path. |
+
+## `neighbours` — the bounded table (12)
+
+| Test | What it proves |
+| --- | --- |
+| **`a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address`** | Why the *receiver's* clock decides and the sender's is ignored. Superseding by sender clock would leave a rebooted Pi pinned to a stale address until NTP ran — exactly when someone is waiting for it to come back. |
+| **`the_table_never_grows_past_its_capacity`** | A device id is a free keypair, so anyone on the network can mint valid announcements without limit. Unbounded means an out-of-memory kill on the Pi, triggered by a stranger. |
+| **`a_flood_of_strangers_cannot_evict_a_known_peer`** | The eviction attack. Without protection, a flood pushes the Pi out of every table and the household stops syncing while every node believes discovery is working. |
+| **`own_devices_are_dialled_before_strangers`** | Reaching your own machines is what makes a folder appear; a stranger is a hosting candidate and can wait. |
+| `a_table_full_of_protected_devices_refuses_a_stranger_rather_than_forgetting_one` | The bound is never satisfied by discarding something known real. |
+| `the_oldest_unprotected_entry_is_the_one_evicted` | Eviction is least-recently-heard, not arbitrary. |
+| `expiry_forgets_the_quiet_but_keeps_your_own_switched_off_machines` | A laptop that is off has not stopped being your laptop; forgetting its address costs a slower reconnection every time it wakes. |
+| `the_dial_order_is_stable_across_two_nodes_with_the_same_view` | Two machines that heard the same announcements produce the same list, so they do not retry each other in lockstep. |
+| `a_device_that_changed_network_is_followed_and_reported` | A laptop moving between networks is followed, and the move is news. |
+| `repeating_the_same_announcement_is_not_reported_as_news` | A beacon arrives every thirty seconds forever. Logging each one makes an unreadable journal, which is the same as no journal on the day something breaks. |
+| `a_new_device_is_recorded_with_the_address_it_was_heard_from` | The address comes from the datagram, never from the packet. |
+| `a_capacity_of_zero_is_treated_as_one_rather_than_never_recording` | A misconfiguration degrades rather than silently disabling discovery. |
+
+## `lan` — the socket (10)
+
+| Test | What it proves |
+| --- | --- |
+| **`announcing_to_port_zero_is_refused_rather_than_sent_into_the_void`** | **Found by running it, not by a test.** `bind(0)` used one number for both the local port and the broadcast target, so an ephemeral bind sent every announcement to `255.255.255.255:0` — accepted by the operating system, delivered to nobody, reported as five successful sends. |
+| **`an_ephemeral_bind_still_announces_to_the_discovery_port`** | The other half of the same bug: listening and announcing are separate numbers. |
+| **`an_oversized_datagram_is_rejected_rather_than_truncated_into_a_valid_one`** | The receive buffer is larger than a valid announcement on purpose. With an exact-sized buffer the kernel trims the excess and hands up something that parses, which is how a padded packet smuggles data past a parser. |
+| **`a_tampered_announcement_is_refused_at_the_socket`** | Verification happens on the real path, not only on hand-built byte arrays. |
+| `an_announcement_crosses_a_real_socket_and_verifies` | End to end over a real UDP socket. |
+| `a_quiet_network_times_out_rather_than_blocking_forever` | A daemon polls this in a loop; a silent network must leave it idle, not hung. |
+| `foreign_traffic_on_the_port_is_reported_as_foreign_not_as_a_failure` | A busy network must not flood the log and hide the failure that matters. |
+| `a_broadcasting_socket_asks_the_kernel_for_broadcast` | Without `SO_BROADCAST` nothing reaches 255.255.255.255 and every send still reports success. |
+| `two_nodes_on_one_machine_refuse_to_share_a_port` | Better a refusal at start-up than a second node whose discovery quietly never works. |
+| `the_announce_interval_is_not_expensive_to_leave_running` | An acceptance criterion, not a preference: the first version that keeps a laptop awake gets uninstalled. Under half a megabyte a day, and one lost packet never forgets a peer. |
 
 ---
 

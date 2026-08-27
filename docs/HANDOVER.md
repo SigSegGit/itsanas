@@ -42,6 +42,11 @@ obvious place to write "not done". Documents organised by *mechanism*
 of the plan, not of anybody's attentiveness — which is why the markers are
 mandatory rather than encouraged.
 
+`scripts/check-catalogue.sh` fails if TESTING.md names a test that does not
+exist, which has happened. It does not check the reverse — some crates are
+catalogued by property rather than test by test — so a new test still has to be
+written up by hand.
+
 Test counts in TESTING.md are mechanical:
 
 ```bash
@@ -64,6 +69,7 @@ cargo test --workspace --all-features
 cargo test --workspace --all-features -- --ignored     # 2 slow tests
 cargo +1.88.0 check --workspace --all-features          # MSRV
 cargo deny --all-features check
+bash scripts/check-catalogue.sh                         # docs/TESTING.md names real tests
 ```
 
 All of these pass as of the last commit. **MSRV is 1.88** (let-chains), not the
@@ -75,6 +81,7 @@ All of these pass as of the last commit. **MSRV is 1.88** (let-chains), not the
 crypto     identity, key schedule, sealing, blinded addressing, keystore
 testkit    Alice/Bob/Carol — published test users, generated corpus, canaries
 wire       length-prefixed framing + a generic Connection<S: Read + Write>
+discover   signed UDP announcements on the local network; no server involved
 tls        anonymous TLS + device authentication bound to the channel
 store      chunking, blob store, index, operation log, vault, version vectors
 sync       version-vector merge, conflict resolution, convergence simulation
@@ -129,6 +136,9 @@ Each of these has a test that fails if it is:
 | Availability affects entitlement, never placement | The decision that risks data must not depend on the untrusted coordinator | ECONOMICS.md §3; placement takes no availability input |
 | The vault takes no keys in any constructor | "A host cannot read what it stores" is structural, not a matter of nobody having written the call | `vault.rs` has no key parameter anywhere |
 | Symlinks are skipped, never followed | A link to `~/.ssh` inside the folder would upload a private key | `symlinks_are_skipped_rather_than_followed` |
+| A discovery beacon's address comes from the UDP source, never from the packet | A self-declared address lets any node redirect traffic to a machine that is not it | `a_new_device_is_recorded_with_the_address_it_was_heard_from` |
+| The discovery table is bounded and confirmed peers are protected | Device ids are free keypairs, so a flood is cheap; without this it evicts the machines that matter | `a_flood_of_strangers_cannot_evict_a_known_peer`, `the_table_never_grows_past_its_capacity` |
+| The sender's clock decides nothing in discovery | A Pi 4 has no RTC and boots in 1970; superseding by sender clock strands it at a stale address | `a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address` |
 | Streaming boundaries match slice boundaries exactly | Otherwise one file stored via two paths dedups against nothing | `streaming_and_slicing_agree_on_every_boundary` |
 | Published test identities are refused by `Store::open` | Their phrases are in the docs | `the_published_test_identities_are_refused_...` |
 
@@ -142,6 +152,10 @@ Each of these has a test that fails if it is:
   tombstones, deferred operations, deterministic 3-device simulation.
 - **Network**: TLS 1.3, device-authenticated, peer protocol with resume and
   batched have/missing, vault for foreign data, storage challenges, relaying.
+- **Discovery**: machines on one network find each other with nothing
+  configured — signed 147-byte UDP announcements, a bounded table, own devices
+  dialled first, each pinned to the device that announced it. Verified against a
+  real broadcast, not only in tests.
 - **Folder**: import/export/delete, conflict handling, watcher with debounce,
   periodic and deep rescans, atomic streamed export.
 - **Daemon**: serve + sync + reconcile in one process.
@@ -157,12 +171,20 @@ side coming back, a deletion removing it from both, both folders byte-identical.
 
 ## 8. What is next, in order
 
-1. **Coordinator server and client.** The library (`coord`) is complete and
+1. **Owner-recorded placement.** Decided in [DESIGN.md](DESIGN.md) §8 and not
+   built. The owner picks replicas from peers it has reached and records the
+   choice in its own log, replacing the coordinator-published node set. This is
+   ahead of the coordinator now, because it is what removes the coordinator's
+   hardest job rather than implementing it.
+2. **Coordinator server and client.** The library (`coord`) is complete and
    tested; nothing serves it. Needs: a protocol enum, a `service.rs` handling
    requests against `Directory`, and a TLS server reusing `itsanas-tls` and
    `wire::Connection`. Then a `itsanas-coordinator` binary.
-2. **Signed node-set epochs.** `NodeSetEpoch` does not exist yet. Coordinator
-   signs, peers pin, placement consumes. This is what makes `placement` usable.
+3. **~~Signed node-set epochs~~ — cancelled.** This was going to be the
+   coordinator publishing a membership list everyone agreed on. Requiring every
+   peer to hold the same list *is* an agreement protocol, and ITSaNAS does not
+   need one: every chunk has exactly one owner who already keeps a log of it.
+   Superseded by owner-recorded placement above.
 3. **CLI wiring**: `itsanas register`, `itsanas coordinator <addr>`, peer
    discovery by username, and pinning peer device ids when dialling (the
    `expect` argument to `PeerClient::connect` is currently always `None`).

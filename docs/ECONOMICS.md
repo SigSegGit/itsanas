@@ -151,6 +151,17 @@ than a known absence of it.
 
 ## 3. What a pledge is actually worth 🟨 **partly built**
 
+> **Superseded in part.** This section originally described a *global* ledger:
+> a coordinator measuring everyone's availability, computing everyone's
+> entitlement, and publishing the result. That needs a trusted accountant, which
+> is the one role the rest of the design refuses to grant anybody, and it was
+> giving the coordinator a job it should never have had.
+>
+> The direction is now **bilateral** — each pair of members tracks what it holds
+> for the other — with the arithmetic below kept as a member's **self-assessment**
+> of their own standing, which needs nobody's cooperation. See
+> [DESIGN.md](DESIGN.md) §8 for the full argument and §4 below for what changes.
+
 ```
 effective contribution  =  pledged bytes × availability
 entitlement             =  effective contribution ÷ 3
@@ -163,12 +174,41 @@ That is harsh, and it is correct. The alternative — counting laptop bytes at
 face value — means the network promises durability it cannot deliver, and the
 people who discover this are the ones who lose files.
 
+### Bilateral, not global ⬜ **specified only**
+
+Two members who host for each other each keep one number per counterparty:
+
+```
+what I hold for them   —   what they hold for me
+```
+
+Both sides can compute it, neither can forge the other's view of it, and no
+third party is consulted. If it goes badly out of balance the injured side stops
+accepting new data from the other. That is BitTorrent's tit-for-tat, which has
+survived twenty years on an openly hostile network.
+
+Two properties fall out of it that the global model had to be told explicitly:
+
+- **The 3x ratio appears on its own.** Wanting three replicas of 100 GB means
+  finding three counterparties and giving each of them 100 GB back.
+- **Availability needs no third-party measurement.** A peer that is never
+  reachable is worth nothing to you, and you can see that yourself. Each side
+  measures the other directly, and nobody is in a position to lie to them about
+  it.
+
+What this costs: matching is less efficient. There is no common pot to draw
+from, so a member has to find counterparties who want roughly what they want.
+At the scale of a household, or a few friends, that is not a problem — and by
+the time it is, there are enough members for it to be solvable in ways that do
+not exist yet at three.
+
 ### How availability is measured, and who can lie about it
 
-The coordinator observes presence and publishes a smoothed estimate in the
-signed node-set epoch. (`Directory::tick` measures availability from observed
-presence and is tested; the signed epoch that would carry it, `NodeSetEpoch`,
-does not exist yet.) A coordinator is therefore in a position to lie: inflating a
+A member computes their **own** availability from their own uptime, and that
+needs nobody. Where a coordinator is used, it also observes presence and can
+publish an estimate — `Directory::tick` measures this from observed presence
+rather than accepting a claim, and is tested — and a coordinator that does so is
+in a position to lie: inflating a
 colluder's availability lets them store more than they contribute; deflating an
 honest member's is denial of service.
 
@@ -179,18 +219,19 @@ This is tolerated, deliberately, and bounded:
   model already grants.
 - The damage is economic, never confidential and never destructive. No amount of
   lying about uptime lets anyone read a byte or delete one.
-- **Availability affects entitlement only.** It does not affect placement, and
-  this is a rule, not an accident: the decision that risks *data* must never
-  depend on a number the untrusted coordinator produces. Placement is computed
-  from the signed node set and pledged capacity alone, which every peer can
-  recompute identically. A lie about uptime therefore costs fairness and cannot
-  cost a replica.
+- **Nothing a coordinator says reaches placement.** This is a rule, not an
+  accident: the decision that risks *data* must never depend on a number an
+  untrusted party produced. An owner chooses its own replicas from peers it has
+  itself reached, and records the choice in its own log — see
+  [DESIGN.md](DESIGN.md) §8. A lie about uptime can therefore cost fairness and
+  cannot cost a replica.
 
-  > ⚠️ The intended second half — placement additionally preferring hosts that
-  > answered **this node's own** storage challenges, which no third party can
-  > forge — is **not built**. The challenge protocol works and is tested;
-  > nothing records the result, so no reputation exists to consult. Until it
-  > does, placement has no reliability input at all.
+  > ⚠️ **Not built.** Owner-recorded placement is decided and not yet
+  > implemented; `itsanas-placement` currently computes replica sets from
+  > pledged capacity over a node set that nothing publishes. The intended
+  > reliability input — hosts that answered **this node's own** storage
+  > challenges, which no third party can forge — also does not exist: the
+  > challenge protocol works and is tested, but nothing records the result.
 - Members pin the last node set they saw and can change coordinator without
   losing anything, because the coordinator holds no data and no keys.
 
@@ -296,10 +337,21 @@ It is a **notice board**. It holds:
 | --- | --- |
 | `username → user id` | User ids *are* public keys. A coordinator that lies produces a name that maps to a key nobody can use. |
 | Presence and addresses | Metadata peers exchange anyway. |
-| Availability estimates | Affects entitlement only, never placement — see §3. |
-| Signed node-set epochs | Signed and pinned; a coordinator serving two different sets is detectable by comparing epochs with any peer. |
-| Escrow blobs | Argon2id-sealed under a passphrase it never sees. |
-| Accounting state | Derived from data it already holds; wrong numbers are unfair, never destructive. |
+| Escrow blobs | Argon2id-sealed under a passphrase it never sees. This is the one job where centralisation is genuinely better than the alternative, because it is somewhere a rate limit can exist — see [DESIGN.md](DESIGN.md) §8. |
+
+**Removed from this list, deliberately.** Earlier versions of this document also
+gave the coordinator a signed node-set epoch, availability estimates that fed
+entitlement, and the accounting state for every member. All three are gone:
+
+| Was | Now |
+| --- | --- |
+| Signed node-set epoch | Nothing. Placement is recorded by the owner, so no global membership list has to be agreed. |
+| Availability estimates | A member measures their own, and each pair measures each other. A coordinator may still publish a hint; nothing depends on it. |
+| Accounting state | Bilateral, held by the two parties to each arrangement. |
+
+What is left is an address book. That is the point: a component that holds
+nothing vital can be switched off, replaced, self-hosted, or eventually swapped
+for a DHT without any of it being a migration.
 
 It does not hold: keys, plaintext, chunks, or the authority to delete anything.
 

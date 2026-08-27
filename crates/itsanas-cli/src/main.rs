@@ -13,6 +13,7 @@
 
 mod config;
 mod daemon;
+mod discovery;
 mod error;
 mod node;
 
@@ -135,6 +136,15 @@ enum Command {
         /// Seconds between sync rounds.
         #[arg(long, default_value_t = daemon::DEFAULT_INTERVAL.as_secs())]
         interval: u64,
+        /// Do not announce this node on the local network, and do not listen
+        /// for others.
+        ///
+        /// Local discovery is what lets machines in one house find each other
+        /// with nothing configured. Turning it off means every peer has to be
+        /// added by hand, and is for networks where broadcast traffic is
+        /// unwelcome or where the node should not advertise that it exists.
+        #[arg(long)]
+        no_discovery: bool,
     },
     /// Run one sync round against a peer.
     Sync {
@@ -204,10 +214,15 @@ fn run() -> Result<()> {
         Command::Scan { deep } => scan(&home, deep),
         Command::Pledge { size } => pledge(&home, &size),
         Command::Serve { listen } => serve(&home, listen.as_deref()),
-        Command::Daemon { listen, interval } => daemon::run(
+        Command::Daemon {
+            listen,
+            interval,
+            no_discovery,
+        } => daemon::run(
             &open(&home)?,
             listen.as_deref(),
             std::time::Duration::from_secs(interval.max(1)),
+            !no_discovery,
         ),
         Command::Sync { address } => sync(&home, address.as_deref()),
         Command::Peer { action } => peer(&home, action),

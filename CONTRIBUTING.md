@@ -52,6 +52,17 @@ that sentence cannot be written, the test should not exist. Test names are
 sentences for the same reason: a failure should read as a statement about the
 system, not as an identifier.
 
+CI enforces the half of this that a machine can check — every name cited in the
+catalogue must exist in `crates/`:
+
+```bash
+bash scripts/check-catalogue.sh
+```
+
+Rename a test and the catalogue fails until its entry follows. That rule exists
+because the catalogue once described three deleted tests, one of them in bold as
+the security property that mattered, whose replacement asserts the opposite.
+
 **3. Documentation changes in the same commit as the code it describes.**
 Present indicative in a document means "this runs today and a named test proves
 it". Anything not yet built carries a visible marker — see the legend at the top

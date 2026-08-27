@@ -1,0 +1,16 @@
+[package]
+name = "itsanas-discover"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Serverless discovery of ITSaNAS nodes on the local network"
+
+[dependencies]
+itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+thiserror = "2.0.20"
+
+[lints]
+workspace = true

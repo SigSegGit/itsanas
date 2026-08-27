@@ -10,11 +10,13 @@ reboots — and your data stays available and stays in sync.
 
 > **Status: early, but it runs.** Two machines keep a folder in sync over an
 > encrypted, mutually authenticated connection: drop a file in, it appears on
-> the other; delete it, it goes from both. 462 tests.
+> the other; delete it, it goes from both. Machines on the same network find
+> each other with nothing configured. 499 tests.
 >
-> What is missing before it is a *network* rather than a personal sync tool:
-> there is no coordinator server, so members cannot find each other and peers
-> are configured by hand. See [docs/ROADMAP.md](docs/ROADMAP.md).
+> What is missing before it is a *network* rather than a household sync tool:
+> no coordinator server, so a machine on a *different* network still has to be
+> added by hand; no repair execution; no scheduled storage challenges. See
+> [docs/ROADMAP.md](docs/ROADMAP.md) and [docs/MVP.md](docs/MVP.md).
 > Nothing here is ready to hold data you care about yet.
 
 ## The idea in one picture
@@ -46,8 +48,10 @@ whether two of its users are storing the same file.
   whichever peers are up.
 - **Fair.** Pledge three times what you store, weighted by how reliably your
   machines are actually reachable. The rules are in [docs/ECONOMICS.md](docs/ECONOMICS.md).
-- **Small trusted surface.** There is an optional coordinator, and it is
-  deliberately not trusted with data, keys, or plaintext of any kind.
+- **Small trusted surface.** Machines on one network need no server at all. A
+  coordinator is optional, holds no data, no keys and no plaintext, and carries
+  nothing that would be lost if it vanished — the reasoning is in
+  [docs/DESIGN.md](docs/DESIGN.md) §8.
 
 ## How live sync works when the peer is asleep
 
@@ -77,6 +81,7 @@ nothing is lost.
 | `itsanas-store` | Content-defined chunking, blob store, operation log, local index | **implemented** |
 | `itsanas-sync` | Version vectors, log merge, conflict materialisation, convergence simulation | **implemented** |
 | `itsanas-wire` | Length-prefixed framing and a stream-agnostic connection | **implemented** |
+| `itsanas-discover` | Serverless discovery: signed announcements on the local network | **implemented** |
 | `itsanas-tls` | TLS 1.3 with device authentication bound to the channel, no certificate authority | **implemented** |
 | `itsanas-net` | Peer protocol, encrypted transport, sync sessions, proof-of-storage challenges | **implemented** |
 | `itsanas-placement` | Rendezvous hashing, replication targets, repair planning | **implemented** (execution pending) |
@@ -89,6 +94,7 @@ nothing is lost.
 | Document | What is in it |
 | --- | --- |
 | [docs/HANDOVER.md](docs/HANDOVER.md) | **Start here to pick the project up cold** — state, decisions that must not be reversed, what is next |
+| [docs/MVP.md](docs/MVP.md) | **What has to be true before this is worth using**, as tests you run on your own machines |
 | [docs/ECONOMICS.md](docs/ECONOMICS.md) | **The bargain**: what a member gives, what they get, and what happens when they stop |
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | **Get two machines syncing** — every command shown has been run, with its real output |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Global architecture: layers, data model, placement, coordinator, transport |

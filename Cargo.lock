@@ -721,6 +721,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "itsanas-crypto",
+ "itsanas-discover",
  "itsanas-folder",
  "itsanas-net",
  "itsanas-store",
@@ -763,6 +764,14 @@ dependencies = [
  "thiserror",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "itsanas-discover"
+version = "0.1.0"
+dependencies = [
+ "itsanas-crypto",
+ "thiserror",
 ]
 
 [[package]]

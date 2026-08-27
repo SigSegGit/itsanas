@@ -33,6 +33,13 @@
 //! periodically re-hashes everything to catch what size-and-mtime comparison
 //! cannot see.
 //!
+//! # Finding peers
+//!
+//! A third thread announces this node on the local network and records what it
+//! hears, so machines in one house find each other with nothing configured.
+//! Discovered devices are dialled after the configured ones, own machines
+//! first, each pinned to the device id that announced it. See `discovery`.
+//!
 //! # What it does not do yet
 //!
 //! It does not execute repair plans. Building a census means asking every peer
@@ -40,15 +47,19 @@
 //! set. Recorded in `docs/ROADMAP.md`.
 
 use std::{
+    collections::BTreeSet,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
+use itsanas_crypto::DeviceId;
+use itsanas_discover::Lan;
 use itsanas_folder::{Folder, Watcher, watch};
 use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
 
 use crate::{
     config::format_size,
+    discovery::{self, Neighbourhood},
     error::{CliError, Result},
     node::Node,
 };
@@ -90,7 +101,7 @@ const SETTLE_LIMIT: Duration = Duration::from_secs(10);
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 /// Run until interrupted.
-pub fn run(node: &Node, listen: Option<&str>, interval: Duration) -> Result<()> {
+pub fn run(node: &Node, listen: Option<&str>, interval: Duration, discover: bool) -> Result<()> {
     let address = listen.unwrap_or(&node.config.listen);
     let server = PeerServer::bind(address)?;
     let bound = server.local_addr()?;
@@ -106,6 +117,26 @@ pub fn run(node: &Node, listen: Option<&str>, interval: Duration) -> Result<()> 
     install_signal_handler()?;
     let shutdown = &SHUTDOWN;
 
+    let neighbourhood = Neighbourhood::new();
+
+    // Discovery is an optimisation, so a failure to bind is a warning and not
+    // an exit. The commonest cause is a second node on the same machine, which
+    // is a test rig rather than a mistake, and it must not stop the daemon that
+    // can still sync with its configured peers.
+    let lan = if discover {
+        match Lan::bind(itsanas_discover::DEFAULT_PORT) {
+            Ok(lan) => Some(lan),
+            Err(error) => {
+                eprintln!(
+                    "itsanas: local discovery is off ({error}). Peers must be added by hand."
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     println!("itsanas daemon");
     println!("  serving   {bound}");
     println!("  user id   {}", node.store.owner());
@@ -117,9 +148,17 @@ pub fn run(node: &Node, listen: Option<&str>, interval: Duration) -> Result<()> 
         None => println!("  folder    none configured (`itsanas folder <path>`)"),
     }
     if node.config.peers.is_empty() {
-        println!("  peers     none configured — this node will serve but never initiate");
+        println!("  peers     none configured");
     } else {
         println!("  peers     {}", node.config.peers.join(", "));
+    }
+    match &lan {
+        Some(_) => println!(
+            "  discovery on, udp {} — machines on this network find each other",
+            itsanas_discover::DEFAULT_PORT
+        ),
+        None if discover => println!("  discovery unavailable — peers must be added by hand"),
+        None => println!("  discovery off (--no-discovery)"),
     }
     println!();
     println!("Ctrl-C to stop.");
@@ -135,7 +174,20 @@ pub fn run(node: &Node, listen: Option<&str>, interval: Duration) -> Result<()> 
             }
         });
 
-        sync_loop(node, interval, shutdown);
+        if let Some(lan) = &lan {
+            scope.spawn(|| {
+                discovery::run(
+                    lan,
+                    &node.device,
+                    node.store.owner(),
+                    bound.port(),
+                    &neighbourhood,
+                    shutdown,
+                );
+            });
+        }
+
+        sync_loop(node, interval, shutdown, &neighbourhood);
     });
 
     println!("stopped.");
@@ -143,7 +195,12 @@ pub fn run(node: &Node, listen: Option<&str>, interval: Duration) -> Result<()> 
 }
 
 /// Reconcile the folder, sync with peers, and wait for whichever comes first.
-fn sync_loop(node: &Node, interval: Duration, shutdown: &AtomicBool) {
+fn sync_loop(
+    node: &Node,
+    interval: Duration,
+    shutdown: &AtomicBool,
+    neighbourhood: &Neighbourhood,
+) {
     let folder = match open_folder(node) {
         Ok(folder) => folder,
         Err(error) => {
@@ -158,6 +215,7 @@ fn sync_loop(node: &Node, interval: Duration, shutdown: &AtomicBool) {
     // watching the first run should see something happen.
     let mut next_sync = Instant::now();
     let mut next_deep = Instant::now();
+    let mut warned_alone = false;
 
     while !shutdown.load(Ordering::Relaxed) {
         let deep = Instant::now() >= next_deep;
@@ -188,13 +246,67 @@ fn sync_loop(node: &Node, interval: Duration, shutdown: &AtomicBool) {
         }
 
         if Instant::now() >= next_sync {
+            // Configured peers first: somebody typed those in, so they are
+            // wanted even if they are also on the local network.
+            let mut reached: BTreeSet<DeviceId> = BTreeSet::new();
             for peer in &node.config.peers {
                 if shutdown.load(Ordering::Relaxed) {
                     break;
                 }
-                sync_once(node, peer);
+                if let Some(device) = sync_once(node, peer, None, true) {
+                    neighbourhood.confirm(device);
+                    reached.insert(device);
+                }
+            }
+
+            // Then whatever announced itself here. Each is pinned to the device
+            // that announced it, so an address answering as somebody else is
+            // refused rather than trusted: discovery says who might be there,
+            // never who is.
+            for candidate in neighbourhood.dial_order(node.store.owner()) {
+                if shutdown.load(Ordering::Relaxed) {
+                    break;
+                }
+                if reached.contains(&candidate.device) {
+                    continue;
+                }
+                // A stranger that does not answer is not news — this network is
+                // built out of machines that are usually off. One of your own
+                // machines failing to answer is worth saying.
+                let reachable = sync_once(
+                    node,
+                    &candidate.address.to_string(),
+                    Some(candidate.device),
+                    candidate.mine,
+                );
+                if let Some(device) = reachable {
+                    neighbourhood.confirm(device);
+                    reached.insert(device);
+                }
             }
             next_sync = Instant::now() + interval;
+
+            // Say it once, rather than leaving someone watching a silent
+            // terminal wondering whether anything is happening. Silence is the
+            // correct output for a working daemon and the worst possible
+            // output for one that has nobody to talk to.
+            if reached.is_empty() && !warned_alone {
+                warned_alone = true;
+                if node.config.peers.is_empty() && neighbourhood.is_empty() {
+                    println!("no other machines found yet.");
+                    println!(
+                        "  on this network: start the daemon on another machine and it is found"
+                    );
+                    println!("  elsewhere:       itsanas peer add <host:port>");
+                } else {
+                    println!(
+                        "{} machine(s) known, none reachable this round.",
+                        node.config.peers.len() + neighbourhood.len()
+                    );
+                }
+            } else if !reached.is_empty() {
+                warned_alone = false;
+            }
 
             // Write out whatever just arrived, rather than making the user
             // wait for the next loop to see their peer's changes.
@@ -285,14 +397,31 @@ fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
 /// A peer being unreachable is the normal state of this network, not a fault:
 /// the whole design is built around machines that are usually off. Treating it
 /// as an error would mean the daemon exits every time someone shuts a laptop.
-fn sync_once(node: &Node, peer: &str) {
-    let mut client = match PeerClient::connect(peer, &node.device, node.store.owner(), None) {
+///
+/// `expect` pins which device must answer, and returns the device that did.
+/// Answering at all means it completed a mutually authenticated handshake,
+/// which is the only evidence available on a bare network that a device is real
+/// rather than a keypair somebody minted a second ago — so the caller uses it
+/// to protect the entry from being evicted by a flood of strangers.
+///
+/// The device is returned even when the round itself failed. Reaching a machine
+/// and then falling out with it says nothing about whether the machine exists.
+fn sync_once(
+    node: &Node,
+    peer: &str,
+    expect: Option<DeviceId>,
+    announce_failure: bool,
+) -> Option<DeviceId> {
+    let mut client = match PeerClient::connect(peer, &node.device, node.store.owner(), expect) {
         Ok(client) => client,
         Err(error) => {
-            println!("{peer}: unreachable ({error})");
-            return;
+            if announce_failure {
+                println!("{peer}: unreachable ({error})");
+            }
+            return None;
         }
     };
+    let answered = client.peer_device();
 
     match session::round(&node.store, &node.vault, &mut client) {
         Ok(report) if report.changed_anything() => {
@@ -315,6 +444,8 @@ fn sync_once(node: &Node, peer: &str) {
         Ok(_) => {}
         Err(error) => println!("{peer}: failed ({error})"),
     }
+
+    Some(answered)
 }
 
 fn install_signal_handler() -> Result<()> {
