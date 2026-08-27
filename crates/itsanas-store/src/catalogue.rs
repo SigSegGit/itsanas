@@ -42,6 +42,19 @@
 
 use std::collections::BTreeMap;
 
+/// Most segments read from one device's chain in a single walk.
+///
+/// Not a tuning knob — a memory bound. `segments_for` returns a `Vec`, so an
+/// unlimited walk materialises an entire history in RAM, which is the property
+/// the rest of this crate spends real effort protecting. The same mistake was
+/// already found once, in `blobs().addresses()`, by a benchmark.
+///
+/// A listing that hits this bound is incomplete, and says so through
+/// [`Catalogue::complete`] rather than silently showing fewer files than exist.
+/// Two hundred and fifty-six matches the network layer's per-request limit,
+/// which exists for the same reason.
+pub const MAX_SEGMENTS_WALKED: usize = 256;
+
 use itsanas_crypto::UserId;
 
 use crate::error::Result;
@@ -82,6 +95,20 @@ struct Latest {
     file: Option<(u64, u64)>,
 }
 
+/// A listing, and whether it is the whole story.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Catalogue {
+    /// The files, sorted by path.
+    pub files: Vec<Known>,
+    /// Whether every log segment was read.
+    ///
+    /// False when a device's chain is longer than [`MAX_SEGMENTS_WALKED`]. The
+    /// listing is then a prefix rather than the whole account, and a caller
+    /// showing it to a person should say so — a short list presented as
+    /// complete is how somebody concludes their files are gone.
+    pub complete: bool,
+}
+
 /// Every file this account has, downloaded or not, sorted by path.
 ///
 /// Combines what the index holds — which is by definition downloaded — with
@@ -89,7 +116,7 @@ struct Latest {
 ///
 /// A path that is both is reported once, as [`Presence::Local`]: having the
 /// content beats knowing about it.
-pub fn catalogue(store: &Store, vault: &Vault) -> Result<Vec<Known>> {
+pub fn catalogue(store: &Store, vault: &Vault) -> Result<Catalogue> {
     let owner = store.owner();
     let mine = store.device_id();
 
@@ -111,7 +138,8 @@ pub fn catalogue(store: &Store, vault: &Vault) -> Result<Vec<Known>> {
         );
     }
 
-    for (path, latest) in walk_vault(store, vault, owner, mine)? {
+    let (from_log, complete) = walk_vault(store, vault, owner, mine)?;
+    for (path, latest) in from_log {
         // Downloaded already. The vault may hold an older or a newer version;
         // either way this device can open the file, and a content round is what
         // resolves the difference.
@@ -148,7 +176,10 @@ pub fn catalogue(store: &Store, vault: &Vault) -> Result<Vec<Known>> {
         );
     }
 
-    Ok(out.into_values().collect())
+    Ok(Catalogue {
+        files: out.into_values().collect(),
+        complete,
+    })
 }
 
 /// How many files are known but not downloaded.
@@ -156,6 +187,7 @@ pub fn catalogue(store: &Store, vault: &Vault) -> Result<Vec<Known>> {
 /// For a status line, without building the whole list.
 pub fn absent_count(store: &Store, vault: &Vault) -> Result<usize> {
     Ok(catalogue(store, vault)?
+        .files
         .into_iter()
         .filter(|known| known.presence == Presence::Absent)
         .count())
@@ -167,15 +199,23 @@ fn walk_vault(
     vault: &Vault,
     owner: UserId,
     mine: itsanas_crypto::DeviceId,
-) -> Result<BTreeMap<String, Latest>> {
+) -> Result<(BTreeMap<String, Latest>, bool)> {
     let mut latest: BTreeMap<String, Latest> = BTreeMap::new();
+    let mut complete = true;
 
     for (device, _, _) in vault.heads_for(owner)? {
         if device == mine {
             continue;
         }
 
-        for envelope in vault.segments_for(owner, device, None, usize::MAX)? {
+        let segments = vault.segments_for(owner, device, None, MAX_SEGMENTS_WALKED)?;
+        if segments.len() == MAX_SEGMENTS_WALKED {
+            // Possibly truncated. Reported rather than guessed at: the
+            // alternative is a listing that is quietly short.
+            complete = false;
+        }
+
+        for envelope in segments {
             let body = store.open_segment(&envelope)?;
             for entry in body.entries {
                 let (path, file) = match &entry.operation {
@@ -190,7 +230,7 @@ fn walk_vault(
         }
     }
 
-    Ok(latest)
+    Ok((latest, complete))
 }
 
 /// Keep the operation that should decide what a listing shows.

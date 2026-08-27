@@ -741,13 +741,13 @@ fn list(home: &Path) -> Result<()> {
     // their files were gone.
     let known = itsanas_store::catalogue(&node.store, &node.vault)?;
 
-    if known.is_empty() {
+    if known.files.is_empty() {
         println!("(no files)");
         return Ok(());
     }
 
     let mut absent = 0usize;
-    for entry in &known {
+    for entry in &known.files {
         match entry.presence {
             itsanas_store::Presence::Local => {
                 println!("{:>12}            {}", format_size(entry.size), entry.path);

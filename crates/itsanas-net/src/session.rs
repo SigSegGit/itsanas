@@ -314,15 +314,19 @@ pub fn pull_scoped(
     // the chunks was asleep" case, which QUICKSTART describes as something a
     // later sync resolves, and which no later sync resolved.
     //
-    // Applying an already-applied operation is cheap: the version comparison
-    // happens before any chunk is fetched, so a replayed round costs local
-    // index lookups and no network. It is still O(history) per round, which is
-    // the same cost `drain_vault` already pays every round, and the same thing
-    // pack files will have to address.
+    // Applying an already-applied operation is cheap — the version comparison
+    // happens before any chunk is fetched — but the walk itself is O(history),
+    // and doing it on every round for every peer turned a per-round cost of
+    // "the new segments" into "the whole chain, times the number of peers".
+    // That was a regression, introduced with the fix and measured afterwards.
     //
-    // Metadata rounds do not replay. They could not complete anything anyway,
+    // So it only happens when something is actually outstanding: the vault
+    // holds segments this device has not applied. `Store::has_unapplied` is a
+    // cheap comparison of two markers, not a walk.
+    //
+    // Metadata rounds never replay. They could not complete anything anyway,
     // and walking a whole chain to defer it again is work for nothing.
-    if scope.moves_content() {
+    if scope.moves_content() && (fetched.is_empty() || store.has_unapplied(vault)?) {
         fetched.clear();
         for (device, _, _) in vault.heads_for(owner)? {
             if device == mine {
@@ -350,6 +354,12 @@ pub fn pull_scoped(
         apply_segments(store, &fetched, &itsanas_sync::EmptySource)
     }
     .map_err(|error| NetError::Refused(error.to_string()))?;
+
+    // Only a round that finished everything may move the markers. One deferral
+    // and they stay where they are, so the next content round replays.
+    if scope.moves_content() && report.deferred == 0 {
+        store.note_all_applied(vault)?;
+    }
 
     Ok(report)
 }

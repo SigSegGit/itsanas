@@ -34,6 +34,7 @@ use crate::{
         FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
     },
     path as logical_path,
+    vault::Vault,
     version::VersionVector,
 };
 
@@ -642,6 +643,45 @@ impl Store {
         }
 
         Ok(report)
+    }
+
+    // ---------------------------------------------------- outstanding work
+
+    /// Whether the vault holds work this device has not managed to apply.
+    ///
+    /// Two lookups per device, not a walk. The answer is *conservative*: a
+    /// device whose head has moved is reported as outstanding even if the new
+    /// segments would apply cleanly, because finding out costs exactly the walk
+    /// this is here to avoid. Being wrong in that direction means one extra
+    /// replay; being wrong in the other means a file that never arrives.
+    pub fn has_unapplied(&self, vault: &Vault) -> Result<bool> {
+        let mine = self.device_id();
+        for (device, head, _) in vault.heads_for(self.owner())? {
+            if device == mine {
+                continue;
+            }
+            if self.index.applied_head(&device)? != Some(head) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Record that everything the vault currently holds has been applied.
+    ///
+    /// Call only after a round that deferred nothing. A round with even one
+    /// deferral must leave the markers alone, or the work it could not finish
+    /// is never looked at again — which is the bug this whole mechanism exists
+    /// to make impossible.
+    pub fn note_all_applied(&self, vault: &Vault) -> Result<()> {
+        let mine = self.device_id();
+        for (device, head, _) in vault.heads_for(self.owner())? {
+            if device == mine {
+                continue;
+            }
+            self.index.set_applied_head(&device, &head)?;
+        }
+        Ok(())
     }
 
     // ------------------------------------------------------- where it went

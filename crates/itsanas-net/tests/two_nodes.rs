@@ -868,6 +868,7 @@ fn a_metadata_round_makes_the_file_listable_before_it_is_downloaded() {
     assert!(
         itsanas_store::catalogue(&phone.store, &phone.vault)
             .expect("catalogue")
+            .files
             .is_empty(),
         "a phone that has synced nothing should know of nothing"
     );
@@ -887,7 +888,9 @@ fn a_metadata_round_makes_the_file_listable_before_it_is_downloaded() {
     // The index still holds nothing — no half-written state.
     assert!(phone.store.list().expect("list").is_empty());
 
-    let known = itsanas_store::catalogue(&phone.store, &phone.vault).expect("catalogue");
+    let known = itsanas_store::catalogue(&phone.store, &phone.vault)
+        .expect("catalogue")
+        .files;
     let paths: Vec<&str> = known.iter().map(|k| k.path.as_str()).collect();
     assert_eq!(paths, vec!["notes/todo.txt", "photos/holiday.jpg"]);
     assert!(
@@ -919,7 +922,9 @@ fn a_metadata_round_makes_the_file_listable_before_it_is_downloaded() {
         .expect("content pull");
     });
 
-    let known = itsanas_store::catalogue(&phone.store, &phone.vault).expect("catalogue");
+    let known = itsanas_store::catalogue(&phone.store, &phone.vault)
+        .expect("catalogue")
+        .files;
     assert_eq!(known.len(), 2, "the same two files, not four");
     assert!(
         known
@@ -965,6 +970,7 @@ fn a_file_deleted_elsewhere_is_never_offered_for_download() {
     assert!(
         itsanas_store::catalogue(&phone.store, &phone.vault)
             .expect("catalogue")
+            .files
             .is_empty(),
         "a deleted file was offered for download"
     );
@@ -1014,7 +1020,9 @@ fn a_delete_racing_an_edit_still_leaves_the_file_listed() {
         });
     }
 
-    let known = itsanas_store::catalogue(&phone.store, &phone.vault).expect("catalogue");
+    let known = itsanas_store::catalogue(&phone.store, &phone.vault)
+        .expect("catalogue")
+        .files;
     assert_eq!(
         known.len(),
         1,
@@ -1022,4 +1030,69 @@ fn a_delete_racing_an_edit_still_leaves_the_file_listed() {
     );
     assert_eq!(known[0].path, "doc.txt");
     assert_eq!(known[0].presence, itsanas_store::Presence::Absent);
+}
+
+#[test]
+fn a_round_that_deferred_nothing_does_not_replay_the_chain_next_time() {
+    // The replay exists so deferred work is retried. Doing it unconditionally
+    // turned the daemon's per-round cost from "the new segments" into "the
+    // whole chain, times the number of peers" — a regression introduced with
+    // the fix and measured afterwards.
+    //
+    // The marker is what makes it conditional, and it is only moved by a round
+    // that finished everything. If this test fails in the "outstanding"
+    // direction the cost regression is back; if it fails in the other, work
+    // that could not finish is never looked at again.
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+
+    laptop
+        .store
+        .write_file("doc.txt", b"content")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+
+    assert!(
+        !phone.store.has_unapplied(&phone.vault).expect("check"),
+        "an empty vault cannot have outstanding work"
+    );
+
+    // A metadata round takes the segments and finishes nothing.
+    with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        session::pull_scoped(
+            &phone.store,
+            &phone.vault,
+            &mut client,
+            session::Scope::Metadata,
+        )
+        .expect("metadata pull");
+    });
+
+    assert!(
+        phone.store.has_unapplied(&phone.vault).expect("check"),
+        "segments were taken and never applied, which is the definition of outstanding"
+    );
+
+    // A content round finishes it.
+    with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        let report = session::pull_scoped(
+            &phone.store,
+            &phone.vault,
+            &mut client,
+            session::Scope::Everything,
+        )
+        .expect("content pull");
+        assert_eq!(report.deferred, 0);
+    });
+
+    assert!(
+        !phone.store.has_unapplied(&phone.vault).expect("check"),
+        "everything applied, so nothing is outstanding and the next round should not replay"
+    );
+    assert!(phone.store.read_file("doc.txt").expect("read").is_some());
 }

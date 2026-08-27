@@ -204,14 +204,22 @@ Reachable from the command line too — `itsanas sync --metadata-only`, then
 does. This was the last piece missing from the *core*; what remains for Android
 is shell work.
 
-### The sync policy, decided
+### The sync policy, decided and not yet wired
+
+Implemented and tested in `itsanas-policy` — **and called by nothing.** Its
+consumer is the Android shell, which does not exist, and a desktop cannot detect
+a metered connection without a platform crate the project does not have. So the
+table below is a decision in executable form, not a description of behaviour.
+
+What *is* reachable today is the mode it would select: `itsanas sync
+--metadata-only`, chosen by hand.
 
 Implemented and tested in `itsanas-policy`. The rule is **metered or not**,
 never Wi-Fi or not: a phone's own hotspot is Wi-Fi and charged by the gigabyte,
 and plenty of mobile plans are unlimited. Android answers the right question
 directly through `NET_CAPABILITY_NOT_METERED`.
 
-| Situation | What happens | Interval |
+| Situation | What it would select | Interval |
 | --- | --- | --- |
 | App open, unmetered | everything | 30 s |
 | App open, metered | segments only; tap a file to download it | 30 s |

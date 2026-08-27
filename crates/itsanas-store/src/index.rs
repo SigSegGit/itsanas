@@ -60,6 +60,18 @@ const META: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("meta");
 /// `holders.rs` for the argument.
 const HOLDERS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holders");
 
+/// Device → the head of that device's chain when it was last applied with
+/// nothing left over.
+///
+/// A marker, not a cache of work. Comparing it against the vault's current head
+/// answers "is there anything here I have not managed to apply yet" in two
+/// lookups, instead of walking and decoding an entire chain to find out.
+///
+/// Only written when a round completes with **zero** deferrals, so a device
+/// whose chunks were unreachable stays marked as outstanding and gets replayed
+/// on the next round that can move content.
+const APPLIED: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("applied_heads");
+
 const META_NEXT_SEQUENCE: &str = "next_sequence";
 const META_HEAD_SEGMENT: &str = "head_segment";
 const META_CHAIN_LENGTH: &str = "chain_length";
@@ -108,6 +120,7 @@ impl Index {
             let _ = txn.open_table(LOCAL)?;
             let _ = txn.open_table(META)?;
             let _ = txn.open_table(HOLDERS)?;
+            let _ = txn.open_table(APPLIED)?;
         }
         txn.commit()?;
 
@@ -570,6 +583,30 @@ impl Index {
         key: &str,
     ) -> Result<Option<ObjectId>> {
         match meta.get(key)? {
+            Some(value) => Ok(Some(ObjectId::from_slice(value.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    // ------------------------------------------------------- applied heads
+
+    /// Record that `device`'s chain was applied up to `head`, with nothing
+    /// deferred.
+    pub fn set_applied_head(&self, device: &DeviceId, head: &ObjectId) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(APPLIED)?
+                .insert(device.as_bytes().as_slice(), head.as_bytes().as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// The head this device last applied cleanly for `device`, if any.
+    pub fn applied_head(&self, device: &DeviceId) -> Result<Option<ObjectId>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(APPLIED)?;
+        match table.get(device.as_bytes().as_slice())? {
             Some(value) => Ok(Some(ObjectId::from_slice(value.value())?)),
             None => Ok(None),
         }
