@@ -17,7 +17,7 @@
 //! grows without bound. Rather than paste in a magic 256-entry table that could
 //! be transcribed wrongly, the table is derived from BLAKE3 under a fixed domain
 //! string. It is reproducible from first principles on any machine, and
-//! [`tests::the_gear_table_is_pinned_forever`] fails loudly if it ever changes.
+//! the `the_gear_table_is_pinned_forever` test fails loudly if it ever changes.
 
 use std::sync::LazyLock;
 

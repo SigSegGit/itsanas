@@ -20,6 +20,30 @@
 //!
 //! Nothing here uses randomness or wall-clock time, so a failing scenario fails
 //! identically on every machine and every run.
+//!
+//! # Example
+//!
+//! The scenario the whole architecture exists for: a device writes, publishes,
+//! and is switched off permanently, and the others still converge on its work.
+//!
+//! ```
+//! use itsanas_sync::sim::Swarm;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut swarm = Swarm::new(3)?;
+//!
+//! // The Pi writes while the laptop is asleep, then goes offline for good.
+//! swarm.device(1).write("notes.txt", b"written on the Pi")?;
+//! swarm.device(1).publish()?;
+//! swarm.set_online(1, false);
+//!
+//! // The laptop wakes and catches up from a host that cannot read the data.
+//! swarm.settle()?;
+//!
+//! assert_eq!(swarm.device(0).read("notes.txt")?.unwrap(), b"written on the Pi");
+//! # Ok(())
+//! # }
+//! ```
 
 use std::{
     collections::BTreeMap,

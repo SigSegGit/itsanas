@@ -27,26 +27,13 @@
 //! it is established by [`sim`], which runs adversarial multi-device scenarios
 //! deterministically and asserts convergence in every one.
 //!
-//! # Example
+//! # Where to start reading
 //!
-//! ```
-//! use itsanas_sync::sim::Swarm;
-//!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut swarm = Swarm::new(3)?;
-//!
-//! // The Pi writes while the laptop is asleep, then goes offline for good.
-//! swarm.device(1).write("notes.txt", b"written on the Pi")?;
-//! swarm.device(1).publish()?;
-//! swarm.set_online(1, false);
-//!
-//! // The laptop wakes and catches up from a host that cannot read the data.
-//! swarm.settle()?;
-//!
-//! assert_eq!(swarm.device(0).read("notes.txt")?.unwrap(), b"written on the Pi");
-//! # Ok(())
-//! # }
-//! ```
+//! [`engine`] holds the decision table — what happens for every combination of
+//! local state and incoming claim. [`sim`] holds a worked example and the
+//! adversarial scenarios. The example lives there rather than here because
+//! `sim` is behind the `simulation` feature, and a crate-level example using it
+//! would fail to compile for anyone who turned that feature off.
 
 pub mod conflict;
 pub mod engine;

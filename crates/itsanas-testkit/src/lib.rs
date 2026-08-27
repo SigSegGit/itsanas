@@ -21,7 +21,7 @@
 //!
 //! 3. **The corpus is pinned.** Every file's BLAKE3 digest and the digest of
 //!    the corpus as a whole are constants here, checked by
-//!    [`tests::corpus_matches_its_published_digests`] and republished in the
+//!    the `corpus_matches_its_published_digests` test and republished in the
 //!    documentation. Any change to the test data — accidental or hostile —
 //!    fails CI and changes a value that a reader can verify by hand.
 
