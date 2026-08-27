@@ -712,3 +712,131 @@ fn a_host_that_refuses_to_store_is_not_recorded_as_holding_anything() {
         "every chunk should still be reported as existing only here"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Metadata-only rounds, for a phone on mobile data
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_metadata_round_learns_what_changed_without_downloading_it() {
+    // What a phone on mobile data needs: the file list current, the files
+    // themselves left alone until somebody taps one. The alternative — refusing
+    // to sync at all on an expensive connection — shows a stale list, which is
+    // indistinguishable from a broken application.
+    //
+    // Nothing may be half-written. An operation is either applied with its
+    // content or deferred, which is the same guarantee a sleeping peer gets.
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+
+    laptop
+        .store
+        .write_file("notes/report.txt", b"a real file with real chunks in it")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+
+    with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        let report = session::pull_scoped(
+            &phone.store,
+            &phone.vault,
+            &mut client,
+            session::Scope::Metadata,
+        )
+        .expect("metadata pull");
+
+        assert_eq!(
+            report.adopted, 0,
+            "a metadata round materialised a file it never downloaded"
+        );
+        assert!(
+            report.deferred > 0,
+            "the operation was neither applied nor deferred, so it was lost"
+        );
+    });
+
+    assert!(
+        phone
+            .store
+            .read_file("notes/report.txt")
+            .expect("read")
+            .is_none(),
+        "the file is readable after a round that never fetched its bytes"
+    );
+
+    // The segments are kept, so this node can relay them onwards and the next
+    // round resumes rather than starting over.
+    assert!(
+        !phone
+            .vault
+            .heads_for(phone.store.owner())
+            .expect("heads")
+            .is_empty(),
+        "the log segments were discarded, so the cheap half of the work was wasted"
+    );
+
+    // Back on wifi.
+    with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        session::pull_scoped(
+            &phone.store,
+            &phone.vault,
+            &mut client,
+            session::Scope::Everything,
+        )
+        .expect("full pull");
+    });
+
+    assert_eq!(
+        phone
+            .store
+            .read_file("notes/report.txt")
+            .expect("read")
+            .as_deref(),
+        Some(&b"a real file with real chunks in it"[..]),
+        "the deferred operation never completed once the content was reachable"
+    );
+}
+
+#[test]
+fn a_metadata_round_offers_the_log_but_sends_no_chunks() {
+    // The other direction, and the one that costs a phone money: a photo taken
+    // on mobile data must not upload itself. The peer still learns that it
+    // happened, so nothing is lost and the upload resumes on wifi.
+    let master = alice();
+    let phone = node(&master, 1);
+    let host = node(&master, 2);
+
+    phone
+        .store
+        .write_file(
+            "photos/img.jpg",
+            b"pretend this is four megabytes of photograph",
+        )
+        .expect("write");
+    phone.store.flush_segment().expect("flush");
+
+    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).expect("dial");
+        let report = session::push_scoped(&phone.store, &mut client, session::Scope::Metadata)
+            .expect("metadata push");
+
+        assert!(
+            report.segments_accepted > 0,
+            "the peer was not even told that anything had happened"
+        );
+        assert_eq!(
+            report.chunks_offered, 0,
+            "a metadata push offered chunks, which is the upload it exists to avoid"
+        );
+        assert_eq!(report.chunks_accepted, 0);
+        assert_eq!(
+            report.holders_recorded, 0,
+            "chunks were recorded as stored somewhere they were never sent"
+        );
+    });
+}

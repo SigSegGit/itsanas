@@ -831,6 +831,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "itsanas-policy"
+version = "0.1.0"
+
+[[package]]
 name = "itsanas-store"
 version = "0.1.0"
 dependencies = [

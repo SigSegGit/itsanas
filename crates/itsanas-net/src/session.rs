@@ -117,7 +117,60 @@ impl ChunkSource for RemoteChunks<'_> {
 }
 
 /// Offer this device's segments and any chunks the peer lacks.
+/// How much of a round to do.
+///
+/// A phone on mobile data, and a laptop tethered to one, both want the file
+/// list without the files. Learning *what* changed means exchanging signed log
+/// segments — kilobytes. Fetching the changes themselves is megabytes.
+///
+/// The deferred path this relies on was not added for it: applying an operation
+/// whose chunks are unavailable already leaves local state untouched and asks
+/// to be retried, because that is what a peer being asleep looks like. Choosing
+/// not to fetch is indistinguishable from being unable to, which is why this
+/// costs almost no new code and no new failure mode.
+///
+/// `itsanas-policy` decides which one to use and why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// Segments only. The file list becomes current; contents do not arrive.
+    Metadata,
+    /// Segments and chunks.
+    Everything,
+}
+
+impl Scope {
+    /// Whether file contents move.
+    #[must_use]
+    pub const fn moves_content(self) -> bool {
+        matches!(self, Self::Everything)
+    }
+}
+
+/// One round, both directions, moving everything.
+pub fn round(store: &Store, vault: &Vault, client: &mut PeerClient) -> Result<RoundReport> {
+    round_scoped(store, vault, client, Scope::Everything)
+}
+
+/// One round, both directions, at `scope`.
+pub fn round_scoped(
+    store: &Store,
+    vault: &Vault,
+    client: &mut PeerClient,
+    scope: Scope,
+) -> Result<RoundReport> {
+    Ok(RoundReport {
+        push: push_scoped(store, client, scope)?,
+        pull: pull_scoped(store, vault, client, scope)?,
+    })
+}
+
+/// Offer this node's work to a peer, moving everything.
 pub fn push(store: &Store, client: &mut PeerClient) -> Result<PushReport> {
+    push_scoped(store, client, Scope::Everything)
+}
+
+/// Offer this node's work to a peer, at `scope`.
+pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Result<PushReport> {
     let owner = store.owner();
     let peer = client.peer_device();
     let mut report = PushReport::default();
@@ -130,6 +183,13 @@ pub fn push(store: &Store, client: &mut PeerClient) -> Result<PushReport> {
                 .bytes_sent
                 .saturating_add(envelope.sealed_body.len() as u64);
         }
+    }
+
+    if !scope.moves_content() {
+        // Segments have been offered; the peer now knows what this device has
+        // done. Sending the bytes is the expensive half and it can wait for a
+        // connection that does not cost money.
+        return Ok(report);
     }
 
     // Ask before sending. Re-uploading a hundred thousand chunks every round
@@ -176,6 +236,23 @@ pub fn push(store: &Store, client: &mut PeerClient) -> Result<PushReport> {
 
 /// Fetch what the peer has from this user's *other* devices, and merge it.
 pub fn pull(store: &Store, vault: &Vault, client: &mut PeerClient) -> Result<SyncReport> {
+    pull_scoped(store, vault, client, Scope::Everything)
+}
+
+/// Fetch what the peer has from this user's *other* devices, and merge it, at
+/// `scope`.
+///
+/// At [`Scope::Metadata`] the segments are still fetched, verified and kept —
+/// so the file list is current and this node can relay them onwards — and every
+/// operation whose chunks would have to be downloaded comes back as `deferred`.
+/// Nothing is half-written: an operation is either applied with its content or
+/// left for later, which is the same guarantee a sleeping peer already gets.
+pub fn pull_scoped(
+    store: &Store,
+    vault: &Vault,
+    client: &mut PeerClient,
+    scope: Scope,
+) -> Result<SyncReport> {
     let owner = store.owner();
     let mine = store.device_id();
 
@@ -211,25 +288,62 @@ pub fn pull(store: &Store, vault: &Vault, client: &mut PeerClient) -> Result<Syn
         fetched.extend(segments);
     }
 
+    // A round that can move content applies from the **vault**, not from what
+    // this round happened to fetch.
+    //
+    // Two reasons, and the second is the one that was actually broken. The
+    // vault is a superset — every segment fetched above was just written into
+    // it — and it is ordered, which matters because chain validation refuses a
+    // segment that arrives before the one it follows. Splicing newly fetched
+    // segments onto vault ones produced exactly that: "claims to follow X, but
+    // the previous segment on this chain is none".
+    //
+    // And without it, work deferred by an earlier round is never retried. The
+    // segments were kept, so the next pull sees the head as already current,
+    // asks for nothing and applies nothing — the file that could not be
+    // downloaded the first time is then never downloaded at all, silently, on
+    // a node reporting a clean sync. That is the ordinary "the device holding
+    // the chunks was asleep" case, which QUICKSTART describes as something a
+    // later sync resolves, and which no later sync resolved.
+    //
+    // Applying an already-applied operation is cheap: the version comparison
+    // happens before any chunk is fetched, so a replayed round costs local
+    // index lookups and no network. It is still O(history) per round, which is
+    // the same cost `drain_vault` already pays every round, and the same thing
+    // pack files will have to address.
+    //
+    // Metadata rounds do not replay. They could not complete anything anyway,
+    // and walking a whole chain to defer it again is work for nothing.
+    if scope.moves_content() {
+        fetched.clear();
+        for (device, _, _) in vault.heads_for(owner)? {
+            if device == mine {
+                continue;
+            }
+            fetched.extend(vault.segments_for(
+                owner,
+                device,
+                None,
+                usize::from(MAX_SEGMENTS_PER_REQUEST),
+            )?);
+        }
+    }
+
     if fetched.is_empty() {
         return Ok(SyncReport::default());
     }
 
-    let source = RemoteChunks {
-        client: RefCell::new(client),
-    };
-    let (report, _) = apply_segments(store, &fetched, &source)
-        .map_err(|error| NetError::Refused(error.to_string()))?;
+    let (report, _) = if scope.moves_content() {
+        let source = RemoteChunks {
+            client: RefCell::new(client),
+        };
+        apply_segments(store, &fetched, &source)
+    } else {
+        apply_segments(store, &fetched, &itsanas_sync::EmptySource)
+    }
+    .map_err(|error| NetError::Refused(error.to_string()))?;
 
     Ok(report)
-}
-
-/// Push then pull.
-pub fn round(store: &Store, vault: &Vault, client: &mut PeerClient) -> Result<RoundReport> {
-    Ok(RoundReport {
-        push: push(store, client)?,
-        pull: pull(store, vault, client)?,
-    })
 }
 
 /// Apply this user's own segments that peers have pushed into the vault.
