@@ -12,7 +12,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
+  # Deliberately *not* `RUSTFLAGS: -D warnings`. RUSTFLAGS applies to every
+  # crate compiled, dependencies included, so one upstream crate emitting a
+  # deprecation warning would fail our build for a reason we cannot fix and did
+  # not cause. Warnings are denied where they are ours to fix: on the clippy
+  # invocation below, which is scoped to this workspace.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -29,7 +33,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --all-features
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
@@ -53,9 +57,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Tests marked #[ignore] are the ones that run real production cost
-      # parameters — full 64 MiB Argon2id, large simulated swarms. Too slow for
-      # every push, far too important to never run.
+      # Tests marked #[ignore] run real production cost parameters. Currently
+      # that is one test — the full 64 MiB Argon2id — which is far too slow for
+      # every push and far too important to never run. Large simulated swarms
+      # will join it at M5.
       - run: cargo test --workspace --all-features -- --ignored --test-threads 1
 
   cross-build:
@@ -67,6 +72,10 @@ jobs:
         with:
           targets: aarch64-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v2
+      # Required, not belt-and-braces: blake3's build script compiles NEON
+      # assembly for aarch64 and fails outright without a cross C compiler
+      # ("failed to find tool aarch64-linux-gnu-gcc"). Everything else in the
+      # tree is pure Rust.
       - run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - name: Build
         env:

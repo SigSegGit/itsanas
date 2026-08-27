@@ -5,7 +5,11 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+# 1.85 would cover edition 2024, but let-chains (`if let Some(x) = a && b`) are
+# used throughout and were stabilised in 1.88. Verified by running
+# `cargo +1.88.0 check --workspace --all-features`, which the CI msrv job
+# repeats on every push.
+rust-version = "1.88"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/SigSeg/itsanas"
 authors = ["Nicolas Girard <nicolas.girard.e@gmail.com>"]
