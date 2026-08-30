@@ -68,7 +68,7 @@ pub use chunker::split_stream;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};
 pub use holders::{AtRisk, Holder};
-pub use index::Index;
+pub use index::{HolderOrderings, Index};
 pub use local::LocalState;
 pub use oplog::{
     FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,

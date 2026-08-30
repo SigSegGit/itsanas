@@ -73,6 +73,27 @@ const HOLDERS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holders")
 /// on the next round that can move content.
 const APPLIED: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("applied_heads");
 
+/// The holder ledger read out of both of its tables, for cross-checking.
+///
+/// A pair of vectors would do; a named type makes the two halves impossible to
+/// swap at a call site, which matters for something whose entire purpose is
+/// comparing them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HolderOrderings {
+    /// Pairs as the chunk-first table holds them.
+    pub by_chunk: Vec<(ChunkId, DeviceId)>,
+    /// The same pairs as the device-first table holds them.
+    pub by_device: Vec<(ChunkId, DeviceId)>,
+}
+
+/// The same holdings, keyed device-first.
+///
+/// Written and removed in the same transaction as [`HOLDERS`], so the two
+/// cannot disagree. It exists because the two questions asked of that ledger
+/// have opposite key shapes, and answering one of them with the wrong ordering
+/// is a full table scan — fourteen million rows per audit round at a terabyte.
+const HOLDINGS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holdings_by_device");
+
 /// Device → what auditing it has shown, over time.
 ///
 /// Detection without memory is not a defence: a host that discards what it
@@ -131,6 +152,7 @@ impl Index {
             let _ = txn.open_table(HOLDERS)?;
             let _ = txn.open_table(APPLIED)?;
             let _ = txn.open_table(RELIABILITY)?;
+            let _ = txn.open_table(HOLDINGS)?;
         }
         txn.commit()?;
 
@@ -386,6 +408,7 @@ impl Index {
             // leave the repair loop working to restore the replication of a
             // chunk that no longer exists anywhere and should not.
             let mut holders = txn.open_table(HOLDERS)?;
+            let mut holdings = txn.open_table(HOLDINGS)?;
             let doomed: Vec<Vec<u8>> = holders
                 .range(
                     holders::range_start(chunk).as_slice()..=holders::range_end(chunk).as_slice(),
@@ -393,6 +416,11 @@ impl Index {
                 .filter_map(|row| row.ok().map(|(key, _)| key.value().to_vec()))
                 .collect();
             for key in doomed {
+                // Both orderings, in this one transaction. The claim that they
+                // cannot disagree is only true if every removal says so.
+                if let Some((chunk, device)) = holders::split(&key) {
+                    holdings.remove(holders::by_device(&device, &chunk).as_slice())?;
+                }
                 holders.remove(key.as_slice())?;
             }
 
@@ -686,13 +714,7 @@ impl Index {
     /// than adding a second row, so a peer that is synced with hourly keeps one
     /// entry rather than a thousand.
     pub fn record_holder(&self, chunk: &ChunkId, device: &DeviceId, now: u64) -> Result<()> {
-        let txn = self.db.begin_write()?;
-        {
-            let mut holders = txn.open_table(HOLDERS)?;
-            holders.insert(holders::key(chunk, device).as_slice(), now)?;
-        }
-        txn.commit()?;
-        Ok(())
+        self.record_holders(std::slice::from_ref(chunk), device, now)
     }
 
     /// Record many acknowledgements in one transaction.
@@ -707,8 +729,10 @@ impl Index {
         let txn = self.db.begin_write()?;
         {
             let mut holders = txn.open_table(HOLDERS)?;
+            let mut holdings = txn.open_table(HOLDINGS)?;
             for chunk in chunks {
                 holders.insert(holders::key(chunk, device).as_slice(), now)?;
+                holdings.insert(holders::by_device(device, chunk).as_slice(), now)?;
             }
         }
         txn.commit()?;
@@ -723,8 +747,10 @@ impl Index {
     pub fn forget_holder(&self, chunk: &ChunkId, device: &DeviceId) -> Result<()> {
         let txn = self.db.begin_write()?;
         {
-            let mut holders = txn.open_table(HOLDERS)?;
-            holders.remove(holders::key(chunk, device).as_slice())?;
+            txn.open_table(HOLDERS)?
+                .remove(holders::key(chunk, device).as_slice())?;
+            txn.open_table(HOLDINGS)?
+                .remove(holders::by_device(device, chunk).as_slice())?;
         }
         txn.commit()?;
         Ok(())
@@ -739,21 +765,26 @@ impl Index {
         let dropped;
         {
             let mut holders = txn.open_table(HOLDERS)?;
+            let mut holdings = txn.open_table(HOLDINGS)?;
 
-            // Collected before removing: redb will not let the table be
-            // mutated while an iterator over it is alive, and a device that
-            // left may be named by every row in the table.
-            let mut doomed: Vec<Vec<u8>> = Vec::new();
-            for row in holders.iter()? {
+            // A range under this device rather than a walk of every row. Both
+            // are collected before removing: redb will not let a table be
+            // mutated while an iterator over it is alive.
+            let mut doomed: Vec<ChunkId> = Vec::new();
+            for row in holdings.range(
+                holders::device_range_start(device).as_slice()
+                    ..=holders::device_range_end(device).as_slice(),
+            )? {
                 let (key, _) = row?;
-                if holders::split(key.value()).is_some_and(|(_, held)| held == *device) {
-                    doomed.push(key.value().to_vec());
+                if let Some((_, chunk)) = holders::split_by_device(key.value()) {
+                    doomed.push(chunk);
                 }
             }
 
             dropped = doomed.len();
-            for key in doomed {
-                holders.remove(key.as_slice())?;
+            for chunk in doomed {
+                holders.remove(holders::key(&chunk, device).as_slice())?;
+                holdings.remove(holders::by_device(device, &chunk).as_slice())?;
             }
         }
         txn.commit()?;
@@ -850,15 +881,19 @@ impl Index {
         }
 
         let txn = self.db.begin_read()?;
-        let table = txn.open_table(HOLDERS)?;
+        let table = txn.open_table(HOLDINGS)?;
 
+        // A range under this device, not a walk of every holder of every chunk.
+        // The first version scanned the whole ledger and filtered, which at a
+        // terabyte is fourteen million rows read for one audit of one peer,
+        // every round, on the machine least able to afford it.
         let mut found: Vec<(u64, ChunkId)> = Vec::new();
-        for row in table.iter()? {
+        for row in table.range(
+            holders::device_range_start(device).as_slice()
+                ..=holders::device_range_end(device).as_slice(),
+        )? {
             let (key, value) = row?;
-            let Some((chunk, held)) = holders::split(key.value()) else {
-                continue;
-            };
-            if held == *device {
+            if let Some((_, chunk)) = holders::split_by_device(key.value()) {
                 found.push((value.value(), chunk));
             }
         }
@@ -866,6 +901,39 @@ impl Index {
         found.sort_unstable();
         found.truncate(limit);
         Ok(found.into_iter().map(|(_, chunk)| chunk).collect())
+    }
+
+    /// Both orderings of the holder ledger, for cross-checking.
+    ///
+    /// Only a test calls this. The two tables are written in one transaction
+    /// and therefore cannot disagree — but "cannot" is a claim, and a claim
+    /// about denormalised state is worth being able to check rather than
+    /// repeat.
+    pub fn holder_orderings(&self) -> Result<HolderOrderings> {
+        let txn = self.db.begin_read()?;
+
+        let mut by_chunk = Vec::new();
+        for row in txn.open_table(HOLDERS)?.iter()? {
+            let (key, _) = row?;
+            if let Some(pair) = holders::split(key.value()) {
+                by_chunk.push(pair);
+            }
+        }
+
+        let mut by_device = Vec::new();
+        for row in txn.open_table(HOLDINGS)?.iter()? {
+            let (key, _) = row?;
+            if let Some((device, chunk)) = holders::split_by_device(key.value()) {
+                by_device.push((chunk, device));
+            }
+        }
+
+        by_chunk.sort_unstable();
+        by_device.sort_unstable();
+        Ok(HolderOrderings {
+            by_chunk,
+            by_device,
+        })
     }
 
     /// How many (chunk, device) records the ledger holds.
@@ -1097,6 +1165,67 @@ mod tests {
 
     fn device(byte: u8) -> DeviceId {
         DeviceId::from_bytes([byte; 32])
+    }
+
+    /// Both orderings of the ledger describe exactly the same pairs.
+    fn assert_orderings_agree(index: &Index, after: &str) {
+        let orderings = index.holder_orderings().unwrap();
+        assert_eq!(
+            orderings.by_chunk, orderings.by_device,
+            "the two orderings of the holder ledger disagree after {after}. \
+             Denormalised state that drifts is worse than the full scan it \
+             replaced, because the answer somebody sees is the wrong one."
+        );
+    }
+
+    #[test]
+    fn the_two_orderings_never_disagree_whatever_is_done_to_the_ledger() {
+        // The second ordering exists so that "what does this peer hold?" is a
+        // range and not a walk of fourteen million rows. That is denormalised
+        // state, which is exactly the thing this project refuses elsewhere —
+        // and the refusal is only earned if every path that writes one writes
+        // the other, in the same transaction.
+        let (_dir, index) = index();
+
+        index.record_holder(&chunk(1), &device(7), 1).unwrap();
+        assert_orderings_agree(&index, "a single record");
+
+        index
+            .record_holders(&[chunk(1), chunk(2), chunk(3)], &device(8), 2)
+            .unwrap();
+        assert_orderings_agree(&index, "a batch");
+
+        index.forget_holder(&chunk(2), &device(8)).unwrap();
+        assert_orderings_agree(&index, "forgetting one holder");
+
+        index.forget_device(&device(8)).unwrap();
+        assert_orderings_agree(&index, "forgetting a device");
+
+        index.put_file("a", &entry(&[1])).unwrap();
+        index.forget_chunk(&chunk(1)).unwrap();
+        assert_orderings_agree(&index, "collecting a chunk");
+
+        let remaining = index.holder_orderings().unwrap().by_chunk;
+        assert!(
+            remaining.is_empty(),
+            "everything was removed but {remaining:?} survived"
+        );
+    }
+
+    #[test]
+    fn the_stalest_holdings_of_one_device_ignore_every_other_device() {
+        let (_dir, index) = index();
+        index.record_holder(&chunk(1), &device(7), 500).unwrap();
+        index.record_holder(&chunk(2), &device(7), 100).unwrap();
+        index.record_holder(&chunk(3), &device(8), 1).unwrap();
+
+        assert_eq!(
+            index.stalest_holdings(&device(7), 10).unwrap(),
+            vec![chunk(2), chunk(1)],
+            "oldest confirmation first, and only this device's"
+        );
+        assert_eq!(index.stalest_holdings(&device(9), 10).unwrap(), Vec::new());
+        assert_eq!(index.stalest_holdings(&device(7), 0).unwrap(), Vec::new());
     }
 
     #[test]

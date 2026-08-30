@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 589 test functions across 23 binaries, 3 of them
+**Last updated: 2026-08-31 — 593 test functions across 23 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. Sixteen are red-team tests.**
 
 | Binary | Tests |
@@ -251,16 +251,18 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 | `counters_saturate_rather_than_wrapping` | A wrap would turn a peer that failed four billion challenges into a trusted one. |
 | `a_paused_peer_explains_itself_and_a_healthy_one_says_nothing` | The message names the way back. |
 
-## `holders` — the placement ledger's key layout (5)
+## `holders` — the placement ledger's key layout (7)
 
 | Test | What it proves |
 | --- | --- |
+| **`everything_one_device_holds_sorts_together_in_the_other_ordering`** | The reason a second ordering exists at all: without it, "what does this peer hold?" walks every row for every peer on every audit round. |
+| `the_two_orderings_describe_the_same_pair` | Both encodings of one fact decode back to it. |
 | **`every_holder_of_one_chunk_sorts_together`** | Why the chunk comes first in the composite key. If the device sorted first, "who holds this chunk?" would walk the whole table, which on a Pi with a million chunks is the difference between a repair pass that finishes and one that does not. |
 | `a_chunk_held_only_here_is_flagged_as_the_only_copy` | The alert condition is distinguishable from an ordinary shortfall: everything else is background work, this one is a disk failure away from loss. |
 | `a_chunk_held_more_widely_than_its_target_has_no_shortfall` | Saturating rather than wrapping. An underflow here would ask the repair loop for four billion pushes. |
 | `a_key_round_trips_through_its_two_halves` / `a_key_of_the_wrong_length_is_refused_rather_than_guessed_at` | The encoding, and that a key written by something else is refused rather than reinterpreted. |
 
-## `index` — the placement ledger (13)
+## `index` — the placement ledger (15)
 
 Where this node's data actually went. This is what replaced the coordinator's
 signed node-set epoch: an owner who already keeps a log of their own chunks can
@@ -269,6 +271,8 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 
 | Test | What it proves |
 | --- | --- |
+| **`the_two_orderings_never_disagree_whatever_is_done_to_the_ledger`** | The ledger is kept in two key orders, because "who holds this chunk?" and "what does this peer hold?" are range scans under opposite prefixes and answering one with the wrong ordering is a full table walk — fourteen million rows per audit round at a terabyte. That is denormalised state, which this project refuses everywhere else, and the refusal is only earned if every path writing one writes the other in the same transaction. Exercised across recording, batching, forgetting a holder, forgetting a device, and collecting a chunk. |
+| `the_stalest_holdings_of_one_device_ignore_every_other_device` | The audit works through the least recently confirmed records of *one* peer, and must not be handed another's. |
 | **`a_target_counts_this_device_so_three_asks_for_two_elsewhere`** | The counting convention, pinned. Off by one here means the repair loop targets two copies while reporting three, and nothing ever says so — it surfaces as data loss after two machines die instead of after three. |
 | **`the_chunks_closest_to_being_lost_are_reported_first`** | A repair pass on a laptop is interrupted by the lid closing. Ordered by chunk id, the work done before the interruption would be random with respect to risk, and the chunk with one copy left could wait behind a thousand that had two. |
 | **`recording_the_same_holder_twice_refreshes_rather_than_duplicates`** | A peer syncing hourly acknowledges the same chunks every hour. One row per acknowledgement would grow the ledger without bound and inflate the replica count — wrong in the direction that hides a real shortage. |
