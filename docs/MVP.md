@@ -278,7 +278,7 @@ Measured against §3, not against the roadmap.
 | F — delete survives absence | ✅ *in the laboratory* | The local ledger and the 27-case decision matrix; never done across a real reboot |
 | G — two edits, no loss | ✅ *in the laboratory* | Conflict siblings, tested through a real socket |
 | H — cheap to run | 🟨 | Measured. **Saving a document is instant** — 4 KiB in 6.6 ms, a 512 KiB Word document in 28 ms, a 4 MiB PDF in 167 ms. Archive throughput is poor (19 MiB/s, 14.7 million files per terabyte) and pack files are the decided fix, but that is a first-fill problem, not a daily one. Idle CPU and battery over 24 hours are still unmeasured |
-| I — coordinator outage | 🟨 | Nothing to switch off yet. Stronger than it was: local discovery means a household keeps working with no server in the design at all, not merely with one that is down |
+| I — coordinator outage | ✅ *verified locally* | A node with a coordinator configured and unreachable syncs normally with a known peer and the file arrives. The daemon keeps its loop, reports the outage **once** rather than every round, and says what is degraded. Not yet done across the real fleet for 48 hours |
 | J — reboots cleanly | 🟨 | **Half tested.** A crash test kills the process mid-write a dozen times at measured points and checks that nothing is listed-but-unreadable and no repair is needed; it passes. It cannot cover a power cut: killing a process does not discard the kernel's page cache. See below |
 
 **The critical path is now the fleet itself.** Everything the acceptance tests

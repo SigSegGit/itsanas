@@ -101,6 +101,65 @@ const DEEP_SCAN_EVERY: Duration = Duration::from_secs(3600);
 /// landed so far. Anything still arriving is caught by the next pass.
 const SETTLE_LIMIT: Duration = Duration::from_secs(10);
 
+/// How long a continuing coordinator outage stays quiet between complaints.
+///
+/// A coordinator that is down is down for hours, not for one round. Saying so
+/// every round produces roughly six hundred identical lines a day, and a
+/// journal nobody reads is the same as no journal on the morning something else
+/// breaks. Found by running the daemon against a coordinator that was not
+/// there, which is exactly the state MVP acceptance test I describes as normal.
+const OUTAGE_QUIET: Duration = Duration::from_secs(30 * 60);
+
+/// What has already been said about the coordinator, so it is not said again.
+#[derive(Debug)]
+struct Outage {
+    /// Rounds that have failed since the last time anything was printed.
+    silent_rounds: usize,
+    /// When the next complaint is allowed.
+    next_complaint: Instant,
+    /// Whether the last round reached it.
+    was_reachable: bool,
+}
+
+impl Outage {
+    fn new() -> Self {
+        Self {
+            silent_rounds: 0,
+            next_complaint: Instant::now(),
+            was_reachable: true,
+        }
+    }
+
+    /// Report a failed round, at most once per [`OUTAGE_QUIET`].
+    fn failed(&mut self, why: &str) {
+        self.silent_rounds += 1;
+        if Instant::now() < self.next_complaint {
+            return;
+        }
+        if self.silent_rounds == 1 {
+            println!("coordinator: unreachable ({why})");
+            println!("  Peers already known keep syncing. New machines cannot be found.");
+        } else {
+            println!(
+                "coordinator: still unreachable after {} rounds ({why})",
+                self.silent_rounds
+            );
+        }
+        self.next_complaint = Instant::now() + OUTAGE_QUIET;
+        self.was_reachable = false;
+    }
+
+    /// Report a round that reached it, but only if the last one did not.
+    fn succeeded(&mut self) {
+        if !self.was_reachable {
+            println!("coordinator: reachable again");
+        }
+        self.silent_rounds = 0;
+        self.next_complaint = Instant::now();
+        self.was_reachable = true;
+    }
+}
+
 /// Set by the interrupt handler.
 ///
 /// A process-wide `static` rather than something threaded through, because the
@@ -229,6 +288,7 @@ fn sync_loop(
     let mut next_sync = Instant::now();
     let mut next_deep = Instant::now();
     let mut warned_alone = false;
+    let mut outage = Outage::new();
 
     while !shutdown.load(Ordering::Relaxed) {
         let deep = Instant::now() >= next_deep;
@@ -259,7 +319,7 @@ fn sync_loop(
         }
 
         if Instant::now() >= next_sync {
-            let reached = one_round(node, shutdown, neighbourhood, bound);
+            let reached = one_round(node, shutdown, neighbourhood, bound, &mut outage);
             next_sync = Instant::now() + interval;
 
             // Say it once, rather than leaving someone watching a silent
@@ -307,6 +367,7 @@ fn one_round(
     shutdown: &AtomicBool,
     neighbourhood: &Neighbourhood,
     bound: std::net::SocketAddr,
+    outage: &mut Outage,
 ) -> BTreeSet<DeviceId> {
     // Configured peers first: somebody typed those in, so they are
     // wanted even if they are also on the local network — and being in
@@ -335,12 +396,17 @@ fn one_round(
     if node.config.coordinator.is_some() {
         let now = itsanas_discover::now_unix();
         let listen = bound.to_string();
-        if let Err(error) = coordinator::announce(node, &listen, now) {
-            println!("coordinator: could not announce ({error})");
-        }
-        match coordinator::peers(node, node.store.owner()) {
-            Ok(found) => from_coordinator = found,
-            Err(error) => println!("coordinator: could not list peers ({error})"),
+        // Announcing and listing are one outage, not two. Reporting them
+        // separately doubled the noise for a single cause.
+        let announced = coordinator::announce(node, &listen, now);
+        let listed = coordinator::peers(node, node.store.owner());
+
+        match (announced, listed) {
+            (Ok(()), Ok(found)) => {
+                outage.succeeded();
+                from_coordinator = found;
+            }
+            (Err(error), _) | (_, Err(error)) => outage.failed(&error.to_string()),
         }
     }
 
