@@ -1120,6 +1120,21 @@ fn doctor(home: &Path, deep: bool) -> Result<()> {
         );
     }
 
+    // Orphans alone are not a failure, and saying they are is worse than
+    // saying nothing. A machine that lost power mid-write leaves them every
+    // time; exiting non-zero for that means a monitoring wrapper reports a
+    // healthy node as broken until somebody runs garbage collection by hand —
+    // and a check that cries wolf after every power cut stops being read.
+    //
+    // Found by the crash test, which killed the process mid-write and then
+    // could not tell "the store is damaged" from "the store is exactly as
+    // expected after a crash".
+    if report.is_healthy() {
+        println!();
+        println!("nothing is damaged. Those chunks are waiting for `itsanas gc`.");
+        return Ok(());
+    }
+
     // A report is information, not a crash. Exit non-zero so a monitoring
     // system notices, but say everything first.
     Err(CliError::Usage(

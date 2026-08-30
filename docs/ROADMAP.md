@@ -24,7 +24,7 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion | 4 |
 | M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 | — |
 
-**576 test functions, 2 of them `#[ignore]`d into the slow job, and thirteen of
+**577 test functions, 3 of them `#[ignore]`d into the slow job, and thirteen of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has

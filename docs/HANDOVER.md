@@ -66,7 +66,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
 cargo test --workspace --all-features
-cargo test --workspace --all-features -- --ignored     # 2 slow tests
+cargo test --workspace --all-features -- --ignored     # 3 slow tests
 cargo +1.88.0 check --workspace --all-features          # MSRV
 cargo deny --all-features check
 bash scripts/check-catalogue.sh                         # docs/TESTING.md names real tests

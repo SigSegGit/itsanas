@@ -215,6 +215,31 @@ Set in advance so it cannot be softened afterwards.
 
 ---
 
+### The one measurement nobody can make from a laptop
+
+`blob.rs` flushes every chunk to disk before publishing its name. `itsanas
+bench` measured the cost: **a factor of two on write throughput** — fifteen
+hours per terabyte instead of eight. Nothing has measured what it buys.
+
+A process kill cannot: the crash test was run again with the flush removed and
+passed identically, because killing a process leaves the kernel's page cache
+intact. Only losing power discards it.
+
+**The experiment, on the Pi, ten seconds:**
+
+1. Start a large write — `itsanas put big.bin <a few hundred megabytes>`
+2. Pull the power out, partway through
+3. Boot, then `itsanas doctor --deep`
+
+If it reports a file that fails verification or chunks referenced but missing,
+the flush is earning its keep and the throughput cost stays. If it reports only
+orphaned chunks — which is the expected, harmless result — then the flush is
+buying nothing that content-addressing and authenticated encryption do not
+already provide, and the write path can be twice as fast.
+
+Worth doing twice, since one trial of a race proves little. It is the only open
+question in this project that hardware answers and reasoning does not.
+
 ## 5. What "MVP" explicitly does not license
 
 A minimum viable product is a reduced scope, not a reduced standard. These stay,
@@ -254,7 +279,7 @@ Measured against §3, not against the roadmap.
 | G — two edits, no loss | ✅ *in the laboratory* | Conflict siblings, tested through a real socket |
 | H — cheap to run | 🟨 | Measured. **Saving a document is instant** — 4 KiB in 6.6 ms, a 512 KiB Word document in 28 ms, a 4 MiB PDF in 167 ms. Archive throughput is poor (19 MiB/s, 14.7 million files per terabyte) and pack files are the decided fix, but that is a first-fill problem, not a daily one. Idle CPU and battery over 24 hours are still unmeasured |
 | I — coordinator outage | 🟨 | Nothing to switch off yet. Stronger than it was: local discovery means a household keeps working with no server in the design at all, not merely with one that is down |
-| J — reboots cleanly | ❓ | Never tested. The index is transactional, which is a reason for confidence, not evidence |
+| J — reboots cleanly | 🟨 | **Half tested.** A crash test kills the process mid-write a dozen times at measured points and checks that nothing is listed-but-unreadable and no repair is needed; it passes. It cannot cover a power cut: killing a process does not discard the kernel's page cache. See below |
 
 **The critical path is now the fleet itself.** Everything the acceptance tests
 need is built; none of it has been run on four real machines, and three of the

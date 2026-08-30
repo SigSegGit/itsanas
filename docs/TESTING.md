@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-08-28 — 576 test functions across 22 binaries, 2 of them
+**Last updated: 2026-08-31 — 577 test functions across 23 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. Thirteen are red-team tests.**
 
 | Binary | Tests |
@@ -553,6 +553,35 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_host_that_has_pledged_nothing_refuses_to_store_but_still_answers`** | Refusing to store does not make a node stop being a peer. |
 | `a_larger_file_survives_the_wire_byte_for_byte` | Multi-chunk fetch and reassembly. |
 | `a_peer_asking_about_an_unknown_user_gets_an_empty_answer` | No invented chains over the wire either. |
+
+---
+
+---
+
+# `itsanas-cli` — crash consistency (1, `#[ignore]`d)
+
+`tests/crash.rs`. Spawns the real binary, kills it mid-write, and checks what
+survived. Ignored because every invocation pays a full production Argon2id
+derivation and it spawns a dozen; the `slow-tests` CI job runs it.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_store_killed_mid_write_never_lists_a_file_it_cannot_read`** | MVP acceptance test J for the half a test can reach. A dozen hard kills at measured points inside a real write, each followed by `doctor --deep`, and after every one the store must be readable, undamaged, and need no repair. A file that never appeared is fine; orphaned chunks are fine and expected. A file the store *lists* and cannot read is not. |
+
+Two things this test is careful about, both learned the hard way:
+
+- **It calibrates rather than guesses.** The first version killed at fixed
+  millisecond delays, passed, and exercised nothing: every kill landed inside
+  the Argon2id derivation that precedes any store access, and zero chunks were
+  written in any round. It now times one complete write and kills at fractions
+  of it, and an assertion fails the test if no round managed to
+  interrupt real work.
+- **It does not claim to cover a power cut.** Killing a process discards the
+  process, not the kernel's page cache. Verified rather than assumed: the suite
+  was re-run with `blob.rs`'s per-chunk `sync_all` removed and passed
+  identically, so this cannot distinguish a store that flushes from one that
+  does not. `docs/MVP.md` records the ten-second experiment on real hardware
+  that would.
 
 ---
 
