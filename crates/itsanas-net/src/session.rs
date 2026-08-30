@@ -484,3 +484,97 @@ mod tests {
         assert!(report.peer_earned_trust());
     }
 }
+
+/// How many chunks one audit round checks with one peer.
+///
+/// A challenge is a round trip and a hash of the sealed bytes on both sides, so
+/// it is cheap per chunk and ruinous per million. Sixteen per peer per round is
+/// enough that a modest account is fully re-audited within a day at the default
+/// interval, and small enough that auditing never competes with syncing for a
+/// Raspberry Pi's attention.
+pub const CHALLENGES_PER_ROUND: usize = 16;
+
+/// What an audit round found.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AuditReport {
+    /// Chunks challenged.
+    pub asked: usize,
+    /// Chunks the peer proved it still holds.
+    pub confirmed: usize,
+    /// Chunks the peer could not prove, whose records were withdrawn.
+    pub failed: usize,
+    /// Chunks skipped because this device no longer holds a copy to check
+    /// against.
+    ///
+    /// Not a fault of the peer. Verifying a proof means re-deriving the sealed
+    /// bytes locally, and a chunk this device has garbage-collected cannot be
+    /// re-derived. Counted rather than hidden, because a node that has become
+    /// unable to audit anything should be able to notice.
+    pub unverifiable: usize,
+}
+
+impl AuditReport {
+    /// Whether anything was found to be missing.
+    #[must_use]
+    pub const fn found_a_liar(&self) -> bool {
+        self.failed > 0
+    }
+}
+
+/// Ask a peer to prove it still holds what it said it held.
+///
+/// # Why this exists
+///
+/// The placement ledger records that a peer *accepted* a chunk. That is
+/// evidence, not proof: a host that accepted a chunk and then deleted it looks
+/// exactly the same from here. Without this, a node believes its data is safe
+/// on three machines while two of them threw it away, and finds out on the day
+/// the third disk dies.
+///
+/// # What a passing challenge does and does not prove
+///
+/// It proves the peer had the bytes when asked. It does not prove it will have
+/// them tomorrow, and a host that fetches a chunk from another replica just in
+/// time passes. That is the honest limit, stated in `docs/ECONOMICS.md` §9:
+/// challenges raise the cost of lying without eliminating it, and the real
+/// protection is replication across parties with no reason to collude.
+///
+/// # Failure withdraws evidence rather than punishing
+///
+/// A failed challenge removes that one (chunk, device) record, so the chunk
+/// shows as under-replicated and repair can act. Nothing is deleted and nobody
+/// is blocked — consistent with the rule in `docs/ECONOMICS.md` §5 that the
+/// network never destroys data as a sanction.
+pub fn audit(store: &Store, client: &mut PeerClient, limit: usize) -> Result<AuditReport> {
+    let owner = store.owner();
+    let peer = client.peer_device();
+    let mut report = AuditReport::default();
+
+    for chunk in store.stalest_holdings(&peer, limit)? {
+        // Re-derived from this device's own copy. Deterministic sealing is what
+        // makes a remote audit possible without keeping a second copy of the
+        // ciphertext, and it is why the chunk id is content-addressed.
+        let Some(expected) = store.blobs().get(&chunk)? else {
+            report.unverifiable += 1;
+            continue;
+        };
+
+        // A fresh nonce per challenge, so a proof cannot be replayed and a host
+        // cannot pre-compute answers.
+        let mut nonce = [0u8; 32];
+        getrandom::fill(&mut nonce).map_err(|error| {
+            NetError::Refused(format!("could not draw a challenge nonce: {error}"))
+        })?;
+
+        report.asked += 1;
+        if client.challenge(owner, chunk, nonce, &expected)? {
+            report.confirmed += 1;
+            store.record_holders(&[chunk], &peer)?;
+        } else {
+            report.failed += 1;
+            store.forget_holder(&chunk, &peer)?;
+        }
+    }
+
+    Ok(report)
+}

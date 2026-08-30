@@ -714,6 +714,12 @@ impl Store {
         self.index.forget_device(device)
     }
 
+    /// The `limit` chunks this device has least recently confirmed `holder`
+    /// still has.
+    pub fn stalest_holdings(&self, holder: &DeviceId, limit: usize) -> Result<Vec<ChunkId>> {
+        self.index.stalest_holdings(holder, limit)
+    }
+
     /// Live chunks held by fewer than `target` devices, worst first.
     ///
     /// `target` counts this device: a target of three asks for two elsewhere.

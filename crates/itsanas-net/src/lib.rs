@@ -34,8 +34,8 @@ pub use error::{NetError, Result};
 pub use protocol::{Head, PROTOCOL_VERSION, Request, Response, challenge_holds, challenge_proof};
 pub use service::{PeerService, Pledge};
 pub use session::{
-    PushReport, RoundReport, Scope, drain_vault, pull, pull_scoped, push, push_scoped, round,
-    round_scoped,
+    AuditReport, CHALLENGES_PER_ROUND, PushReport, RoundReport, Scope, audit, drain_vault, pull,
+    pull_scoped, push, push_scoped, round, round_scoped,
 };
 pub use transport::{IO_TIMEOUT, PeerClient, PeerServer};
 pub use wire::{FrameReader, MAX_FRAME_LEN, WIRE_VERSION};

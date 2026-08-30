@@ -390,12 +390,19 @@ number is decided here and nothing consumes it.
 
 Recorded rather than hidden, because they are the ones that will matter next.
 
-- **What stops a host claiming to store data it discarded?** Storage challenges
-  prove possession at a moment, not continuously, and a host that fetches a
-  chunk from another replica just in time passes. The honest position: challenges
-  raise the cost of lying without eliminating it, and the real protection is
-  replication across parties with no reason to collude. Erasure coding across
-  six or more independent nodes would change this; it is deferred.
+- **What stops a host claiming to store data it discarded?** Audits, now — the
+  daemon challenges every peer it contacts on a sample of what the ledger says
+  that peer holds, and a host that cannot answer has the record withdrawn, so
+  the chunk counts as under-replicated and is re-uploaded in the same round.
+  Verified by running it: a host that deleted everything it had accepted was
+  caught on the next round and the data was restored automatically.
+
+  The limit is unchanged and still honest: a challenge proves possession at a
+  moment, not continuously, and a host that fetches a chunk from another replica
+  just in time passes. Challenges raise the cost of lying without eliminating
+  it, and the real protection is replication across parties with no reason to
+  collude. Erasure coding across six or more independent nodes would change
+  this; it is deferred.
 - **What if the coordinator disappears?** Peers keep their pinned node set and
   keep syncing with known addresses. New members cannot join and addresses go
   stale. Nothing is lost; the network stops growing. A second coordinator, or a

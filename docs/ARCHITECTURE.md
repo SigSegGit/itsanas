@@ -217,12 +217,20 @@ The verifier re-derives the expected ciphertext locally (deterministic sealing
 makes this possible) and compares. A host that discarded the data, or corrupted
 it, cannot answer.
 
-> **The challenge works; nothing schedules it and nothing records the answer.**
-> It can be issued over the wire today and there is a test for it. The intended
-> consequence — a failed challenge marking a host unreliable, so pledged
-> capacity that is not actually provided stops earning storage — needs a
-> reputation store that does not exist. Until it does, a host that quietly
-> discards data is caught only by accident.
+The daemon audits every peer it contacts, a handful of chunks per round,
+working through the acknowledgements it has least recently confirmed. A host
+that cannot answer has that record withdrawn, so the chunk immediately counts as
+under-replicated and the same round re-uploads it. Nothing is deleted and nobody
+is blocked — a failed challenge withdraws evidence, it does not punish.
+
+> **What a passing challenge does not prove:** that the host will still have the
+> bytes tomorrow, or that it is not fetching them from another replica just in
+> time. Challenges raise the cost of lying without eliminating it, and the real
+> protection is replication across parties with no reason to collude.
+>
+> **What is still missing:** a record of *repeated* failure. A host that fails
+> every audit is corrected every round and is never remembered as unreliable, so
+> nothing yet stops a node choosing it again.
 
 ## 5. The coordinator
 

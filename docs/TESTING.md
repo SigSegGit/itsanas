@@ -1,7 +1,7 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 577 test functions across 23 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. Thirteen are red-team tests.**
+**Last updated: 2026-08-31 — 580 test functions across 23 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. Fourteen are red-team tests.**
 
 | Binary | Tests |
 | --- | --- |
@@ -56,6 +56,7 @@ are the answer to that.
 | **`red_team_dialling_strangers_is_rationed_so_a_flood_cannot_eat_the_interval`** | Three hundred minted identities announce themselves. Without a cap the daemon opens three hundred connections per round and spends the whole sync interval shaking hands with machines that store nothing. |
 | **`red_team_a_peer_that_only_answered_the_phone_has_earned_nothing`** | The rule underneath both of the above: completing a mutually authenticated handshake proves possession of a keypair generated a second earlier. It identifies a peer; it vouches for nothing. |
 | **`red_team_a_failed_round_earns_nothing`** | Offering data a peer never took is not the peer storing it. |
+| **`red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder`** | Accept everything, delete it, keep claiming the space. Free, undetectable without audits, and fatal to the replication guarantee. |
 | **`red_team_the_user_id_never_appears_on_the_wire`** | Sit on a café or hotel network and listen. A user id is a public key; broadcasting it every thirty seconds would tell the room whose machine this is. The announcement carries a keyed tag instead. |
 | **`red_team_a_stranger_cannot_compute_the_tag_without_knowing_the_user_id`** | Claiming to be one of the victim's own machines buys priority in their dial order. A guessable tag would hand that over for free; a keyed derivation means you must already know who you are targeting. |
 | **`red_team_grinding_one_account_is_cut_off_after_a_few_attempts`** | The escrow blob is fetchable by anyone with a username, because a machine recovering from nothing has nothing to prove with. Grinding it is the attack, and the rate limit is the only defence — the single job a central component does better than a distributed one. |
@@ -527,7 +528,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (20)
+# `itsanas-net` — two-node tests (24)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -537,6 +538,9 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_sync_round_records_which_peer_now_holds_this_nodes_data`** | The replacement for a coordinator-published node set, end to end over a socket. Without it the repair loop has no idea whether a chunk exists anywhere but on this disk, and the honest answer to "is my data safe?" is "no idea". |
 | **`a_peer_that_already_had_the_data_is_still_recorded_as_holding_it`** | The property that makes the ledger converge rather than only grow. A device restored from its recovery phrase learns where its data lives by *asking*, instead of re-uploading its whole store to find out — and the answer costs nothing extra, since it is the same round trip that decides what to send. |
 | **`a_host_that_refuses_to_store_is_not_recorded_as_holding_anything`** | A node that pledged nothing still answers, because refusing to host does not stop it being a peer. Recording it as a holder would let a node believe its data was replicated onto a machine that declined it — the worst possible error, indistinguishable from safety until the local disk dies. |
+| **`red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder`** | The attack that costs nothing: accept everything offered, delete it immediately, keep claiming the space. A node trusting its own ledger would believe its files were on three machines while two held nothing, and find out on the day the third disk died. The audit withdraws the record, the chunk shows as under-replicated, and the same round re-uploads it. |
+| **`an_audit_never_asks_about_a_chunk_it_could_not_check`** | Verifying a proof means re-deriving the sealed bytes locally. Challenging on a chunk this device has collected would fail for a reason that is nothing to do with the peer, and would withdraw an honest record. |
+| `an_audit_confirms_a_host_that_is_still_holding_the_data` | The ordinary path: evidence becomes proof, for the moment it is asked. |
 | **`a_metadata_round_makes_the_file_listable_before_it_is_downloaded`** | The behaviour everyone expects from a phone: everything listed, tap one to download it. Before the catalogue, a metadata round left the file invisible — deferred means no index entry, and a client on a metered connection could show nothing at all. |
 | **`a_metadata_round_learns_what_changed_without_downloading_it`** | The other half: nothing is fetched, nothing is half-written, and a later round on an unmetered connection completes it. Writing this test is what found that deferred work was never retried. |
 | **`a_delete_racing_an_edit_still_leaves_the_file_listed`** | The listing applies the same asymmetry as the merge engine. A listing that hid a file the engine is about to keep would tell somebody their edit was lost. |

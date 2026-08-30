@@ -144,6 +144,8 @@ Each of these has a test that fails if it is:
 | The user id is never broadcast, only a keyed tag of it | A user id is a public key; announcing it every 30 seconds on a café network tells the room whose machine this is | `red_team_the_user_id_never_appears_on_the_wire` |
 | A replay of the vault happens only when a marker says work is outstanding | Unconditional replay turned the daemon's per-round cost from "the new segments" into "the whole chain, times the peers"; never replaying means deferred work is silently never retried | `a_round_that_deferred_nothing_does_not_replay_the_chain_next_time` |
 | Nothing walks a log chain without a bound | `segments_for` returns a `Vec`; an unlimited walk materialises a whole history in RAM. Found once already in `blobs().addresses()` | `catalogue::MAX_SEGMENTS_WALKED`, and `Catalogue::complete` says when a listing was truncated |
+| A failed storage challenge withdraws evidence and never destroys data | The rule in ECONOMICS.md §5 is that the network never deletes as a sanction; a host that fails an audit simply stops counting as a holder, and the chunk is re-sent | `red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder` |
+| An audit never challenges on a chunk this device cannot verify | Verifying means re-deriving the sealed bytes locally; challenging without a local copy would withdraw an honest peer's record for a reason that is nothing to do with them | `an_audit_never_asks_about_a_chunk_it_could_not_check` |
 | A listing shows files not downloaded, and never writes an index entry for one | An index entry means a readable file, which the conflict and delete logic both assume. Faking one is a bug nobody can locate later | `a_metadata_round_makes_the_file_listable_before_it_is_downloaded`; `catalogue.rs` derives, never records |
 | A peer's own clock never decides ordering or expiry, anywhere | It is an attacker-controlled integer, and a Pi 4 with no RTC reports 1970. Made twice — in discovery, then again in the coordinator's peer list — and removed twice | `a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address`; `CoordService::peers_of` uses `Directory::last_seen` |
 | The escrow rate limit lives on the server, not the connection | Reconnecting costs a handshake and would buy a fresh budget, which is no budget | `red_team_reconnecting_does_not_reset_the_escrow_attempt_budget` |
@@ -216,8 +218,12 @@ side coming back, a deletion removing it from both, both folders byte-identical.
    it is the recovery story Nicolas originally asked for.
 5. **Repair execution.** `placement::repair::plan` is wired to nothing. Needs a
    census built from peer queries, which needs (2).
-6. **Scheduled storage challenges** and recording the results, so a host that
-   discards data is caught rather than trusted.
+6. ~~**Scheduled storage challenges.**~~ **Done.** `session::audit` challenges
+   a sample of a peer's holdings each round and withdraws the record when it
+   cannot answer, which makes the chunk under-replicated and gets it re-sent.
+   What remains is *reputation*: nothing remembers that a peer failed, so a
+   host that fails every audit is silently corrected forever instead of being
+   dropped.
 7. **Benchmarks.** There are none. Nobody knows the throughput on a Pi, which is
    the machine that matters.
 8. **Raspberry Pi bring-up.** Never run on ARM. Only `cargo check` for

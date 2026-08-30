@@ -771,6 +771,37 @@ impl Index {
         Ok(out)
     }
 
+    /// The `limit` oldest acknowledgements held by `device`, oldest first.
+    ///
+    /// The ledger records *when* each holder last confirmed a chunk, and until
+    /// now nothing read that field. An audit round works through the stalest
+    /// records first, so every chunk a peer claims gets re-checked eventually
+    /// and none is checked twice while another waits — without keeping a
+    /// separate queue that could drift from the ledger it describes.
+    pub fn stalest_holdings(&self, device: &DeviceId, limit: usize) -> Result<Vec<ChunkId>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(HOLDERS)?;
+
+        let mut found: Vec<(u64, ChunkId)> = Vec::new();
+        for row in table.iter()? {
+            let (key, value) = row?;
+            let Some((chunk, held)) = holders::split(key.value()) else {
+                continue;
+            };
+            if held == *device {
+                found.push((value.value(), chunk));
+            }
+        }
+
+        found.sort_unstable();
+        found.truncate(limit);
+        Ok(found.into_iter().map(|(_, chunk)| chunk).collect())
+    }
+
     /// How many (chunk, device) records the ledger holds.
     ///
     /// For `itsanas status`, so an operator can see the ledger growing rather

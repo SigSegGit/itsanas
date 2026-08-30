@@ -582,6 +582,28 @@ fn sync_once(
     };
     let answered = client.peer_device();
 
+    // Make the peer prove it still holds what the ledger says it took, a
+    // handful of chunks per round. Without this the ledger is a list of
+    // promises with nothing checking any of them, and a node believes its data
+    // is on three machines while two of them threw it away.
+    //
+    // A failure is news: it withdraws that record, so the chunk shows as
+    // under-replicated, and the operator should know a peer is not holding what
+    // it said. Nothing is deleted and nobody is blocked.
+    match session::audit(&node.store, &mut client, session::CHALLENGES_PER_ROUND) {
+        Ok(report) if report.found_a_liar() => {
+            println!(
+                "{peer}: FAILED {} of {} storage challenges — it is not holding \
+                 what it said. Those chunks now count as unreplicated.",
+                report.failed, report.asked
+            );
+        }
+        Ok(_) => {}
+        // An audit that could not run is not an accusation. The peer may have
+        // hung up, or this device may no longer hold a copy to check against.
+        Err(error) => println!("{peer}: could not audit ({error})"),
+    }
+
     let earned_trust = match session::round(&node.store, &node.vault, &mut client) {
         Ok(report) => {
             if report.changed_anything() {

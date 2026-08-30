@@ -1096,3 +1096,169 @@ fn a_round_that_deferred_nothing_does_not_replay_the_chain_next_time() {
     );
     assert!(phone.store.read_file("doc.txt").expect("read").is_some());
 }
+
+// ---------------------------------------------------------------------------
+// Auditing: making a host prove it still has what it said it had
+// ---------------------------------------------------------------------------
+
+#[test]
+fn an_audit_confirms_a_host_that_is_still_holding_the_data() {
+    // The ledger records that a peer *accepted* a chunk. That is evidence, not
+    // proof — a host that accepted and then deleted looks identical from here.
+    // An audit is what turns one into the other, for the moment it is asked.
+    let master = alice();
+    let owner = node(&master, 1);
+    let host = node(&master, 2);
+
+    owner
+        .store
+        .write_file("audited.txt", b"prove you are still holding this")
+        .expect("write");
+    owner.store.flush_segment().expect("flush");
+
+    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        session::push(&owner.store, &mut client).expect("push");
+
+        let report = session::audit(&owner.store, &mut client, 16).expect("audit");
+        assert!(report.asked > 0, "the audit checked nothing at all");
+        assert_eq!(report.confirmed, report.asked);
+        assert_eq!(report.failed, 0);
+        assert!(!report.found_a_liar());
+    });
+}
+
+#[test]
+fn red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder() {
+    // THE ATTACK, and it costs nothing: accept everything offered, delete it
+    // immediately, and keep claiming the space. A node that trusted its own
+    // ledger would believe its files were on three machines while two of them
+    // held nothing, and would find out on the day the third disk died.
+    //
+    // Passing an audit does not prove a host will still have the bytes
+    // tomorrow — that limit is documented — but silently discarding them has to
+    // stop being free.
+    //
+    // If this test fails, the placement ledger is a list of promises with
+    // nothing checking any of them.
+    let master = alice();
+    let owner = node(&master, 1);
+    let host = node(&master, 2);
+
+    let chunks = owner
+        .store
+        .write_file("audited.txt", b"prove you are still holding this")
+        .expect("write")
+        .chunks;
+    owner.store.flush_segment().expect("flush");
+
+    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        session::push(&owner.store, &mut client).expect("push");
+    });
+
+    for chunk in &chunks {
+        assert_eq!(
+            owner.store.remote_holders(chunk).expect("holders").len(),
+            1,
+            "the push was not recorded, so this test would prove nothing"
+        );
+    }
+
+    // The host quietly deletes what it accepted.
+    for chunk in &chunks {
+        assert!(
+            host.vault
+                .remove_chunk(owner.store.owner(), chunk)
+                .expect("discard"),
+            "the host did not actually hold what it was asked to discard"
+        );
+    }
+
+    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        let report = session::audit(&owner.store, &mut client, 16).expect("audit");
+
+        assert!(
+            report.found_a_liar(),
+            "a host that discarded everything passed its audit: {report:?}"
+        );
+        assert_eq!(report.confirmed, 0);
+    });
+
+    for chunk in &chunks {
+        assert!(
+            owner
+                .store
+                .remote_holders(chunk)
+                .expect("holders")
+                .is_empty(),
+            "a host that failed its audit is still recorded as a holder"
+        );
+    }
+
+    // And the consequence the owner actually cares about: the data now shows
+    // as existing nowhere else, which is what repair acts on.
+    assert!(
+        owner
+            .store
+            .under_replicated(2)
+            .expect("risk")
+            .iter()
+            .all(itsanas_store::AtRisk::only_copy),
+        "the withdrawal did not make the chunk show as under-replicated"
+    );
+}
+
+#[test]
+fn an_audit_never_asks_about_a_chunk_it_could_not_check() {
+    // Verifying a proof means re-deriving the sealed bytes locally. A chunk
+    // this device has collected cannot be re-derived, so challenging on it
+    // would fail for a reason that is nothing to do with the peer — and would
+    // withdraw a perfectly good record.
+    let master = alice();
+    let owner = node(&master, 1);
+    let host = node(&master, 2);
+
+    let chunks = owner
+        .store
+        .write_file("audited.txt", b"content that will be collected locally")
+        .expect("write")
+        .chunks;
+    owner.store.flush_segment().expect("flush");
+
+    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        session::push(&owner.store, &mut client).expect("push");
+    });
+
+    // The owner loses its own copy while the host keeps its.
+    for chunk in &chunks {
+        owner.store.blobs().remove(chunk).expect("drop local copy");
+    }
+
+    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        let report = session::audit(&owner.store, &mut client, 16).expect("audit");
+
+        assert_eq!(
+            report.asked, 0,
+            "it challenged on something it cannot verify"
+        );
+        assert!(report.unverifiable > 0, "the skip was not reported");
+        assert!(!report.found_a_liar());
+    });
+
+    for chunk in &chunks {
+        assert_eq!(
+            owner.store.remote_holders(chunk).expect("holders").len(),
+            1,
+            "an honest host lost its record because the owner could not check"
+        );
+    }
+}
