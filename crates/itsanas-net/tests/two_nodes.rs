@@ -1273,36 +1273,43 @@ fn red_team_a_host_that_keeps_discarding_stops_getting_free_uploads() {
     //
     // Detection without memory is not a defence. If this test fails, anyone can
     // exhaust an owner's bandwidth by volunteering to help.
+    //
+    // What the defence is *not* is a cut-off: one probe chunk still goes each
+    // round, because a peer with nothing recorded has nothing to be challenged
+    // on and could never earn its way back. So this measures **volume**, which
+    // is what the attack costs, rather than whether anything moved at all.
     let master = alice();
     let owner = node(&master, 1);
     let host = node(&master, 2);
 
+    // Large enough that "everything" and "one chunk" are not close.
+    let mut payload = vec![0u8; 2_000_000];
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"bandwidth drain corpus");
+    hasher.finalize_xof().fill(&mut payload);
+
     let chunks = owner
         .store
-        .write_file("bait.bin", b"content this host will keep throwing away")
+        .write_file("bait.bin", &payload)
         .expect("write")
         .chunks;
     owner.store.flush_segment().expect("flush");
+    assert!(
+        chunks.len() > 8,
+        "the corpus must be many chunks to be meaningful"
+    );
 
-    let mut uploads = 0usize;
-    let mut withheld_rounds = 0usize;
+    let mut bytes_per_round: Vec<u64> = Vec::new();
 
-    // Enough rounds to pass the threshold and keep going.
     for _ in 0..(itsanas_store::FAILURES_BEFORE_PAUSE + 3) {
         with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
             let mut client = PeerClient::connect(address, &owner.device, owner.store.owner(), None)
                 .expect("dial");
 
             // The audit runs first, exactly as the daemon orders it.
-            let _ = session::audit(&owner.store, &mut client, 16).expect("audit");
-
+            let _ = session::audit(&owner.store, &mut client, 64).expect("audit");
             let report = session::push(&owner.store, &mut client).expect("push");
-            if report.chunks_accepted > 0 {
-                uploads += 1;
-            }
-            if report.withheld {
-                withheld_rounds += 1;
-            }
+            bytes_per_round.push(report.push_bytes());
         });
 
         // The host discards whatever it just took.
@@ -1311,15 +1318,16 @@ fn red_team_a_host_that_keeps_discarding_stops_getting_free_uploads() {
         }
     }
 
+    let first = bytes_per_round[0];
+    let last = *bytes_per_round.last().expect("rounds");
     assert!(
-        withheld_rounds > 0,
-        "the owner re-uploaded on every one of {} rounds and never stopped",
-        itsanas_store::FAILURES_BEFORE_PAUSE + 3
+        first > 1_000_000,
+        "the first round did not upload the corpus"
     );
     assert!(
-        uploads <= usize::try_from(itsanas_store::FAILURES_BEFORE_PAUSE).unwrap() + 1,
-        "{uploads} uploads before the drain was cut off; the threshold is {}",
-        itsanas_store::FAILURES_BEFORE_PAUSE
+        last * 10 < first,
+        "the {}th round still cost {last} bytes against the first round's          {first} — the drain was never cut off",
+        bytes_per_round.len()
     );
 
     let record = owner
@@ -1331,10 +1339,16 @@ fn red_team_a_host_that_keeps_discarding_stops_getting_free_uploads() {
 }
 
 #[test]
-fn a_host_that_starts_answering_again_is_sent_data_again() {
-    // The way back. A sanction with no exit is a ban, and a host that lost a
-    // disk and genuinely recovered has done nothing wrong. One passing
-    // challenge has to be enough.
+fn a_paused_host_that_starts_answering_again_is_sent_data_again() {
+    // The way back, and it has to actually exist. A failed audit withdraws the
+    // record for that chunk, so a paused peer very quickly has no records left
+    // — and an audit can only challenge on a record. Withholding *everything*
+    // would leave nothing to challenge, no audit would ever run, and "one
+    // passing challenge clears this" would be a sentence that could never come
+    // true: a ban wearing the words of a suspension.
+    //
+    // That is exactly what the first version of this did, and the first version
+    // of this test worked around it rather than reporting it.
     let master = alice();
     let owner = node(&master, 1);
     let host = node(&master, 2);
@@ -1346,16 +1360,22 @@ fn a_host_that_starts_answering_again_is_sent_data_again() {
         .chunks;
     owner.store.flush_segment().expect("flush");
 
-    for _ in 0..=itsanas_store::FAILURES_BEFORE_PAUSE {
+    let round = |discard: bool| {
         with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
             let mut client = PeerClient::connect(address, &owner.device, owner.store.owner(), None)
                 .expect("dial");
             let _ = session::audit(&owner.store, &mut client, 16).expect("audit");
             let _ = session::push(&owner.store, &mut client).expect("push");
         });
-        for chunk in &chunks {
-            let _ = host.vault.remove_chunk(owner.store.owner(), chunk);
+        if discard {
+            for chunk in &chunks {
+                let _ = host.vault.remove_chunk(owner.store.owner(), chunk);
+            }
         }
+    };
+
+    for _ in 0..=itsanas_store::FAILURES_BEFORE_PAUSE {
+        round(true);
     }
 
     assert!(
@@ -1366,34 +1386,41 @@ fn a_host_that_starts_answering_again_is_sent_data_again() {
         "the host was never paused, so this test would prove nothing"
     );
 
-    // The host is repaired and now keeps what it is given. The first round
-    // after that sends nothing — content is still withheld — but the audit runs
-    // regardless, and it has nothing to check because no record survives.
-    // So the owner has to be able to start again from an offer.
-    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
-        let mut client =
-            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
-        let _ = session::audit(&owner.store, &mut client, 16).expect("audit");
-    });
+    // The host is repaired and keeps what it is given from now on. Each round
+    // it is offered one probe chunk; keeping it is what lets the next audit
+    // find something to challenge, and passing that clears the pause.
+    for _ in 0..3 {
+        round(false);
+    }
 
-    // Nothing was recorded as held, so the audit had nothing to ask about and
-    // the record is untouched. Clear it the way a real recovery would: by
-    // answering a challenge on something the host does still hold.
-    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
-        let mut client =
-            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
-        session::push_scoped(&owner.store, &mut client, session::Scope::Metadata)
-            .expect("segments still flow to a paused peer");
-    });
+    assert!(
+        owner
+            .store
+            .worth_sending_to(&host.store.device_id())
+            .expect("record"),
+        "a host that has been answering correctly is still paused — there was no          way back, only a ban with a friendlier message"
+    );
 
-    // A paused peer still receives the log. That is the property that keeps it
-    // able to relay for devices that have done nothing wrong.
+    // And once cleared, the rest of the data flows again.
+    round(false);
+    for chunk in &chunks {
+        assert!(
+            !owner
+                .store
+                .remote_holders(chunk)
+                .expect("holders")
+                .is_empty(),
+            "the recovered host was never sent the rest of the data"
+        );
+    }
+
+    // Throughout, the log kept flowing, which is what keeps a paused peer able
+    // to relay for devices that have done nothing wrong.
     assert!(
         !host
             .vault
             .heads_for(owner.store.owner())
             .expect("heads")
-            .is_empty(),
-        "a paused peer stopped receiving the log, which stops it relaying"
+            .is_empty()
     );
 }

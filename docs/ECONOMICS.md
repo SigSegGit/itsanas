@@ -400,7 +400,10 @@ Recorded rather than hidden, because they are the ones that will matter next.
   A host that fails three rounds in a row stops being sent new content, which
   is the same sanction shape as everything else here: it restricts new
   commitments, destroys nothing, keeps receiving the log so it can still relay,
-  and is cleared by a single passing challenge. Without it, detection is not a
+  and is cleared by a single passing challenge. It also keeps receiving **one
+  chunk per round** — a probe, and not a rounding error: a peer with no records
+  left has nothing to be challenged on, so withholding everything would make the
+  way back unreachable and turn the suspension into a ban. Without it, detection is not a
   defence — the owner re-uploads every round and the host pays nothing, which is
   a free drain on whoever trusted it.
 

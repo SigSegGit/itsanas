@@ -42,9 +42,11 @@ pub struct PushReport {
     pub chunks_offered: usize,
     pub chunks_accepted: usize,
     pub bytes_sent: u64,
-    /// Whether content was withheld because this peer keeps failing audits.
+    /// Whether bulk content was withheld because this peer keeps failing audits.
     ///
-    /// The log was still offered. Nothing was deleted and nothing is blocked.
+    /// The log was still offered, and so was a single chunk — the probe that
+    /// gives the peer something to prove itself on. Nothing was deleted and
+    /// nothing is blocked.
     pub withheld: bool,
     /// Chunks this peer is now known to hold, whether just sent or already had.
     ///
@@ -59,6 +61,14 @@ pub struct PushReport {
 pub struct RoundReport {
     pub push: PushReport,
     pub pull: SyncReport,
+}
+
+impl PushReport {
+    /// Bytes of file content and log this round put on the wire.
+    #[must_use]
+    pub const fn push_bytes(&self) -> u64 {
+        self.bytes_sent
+    }
 }
 
 impl RoundReport {
@@ -198,16 +208,24 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
 
     // A peer that has failed audit after audit has been re-sent this data every
     // round and thrown it away every round. Detecting that and re-uploading
-    // anyway is a free, indefinite drain on this node's uplink, so the content
+    // anyway is a free, indefinite drain on this node's uplink, so the bulk
     // stops — while segments, which are kilobytes, keep going so the peer can
     // still relay for devices that have done nothing wrong.
     //
-    // Not a ban: it keeps being audited, and one passing challenge clears the
-    // record. See `itsanas_store::reliability`.
-    if !store.worth_sending_to(&peer)? {
-        report.withheld = true;
-        return Ok(report);
-    }
+    // Not a ban: **one chunk still goes**, and that is not a rounding error, it
+    // is what makes the way back exist at all. A failed audit withdraws the
+    // record for that chunk, so a paused peer very quickly has no records left
+    // — and an audit can only challenge on a record. Withholding everything
+    // would leave nothing to challenge, no audit would ever run, and "one
+    // passing challenge clears this" would be a sentence that could never come
+    // true. A ban wearing the words of a suspension.
+    //
+    // So a paused peer is offered exactly one chunk per round. If it keeps it,
+    // the next audit passes and the pause lifts. If it throws that away too,
+    // the cost of the attack is one chunk per round instead of an entire store.
+    let probing = !store.worth_sending_to(&peer)?;
+    report.withheld = probing;
+    let mut probe_budget = usize::from(probing);
 
     // Ask before sending. Re-uploading a hundred thousand chunks every round
     // because we never asked is the difference between a usable system and one
@@ -235,6 +253,13 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
                 continue;
             };
 
+            if probing {
+                if probe_budget == 0 {
+                    continue;
+                }
+                probe_budget -= 1;
+            }
+
             report.chunks_offered += 1;
             let len = sealed.len() as u64;
             if client.store_chunk(owner, address, sealed)? {
@@ -242,6 +267,16 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
                 report.bytes_sent = report.bytes_sent.saturating_add(len);
                 confirmed.push(address);
             }
+        }
+
+        if probing && probe_budget == 0 {
+            // The one probe has gone. Recording what this peer already had
+            // would still be correct, but a paused peer is being asked to earn
+            // its way back one chunk at a time, and walking its whole holding
+            // list to do that is exactly the cost being avoided.
+            store.record_holders(&confirmed, &peer)?;
+            report.holders_recorded += confirmed.len();
+            return Ok(report);
         }
 
         report.holders_recorded += confirmed.len();
