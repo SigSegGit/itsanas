@@ -398,10 +398,10 @@ fn one_round(
         let listen = bound.to_string();
         // Announcing and listing are one outage, not two. Reporting them
         // separately doubled the noise for a single cause.
-        let announced = coordinator::announce(node, &listen, now);
-        let listed = coordinator::peers(node, node.store.owner());
+        let published = coordinator::announce(node, &listen, now);
+        let discovered = coordinator::peers(node, node.store.owner());
 
-        match (announced, listed) {
+        match (published, discovered) {
             (Ok(()), Ok(found)) => {
                 outage.succeeded();
                 from_coordinator = found;
