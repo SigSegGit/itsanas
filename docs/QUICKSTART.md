@@ -247,6 +247,17 @@ itsanas doctor --deep     # reassembles and re-hashes every file
 itsanas gc                # reclaims deleted and overwritten chunks
 ```
 
+If a peer has ever failed a storage challenge, `status` says so:
+
+```text
+peers that have failed a storage challenge
+  9a172f45f52f answered 12 and failed 3, and is answering now
+```
+
+A host that fails three rounds in a row stops being sent new data — it keeps
+receiving the log and one probe chunk per round, so it can prove itself and be
+reinstated. Nothing of its own is touched.
+
 `status` separates two things a node holds that are easy to confuse:
 
 ```text

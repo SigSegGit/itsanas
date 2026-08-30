@@ -482,6 +482,32 @@ fn login(
     Ok(())
 }
 
+/// Say which peers have failed a storage challenge, if any have.
+///
+/// Silence means every peer that has ever been audited answered, which is the
+/// ordinary case and worth no words at all.
+fn report_unreliable_peers(node: &Node) -> Result<()> {
+    let unreliable = node.store.unreliable_devices()?;
+    if unreliable.is_empty() {
+        return Ok(());
+    }
+
+    println!();
+    println!("peers that have failed a storage challenge");
+    for (device, record) in &unreliable {
+        match record.complaint(device) {
+            Some(complaint) => println!("  {complaint}"),
+            None => println!(
+                "  {} answered {} and failed {}, and is answering now",
+                device.short(),
+                record.passed,
+                record.failed
+            ),
+        }
+    }
+    Ok(())
+}
+
 fn status(home: &Path) -> Result<()> {
     let node = open(home)?;
     let store = node.store.stats()?;
@@ -542,6 +568,8 @@ fn status(home: &Path) -> Result<()> {
         println!("                 run `itsanas sync`, or add a peer, to spread it");
     }
     println!("  placements     {} recorded", store.holder_records);
+
+    report_unreliable_peers(&node)?;
     // The vault holds two different things. Reporting them as one number
     // tells the operator they are hosting for a stranger when they are only
     // relaying their own account between their own machines.

@@ -1309,7 +1309,7 @@ fn red_team_a_host_that_keeps_discarding_stops_getting_free_uploads() {
             // The audit runs first, exactly as the daemon orders it.
             let _ = session::audit(&owner.store, &mut client, 64).expect("audit");
             let report = session::push(&owner.store, &mut client).expect("push");
-            bytes_per_round.push(report.push_bytes());
+            bytes_per_round.push(report.bytes_sent);
         });
 
         // The host discards whatever it just took.

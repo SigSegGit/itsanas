@@ -63,14 +63,6 @@ pub struct RoundReport {
     pub pull: SyncReport,
 }
 
-impl PushReport {
-    /// Bytes of file content and log this round put on the wire.
-    #[must_use]
-    pub const fn push_bytes(&self) -> u64 {
-        self.bytes_sent
-    }
-}
-
 impl RoundReport {
     /// Whether the peer did something only a real host could do.
     ///
