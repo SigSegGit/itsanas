@@ -22,6 +22,7 @@ use crate::{
     holders::{self, AtRisk, Holder},
     local::LocalState,
     oplog::{FileEntry, LogEntry, SegmentEnvelope, Tombstone},
+    reliability::Reliability,
 };
 
 /// Path → postcard-encoded [`FileEntry`].
@@ -72,6 +73,14 @@ const HOLDERS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holders")
 /// on the next round that can move content.
 const APPLIED: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("applied_heads");
 
+/// Device → what auditing it has shown, over time.
+///
+/// Detection without memory is not a defence: a host that discards what it
+/// accepts is caught and re-sent every round, which costs the owner the full
+/// upload each time and the host nothing at all. This is what remembers that it
+/// is the fourth time.
+const RELIABILITY: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("reliability");
+
 const META_NEXT_SEQUENCE: &str = "next_sequence";
 const META_HEAD_SEGMENT: &str = "head_segment";
 const META_CHAIN_LENGTH: &str = "chain_length";
@@ -121,6 +130,7 @@ impl Index {
             let _ = txn.open_table(META)?;
             let _ = txn.open_table(HOLDERS)?;
             let _ = txn.open_table(APPLIED)?;
+            let _ = txn.open_table(RELIABILITY)?;
         }
         txn.commit()?;
 
@@ -610,6 +620,62 @@ impl Index {
             Some(value) => Ok(Some(ObjectId::from_slice(value.value())?)),
             None => Ok(None),
         }
+    }
+
+    // ---------------------------------------------------------- reliability
+
+    /// What auditing has shown about `device`.
+    pub fn reliability(&self, device: &DeviceId) -> Result<Reliability> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(RELIABILITY)?;
+        match table.get(device.as_bytes().as_slice())? {
+            Some(value) => Ok(postcard::from_bytes(value.value())?),
+            None => Ok(Reliability::default()),
+        }
+    }
+
+    /// Record one audit outcome for `device`.
+    pub fn note_audit(&self, device: &DeviceId, passed: bool, now: u64) -> Result<Reliability> {
+        let mut record = self.reliability(device)?;
+        if passed {
+            record.passed_one();
+        } else {
+            record.failed_one(now);
+        }
+
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(RELIABILITY)?.insert(
+                device.as_bytes().as_slice(),
+                postcard::to_stdvec(&record)?.as_slice(),
+            )?;
+        }
+        txn.commit()?;
+        Ok(record)
+    }
+
+    /// Every device with something on its record, worst first.
+    pub fn unreliable_devices(&self) -> Result<Vec<(DeviceId, Reliability)>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(RELIABILITY)?;
+
+        let mut out = Vec::new();
+        for row in table.iter()? {
+            let (key, value) = row?;
+            let device = DeviceId::from_slice(key.value())?;
+            let record: Reliability = postcard::from_bytes(value.value())?;
+            if record.failed > 0 {
+                out.push((device, record));
+            }
+        }
+        out.sort_by_key(|(device, record)| {
+            (
+                std::cmp::Reverse(record.consecutive_failures),
+                std::cmp::Reverse(record.failed),
+                *device,
+            )
+        });
+        Ok(out)
     }
 
     // -------------------------------------------------------------- holders

@@ -57,6 +57,7 @@ pub mod index;
 pub mod local;
 pub mod oplog;
 pub mod path;
+pub mod reliability;
 pub mod store;
 pub mod vault;
 pub mod version;
@@ -72,6 +73,7 @@ pub use local::LocalState;
 pub use oplog::{
     FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
 };
+pub use reliability::{FAILURES_BEFORE_PAUSE, Reliability};
 pub use store::{GcReport, IntegrityReport, Store, StoreStats};
 pub use vault::{Vault, VaultStats};
 pub use version::{CausalOrder, VersionVector};

@@ -24,7 +24,7 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion | 4 |
 | M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 | — |
 
-**580 test functions, 3 of them `#[ignore]`d into the slow job, and fourteen of
+**589 test functions, 3 of them `#[ignore]`d into the slow job, and sixteen of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -46,9 +46,9 @@ What is missing before this is a *network* rather than a personal sync tool:
 - ~~**Nothing challenges a host on a schedule.**~~ Built. The daemon audits
   every peer it contacts, and a host that cannot prove it still holds a chunk
   has that record withdrawn — after which the chunk counts as under-replicated
-  and the same round re-uploads it. What is still missing is *memory*: a host
-  that fails every audit is corrected each time and never remembered as
-  unreliable.
+  and the same round re-uploads it. A host that fails three rounds in a row
+  stops being sent new content, keeps receiving the log so it can still relay,
+  and is cleared by one passing challenge.
 - **Recovery from username plus passphrase is not wired.** The escrow container
   exists and is tested; `itsanas login` still requires the 24 words.
 - **Never run on a Raspberry Pi.** Only `cargo check` for aarch64.

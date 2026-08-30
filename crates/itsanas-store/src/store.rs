@@ -34,6 +34,7 @@ use crate::{
         FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
     },
     path as logical_path,
+    reliability::Reliability,
     vault::Vault,
     version::VersionVector,
 };
@@ -643,6 +644,33 @@ impl Store {
         }
 
         Ok(report)
+    }
+
+    // ---------------------------------------------------------- reliability
+
+    /// What auditing has shown about `device`.
+    pub fn reliability(&self, device: &DeviceId) -> Result<Reliability> {
+        self.index.reliability(device)
+    }
+
+    /// Record one audit outcome, and return the updated record.
+    pub fn note_audit(&self, device: &DeviceId, passed: bool) -> Result<Reliability> {
+        self.index.note_audit(device, passed, now_unix())
+    }
+
+    /// Whether `device` should still be offered new file content.
+    ///
+    /// A peer that keeps failing audits is not blocked and loses nothing of its
+    /// own; it simply stops costing this node an upload per round for data it
+    /// throws away. Log segments still go to it, and one passing challenge
+    /// clears the record.
+    pub fn worth_sending_to(&self, device: &DeviceId) -> Result<bool> {
+        Ok(self.index.reliability(device)?.worth_sending_to())
+    }
+
+    /// Peers with a failure on their record, worst first.
+    pub fn unreliable_devices(&self) -> Result<Vec<(DeviceId, Reliability)>> {
+        self.index.unreliable_devices()
     }
 
     // ---------------------------------------------------- outstanding work

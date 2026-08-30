@@ -42,6 +42,10 @@ pub struct PushReport {
     pub chunks_offered: usize,
     pub chunks_accepted: usize,
     pub bytes_sent: u64,
+    /// Whether content was withheld because this peer keeps failing audits.
+    ///
+    /// The log was still offered. Nothing was deleted and nothing is blocked.
+    pub withheld: bool,
     /// Chunks this peer is now known to hold, whether just sent or already had.
     ///
     /// Counted separately from `chunks_accepted` because the two answer
@@ -189,6 +193,19 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
         // Segments have been offered; the peer now knows what this device has
         // done. Sending the bytes is the expensive half and it can wait for a
         // connection that does not cost money.
+        return Ok(report);
+    }
+
+    // A peer that has failed audit after audit has been re-sent this data every
+    // round and thrown it away every round. Detecting that and re-uploading
+    // anyway is a free, indefinite drain on this node's uplink, so the content
+    // stops — while segments, which are kilobytes, keep going so the peer can
+    // still relay for devices that have done nothing wrong.
+    //
+    // Not a ban: it keeps being audited, and one passing challenge clears the
+    // record. See `itsanas_store::reliability`.
+    if !store.worth_sending_to(&peer)? {
+        report.withheld = true;
         return Ok(report);
     }
 
@@ -511,6 +528,8 @@ pub struct AuditReport {
     /// re-derived. Counted rather than hidden, because a node that has become
     /// unable to audit anything should be able to notice.
     pub unverifiable: usize,
+    /// The peer's record after this round, when anything was asked.
+    pub record: Option<itsanas_store::Reliability>,
 }
 
 impl AuditReport {
@@ -574,6 +593,14 @@ pub fn audit(store: &Store, client: &mut PeerClient, limit: usize) -> Result<Aud
             report.failed += 1;
             store.forget_holder(&chunk, &peer)?;
         }
+    }
+
+    // One outcome per round, not one per chunk. A peer that fails sixteen
+    // challenges in a single round has failed once — it is one host in one
+    // state — and counting each chunk separately would pause it on the first
+    // round rather than the third, which is the whole point of the threshold.
+    if report.asked > 0 {
+        report.record = Some(store.note_audit(&peer, report.failed == 0)?);
     }
 
     Ok(report)

@@ -1,7 +1,7 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 580 test functions across 23 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. Fourteen are red-team tests.**
+**Last updated: 2026-08-31 — 589 test functions across 23 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. Sixteen are red-team tests.**
 
 | Binary | Tests |
 | --- | --- |
@@ -56,6 +56,8 @@ are the answer to that.
 | **`red_team_dialling_strangers_is_rationed_so_a_flood_cannot_eat_the_interval`** | Three hundred minted identities announce themselves. Without a cap the daemon opens three hundred connections per round and spends the whole sync interval shaking hands with machines that store nothing. |
 | **`red_team_a_peer_that_only_answered_the_phone_has_earned_nothing`** | The rule underneath both of the above: completing a mutually authenticated handshake proves possession of a keypair generated a second earlier. It identifies a peer; it vouches for nothing. |
 | **`red_team_a_failed_round_earns_nothing`** | Offering data a peer never took is not the peer storing it. |
+| **`red_team_a_host_that_keeps_discarding_stops_getting_free_uploads`** | The follow-up attack: keep doing it, and let the owner's own repair drain their uplink forever. |
+| **`red_team_a_host_that_keeps_discarding_stops_costing_bandwidth`** | The rule underneath it. |
 | **`red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder`** | Accept everything, delete it, keep claiming the space. Free, undetectable without audits, and fatal to the replication guarantee. |
 | **`red_team_the_user_id_never_appears_on_the_wire`** | Sit on a café or hotel network and listen. A user id is a public key; broadcasting it every thirty seconds would tell the room whose machine this is. The announcement carries a keyed tag instead. |
 | **`red_team_a_stranger_cannot_compute_the_tag_without_knowing_the_user_id`** | Claiming to be one of the victim's own machines buys priority in their dial order. A guessable tag would hand that over for free; a keyed derivation means you must already know who you are targeting. |
@@ -237,6 +239,17 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 ---
 
 # `itsanas-store` — unit tests (115)
+
+## `reliability` — remembering that a peer failed (6)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_host_that_keeps_discarding_stops_costing_bandwidth`** | The decision rule under the test above: three consecutive failures pause new content. |
+| `one_failure_is_not_enough_to_stop_sending` | A host mid-restart, a swapped disk, a chunk collected on one side of a race. Reacting to a single failure would make a household stop syncing every time a machine rebooted at the wrong moment. |
+| `one_pass_clears_the_record` | A sanction with no exit is a ban. |
+| `the_lifetime_totals_survive_a_reset` | Consecutive failures decide the sanction; the totals are for somebody deciding whether to keep a peer at all, and clearing them on every pass would hide a host that fails half the time. |
+| `counters_saturate_rather_than_wrapping` | A wrap would turn a peer that failed four billion challenges into a trusted one. |
+| `a_paused_peer_explains_itself_and_a_healthy_one_says_nothing` | The message names the way back. |
 
 ## `holders` — the placement ledger's key layout (5)
 
@@ -528,7 +541,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (24)
+# `itsanas-net` — two-node tests (26)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -538,6 +551,8 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_sync_round_records_which_peer_now_holds_this_nodes_data`** | The replacement for a coordinator-published node set, end to end over a socket. Without it the repair loop has no idea whether a chunk exists anywhere but on this disk, and the honest answer to "is my data safe?" is "no idea". |
 | **`a_peer_that_already_had_the_data_is_still_recorded_as_holding_it`** | The property that makes the ledger converge rather than only grow. A device restored from its recovery phrase learns where its data lives by *asking*, instead of re-uploading its whole store to find out — and the answer costs nothing extra, since it is the same round trip that decides what to send. |
 | **`a_host_that_refuses_to_store_is_not_recorded_as_holding_anything`** | A node that pledged nothing still answers, because refusing to host does not stop it being a peer. Recording it as a holder would let a node believe its data was replicated onto a machine that declined it — the worst possible error, indistinguishable from safety until the local disk dies. |
+| **`red_team_a_host_that_keeps_discarding_stops_getting_free_uploads`** | The attack auditing alone does **not** stop. Accept, delete, wait: the audit catches it every round and the owner re-uploads every round, so the host pays nothing and the owner pays a full upload each time. The more data the owner has, the more it costs them. Detection without memory is not a defence. |
+| `a_host_that_starts_answering_again_is_sent_data_again` | The way back. A sanction with no exit is a ban, and a host that lost a disk and genuinely recovered has done nothing wrong — and a paused peer still receives the log, so it can keep relaying for devices that have done nothing wrong either. |
 | **`red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder`** | The attack that costs nothing: accept everything offered, delete it immediately, keep claiming the space. A node trusting its own ledger would believe its files were on three machines while two held nothing, and find out on the day the third disk died. The audit withdraws the record, the chunk shows as under-replicated, and the same round re-uploads it. |
 | **`an_audit_never_asks_about_a_chunk_it_could_not_check`** | Verifying a proof means re-deriving the sealed bytes locally. Challenging on a chunk this device has collected would fail for a reason that is nothing to do with the peer, and would withdraw an honest record. |
 | `an_audit_confirms_a_host_that_is_still_holding_the_data` | The ordinary path: evidence becomes proof, for the moment it is asked. |

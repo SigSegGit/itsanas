@@ -597,6 +597,15 @@ fn sync_once(
                  what it said. Those chunks now count as unreplicated.",
                 report.failed, report.asked
             );
+            // Say it once, when the sanction actually starts, rather than
+            // every round afterwards.
+            if let Some(record) = report.record
+                && record.consecutive_failures == itsanas_store::FAILURES_BEFORE_PAUSE
+            {
+                println!(
+                    "  {peer} is no longer being sent new data. It still receives                      the log, and one passing challenge clears this."
+                );
+            }
         }
         Ok(_) => {}
         // An audit that could not run is not an accusation. The peer may have

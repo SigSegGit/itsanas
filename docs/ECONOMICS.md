@@ -397,6 +397,13 @@ Recorded rather than hidden, because they are the ones that will matter next.
   Verified by running it: a host that deleted everything it had accepted was
   caught on the next round and the data was restored automatically.
 
+  A host that fails three rounds in a row stops being sent new content, which
+  is the same sanction shape as everything else here: it restricts new
+  commitments, destroys nothing, keeps receiving the log so it can still relay,
+  and is cleared by a single passing challenge. Without it, detection is not a
+  defence — the owner re-uploads every round and the host pays nothing, which is
+  a free drain on whoever trusted it.
+
   The limit is unchanged and still honest: a challenge proves possession at a
   moment, not continuously, and a host that fetches a chunk from another replica
   just in time passes. Challenges raise the cost of lying without eliminating

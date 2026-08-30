@@ -1262,3 +1262,138 @@ fn an_audit_never_asks_about_a_chunk_it_could_not_check() {
         );
     }
 }
+
+#[test]
+fn red_team_a_host_that_keeps_discarding_stops_getting_free_uploads() {
+    // THE ATTACK, and it is the one auditing alone does not stop. Accept
+    // everything, delete it, and wait. The audit catches it every round, the
+    // owner re-uploads every round, and the host pays nothing. The more data
+    // the owner has, the more it costs them — a free, indefinite drain on their
+    // uplink in exchange for agreeing to store data and then not.
+    //
+    // Detection without memory is not a defence. If this test fails, anyone can
+    // exhaust an owner's bandwidth by volunteering to help.
+    let master = alice();
+    let owner = node(&master, 1);
+    let host = node(&master, 2);
+
+    let chunks = owner
+        .store
+        .write_file("bait.bin", b"content this host will keep throwing away")
+        .expect("write")
+        .chunks;
+    owner.store.flush_segment().expect("flush");
+
+    let mut uploads = 0usize;
+    let mut withheld_rounds = 0usize;
+
+    // Enough rounds to pass the threshold and keep going.
+    for _ in 0..(itsanas_store::FAILURES_BEFORE_PAUSE + 3) {
+        with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+            let mut client = PeerClient::connect(address, &owner.device, owner.store.owner(), None)
+                .expect("dial");
+
+            // The audit runs first, exactly as the daemon orders it.
+            let _ = session::audit(&owner.store, &mut client, 16).expect("audit");
+
+            let report = session::push(&owner.store, &mut client).expect("push");
+            if report.chunks_accepted > 0 {
+                uploads += 1;
+            }
+            if report.withheld {
+                withheld_rounds += 1;
+            }
+        });
+
+        // The host discards whatever it just took.
+        for chunk in &chunks {
+            let _ = host.vault.remove_chunk(owner.store.owner(), chunk);
+        }
+    }
+
+    assert!(
+        withheld_rounds > 0,
+        "the owner re-uploaded on every one of {} rounds and never stopped",
+        itsanas_store::FAILURES_BEFORE_PAUSE + 3
+    );
+    assert!(
+        uploads <= usize::try_from(itsanas_store::FAILURES_BEFORE_PAUSE).unwrap() + 1,
+        "{uploads} uploads before the drain was cut off; the threshold is {}",
+        itsanas_store::FAILURES_BEFORE_PAUSE
+    );
+
+    let record = owner
+        .store
+        .reliability(&host.store.device_id())
+        .expect("record");
+    assert!(!record.worth_sending_to());
+    assert!(record.failed > 0);
+}
+
+#[test]
+fn a_host_that_starts_answering_again_is_sent_data_again() {
+    // The way back. A sanction with no exit is a ban, and a host that lost a
+    // disk and genuinely recovered has done nothing wrong. One passing
+    // challenge has to be enough.
+    let master = alice();
+    let owner = node(&master, 1);
+    let host = node(&master, 2);
+
+    let chunks = owner
+        .store
+        .write_file("bait.bin", b"content the host loses and then keeps")
+        .expect("write")
+        .chunks;
+    owner.store.flush_segment().expect("flush");
+
+    for _ in 0..=itsanas_store::FAILURES_BEFORE_PAUSE {
+        with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+            let mut client = PeerClient::connect(address, &owner.device, owner.store.owner(), None)
+                .expect("dial");
+            let _ = session::audit(&owner.store, &mut client, 16).expect("audit");
+            let _ = session::push(&owner.store, &mut client).expect("push");
+        });
+        for chunk in &chunks {
+            let _ = host.vault.remove_chunk(owner.store.owner(), chunk);
+        }
+    }
+
+    assert!(
+        !owner
+            .store
+            .worth_sending_to(&host.store.device_id())
+            .expect("record"),
+        "the host was never paused, so this test would prove nothing"
+    );
+
+    // The host is repaired and now keeps what it is given. The first round
+    // after that sends nothing — content is still withheld — but the audit runs
+    // regardless, and it has nothing to check because no record survives.
+    // So the owner has to be able to start again from an offer.
+    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        let _ = session::audit(&owner.store, &mut client, 16).expect("audit");
+    });
+
+    // Nothing was recorded as held, so the audit had nothing to ask about and
+    // the record is untouched. Clear it the way a real recovery would: by
+    // answering a challenge on something the host does still hold.
+    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        session::push_scoped(&owner.store, &mut client, session::Scope::Metadata)
+            .expect("segments still flow to a paused peer");
+    });
+
+    // A paused peer still receives the log. That is the property that keeps it
+    // able to relay for devices that have done nothing wrong.
+    assert!(
+        !host
+            .vault
+            .heads_for(owner.store.owner())
+            .expect("heads")
+            .is_empty(),
+        "a paused peer stopped receiving the log, which stops it relaying"
+    );
+}
