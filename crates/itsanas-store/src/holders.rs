@@ -47,7 +47,7 @@
 //!
 //! [`docs/DESIGN.md`]: https://github.com/SigSeg/itsanas/blob/main/docs/DESIGN.md
 
-use itsanas_crypto::{ChunkId, DeviceId, ID_LEN};
+use itsanas_crypto::{ChunkId, DeviceId, ID_LEN, SymmetricKey};
 
 #[allow(unused_imports)] // Referenced only from documentation links.
 use crate::index::Index;
@@ -79,49 +79,114 @@ pub fn range_end(chunk: &ChunkId) -> [u8; HOLDER_KEY_LEN] {
     key(chunk, &DeviceId::from_bytes([0xff; ID_LEN]))
 }
 
-/// The same pair, keyed the other way round: device first.
+/// Bytes of keyed hash that decide a peer's audit order.
+///
+/// Eight. The ordering has to be unguessable, not unique: the chunk id follows
+/// it in the key, so two chunks landing on the same eight bytes are two
+/// adjacent rows rather than one lost record. Eight bytes keeps the key exactly
+/// the length it was before this existed, which at fourteen million rows is
+/// four hundred megabytes not spent on a Raspberry Pi.
+pub const AUDIT_TAG_LEN: usize = 8;
+
+/// Bytes in a device-first key: the device, its audit tag, then the chunk.
+pub const HOLDING_KEY_LEN: usize = ID_LEN + AUDIT_TAG_LEN + ID_LEN;
+
+/// Where a chunk sits in one owner's audit order.
+///
+/// # Why the order is keyed and not just the chunk id
+///
+/// An audit draws a random cursor and asks about the record at or after it. A
+/// chunk is therefore chosen with probability proportional to the **gap**
+/// before it, not uniformly, and the gaps between random 256-bit ids are very
+/// uneven: exponentially distributed.
+///
+/// If the order is the chunk id, the host knows every gap. It received the
+/// chunks. So it keeps the ones sitting after the widest gaps and deletes the
+/// rest, and the arithmetic is not close: a host keeping the best 90% of the
+/// data passes 92% of audit rounds, where keeping 90% at random passes 18%.
+/// Silently losing a tenth of somebody's files becomes invisible, which is the
+/// failure the audit exists to catch.
+///
+/// Ordering under a keyed hash leaves the gaps exactly as uneven and makes them
+/// unknowable. The host's best remaining strategy is to discard at random, and
+/// the honest `f` to the `n` returns.
+#[must_use]
+pub fn audit_tag(key: &SymmetricKey, chunk: &ChunkId) -> [u8; AUDIT_TAG_LEN] {
+    let full = blake3::keyed_hash(key.expose(), chunk.as_bytes());
+    let mut out = [0u8; AUDIT_TAG_LEN];
+    out.copy_from_slice(&full.as_bytes()[..AUDIT_TAG_LEN]);
+    out
+}
+
+/// The same pair, keyed device first and ordered by the audit tag.
 ///
 /// Two orderings of one fact, written in the same transaction, because the two
 /// questions asked of it have opposite shapes. "Who holds this chunk?" is a
-/// range scan under the chunk; "what does this peer hold, least recently
-/// confirmed?" is a range scan under the device. With one ordering the other
-/// question is a full table scan — which at a terabyte is fourteen million rows
-/// walked every audit round, on a Raspberry Pi.
+/// range scan under the chunk; "what should I ask this peer about?" is a seek
+/// under the device. With one ordering the other question is a full table scan
+/// """ + D + """ which at a terabyte is fourteen million rows walked every audit round,
+/// on a Raspberry Pi.
 ///
 /// Denormalised state usually drifts, and that is the objection this project
 /// answers by deriving instead. It cannot drift here: both keys are written and
 /// removed inside the same redb transaction, so there is no window in which one
 /// exists without the other.
 #[must_use]
-pub fn by_device(device: &DeviceId, chunk: &ChunkId) -> [u8; HOLDER_KEY_LEN] {
-    let mut out = [0u8; HOLDER_KEY_LEN];
+pub fn by_device(
+    device: &DeviceId,
+    tag: &[u8; AUDIT_TAG_LEN],
+    chunk: &ChunkId,
+) -> [u8; HOLDING_KEY_LEN] {
+    let mut out = [0u8; HOLDING_KEY_LEN];
     out[..ID_LEN].copy_from_slice(device.as_bytes());
-    out[ID_LEN..].copy_from_slice(chunk.as_bytes());
+    out[ID_LEN..ID_LEN + AUDIT_TAG_LEN].copy_from_slice(tag);
+    out[ID_LEN + AUDIT_TAG_LEN..].copy_from_slice(chunk.as_bytes());
     out
 }
 
 /// The lowest device-first key that can belong to `device`.
 #[must_use]
-pub fn device_range_start(device: &DeviceId) -> [u8; HOLDER_KEY_LEN] {
-    by_device(device, &ChunkId::from_bytes([0x00; ID_LEN]))
+pub fn device_range_start(device: &DeviceId) -> [u8; HOLDING_KEY_LEN] {
+    by_device(
+        device,
+        &[0x00; AUDIT_TAG_LEN],
+        &ChunkId::from_bytes([0x00; ID_LEN]),
+    )
 }
 
 /// The highest device-first key that can belong to `device`.
 #[must_use]
-pub fn device_range_end(device: &DeviceId) -> [u8; HOLDER_KEY_LEN] {
-    by_device(device, &ChunkId::from_bytes([0xff; ID_LEN]))
+pub fn device_range_end(device: &DeviceId) -> [u8; HOLDING_KEY_LEN] {
+    by_device(
+        device,
+        &[0xff; AUDIT_TAG_LEN],
+        &ChunkId::from_bytes([0xff; ID_LEN]),
+    )
 }
 
-/// Split a device-first key back into its two halves.
+/// A random point in one peer's audit order, drawn fresh for each question.
+///
+/// Named rather than a bare array so a call site cannot pass a chunk id by
+/// mistake: the whole property depends on this being unpredictable, and a chunk
+/// id is the one value the host already knows.
+pub type AuditCursor = [u8; AUDIT_TAG_LEN];
+
+/// Where in `device`'s audit order a drawn cursor lands.
+#[must_use]
+pub fn device_cursor(device: &DeviceId, cursor: &AuditCursor) -> [u8; HOLDING_KEY_LEN] {
+    by_device(device, cursor, &ChunkId::from_bytes([0x00; ID_LEN]))
+}
+
+/// Split a device-first key back into the device and the chunk.
 #[must_use]
 pub fn split_by_device(bytes: &[u8]) -> Option<(DeviceId, ChunkId)> {
-    if bytes.len() != HOLDER_KEY_LEN {
+    if bytes.len() != HOLDING_KEY_LEN {
         return None;
     }
     let mut device = [0u8; ID_LEN];
     device.copy_from_slice(&bytes[..ID_LEN]);
     let mut chunk = [0u8; ID_LEN];
-    chunk.copy_from_slice(&bytes[ID_LEN..]);
+    chunk.copy_from_slice(&bytes[ID_LEN + AUDIT_TAG_LEN..]);
     Some((DeviceId::from_bytes(device), ChunkId::from_bytes(chunk)))
 }
 
@@ -229,25 +294,30 @@ mod tests {
         // The reason the second ordering exists. Without it, "what does this
         // peer hold?" walks every row for every peer on every audit round —
         // fourteen million of them at a terabyte, on a Raspberry Pi.
+        let audit = itsanas_crypto::SecretBytes::new([7u8; 32]);
         let start = device_range_start(&device(5));
         let end = device_range_end(&device(5));
 
         for byte in 0..=255u8 {
-            let k = by_device(&device(5), &chunk(byte));
+            let tag = audit_tag(&audit, &chunk(byte));
+            let k = by_device(&device(5), &tag, &chunk(byte));
             assert!(
                 k >= start && k <= end,
                 "chunk {byte} fell outside the range"
             );
         }
 
-        assert!(by_device(&device(4), &chunk(255)) < start);
-        assert!(by_device(&device(6), &chunk(0)) > end);
+        let any = audit_tag(&audit, &chunk(1));
+        assert!(by_device(&device(4), &any, &chunk(255)) < start);
+        assert!(by_device(&device(6), &any, &chunk(0)) > end);
     }
 
     #[test]
     fn the_two_orderings_describe_the_same_pair() {
+        let audit = itsanas_crypto::SecretBytes::new([7u8; 32]);
+        let tag = audit_tag(&audit, &chunk(3));
         let (c, d) = split(&key(&chunk(3), &device(9))).unwrap();
-        let (d2, c2) = split_by_device(&by_device(&device(9), &chunk(3))).unwrap();
+        let (d2, c2) = split_by_device(&by_device(&device(9), &tag, &chunk(3))).unwrap();
         assert_eq!((c, d), (c2, d2));
     }
 

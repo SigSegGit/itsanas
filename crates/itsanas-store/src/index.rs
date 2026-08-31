@@ -14,11 +14,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use itsanas_crypto::{ChunkId, DeviceId, ObjectId};
+use itsanas_crypto::{ChunkId, DeviceId, ObjectId, SymmetricKey};
 use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 
 use crate::{
     error::{Result, StoreError},
+    holders::AuditCursor,
     holders::{self, AtRisk, Holder},
     local::LocalState,
     oplog::{FileEntry, LogEntry, SegmentEnvelope, Tombstone},
@@ -86,12 +87,18 @@ pub struct HolderOrderings {
     pub by_device: Vec<(ChunkId, DeviceId)>,
 }
 
-/// The same holdings, keyed device-first.
+/// The same holdings, keyed device-first and ordered by a **keyed** tag.
 ///
 /// Written and removed in the same transaction as [`HOLDERS`], so the two
 /// cannot disagree. It exists because the two questions asked of that ledger
 /// have opposite key shapes, and answering one of them with the wrong ordering
 /// is a full table scan — fourteen million rows per audit round at a terabyte.
+///
+/// The order within a device is `BLAKE3_keyed(audit key, chunk)` and not the
+/// chunk id, because the audit picks a record by seeking to a random cursor:
+/// that weights each record by the gap before it, and a host that can compute
+/// the gaps keeps the chunks behind the widest ones. See
+/// [`holders::audit_tag`].
 const HOLDINGS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holdings_by_device");
 
 /// Device → the one chunk it was last offered while its sanction was in force.
@@ -112,7 +119,12 @@ const PROBES: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("probe_of
 /// accepts is caught and re-sent every round, which costs the owner the full
 /// upload each time and the host nothing at all. This is what remembers that it
 /// is the fourth time.
-const RELIABILITY: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("reliability");
+/// Named `_v2` because the record gained a field and postcard is not
+/// self-describing: old rows would not decode, and a read that errors on every
+/// peer is worse than one that starts everybody clean. What is lost on upgrade
+/// is diagnostic counters and a sanction that re-earns itself within three
+/// rounds, which is a cheap price for not having to guess at old bytes.
+const RELIABILITY: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("peer_reliability_v2");
 
 const META_NEXT_SEQUENCE: &str = "next_sequence";
 const META_HEAD_SEGMENT: &str = "head_segment";
@@ -133,11 +145,22 @@ pub(crate) fn now_unix() -> u64 {
 #[derive(Debug)]
 pub struct Index {
     db: Database,
+    /// Scrambles the order in which each peer's holdings are audited.
+    ///
+    /// Held in memory, derived from the master secret on every open, and never
+    /// written to this file — writing it here would hand it to anybody who
+    /// reads the file, and the whole point is that the *remote host* cannot
+    /// compute it.
+    audit_key: SymmetricKey,
 }
 
 impl Index {
     /// Open or create the index at `path`.
-    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+    ///
+    /// `audit_key` orders each peer's holdings for the audit. It is a parameter
+    /// rather than a default because a fixed one would silently give every
+    /// installation the same order, which is the property being removed.
+    pub fn open(path: impl AsRef<Path>, audit_key: SymmetricKey) -> Result<Self> {
         let path = path.as_ref();
         let db = Database::create(path).map_err(|error| match error {
             // redb takes an exclusive lock on the file. Reporting that as a
@@ -169,9 +192,9 @@ impl Index {
         }
         txn.commit()?;
 
-        Self::backfill_holdings(&db)?;
-
-        Ok(Self { db })
+        let index = Self { db, audit_key };
+        index.rebuild_holdings_if_stale()?;
+        Ok(index)
     }
 
     /// Rebuild the device-first ordering for a store written before it existed.
@@ -190,25 +213,48 @@ impl Index {
     ///
     /// Runs once: after it, the second table is non-empty and the check is a
     /// pair of O(1) length reads on every subsequent open.
-    fn backfill_holdings(db: &Database) -> Result<()> {
+    fn rebuild_holdings_if_stale(&self) -> Result<()> {
         {
-            let txn = db.begin_read()?;
+            let txn = self.db.begin_read()?;
             let holders = txn.open_table(HOLDERS)?;
             let holdings = txn.open_table(HOLDINGS)?;
-            if holders.len()? == 0 || holdings.len()? > 0 {
+            if holders.len()? == 0 {
+                return Ok(());
+            }
+            // Two ways a file can arrive here disagreeing with itself: written
+            // before the second ordering existed (empty), or written before the
+            // ordering was keyed (the right number of rows, the wrong shape).
+            // The second is the dangerous one, because it looks healthy.
+            let stale = holdings.len()? == 0
+                || holdings
+                    .iter()?
+                    .next()
+                    .transpose()?
+                    .is_some_and(|(key, _)| key.value().len() != holders::HOLDING_KEY_LEN);
+            if !stale {
                 return Ok(());
             }
         }
 
-        let txn = db.begin_write()?;
+        let txn = self.db.begin_write()?;
         {
             let holders = txn.open_table(HOLDERS)?;
             let mut holdings = txn.open_table(HOLDINGS)?;
-            let mut carried: Vec<([u8; holders::HOLDER_KEY_LEN], u64)> = Vec::new();
+
+            let doomed: Vec<Vec<u8>> = holdings
+                .iter()?
+                .filter_map(|row| row.ok().map(|(key, _)| key.value().to_vec()))
+                .collect();
+            for key in doomed {
+                holdings.remove(key.as_slice())?;
+            }
+
+            let mut carried: Vec<([u8; holders::HOLDING_KEY_LEN], u64)> = Vec::new();
             for row in holders.iter()? {
                 let (key, value) = row?;
                 if let Some((chunk, device)) = holders::split(key.value()) {
-                    carried.push((holders::by_device(&device, &chunk), value.value()));
+                    let tag = holders::audit_tag(&self.audit_key, &chunk);
+                    carried.push((holders::by_device(&device, &tag, &chunk), value.value()));
                 }
             }
             for (key, when) in carried {
@@ -236,6 +282,43 @@ impl Index {
                 .collect();
             for key in keys {
                 holdings.remove(key.as_slice()).unwrap();
+            }
+        }
+        txn.commit().unwrap();
+    }
+
+    /// Rewrite the device-first table keyed by chunk id, as it was before the
+    /// audit key existed.
+    ///
+    /// Only the rebuild test calls this. Keeping a binary fixture of an old
+    /// file instead would rot, and this is the shape that matters: right number
+    /// of rows, wrong ordering, nothing visibly broken.
+    #[cfg(test)]
+    fn order_the_device_table_by_chunk_id_for_test(&self) {
+        let txn = self.db.begin_write().unwrap();
+        {
+            let holders = txn.open_table(HOLDERS).unwrap();
+            let mut holdings = txn.open_table(HOLDINGS).unwrap();
+            let doomed: Vec<Vec<u8>> = holdings
+                .iter()
+                .unwrap()
+                .filter_map(|row| row.ok().map(|(key, _)| key.value().to_vec()))
+                .collect();
+            for key in doomed {
+                holdings.remove(key.as_slice()).unwrap();
+            }
+            let mut carried = Vec::new();
+            for row in holders.iter().unwrap() {
+                let (key, value) = row.unwrap();
+                if let Some((chunk, device)) = holders::split(key.value()) {
+                    let mut old = Vec::with_capacity(64);
+                    old.extend_from_slice(device.as_bytes());
+                    old.extend_from_slice(chunk.as_bytes());
+                    carried.push((old, value.value()));
+                }
+            }
+            for (key, when) in carried {
+                holdings.insert(key.as_slice(), when).unwrap();
             }
         }
         txn.commit().unwrap();
@@ -482,6 +565,40 @@ impl Index {
         Ok(out)
     }
 
+    /// One live chunk of this node's own, chosen by where `cursor` lands.
+    ///
+    /// For picking the probe handed to a paused peer. The peer must not choose
+    /// that chunk, and in the first version it did: the probe was taken from
+    /// the peer's own answer to "what are you missing?", so a host could name
+    /// one small chunk, keep it, and buy its way back with that. The owner
+    /// draws instead, from its own live set, and a host has no say at all.
+    ///
+    /// Weighted by gap like every seek into a keyed space, and here that does
+    /// not matter: the peer cannot refuse a specific chunk without refusing
+    /// every chunk, which keeps it paused.
+    ///
+    /// `None` when this node has no live chunks — nothing to prove anything
+    /// with, and nothing worth saying about it.
+    pub fn live_chunk_near(&self, cursor: &ChunkId) -> Result<Option<ChunkId>> {
+        let txn = self.db.begin_read()?;
+        let refs = txn.open_table(CHUNK_REFS)?;
+
+        // From the cursor to the end, then from the beginning: a draw that fell
+        // past the last live chunk must wrap rather than come back empty, or
+        // the chunks at the top of the id space would be the only ones ever
+        // offered as a probe.
+        let lowest: &[u8] = &[];
+        for start in [cursor.as_bytes().as_slice(), lowest] {
+            for row in refs.range(start..)? {
+                let (key, value) = row?;
+                if value.value() > 0 {
+                    return Ok(Some(ChunkId::from_slice(key.value())?));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Forget a chunk entirely, after its blob has been deleted.
     pub fn forget_chunk(&self, chunk: &ChunkId) -> Result<()> {
         let txn = self.db.begin_write()?;
@@ -501,7 +618,8 @@ impl Index {
                 // Both orderings, in this one transaction. The claim that they
                 // cannot disagree is only true if every removal says so.
                 if let Some((chunk, device)) = holders::split(&key) {
-                    holdings.remove(holders::by_device(&device, &chunk).as_slice())?;
+                    let tag = holders::audit_tag(&self.audit_key, &chunk);
+                    holdings.remove(holders::by_device(&device, &tag, &chunk).as_slice())?;
                 }
                 holders.remove(key.as_slice())?;
             }
@@ -844,8 +962,9 @@ impl Index {
             let mut holders = txn.open_table(HOLDERS)?;
             let mut holdings = txn.open_table(HOLDINGS)?;
             for chunk in chunks {
+                let tag = holders::audit_tag(&self.audit_key, chunk);
                 holders.insert(holders::key(chunk, device).as_slice(), now)?;
-                holdings.insert(holders::by_device(device, chunk).as_slice(), now)?;
+                holdings.insert(holders::by_device(device, &tag, chunk).as_slice(), now)?;
             }
         }
         txn.commit()?;
@@ -860,10 +979,11 @@ impl Index {
     pub fn forget_holder(&self, chunk: &ChunkId, device: &DeviceId) -> Result<()> {
         let txn = self.db.begin_write()?;
         {
+            let tag = holders::audit_tag(&self.audit_key, chunk);
             txn.open_table(HOLDERS)?
                 .remove(holders::key(chunk, device).as_slice())?;
             txn.open_table(HOLDINGS)?
-                .remove(holders::by_device(device, chunk).as_slice())?;
+                .remove(holders::by_device(device, &tag, chunk).as_slice())?;
         }
         txn.commit()?;
         Ok(())
@@ -896,8 +1016,9 @@ impl Index {
 
             dropped = doomed.len();
             for chunk in doomed {
+                let tag = holders::audit_tag(&self.audit_key, &chunk);
                 holders.remove(holders::key(&chunk, device).as_slice())?;
-                holdings.remove(holders::by_device(device, &chunk).as_slice())?;
+                holdings.remove(holders::by_device(device, &tag, &chunk).as_slice())?;
             }
         }
         txn.commit()?;
@@ -996,16 +1117,34 @@ impl Index {
     /// spotless record while storing a millionth of what it promised.
     ///
     /// A proof of storage is worth exactly the host's inability to guess the
-    /// question. So the question is drawn: each cursor seeks to the first chunk
-    /// this device holds at or after it, wrapping past the end of the range.
-    /// Chunk ids are BLAKE3 outputs and so uniform over the space, which is what
-    /// makes a uniform cursor land on a near-uniform record.
+    /// question. So the question is drawn: each cursor seeks to the first record
+    /// at or after it in this device's audit order, wrapping past the end.
     ///
-    /// A host keeping a fraction `f` of what it accepted now passes a round of
-    /// `n` questions with probability `f` to the power `n`. At sixteen
-    /// questions, keeping 90% of the data buys an 18% chance of surviving one
-    /// round and one chance in fifty million of surviving ten. The ordered
-    /// version offered certainty while keeping 0.0001%.
+    /// # The seek weights by gap, which is why the order is keyed
+    ///
+    /// Seeking to "the first record at or after a random point" does **not**
+    /// pick uniformly. It picks each record with probability proportional to the
+    /// gap before it, and gaps between random 256-bit values are exponentially
+    /// distributed, so they are very uneven.
+    ///
+    /// That is harmless only if the host cannot tell which of its chunks sit
+    /// behind the widest gaps. Ordered by chunk id it could: it received the
+    /// chunks, so it knows every gap. Measured, at sixteen questions a round:
+    ///
+    /// | host keeps | discarding at random | discarding the narrow gaps |
+    /// | --- | --- | --- |
+    /// | 90% | passes 18% of rounds | passes **92%** |
+    /// | 50% | passes 0.0015% | passes 6.9% |
+    /// | 10% | passes 1e-16 | passes 2e-08 |
+    ///
+    /// A host silently losing a tenth of somebody's files would have been
+    /// invisible, which is the failure this whole mechanism exists to catch.
+    ///
+    /// So the order is `BLAKE3_keyed(audit key, chunk)` — see
+    /// [`holders::audit_tag`]. The gaps stay exactly as uneven and become
+    /// unguessable, the host's best remaining strategy is to discard at random,
+    /// and a host keeping a fraction `f` then passes a round of `n` questions
+    /// with probability `f` to the power `n`.
     ///
     /// Coverage becomes probabilistic rather than exhaustive. That is the right
     /// trade and barely a trade at all: the exhaustive version was exhaustive
@@ -1023,7 +1162,7 @@ impl Index {
     pub fn chunks_to_challenge(
         &self,
         device: &DeviceId,
-        cursors: &[ChunkId],
+        cursors: &[AuditCursor],
     ) -> Result<Vec<ChunkId>> {
         let txn = self.db.begin_read()?;
         let table = txn.open_table(HOLDINGS)?;
@@ -1032,16 +1171,16 @@ impl Index {
 
         let mut picked: Vec<ChunkId> = Vec::with_capacity(cursors.len());
         for cursor in cursors {
-            let from = holders::by_device(device, cursor);
+            let from = holders::device_cursor(device, cursor);
             let mut hit = table
                 .range(from.as_slice()..=end.as_slice())?
                 .next()
                 .transpose()?;
             if hit.is_none() {
-                // Past this device's last id. A cursor that fell off the end
-                // must wrap rather than be discarded, or the highest-numbered
-                // chunks would be the only ones ever asked about and the lowest
-                // would be asked about never.
+                // Past this device's last record. A cursor that fell off the
+                // end must wrap rather than be discarded, or the records at the
+                // top of the order would be the only ones ever asked about and
+                // the ones at the bottom would be asked about never.
                 hit = table
                     .range(start.as_slice()..=end.as_slice())?
                     .next()
@@ -1116,7 +1255,7 @@ mod tests {
 
     fn index() -> (tempfile::TempDir, Index) {
         let dir = tempfile::tempdir().expect("temp dir");
-        let index = Index::open(dir.path().join("index.redb")).expect("open");
+        let index = Index::open(dir.path().join("index.redb"), test_audit_key()).expect("open");
         (dir, index)
     }
 
@@ -1286,11 +1425,11 @@ mod tests {
         let path = dir.path().join("index.redb");
 
         {
-            let index = Index::open(&path).unwrap();
+            let index = Index::open(&path, test_audit_key()).unwrap();
             index.put_file("a.txt", &entry(&[1, 2])).unwrap();
         }
 
-        let index = Index::open(&path).unwrap();
+        let index = Index::open(&path, test_audit_key()).unwrap();
         assert_eq!(index.get_file("a.txt").unwrap(), Some(entry(&[1, 2])));
         assert_eq!(index.reference_count(&chunk(1)).unwrap(), 1);
     }
@@ -1320,6 +1459,15 @@ mod tests {
     }
 
     // -------------------------------------------------------------- holders
+
+    /// One fixed audit key for every test index.
+    ///
+    /// Fixed so the tests are deterministic; a *fixed* key in production would
+    /// be the bug this whole ordering exists to remove, which is why
+    /// `Index::open` demands one rather than defaulting.
+    fn test_audit_key() -> itsanas_crypto::SymmetricKey {
+        itsanas_crypto::SecretBytes::new([0x5A; 32])
+    }
 
     fn device(byte: u8) -> DeviceId {
         DeviceId::from_bytes([byte; 32])
@@ -1377,9 +1525,9 @@ mod tests {
         index.record_holder(&chunk(2), &device(7), 100).unwrap();
         index.record_holder(&chunk(3), &device(8), 1).unwrap();
 
-        // Every cursor in the space, so this is exhaustive rather than a
-        // sample: no draw may ever wander into a neighbour's range.
-        let every: Vec<ChunkId> = (0..=255u8).map(chunk).collect();
+        // Every leading cursor byte, so this is a broad sweep rather than one
+        // draw: no cursor may ever wander into a neighbour's range.
+        let every: Vec<AuditCursor> = (0..=255u8).map(|b| [b; 8]).collect();
         let drawn = index.chunks_to_challenge(&device(7), &every).unwrap();
         assert_eq!(drawn.len(), 2, "two records, so at most two questions");
         assert!(drawn.contains(&chunk(1)) && drawn.contains(&chunk(2)));
@@ -1416,10 +1564,7 @@ mod tests {
 
         let mut seen = std::collections::BTreeSet::new();
         for byte in 0..=255u8 {
-            for drawn in index
-                .chunks_to_challenge(&device(7), &[chunk(byte)])
-                .unwrap()
-            {
+            for drawn in index.chunks_to_challenge(&device(7), &[[byte; 8]]).unwrap() {
                 seen.insert(drawn);
             }
         }
@@ -1427,6 +1572,128 @@ mod tests {
             seen.len(),
             held.len(),
             "some chunk this peer holds can never be challenged: {seen:?}"
+        );
+    }
+
+    /// The order the audit actually walks a device's holdings in.
+    ///
+    /// Recovered the only way a caller can: sweep cursors from low to high and
+    /// note each new record as it first appears. Coverage is partial — the
+    /// narrowest gaps need a finer sweep than is worth running — and that is
+    /// fine, because what these tests measure is whether the sequence is
+    /// *sorted by chunk id*, which does not need every record to show up.
+    fn observed_audit_order(index: &Index, holder: &DeviceId) -> Vec<ChunkId> {
+        let mut order: Vec<ChunkId> = Vec::new();
+        for high in 0..=255u8 {
+            for low in (0..=255u8).step_by(8) {
+                let cursor = [high, low, 0, 0, 0, 0, 0, 0];
+                for drawn in index.chunks_to_challenge(holder, &[cursor]).unwrap() {
+                    if !order.contains(&drawn) {
+                        order.push(drawn);
+                    }
+                }
+            }
+        }
+        order
+    }
+
+    /// What share of adjacent steps in `order` move *up* the chunk-id ordering.
+    ///
+    /// One if the audit walks chunks in id order, which is what the unkeyed
+    /// version did. About a half if the two orders are independent.
+    fn share_ascending_by_id(order: &[ChunkId]) -> f64 {
+        if order.len() < 2 {
+            return 1.0;
+        }
+        let up = order.windows(2).filter(|pair| pair[0] < pair[1]).count();
+        #[allow(clippy::cast_precision_loss)]
+        {
+            up as f64 / (order.len() - 1) as f64
+        }
+    }
+
+    #[test]
+    fn red_team_a_host_cannot_work_out_which_of_its_chunks_will_be_asked_about() {
+        // THE ATTACK, and the one the first random version did not stop.
+        //
+        // Seeking to "the first record at or after a random cursor" does not
+        // pick uniformly: each record is picked with probability proportional
+        // to the GAP before it, and gaps between random ids are exponentially
+        // distributed, so they are wildly uneven. Harmless only while the host
+        // cannot tell which of its chunks sit behind the widest gaps.
+        //
+        // Ordered by chunk id it could: it received the chunks, so it knows
+        // every gap. Simulated at sixteen questions a round, a host keeping the
+        // best 90% of the data passed 92% of rounds where keeping 90% at random
+        // passes 18%. Losing a tenth of somebody's files would have been
+        // invisible — which is the failure the audit exists to catch.
+        //
+        // The fix is to order the ledger under a keyed hash. This is the check
+        // that the key does the work: the audit order must not track the chunk
+        // id. Ordered by id, every step of the walk goes upwards. Ordered by a
+        // key the host does not have, about half do.
+        let (_dir, index) = index();
+        let holder = device(3);
+        let chunks: Vec<ChunkId> = (0..=255u8).map(chunk).collect();
+        index.record_holders(&chunks, &holder, 1).unwrap();
+
+        let order = observed_audit_order(&index, &holder);
+        assert!(
+            order.len() > 100,
+            "the sweep reached only {} records, too few to measure",
+            order.len()
+        );
+
+        let ascending = share_ascending_by_id(&order);
+        assert!(
+            ascending < 0.75,
+            "{:.0}% of audit steps go up the chunk-id order, so the audit order \
+             tracks the id and a host can work out what will be asked. Ordered \
+             by id this is 100%; independent of it, about 50%.",
+            ascending * 100.0
+        );
+    }
+
+    #[test]
+    fn the_audit_order_changes_completely_when_the_key_does() {
+        // Two owners must not share an audit order. If they did, a host could
+        // learn the order from the challenges one owner sends it and apply that
+        // knowledge to another owner's data.
+        let dir = tempfile::tempdir().unwrap();
+        let chunks: Vec<ChunkId> = (0..=255u8).map(chunk).collect();
+
+        let walk = |name: &str, byte: u8| {
+            let index = Index::open(
+                dir.path().join(name),
+                itsanas_crypto::SecretBytes::new([byte; 32]),
+            )
+            .unwrap();
+            index.record_holders(&chunks, &device(4), 1).unwrap();
+            observed_audit_order(&index, &device(4))
+        };
+
+        let one = walk("a.redb", 1);
+        let two = walk("b.redb", 2);
+
+        // Compare only what both sweeps reached, by position within that
+        // shared set: coverage differs between the two orders and that is not
+        // what is being measured.
+        let common: std::collections::BTreeSet<ChunkId> =
+            one.iter().filter(|c| two.contains(c)).copied().collect();
+        let left: Vec<ChunkId> = one.iter().filter(|c| common.contains(c)).copied().collect();
+        let right: Vec<ChunkId> = two.iter().filter(|c| common.contains(c)).copied().collect();
+        assert!(left.len() > 100, "too little overlap to measure");
+
+        let agreeing = left
+            .iter()
+            .zip(right.iter())
+            .filter(|(a, b)| a == b)
+            .count();
+        assert!(
+            agreeing * 4 < left.len(),
+            "{agreeing} of {} shared positions agree between two audit keys, so \
+             the order barely depends on the key",
+            left.len()
         );
     }
 
@@ -1449,12 +1716,12 @@ mod tests {
         // Ten rounds, each with its own draw, exactly as `session::audit` does.
         let mut rounds: Vec<Vec<ChunkId>> = Vec::new();
         for round in 0..10u8 {
-            let cursors: Vec<ChunkId> = (0..16u8)
+            let cursors: Vec<AuditCursor> = (0..16u8)
                 .map(|slot| {
                     // Stand-in for getrandom: any spread of cursors will do,
                     // what is being tested is that the *selection* follows them
                     // rather than ignoring them for a fixed order.
-                    chunk(round.wrapping_mul(37).wrapping_add(slot.wrapping_mul(11)))
+                    [round.wrapping_mul(37).wrapping_add(slot.wrapping_mul(11)); 8]
                 })
                 .collect();
             rounds.push(index.chunks_to_challenge(&device(7), &cursors).unwrap());
@@ -1506,7 +1773,7 @@ mod tests {
         let path = dir.path().join("index.redb");
 
         {
-            let index = Index::open(&path).unwrap();
+            let index = Index::open(&path, test_audit_key()).unwrap();
             index
                 .record_holders(&[chunk(1), chunk(2), chunk(3)], &device(7), 5)
                 .unwrap();
@@ -1516,27 +1783,65 @@ mod tests {
             index.forget_the_device_ordering_for_test();
             assert!(
                 index
-                    .chunks_to_challenge(&device(7), &[chunk(0)])
+                    .chunks_to_challenge(&device(7), &[[0u8; 8]])
                     .unwrap()
                     .is_empty(),
                 "the fixture did not actually reproduce the old file"
             );
         }
 
-        let index = Index::open(&path).unwrap();
+        let index = Index::open(&path, test_audit_key()).unwrap();
         let orderings = index.holder_orderings().unwrap();
         assert_eq!(
             orderings.by_chunk, orderings.by_device,
             "opening an older store left the two orderings disagreeing"
         );
         assert_eq!(
-            index
-                .chunks_to_challenge(&device(7), &[chunk(0), chunk(2), chunk(3)])
-                .unwrap()
-                .len(),
+            observed_audit_order(&index, &device(7)).len(),
             3,
             "audits are silently dead on a store written before this table"
         );
+    }
+
+    #[test]
+    fn a_ledger_ordered_by_chunk_id_is_rebuilt_under_the_audit_key_on_open() {
+        // The second shape of the same problem, and the more dangerous one,
+        // because it looks healthy: a file written when the device-first
+        // ordering existed but was keyed by the chunk id rather than by a
+        // secret. Row count right, row shape wrong. Left alone, every audit on
+        // that store would go on being predictable to the host — the exact
+        // weakness the key was added to remove — and nothing anywhere would
+        // say so.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.redb");
+        let chunks: Vec<ChunkId> = (0..=255u8).map(chunk).collect();
+
+        {
+            let index = Index::open(&path, test_audit_key()).unwrap();
+            index.record_holders(&chunks, &device(7), 5).unwrap();
+            index.order_the_device_table_by_chunk_id_for_test();
+
+            let stale = observed_audit_order(&index, &device(7));
+            assert!(
+                share_ascending_by_id(&stale) > 0.99,
+                "the fixture did not actually reproduce the old ordering"
+            );
+        }
+
+        let index = Index::open(&path, test_audit_key()).unwrap();
+        let rebuilt = observed_audit_order(&index, &device(7));
+        assert!(
+            rebuilt.len() > 100,
+            "the rebuild lost records: only {} came back",
+            rebuilt.len()
+        );
+        assert!(
+            share_ascending_by_id(&rebuilt) < 0.75,
+            "opening the store left it ordered by chunk id, so its audits stay \
+             predictable to the host and nothing reports it"
+        );
+        let orderings = index.holder_orderings().unwrap();
+        assert_eq!(orderings.by_chunk, orderings.by_device);
     }
 
     #[test]
@@ -1712,10 +2017,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("index.redb");
         {
-            let index = Index::open(&path).unwrap();
+            let index = Index::open(&path, test_audit_key()).unwrap();
             index.record_holder(&chunk(1), &device(7), 42).unwrap();
         }
-        let index = Index::open(&path).unwrap();
+        let index = Index::open(&path, test_audit_key()).unwrap();
         assert_eq!(
             index.remote_holders(&chunk(1)).unwrap()[0].confirmed_unix,
             42

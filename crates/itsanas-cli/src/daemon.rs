@@ -380,7 +380,7 @@ fn sync_loop(
             Err(error) => eprintln!("itsanas: could not apply pushed data: {error}"),
         }
 
-        if Instant::now() >= next_sync {
+        if Instant::now() >= next_sync && scope.connects() {
             let reached = one_round(node, shutdown, neighbourhood, bound, &mut outage, scope);
             next_sync = Instant::now() + interval;
 
@@ -676,10 +676,11 @@ fn sync_once(
                 println!(
                     concat!(
                         "  {peer} is no longer being sent new data. It still ",
-                        "receives the log and one chunk a round to prove itself ",
-                        "on; answering for that chunk clears this."
+                        "receives the log and one chunk a round to answer for. ",
+                        "{owed} answered rounds clear this."
                     ),
-                    peer = peer
+                    peer = peer,
+                    owed = record.rounds_to_reinstatement()
                 );
             }
         }
@@ -695,10 +696,15 @@ fn sync_once(
     // The scope the policy chose. On a metered link this exchanges the log and
     // downloads nothing, which is the difference between a tethered laptop
     // costing kilobytes a day and costing whatever the store happens to weigh.
+    // `Nothing` maps to `Metadata`, not to `Everything`. It is unreachable
+    // today — `conditions()` never produces `Network::None` or `Power::Low`
+    // — and the version of this that said so in a comment mapped it to
+    // `Everything`, so the day somebody wires up metered detection the state
+    // meaning "do nothing" would have become the state meaning "download the
+    // lot". A fallback belongs on the cheap side of the choice it cannot make.
     let wire = match scope {
-        PolicyScope::Metadata => session::Scope::Metadata,
-        // `Nothing` never reaches here: the loop does not dial at all.
-        PolicyScope::Nothing | PolicyScope::Everything => session::Scope::Everything,
+        PolicyScope::Metadata | PolicyScope::Nothing => session::Scope::Metadata,
+        PolicyScope::Everything => session::Scope::Everything,
     };
     let earned_trust = match session::round_scoped(&node.store, &node.vault, &mut client, wire) {
         Ok(report) => {

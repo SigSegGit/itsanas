@@ -397,33 +397,66 @@ Recorded rather than hidden, because they are the ones that will matter next.
   Verified by running it: a host that deleted everything it had accepted was
   caught on the next round and the data was restored automatically.
 
-  **The questions are drawn, not scheduled.** This is the property the whole
-  mechanism rests on, and the first implementation did not have it. The audit
-  worked through the least recently confirmed records first, which reads like
-  diligence — but a push round re-stamps every record the peer *claims* to
-  hold, a whole batch from one clock reading, so within a batch every timestamp
-  was equal and the sort fell through to its tie-break: the chunk id. The same
-  sixteen chunks, the sixteen lowest ids, were challenged every round for ever.
-  A host could keep sixteen chunks out of fourteen million and hold a spotless
-  record. Cursors are now drawn fresh each round and each picks the record the
-  ledger holds at or after it, so a host keeping a fraction `f` of what it
-  accepted survives a round of sixteen questions with probability `f` to the
-  sixteenth — 18% at nine tenths of the data, one in fifty million over ten
-  rounds. Coverage becomes probabilistic instead of exhaustive, which is no loss
-  at all: the exhaustive version was exhaustive over sixteen chunks.
+  **The questions are drawn, and the host cannot work out the draw.** This is
+  the property the whole mechanism rests on, and it took three attempts.
+
+  The first version worked through the least recently confirmed records, which
+  reads like diligence — but a push round re-stamps every record the peer
+  *claims* to hold, a whole batch per clock reading, so within a batch every
+  timestamp was equal and the sort fell through to its tie-break, the chunk id.
+  The same sixteen lowest ids, every round, for ever. A host could keep sixteen
+  chunks out of fourteen million and hold a spotless record.
+
+  The second drew a random cursor and asked about the record at or after it.
+  That is not uniform: it picks each record with probability proportional to the
+  **gap** before it, and gaps between random 256-bit ids are exponentially
+  distributed, so they are very uneven. Harmless only while the host cannot tell
+  which of its chunks sit behind the widest gaps — and ordered by chunk id it
+  could, because it received the chunks. Simulated at sixteen questions a round:
+
+  | host keeps | discarding at random | discarding the narrow gaps |
+  | --- | --- | --- |
+  | 90% | passes 18% of rounds | passes **92%** |
+  | 50% | passes 0.0015% | passes 6.9% |
+  | 10% | passes 1e-16 | passes 2e-08 |
+
+  A host silently losing a tenth of somebody's files would have been invisible.
+
+  So the ledger is ordered by `BLAKE3_keyed(audit key, chunk)`, a key derived
+  from the owner's master secret that never leaves their machine. The gaps stay
+  exactly as uneven and become unguessable, the host's best remaining strategy
+  is to discard at random, and a host keeping a fraction `f` then does survive a
+  round of `n` questions with probability `f` to the `n`: 18% at nine tenths of
+  the data, one in fifty million over ten rounds.
+
+  Coverage becomes probabilistic instead of exhaustive, which is no loss at all:
+  the exhaustive version was exhaustive over sixteen chunks.
 
   A host that fails three rounds in a row stops being sent new content, which
   is the same sanction shape as everything else here: it restricts new
   commitments, destroys nothing, keeps receiving the log so it can still relay,
-  and is cleared by a single passing challenge. It also keeps receiving **one
-  chunk per round** — a probe, and not a rounding error. A paused peer's other
-  records are the ones it is paused *for*, so drawing its questions from them
-  would guarantee failure and make the suspension a ban with a friendlier
-  message. The probe is therefore written down when it is accepted, and a paused
-  peer is audited on that chunk **and nothing else**: accept it in one round,
-  answer for it in the next, and the sanction is over. Two rounds, on a store of
-  any size. That is what "one passing challenge clears this" has to mean if it
-  means anything.
+  and is cleared by answering. It also keeps receiving **one chunk per round**
+  — a probe, and not a rounding error. A paused peer's other records are the
+  ones it is paused *for*, so drawing its questions from them would guarantee
+  failure and make the suspension a ban with a friendlier message. The probe is
+  written down when it is accepted, and a paused peer is audited on that chunk
+  **and nothing else**.
+
+  Two details of that probe, each of which was wrong once and each of which
+  decides whether the sanction means anything.
+
+  **The owner picks the chunk.** The first version took it from the peer's own
+  answer to "what are you missing?", which handed a host its own examination
+  question: name one small chunk, keep it, buy back the terabyte you threw away.
+
+  **Answering pays off one failure, not all of them.** Zeroing the counter was
+  the other half of the same mistake. A host could discard everything, take its
+  three failures, keep one probe chunk for one round, be fully trusted again,
+  receive the whole store, discard it, and repeat for ever — the sanction
+  costing it one chunk held for one round. So three failures now cost three
+  answered rounds and thirty cost thirty, bounded at thirty-five so that
+  probation never becomes a ban by arithmetic. A machine that genuinely lost a
+  disk is back within a quarter of an hour.
 
   The limit is unchanged and still honest: a challenge proves possession at a
   moment, not continuously, and a host that fetches a chunk from another replica

@@ -67,13 +67,13 @@ pub use catalogue::{Known, Presence, absent_count, catalogue};
 pub use chunker::split_stream;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};
-pub use holders::{AtRisk, Holder};
+pub use holders::{AtRisk, AuditCursor, Holder};
 pub use index::{HolderOrderings, Index};
 pub use local::LocalState;
 pub use oplog::{
     FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
 };
-pub use reliability::{FAILURES_BEFORE_PAUSE, Reliability};
+pub use reliability::{FAILURES_BEFORE_PAUSE, PROBATION_CEILING, Reliability};
 pub use store::{GcReport, IntegrityReport, Store, StoreStats};
 pub use vault::{Vault, VaultStats};
 pub use version::{CausalOrder, VersionVector};

@@ -47,14 +47,18 @@ What is missing before this is a *network* rather than a personal sync tool:
   every peer it contacts on chunks **drawn at random** from what the ledger says
   that peer took, and a host that cannot prove it still holds one has that
   record withdrawn — after which the chunk counts as under-replicated and the
-  same round re-uploads it. The randomness is the whole mechanism: the first
-  version asked about the least recently confirmed records, which in practice
-  was the same sixteen chunk ids every round for ever, and a host could keep
-  sixteen out of fourteen million and never be caught. A host that fails three
-  rounds in a row stops being sent new content, keeps receiving the log so it
-  can still relay, and is handed one chunk a round — the probe it is
-  then audited on, and nothing else, so answering for it in the
-  next round lifts the sanction.
+  same round re-uploads it. Unpredictability is the whole mechanism, and it took
+  three attempts: least-recently-confirmed order was a *constant* (the sixteen
+  lowest chunk ids, every round), and a plain random cursor was still guessable
+  because seeking to the next record weights by the gap before it and the host
+  knows every gap. The ledger is now ordered under a keyed hash the host cannot
+  compute — measured, that is the difference between a host losing 10% of
+  your data and passing 92% of audits, and passing 18%.
+
+  A host that fails three rounds in a row stops being sent new content, keeps
+  receiving the log so it can still relay, and is handed one chunk a round —
+  chosen by the owner, and the only thing it is then audited on. Each answered
+  round pays off one failure, so coming back costs as long as falling did.
 - **Recovery from username plus passphrase is not wired.** The escrow container
   exists and is tested; `itsanas login` still requires the 24 words.
 - **Never run on a Raspberry Pi.** Only `cargo check` for aarch64.

@@ -27,7 +27,7 @@ use crate::{
     blob::BlobStore,
     chunker::ChunkerConfig,
     error::{Result, StoreError},
-    holders::{AtRisk, Holder},
+    holders::{AtRisk, AuditCursor, Holder},
     index::{Index, now_unix},
     local::LocalState,
     oplog::{
@@ -173,7 +173,7 @@ impl Store {
         // the only moment we can be sure no write is in flight.
         blobs.sweep_staging()?;
 
-        let index = Index::open(root.join("index.redb"))?;
+        let index = Index::open(root.join("index.redb"), user.audit_order_key().clone())?;
 
         Ok(Self {
             root,
@@ -662,8 +662,8 @@ impl Store {
     ///
     /// A peer that keeps failing audits is not blocked and loses nothing of its
     /// own; it simply stops costing this node an upload per round for data it
-    /// throws away. Log segments still go to it, and one passing challenge
-    /// clears the record.
+    /// throws away. Log segments still go to it, and so does one chunk a round
+    /// to answer for; each answered round pays off one failure.
     pub fn worth_sending_to(&self, device: &DeviceId) -> Result<bool> {
         Ok(self.index.reliability(device)?.worth_sending_to())
     }
@@ -751,9 +751,19 @@ impl Store {
     pub fn chunks_to_challenge(
         &self,
         holder: &DeviceId,
-        cursors: &[ChunkId],
+        cursors: &[AuditCursor],
     ) -> Result<Vec<ChunkId>> {
         self.index.chunks_to_challenge(holder, cursors)
+    }
+
+    /// One live chunk of this node's own, chosen by where `cursor` lands.
+    ///
+    /// The probe offered to a paused peer. Drawn by the owner from its own live
+    /// set, never taken from the peer's answer about what it is missing: a host
+    /// that picks its own examination question can name one small chunk, keep
+    /// it, and buy back the terabyte it threw away.
+    pub fn live_chunk_near(&self, cursor: &ChunkId) -> Result<Option<ChunkId>> {
+        self.index.live_chunk_near(cursor)
     }
 
     /// Note the one chunk `device` was offered while its sanction was in force.

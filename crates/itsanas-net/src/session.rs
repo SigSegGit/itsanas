@@ -224,29 +224,54 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
     // A peer that has failed audit after audit has been re-sent this data every
     // round and thrown it away every round. Detecting that and re-uploading
     // anyway is a free, indefinite drain on this node's uplink, so the bulk
-    // stops — while segments, which are kilobytes, keep going so the peer can
+    // stops """ + DASH + u""" while segments, which are kilobytes, keep going so the peer can
     // still relay for devices that have done nothing wrong.
     //
-    // Not a ban: **one chunk still goes**, and that is not a rounding error, it
-    // is what makes the way back exist at all. A failed audit withdraws the
-    // record for that chunk, so a paused peer very quickly has no records left
-    // — and an audit can only challenge on a record. Withholding everything
-    // would leave nothing to challenge, no audit would ever run, and "one
-    // passing challenge clears this" would be a sentence that could never come
-    // true. A ban wearing the words of a suspension.
+    // Not a ban: one chunk still goes. A failed audit withdraws the record for
+    // that chunk, so withholding *everything* would leave nothing to challenge,
+    // no audit would ever run, and the advertised way back could never be
+    // taken. A ban wearing the words of a suspension.
     //
-    // So a paused peer is offered exactly one chunk per round, and that chunk
-    // is **written down** so the next audit asks about it and nothing else. The
-    // first version left the audit to find it in the ledger, where it sat as
-    // one fresh record among however many thousand stale ones the peer is
-    // paused for — every question landed on a record it had already lost, every
-    // round failed, and the way back was still a sentence rather than a path.
-    // If it keeps the probe, the next audit passes and the pause lifts. If it
-    // throws that away too, the attack costs one chunk per round instead of an
-    // entire store.
-    let probing = !store.worth_sending_to(&peer)?;
-    report.withheld = probing;
-    let mut probe_budget = usize::from(probing);
+    // Two things about that one chunk, each of which was wrong once.
+    //
+    // It is **written down**, so the next audit asks about it and nothing else.
+    // The first version left the audit to find it in the ledger, where it sat
+    // as one fresh record among the thousands the peer is paused for; every
+    // question landed on something it had already lost.
+    //
+    // And **the owner chooses it**. The second version took it from the peer's
+    // own answer to "what are you missing?", which handed a host its own
+    // examination question: name one small chunk, keep it, buy back the
+    // terabyte you threw away. The owner now draws from its own live set and
+    // the peer has no say. It is offered whether or not the peer claims to have
+    // it, because "I already have that one" is the cheapest lie available.
+    if !store.worth_sending_to(&peer)? {
+        report.withheld = true;
+
+        let mut raw = [0u8; 32];
+        getrandom::fill(&mut raw)
+            .map_err(|error| NetError::Refused(format!("could not draw a probe: {error}")))?;
+        let Some(address) = store.live_chunk_near(&ChunkId::from_bytes(raw))? else {
+            return Ok(report); // nothing of our own to prove anything with
+        };
+        let Some(sealed) = store.blobs().get(&address)? else {
+            return Ok(report); // collected between choosing and sending
+        };
+
+        report.chunks_offered += 1;
+        let len = sealed.len() as u64;
+        if client.store_chunk(owner, address, sealed)? {
+            report.chunks_accepted += 1;
+            report.bytes_sent = report.bytes_sent.saturating_add(len);
+            report.holders_recorded += 1;
+            report.probe = Some(address);
+            store.record_holders(&[address], &peer)?;
+            // Recorded only on acceptance: a peer that will not take even the
+            // one chunk offered has been asked nothing, and stays paused.
+            store.note_probe(&peer, &address)?;
+        }
+        return Ok(report);
+    }
 
     // Ask before sending. Re-uploading a hundred thousand chunks every round
     // because we never asked is the difference between a usable system and one
@@ -274,40 +299,13 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
                 continue;
             };
 
-            if probing {
-                if probe_budget == 0 {
-                    continue;
-                }
-                probe_budget -= 1;
-            }
-
             report.chunks_offered += 1;
             let len = sealed.len() as u64;
             if client.store_chunk(owner, address, sealed)? {
                 report.chunks_accepted += 1;
                 report.bytes_sent = report.bytes_sent.saturating_add(len);
                 confirmed.push(address);
-                if probing {
-                    // The question the next audit will ask. Recorded only on
-                    // acceptance: a peer that refused the probe has been asked
-                    // nothing and stays paused, which is the correct answer to
-                    // a host that will not even take the one chunk offered.
-                    store.note_probe(&peer, &address)?;
-                    report.probe = Some(address);
-                }
             }
-        }
-
-        if probing && probe_budget == 0 {
-            // The one probe has gone. Recording what this peer already had
-            // would still be correct, but a paused peer is being asked to earn
-            // its way back one chunk at a time, and walking its whole holding
-            // list to do that is exactly the cost being avoided. The records
-            // not refreshed in the batches this skips stay exactly as they
-            // were; nothing is lost but a timestamp nothing reads.
-            store.record_holders(&confirmed, &peer)?;
-            report.holders_recorded += confirmed.len();
-            return Ok(report);
         }
 
         report.holders_recorded += confirmed.len();
@@ -614,10 +612,10 @@ pub struct AuditReport {
     pub record: Option<itsanas_store::Reliability>,
     /// Whether this round was the single probe question put to a paused peer.
     ///
-    /// A paused peer is asked about one chunk — the one it was just handed —
-    /// and not about the records it is paused for. Answering it lifts the
-    /// sanction; that is what "one passing challenge clears this" means, and
-    /// this flag is how a caller can tell that round apart from an ordinary one.
+    /// A paused peer is asked about one chunk — the one the owner handed it —
+    /// and not about the records it is paused for. Answering pays off one of
+    /// its outstanding failures; enough of them lift the sanction. This flag is
+    /// how a caller tells that round apart from an ordinary one.
     pub probing: bool,
 }
 
@@ -683,13 +681,13 @@ pub fn audit(store: &Store, client: &mut PeerClient, limit: usize) -> Result<Aud
             vec![probe]
         }
         _ => {
-            let mut cursors = Vec::with_capacity(limit);
+            let mut cursors: Vec<itsanas_store::AuditCursor> = Vec::with_capacity(limit);
             for _ in 0..limit {
-                let mut raw = [0u8; 32];
+                let mut raw = itsanas_store::AuditCursor::default();
                 getrandom::fill(&mut raw).map_err(|error| {
                     NetError::Refused(format!("could not draw an audit cursor: {error}"))
                 })?;
-                cursors.push(ChunkId::from_bytes(raw));
+                cursors.push(raw);
             }
             store.chunks_to_challenge(&peer, &cursors)?
         }

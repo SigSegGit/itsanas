@@ -1,16 +1,16 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 604 test functions across 21 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. Eighteen are red-team tests.**
+**Last updated: 2026-08-31 — 607 test functions across 21 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. Twenty are red-team tests.**
 
 | Binary | Tests |
 | --- | --- |
 | `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
-| `itsanas-wire` unit | 19 |
+| `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 130 |
+| `itsanas-store` unit | 135 |
 | `itsanas-store` integration (`tests/store.rs`) | 29 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 19 |
@@ -242,7 +242,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (115)
+# `itsanas-store` — unit tests (121, plus the 14 vault tests below)
 
 ## `reliability` — remembering that a peer failed (6)
 
@@ -250,7 +250,6 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 | --- | --- |
 | **`red_team_a_host_that_keeps_discarding_stops_costing_bandwidth`** | The decision rule under the test above: three consecutive failures pause new content. |
 | `one_failure_is_not_enough_to_stop_sending` | A host mid-restart, a swapped disk, a chunk collected on one side of a race. Reacting to a single failure would make a household stop syncing every time a machine rebooted at the wrong moment. |
-| `one_pass_clears_the_record` | A sanction with no exit is a ban. |
 | `the_lifetime_totals_survive_a_reset` | Consecutive failures decide the sanction; the totals are for somebody deciding whether to keep a peer at all, and clearing them on every pass would hide a host that fails half the time. |
 | `counters_saturate_rather_than_wrapping` | A wrap would turn a peer that failed four billion challenges into a trusted one. |
 | `a_paused_peer_explains_itself_and_a_healthy_one_says_nothing` | The message names the way back. |
@@ -276,6 +275,9 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | Test | What it proves |
 | --- | --- |
 | **`the_two_orderings_never_disagree_whatever_is_done_to_the_ledger`** | The ledger is kept in two key orders, because "who holds this chunk?" and "what does this peer hold?" are range scans under opposite prefixes and answering one with the wrong ordering is a full table walk — fourteen million rows per audit round at a terabyte. That is denormalised state, which this project refuses everywhere else, and the refusal is only earned if every path writing one writes the other in the same transaction. Exercised across recording, batching, forgetting a holder, forgetting a device, and collecting a chunk. |
+| **`red_team_a_host_cannot_work_out_which_of_its_chunks_will_be_asked_about`** | The attack the *first* random version did not stop. Seeking to "the first record at or after a random cursor" is not uniform: it weights each record by the gap before it, and gaps between random ids are exponentially distributed. Harmless only while the host cannot tell which of its chunks sit behind the widest gaps — and ordered by chunk id it could, because it received the chunks. Simulated at sixteen questions a round, a host keeping the best 90% of the data passes **92%** of rounds where keeping 90% at random passes 18%: silently losing a tenth of somebody's files would have been invisible. So the ledger is ordered under a keyed hash, and this measures whether the key does the work. |
+| **`the_audit_order_changes_completely_when_the_key_does`** | Two owners must not share an audit order, or a host could learn it from the challenges one owner sends and apply it to another's data. |
+| **`a_ledger_ordered_by_chunk_id_is_rebuilt_under_the_audit_key_on_open`** | The dangerous half of the migration, because it looks healthy: right number of rows, wrong ordering. Left alone, every audit on that store stays predictable to the host — the exact weakness the key removes — and nothing anywhere says so. |
 | **`red_team_the_same_question_is_not_asked_twice_every_round`** | The attack that broke the audit for six commits: keep the chunks that will be asked about, delete the rest. Selection used to sort by when each record was last confirmed — but a push round re-stamps a whole batch from one clock reading, so every timestamp in a batch was equal and the sort fell through to its tie-break, the chunk id. The same sixteen lowest ids, every round, for ever. Sixteen chunks out of fourteen million bought a spotless record. |
 | `the_challenges_for_one_device_never_name_another_device_s_chunks` | Exhaustive over every cursor in the space: no draw may wander out of one peer's range into a neighbour's. Auditing a peer on another peer's records fails an innocent host. |
 | **`every_holding_is_reachable_by_some_cursor`** | A cursor past the device's highest id wraps rather than being discarded. Without the wrap the lowest-numbered chunks would be the only ones never asked about — a hole an attacker can park its deletions in. |

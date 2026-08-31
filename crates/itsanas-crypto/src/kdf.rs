@@ -29,6 +29,22 @@ pub const CTX_USER_CHUNK_DATA: &str = "itsanas v1 user chunk data key";
 pub const CTX_USER_BLINDING: &str = "itsanas v1 user chunk id blinding key";
 /// Root key for sealing operation-log segments and manifests.
 pub const CTX_USER_OPLOG: &str = "itsanas v1 user oplog object key";
+/// Key that scrambles the order in which a peer's holdings are audited.
+///
+/// A storage challenge is worth exactly the host's inability to guess it. The
+/// audit draws a random cursor and asks about the record at or after it, so a
+/// chunk is chosen with probability proportional to the **gap** before it, not
+/// uniformly. If that ordering is by chunk id, the host knows every gap — it
+/// received the chunks — and can keep the chunks that sit after the widest
+/// ones. Measured: a host doing that keeps 90% of the data and passes 92% of
+/// audit rounds, where keeping 90% at random passes 18%.
+///
+/// Ordering under a keyed hash instead leaves the gaps exactly as uneven and
+/// makes them unknowable, so the best a host can do is discard at random.
+///
+/// This key never leaves the owner's machine and is never written to disk: it
+/// is derived from the master secret on every open, like every other subkey.
+pub const CTX_USER_AUDIT_ORDER: &str = "itsanas v1 user audit ordering key";
 /// Wrapping key for the passphrase-protected keystore and its escrow copy.
 pub const CTX_KEYSTORE_WRAP: &str = "itsanas v1 keystore wrapping key";
 /// Prehash context for domain-separated signatures.
@@ -43,6 +59,7 @@ pub const ALL_CONTEXTS: &[&str] = &[
     CTX_USER_CHUNK_DATA,
     CTX_USER_BLINDING,
     CTX_USER_OPLOG,
+    CTX_USER_AUDIT_ORDER,
     CTX_KEYSTORE_WRAP,
     CTX_SIGNED_MESSAGE,
 ];

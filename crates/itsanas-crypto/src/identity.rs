@@ -265,6 +265,7 @@ pub struct UserKeys {
     chunk_root: SymmetricKey,
     blinding: SymmetricKey,
     oplog_root: SymmetricKey,
+    audit_order: SymmetricKey,
 }
 
 impl UserKeys {
@@ -283,6 +284,7 @@ impl UserKeys {
             chunk_root: kdf::derive(kdf::CTX_USER_CHUNK_DATA, material),
             blinding: kdf::derive(kdf::CTX_USER_BLINDING, material),
             oplog_root: kdf::derive(kdf::CTX_USER_OPLOG, material),
+            audit_order: kdf::derive(kdf::CTX_USER_AUDIT_ORDER, material),
         }
     }
 
@@ -333,6 +335,17 @@ impl UserKeys {
         ChunkId::from_bytes(
             *blake3::keyed_hash(self.blinding.expose(), content.as_bytes()).as_bytes(),
         )
+    }
+
+    /// This user's key for scrambling the audit order of a peer's holdings.
+    ///
+    /// Handed to the placement ledger, which orders each peer's records under a
+    /// keyed hash of the chunk id rather than under the chunk id itself. See
+    /// [`kdf::CTX_USER_AUDIT_ORDER`] for why that is the difference between a
+    /// host being able to choose what to delete and not.
+    #[must_use]
+    pub const fn audit_order_key(&self) -> &SymmetricKey {
+        &self.audit_order
     }
 
     /// Derive a shared secret with another user, for wrapping keys to them.

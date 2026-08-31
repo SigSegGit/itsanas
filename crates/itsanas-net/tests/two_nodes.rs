@@ -1627,20 +1627,43 @@ fn a_paused_host_that_starts_answering_again_is_sent_data_again() {
         "the host was never paused, so this test would prove nothing"
     );
 
-    // The host is repaired and keeps what it is given from now on. One round
-    // to be handed the probe and accept it, one round for the audit to ask
-    // about that exact chunk. Two, on a store of any size — which is what
-    // "one passing challenge clears this" has to mean if it means anything.
-    round(false);
-    round(false);
+    // The host is repaired and keeps what it is given from now on. Each round
+    // it is handed one chunk the *owner* picked, and the next round's audit
+    // asks about that chunk and nothing else. Each answered round pays off one
+    // failure.
+    //
+    // Both ends of that are the point. Recovery that never arrives was the
+    // first version of this mechanism. Recovery in a single round was the
+    // second, and it made the sanction free: keep one chunk for one round, get
+    // the whole store back, discard it, repeat for ever. So this measures how
+    // long it actually takes and asserts it is neither.
+    let mut rounds = 0u32;
+    while !owner
+        .store
+        .worth_sending_to(&host.store.device_id())
+        .expect("record")
+    {
+        rounds += 1;
+        assert!(
+            rounds <= itsanas_store::PROBATION_CEILING + 8,
+            concat!(
+                "a host answering every question for {} rounds is still paused. ",
+                "There is no way back, only a ban with a friendlier message"
+            ),
+            rounds
+        );
+        round(false);
+    }
 
     assert!(
-        owner
-            .store
-            .worth_sending_to(&host.store.device_id())
-            .expect("record"),
-        "a host that has been answering correctly is still paused, so there was \
-         no way back — only a ban with a friendlier message"
+        rounds >= itsanas_store::FAILURES_BEFORE_PAUSE,
+        concat!(
+            "the pause lifted after {} answered rounds, having taken {} failures ",
+            "to start. A sanction a host escapes faster than it earned costs it ",
+            "one chunk for one round and nothing else"
+        ),
+        rounds,
+        itsanas_store::FAILURES_BEFORE_PAUSE
     );
 
     // And once cleared, the rest of the data flows again.

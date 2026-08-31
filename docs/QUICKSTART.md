@@ -256,13 +256,16 @@ peers that have failed a storage challenge
 
 Each round the daemon asks every peer it reaches to prove it still holds a
 handful of the chunks the ledger says it took. Which chunks is drawn fresh every
-round: a host that could predict the questions would only have to keep the
-answers.
+round, in an order derived from your own master secret: a host that could
+predict the questions would only have to keep the answers, and a host that can
+work out the order can do almost as well. Measured, that second one is the
+difference between a host quietly losing a tenth of your data and passing 92% of
+audits, and passing 18%.
 
 A host that fails three rounds in a row stops being sent new data. It keeps
-receiving the log, and one chunk a round — the *probe*, which is the only thing
-the next audit asks it about. Take the chunk, answer for it next round, and the
-pause lifts:
+receiving the log, and one chunk a round — the *probe*, chosen by you and the
+only thing the next audit asks it about. Each answered round pays off one
+failure, so coming back takes as many rounds as falling did:
 
 ```text
 9a172f45f52f: answered for the chunk it was given — no longer paused.
