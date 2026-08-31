@@ -6,7 +6,7 @@ says what it is doing, and can be run twice without harm.
 | System | Script | Tested on |
 | --- | --- | --- |
 | Linux, including Raspberry Pi and the Freebox VM | [`linux.sh`](linux.sh) | Ubuntu 22.04 **x86-64**, bare image, no toolchain, twice. Never on ARM |
-| Windows 10 and 11 | [`windows.ps1`](windows.ps1) | Windows 11, PowerShell 5.1 |
+| Windows 10 and 11 | [`windows.ps1`](windows.ps1) | Windows 11, PowerShell 5.1, **full run**: built, installed, binary ran |
 | macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | **not yet run on a Mac** |
 | Android | [`android.md`](android.md) | there is no app to install |
 | A coordinator on a machine with a public address | [`coordinator.sh`](coordinator.sh) | **not yet run on the Freebox VM** |
