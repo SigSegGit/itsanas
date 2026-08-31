@@ -66,6 +66,11 @@ STATE_DIR="/var/lib/itsanas-coordinator"
 BIN_SRC=""
 OPEN_DOOR=0
 DO_INSTALL=1
+# Whether --check found everything the real run needs, and whether any address
+# on this machine is reachable from outside. --check used to stop with no
+# verdict at all, which left the reader to decide from a list of warnings.
+READY=1
+ROUTABLE=0
 
 usage() {
     cat <<'USAGE'
@@ -162,32 +167,41 @@ if [ -n "$LOCAL_ADDRS" ]; then
         case "$addr" in
             10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|100.6[4-9].*|100.[7-9][0-9].*|100.1[0-2][0-9].*)
                 warn "$addr is a private address" ;;
-            *) ok "$addr looks routable" ;;
+            *) ok "$addr looks routable"; ROUTABLE=1 ;;
         esac
     done
 else
     warn "could not list this machine's addresses"
 fi
 
-info ""
-info "A coordinator is only useful if members elsewhere can reach it. If every"
-info "address above is private, forward TCP port $PORT to this machine on the"
-info "router — on a Freebox that is Paramètres > Gestion des ports."
-info ""
-info "Check from outside once it is running:"
-info "  nc -vz <your-public-address> $PORT"
-
-if [ "$DO_INSTALL" -eq 0 ]; then
-    step "Stopping here (--check)"
-    exit 0
+if [ "$ROUTABLE" -eq 0 ]; then
+    info ""
+    info "A coordinator is only useful if members elsewhere can reach it. Every"
+    info "address above is private, so forward TCP port $PORT to this machine on"
+    info "the router — on a Freebox that is Paramètres > Gestion des ports."
+    info ""
+    info "Check from outside once it is running:"
+    info "  nc -vz <your-public-address> $PORT"
 fi
 
 # ----------------------------------------------------------------- binary
+#
+# Looked for before `--check` stops rather than after it. A missing binary is
+# the most likely reason the real run will not work, and a check that reports
+# the port and the routing and then says nothing about whether there is anything
+# to install is answering the easy half of the question.
 
 step "Finding the binary"
 
 if [ -n "$BIN_SRC" ]; then
-    [ -x "$BIN_SRC" ] || die "not an executable: $BIN_SRC"
+    if [ -x "$BIN_SRC" ]; then
+        ok "$BIN_SRC"
+    elif [ "$DO_INSTALL" -eq 0 ]; then
+        warn "not an executable: $BIN_SRC"
+        READY=0
+    else
+        die "not an executable: $BIN_SRC"
+    fi
 else
     HERE=$(CDPATH='' cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd)
     for candidate in \
@@ -196,13 +210,31 @@ else
     do
         [ -n "$candidate" ] && [ -x "$candidate" ] && BIN_SRC="$candidate" && break
     done
-    [ -n "$BIN_SRC" ] || die "no itsanas-coordinator binary found" \
-        "Build it first:" \
-        "  sh install/linux.sh --no-service" \
-        "or point at one you already have:" \
-        "  sudo sh install/coordinator.sh --binary /path/to/itsanas-coordinator"
+    if [ -n "$BIN_SRC" ]; then
+        ok "$BIN_SRC"
+    elif [ "$DO_INSTALL" -eq 0 ]; then
+        warn "no itsanas-coordinator binary found"
+        info "Build it first:  sh install/linux.sh --no-service"
+        READY=0
+    else
+        die "no itsanas-coordinator binary found" \
+            "Build it first:" \
+            "  sh install/linux.sh --no-service" \
+            "or point at one you already have:" \
+            "  sudo sh install/coordinator.sh --binary /path/to/itsanas-coordinator"
+    fi
 fi
-ok "$BIN_SRC"
+
+if [ "$DO_INSTALL" -eq 0 ]; then
+    step "Stopping here (--check)"
+    if [ "$READY" -eq 1 ]; then
+        ok "this machine can host a coordinator"
+        [ "$ROUTABLE" -eq 0 ] && info "Forward the port first; see above."
+        exit 0
+    fi
+    warn "not ready; see what is missing above"
+    exit 1
+fi
 
 # ------------------------------------------------------------------ user
 

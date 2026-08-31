@@ -10,7 +10,7 @@ says what it is doing, and can be run twice without harm.
 | macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | **not yet run on a Mac** |
 | Android, through Termux | [`android-termux.sh`](android-termux.sh) | **not yet run on a phone**; refuses correctly outside Termux and under `--check` |
 | Android, as an app | [`android.md`](android.md) | there is no app to install |
-| A coordinator on a machine with a public address | [`coordinator.sh`](coordinator.sh) | **not yet run on the Freebox VM** |
+| A coordinator on a machine with a public address | [`coordinator.sh`](coordinator.sh) | **not yet run on the Freebox VM**; `--check` exercised on Linux, including a busy port, a missing binary and an all-private address list |
 
 That last column is the point of this table. Say plainly which of these has been
 executed on the system it claims to install, because an installer nobody has run
