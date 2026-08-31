@@ -151,9 +151,26 @@ enum Command {
     Daemon {
         #[arg(long)]
         listen: Option<String>,
-        /// Seconds between sync rounds.
-        #[arg(long, default_value_t = daemon::DEFAULT_INTERVAL.as_secs())]
-        interval: u64,
+        /// Seconds between sync rounds. Omit to let the sync policy decide.
+        ///
+        /// The policy in `itsanas-policy` is what the phone and the Mac shell
+        /// use too, so leaving this alone means every machine reaches the same
+        /// schedule from the same decision table instead of three copies of a
+        /// number that drift apart.
+        #[arg(long)]
+        interval: Option<u64>,
+        /// This connection is charged by the gigabyte.
+        ///
+        /// A laptop tethered to a phone, or a machine on a capped plan. The
+        /// daemon then exchanges the signed log — kilobytes — and downloads no
+        /// file contents at all, once a day rather than every five minutes.
+        ///
+        /// Asked for rather than detected: Windows and macOS both expose the
+        /// answer, but guessing it from the interface type is how a sync tool
+        /// ends up costing somebody fifty euros, and a phone's own hotspot is
+        /// Wi-Fi.
+        #[arg(long)]
+        metered: bool,
         /// Do not announce this node on the local network, and do not listen
         /// for others.
         ///
@@ -307,11 +324,13 @@ fn run() -> Result<()> {
         Command::Daemon {
             listen,
             interval,
+            metered,
             no_discovery,
         } => daemon::run(
             &open(&home)?,
             listen.as_deref(),
-            std::time::Duration::from_secs(interval.max(1)),
+            interval.map(|seconds| std::time::Duration::from_secs(seconds.max(1))),
+            metered,
             !no_discovery,
         ),
         Command::Sync {

@@ -21,6 +21,7 @@ itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
 itsanas-discover = { version = "0.1.0", path = "../itsanas-discover" }
 itsanas-folder = { version = "0.1.0", path = "../itsanas-folder" }
 itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
+itsanas-policy = { version = "0.1.0", path = "../itsanas-policy" }
 itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
 itsanas-sync = { version = "0.1.0", path = "../itsanas-sync", default-features = false }
 postcard = { version = "1.1.1", default-features = false, features = ["use-std"] }

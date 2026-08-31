@@ -282,6 +282,42 @@ relaying for your own devices
   segments held   2 (so this machine can pass your other devices' work along)
 ```
 
+## When it syncs, and how much
+
+The daemon does not carry a hard-coded schedule. `itsanas-policy` decides, and
+it is the same decision table the phone and the Mac shell use, so every machine
+reaches the same answer instead of each keeping its own number.
+
+```text
+itsanas daemon
+  interval  300s
+  syncing   everything
+  because   running as a service on an unmetered connection
+```
+
+On a connection that costs money — a laptop tethered to a phone, a capped plan
+— tell it so:
+
+```bash
+itsanas daemon --metered
+```
+
+```text
+  interval  86400s
+  syncing   the log only (no file contents)
+  because   metered connection — checking for changes only, once a day
+```
+
+It then exchanges the signed log, which is kilobytes, and downloads no file
+contents at all. `--interval <seconds>` overrides the schedule when you want to
+decide yourself; the reason line still says what the policy would have chosen.
+
+This is asked for rather than detected. Windows and macOS both expose whether a
+connection is metered, and reading it here would mean a platform crate for one
+flag — but guessing it from the interface type is how a sync tool ends up
+costing somebody fifty euros, because a phone's own hotspot is Wi-Fi and plenty
+of mobile plans are not capped.
+
 ## Running it unattended
 
 ```bash

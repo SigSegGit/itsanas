@@ -204,17 +204,37 @@ Reachable from the command line too — `itsanas sync --metadata-only`, then
 does. This was the last piece missing from the *core*; what remains for Android
 is shell work.
 
-### The sync policy, decided and not yet wired
+### The sync policy, decided and running
 
-Implemented and tested in `itsanas-policy` — **and called by nothing.** Its
-consumer is the Android shell, which does not exist, and a desktop cannot detect
-a metered connection without a platform crate the project does not have. So the
-table below is a decision in executable form, not a description of behaviour.
+Implemented and tested in `itsanas-policy`, and **`itsanas daemon` is its first
+consumer**. The daemon no longer carries a hard-coded interval: it asks the
+policy, prints the interval, the scope and the reason, and honours `--interval`
+when an operator wants to decide instead.
 
-What *is* reachable today is the mode it would select: `itsanas sync
---metadata-only`, chosen by hand.
+```text
+itsanas daemon                    itsanas daemon --metered
+  interval  300s                    interval  86400s
+  syncing   everything              syncing   the log only (no file contents)
+  because   running as a           because   metered connection — checking
+            service on an                     for changes only, once a day
+            unmetered connection
+```
 
-Implemented and tested in `itsanas-policy`. The rule is **metered or not**,
+That means the Android shell inherits behaviour that a desktop has already
+exercised, rather than being the first thing ever to call this crate.
+
+Wiring it added the state that had been missing: a **service**. A daemon is not
+a backgrounded app — nobody is watching it *and* no platform is restricting it
+— and conflating the two would have given the Pi in the cupboard a two-hour
+interval. Two hours is not a considered choice about ethernet; it is the
+smallest number that survives Android's Doze. See `Attention::Unattended`.
+
+The one thing still asked for rather than detected is whether the connection is
+metered. Windows and macOS both expose it, and reading it would mean a platform
+crate for a single flag; `--metered` is honest in the meantime, and guessing
+from the interface type is refused outright.
+
+The rule is **metered or not**,
 never Wi-Fi or not: a phone's own hotspot is Wi-Fi and charged by the gigabyte,
 and plenty of mobile plans are unlimited. Android answers the right question
 directly through `NET_CAPABILITY_NOT_METERED`.
@@ -225,8 +245,15 @@ directly through `NET_CAPABILITY_NOT_METERED`.
 | App open, metered | segments only; tap a file to download it | 30 s |
 | Background, unmetered | everything | 2 h |
 | Background, metered | segments only | 24 h |
-| Battery low, background | nothing | — |
+| **Service, unmetered** | **everything** | **5 min** |
+| **Service, metered** | **segments only** | **24 h** |
+| Battery low, not watching | nothing | — |
 | "Sync now" pressed | everything, whatever the conditions | once |
+
+The two service rows are what `itsanas daemon` selects today. A service is
+exempt from the "background syncing is off" switch — starting a daemon is the
+deliberate act that switch exists to require — but not from the low-battery
+rule, because nothing about being a service makes the battery bigger.
 
 Two deliberate choices. The button always works: a button that does nothing
 teaches people the application is broken, and somebody pressing it on mobile

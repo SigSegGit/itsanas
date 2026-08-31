@@ -52,6 +52,11 @@
 //! It does not execute repair plans. Building a census means asking every peer
 //! what it holds, and knowing who "every peer" is needs the coordinator's node
 //! set. Recorded in `docs/ROADMAP.md`.
+//!
+//! It does not *detect* whether its connection is metered. Windows and macOS
+//! both expose the answer and reading it would mean a platform crate for one
+//! flag, so `--metered` is asked for. Guessing it from the interface type is
+//! how a sync tool ends up costing somebody fifty euros, and is refused.
 
 use std::{
     collections::BTreeSet,
@@ -63,6 +68,7 @@ use itsanas_crypto::DeviceId;
 use itsanas_discover::Lan;
 use itsanas_folder::{Folder, Watcher, watch};
 use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
+use itsanas_policy::{Attention, Conditions, Network, Power, Scope as PolicyScope};
 
 use crate::{
     config::format_size,
@@ -167,8 +173,56 @@ impl Outage {
 /// call, and cannot borrow a local.
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
+/// One word for what a scope moves, for the banner.
+const fn describe(scope: PolicyScope) -> &'static str {
+    match scope {
+        PolicyScope::Nothing => "nothing",
+        PolicyScope::Metadata => "the log only (no file contents)",
+        PolicyScope::Everything => "everything",
+    }
+}
+
+/// Decide how this daemon should behave, and say why.
+///
+/// The schedule is not a constant here any more: `itsanas-policy` owns it, so
+/// the phone, the Mac shell and this daemon reach the same answer from the same
+/// argued decision table rather than three copies of a number. A daemon is
+/// [`Attention::Unattended`] — nobody is watching it and no platform is
+/// restricting it, which is a different thing from a backgrounded app and used
+/// to be conflated with one.
+///
+/// `metered` is asked for rather than detected. Windows and macOS both expose
+/// it, and reading it here would mean a platform crate for a flag; until
+/// somebody actually runs the daemon on a tether, a flag they pass is honest
+/// and a guess from the interface type is not.
+#[must_use]
+pub fn conditions(metered: bool) -> Conditions {
+    Conditions {
+        // A machine running a daemon is a machine somebody left on. Claiming
+        // `Charging` would be a guess; `OnBattery` is the conservative reading
+        // and produces the same plan, while `Low` is the one state that would
+        // change it and is the one we cannot see.
+        power: Power::OnBattery,
+        network: if metered {
+            Network::Metered
+        } else {
+            Network::Unmetered
+        },
+        attention: Attention::Unattended,
+    }
+}
+
 /// Run until interrupted.
-pub fn run(node: &Node, listen: Option<&str>, interval: Duration, discover: bool) -> Result<()> {
+///
+/// `interval` overrides the policy's own schedule when the operator passed
+/// `--interval`; otherwise `plan.every` decides.
+pub fn run(
+    node: &Node,
+    listen: Option<&str>,
+    interval: Option<Duration>,
+    metered: bool,
+    discover: bool,
+) -> Result<()> {
     let address = listen.unwrap_or(&node.config.listen);
     let server = PeerServer::bind(address)?;
     let bound = server.local_addr()?;
@@ -209,7 +263,14 @@ pub fn run(node: &Node, listen: Option<&str>, interval: Duration, discover: bool
     println!("  user id   {}", node.store.owner());
     println!("  device    {}", node.store.device_id());
     println!("  pledged   {}", format_size(node.config.pledge_bytes));
+    let plan = itsanas_policy::plan(conditions(metered), itsanas_policy::Settings::default());
+    let interval = interval
+        .or(plan.every)
+        .unwrap_or(DEFAULT_INTERVAL)
+        .max(Duration::from_secs(1));
     println!("  interval  {}s", interval.as_secs());
+    println!("  syncing   {}", describe(plan.scope));
+    println!("  because   {}", plan.because);
     match &node.config.folder {
         Some(folder) => println!("  folder    {}", folder.display()),
         None => println!("  folder    none configured (`itsanas folder <path>`)"),
@@ -258,7 +319,7 @@ pub fn run(node: &Node, listen: Option<&str>, interval: Duration, discover: bool
             });
         }
 
-        sync_loop(node, interval, shutdown, &neighbourhood, bound);
+        sync_loop(node, interval, plan.scope, shutdown, &neighbourhood, bound);
     });
 
     println!("stopped.");
@@ -269,6 +330,7 @@ pub fn run(node: &Node, listen: Option<&str>, interval: Duration, discover: bool
 fn sync_loop(
     node: &Node,
     interval: Duration,
+    scope: PolicyScope,
     shutdown: &AtomicBool,
     neighbourhood: &Neighbourhood,
     bound: std::net::SocketAddr,
@@ -319,7 +381,7 @@ fn sync_loop(
         }
 
         if Instant::now() >= next_sync {
-            let reached = one_round(node, shutdown, neighbourhood, bound, &mut outage);
+            let reached = one_round(node, shutdown, neighbourhood, bound, &mut outage, scope);
             next_sync = Instant::now() + interval;
 
             // Say it once, rather than leaving someone watching a silent
@@ -368,6 +430,7 @@ fn one_round(
     neighbourhood: &Neighbourhood,
     bound: std::net::SocketAddr,
     outage: &mut Outage,
+    scope: PolicyScope,
 ) -> BTreeSet<DeviceId> {
     // Configured peers first: somebody typed those in, so they are
     // wanted even if they are also on the local network — and being in
@@ -378,7 +441,7 @@ fn one_round(
         if shutdown.load(Ordering::Relaxed) {
             break;
         }
-        if let Some(outcome) = sync_once(node, peer, None, true) {
+        if let Some(outcome) = sync_once(node, peer, None, true, scope) {
             neighbourhood.confirm(outcome.device);
             reached.insert(outcome.device);
         }
@@ -416,7 +479,7 @@ fn one_round(
         }
         // Pinned: the coordinator supplies addresses and is not trusted
         // to say who lives at one.
-        if let Some(outcome) = sync_once(node, address, Some(*device), true) {
+        if let Some(outcome) = sync_once(node, address, Some(*device), true, scope) {
             reached.insert(outcome.device);
             if outcome.earned_trust {
                 neighbourhood.confirm(outcome.device);
@@ -453,6 +516,7 @@ fn one_round(
             &candidate.address.to_string(),
             Some(candidate.device),
             candidate.mine,
+            scope,
         );
 
         if let Some(outcome) = outcome {
@@ -570,6 +634,7 @@ fn sync_once(
     peer: &str,
     expect: Option<DeviceId>,
     announce_failure: bool,
+    scope: PolicyScope,
 ) -> Option<Outcome> {
     let mut client = match PeerClient::connect(peer, &node.device, node.store.owner(), expect) {
         Ok(client) => client,
@@ -627,7 +692,15 @@ fn sync_once(
         Err(error) => println!("{peer}: could not audit ({error})"),
     }
 
-    let earned_trust = match session::round(&node.store, &node.vault, &mut client) {
+    // The scope the policy chose. On a metered link this exchanges the log and
+    // downloads nothing, which is the difference between a tethered laptop
+    // costing kilobytes a day and costing whatever the store happens to weigh.
+    let wire = match scope {
+        PolicyScope::Metadata => session::Scope::Metadata,
+        // `Nothing` never reaches here: the loop does not dial at all.
+        PolicyScope::Nothing | PolicyScope::Everything => session::Scope::Everything,
+    };
+    let earned_trust = match session::round_scoped(&node.store, &node.vault, &mut client, wire) {
         Ok(report) => {
             if report.changed_anything() {
                 println!(

@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 600 test functions across 21 binaries, 3 of them
+**Last updated: 2026-08-31 — 604 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. Eighteen are red-team tests.**
 
 | Binary | Tests |
@@ -20,7 +20,7 @@
 | `itsanas-coord` unit | 55 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
 | `itsanas-discover` unit | 36 |
-| `itsanas-policy` unit | 11 |
+| `itsanas-policy` unit | 15 |
 | `itsanas-folder` unit | 31 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
 | `itsanas-cli` unit | 39 |
@@ -686,6 +686,31 @@ the function, which is not a property worth having a test for.
 | `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
 
 ---
+
+# `itsanas-policy` — when to sync, and how much (15)
+
+`src/lib.rs`. A decision table with an argument attached to every row, and no
+dependency on anything — so the phone, the Mac shell and `itsanas daemon` reach
+the same schedule instead of each keeping its own number. The daemon is what
+uses it today: `itsanas daemon` prints the interval, the scope and the reason.
+
+| Test | What it proves |
+| --- | --- |
+| **`every_combination_produces_a_plan_with_a_reason`** | Totality. A sync tool that silently does nothing in some unconsidered corner is the failure this crate exists to prevent, and "silently" is the operative word: every state has to be explainable to the person looking at it. It walks `Network::ALL`, `Power::ALL` and `Attention::ALL` rather than lists written out here, because the list written out here is the one somebody forgets — it went on checking two `Attention` variants after a third was added, and passed. |
+| **`a_service_on_ethernet_does_not_inherit_a_phone_s_interval`** | The Pi in the cupboard is not a backgrounded app. Two hours is not a considered choice about ethernet; it is the smallest number that survives Android Doze, and applying it to a permanently-powered machine would make an edit take up to two hours to cross a household through a node that was awake the whole time. |
+| **`a_service_on_a_metered_link_is_no_less_careful_than_a_phone`** | Being a service buys freedom from the *platform*, not from the data plan. A laptop tethered to a phone must not start uploading forty gigabytes because it is technically a daemon. |
+| **`a_service_still_stops_when_the_battery_is_nearly_gone`** | Nothing about being a service makes the battery bigger. |
+| **`switching_background_syncing_off_does_not_stop_a_daemon_somebody_started`** | That switch means "do not work unless I am looking at the app". Starting a daemon *is* the deliberate act it exists to require. A daemon silently doing nothing because of a phone setting is a support case nobody could diagnose. |
+| **`nothing_is_moved_over_a_metered_connection_unless_it_was_asked_for`** | The row that decides whether somebody trusts this on their phone. A tool that silently spent a data allowance would be uninstalled once and remembered for years. |
+| **`the_file_list_still_arrives_on_a_metered_connection`** | The other half: knowing *what* changed is kilobytes and always happens. Metadata and content are separate purchases. |
+| `allowing_metered_downloads_actually_allows_them` | Somebody with an unlimited plan who says so is believed. |
+| **`a_low_battery_stops_background_work_but_never_stops_a_person`** | Refusing to work while somebody is watching is how a tool gets a reputation for being broken. They can see the battery indicator themselves. |
+| **`the_button_works_even_when_the_schedule_would_not`** | A button that does nothing teaches people the application is broken. Neither a low battery nor a metered connection overrides a deliberate act; only having no network does. |
+| `an_open_application_on_free_wifi_syncs_almost_live` | The case everybody judges the product on. |
+| `no_network_means_no_plan_and_no_button` | The one state where there is nothing to honour. |
+| `switching_background_syncing_off_leaves_the_foreground_alone` | The setting is about the background, and only the background. |
+| **`background_intervals_sit_above_every_platform_floor`** | Every mobile platform imposes a fifteen-minute floor on periodic background work. An interval below it is not a schedule, it is a number the operating system ignores. |
+| **`a_day_of_metered_checking_is_not_measurable_on_a_data_plan`** | The arithmetic behind the once-a-day metadata round, so the claim in the module documentation is checked rather than asserted. |
 
 # `itsanas-placement` — unit tests (29)
 

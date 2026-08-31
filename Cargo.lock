@@ -725,6 +725,7 @@ dependencies = [
  "itsanas-discover",
  "itsanas-folder",
  "itsanas-net",
+ "itsanas-policy",
  "itsanas-store",
  "itsanas-sync",
  "postcard",

@@ -75,6 +75,47 @@ pub enum Attention {
     /// Not on screen. Every platform restricts what may happen here, and the
     /// restrictions tighten with each release.
     Background,
+    /// Nobody is watching, and nothing is restricting either.
+    ///
+    /// A service: the Pi in the cupboard, the VM on the Freebox, `itsanas
+    /// daemon` under systemd. It looks like [`Attention::Background`] and is
+    /// not, and conflating the two is how this crate would have given a
+    /// permanently-powered machine on ethernet a two-hour sync interval.
+    ///
+    /// That interval is not a considered choice about ethernet. It is the
+    /// smallest number that survives Android's Doze and iOS's background
+    /// budget. A machine subject to neither should not inherit it: in a
+    /// household where the Pi is the always-on node, it is the difference
+    /// between an edit reaching the other laptop in five minutes and in two
+    /// hours.
+    ///
+    /// What this does **not** buy is permission to spend money. On a metered
+    /// connection an unattended service behaves exactly like a background app,
+    /// because the constraint there is the data plan and a data plan does not
+    /// care what kind of process you are.
+    Unattended,
+}
+
+impl Network {
+    /// Every variant.
+    ///
+    /// The totality test walks this rather than a list written out at the call
+    /// site. A list at the call site is one somebody forgets: `Unattended` was
+    /// added to [`Attention`] and the test that claims to check "every
+    /// combination" went on checking the two it already knew, silently. Adding
+    /// a variant now fails to compile here, which is the only kind of reminder
+    /// that works.
+    pub const ALL: [Self; 3] = [Self::None, Self::Metered, Self::Unmetered];
+}
+
+impl Power {
+    /// Every variant. See [`Network::ALL`].
+    pub const ALL: [Self; 3] = [Self::Low, Self::OnBattery, Self::Charging];
+}
+
+impl Attention {
+    /// Every variant. See [`Network::ALL`].
+    pub const ALL: [Self; 3] = [Self::Foreground, Self::Background, Self::Unattended];
 }
 
 /// Everything the decision depends on.
@@ -180,6 +221,18 @@ pub const BACKGROUND_FREE: Duration = Duration::from_secs(2 * 60 * 60);
 /// small enough that a month of it is not measurable on any data plan.
 pub const BACKGROUND_METERED: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// How often an unattended service syncs on a connection that is free.
+///
+/// Five minutes. A machine that is plugged in and unrestricted has no reason to
+/// wait two hours, and the number is chosen so that somebody who edits a file
+/// on the laptop finds it on the Pi before they have finished wondering whether
+/// it worked.
+///
+/// It is not shorter because each round is a TLS handshake and a have/missing
+/// exchange per peer, and a household of four machines polling every thirty
+/// seconds would spend more time greeting each other than syncing.
+pub const SERVICE: Duration = Duration::from_secs(5 * 60);
+
 /// Decide what to do.
 ///
 /// Total: every combination of conditions produces a plan, and the plan always
@@ -199,10 +252,14 @@ pub fn plan(conditions: Conditions, settings: Settings) -> Plan {
     }
 
     let watching = conditions.attention == Attention::Foreground;
+    let service = conditions.attention == Attention::Unattended;
 
     // A person who opened the application is waiting, and they can see the
     // battery indicator themselves. Refusing to work while somebody watches is
     // how a tool gets a reputation for being broken.
+    //
+    // A service is not exempt: a laptop running the daemon on three per cent
+    // ought to stop, and the machines this is aimed at are plugged in anyway.
     if !watching && conditions.power == Power::Low {
         return Plan {
             scope: Scope::Nothing,
@@ -211,7 +268,10 @@ pub fn plan(conditions: Conditions, settings: Settings) -> Plan {
         };
     }
 
-    if !watching && !settings.background {
+    // The background switch is the mobile application's "don't work unless I'm
+    // looking". Starting a daemon *is* the deliberate act that switch exists to
+    // require, so it does not also have to be granted.
+    if !watching && !service && !settings.background {
         return Plan {
             scope: Scope::Nothing,
             every: None,
@@ -242,6 +302,15 @@ pub fn plan(conditions: Conditions, settings: Settings) -> Plan {
             scope: Scope::Everything,
             every: Some(WATCHING),
             because: "open, and you have allowed downloads over metered connections",
+        },
+
+        // A service on a free connection: the fast beat. No platform is
+        // restricting it and nobody is paying by the gigabyte, so the only
+        // reason to wait is politeness towards the peers.
+        (false, false) if service => Plan {
+            scope: Scope::Everything,
+            every: Some(SERVICE),
+            because: "running as a service on an unmetered connection",
         },
 
         // Background, connection is free. Charging is the moment to do the
@@ -382,6 +451,79 @@ mod tests {
     }
 
     #[test]
+    fn a_service_on_ethernet_does_not_inherit_a_phone_s_interval() {
+        // The Pi in the cupboard and the VM on the Freebox are the always-on
+        // machines a household syncs through. Two hours is not a considered
+        // choice about ethernet; it is the smallest number that survives
+        // Android Doze. Applying it to a permanently-powered machine would make
+        // an edit on the laptop take up to two hours to reach the other laptop,
+        // through a node that was awake the whole time.
+        let service = plan(
+            at(Network::Unmetered, Power::Charging, Attention::Unattended),
+            Settings::default(),
+        );
+        assert_eq!(service.scope, Scope::Everything);
+        assert_eq!(service.every, Some(SERVICE));
+        assert!(
+            SERVICE < BACKGROUND_FREE,
+            "a service waits as long as a backgrounded phone, which is the \
+             restriction it does not have"
+        );
+    }
+
+    #[test]
+    fn a_service_on_a_metered_link_is_no_less_careful_than_a_phone() {
+        // Being a service buys freedom from the *platform*, not from the data
+        // plan. A laptop tethered to a phone, running the daemon, must not
+        // start uploading forty gigabytes because it is technically a service.
+        let tethered = plan(
+            at(Network::Metered, Power::Charging, Attention::Unattended),
+            Settings::default(),
+        );
+        assert_eq!(tethered.scope, Scope::Metadata);
+        assert_eq!(tethered.every, Some(BACKGROUND_METERED));
+    }
+
+    #[test]
+    fn a_service_still_stops_when_the_battery_is_nearly_gone() {
+        // A laptop running the daemon on three per cent should stop, exactly as
+        // a backgrounded app would. Nothing about being a service makes the
+        // battery bigger.
+        let dying = plan(
+            at(Network::Unmetered, Power::Low, Attention::Unattended),
+            Settings::default(),
+        );
+        assert_eq!(dying.scope, Scope::Nothing);
+    }
+
+    #[test]
+    fn switching_background_syncing_off_does_not_stop_a_daemon_somebody_started() {
+        // That switch means "do not work unless I am looking at the app".
+        // Running `itsanas daemon` is the deliberate act it exists to require,
+        // so it does not also have to be granted. A daemon that silently did
+        // nothing because of a phone setting would be a support case nobody
+        // could diagnose.
+        let started = plan(
+            at(Network::Unmetered, Power::Charging, Attention::Unattended),
+            Settings {
+                background: false,
+                ..Settings::default()
+            },
+        );
+        assert_eq!(started.scope, Scope::Everything);
+
+        // The same setting still silences a backgrounded application.
+        let app = plan(
+            at(Network::Unmetered, Power::Charging, Attention::Background),
+            Settings {
+                background: false,
+                ..Settings::default()
+            },
+        );
+        assert_eq!(app.scope, Scope::Nothing);
+    }
+
+    #[test]
     fn no_network_means_no_plan_and_no_button() {
         for attention in [Attention::Foreground, Attention::Background] {
             assert_eq!(
@@ -439,9 +581,9 @@ mod tests {
         // unconsidered corner is the failure this crate exists to prevent, and
         // "silently" is the operative word: every state has to be explainable
         // to the person looking at it.
-        for network in [Network::None, Network::Metered, Network::Unmetered] {
-            for power in [Power::Low, Power::OnBattery, Power::Charging] {
-                for attention in [Attention::Foreground, Attention::Background] {
+        for network in Network::ALL {
+            for power in Power::ALL {
+                for attention in Attention::ALL {
                     for content_on_metered in [false, true] {
                         for background in [false, true] {
                             let plan = plan(
