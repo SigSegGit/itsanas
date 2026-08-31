@@ -1,7 +1,7 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 610 test functions across 21 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. Twenty-one are red-team tests.**
+**Last updated: 2026-08-31 — 617 test functions across 21 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. Twenty-two are red-team tests.**
 
 | Binary | Tests |
 | --- | --- |
@@ -10,12 +10,12 @@
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 135 |
-| `itsanas-store` integration (`tests/store.rs`) | 29 (1 `#[ignore]`d) |
+| `itsanas-store` unit | 138 |
+| `itsanas-store` integration (`tests/store.rs`) | 30 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 19 |
 | `itsanas-net` unit | 30 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 31 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 33 |
 | `itsanas-placement` unit | 29 |
 | `itsanas-coord` unit | 55 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
@@ -23,7 +23,7 @@
 | `itsanas-policy` unit | 15 |
 | `itsanas-folder` unit | 31 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 39 |
+| `itsanas-cli` unit | 40 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (`#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -274,6 +274,9 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 
 | Test | What it proves |
 | --- | --- |
+| **`the_loss_queue_is_read_from_a_moving_start_and_wraps`** | Bounded, because a node that lost a disk has millions of losses and reading them all would allocate a gigabyte before healing anything. From a cursor, because reading from the top of the key order every round lets a run of losses no reachable peer holds sit at the front for ever and starve everything behind it — the chunk that could have been repaired is never reached and nothing says why. |
+| `a_loss_is_recorded_once_and_cleared_when_the_chunk_returns` | The queue is a set, not a log, and it shrinks. |
+| **`collecting_a_chunk_stops_it_being_a_loss`** | A chunk nothing references cannot be missing. Leaving the entry would have repair asking peers for ever about data this node deliberately threw away — and telling them what it no longer has. |
 | **`the_two_orderings_never_disagree_whatever_is_done_to_the_ledger`** | The ledger is kept in two key orders, because "who holds this chunk?" and "what does this peer hold?" are range scans under opposite prefixes and answering one with the wrong ordering is a full table walk — fourteen million rows per audit round at a terabyte. That is denormalised state, which this project refuses everywhere else, and the refusal is only earned if every path writing one writes the other in the same transaction. Exercised across recording, batching, forgetting a holder, forgetting a device, and collecting a chunk. |
 | **`red_team_a_host_cannot_work_out_which_of_its_chunks_will_be_asked_about`** | The attack the *first* random version did not stop. Seeking to "the first record at or after a random cursor" is not uniform: it weights each record by the gap before it, and gaps between random ids are exponentially distributed. Harmless only while the host cannot tell which of its chunks sit behind the widest gaps — and ordered by chunk id it could, because it received the chunks. Simulated at sixteen questions a round, a host keeping the best 90% of the data passes **92%** of rounds where keeping 90% at random passes 18%: silently losing a tenth of somebody's files would have been invisible. So the ledger is ordered under a keyed hash, and this measures whether the key does the work. |
 | **`the_audit_order_changes_completely_when_the_key_does`** | Two owners must not share an audit order, or a host could learn it from the challenges one owner sends and apply it to another's data. |
@@ -555,7 +558,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (31)
+# `itsanas-net` — two-node tests (33)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -566,6 +569,8 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_peer_that_already_had_the_data_is_still_recorded_as_holding_it`** | The property that makes the ledger converge rather than only grow. A device restored from its recovery phrase learns where its data lives by *asking*, instead of re-uploading its whole store to find out — and the answer costs nothing extra, since it is the same round trip that decides what to send. |
 | **`a_host_that_refuses_to_store_is_not_recorded_as_holding_anything`** | A node that pledged nothing still answers, because refusing to host does not stop it being a peer. Recording it as a holder would let a node believe its data was replicated onto a machine that declined it — the worst possible error, indistinguishable from safety until the local disk dies. |
 | **`red_team_a_host_that_keeps_discarding_stops_getting_free_uploads`** | The attack auditing alone does **not** stop. Accept, delete, wait: the audit catches it every round and the owner re-uploads every round, so the host pays nothing and the owner pays a full upload each time. The more data the owner has, the more it costs them. Detection without memory is not a defence. |
+| **`red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost`** | An attack that repair itself introduced. Asking a peer "do you have chunk X?" tells it this node does not. The ids are blinded so nothing about the content leaks — but *which chunks now exist only on hosts* is precisely the list to delete to destroy somebody's data, and the first version asked every peer it connected to, strangers the discovery loop had just dialled included. A peer is now asked only about chunks the ledger already records it as holding, which discloses nothing it did not tell this node itself. |
+| **`what_doctor_finds_is_what_repair_fixes_first`** | Two detectors that ignored each other. `doctor` knows every local loss in one pass; the daemon's sampling scan needs fifty-five days to reach a given chunk on a terabyte store. Somebody running `doctor` because a file would not open therefore learned the answer and had no way to act on it. They now share a queue, and a loss `doctor` found is repaired in the next round rather than eventually. |
 | **`a_disk_that_quietly_lost_a_block_gets_it_back_from_a_host`** | The half of repair that pushing cannot do. `push` restores *replication* by offering a peer what the peer lacks; it can put nothing back on **this** disk, and a chunk missing here is the one failure the placement ledger was built to survive. A dropped block, an inode lost to a power cut, a partial restore: the file is unreadable, the bytes are on three other machines, and until now nothing reached for them and the only cure was a human running `doctor` and knowing what to do next. |
 | **`red_team_a_host_cannot_answer_a_repair_request_with_rubbish`** | A host cannot read what it stores, so its one route to destroying data is to wait for a repair request and answer with noise. Written unverified, those bytes would make `has_chunk` true, the scan would stop looking, no other peer would ever be asked, and a **recoverable** loss would become permanent — strictly worse than refusing to answer. The bytes are opened and re-addressed before anything is written, and a host that answers with something else loses that record. |
 | **`a_failing_assertion_inside_a_server_scope_fails_rather_than_hangs`** | The harness under every test in this file. A panic used to skip the line that sets the shutdown flag, so `thread::scope` joined an accept loop that never stopped and the suite reported a **hang**. Every red-team test here runs inside `with_server`, so for as long as this was broken, a test that caught an attack reported a timeout — and a timeout is what everybody retries and nobody reads. Found by sabotaging a verification step on purpose and watching the suite hang instead of fail. `itsanas-coord`'s harness has had the guard, and the rationale written above it, since its server was written. |

@@ -28,6 +28,50 @@ fn store_for(master: &MasterSecret, root: &Path) -> Store {
     .expect("store opens")
 }
 
+/// A peer cannot make this node decrypt a frame it knows is not a chunk.
+///
+/// The wire allows eight megabytes; the chunker never emits more than 256 KiB.
+/// A repair round asks for thirty-two chunks, so a peer answering every one at
+/// the frame limit would have this node decrypting a quarter of a gigabyte for
+/// a result known in advance from the length alone. Seconds per round on a
+/// Raspberry Pi, for free, from anyone recorded as a holder.
+#[test]
+fn a_reply_too_large_to_be_a_chunk_is_refused_without_decrypting_it() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let store = store_for(&testkit::alice().master, dir.path());
+    let entry = store
+        .write_file("real.bin", b"a genuine chunk")
+        .expect("write");
+    let address = entry.chunks[0];
+
+    let genuine = store
+        .blobs()
+        .get(&address)
+        .expect("blobs")
+        .expect("the chunk this node just wrote");
+    std::fs::remove_file(store.blobs().path_of(&address)).expect("lose it");
+
+    let oversized = vec![0u8; (256 * 1024) + 4096];
+    assert!(
+        !store.restore_chunk(&address, &oversized).expect("restore"),
+        "a reply larger than any chunk the chunker can emit was accepted"
+    );
+    assert!(
+        !store.has_chunk(&address),
+        "the oversized reply was written"
+    );
+
+    // And the real thing still comes back, so the bound is not simply "no".
+    assert!(
+        store.restore_chunk(&address, &genuine).expect("restore"),
+        "the genuine chunk was refused along with the rubbish"
+    );
+    assert_eq!(
+        store.read_file("real.bin").expect("read").as_deref(),
+        Some(&b"a genuine chunk"[..])
+    );
+}
+
 #[test]
 fn the_published_test_identities_are_refused_by_the_normal_constructor() {
     // README.md and SECURITY.md both promise this. Before this test existed the

@@ -542,12 +542,36 @@ impl Store {
     /// because the thing it detects is a disk quietly losing a file, and a disk
     /// quietly losing a file is not an emergency until you need the file.
     pub fn missing_locally(&self, cursor: &ChunkId, scan: usize) -> Result<Vec<ChunkId>> {
-        Ok(self
-            .index
-            .live_chunks_from(cursor, scan)?
-            .into_iter()
-            .filter(|address| !self.blobs.contains(address))
-            .collect())
+        let mut found = Vec::new();
+        for address in self.index.live_chunks_from(cursor, scan)? {
+            if self.blobs.contains(&address) {
+                // It may have been recorded as lost and then restored by a
+                // filesystem repair or a backup underneath us. Clearing here
+                // costs one lookup and stops repair asking peers for ever
+                // about something that came back on its own.
+                self.index.clear_loss(&address)?;
+            } else {
+                self.index.note_loss(&address, now_unix())?;
+                found.push(address);
+            }
+        }
+        Ok(found)
+    }
+
+    /// Chunks already known to be missing from this disk, worst problem first.
+    ///
+    /// Written by whoever found them — `doctor` in one exhaustive pass, the
+    /// daemon's sampling scan a slice at a time — and drained by repair. A human
+    /// running `doctor` because a file would not open is the fastest detector
+    /// this system has, and until these shared a queue their answer had nowhere
+    /// to go.
+    pub fn known_losses_from(&self, cursor: &ChunkId, limit: usize) -> Result<Vec<ChunkId>> {
+        self.index.known_losses_from(cursor, limit)
+    }
+
+    /// How many chunks this node is known to be missing.
+    pub fn loss_count(&self) -> Result<u64> {
+        self.index.loss_count()
     }
 
     /// Accept a chunk fetched to replace one this node lost, if it is genuine.
@@ -567,6 +591,16 @@ impl Store {
     /// So the bytes are opened and the plaintext re-addressed here, before
     /// anything is written. Returns whether the chunk was accepted.
     pub fn restore_chunk(&self, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
+        // Length first, because it is free and decryption is not. The chunker
+        // never emits more than its maximum, so anything larger is bogus by
+        // construction — and the wire allows eight megabytes a frame, so a peer
+        // that answers every repair request at that size would have this node
+        // decrypting a quarter of a gigabyte per round for a result known in
+        // advance. On a Raspberry Pi that is seconds, every round, for free.
+        if sealed.len() > self.chunker.max_size() + itsanas_crypto::seal::DETERMINISTIC_OVERHEAD {
+            return Ok(false);
+        }
+
         let Ok(plaintext) = self.user.open_chunk(address, sealed) else {
             return Ok(false);
         };
@@ -574,6 +608,9 @@ impl Store {
             return Ok(false);
         }
         self.blobs.put(address, sealed)?;
+        // It is here, so it is not lost. The queue must shrink on success or
+        // repair would keep asking about chunks it has already recovered.
+        self.index.clear_loss(address)?;
         Ok(true)
     }
 
@@ -659,9 +696,16 @@ impl Store {
 
             for address in &entry.chunks {
                 referenced.insert(*address);
-                if !self.blobs.contains(address) {
-                    report.missing_chunks.push((path.clone(), *address));
+                if self.blobs.contains(address) {
+                    continue;
                 }
+                report.missing_chunks.push((path.clone(), *address));
+                // Somebody ran `doctor` because a file would not open. That is
+                // the fastest and most reliable detector of local loss this
+                // system has, and before this its answer went to a terminal and
+                // nowhere else: the daemon's sampling scan would have taken
+                // fifty-five days to find the same chunk on a terabyte store.
+                self.index.note_loss(address, now_unix())?;
             }
 
             if deep && !report.missing_chunks.iter().any(|(p, _)| p == &path) {

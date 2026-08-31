@@ -444,6 +444,151 @@ fn a_disk_that_quietly_lost_a_block_gets_it_back_from_a_host() {
 }
 
 #[test]
+fn red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost() {
+    // THE ATTACK, and it is one repair introduced. Asking a peer "do you have
+    // chunk X?" tells it this node does not. The ids are blinded so it learns
+    // nothing about the content """ + D + """ but it learns which chunks now exist only on
+    // hosts, which is exactly the list to delete if you want to destroy
+    // somebody's data. A healing mechanism that publishes the map of the
+    // wounds.
+    //
+    // The first version asked every peer it connected to about everything it
+    // had lost, strangers the discovery loop had dialled included.
+    //
+    // If this test fails, anyone who can complete a handshake with this node
+    // learns which of its files are one deletion from being gone.
+    let master = alice();
+    let holder = node(&MasterSecret::from_bytes([0xD1; 32]), 70);
+    let stranger = node(&MasterSecret::from_bytes([0xD2; 32]), 71);
+    let owner = node(&master, 72);
+
+    let chunks = owner
+        .store
+        .write_file("private.bin", &a_file_of_many_chunks(31, 256 << 10))
+        .expect("write")
+        .chunks;
+    owner.store.flush_segment().expect("flush");
+
+    // Only the real host is ever given the data, so only it is ever recorded.
+    with_server(&holder, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        session::push(&owner.store, &mut client).expect("push");
+    });
+
+    // Lose several blocks, so the queue is not empty and the sweep cannot miss.
+    for chunk in chunks.iter().take(3) {
+        std::fs::remove_file(owner.store.blobs().path_of(chunk)).expect("lose a block");
+    }
+    let found = owner.store.verify_integrity(false).expect("doctor");
+    assert_eq!(
+        found.missing_chunks.len(),
+        3,
+        "the fixture did not break anything"
+    );
+
+    // The stranger answers the phone and is asked nothing, however many rounds
+    // it hangs around for.
+    for _ in 0..8 {
+        with_server(&stranger, Pledge::gigabytes(1), |address| {
+            let mut client = PeerClient::connect(address, &owner.device, owner.store.owner(), None)
+                .expect("dial");
+            let report = session::repair(&owner.store, &mut client, session::REPAIR_SCAN_PER_ROUND)
+                .expect("repair");
+            assert_eq!(
+                report.asked, 0,
+                concat!(
+                    "a peer that has never been given a byte of this node's data ",
+                    "was told which chunks it has lost"
+                )
+            );
+            assert!(report.not_asked >= 3, "the losses were not even considered");
+        });
+    }
+
+    // And the host that does hold them is still asked, or the rule would be
+    // privacy bought by breaking the feature.
+    let mut restored = 0;
+    for _ in 0..4 {
+        with_server(&holder, Pledge::gigabytes(1), |address| {
+            let mut client = PeerClient::connect(address, &owner.device, owner.store.owner(), None)
+                .expect("dial");
+            let report = session::repair(&owner.store, &mut client, session::REPAIR_SCAN_PER_ROUND)
+                .expect("repair");
+            restored += report.restored;
+        });
+        if restored == 3 {
+            break;
+        }
+    }
+    assert_eq!(
+        restored, 3,
+        "the peer that does hold the data was not asked"
+    );
+}
+
+#[test]
+fn what_doctor_finds_is_what_repair_fixes_first() {
+    // Two detectors that ignored each other. `doctor` walks every file and
+    // knows the whole answer in one pass; the daemon's sampling scan reaches a
+    // given chunk after fifty-five days on a terabyte store. Somebody running
+    // `doctor` because a file would not open therefore learned the answer and
+    // had no way to act on it, and the fix was the slowest path in the system.
+    //
+    // The queue is what joins them. This checks that a loss `doctor` found is
+    // repaired without waiting for the sampler to stumble across it.
+    let master = alice();
+    let host = node(&MasterSecret::from_bytes([0xD3; 32]), 73);
+    let owner = node(&master, 74);
+
+    let chunks = owner
+        .store
+        .write_file("ledger.bin", &a_file_of_many_chunks(32, 256 << 10))
+        .expect("write")
+        .chunks;
+    owner.store.flush_segment().expect("flush");
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        session::push(&owner.store, &mut client).expect("push");
+    });
+
+    let lost = chunks[chunks.len() - 1];
+    std::fs::remove_file(owner.store.blobs().path_of(&lost)).expect("lose a block");
+    assert_eq!(
+        owner.store.loss_count().expect("count"),
+        0,
+        "nothing knows yet"
+    );
+
+    owner.store.verify_integrity(false).expect("doctor");
+    assert_eq!(
+        owner.store.loss_count().expect("count"),
+        1,
+        "doctor found the loss and told nobody"
+    );
+
+    // One round. Not a sweep: the queue means the sampler's odds do not matter.
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        let report = session::repair(&owner.store, &mut client, 0).expect("repair");
+        assert_eq!(
+            report.restored, 1,
+            "a loss doctor had already found was not repaired in the next round"
+        );
+    });
+
+    assert_eq!(
+        owner.store.loss_count().expect("count"),
+        0,
+        "the chunk came back and the queue still says it is missing"
+    );
+    assert!(owner.store.read_file("ledger.bin").expect("read").is_some());
+}
+
+#[test]
 fn red_team_a_host_cannot_answer_a_repair_request_with_rubbish() {
     // THE ATTACK. A host cannot read what it stores, so the one way it could
     // destroy data is to wait until the owner asks for a chunk back and answer

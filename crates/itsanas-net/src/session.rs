@@ -502,13 +502,43 @@ pub fn drain_vault(store: &Store, vault: &Vault) -> Result<SyncReport> {
     Ok(report)
 }
 
-/// How many live chunks one repair round examines for local loss.
+/// How many live chunks one repair round samples for local loss.
 ///
 /// A bounded walk from a fresh random start, because at a terabyte there are
 /// fourteen million and stat-ing all of them every round would cost far more
-/// than the loss it is looking for. Two thousand is a few milliseconds and
-/// covers a household store in a handful of rounds.
+/// than the loss it is looking for.
+///
+/// # What this actually guarantees, which is less than it sounds
+///
+/// Each round examines 2048 chunks out of `N`, so the chance a given chunk is
+/// looked at is `2048/N`, and reaching a nine-in-ten chance of having examined
+/// one particular chunk takes:
+///
+/// | live chunks | rounds | at the five-minute service beat |
+/// | --- | --- | --- |
+/// | 2 000 | 1 | five minutes |
+/// | 100 000 (~10 GB) | 111 | nine hours |
+/// | 14 000 000 (1 TB) | 15 739 | **fifty-five days** |
+///
+/// An earlier version of this comment said "covers a household store in a
+/// handful of rounds", which is wrong by a factor of twenty on the middle row
+/// and by three orders of magnitude on the row it cites as the reason for the
+/// bound in the first place.
+///
+/// Fifty-five days is defensible on its own terms """ + D + """ a block silently lost is
+/// not an emergency until somebody reads the file """ + D + """ but only because it is not
+/// the only detector. `doctor` finds every loss in one pass and now writes what
+/// it finds where repair will drain it first. The sampling scan is the
+/// background sweep for losses nobody has noticed yet.
 pub const REPAIR_SCAN_PER_ROUND: usize = 2_048;
+
+/// How many losses are considered for each one that can be asked about.
+///
+/// A loss is only worth raising with a peer the ledger records as holding it,
+/// so most of the window is skipped. Eight times the fetch budget means a round
+/// still finds work when seven in eight of the losses in view belong to peers
+/// that are not this one.
+const LOSS_WINDOW: usize = 8;
 
 /// How many lost chunks one repair round tries to fetch back.
 ///
@@ -521,11 +551,11 @@ pub const REPAIR_FETCH_PER_ROUND: usize = 32;
 /// What one repair round found and fixed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RepairReport {
-    /// Live chunks examined.
-    pub scanned: usize,
     /// Chunks this node's files need and whose bytes are not on this disk.
+    ///
+    /// Everything known, not only what this round sampled.
     pub lost: usize,
-    /// Chunks asked of this peer, because the ledger says it holds them.
+    /// Chunks asked of this peer, because its own record says it holds them.
     pub asked: usize,
     /// Chunks that came back, opened, and re-addressed to what was asked for.
     pub restored: usize,
@@ -536,6 +566,8 @@ pub struct RepairReport {
     /// into a permanent one, and either way its record for that chunk is
     /// withdrawn.
     pub forged: usize,
+    /// Losses this peer is not recorded as holding, so it was not told about.
+    pub not_asked: usize,
 }
 
 impl RepairReport {
@@ -546,27 +578,38 @@ impl RepairReport {
     }
 }
 
-/// Fetch back chunks this node has lost, from a peer that still holds them.
+/// Fetch back chunks this node has lost, from a peer that already holds them.
 ///
 /// # Why this is not the same as pushing
 ///
 /// `push` restores *replication*: it offers a peer everything the peer lacks.
 /// It cannot restore anything to this disk, and a chunk missing from this disk
 /// is the one failure the placement ledger was built to survive. A file becomes
-/// unreadable, `doctor` reports it, and until now the only cure was a human
-/// noticing.
+/// unreadable, `doctor` reports it, and until this existed the only cure was a
+/// human noticing.
 ///
 /// A disk drops a block, a filesystem loses an inode after a power cut, a
 /// backup restore comes back partial. The chunk is still on three other
 /// machines and its address is still in the index; nothing was reaching for it.
 ///
-/// # Why the ledger is only a hint here
+/// # A repair request is a disclosure, and that decides who may be asked
 ///
-/// It asks the peers the ledger names first, but a chunk it does not name is
-/// still worth asking about """ + D + """ the ledger records acknowledgements, and a peer
-/// that acknowledged nothing may still have the bytes because somebody relayed
-/// them. The cost of asking is one round trip and the cost of not asking is a
-/// file nobody can read.
+/// Asking a peer "do you have chunk X?" tells it that this node does not. The
+/// ids are blinded, so it learns nothing about the *content* """ + D + """ but it learns
+/// which chunks now exist only on hosts, which is precisely the list to delete
+/// if you want to destroy somebody's data. A healing mechanism that publishes
+/// the map of the wounds.
+///
+/// The first version asked every peer it connected to about everything it had
+/// lost, including strangers the local-discovery loop had dialled for the first
+/// time that round.
+///
+/// So a peer is asked **only about chunks the ledger already records it as
+/// holding**. That is not a mitigation, it is the whole disclosure: the peer
+/// told this node it accepted that chunk, so being asked about it reveals
+/// nothing it did not already know. A chunk no peer is recorded as holding is
+/// not asked about by anybody, which is also correct """ + D + """ nobody has it, so the
+/// question buys nothing and costs the answer.
 ///
 /// # What comes back is verified before it is written
 ///
@@ -578,15 +621,40 @@ pub fn repair(store: &Store, client: &mut PeerClient, scan: usize) -> Result<Rep
     let peer = client.peer_device();
     let mut report = RepairReport::default();
 
+    // Sample a slice of the live set, which records anything newly missing.
+    // Its return value is deliberately ignored: what matters is the queue it
+    // maintains, which also holds everything `doctor` found in one pass.
     let mut raw = [0u8; 32];
     getrandom::fill(&mut raw)
         .map_err(|error| NetError::Refused(format!("could not draw a repair cursor: {error}")))?;
+    let _ = store.missing_locally(&ChunkId::from_bytes(raw), scan)?;
 
-    let lost = store.missing_locally(&ChunkId::from_bytes(raw), scan)?;
-    report.scanned = scan;
-    report.lost = lost.len();
+    // A bounded slice from a moving start, not the whole queue from the top.
+    // A node that lost a disk has millions of these, and a run of losses no
+    // reachable peer holds would otherwise sit at the front of the key order
+    // for ever and starve everything behind it.
+    let losses = store.known_losses_from(
+        &ChunkId::from_bytes(raw),
+        REPAIR_FETCH_PER_ROUND * LOSS_WINDOW,
+    )?;
+    report.lost = usize::try_from(store.loss_count()?).unwrap_or(usize::MAX);
 
-    for address in lost.into_iter().take(REPAIR_FETCH_PER_ROUND) {
+    for address in losses {
+        if report.asked == REPAIR_FETCH_PER_ROUND {
+            break;
+        }
+
+        // The disclosure test, and the only one: has this peer already told
+        // this node it holds this chunk?
+        let holds = store
+            .remote_holders(&address)?
+            .iter()
+            .any(|holder| holder.device == peer);
+        if !holds {
+            report.not_asked += 1;
+            continue;
+        }
+
         report.asked += 1;
         let Some(sealed) = client.chunk(owner, address)? else {
             continue;

@@ -172,6 +172,19 @@ impl Outage {
     }
 }
 
+/// Raises the shutdown flag however the scope is left, panic included.
+///
+/// See the comment at the `thread::scope` in [`run`]: without it a panic in the
+/// sync loop leaves the listener thread waiting on a flag nobody set, and the
+/// process hangs instead of dying.
+struct StopEverythingOnDrop<'a>(&'a AtomicBool);
+
+impl Drop for StopEverythingOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 /// Set by the interrupt handler.
 ///
 /// A process-wide `static` rather than something threaded through, because the
@@ -303,6 +316,17 @@ pub fn run(
     println!();
 
     std::thread::scope(|scope| {
+        // If the sync loop panics, the scope joins the listener thread, the
+        // listener waits on a shutdown flag the panic skipped, and the process
+        // stays alive — serving, never syncing, and looking healthy to
+        // systemd. A supervisor that cannot see the difference between a
+        // working daemon and a hung one is not supervising anything.
+        //
+        // Same shape as `StopOnDrop` in the test harnesses. It was written for
+        // `itsanas-coord`'s tests, applied nowhere else, and its absence in
+        // `itsanas-net` turned every caught attack into a sixty-second timeout.
+        let _stop = StopEverythingOnDrop(shutdown);
+
         scope.spawn(|| {
             if let Err(error) = server.serve_until(&service, &node.device, shutdown) {
                 // The sync loop can carry on without the listener; a node that
@@ -784,6 +808,25 @@ fn install_signal_handler() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_panic_anywhere_in_the_scope_raises_the_shutdown_flag() {
+        // Without this the daemon hangs instead of dying: the scope joins the
+        // listener thread, the listener waits on a flag the panic skipped, and
+        // the process stays alive, serving, never syncing, and looking healthy
+        // to systemd. A supervisor that cannot tell a working daemon from a
+        // hung one is not supervising anything.
+        let flag = AtomicBool::new(false);
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _stop = StopEverythingOnDrop(&flag);
+            panic!("the sync loop died");
+        }));
+        assert!(outcome.is_err(), "the panic did not reach the caller");
+        assert!(
+            flag.load(Ordering::Relaxed),
+            "the daemon would have hung rather than exited"
+        );
+    }
 
     #[test]
     fn the_default_interval_is_neither_a_busy_loop_nor_an_hour() {

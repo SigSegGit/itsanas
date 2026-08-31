@@ -47,6 +47,26 @@ impl Write for Recording {
     }
 }
 
+/// Unblocks a server thread parked in `accept` however the body is left.
+///
+/// Each test here spawns a thread that blocks on `TcpListener::accept` and then
+/// drives a client from the test thread. If the client half panics *before* it
+/// connects """ + D + """ a failed assertion, a key that would not generate """ + D + """ nothing
+/// ever accepts, `thread::scope` joins a thread that will never return, and the
+/// harness reports a **hang** instead of the assertion.
+///
+/// That is the same defect that made every security test in `itsanas-net`
+/// report a sixty-second timeout when it caught an attack. The guard existed in
+/// `itsanas-coord`'s harness from the first day and was applied nowhere else,
+/// which is how a good idea in one file becomes an outage in another.
+struct UnblockOnDrop(std::net::SocketAddr);
+
+impl Drop for UnblockOnDrop {
+    fn drop(&mut self) {
+        let _ = TcpStream::connect(self.0);
+    }
+}
+
 #[test]
 fn two_devices_authenticate_each_other_and_exchange_a_message() {
     let server_device = device(1);
@@ -61,6 +81,7 @@ fn two_devices_authenticate_each_other_and_exchange_a_message() {
     let server_id = server_device.device_id();
     let client_id = client_device.device_id();
 
+    let _unblock = UnblockOnDrop(address);
     std::thread::scope(|scope| {
         let handle = scope.spawn(|| {
             let (stream, _) = listener.accept().unwrap();
@@ -121,6 +142,7 @@ fn the_payload_never_reaches_the_socket_in_plaintext() {
 
     let recorded = Arc::new(Mutex::new(Vec::new()));
 
+    let _unblock = UnblockOnDrop(address);
     std::thread::scope(|scope| {
         let handle = scope.spawn(|| {
             let (stream, _) = listener.accept().unwrap();
@@ -183,6 +205,7 @@ fn dialling_a_device_and_reaching_a_different_one_is_refused() {
     let server_identity = Identity::generate().unwrap();
     let server_config = server_identity.server_config().unwrap();
 
+    let _unblock = UnblockOnDrop(address);
     std::thread::scope(|scope| {
         scope.spawn(|| {
             if let Ok((stream, _)) = listener.accept() {
@@ -219,6 +242,7 @@ fn a_server_learns_who_called_without_being_told_in_advance() {
     let server_identity = Identity::generate().unwrap();
     let server_config = server_identity.server_config().unwrap();
 
+    let _unblock = UnblockOnDrop(address);
     std::thread::scope(|scope| {
         let handle = scope.spawn(|| {
             let (stream, _) = listener.accept().unwrap();

@@ -101,6 +101,32 @@ pub struct HolderOrderings {
 /// [`holders::audit_tag`].
 const HOLDINGS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holdings_by_device");
 
+/// Chunks this node's files need whose bytes are not on this disk.
+///
+/// A queue, not a cache. Two things find local loss and they used to ignore
+/// each other: `doctor` walks every file and knows the whole answer in one
+/// pass, and the daemon's repair scan samples a slice per round and takes
+/// **fifty-five days** to reach a given chunk at a terabyte. Somebody running
+/// `doctor` because a file would not open therefore learned the answer and had
+/// no way to act on it.
+///
+/// Both now write here, and repair drains this before it samples anything. A
+/// human asking the question is the fastest detector this system has; not
+/// wiring it to the thing that fixes losses was leaving the best signal on the
+/// floor.
+///
+/// Entries are removed when the chunk comes back, or when it turns out to be
+/// present after all — a blob can reappear because a filesystem was repaired
+/// or a backup restored underneath.
+const LOSSES: TableDefinition<'_, &[u8], u64> = TableDefinition::new("known_losses");
+
+/// Tables written by earlier versions that nothing reads any more.
+///
+/// Dropped on open. Naming them in one list is the point: the alternative is a
+/// file that accumulates a fossil per schema change and no record of which name
+/// is current.
+const SUPERSEDED_TABLES: &[&str] = &["reliability"];
+
 /// Device → the one chunk it was last offered while its sanction was in force.
 ///
 /// A paused peer is sent a single chunk per round so that it has something it
@@ -189,12 +215,33 @@ impl Index {
             let _ = txn.open_table(RELIABILITY)?;
             let _ = txn.open_table(HOLDINGS)?;
             let _ = txn.open_table(PROBES)?;
+            let _ = txn.open_table(LOSSES)?;
         }
         txn.commit()?;
 
         let index = Self { db, audit_key };
         index.rebuild_holdings_if_stale()?;
+        index.drop_superseded_tables()?;
         Ok(index)
+    }
+
+    /// Tables an older version wrote that nothing reads any more.
+    ///
+    /// `reliability` was superseded by `peer_reliability_v2` when the record
+    /// gained a field. Left in place it is invisible dead weight, and worse, a
+    /// precedent: by the third version there would be three fossils in the file
+    /// and nothing saying which one is authoritative. Deleting the old one is
+    /// the difference between a migration and an accumulation.
+    ///
+    /// `delete_table` on a name that was never created is a no-op, so this
+    /// costs one write transaction on the first open and nothing afterwards.
+    fn drop_superseded_tables(&self) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        for name in SUPERSEDED_TABLES {
+            let _ = txn.delete_table(TableDefinition::<&[u8], &[u8]>::new(name))?;
+        }
+        txn.commit()?;
+        Ok(())
     }
 
     /// Rebuild the device-first ordering for a store written before it existed.
@@ -565,6 +612,77 @@ impl Index {
         Ok(out)
     }
 
+    /// Record that `chunk` is referenced but its bytes are not on this disk.
+    ///
+    /// Idempotent, and the timestamp is only for an operator reading the table:
+    /// nothing sorts by it, because a loss does not become less urgent with age.
+    pub fn note_loss(&self, chunk: &ChunkId, now: u64) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(LOSSES)?
+                .insert(chunk.as_bytes().as_slice(), now)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Forget a loss, because the chunk is back or was never really gone.
+    pub fn clear_loss(&self, chunk: &ChunkId) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(LOSSES)?
+                .remove(chunk.as_bytes().as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Up to `limit` known losses, starting where `cursor` lands and wrapping.
+    ///
+    /// Both halves of that signature are load-bearing, and the first version
+    /// had neither.
+    ///
+    /// **Bounded**, because a node that lost a disk has millions of these and
+    /// reading them all into a `Vec` would make the mechanism meant to heal it
+    /// allocate a gigabyte before it did anything.
+    ///
+    /// **From a cursor**, because reading from the start of the key order every
+    /// round means a run of losses that no reachable peer holds sits at the
+    /// front for ever and starves everything behind it. The chunk that *can* be
+    /// repaired is never reached, and nothing anywhere says why.
+    ///
+    /// Same shape as [`Self::live_chunks_from`] and the audit draw: seek to a
+    /// random point, take what follows, wrap at the end.
+    pub fn known_losses_from(&self, cursor: &ChunkId, limit: usize) -> Result<Vec<ChunkId>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(LOSSES)?;
+
+        let mut out = Vec::with_capacity(limit.min(256));
+        let lowest: &[u8] = &[];
+        for start in [cursor.as_bytes().as_slice(), lowest] {
+            for row in table.range(start..)? {
+                let (key, _) = row?;
+                let chunk = ChunkId::from_slice(key.value())?;
+                if !out.contains(&chunk) {
+                    out.push(chunk);
+                }
+                if out.len() == limit {
+                    return Ok(out);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// How many losses are outstanding.
+    pub fn loss_count(&self) -> Result<u64> {
+        let txn = self.db.begin_read()?;
+        Ok(txn.open_table(LOSSES)?.len()?)
+    }
+
     /// Up to `limit` live chunks starting where `cursor` lands, wrapping.
     ///
     /// For the repair scan, which asks "which of these are missing from disk?"
@@ -607,34 +725,25 @@ impl Index {
     /// one small chunk, keep it, and buy its way back with that. The owner
     /// draws instead, from its own live set, and a host has no say at all.
     ///
-    /// Weighted by gap like every seek into a keyed space, and here that does
-    /// not matter: the peer cannot refuse a specific chunk without refusing
-    /// every chunk, which keeps it paused.
+    /// The draw is weighted by the gap before each chunk, and `CHUNK_REFS` is
+    /// keyed by the chunk id, which the peer knows — so it *can* work out
+    /// which chunk a given cursor would pick. That is not the same weakness as
+    /// in the audit order and it does not matter here: predicting the probe
+    /// buys nothing, because the peer has no way to obtain that chunk except
+    /// from this node, and refusing it keeps the peer paused.
     ///
     /// `None` when this node has no live chunks — nothing to prove anything
     /// with, and nothing worth saying about it.
     pub fn live_chunk_near(&self, cursor: &ChunkId) -> Result<Option<ChunkId>> {
-        let txn = self.db.begin_read()?;
-        let refs = txn.open_table(CHUNK_REFS)?;
-
-        // From the cursor to the end, then from the beginning: a draw that fell
-        // past the last live chunk must wrap rather than come back empty, or
-        // the chunks at the top of the id space would be the only ones ever
-        // offered as a probe.
-        let lowest: &[u8] = &[];
-        for start in [cursor.as_bytes().as_slice(), lowest] {
-            for row in refs.range(start..)? {
-                let (key, value) = row?;
-                if value.value() > 0 {
-                    return Ok(Some(ChunkId::from_slice(key.value())?));
-                }
-            }
-        }
-        Ok(None)
+        Ok(self.live_chunks_from(cursor, 1)?.into_iter().next())
     }
 
     /// Forget a chunk entirely, after its blob has been deleted.
     pub fn forget_chunk(&self, chunk: &ChunkId) -> Result<()> {
+        // A chunk nothing references any more cannot be a loss. Leaving the
+        // entry would make repair ask peers, for ever, about data this node
+        // deliberately threw away.
+        self.clear_loss(chunk)?;
         let txn = self.db.begin_write()?;
         {
             // The holder ledger goes with it. Leaving the rows behind would
@@ -1774,6 +1883,85 @@ mod tests {
              the rest of the store is never checked",
             union.len()
         );
+    }
+
+    #[test]
+    fn a_loss_is_recorded_once_and_cleared_when_the_chunk_returns() {
+        let (_dir, index) = index();
+        assert_eq!(index.loss_count().unwrap(), 0);
+
+        index.note_loss(&chunk(4), 100).unwrap();
+        index.note_loss(&chunk(4), 200).unwrap();
+        assert_eq!(
+            index.loss_count().unwrap(),
+            1,
+            "the same loss counted twice"
+        );
+
+        index.clear_loss(&chunk(4)).unwrap();
+        assert_eq!(index.loss_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn collecting_a_chunk_stops_it_being_a_loss() {
+        // A chunk nothing references any more cannot be missing. Leaving the
+        // entry would have repair asking peers, for ever, about data this node
+        // deliberately threw away — and telling them what it no longer has.
+        let (_dir, index) = index();
+        index.put_file("a.txt", &entry(&[9])).unwrap();
+        index.note_loss(&chunk(9), 1).unwrap();
+        index.remove_file("a.txt", &tombstone()).unwrap();
+
+        index.forget_chunk(&chunk(9)).unwrap();
+        assert_eq!(
+            index.loss_count().unwrap(),
+            0,
+            "a garbage-collected chunk is still queued for repair"
+        );
+    }
+
+    #[test]
+    fn the_loss_queue_is_read_from_a_moving_start_and_wraps() {
+        // Both properties matter and the first version had neither.
+        //
+        // Bounded, because a node that lost a disk has millions of these and
+        // reading them all would allocate a gigabyte before healing anything.
+        //
+        // From a cursor, because reading from the top of the key order every
+        // round means a run of losses that no reachable peer holds sits at the
+        // front for ever and starves everything behind it. The chunk that could
+        // have been repaired is never reached and nothing says why.
+        let (_dir, index) = index();
+        for byte in 0..=255u8 {
+            index.note_loss(&chunk(byte), 1).unwrap();
+        }
+
+        let low = index.known_losses_from(&chunk(0), 4).unwrap();
+        let high = index.known_losses_from(&chunk(200), 4).unwrap();
+        assert_eq!(low.len(), 4, "the window is not bounded");
+        assert_eq!(high.len(), 4);
+        assert_ne!(
+            low, high,
+            "the cursor is ignored, so the same four losses are considered \
+             every round and everything behind them starves"
+        );
+
+        // A cursor past the last entry wraps rather than coming back empty, or
+        // the losses at the top of the id space would be the only ones the
+        // repair loop ever reached.
+        let wrapped = index.known_losses_from(&chunk(255), 4).unwrap();
+        assert_eq!(
+            wrapped.len(),
+            4,
+            "a cursor near the end returned a short window"
+        );
+
+        // Every loss is reachable from some cursor.
+        let mut seen = std::collections::BTreeSet::new();
+        for byte in 0..=255u8 {
+            seen.extend(index.known_losses_from(&chunk(byte), 1).unwrap());
+        }
+        assert_eq!(seen.len(), 256, "some queued loss can never be reached");
     }
 
     #[test]

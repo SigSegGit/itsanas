@@ -374,14 +374,32 @@ below the floor — but nothing runs that plan yet.
 
 **Still outstanding for M5:**
 
-- ~~**Getting back what this disk lost.**~~ Built. `session::repair` scans a
-  bounded slice of this node's live chunks each round, and asks a peer for
-  anything whose bytes are gone from local storage — a dropped block, an inode
-  lost to a power cut, a partial restore. Every byte is opened and re-addressed
-  before it is written, because accepting rubbish would set `has_chunk`, stop
-  the scan looking, and turn a recoverable loss into a permanent one. That is
-  the failure the placement ledger exists to survive and the one `push` cannot
-  reach.
+- ~~**Getting back what this disk lost.**~~ Built. `session::repair` asks a
+  peer for chunks whose bytes are gone from local storage — a dropped block, an
+  inode lost to a power cut, a partial restore. That is the failure the
+  placement ledger exists to survive, and the one `push` cannot reach: push
+  offers a peer what the peer lacks and can put nothing back here.
+
+  Three rules make it safe rather than merely useful:
+
+  - **A peer is asked only about chunks the ledger records it as holding.** A
+    repair request says "I no longer have this", and while the ids are blinded,
+    which chunks exist only on hosts is exactly the list to delete to destroy
+    somebody's data.
+  - **Every byte is opened and re-addressed before it is written.** A host
+    cannot read what it stores, so answering with noise is its one route to
+    destroying data: written unverified it would set `has_chunk`, stop the scan
+    looking, and make a recoverable loss permanent.
+  - **A reply longer than the chunker can emit is refused on its length**,
+    before decryption, so a peer cannot make this node decrypt a quarter of a
+    gigabyte a round for nothing.
+
+  Detection has two speeds and one queue. `doctor` finds every loss in a single
+  pass — that is a person asking because a file would not open, and it is the
+  fastest signal this system has. The daemon also samples 2048 live chunks a
+  round, which reaches a given chunk in nine hours on a ten-gigabyte store and
+  in **fifty-five days** on a terabyte. Both write to the same queue and repair
+  drains it before it samples anything.
 - **Executing the plan.** The planner is wired to nothing. It needs a loop that
   builds a census by asking peers, runs the plan, and pushes — which needs the
   daemon (M7) to have somewhere to live and the coordinator (M6) to supply an
