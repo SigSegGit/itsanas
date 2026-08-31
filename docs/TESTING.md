@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 636 test functions across 21 binaries, 3 of them
+**Last updated: 2026-08-31 — 637 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. Twenty-nine are red-team tests.**
 
 Three of these counts are checked mechanically by CI, and each check exists
@@ -23,7 +23,7 @@ public method has a call site somewhere in the workspace).
 | `itsanas-net` unit | 30 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 34 |
 | `itsanas-placement` unit | 29 |
-| `itsanas-coord` unit | 71 |
+| `itsanas-coord` unit | 72 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 15 |
@@ -896,7 +896,7 @@ hardware it will actually run on.
 
 ---
 
-# `itsanas-coord` — admission (19 of the coordinator's unit tests)
+# `itsanas-coord` — admission (20 of the coordinator's unit tests)
 
 `src/invitation.rs` and the invitation half of `src/directory.rs`. The front
 door: until this existed, every other defence in the project — audits, the
@@ -905,6 +905,7 @@ hostile *host*, and a hostile host is somebody who joined.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_registration_that_fails_does_not_burn_the_invitation`** | Redeeming and creating the account were two transactions: spend the use, commit, then write the account. Anything failing after the first — and `NameTaken` is trivial to provoke on purpose and easy to hit by mistyping — destroyed the invitation and created nothing. Free denial of service against the inviter, and an invitee locked out by their own typing error. |
 | **`red_team_the_coordinator_cannot_write_itself_an_invitation`** | The coordinator holds every invitation and every account. If it could mint one it would be the admission authority rather than a notice board, and ECONOMICS.md §7 is a promise that it is not. It may refuse — denial of service, already in the threat model — and must not be able to admit. |
 | **`red_team_an_invitation_cannot_be_edited_after_signing`** | Every field is in the signed payload. If the expiry, the use count, the inviter or the code were outside it, an invitation for one machine on one afternoon would become an open door. |
 | **`red_team_one_invitation_admits_one_stranger_however_many_try_it`** | A code posted in a group chat, or forwarded by the person it was sent to. Without spending uses, one endorsement admits everybody who ever saw it and "membership costs a member's endorsement" is false for every account after the first. |
