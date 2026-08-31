@@ -113,15 +113,21 @@ done
 # pipe has the script itself on stdin, so a bare `read` eats the lines the shell
 # has not run yet. Termux is the least likely place to meet that, and the habit
 # belongs in all of these scripts rather than only in the one where it bites.
+#
+# The test opens it rather than asking about it: `[ -r /dev/tty ]` reads the
+# permission bits of a device node that exists whether or not this process has a
+# controlling terminal, and answers yes on a machine where the open then fails
+# with ENXIO.
 ask() {
     [ "$ASSUME_YES" -eq 1 ] && return 0
-    if [ ! -r /dev/tty ]; then
+    if ! { : < /dev/tty; } 2>/dev/null; then
         warn "nothing to ask on: this is not running from a terminal"
         info "Re-run with --yes to accept."
         return 1
     fi
     printf '       %s [y/N] ' "$1"
-    read -r answer < /dev/tty
+    answer=""
+    read -r answer < /dev/tty || return 1
     case "$answer" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 

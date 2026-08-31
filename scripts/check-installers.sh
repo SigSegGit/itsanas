@@ -288,8 +288,25 @@ for script in "${SH_SCRIPTS[@]}"; do
         printf '%s\n' "$bare" | sed 's/^/         /'
         say "  Piped to sh, stdin is the script. Use: read -r x < /dev/tty"
     fi
+
+    # And the wrong way to find out whether there is a terminal to read from.
+    # `[ -r /dev/tty ]` reads the permission bits of a device node that exists
+    # whether or not the process has a controlling terminal, so it says yes and
+    # the open then fails with ENXIO. Found on the Freebox VM: the script asked
+    # its question, the read failed, and `set -u` took it out on
+    # "reply: parameter not set" instead of the sentence written for the case.
+    # Comments are skipped, because the comment above each `confirm` quotes the
+    # wrong form in order to explain it — and the first version of this check
+    # failed the clean tree on its own explanation.
+    tested=$(grep -nE '\[ *!? *-[rwe] +/dev/tty *\]' "$script" |
+        grep -vE '^[0-9]+: *#' || true)
+    if [ -n "$tested" ]; then
+        bad "$script tests /dev/tty instead of opening it"
+        printf '%s\n' "$tested" | sed 's/^/         /'
+        say '  Use:  if ! { : < /dev/tty; } 2>/dev/null; then'
+    fi
 done
-say "no installer reads a reply from standard input"
+say "no installer reads a reply from standard input, or tests /dev/tty by hand"
 
 # ------------------------------------------------------- what it refuses to do
 #

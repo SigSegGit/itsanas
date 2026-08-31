@@ -99,15 +99,21 @@ done
 # pipe has the script itself on stdin, so a bare `read` eats the lines the shell
 # has not run yet. /dev/tty is the terminal whatever stdin happens to be, and
 # when there is no terminal there is nobody to ask.
+#
+# The test opens it rather than asking about it: `[ -r /dev/tty ]` reads the
+# permission bits of a device node that exists whether or not this process has a
+# controlling terminal, and answers yes on a machine where the open then fails
+# with ENXIO.
 confirm() {
     [ "$ASSUME_YES" -eq 1 ] && return 0
-    if [ ! -r /dev/tty ]; then
+    if ! { : < /dev/tty; } 2>/dev/null; then
         warn "nothing to ask on: this is not running from a terminal"
         info "Re-run with --yes to accept, or save the script and run it."
         return 1
     fi
     printf '  %s [y/N] ' "$1"
-    read -r reply < /dev/tty
+    reply=""
+    read -r reply < /dev/tty || return 1
     case "$reply" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 

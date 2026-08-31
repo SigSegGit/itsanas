@@ -121,9 +121,18 @@ SELF_URL="https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/linux
 # then runs a truncated one. The one-liner at the top of this file would have
 # done exactly that at its first prompt. /dev/tty is the terminal whatever stdin
 # happens to be, and when there is no terminal there is nobody to ask.
+#
+# The test opens it rather than asking about it. `[ -r /dev/tty ]` reads the
+# permission bits of a device node that exists whether or not this process has a
+# controlling terminal, so it answers yes on a machine where the open then fails
+# with ENXIO. That is exactly what an `ssh host 'command'` with no tty does, and
+# it is what the first version of this did on the Freebox VM: it printed the
+# question, the `read` failed, and `set -u` killed the script on
+# "reply: parameter not set" — a shell error in place of the sentence written
+# for this case.
 confirm() {
     [ "$ASSUME_YES" -eq 1 ] && return 0
-    if [ ! -r /dev/tty ]; then
+    if ! { : < /dev/tty; } 2>/dev/null; then
         warn "nothing to ask on: this is not running from a terminal"
         info "Re-run with --yes to accept, or save the script and run it:"
         info "  curl -fsSL $SELF_URL -o itsanas-install.sh"
@@ -131,7 +140,10 @@ confirm() {
         return 1
     fi
     printf '  %s [y/N] ' "$1"
-    read -r reply < /dev/tty
+    # Set before the read, so that a read which fails anyway cannot take the
+    # script out through `set -u` instead of through the case below.
+    reply=""
+    read -r reply < /dev/tty || return 1
     case "$reply" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
