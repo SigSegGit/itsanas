@@ -5,7 +5,7 @@ says what it is doing, and can be run twice without harm.
 
 | System | Script | Tested on |
 | --- | --- | --- |
-| Linux, including Raspberry Pi and the Freebox VM | [`linux.sh`](linux.sh) | Ubuntu 22.04 **x86-64**, bare image, no toolchain, twice, ending in a real store-and-read-back. The binary it builds is exercised on emulated aarch64 by CI; **the installer itself has never run on ARM** |
+| Linux, including Raspberry Pi and the Freebox VM | [`linux.sh`](linux.sh) | Ubuntu **x86-64**: from a checkout, and through the `curl \| sh` one-liner on a machine with no checkout, both ending in a real store-and-read-back. The binary it builds is exercised on emulated aarch64 by CI; **the installer itself has never run on ARM** |
 | Windows 10 and 11 | [`windows.ps1`](windows.ps1) | Windows 11, PowerShell 5.1, **full run**: built, installed, binary ran |
 | macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | **not yet run on a Mac** |
 | Android, through Termux | [`android-termux.sh`](android-termux.sh) | **not yet run on a phone**; refuses correctly outside Termux and under `--check` |
@@ -31,15 +31,31 @@ arrives on the machine rather than being inferred from a laptop. Skip it with
 
 ## Linux, Raspberry Pi, the Freebox VM
 
+One line, on a machine with nothing on it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/linux.sh | sh
+```
+
+It clones, builds, installs, writes a systemd user unit, and then stores a file
+and reads it back to prove the result works on that machine. Or from a checkout
+you already have:
+
 ```sh
 sh install/linux.sh
 ```
 
-Or check the machine without changing anything:
+Or look at the machine without changing anything:
 
 ```sh
 sh install/linux.sh --no-build
 ```
+
+That one line had been printed at the top of `linux.sh` since the day it was
+written and had never been run. It was broken twice over: the URL was a
+placeholder, and under a pipe **stdin is the script**, so the first prompt would
+have eaten the lines the shell had not executed yet. Both are fixed and the
+line above is what was actually run.
 
 It refuses rather than guesses when it matters:
 

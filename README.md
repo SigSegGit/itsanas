@@ -150,12 +150,20 @@ cargo run -p itsanas-testkit --bin generate-fixtures
 
 ## Installing
 
-One script per system, each of which checks the machine before it changes
-anything and says what it found:
+On a Linux machine with nothing on it, including a Raspberry Pi:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/linux.sh | sh
+```
+
+Or from a checkout. One script per system, each of which checks the machine
+before it changes anything, says what it found, and finishes by storing a file
+and reading it back to prove the result works there:
 
 ```sh
 sh install/linux.sh          # Linux, Raspberry Pi, the Freebox VM
 sh install/macos.sh          # macOS, Apple silicon and Intel
+sh install/android-termux.sh # Android, through Termux — a command line, not an app
 sudo sh install/coordinator.sh   # the machine with a public address
 ```
 
@@ -165,9 +173,16 @@ powershell -ExecutionPolicy Bypass -File install\windows.ps1
 
 [install/README.md](install/README.md) has a column saying which of those has
 actually been executed on the system it claims to install, because an installer
-nobody has run is a hypothesis with a shebang. Android has
-[a page](install/android.md) rather than a script: the core compiles for
-`aarch64-linux-android` and CI checks it, but the app does not exist.
+nobody has run is a hypothesis with a shebang. Today that column says Windows
+and Linux, both on x86-64, and nothing else.
+
+The Android script installs the **command line tool**, not an app: there is no
+APK, no file picker and no background service, and Android will kill a daemon
+left running overnight whatever you do about it. What it is for is the one thing
+a phone is good for here — half the constants in this project are chosen for ARM
+devices, and a phone is the ARM device most people own.
+[install/android.md](install/android.md) says what a real client would take and
+why none of it is written.
 
 ## Building
 

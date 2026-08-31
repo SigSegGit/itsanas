@@ -121,10 +121,12 @@ What is missing before this is a *network* rather than a personal sync tool:
 
 - Cargo workspace, Rust 2024 edition, MSRV pinned and enforced.
 - AGPL-3.0-or-later.
-- CI with eight jobs: lint (format, clippy at `-D warnings`, rustdoc, and the
+- CI with nine jobs: lint (format, clippy at `-D warnings`, rustdoc, and the
   five checking scripts), tests on Linux/Windows/macOS, expensive `#[ignore]`d
-  tests, aarch64 cross-build for the Raspberry Pi, an Android compile check,
-  MSRV check, dependency advisories and licence audit (`cargo-deny`), coverage.
+  tests, **the installers actually installing** on a machine of each kind, an
+  aarch64 build that then runs the whole suite under emulation, an Android
+  compile check, MSRV check, dependency advisories and licence audit
+  (`cargo-deny`), coverage.
 - Weekly scheduled CI run so a new advisory surfaces without waiting for a push.
 
 **It had never run.** The workflow was written in the first week and the
@@ -174,7 +176,26 @@ Two have been run end to end, both on x86-64. **Windows**: built the workspace,
 installed both binaries, put them on PATH, changed nothing on a second run, and
 stored a 341 KiB file and read it back byte for byte, under PowerShell 5.1 rather
 than 7 because 5.1 is what the script promises to support. **Linux**: twice on a
-bare Ubuntu with no toolchain, and again since the smoke step was added.
+bare Ubuntu with no toolchain, and then through the `curl | sh` one-liner the
+script has advertised on its fourth line since the week it was written and which
+nobody had ever run.
+
+That one line was broken three ways, and every one of them was invisible from
+reading it. The URL was a placeholder. `ITSANAS_REPO` was required rather than
+defaulted, so the piped path — which has no checkout — died at "nothing to
+build". And under a pipe **stdin is the script**, so the first `read` would have
+consumed the lines the shell had not executed yet and run a truncated program.
+
+Running it then found two more. The systemd unit is written with an unquoted
+heredoc, and a comment inside it explained the leading dash on
+`ReadWritePaths` using the phrase "created by `itsanas init`" — in backticks.
+The shell ran it: a usage error appeared in the middle of the install and the
+unit on disk read "created by , so enabling the service". And the smoke step
+read `$SOURCE_DIR`, which only `--source` sets, so the verification every
+installer supposedly ends with was skipping itself on both of the usual paths
+and announcing "not in this checkout" from inside a checkout.
+
+Five defects on the primary entry point, none of them findable by reading.
 
 The architecture refusals are exercised by faking `uname`, and the coordinator's
 `--check` against a free port, a busy one, a present binary, an absent one and an

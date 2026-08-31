@@ -127,6 +127,44 @@ jobs:
       # will join it at M5.
       - run: cargo test --workspace --all-features -- --ignored --test-threads 1
 
+  installers-run:
+    name: The installer installs (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    # `check-installers.sh` reads these scripts. This one runs them, on a
+    # machine of the kind each is written for, and lets each finish with the
+    # store-and-read-back it ends in — so "it installs and the result works"
+    # stops being a claim somebody made once on their own laptop.
+    #
+    # It exists because five defects were found in `install/linux.sh` in one
+    # afternoon by taking the one-liner printed at the top of it, and every one
+    # of them was invisible from reading the file: a comment that executed
+    # because the heredoc around it was unquoted, a verification step reading a
+    # variable only `--source` sets, a prompt that would have eaten the script
+    # off its own stdin. Parsing a script says nothing about what it does.
+    #
+    # macOS matters most here: `install/macos.sh` had never been executed
+    # anywhere, by anybody, and `macos-latest` is Apple silicon.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux
+        if: runner.os == 'Linux'
+        run: sh install/linux.sh --yes --no-service --prefix "$HOME/itsanas-ci"
+      - name: macOS
+        if: runner.os == 'macOS'
+        run: sh install/macos.sh --yes --no-service --prefix "$HOME/itsanas-ci"
+      - name: Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >-
+          powershell -ExecutionPolicy Bypass -File install\windows.ps1
+          -Yes -NoService -Prefix "$env:RUNNER_TEMP\itsanas-ci"
+
   cross-build:
     name: Builds and runs on ARM
     runs-on: ubuntu-latest
