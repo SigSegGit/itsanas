@@ -340,11 +340,6 @@ impl Store {
         self.index.get_tombstone(path)
     }
 
-    /// Every tombstone this store holds.
-    pub fn tombstones(&self) -> Result<Vec<(String, Tombstone)>> {
-        self.index.tombstones()
-    }
-
     /// What this device last saw on disk at `path`.
     pub fn local_state(&self, path: &str) -> Result<Option<LocalState>> {
         self.index.get_local_state(path)
@@ -627,11 +622,6 @@ impl Store {
     #[must_use]
     pub fn has_chunk(&self, address: &ChunkId) -> bool {
         self.blobs.contains(address)
-    }
-
-    /// Segments from `position` onwards, for a peer catching up.
-    pub fn segments_from(&self, position: u64) -> Result<Vec<SegmentEnvelope>> {
-        self.index.segments_from(position)
     }
 
     /// The most recent segment this device wrote, if any.

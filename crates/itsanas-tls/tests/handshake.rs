@@ -51,7 +51,7 @@ impl Write for Recording {
 ///
 /// Each test here spawns a thread that blocks on `TcpListener::accept` and then
 /// drives a client from the test thread. If the client half panics *before* it
-/// connects """ + D + """ a failed assertion, a key that would not generate """ + D + """ nothing
+/// connects — a failed assertion, a key that would not generate — nothing
 /// ever accepts, `thread::scope` joins a thread that will never return, and the
 /// harness reports a **hang** instead of the assertion.
 ///

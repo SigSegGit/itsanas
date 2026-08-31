@@ -104,11 +104,6 @@ impl VersionVector {
         }
     }
 
-    /// Devices this vector has heard from, in a deterministic order.
-    pub fn devices(&self) -> impl Iterator<Item = (&DeviceId, &u64)> {
-        self.0.iter()
-    }
-
     /// How many devices this vector has heard from.
     #[must_use]
     pub fn len(&self) -> usize {

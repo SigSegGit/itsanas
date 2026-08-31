@@ -39,7 +39,7 @@ cargo +1.88.0 check --workspace --all-features
 cargo deny --all-features check
 ```
 
-## Three house rules
+## Four house rules
 
 **1. New behaviour comes with a test that would fail without it.** A test
 asserting that an attack *fails* is worth as much as one asserting a feature
@@ -70,6 +70,35 @@ of [docs/ECONOMICS.md](docs/ECONOMICS.md). This rule exists because the project
 has already drifted once: mechanisms that had been decided but not built were
 written up in the present tense and then quoted as fact by three other
 documents.
+
+**4. A mechanism is not finished until something calls it.** Four times in one
+session a subsystem was designed, implemented, given tests, documented, and
+wired to nothing — the sync policy the phone was meant to inherit, two functions
+written to report failing peers that never reached a status line, an accessor
+for a public field. Each was found by a person reading the code and noticing,
+which is not a process.
+
+This workspace is the only consumer there is, so a `pub fn` nobody calls is
+either unfinished work or forgotten work, and the two are indistinguishable from
+outside:
+
+```bash
+python scripts/check-wired.py
+```
+
+Its allowlist is for things deferred by an actual decision, and each entry says
+what would wire it, so the list reads as work rather than as excuses.
+
+## The three CI checks, and why each exists
+
+None of them is a style rule. Each was written the day something shipped broken
+and nothing in the toolchain noticed.
+
+| Check | What went wrong first |
+| --- | --- |
+| `scripts/check-catalogue.sh` | The catalogue listed three deleted `transport` tests, one in bold as the security property that mattered. HANDOVER.md later cited an invariant's evidence by a name missing one word, which had never existed. |
+| `scripts/check-messages.py` | `cargo fmt` removes a string literal's trailing backslash and keeps the indentation as literal spaces. Every continuation in the repository had been eaten that way, including the one line an operator sees when a peer is sanctioned — and a correction to it was undone by the `cargo fmt` in the same breath and committed. |
+| `scripts/check-wired.py` | See house rule 4. Note what it cannot see: a function called only from a path that never runs. The sync policy would have passed it on the day it was written, because its tests called it. |
 
 ## Things that need a discussion first
 

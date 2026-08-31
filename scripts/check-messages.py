@@ -45,10 +45,18 @@ import sys
 LITERAL = re.compile('"(?:[^"' + chr(92) * 2 + ']|' + chr(92) * 2 + '.)*"')
 COLLAPSED = re.compile('[a-z] {8,}[a-z]')
 
+# Residue from the scripts that write these edits. They splice an em dash in
+# by string concatenation, and a splice that lands inside a triple-quoted
+# block is copied through literally. Six files carried it in their comments
+# and one was committed that way: it compiles, it sits inside a comment, and
+# nothing in the toolchain reads prose.
+RESIDUE = re.compile(r'\"{3}\s*\+|\+\s*\"{3}|\{\}\s*\.format\(|%\(\w+\)s')
+
 
 def main():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
     hits = []
+    residue = []
     for dirpath, dirnames, filenames in os.walk(os.path.join(root, 'crates')):
         dirnames[:] = [d for d in dirnames if d != 'target']
         for name in sorted(filenames):
@@ -58,11 +66,24 @@ def main():
             rel = os.path.relpath(path, root).replace(os.sep, '/')
             text = io.open(path, encoding='utf-8', errors='replace').read()
             for number, line in enumerate(text.split('\n'), 1):
+                if RESIDUE.search(line):
+                    residue.append((rel, number, line.strip()))
                 for match in LITERAL.finditer(line):
                     if len(match.group(0)) <= 90:
                         continue
                     if COLLAPSED.search(match.group(0)[1:-1]):
                         hits.append((rel, number, match.group(0)))
+
+    if residue:
+        print('source carrying residue from the scripts that edited it:')
+        for rel, number, line in residue:
+            print('  %s:%d' % (rel, number))
+            print('    %s' % line[:120].encode('ascii', 'replace').decode())
+        print('')
+        print('A splice like \'""" + D + """\' inside a triple-quoted block is')
+        print('copied through literally. It compiles, it sits in a comment, and')
+        print('nothing else in the toolchain reads prose.')
+        return 1
 
     if hits:
         print('messages with a line continuation collapsed into them:')
@@ -76,7 +97,7 @@ def main():
         print('Use concat!("...", "...") instead, which fmt leaves alone.')
         return 1
 
-    print('messages: no line continuation has been collapsed into a literal')
+    print('messages: no collapsed continuations, no editing residue')
     return 0
 
 

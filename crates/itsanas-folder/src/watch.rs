@@ -113,12 +113,6 @@ impl Watcher {
             }
         }
     }
-
-    /// Whether any change is waiting, without blocking.
-    #[must_use]
-    pub fn has_pending(&self) -> bool {
-        self.events.try_recv().is_ok()
-    }
 }
 
 /// Whether an event is worth waking up for.

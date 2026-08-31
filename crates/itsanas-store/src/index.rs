@@ -511,19 +511,6 @@ impl Index {
         }
     }
 
-    /// Every tombstone, in sorted path order.
-    pub fn tombstones(&self) -> Result<Vec<(String, Tombstone)>> {
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(TOMBSTONES)?;
-
-        let mut out = Vec::new();
-        for row in table.iter()? {
-            let (key, value) = row?;
-            out.push((key.value().to_owned(), postcard::from_bytes(value.value())?));
-        }
-        Ok(out)
-    }
-
     /// Forget a tombstone.
     ///
     /// Only safe once every device is certain to have seen the delete —
@@ -907,19 +894,6 @@ impl Index {
 
         let mut out = Vec::new();
         for row in table.iter()? {
-            let (_, value) = row?;
-            out.push(SegmentEnvelope::decode(value.value())?);
-        }
-        Ok(out)
-    }
-
-    /// Segments from `position` onwards, for a peer catching up.
-    pub fn segments_from(&self, position: u64) -> Result<Vec<SegmentEnvelope>> {
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(SEGMENTS)?;
-
-        let mut out = Vec::new();
-        for row in table.range(position..)? {
             let (_, value) = row?;
             out.push(SegmentEnvelope::decode(value.value())?);
         }

@@ -59,6 +59,14 @@ What is missing before this is a *network* rather than a personal sync tool:
   receiving the log so it can still relay, and is handed one chunk a round —
   chosen by the owner, and the only thing it is then audited on. Each answered
   round pays off one failure, so coming back costs as long as falling did.
+- **Tombstones are never pruned.** One small record per file ever deleted,
+  kept for the life of the account. `Index::forget_tombstone` exists and cannot
+  be called safely: dropping a tombstone before every device has seen the delete
+  lets a device that missed it resurrect the file, and "every device" needs a
+  membership list this design deliberately does not have — the same problem
+  that killed signed node-set epochs. Bounded in practice by how much somebody
+  deletes; unbounded in principle. The likely answer is an age threshold well
+  past any plausible offline period, which is a decision nobody has taken.
 - **Recovery from username plus passphrase is not wired.** The escrow container
   exists and is tested; `itsanas login` still requires the 24 words.
 - **Never run on a Raspberry Pi.** Only `cargo check` for aarch64.

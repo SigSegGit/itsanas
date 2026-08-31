@@ -124,7 +124,7 @@ pub fn audit_tag(key: &SymmetricKey, chunk: &ChunkId) -> [u8; AUDIT_TAG_LEN] {
 /// questions asked of it have opposite shapes. "Who holds this chunk?" is a
 /// range scan under the chunk; "what should I ask this peer about?" is a seek
 /// under the device. With one ordering the other question is a full table scan
-/// """ + D + """ which at a terabyte is fourteen million rows walked every audit round,
+/// — which at a terabyte is fourteen million rows walked every audit round,
 /// on a Raspberry Pi.
 ///
 /// Denormalised state usually drifts, and that is the objection this project

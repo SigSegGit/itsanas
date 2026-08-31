@@ -7,3 +7,6 @@
 *.itsanas-key
 /testdata/
 /.itsanas/
+
+# Python bytecode from the CI check scripts.
+__pycache__/

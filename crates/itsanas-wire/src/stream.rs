@@ -42,11 +42,6 @@ impl<S: Read + Write> Connection<S> {
         }
     }
 
-    /// The underlying stream, for setting timeouts and the like.
-    pub fn stream(&mut self) -> &mut S {
-        &mut self.stream
-    }
-
     /// Send one message.
     pub fn send<T: Serialize>(&mut self, message: &T) -> Result<(), StreamError> {
         let frame = wire::encode(message)?;

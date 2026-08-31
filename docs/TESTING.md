@@ -1,7 +1,13 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 617 test functions across 21 binaries, 3 of them
+**Last updated: 2026-08-31 — 619 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. Twenty-two are red-team tests.**
+
+Three of these counts are checked mechanically by CI, and each check exists
+because the thing it checks had already gone wrong: `check-catalogue.sh` (every
+test named here exists), `check-messages.py` (no message has had a line
+continuation collapsed into it by `cargo fmt`), and `check-wired.py` (every
+public method has a call site somewhere in the workspace).
 
 | Binary | Tests |
 | --- | --- |
@@ -13,7 +19,7 @@
 | `itsanas-store` unit | 138 |
 | `itsanas-store` integration (`tests/store.rs`) | 30 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
-| `itsanas-sync` convergence (`tests/convergence.rs`) | 19 |
+| `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 30 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 33 |
 | `itsanas-placement` unit | 29 |
@@ -445,7 +451,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 
 ---
 
-# `itsanas-sync` — convergence tests (19)
+# `itsanas-sync` — convergence tests (21)
 
 The M3 exit criteria. Real stores, real chunking, real sealing, real signatures;
 only the network is simulated. Nothing uses randomness or wall-clock time, so a
@@ -453,6 +459,8 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 | Test | What it proves |
 | --- | --- |
+| **`a_host_that_loses_everything_is_survivable_because_the_devices_still_have_it`** | The premise the architecture rests on, as a scenario rather than a sentence in a design document: hosts are blind *and* untrustworthy, so one losing its whole disk must cost nothing but bandwidth. Written because `Cloud::forget_all_chunks` existed for exactly this and nothing called it — an anticipated scenario that was never written down. |
+| **`a_device_that_is_offline_publishes_nothing_and_blocks_nobody`** | The ordinary state of this network: most machines are off most of the time. An offline device must not stop the others converging, and must not appear to have published work it never sent. |
 | **`a_device_that_never_comes_back_still_gets_its_work_to_everyone_else`** | The scenario the whole architecture exists for. The Pi writes at 3am, publishes, and is switched off permanently; the laptop and VM still converge on its work, having never spoken to it. |
 | **`work_propagates_through_a_third_device_that_only_relays`** | The Pi and the VM are never online simultaneously. The work still reaches the VM via the laptop. |
 | **`concurrent_edits_produce_both_files_and_lose_neither`** | Two edits during a partition yield two files on every device, with both bodies intact. |

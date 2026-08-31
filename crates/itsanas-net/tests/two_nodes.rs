@@ -58,7 +58,7 @@ fn alice() -> MasterSecret {
 ///
 /// That is worse than it sounds here. Every red-team test in this file runs
 /// inside `with_server`, so for as long as this was missing, the tests written
-/// to catch an attack reported a timeout when they caught one """ + D + """ and a timeout
+/// to catch an attack reported a timeout when they caught one — and a timeout
 /// reads like flakiness, which is the thing everybody retries and nobody
 /// investigates. Found by sabotaging a verification step on purpose and
 /// watching the suite hang instead of fail.
@@ -384,7 +384,7 @@ fn a_host_relays_one_device_to_another_that_it_never_met() {
 #[test]
 fn a_disk_that_quietly_lost_a_block_gets_it_back_from_a_host() {
     // The half of repair that pushing cannot do. `push` restores *replication*
-    // """ + D + """ it offers a peer what the peer lacks """ + D + """ and it can put nothing back on
+    // — it offers a peer what the peer lacks — and it can put nothing back on
     // this disk. A chunk missing here is the one failure the placement ledger
     // was built to survive, and until now surviving it meant a human running
     // `doctor`, reading the output, and knowing what to do next.
@@ -447,7 +447,7 @@ fn a_disk_that_quietly_lost_a_block_gets_it_back_from_a_host() {
 fn red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost() {
     // THE ATTACK, and it is one repair introduced. Asking a peer "do you have
     // chunk X?" tells it this node does not. The ids are blinded so it learns
-    // nothing about the content """ + D + """ but it learns which chunks now exist only on
+    // nothing about the content — but it learns which chunks now exist only on
     // hosts, which is exactly the list to delete if you want to destroy
     // somebody's data. A healing mechanism that publishes the map of the
     // wounds.

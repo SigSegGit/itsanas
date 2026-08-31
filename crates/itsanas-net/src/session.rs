@@ -224,7 +224,7 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
     // A peer that has failed audit after audit has been re-sent this data every
     // round and thrown it away every round. Detecting that and re-uploading
     // anyway is a free, indefinite drain on this node's uplink, so the bulk
-    // stops """ + DASH + u""" while segments, which are kilobytes, keep going so the peer can
+    // stops — while segments, which are kilobytes, keep going so the peer can
     // still relay for devices that have done nothing wrong.
     //
     // Not a ban: one chunk still goes. A failed audit withdraws the record for
@@ -525,8 +525,8 @@ pub fn drain_vault(store: &Store, vault: &Vault) -> Result<SyncReport> {
 /// and by three orders of magnitude on the row it cites as the reason for the
 /// bound in the first place.
 ///
-/// Fifty-five days is defensible on its own terms """ + D + """ a block silently lost is
-/// not an emergency until somebody reads the file """ + D + """ but only because it is not
+/// Fifty-five days is defensible on its own terms — a block silently lost is
+/// not an emergency until somebody reads the file — but only because it is not
 /// the only detector. `doctor` finds every loss in one pass and now writes what
 /// it finds where repair will drain it first. The sampling scan is the
 /// background sweep for losses nobody has noticed yet.
@@ -595,7 +595,7 @@ impl RepairReport {
 /// # A repair request is a disclosure, and that decides who may be asked
 ///
 /// Asking a peer "do you have chunk X?" tells it that this node does not. The
-/// ids are blinded, so it learns nothing about the *content* """ + D + """ but it learns
+/// ids are blinded, so it learns nothing about the *content* — but it learns
 /// which chunks now exist only on hosts, which is precisely the list to delete
 /// if you want to destroy somebody's data. A healing mechanism that publishes
 /// the map of the wounds.
@@ -608,7 +608,7 @@ impl RepairReport {
 /// holding**. That is not a mitigation, it is the whole disclosure: the peer
 /// told this node it accepted that chunk, so being asked about it reveals
 /// nothing it did not already know. A chunk no peer is recorded as holding is
-/// not asked about by anybody, which is also correct """ + D + """ nobody has it, so the
+/// not asked about by anybody, which is also correct — nobody has it, so the
 /// question buys nothing and costs the answer.
 ///
 /// # What comes back is verified before it is written
