@@ -130,6 +130,15 @@ jobs:
   cross-build:
     name: Builds and runs on ARM
     runs-on: ubuntu-latest
+    # Every step here builds or runs aarch64, so these belong to the job rather
+    # than to one step of it. Setting the linker on the build step alone is what
+    # made the test step try to link aarch64 objects with the host `cc`, which
+    # fails with "--fix-cortex-a53-843419 is only supported on AArch64" -- a
+    # message about the target that is really about the linker.
+    env:
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER: qemu-aarch64-static
+      QEMU_LD_PREFIX: /usr/aarch64-linux-gnu
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -142,8 +151,6 @@ jobs:
       # tree is pure Rust.
       - run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - name: Build
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --workspace --release --target aarch64-unknown-linux-gnu
       # A build says the types line up. It does not say the code runs, and until
       # this step existed no line of this project had ever executed on an ARM
@@ -167,16 +174,12 @@ jobs:
       # tests do open one, and ring's aarch64 assembly is exactly the kind of
       # thing that links and then misbehaves.
       - name: The whole test suite, on ARM
-        env:
-          QEMU_LD_PREFIX: /usr/aarch64-linux-gnu
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER: qemu-aarch64-static
         run: cargo test --workspace --all-features --target aarch64-unknown-linux-gnu
       # And the same check an installer runs at the end of a real install, so
       # the thing a person sees on their own machine is the thing CI ran.
       - name: Store a file and read it back, on ARM
         env:
-          QEMU_LD_PREFIX: /usr/aarch64-linux-gnu
-          RUNNER: qemu-aarch64-static
+          ITSANAS_RUNNER: qemu-aarch64-static
         run: sh scripts/smoke.sh target/aarch64-unknown-linux-gnu/release/itsanas
 
   android-core:

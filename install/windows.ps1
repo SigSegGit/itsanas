@@ -33,6 +33,9 @@
 .PARAMETER NoBuild
     Check the machine and stop, changing nothing.
 
+.PARAMETER NoSmoke
+    Skip storing a test file once it is installed.
+
 .PARAMETER Yes
     Do not ask before installing anything.
 
@@ -49,6 +52,7 @@ param(
     [string] $Source = '',
     [switch] $NoService,
     [switch] $NoBuild,
+    [switch] $NoSmoke,
     [switch] $Yes
 )
 
@@ -389,6 +393,62 @@ if (-not $version) {
     )
 }
 Write-Ok $version
+
+# ------------------------------------------------------------------ smoke
+
+# `--version` proves Windows can execute the file and nothing about whether the
+# data path works. The Unix installers run scripts/smoke.sh for this; there is
+# no sh here, so the same steps are written out. Same claim, same evidence.
+if (-not $NoSmoke) {
+    Write-Step 'Storing a file and reading it back, on this machine'
+    $work = Join-Path ([IO.Path]::GetTempPath()) ("itsanas-smoke-" + [IO.Path]::GetRandomFileName())
+    try {
+        New-Item -ItemType Directory -Force -Path $work | Out-Null
+        $exe = Join-Path $binDir 'itsanas.exe'
+        $env:ITSANAS_PASSPHRASE = 'itsanas-smoke-passphrase-9931'
+
+        $initOutput = & $exe --home (Join-Path $work 'home') init --username smoke 2>&1
+        # The recovery phrase is printed in two numbered columns. A count other
+        # than 24 would mean the key schedule produced something different here,
+        # so an account made on this machine would not open on another.
+        $words = ([regex]::Matches(($initOutput -join "`n"), '\b\d{1,2}\.\s+([a-z]+)')).Count
+        if ($words -ne 24) {
+            Stop-WithAdvice 'the recovery phrase is not 24 words' @(
+                "Got $words. The output was:", ($initOutput -join "`n")
+            )
+        }
+        Write-Ok "an account, and a $words-word recovery phrase"
+
+        # Larger than one chunk, so this exercises the chunker and the manifest
+        # rather than a single sealed blob.
+        $payload = Join-Path $work 'payload.bin'
+        # `RandomNumberGenerator::Fill` is .NET Core and this script supports
+        # PowerShell 5.1, which is .NET Framework. System.Random is not a
+        # cryptographic source and does not need to be: this is a payload to
+        # hash, not a key.
+        $bytes = New-Object byte[] 350000
+        (New-Object Random).NextBytes($bytes)
+        [IO.File]::WriteAllBytes($payload, $bytes)
+
+        & $exe --home (Join-Path $work 'home') put 'docs/smoke.bin' $payload | Out-Null
+        & $exe --home (Join-Path $work 'home') get 'docs/smoke.bin' (Join-Path $work 'back.bin') | Out-Null
+
+        $before = (Get-FileHash -Algorithm SHA256 $payload).Hash
+        $after = (Get-FileHash -Algorithm SHA256 (Join-Path $work 'back.bin')).Hash
+        if ($before -ne $after) {
+            Stop-WithAdvice 'the bytes changed between storing and reading' @(
+                "wrote $before", "read  $after",
+                '',
+                'It installed and it does not work, which is the interesting',
+                'kind of failure. Please report it.'
+            )
+        }
+        Write-Ok 'a file went in and came back byte for byte'
+    } finally {
+        Remove-Item env:ITSANAS_PASSPHRASE -ErrorAction SilentlyContinue
+        Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 
 # ------------------------------------------------------------------- next
 

@@ -5,7 +5,7 @@ says what it is doing, and can be run twice without harm.
 
 | System | Script | Tested on |
 | --- | --- | --- |
-| Linux, including Raspberry Pi and the Freebox VM | [`linux.sh`](linux.sh) | Ubuntu 22.04 **x86-64**, bare image, no toolchain, twice. Never on ARM |
+| Linux, including Raspberry Pi and the Freebox VM | [`linux.sh`](linux.sh) | Ubuntu 22.04 **x86-64**, bare image, no toolchain, twice, ending in a real store-and-read-back. The binary it builds is exercised on emulated aarch64 by CI; **the installer itself has never run on ARM** |
 | Windows 10 and 11 | [`windows.ps1`](windows.ps1) | Windows 11, PowerShell 5.1, **full run**: built, installed, binary ran |
 | macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | **not yet run on a Mac** |
 | Android, through Termux | [`android-termux.sh`](android-termux.sh) | **not yet run on a phone**; refuses correctly outside Termux and under `--check` |
@@ -15,6 +15,19 @@ says what it is doing, and can be run twice without harm.
 That last column is the point of this table. Say plainly which of these has been
 executed on the system it claims to install, because an installer nobody has run
 is a hypothesis with a shebang.
+
+Every installer for a member node now ends by proving its own work: it creates
+an account, checks the recovery phrase is still 24 words, stores a file across
+several chunks and reads it back byte for byte. On Linux, macOS and Termux that
+is `scripts/smoke.sh`, which also runs `doctor`; Windows has no `sh`, so the
+same steps are written out in `windows.ps1`. The coordinator is the exception
+and stays a `--version` check, because it has no store to exercise -- it holds
+addresses and sealed blobs it cannot open.
+
+What that replaced was a final `itsanas --version`, which proves the kernel can
+execute the file and nothing else. On a Pi or a phone the difference is the whole question, so the answer
+arrives on the machine rather than being inferred from a laptop. Skip it with
+`--no-smoke` if you need the install regardless.
 
 ## Linux, Raspberry Pi, the Freebox VM
 

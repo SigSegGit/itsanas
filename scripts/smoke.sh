@@ -35,14 +35,14 @@ set -eu
 
 BIN=${1:?usage: smoke.sh <path-to-itsanas>}
 
-# The command that runs an ARM binary. Empty on a real Pi, and on CI it is
-# `qemu-aarch64-static -L /usr/aarch64-linux-gnu`, the sysroot the cross
-# compiler already installed.
+# The command that runs the binary. Empty on a real Pi or phone; on CI it is
+# `qemu-aarch64-static`, which finds the aarch64 loader through QEMU_LD_PREFIX
+# pointing at the sysroot the cross compiler already installed.
 run() {
-    if [ -n "${RUNNER:-}" ]; then
-        # RUNNER is a command prefix and has to word-split to be one.
+    if [ -n "${ITSANAS_RUNNER:-}" ]; then
+        # ITSANAS_RUNNER is a command prefix and has to word-split to be one.
         # shellcheck disable=SC2086
-        $RUNNER "$BIN" "$@"
+        $ITSANAS_RUNNER "$BIN" "$@"
     else
         "$BIN" "$@"
     fi
@@ -53,8 +53,8 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 
 echo "== which machine"
 run --version
-if [ -n "${RUNNER:-}" ]; then
-    WHERE="emulated aarch64 on $(uname -m), via $RUNNER"
+if [ -n "${ITSANAS_RUNNER:-}" ]; then
+    WHERE="emulated aarch64 on $(uname -m), via $ITSANAS_RUNNER"
 else
     WHERE="native $(uname -m)"
 fi
