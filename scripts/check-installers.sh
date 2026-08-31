@@ -226,6 +226,49 @@ else
     fi
 fi
 
+# ------------------------------------------- command substitution in a heredoc
+#
+# `install/linux.sh` writes the systemd unit with an unquoted heredoc, because
+# the unit needs $BIN_DIR. Everything inside is therefore expanded — including
+# the comments, and one of them explained the leading dash on ReadWritePaths
+# with the phrase "created by `itsanas init`". The shell ran it.
+#
+# The result on a real machine: a clap usage error printed into the middle of
+# the install, and a unit file reading "~/.itsanas is created by , so enabling
+# the service". The command happened to require an argument and produce nothing.
+# Had it printed anything, that would have gone into a systemd unit.
+#
+# Found by running the one-liner the script advertises, not by reading it.
+# An escaped backtick is fine — macos.sh uses several on purpose — so escapes
+# are removed before looking.
+
+for script in "${SH_SCRIPTS[@]}"; do
+    offenders=$(awk '
+        state == 1 {
+            if ($0 == term) { state = 0; next }
+            line = $0
+            gsub(/\\./, "", line)
+            if (line ~ /`/ || line ~ /\$\(/) printf "%d: %s\n", FNR, $0
+            next
+        }
+        state == 2 { if ($0 == term) state = 0; next }
+        match($0, /<<-?[^ \t;|&<]+/) {
+            w = substr($0, RSTART, RLENGTH)
+            sub(/^<<-?/, "", w)
+            state = (w ~ /^["\x27\\]/) ? 2 : 1
+            gsub(/["\x27\\]/, "", w)
+            term = w
+        }
+    ' "$script")
+    if [ -n "$offenders" ]; then
+        bad "$script expands a command inside an unquoted heredoc:"
+        printf '%s\n' "$offenders" | sed 's/^/       /'
+        say "  Everything in an unquoted heredoc is expanded, comments too."
+        say "  Escape it, or quote the delimiter if nothing in it needs expanding."
+    fi
+done
+say "no installer runs a command inside a heredoc by accident"
+
 # ------------------------------------------------------------ reading a reply
 #
 # `install/linux.sh` advertises `curl -fsSL … | sh` on its fourth line. Under

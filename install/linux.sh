@@ -553,7 +553,7 @@ EnvironmentFile=-%h/.config/itsanas/environment
 #
 # The leading dash on ReadWritePaths is load-bearing. Without it, a path that
 # does not exist yet makes the unit refuse to start, with an error about mount
-# namespaces. ~/.itsanas is created by `itsanas init`, so enabling the service
+# namespaces. ~/.itsanas is created by "itsanas init", so enabling the service
 # before initialising — which is exactly what somebody does after an installer
 # says "enable this" — produced a failure nobody could read.
 PrivateTmp=true
@@ -616,8 +616,13 @@ ok "$INSTALLED_VERSION"
 # announces itself by failing to link.
 if [ "$DO_SMOKE" -eq 1 ]; then
     step "Storing a file and reading it back, on this machine"
-    if [ -r "$SOURCE_DIR/scripts/smoke.sh" ]; then
-        if ! sh "$SOURCE_DIR/scripts/smoke.sh" "$BIN_DIR/itsanas"; then
+    # BUILD_DIR, not SOURCE_DIR: the latter is only set by --source, so this
+    # check ran on the one path almost nobody takes and skipped itself on both
+    # of the usual ones, announcing "not in this checkout" from inside a
+    # checkout. Found by running the advertised one-liner rather than by
+    # reading it.
+    if [ -r "$BUILD_DIR/scripts/smoke.sh" ]; then
+        if ! sh "$BUILD_DIR/scripts/smoke.sh" "$BIN_DIR/itsanas"; then
             die "it installed but did not work" \
                 "The binary runs and the data path does not, which is the" \
                 "interesting kind of failure. The output above says which" \

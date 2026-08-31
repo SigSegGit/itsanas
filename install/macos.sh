@@ -400,8 +400,8 @@ ok "$INSTALLED_VERSION"
 # by default -- and this is the machine nobody here has ever run the installer on.
 if [ "$DO_SMOKE" -eq 1 ]; then
     step "Storing a file and reading it back, on this machine"
-    if [ -r "$SOURCE_DIR/scripts/smoke.sh" ]; then
-        if ! sh "$SOURCE_DIR/scripts/smoke.sh" "$BIN_DIR/itsanas"; then
+    if [ -r "$BUILD_DIR/scripts/smoke.sh" ]; then
+        if ! sh "$BUILD_DIR/scripts/smoke.sh" "$BIN_DIR/itsanas"; then
             die "it installed but did not work" \
                 "The binary runs and the data path does not, which is the" \
                 "interesting kind of failure. The output above says which" \
