@@ -9,6 +9,7 @@ says what it is doing, and can be run twice without harm.
 | Windows 10 and 11 | [`windows.ps1`](windows.ps1) | Windows 11, PowerShell 5.1 |
 | macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | **not yet run on a Mac** |
 | Android | [`android.md`](android.md) | there is no app to install |
+| A coordinator on a machine with a public address | [`coordinator.sh`](coordinator.sh) | **not yet run on the Freebox VM** |
 
 That last column is the point of this table. Say plainly which of these has been
 executed on the system it claims to install, because an installer nobody has run
@@ -83,6 +84,46 @@ honest statement.
 The LaunchAgent is written and deliberately **not loaded**: same reason as
 Windows. Everything in `~/Library/LaunchAgents` is readable by anything running
 as you.
+
+## A coordinator, on the machine with the public address
+
+A different role, so a different script:
+
+```sh
+sudo sh install/coordinator.sh
+```
+
+A coordinator is a notice board. It holds usernames, device addresses and
+sealed escrow blobs it cannot open — no file data, no user keys, nothing it can
+read. If it disappears, members keep syncing with the peers they already know;
+they simply cannot find new ones.
+
+That is why its setup differs from a member node's in three ways, and the script
+does all three:
+
+- **A system service under its own user.** It is the only machine in a fleet a
+  stranger can reach unprompted, so it owns nothing but its own state directory
+  and gets a systemd sandbox to match. A member node's daemon holds your keys
+  and runs as you; this one holds nothing and must not.
+- **`--invite-only` from the start.** Otherwise "who is a member" means "anyone
+  who can open a socket". The script prints what to do about the first member,
+  which needs `--admit-first` once because an invitation to admit them would
+  have no author.
+- **It prints its device id.** Members pin it: a coordinator supplies addresses
+  and is never trusted to say who lives at one.
+
+It needs no passphrase, which is what lets it be a system service at all. It
+holds only its own device key.
+
+Before running it, check the machine can actually be reached:
+
+```sh
+sh install/coordinator.sh --check
+```
+
+That looks at whether the port is free and whether any of this machine's
+addresses is routable, and says what to forward if not — on a Freebox that is
+Paramètres > Gestion des ports.
 
 ## Android
 

@@ -16,35 +16,47 @@
 # What is checked
 # ---------------
 #
-# **Syntax**, with the shell each script declares. `linux.sh` and `macos.sh` are
-# POSIX sh on purpose — some minimal images ship dash as /bin/sh and no bash —
-# so they are checked with `sh -n`, which fails on a bashism the author did not
-# notice they used.
+# **Syntax**, with the shell each script declares. The `.sh` files are POSIX sh
+# on purpose — some minimal images ship dash as /bin/sh and no bash — so they
+# are checked with `sh -n`, plus a grep for the bashisms `sh -n` accepts and
+# dash then rejects at runtime, which is the worst of both.
 #
-# **shellcheck**, when it is available. It is not required, because requiring a
-# tool that is absent on the machine of whoever is checking turns a useful
-# warning into an obstacle.
+# **shellcheck**, when it is available. Not required: making a check depend on a
+# tool that is absent turns a useful warning into an obstacle.
 #
-# **The claims.** README.md has a table saying which installer has been run on
-# the system it installs. That table is the honest bit of the whole directory,
-# and a table nobody checks becomes wrong the way every other unchecked table in
-# this project has.
+# **The claims.** install/README.md has a table saying which installer has been
+# run on the system it installs. That table is the honest part of the whole
+# directory, and a table nobody checks becomes wrong the way every other
+# unchecked table in this project has.
+#
+# **The Rust version**, in every script that states one, against Cargo.toml. A
+# machine that passes an installer's check and then fails to compile is the
+# worst possible order for those two to disagree.
+#
+# Scripts are **discovered, not listed**. The first version named two files, so
+# `install/coordinator.sh` was written, added, and checked by nothing — which is
+# exactly the failure this file exists to prevent, made while writing it.
 
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
 failed=0
 
-say()  { printf '  %s\n' "$*"; }
-bad()  { printf '  FAIL %s\n' "$*"; failed=1; }
+say() { printf '  %s\n' "$*"; }
+bad() { printf '  FAIL %s\n' "$*"; failed=1; }
+
+shopt -s nullglob
+SH_SCRIPTS=(install/*.sh)
+PS_SCRIPTS=(install/*.ps1)
+shopt -u nullglob
+
+if [ ${#SH_SCRIPTS[@]} -eq 0 ] && [ ${#PS_SCRIPTS[@]} -eq 0 ]; then
+    bad "install/ has no scripts at all"
+fi
 
 # ------------------------------------------------------------------- syntax
 
-for script in install/linux.sh install/macos.sh; do
-    if [ ! -f "$script" ]; then
-        bad "$script is missing"
-        continue
-    fi
+for script in "${SH_SCRIPTS[@]}"; do
     if sh -n "$script" 2>/tmp/itsanas-shcheck; then
         say "$script parses as POSIX sh"
     else
@@ -54,16 +66,12 @@ for script in install/linux.sh install/macos.sh; do
 done
 rm -f /tmp/itsanas-shcheck
 
-# A bashism check that `sh -n` cannot do: dash accepts `[[` at parse time in
-# some builds and fails at runtime, which is the worst of both.
-#
 # Comment lines are stripped first. The first version did not, and flagged the
 # sentence in linux.sh explaining why bashisms are avoided -- the same mistake
 # as a dead-code check that counts a doc link as a call site, made twice in one
 # week by the same person.
 BASHISM='\[\[|^[[:space:]]*local |^[[:space:]]*function [A-Za-z_]'
-for script in install/linux.sh install/macos.sh; do
-    [ -f "$script" ] || continue
+for script in "${SH_SCRIPTS[@]}"; do
     hits=$(grep -vE '^[[:space:]]*#' "$script" | grep -nE "$BASHISM")
     if [ -n "$hits" ]; then
         bad "$script uses bash-only syntax:"
@@ -73,8 +81,7 @@ done
 say "no bash-only syntax in the POSIX scripts"
 
 if command -v shellcheck >/dev/null 2>&1; then
-    for script in install/linux.sh install/macos.sh; do
-        [ -f "$script" ] || continue
+    for script in "${SH_SCRIPTS[@]}"; do
         if shellcheck -s sh -S warning "$script"; then
             say "$script passes shellcheck"
         else
@@ -85,27 +92,65 @@ else
     say "shellcheck is not installed here; skipped"
 fi
 
-if command -v pwsh >/dev/null 2>&1; then
-    if pwsh -NoProfile -Command '
-        $errors = $null
-        $null = [System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path "install/windows.ps1"), [ref]$null, [ref]$errors)
-        if ($errors) { $errors | ForEach-Object { $_.Message }; exit 1 }
-    '; then
-        say "install/windows.ps1 parses"
+for script in "${PS_SCRIPTS[@]}"; do
+    if command -v pwsh >/dev/null 2>&1; then
+        if pwsh -NoProfile -Command "
+            \$errors = \$null
+            \$null = [System.Management.Automation.Language.Parser]::ParseFile(
+                (Resolve-Path '$script'), [ref]\$null, [ref]\$errors)
+            if (\$errors) { \$errors | ForEach-Object { \$_.Message }; exit 1 }
+        "; then
+            say "$script parses"
+        else
+            bad "$script does not parse"
+        fi
     else
-        bad "install/windows.ps1 does not parse"
+        say "pwsh is not installed here; $script was not parsed"
     fi
+done
+
+# ------------------------------------------------------------- systemd units
+
+# An invalid unit fails at `systemctl start` with a message naming a line in a
+# file the user has never seen. systemd will say so now instead, when it is here
+# to ask: it is on the CI runner and on any Linux this installs to, and absent
+# on a Mac or on Windows, where skipping is correct rather than lax.
+if command -v systemd-analyze >/dev/null 2>&1; then
+    units=$(mktemp -d)
+
+    sed -n '/^\[Unit\]/,/^WantedBy=default.target$/p' install/linux.sh \
+        | sed 's|\$BIN_DIR|/usr/local/bin|g' \
+        > "$units/itsanas.service"
+
+    sed -n '/^\[Unit\]/,/^WantedBy=multi-user.target$/p' install/coordinator.sh \
+        | sed 's|\$SERVICE_USER|itsanas-coord|g' \
+        | sed 's|\$STATE_DIR|/var/lib/itsanas-coordinator|g' \
+        | sed 's|\$PORT|9898|g' \
+        | sed 's|\$ADMIT||g' \
+        > "$units/itsanas-coordinator.service"
+
+    for unit in "$units"/*.service; do
+        # The binary is not installed on the machine doing the checking, so that
+        # one complaint is expected and is not what is being asked about.
+        problems=$(systemd-analyze verify "$unit" 2>&1 | grep -v 'is not executable')
+        if [ -z "$problems" ]; then
+            say "$(basename "$unit") is a valid unit"
+        else
+            bad "$(basename "$unit") is not:"
+            printf '%s\n' "$problems" | sed 's/^/       /'
+        fi
+    done
+    rm -rf "$units"
 else
-    say "pwsh is not installed here; the Windows installer was not parsed"
+    say "systemd-analyze is not here; the units were not verified"
 fi
+
 
 # -------------------------------------------------------------- the claims
 
-# Every installer named in the README must exist, and every installer must be
-# named. A script nobody links to is a script nobody runs.
-for script in install/*.sh install/*.ps1 install/*.md; do
-    [ -f "$script" ] || continue
+# Every script must be named in the README. One that nothing links to is one
+# nobody runs, and `install/coordinator.sh` reached the repository that way.
+for script in "${SH_SCRIPTS[@]}" "${PS_SCRIPTS[@]}" install/*.md; do
     name=$(basename "$script")
     [ "$name" = "README.md" ] && continue
     if grep -q "$name" install/README.md; then
@@ -115,9 +160,8 @@ for script in install/*.sh install/*.ps1 install/*.md; do
     fi
 done
 
-# The MSRV. Three places state it and they drift: the workspace manifest, and a
-# constant in each installer. A machine that passes the installer's check and
-# then fails to compile is the worst possible order for those two to disagree.
+# ---------------------------------------------------------- the Rust version
+
 msrv=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)
 if [ -z "$msrv" ]; then
     bad "could not read rust-version from Cargo.toml"
@@ -125,9 +169,15 @@ else
     major=${msrv%%.*}
     minor=${msrv#*.}
     minor=${minor%%.*}
-    for script in install/linux.sh install/macos.sh; do
-        [ -f "$script" ] || continue
+    stated=0
+
+    for script in "${SH_SCRIPTS[@]}"; do
         got_major=$(grep -m1 '^MIN_RUST_MAJOR=' "$script" | cut -d= -f2)
+        # A script that does not build anything states no version, and that is
+        # correct rather than missing: install/coordinator.sh installs a binary
+        # somebody else compiled.
+        [ -z "$got_major" ] && continue
+        stated=$((stated + 1))
         got_minor=$(grep -m1 '^MIN_RUST_MINOR=' "$script" | cut -d= -f2)
         if [ "$got_major" = "$major" ] && [ "$got_minor" = "$minor" ]; then
             say "$script wants Rust $got_major.$got_minor, same as Cargo.toml"
@@ -135,12 +185,22 @@ else
             bad "$script wants Rust $got_major.$got_minor but Cargo.toml says $msrv"
         fi
     done
-    got_major=$(grep -m1 '^\$MinRustMajor' install/windows.ps1 | tr -dc '0-9')
-    got_minor=$(grep -m1 '^\$MinRustMinor' install/windows.ps1 | tr -dc '0-9')
-    if [ "$got_major" = "$major" ] && [ "$got_minor" = "$minor" ]; then
-        say "install/windows.ps1 wants Rust $got_major.$got_minor, same as Cargo.toml"
-    else
-        bad "install/windows.ps1 wants Rust $got_major.$got_minor but Cargo.toml says $msrv"
+
+    for script in "${PS_SCRIPTS[@]}"; do
+        got_major=$(grep -m1 '^\$MinRustMajor' "$script" | tr -dc '0-9')
+        [ -z "$got_major" ] && continue
+        stated=$((stated + 1))
+        got_minor=$(grep -m1 '^\$MinRustMinor' "$script" | tr -dc '0-9')
+        if [ "$got_major" = "$major" ] && [ "$got_minor" = "$minor" ]; then
+            say "$script wants Rust $got_major.$got_minor, same as Cargo.toml"
+        else
+            bad "$script wants Rust $got_major.$got_minor but Cargo.toml says $msrv"
+        fi
+    done
+
+    if [ "$stated" -eq 0 ]; then
+        bad "no installer states a minimum Rust version"
+        say "  If they all stopped building, say so here; otherwise one has lost its check."
     fi
 fi
 
