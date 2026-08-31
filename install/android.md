@@ -30,7 +30,7 @@ no systemd, and on some devices no `/proc/meminfo` the script can read — so th
 is a second script for it:
 
 ```sh
-pkg install git && git clone <repo> && cd itsanas
+pkg install git && git clone https://github.com/SigSegGit/itsanas && cd itsanas
 sh install/android-termux.sh
 ```
 

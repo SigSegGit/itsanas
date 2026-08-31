@@ -116,7 +116,10 @@ Say yes, or nothing will be able to dial this machine.
 
 Both are `aarch64-unknown-linux-gnu`. CI cross-builds the whole workspace on
 every push and then **runs it on that architecture** under `qemu-user-static`:
-**637 tests pass, 3 `#[ignore]`d, none fail.** Then `scripts/smoke.sh` creates an
+**637 pass, 3 `#[ignore]`d, none fail.** That is 635 of the project's 638 test
+functions plus its 2 doctests — the arithmetic is worth spelling out because
+`TESTING.md` says 638 and this says 637, and a reader who cannot reconcile two
+numbers on the same subject is right not to trust either. Then `scripts/smoke.sh` creates an
 account, checks the recovery phrase is still 24 words, stores a 350 KB file
 across five chunks, reads it back byte for byte and runs `doctor` — the same
 script an installer runs at the end of a real install, with no emulator in the

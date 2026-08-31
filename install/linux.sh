@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # ITSaNAS installer for Linux, including the Raspberry Pi and the Freebox VM.
 #
-#   curl -fsSL https://.../install/linux.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/linux.sh | sh
 #   sh install/linux.sh --help
 #
 # What it is for
@@ -90,6 +90,7 @@ Options
 Environment
   ITSANAS_PREFIX   same as --prefix
   ITSANAS_REPO     git URL to clone when --source is not given
+                   (default: https://github.com/SigSegGit/itsanas)
 
 It is safe to run this twice. Nothing is removed and nothing is overwritten
 without saying so first.
@@ -110,6 +111,29 @@ while [ $# -gt 0 ]; do
         *) die "unknown option: $1" "Run with --help for the list." ;;
     esac
 done
+
+SELF_URL="https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/linux.sh"
+
+# Ask a yes/no question on the *terminal*, not on standard input.
+#
+# `curl -fsSL .../linux.sh | sh` makes stdin the script itself, so a bare `read`
+# swallows the next lines of the program the shell is still executing and it
+# then runs a truncated one. The one-liner at the top of this file would have
+# done exactly that at its first prompt. /dev/tty is the terminal whatever stdin
+# happens to be, and when there is no terminal there is nobody to ask.
+confirm() {
+    [ "$ASSUME_YES" -eq 1 ] && return 0
+    if [ ! -r /dev/tty ]; then
+        warn "nothing to ask on: this is not running from a terminal"
+        info "Re-run with --yes to accept, or save the script and run it:"
+        info "  curl -fsSL $SELF_URL -o itsanas-install.sh"
+        info "  sh itsanas-install.sh"
+        return 1
+    fi
+    printf '  %s [y/N] ' "$1"
+    read -r reply < /dev/tty
+    case "$reply" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
 
 ORIGINAL_PATH="$PATH"
 
@@ -359,11 +383,8 @@ else
         rustup update stable || die "rustup update failed"
         rustup default stable >/dev/null 2>&1
     else
-        if [ "$ASSUME_YES" -eq 0 ]; then
-            printf '  Install the Rust toolchain with rustup? [y/N] '
-            read -r reply
-            case "$reply" in y|Y|yes|YES) ;; *) die "stopping: Rust ${MIN_RUST_MAJOR}.${MIN_RUST_MINOR} or newer is needed" ;; esac
-        fi
+        confirm "Install the Rust toolchain with rustup?" \
+            || die "stopping: Rust ${MIN_RUST_MAJOR}.${MIN_RUST_MINOR} or newer is needed"
         info "downloading rustup (this takes a few minutes on a Pi)"
         if have curl; then
             curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/rustup-init.sh
@@ -420,10 +441,12 @@ else
         BUILD_DIR="$HERE"
         ok "building from $BUILD_DIR"
     else
-        REPO="${ITSANAS_REPO:-}"
-        [ -n "$REPO" ] || die "nothing to build" \
-            "Run this from inside a checkout, or pass --source DIR, or set" \
-            "ITSANAS_REPO to a git URL to clone."
+        # Defaulted, because the one-liner at the top of this file has no
+        # checkout to be run from and died right here with "nothing to
+        # build" -- the advertised entry point failing on the advertised
+        # path, in a script whose whole point is that it works on a machine
+        # nobody has configured.
+        REPO="${ITSANAS_REPO:-https://github.com/SigSegGit/itsanas.git}"
         BUILD_DIR="$HOME/.local/src/itsanas"
         if [ -d "$BUILD_DIR/.git" ]; then
             info "updating $BUILD_DIR"

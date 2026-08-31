@@ -226,6 +226,28 @@ else
     fi
 fi
 
+# ------------------------------------------------------------ reading a reply
+#
+# `install/linux.sh` advertises `curl -fsSL … | sh` on its fourth line. Under
+# that pipe, **stdin is the script**: a bare `read` consumes the lines the shell
+# has not executed yet, and the shell then runs a truncated program. Every
+# prompt in these scripts did exactly that, so the entry point the file offers a
+# stranger would have destroyed itself at the first question.
+#
+# `< /dev/tty` reads the terminal whatever stdin happens to be.
+
+for script in "${SH_SCRIPTS[@]}"; do
+    bare=$(grep -n '^[^#]*\bread\b' "$script" |
+        grep -v '/dev/tty' |
+        grep -vE 'could not read|does not let|read this file|read the' || true)
+    if [ -n "$bare" ]; then
+        bad "$script reads a reply from standard input:"
+        printf '%s\n' "$bare" | sed 's/^/         /'
+        say "  Piped to sh, stdin is the script. Use: read -r x < /dev/tty"
+    fi
+done
+say "no installer reads a reply from standard input"
+
 # ------------------------------------------------------- what it refuses to do
 #
 # The one branch of an installer that has to be right on a machine nobody here

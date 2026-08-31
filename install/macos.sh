@@ -90,6 +90,22 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Ask on the *terminal*, not on standard input. A script fed to `sh` through a
+# pipe has the script itself on stdin, so a bare `read` eats the lines the shell
+# has not run yet. /dev/tty is the terminal whatever stdin happens to be, and
+# when there is no terminal there is nobody to ask.
+confirm() {
+    [ "$ASSUME_YES" -eq 1 ] && return 0
+    if [ ! -r /dev/tty ]; then
+        warn "nothing to ask on: this is not running from a terminal"
+        info "Re-run with --yes to accept, or save the script and run it."
+        return 1
+    fi
+    printf '  %s [y/N] ' "$1"
+    read -r reply < /dev/tty
+    case "$reply" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
 ORIGINAL_PATH="$PATH"
 
 printf '%sITSaNAS installer %s%s\n' "$C_DIM" "$VERSION" "$C_OFF"
@@ -168,12 +184,9 @@ if xcode-select -p >/dev/null 2>&1; then
 else
     warn "the Xcode command line tools are missing"
     info "Rust links with Apple's linker, which comes from these tools."
-    if [ "$ASSUME_YES" -eq 0 ]; then
-        printf '  Trigger the installer now? [y/N] '
-        read -r reply
-        case "$reply" in y|Y|yes|YES) ;; *) die "stopping: the command line tools are needed" \
-            "Install them with:  xcode-select --install" ;; esac
-    fi
+    confirm "Trigger the installer now?" \
+        || die "stopping: the command line tools are needed" \
+               "Install them with:  xcode-select --install"
     xcode-select --install 2>/dev/null
     die "finish the graphical installer, then run this again" \
         "A window should have appeared. It downloads about 1 GB." \
@@ -226,11 +239,8 @@ else
         # Homebrew's rust is a possibility and is deliberately not used: it
         # lags, and mixing it with a rustup toolchain later is a source of
         # confusion nobody enjoys. rustup is the supported path.
-        if [ "$ASSUME_YES" -eq 0 ]; then
-            printf '  Install the Rust toolchain with rustup? [y/N] '
-            read -r reply
-            case "$reply" in y|Y|yes|YES) ;; *) die "stopping: Rust ${MIN_RUST_MAJOR}.${MIN_RUST_MINOR} or newer is needed" ;; esac
-        fi
+        confirm "Install the Rust toolchain with rustup?" \
+            || die "stopping: Rust ${MIN_RUST_MAJOR}.${MIN_RUST_MINOR} or newer is needed"
         curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/rustup-init.sh \
             || die "could not download rustup" "Check the network and try again."
         sh /tmp/rustup-init.sh -y --no-modify-path --profile minimal \

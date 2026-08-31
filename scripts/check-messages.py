@@ -95,6 +95,20 @@ HEREDOC = re.compile('<<-?[ ]*[' + chr(34) + chr(39) + ']?([A-Za-z_][A-Za-z0-9_]
 HERESTRING_OPEN = re.compile('@[' + chr(34) + chr(39) + ']')
 HERESTRING_CLOSE = re.compile('^[' + chr(34) + chr(39) + ']@')
 
+# Spaces inside a quoted string are a value, not a layout accident. An eaten
+# continuation leaves its spaces between arguments, where the shell collapses
+# them; a run of spaces inside quotes is somebody padding output on purpose, as
+# in `sed 's/^/         /'`. Blanking quoted spans before the rule runs removes
+# that whole class of false positive without weakening what the rule is for.
+QUOTED = re.compile(
+    chr(39) + '[^' + chr(39) + ']*' + chr(39)
+    + '|' + chr(34) + '[^' + chr(34) + ']*' + chr(34)
+)
+
+
+def outside_quotes(line):
+    return QUOTED.sub('', line)
+
 
 def command_lines(path):
     """Yield (number, line) for lines that are actually commands.
@@ -182,7 +196,7 @@ def main():
                 here = 0
                 for number, line in command_lines(path):
                     here += 1
-                    if COLLAPSED_COMMAND.search(line):
+                    if COLLAPSED_COMMAND.search(outside_quotes(line)):
                         commands.append((rel, number, line.strip()))
                 scanned += here
                 total_lines = sum(1 for _ in io.open(path, encoding='utf-8', errors='replace'))

@@ -142,7 +142,7 @@ Paramètres > Gestion des ports.
 ## Android
 
 ```sh
-pkg install git && git clone <repo> && cd itsanas
+pkg install git && git clone https://github.com/SigSegGit/itsanas && cd itsanas
 sh install/android-termux.sh
 ```
 

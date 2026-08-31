@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # ITSaNAS on Android, through Termux.
 #
-#   pkg install git && git clone <repo> && cd itsanas
+#   pkg install git && git clone https://github.com/SigSegGit/itsanas && cd itsanas
 #   sh install/android-termux.sh
 #
 # Read this first
@@ -109,10 +109,19 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+# Ask on the terminal, not on standard input. A script fed to `sh` through a
+# pipe has the script itself on stdin, so a bare `read` eats the lines the shell
+# has not run yet. Termux is the least likely place to meet that, and the habit
+# belongs in all of these scripts rather than only in the one where it bites.
 ask() {
     [ "$ASSUME_YES" -eq 1 ] && return 0
+    if [ ! -r /dev/tty ]; then
+        warn "nothing to ask on: this is not running from a terminal"
+        info "Re-run with --yes to accept."
+        return 1
+    fi
     printf '       %s [y/N] ' "$1"
-    read -r answer
+    read -r answer < /dev/tty
     case "$answer" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
@@ -297,7 +306,7 @@ if [ -z "${SOURCE_DIR:-}" ] || [ ! -f "$SOURCE_DIR/Cargo.toml" ]; then
     die "this script is not inside an ITSaNAS checkout" \
         "Run it from the repository:" \
         "" \
-        "  git clone <repo> && cd itsanas" \
+        "  git clone https://github.com/SigSegGit/itsanas && cd itsanas" \
         "  sh install/android-termux.sh"
 fi
 ok "$SOURCE_DIR"
