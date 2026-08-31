@@ -1,0 +1,95 @@
+#!/bin/sh
+# Store a file on ARM and read it back.
+#
+# Why this exists
+# ---------------
+#
+# The Raspberry Pi justifies half the constants in this repository -- the chunk
+# size, the memory the key derivation is allowed, the audit budget per round --
+# and until this script ran, no line of ITSaNAS had ever executed on an ARM
+# processor. The workspace was cross-compiled for aarch64 on every push, which
+# proves it builds and nothing else. A build says the types line up. It does not
+# say the code runs.
+#
+# There is a real difference to catch. aarch64 is where `blake3` switches to its
+# NEON backend, where `char` is unsigned by default in the C that gets compiled
+# alongside, and where alignment requirements are stricter than on x86. Any of
+# those can produce a binary that links and then misbehaves.
+#
+# What it does not prove
+# -----------------------
+#
+# Under emulation this is one instruction set standing in for another, on a
+# machine with a fast disk and no thermal limit. It says nothing about whether a
+# Pi 4B with 1 GB of RAM can hold a terabyte's worth of index, which is the
+# actual open question. It is the floor, not the ceiling: the same script runs
+# on a real Pi with no runner set, and until it has, the claim is only that the
+# instructions execute.
+
+set -eu
+
+BIN=${1:?usage: arm-smoke.sh <path-to-itsanas>}
+
+# The command that runs an ARM binary. Empty on a real Pi, and on CI it is
+# `qemu-aarch64-static -L /usr/aarch64-linux-gnu`, the sysroot the cross
+# compiler already installed.
+run() {
+    if [ -n "${RUNNER:-}" ]; then
+        # RUNNER is a command prefix and has to word-split to be one.
+        # shellcheck disable=SC2086
+        $RUNNER "$BIN" "$@"
+    else
+        "$BIN" "$@"
+    fi
+}
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+echo "== which machine"
+run --version
+if [ -n "${RUNNER:-}" ]; then
+    WHERE="emulated aarch64 on $(uname -m), via $RUNNER"
+else
+    WHERE="native $(uname -m)"
+fi
+echo "   $WHERE"
+
+echo "== an account"
+ITSANAS_PASSPHRASE='arm-smoke-passphrase-9931'
+export ITSANAS_PASSPHRASE
+run --home "$WORK/home" init --username armsmoke >"$WORK/init.txt" 2>&1 || {
+    cat "$WORK/init.txt"
+    echo "FAIL: init did not complete"
+    exit 1
+}
+grep -E 'user id' "$WORK/init.txt" | sed 's/^/   /'
+
+# A recovery phrase that is not 24 words means the key schedule produced
+# something different here, which would make an account created on a Pi
+# unrecoverable anywhere else.
+words=$(grep -oE '[0-9]{1,2}\. +[a-z]+' "$WORK/init.txt" | wc -l)
+echo "   recovery phrase: $words words"
+[ "$words" -eq 24 ] || { echo "FAIL: expected 24 words"; exit 1; }
+
+echo "== a file, in and out"
+# Larger than one chunk, so this exercises the chunker and the manifest rather
+# than a single sealed blob.
+head -c 350000 /dev/urandom >"$WORK/payload.bin"
+run --home "$WORK/home" put "docs/arm.bin" "$WORK/payload.bin" | sed 's/^/   /'
+run --home "$WORK/home" ls | sed 's/^/   /'
+run --home "$WORK/home" get "docs/arm.bin" "$WORK/back.bin" | sed 's/^/   /'
+
+before=$(sha256sum <"$WORK/payload.bin" | cut -d' ' -f1)
+after=$(sha256sum <"$WORK/back.bin" | cut -d' ' -f1)
+echo "   wrote $before"
+echo "   read  $after"
+[ "$before" = "$after" ] || { echo "FAIL: the bytes changed"; exit 1; }
+
+echo "== the store agrees with itself"
+run --home "$WORK/home" doctor | sed 's/^/   /'
+
+# Say where this actually ran. An earlier version ended with "on aarch64"
+# whatever it had run on, which would have reported a pass on ARM from a run
+# that never left x86.
+echo "PASS: ITSaNAS stored and returned a file -- $WHERE"

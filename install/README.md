@@ -8,7 +8,8 @@ says what it is doing, and can be run twice without harm.
 | Linux, including Raspberry Pi and the Freebox VM | [`linux.sh`](linux.sh) | Ubuntu 22.04 **x86-64**, bare image, no toolchain, twice. Never on ARM |
 | Windows 10 and 11 | [`windows.ps1`](windows.ps1) | Windows 11, PowerShell 5.1, **full run**: built, installed, binary ran |
 | macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | **not yet run on a Mac** |
-| Android | [`android.md`](android.md) | there is no app to install |
+| Android, through Termux | [`android-termux.sh`](android-termux.sh) | **not yet run on a phone**; refuses correctly outside Termux and under `--check` |
+| Android, as an app | [`android.md`](android.md) | there is no app to install |
 | A coordinator on a machine with a public address | [`coordinator.sh`](coordinator.sh) | **not yet run on the Freebox VM** |
 
 That last column is the point of this table. Say plainly which of these has been
@@ -127,9 +128,30 @@ Paramètres > Gestion des ports.
 
 ## Android
 
-See [`android.md`](android.md). The core compiles for `aarch64-linux-android`
-and CI checks it on every push; the app does not exist. That file says what it
-would take rather than pretending otherwise.
+```sh
+pkg install git && git clone <repo> && cd itsanas
+sh install/android-termux.sh
+```
+
+**This installs the command-line tool on your phone. It is not a sync app, and
+there is no sync app.** No APK, no file picker, no background service; Android
+will kill a daemon left running overnight whatever you do about wake-locks.
+[`android.md`](android.md) says what a real client would take and why none of it
+is written.
+
+What it is for is the one thing a phone is genuinely good for here: half the
+constants in this project are chosen for ARM devices, and a phone is the ARM
+device most people own. The script builds `itsanas` for the phone's own
+processor and then stores a file and reads it back on it. CI runs the same check
+under emulation on every push; a phone is the real thing.
+
+Termux's package mirror is down or stale often enough that "E: Unable to locate
+package rust" is the most common way this fails, and it reads as if the package
+does not exist. The script handles that case by name and tells you to run
+`termux-change-repo`.
+
+Install Termux from **F-Droid**. The Google Play build is unmaintained and
+ships a 32-bit userland on some devices, which the script detects and refuses.
 
 ## After installing, on any of them
 

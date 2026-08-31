@@ -128,7 +128,7 @@ jobs:
       - run: cargo test --workspace --all-features -- --ignored --test-threads 1
 
   cross-build:
-    name: Cross-build for Raspberry Pi
+    name: Builds and runs on ARM
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -145,6 +145,22 @@ jobs:
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --workspace --release --target aarch64-unknown-linux-gnu
+      # A build says the types line up. It does not say the code runs, and until
+      # this step existed no line of this project had ever executed on an ARM
+      # processor -- the machine half its constants are chosen for. aarch64 is
+      # where blake3 switches to its NEON backend and where alignment rules are
+      # stricter, either of which can link cleanly and then misbehave.
+      #
+      # `qemu-user-static` runs the binary against the sysroot the cross
+      # compiler already installed, so this costs one apt package and no
+      # container images. It is emulation on a fast machine, so it says nothing
+      # about whether a Pi 4B has the memory for a terabyte of index; that
+      # question needs the Pi. It is the floor.
+      - run: sudo apt-get install -y qemu-user-static
+      - name: Store a file and read it back, on ARM
+        env:
+          RUNNER: qemu-aarch64-static -L /usr/aarch64-linux-gnu
+        run: sh scripts/arm-smoke.sh target/aarch64-unknown-linux-gnu/release/itsanas
 
   android-core:
     name: Core compiles for Android

@@ -25,16 +25,22 @@ a desktop rather than being invented on the day somebody starts the app. See
 ### Termux, for a shell
 
 [Termux](https://termux.dev) gives you a Linux userland on Android without root.
-`install/linux.sh` will not work there unchanged — Termux has no `/proc/meminfo`
-in the shape the script expects on some devices, no `apt-get` (it uses `pkg`),
-and no systemd at all — so do it by hand:
+`install/linux.sh` will not work there — Termux has no `apt-get` (it uses `pkg`),
+no systemd, and on some devices no `/proc/meminfo` the script can read — so there
+is a second script for it:
 
 ```sh
-pkg update && pkg install rust git binutils
-git clone <repo> && cd itsanas
-cargo build --release
-./target/release/itsanas --version
+pkg install git && git clone <repo> && cd itsanas
+sh install/android-termux.sh
 ```
+
+It builds the command-line tool for the phone's own processor and then stores a
+file and reads it back on it, which is the whole point: half the constants in
+this project are chosen for ARM devices and a phone is the ARM device most
+people own. It refuses a 32-bit Termux (the Google Play build, which is
+unmaintained), and it handles the stale package mirror by name, because
+"E: Unable to locate package rust" is the most common way this fails and it
+reads as if the package did not exist.
 
 Two things to know before you spend the time:
 
@@ -63,11 +69,23 @@ so a metadata round leaves the files *known but invisible*. `itsanas_store::cata
 was written for exactly this and the phone UI is what would use it. See
 `docs/ROADMAP.md` M12.
 
-## Why there is no installer here
+## Why there is a Termux script and still no installer
 
-An installer that printed "not yet" would be theatre. An installer that set up
-Termux and built the CLI would suggest the phone is supported when what you get
-is a process Android will kill.
+Those are two different things and the distinction is the point.
 
-When the app exists, this file is replaced by the store link and a page about
-the permissions it asks for and why.
+This page used to argue against a Termux script at all, on the grounds that
+setting up Termux and building the CLI would suggest the phone is supported when
+what you get is a process Android will kill. That argument is still correct
+about a *client*. It was wrong about a *check*: the ARM question — does this code
+run on the processor its constants were chosen for — is worth answering, the
+phone is the ARM machine that is actually to hand, and telling somebody to type
+six commands rather than one does not make the result more honest, only more
+tedious.
+
+So `android-termux.sh` exists and says in its first paragraph, in its `--help`,
+and in its closing message that it is not an app. What it is not allowed to do
+is imply otherwise.
+
+An installer for the app is still not written, because the app is not written.
+When it exists, this file is replaced by the store link and a page about the
+permissions it asks for and why.
