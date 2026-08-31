@@ -565,6 +565,40 @@ impl Index {
         Ok(out)
     }
 
+    /// Up to `limit` live chunks starting where `cursor` lands, wrapping.
+    ///
+    /// For the repair scan, which asks "which of these are missing from disk?"
+    /// A bounded walk from a moving start, not the whole table: at a terabyte
+    /// there are fourteen million live chunks and stat-ing all of them every
+    /// round would cost more than the loss it is looking for. Successive calls
+    /// with fresh cursors cover the store over time.
+    pub fn live_chunks_from(&self, cursor: &ChunkId, limit: usize) -> Result<Vec<ChunkId>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let txn = self.db.begin_read()?;
+        let refs = txn.open_table(CHUNK_REFS)?;
+
+        let mut out = Vec::with_capacity(limit);
+        let lowest: &[u8] = &[];
+        for start in [cursor.as_bytes().as_slice(), lowest] {
+            for row in refs.range(start..)? {
+                let (key, value) = row?;
+                if value.value() > 0 {
+                    let chunk = ChunkId::from_slice(key.value())?;
+                    // The wrap can revisit what the first pass already saw.
+                    if !out.contains(&chunk) {
+                        out.push(chunk);
+                    }
+                    if out.len() == limit {
+                        return Ok(out);
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// One live chunk of this node's own, chosen by where `cursor` lands.
     ///
     /// For picking the probe handed to a paused peer. The peer must not choose

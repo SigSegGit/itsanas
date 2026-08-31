@@ -374,6 +374,14 @@ below the floor — but nothing runs that plan yet.
 
 **Still outstanding for M5:**
 
+- ~~**Getting back what this disk lost.**~~ Built. `session::repair` scans a
+  bounded slice of this node's live chunks each round, and asks a peer for
+  anything whose bytes are gone from local storage — a dropped block, an inode
+  lost to a power cut, a partial restore. Every byte is opened and re-addressed
+  before it is written, because accepting rubbish would set `has_chunk`, stop
+  the scan looking, and turn a recoverable loss into a permanent one. That is
+  the failure the placement ledger exists to survive and the one `push` cannot
+  reach.
 - **Executing the plan.** The planner is wired to nothing. It needs a loop that
   builds a census by asking peers, runs the plan, and pushes — which needs the
   daemon (M7) to have somewhere to live and the coordinator (M6) to supply an

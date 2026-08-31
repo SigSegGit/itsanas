@@ -526,6 +526,57 @@ impl Store {
         envelope.open(self.user.oplog_root())
     }
 
+    /// Chunks this node's own files need and whose bytes are not on this disk.
+    ///
+    /// # Why this is not what `doctor` does
+    ///
+    /// [`Self::verify_integrity`] answers the same question exhaustively and is
+    /// a command somebody runs. This is for a daemon, so it is bounded: it
+    /// examines at most `scan` live chunks, starting wherever `cursor` lands
+    /// and wrapping. At a terabyte, stat-ing fourteen million blobs every round
+    /// costs far more than the loss it is looking for, and a scan that is too
+    /// expensive to run is a scan nobody runs.
+    ///
+    /// Successive rounds with fresh cursors cover the store. What that buys is
+    /// eventual detection rather than immediate — which is the right shape,
+    /// because the thing it detects is a disk quietly losing a file, and a disk
+    /// quietly losing a file is not an emergency until you need the file.
+    pub fn missing_locally(&self, cursor: &ChunkId, scan: usize) -> Result<Vec<ChunkId>> {
+        Ok(self
+            .index
+            .live_chunks_from(cursor, scan)?
+            .into_iter()
+            .filter(|address| !self.blobs.contains(address))
+            .collect())
+    }
+
+    /// Accept a chunk fetched to replace one this node lost, if it is genuine.
+    ///
+    /// # Why this verifies and [`Self::put_sealed_chunk`] does not
+    ///
+    /// The ordinary path can defer authentication: a chunk that fails to open
+    /// is caught when the file is read, and until then nothing depends on it.
+    ///
+    /// Repair cannot. Writing unverified bytes under a missing chunk's address
+    /// makes [`Self::has_chunk`] true, so the repair scan stops looking for it,
+    /// so nothing ever asks another peer — and a file that was *recoverable*
+    /// becomes permanently unreadable. A host that wanted to destroy data it
+    /// cannot read would do exactly that: wait for a repair request and answer
+    /// with noise.
+    ///
+    /// So the bytes are opened and the plaintext re-addressed here, before
+    /// anything is written. Returns whether the chunk was accepted.
+    pub fn restore_chunk(&self, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
+        let Ok(plaintext) = self.user.open_chunk(address, sealed) else {
+            return Ok(false);
+        };
+        if self.user.chunk_id(&plaintext) != *address {
+            return Ok(false);
+        }
+        self.blobs.put(address, sealed)?;
+        Ok(true)
+    }
+
     /// Store a sealed chunk fetched from a peer.
     ///
     /// The bytes are authenticated when they are next opened, not here — a

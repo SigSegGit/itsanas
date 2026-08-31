@@ -502,6 +502,109 @@ pub fn drain_vault(store: &Store, vault: &Vault) -> Result<SyncReport> {
     Ok(report)
 }
 
+/// How many live chunks one repair round examines for local loss.
+///
+/// A bounded walk from a fresh random start, because at a terabyte there are
+/// fourteen million and stat-ing all of them every round would cost far more
+/// than the loss it is looking for. Two thousand is a few milliseconds and
+/// covers a household store in a handful of rounds.
+pub const REPAIR_SCAN_PER_ROUND: usize = 2_048;
+
+/// How many lost chunks one repair round tries to fetch back.
+///
+/// Small, because the peer is doing this for free and a node that has just lost
+/// a disk would otherwise open with a demand for its entire store. Losing a
+/// whole disk is a restore, not a repair; this is for the handful of blocks a
+/// filesystem quietly drops.
+pub const REPAIR_FETCH_PER_ROUND: usize = 32;
+
+/// What one repair round found and fixed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RepairReport {
+    /// Live chunks examined.
+    pub scanned: usize,
+    /// Chunks this node's files need and whose bytes are not on this disk.
+    pub lost: usize,
+    /// Chunks asked of this peer, because the ledger says it holds them.
+    pub asked: usize,
+    /// Chunks that came back, opened, and re-addressed to what was asked for.
+    pub restored: usize,
+    /// Chunks that came back as something else.
+    ///
+    /// Not a transport error. A peer that answers a repair request with bytes
+    /// that do not open is either broken or trying to turn a recoverable loss
+    /// into a permanent one, and either way its record for that chunk is
+    /// withdrawn.
+    pub forged: usize,
+}
+
+impl RepairReport {
+    /// Whether this round did anything worth printing.
+    #[must_use]
+    pub const fn changed_anything(&self) -> bool {
+        self.restored > 0 || self.forged > 0
+    }
+}
+
+/// Fetch back chunks this node has lost, from a peer that still holds them.
+///
+/// # Why this is not the same as pushing
+///
+/// `push` restores *replication*: it offers a peer everything the peer lacks.
+/// It cannot restore anything to this disk, and a chunk missing from this disk
+/// is the one failure the placement ledger was built to survive. A file becomes
+/// unreadable, `doctor` reports it, and until now the only cure was a human
+/// noticing.
+///
+/// A disk drops a block, a filesystem loses an inode after a power cut, a
+/// backup restore comes back partial. The chunk is still on three other
+/// machines and its address is still in the index; nothing was reaching for it.
+///
+/// # Why the ledger is only a hint here
+///
+/// It asks the peers the ledger names first, but a chunk it does not name is
+/// still worth asking about """ + D + """ the ledger records acknowledgements, and a peer
+/// that acknowledged nothing may still have the bytes because somebody relayed
+/// them. The cost of asking is one round trip and the cost of not asking is a
+/// file nobody can read.
+///
+/// # What comes back is verified before it is written
+///
+/// See [`Store::restore_chunk`]. Accepting unverified bytes would set
+/// `has_chunk`, stop the scan looking, and turn a recoverable loss into a
+/// permanent one.
+pub fn repair(store: &Store, client: &mut PeerClient, scan: usize) -> Result<RepairReport> {
+    let owner = store.owner();
+    let peer = client.peer_device();
+    let mut report = RepairReport::default();
+
+    let mut raw = [0u8; 32];
+    getrandom::fill(&mut raw)
+        .map_err(|error| NetError::Refused(format!("could not draw a repair cursor: {error}")))?;
+
+    let lost = store.missing_locally(&ChunkId::from_bytes(raw), scan)?;
+    report.scanned = scan;
+    report.lost = lost.len();
+
+    for address in lost.into_iter().take(REPAIR_FETCH_PER_ROUND) {
+        report.asked += 1;
+        let Some(sealed) = client.chunk(owner, address)? else {
+            continue;
+        };
+        if store.restore_chunk(&address, &sealed)? {
+            report.restored += 1;
+        } else {
+            report.forged += 1;
+            // The peer said it held this and produced something else. Whether
+            // that is corruption or malice, the record is not evidence of
+            // anything any more.
+            store.forget_holder(&address, &peer)?;
+        }
+    }
+
+    Ok(report)
+}
+
 /// Serves chunks out of the local vault.
 struct VaultChunks<'a> {
     vault: &'a Vault,

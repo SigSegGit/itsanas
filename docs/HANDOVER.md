@@ -157,6 +157,8 @@ Each of these has a test that fails if it is:
 | The escrow rate limit lives on the server, not the connection | Reconnecting costs a handshake and would buy a fresh budget, which is no budget | `red_team_reconnecting_does_not_reset_the_escrow_attempt_budget` |
 | The sync schedule comes from `itsanas-policy`, never from a constant in a shell | Three shells with three numbers drift, and the argument for each number then lives nowhere. The daemon asks the policy and prints its reason; `--interval` overrides, `--metered` says what the connection costs | `a_service_on_ethernet_does_not_inherit_a_phone_s_interval`; `itsanas daemon` prints `because` |
 | An enum with a decision table behind it exposes `ALL`, and the totality test walks it | A list of variants written out at the call site is one somebody forgets. `Attention::Unattended` was added and `every_combination_produces_a_plan_with_a_reason` went on checking the two it already knew, passing | `every_combination_produces_a_plan_with_a_reason` walks `Network::ALL`, `Power::ALL`, `Attention::ALL` |
+| A chunk fetched to repair a local loss is verified before it is written | Unverified bytes make `has_chunk` true, the scan stops looking, no other peer is ever asked, and a **recoverable** loss becomes permanent. A host cannot read what it stores, so answering a repair request with noise is its one route to destroying data | `red_team_a_host_cannot_answer_a_repair_request_with_rubbish` |
+| A test harness that runs a server stops it when the body panics | Otherwise `thread::scope` joins an accept loop nothing shut down and the suite reports a hang. Every red-team test in `two_nodes.rs` runs inside that harness, so a test catching an attack reported a timeout — which everybody retries and nobody reads | `a_failing_assertion_inside_a_server_scope_fails_rather_than_hangs`; `StopOnDrop` in `two_nodes.rs` and `coordinator.rs` |
 | A replication target counts this device | Off by one means the repair loop keeps two copies while reporting three, invisibly, until two machines die instead of three | `a_target_counts_this_device_so_three_asks_for_two_elsewhere` |
 | A peer is recorded as a holder only when it accepted or already had the chunk | Recording a refusal as storage is indistinguishable from safety until the local disk dies | `a_host_that_refuses_to_store_is_not_recorded_as_holding_anything` |
 | A discovery beacon's address comes from the UDP source, never from the packet | A self-declared address lets any node redirect traffic to a machine that is not it | `a_new_device_is_recorded_with_the_address_it_was_heard_from` |
@@ -224,8 +226,26 @@ side coming back, a deletion removing it from both, both folders byte-identical.
 4. **Escrow recovery**: `itsanas login --username X` fetching the blob from the
    coordinator. `Keystore` already supports it; only the wiring is missing, and
    it is the recovery story Nicolas originally asked for.
-5. **Repair execution.** `placement::repair::plan` is wired to nothing. Needs a
-   census built from peer queries, which needs (2).
+5. **Repair.** Half done, and the half that was done is the half that matters
+   more.
+
+   `session::repair` fetches back chunks missing from **this** disk, from a peer
+   that still holds them, verifying every byte before writing it. That is the
+   failure the placement ledger was built to survive, and it is the one `push`
+   cannot touch: push offers a peer what the peer lacks and can put nothing back
+   here. Wired into the daemon, bounded both ways (a slice of the live chunks
+   scanned per round, a handful fetched), and covered by a red-team test for the
+   one attack it opens — a host answering a repair request with noise, which
+   unverified would turn a recoverable loss into a permanent one.
+
+   Still open: **choosing where to place data.** `placement::repair::plan` is
+   wired to nothing and is written against a `NodeSet` — a global membership
+   list this design deliberately abandoned (DESIGN.md §8). At a household size
+   the policy is "offer it to every peer this node reaches", which push already
+   does, so under-replication now means *there are not enough peers*, not *the
+   wrong peers were chosen*. Wiring the planner would be building for a scale
+   the network is nowhere near. What is worth doing before that is saying so out
+   loud: the daemon reports nothing when a chunk exists only on this disk.
 6. ~~**Scheduled storage challenges.**~~ **Done.** `session::audit` challenges
    a **randomly drawn** sample of a peer's holdings each round and withdraws the
    record when it cannot answer, which makes the chunk under-replicated and gets

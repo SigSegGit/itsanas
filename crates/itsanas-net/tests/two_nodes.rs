@@ -50,10 +50,35 @@ fn alice() -> MasterSecret {
     MasterSecret::from_bytes([0xA1; 32])
 }
 
+/// Stops the server even when the body panics.
+///
+/// Without it a failing assertion leaves the accept loop running,
+/// `thread::scope` never returns, and the harness reports a **hang** instead of
+/// the assertion.
+///
+/// That is worse than it sounds here. Every red-team test in this file runs
+/// inside `with_server`, so for as long as this was missing, the tests written
+/// to catch an attack reported a timeout when they caught one """ + D + """ and a timeout
+/// reads like flakiness, which is the thing everybody retries and nobody
+/// investigates. Found by sabotaging a verification step on purpose and
+/// watching the suite hang instead of fail.
+///
+/// `itsanas-coord`'s test harness has had exactly this guard, with exactly this
+/// rationale written above it, since the day its server was written. It was
+/// never applied here.
+struct StopOnDrop<'a>(&'a AtomicBool, std::net::SocketAddr);
+
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+        // Unblock the accept loop's sleep by connecting once more.
+        let _ = std::net::TcpStream::connect(self.1);
+    }
+}
+
 /// Run `body` with `server_node` serving on loopback.
 ///
-/// The server stops as soon as `body` returns, whether it returned or panicked,
-/// so a failing assertion does not leave a thread spinning.
+/// The server stops as soon as `body` returns, whether it returned or panicked.
 fn with_server<T>(
     server_node: &Node,
     pledge: Pledge,
@@ -70,12 +95,29 @@ fn with_server<T>(
             let _ = server.serve_until(&service, &server_node.device, &shutdown);
         });
 
-        let outcome = body(address);
-        shutdown.store(true, Ordering::Relaxed);
-        // Unblock the accept loop's sleep by connecting once more.
-        let _ = std::net::TcpStream::connect(address);
-        outcome
+        let _stop = StopOnDrop(&shutdown, address);
+        body(address)
     })
+}
+
+#[test]
+fn a_failing_assertion_inside_a_server_scope_fails_rather_than_hangs() {
+    // This test passing means it *finished*. There is no assertion that can
+    // catch the failure it guards against, because the failure is that nothing
+    // returns: `thread::scope` joins the accept loop, the accept loop waits for
+    // a shutdown flag that the panic skipped past, and the suite sits there
+    // until the harness gives up sixty seconds later and calls it a hang.
+    //
+    // Every red-team test in this file runs inside `with_server`. For as long
+    // as this was broken, a test that caught an attack reported a timeout, and
+    // a timeout is what everybody retries and nobody reads.
+    let node = node(&alice(), 60);
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        with_server(&node, Pledge::gigabytes(1), |_address| {
+            panic!("a failing assertion, as an assertion would");
+        })
+    }));
+    assert!(outcome.is_err(), "the panic did not even reach the caller");
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +378,156 @@ fn a_host_relays_one_device_to_another_that_it_never_met() {
         vm.store.read_file("from-the-pi.txt").unwrap().unwrap(),
         b"the Pi wrote this at 3am",
         "a host failed to relay one device's work to another"
+    );
+}
+
+#[test]
+fn a_disk_that_quietly_lost_a_block_gets_it_back_from_a_host() {
+    // The half of repair that pushing cannot do. `push` restores *replication*
+    // """ + D + """ it offers a peer what the peer lacks """ + D + """ and it can put nothing back on
+    // this disk. A chunk missing here is the one failure the placement ledger
+    // was built to survive, and until now surviving it meant a human running
+    // `doctor`, reading the output, and knowing what to do next.
+    //
+    // A dropped block, an inode lost to a power cut, a backup restored
+    // partially. The file is unreadable; the bytes are on three other machines;
+    // nothing was reaching for them.
+    let master = alice();
+    let host = node(&MasterSecret::from_bytes([0xC1; 32]), 50);
+    let owner = node(&master, 51);
+
+    let chunks = owner
+        .store
+        .write_file("thesis.bin", &a_file_of_many_chunks(21, 512 << 10))
+        .expect("write")
+        .chunks;
+    owner.store.flush_segment().expect("flush");
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        session::push(&owner.store, &mut client).expect("push");
+    });
+
+    // The disk loses a block. Not deleted through the API: the index still
+    // wants the chunk, which is exactly what makes this a fault rather than a
+    // deletion.
+    let lost = chunks[chunks.len() / 2];
+    let blob = owner.store.blobs().path_of(&lost);
+    std::fs::remove_file(&blob).expect("remove the blob behind the store's back");
+
+    assert!(
+        owner.store.read_file("thesis.bin").is_err(),
+        "the fixture did not actually break the file"
+    );
+
+    // Enough rounds for the bounded scan to reach it, wherever the cursor lands.
+    let mut restored = 0;
+    for _ in 0..12 {
+        with_server(&host, Pledge::gigabytes(1), |address| {
+            let mut client = PeerClient::connect(address, &owner.device, owner.store.owner(), None)
+                .expect("dial");
+            let report = session::repair(&owner.store, &mut client, session::REPAIR_SCAN_PER_ROUND)
+                .expect("repair");
+            restored += report.restored;
+        });
+        if restored > 0 {
+            break;
+        }
+    }
+
+    assert_eq!(restored, 1, "the lost chunk was never fetched back");
+    assert!(
+        owner.store.read_file("thesis.bin").expect("read").is_some(),
+        "the chunk came back but the file is still unreadable"
+    );
+}
+
+#[test]
+fn red_team_a_host_cannot_answer_a_repair_request_with_rubbish() {
+    // THE ATTACK. A host cannot read what it stores, so the one way it could
+    // destroy data is to wait until the owner asks for a chunk back and answer
+    // with noise.
+    //
+    // If the bytes were written unverified, `has_chunk` would become true, the
+    // repair scan would stop looking, no other peer would ever be asked, and a
+    // loss that was **recoverable** would be permanent. That is strictly worse
+    // than the host refusing to answer at all, which is the shape of failure
+    // this project refuses everywhere else.
+    //
+    // If this test fails, any host you have ever stored with can destroy any
+    // file of yours that your own disk has damaged.
+    let master = alice();
+    let liar = node(&MasterSecret::from_bytes([0xC2; 32]), 52);
+    let owner = node(&master, 53);
+
+    let chunks = owner
+        .store
+        .write_file("evidence.bin", &a_file_of_many_chunks(22, 256 << 10))
+        .expect("write")
+        .chunks;
+    owner.store.flush_segment().expect("flush");
+
+    with_server(&liar, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        session::push(&owner.store, &mut client).expect("push");
+    });
+
+    // Every chunk it holds is replaced with the same length of noise. It still
+    // answers every request, promptly, with something.
+    for chunk in &chunks {
+        let sealed = liar
+            .vault
+            .get_chunk(owner.store.owner(), chunk)
+            .expect("vault")
+            .expect("held");
+        liar.vault
+            .remove_chunk(owner.store.owner(), chunk)
+            .expect("remove");
+        liar.vault
+            .put_chunk(owner.store.owner(), chunk, &vec![0x7Au8; sealed.len()])
+            .expect("substitute");
+    }
+
+    let lost = chunks[0];
+    std::fs::remove_file(owner.store.blobs().path_of(&lost)).expect("lose a block");
+
+    let mut forged = 0;
+    for _ in 0..12 {
+        with_server(&liar, Pledge::gigabytes(1), |address| {
+            let mut client = PeerClient::connect(address, &owner.device, owner.store.owner(), None)
+                .expect("dial");
+            let report = session::repair(&owner.store, &mut client, session::REPAIR_SCAN_PER_ROUND)
+                .expect("repair");
+            assert_eq!(
+                report.restored, 0,
+                "rubbish was accepted as a repaired chunk"
+            );
+            forged += report.forged;
+        });
+        if forged > 0 {
+            break;
+        }
+    }
+
+    assert!(forged > 0, "the substitution was never even attempted");
+    assert!(
+        !owner.store.has_chunk(&lost),
+        concat!(
+            "the forged bytes were written under the missing chunk's address, ",
+            "so the scan will stop looking for it and no other peer will ever ",
+            "be asked. A recoverable loss has been made permanent."
+        )
+    );
+    assert!(
+        owner
+            .store
+            .remote_holders(&lost)
+            .expect("holders")
+            .iter()
+            .all(|holder| holder.device != liar.store.device_id()),
+        "a host that answered with rubbish is still recorded as holding it"
     );
 }
 

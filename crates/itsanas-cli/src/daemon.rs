@@ -49,9 +49,15 @@
 //!
 //! # What it does not do yet
 //!
-//! It does not execute repair plans. Building a census means asking every peer
-//! what it holds, and knowing who "every peer" is needs the coordinator's node
-//! set. Recorded in `docs/ROADMAP.md`.
+//! It does not choose *where* to place data: at a household size the policy is
+//! "offer it to every peer this node reaches", which push already does, and
+//! choosing between candidates needs a census this node cannot build. Recorded
+//! in `docs/ROADMAP.md`.
+//!
+//! What it does do is the other half of repair, the half push cannot reach: it
+//! scans a bounded slice of its own live chunks each round and asks a peer for
+//! anything missing from **this** disk. A dropped block or a partial restore
+//! used to make a file unreadable until a human ran `doctor` and noticed.
 //!
 //! It does not *detect* whether its connection is metered. Windows and macOS
 //! both expose the answer and reading it would mean a platform crate for one
@@ -655,6 +661,32 @@ fn sync_once(
     // A failure is news: it withdraws that record, so the chunk shows as
     // under-replicated, and the operator should know a peer is not holding what
     // it said. Nothing is deleted and nobody is blocked.
+    // Fetch back anything this disk has lost. Bounded both ways: a slice of
+    // the live chunks examined, a handful of chunks asked for. The peer is
+    // doing this for free, and a node that lost a whole disk wants a restore,
+    // not a repair.
+    match session::repair(&node.store, &mut client, session::REPAIR_SCAN_PER_ROUND) {
+        Ok(report) if report.changed_anything() => {
+            if report.restored > 0 {
+                println!(
+                    "{peer}: restored {} chunk(s) this disk had lost",
+                    report.restored
+                );
+            }
+            if report.forged > 0 {
+                println!(
+                    concat!(
+                        "{}: answered {} repair request(s) with bytes that ",
+                        "are not what was asked for. Those records are withdrawn."
+                    ),
+                    peer, report.forged
+                );
+            }
+        }
+        Ok(_) => {}
+        Err(error) => println!("{peer}: could not repair ({error})"),
+    }
+
     match session::audit(&node.store, &mut client, session::CHALLENGES_PER_ROUND) {
         Ok(report) if report.found_a_liar() => {
             println!(

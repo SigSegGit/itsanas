@@ -67,6 +67,17 @@ impl BlobStore {
             .join(format!("{hex}.{BLOB_EXTENSION}"))
     }
 
+    /// Where `address` lives on disk.
+    ///
+    /// Public so a test can damage a blob the way a disk does: behind the
+    /// store's back, leaving the index still wanting it. Removing it through
+    /// the API would be a deletion, which is a different thing entirely and not
+    /// the fault repair exists for.
+    #[must_use]
+    pub fn path_of(&self, address: &ChunkId) -> PathBuf {
+        self.path_for(address)
+    }
+
     /// Whether this store already holds `address`.
     #[must_use]
     pub fn contains(&self, address: &ChunkId) -> bool {
