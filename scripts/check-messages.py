@@ -43,7 +43,15 @@ import re
 import sys
 
 LITERAL = re.compile('"(?:[^"' + chr(92) * 2 + ']|' + chr(92) * 2 + '.)*"')
-COLLAPSED = re.compile('[a-z] {8,}[a-z]')
+# A run of spaces mid-sentence. The first version required a *lowercase*
+# letter before the run, which was the shape of the two examples it was
+# written from. A continuation is cut where a sentence breathes, so the
+# character before it is as often a semicolon or a comma — and
+# `server.rs` carried "requests;<eighteen spaces>open another" in the repo
+# while this file reported everything clean. Calibrating a rule on the
+# examples in front of you is the same mistake as a test that passes for
+# the wrong reason.
+COLLAPSED = re.compile('[^ ] {8,}[a-z]')
 
 # Residue from the scripts that write these edits. They splice an em dash in
 # by string concatenation, and a splice that lands inside a triple-quoted

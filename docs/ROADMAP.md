@@ -81,7 +81,12 @@ What is missing before this is a *network* rather than a personal sync tool:
   it.
 - **Recovery from username plus passphrase is not wired.** The escrow container
   exists and is tested; `itsanas login` still requires the 24 words.
-- **Never run on a Raspberry Pi.** Only `cargo check` for aarch64.
+- **Never run on a Raspberry Pi.** Only `cargo check` for aarch64. It now
+  *has* run on Linux — `install/linux.sh` built it from nothing on a bare
+  Ubuntu and two nodes moved a file over a socket — so the gap is specifically
+  ARM, not "anything but Windows". What that leaves untested is what ARM
+  changes: blake3's NEON path, redb on a filesystem backed by an SD card, and
+  every constant in this repository that says "on a Raspberry Pi".
 
 ---
 

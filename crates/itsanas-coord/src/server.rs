@@ -218,7 +218,8 @@ fn serve_one(
 
         if served == MAX_REQUESTS_PER_CONNECTION {
             let _ = connection.send(&Response::Refused(format!(
-                "this connection has made its {MAX_REQUESTS_PER_CONNECTION} requests;                  open another"
+                concat!("this connection has made its {} requests; ", "open another"),
+                MAX_REQUESTS_PER_CONNECTION
             )));
             return Ok(());
         }

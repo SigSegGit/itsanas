@@ -73,6 +73,21 @@ jobs:
       # work, and the two look identical from outside.
       - name: Every public method has a call site
         run: python scripts/check-wired.py
+      # An installer is the one program here that runs on a machine nobody has
+      # configured, in a shell nobody chose, in front of somebody who has read
+      # nothing — and it is the least exercised code in the project. A syntax
+      # error in it is a stranger pasting a command and getting "unexpected end
+      # of file". Also checks that the Rust version each installer demands is
+      # the one Cargo.toml actually needs, because a machine that passes the
+      # installer's check and then fails to compile is the worst possible order
+      # for those two to disagree.
+      - name: Installers parse and agree with the manifest
+        run: |
+          # Preinstalled on ubuntu-latest; the `|| true` is for the day it is
+          # not, because a missing linter must not fail a build over syntax it
+          # was going to agree with.
+          command -v shellcheck >/dev/null 2>&1             || sudo apt-get install -y -qq shellcheck || true
+          bash scripts/check-installers.sh
 
   test:
     name: Test (${{ matrix.os }})

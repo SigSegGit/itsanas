@@ -270,6 +270,7 @@ Measured against §3, not against the roadmap.
 
 | Test | Status | What is missing |
 | --- | --- | --- |
+| **Runs on Linux at all** | ✅ *verified* | The first execution of ITSaNAS outside Windows. `install/linux.sh` on a bare Ubuntu image with no compiler and no Rust: it installed the toolchain, built, installed, and the binary ran. Two homes of one account then moved a 293 KiB file across a real loopback socket, byte for byte, with `doctor` clean afterwards. **Still nothing on ARM** |
 | A — install and enrol | 🟨 | Machines on one network find each other with nothing configured; machines elsewhere are found through a coordinator, which is now built. Untested on the real fleet |
 | B — a file appears | 🟨 | Works between peers that have found each other; the discovery half is done, the sync round on top of it is not yet exercised across two real machines |
 | C — blind hosting | ✅ *in the laboratory* | Proven by `a_host_stores_a_strangers_data_and_cannot_read_a_byte_of_it`; never done on real machines |

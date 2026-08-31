@@ -285,13 +285,11 @@ impl Directory {
         let founding = admission == Admission::Founding && self.is_empty()?;
         let closed = matches!(admission, Admission::ByInvitation | Admission::Founding);
 
-        if closed && !returning && !founding {
-            let Some(secret) = secret else {
-                return Err(CoordError::Rejected(
-                    "this coordinator admits new members by invitation only",
-                ));
-            };
-            self.redeem(secret, joiner, now)?;
+        let needs_invitation = closed && !returning && !founding;
+        if needs_invitation && secret.is_none() {
+            return Err(CoordError::Rejected(
+                "this coordinator admits new members by invitation only",
+            ));
         }
 
         let name = signed.registration.username.as_str();
@@ -325,6 +323,22 @@ impl Directory {
                     escrow_enabled: false,
                 },
             };
+
+            // Spending the use goes *here*, inside the transaction that
+            // creates the account and after the name has been found free.
+            //
+            // The first version redeemed first, committed, and then opened a
+            // second transaction for the account. A registration that failed
+            // after that — `NameTaken` is trivial to provoke, and a mistyped
+            // name provokes it by accident — burned the invitation without
+            // creating anything. Free denial of service against the inviter,
+            // and an invitee locked out by their own typing error.
+            if needs_invitation {
+                let secret = secret.ok_or(CoordError::Rejected(
+                    "this coordinator admits new members by invitation only",
+                ))?;
+                redeem_in(&txn, secret, joiner, now)?;
+            }
 
             accounts.insert(name, postcard::to_stdvec(&account)?.as_slice())?;
             by_id.insert(account.user.id.as_bytes().as_slice(), name)?;
@@ -386,51 +400,6 @@ impl Directory {
             Some(value) => Ok(Some(postcard::from_bytes(value.value())?)),
             None => Ok(None),
         }
-    }
-
-    /// Spend one use of the invitation `secret` opens, for `joiner`.
-    ///
-    /// Every reason for refusal is deliberately the same error. A coordinator
-    /// that distinguished "no such code" from "expired" from "spent" would let
-    /// anybody enumerate which codes exist, and the codes are the thing that
-    /// keeps strangers out.
-    fn redeem(&self, secret: &Secret, joiner: UserId, now: u64) -> Result<UserId> {
-        let refused = || CoordError::Rejected("that invitation cannot be used");
-        let key = invitation::code_id(secret);
-
-        let txn = self.db.begin_write()?;
-        let inviter;
-        {
-            let mut table = txn.open_table(INVITATIONS)?;
-            let Some(value) = table.get(key.as_slice())? else {
-                return Err(refused());
-            };
-            let mut lodged: LodgedInvitation = postcard::from_bytes(value.value())?;
-            drop(value);
-
-            // Re-checked here rather than trusted from lodging time: the row
-            // has been on disk since, and the signature is the only thing that
-            // makes any of it mean anything.
-            lodged.signed.verify().map_err(|_| refused())?;
-            if !lodged.signed.opens_with(secret)
-                || lodged.remaining == 0
-                || lodged.signed.invitation.expires_unix <= now
-            {
-                return Err(refused());
-            }
-
-            // Somebody re-registering on a code they already used spends
-            // nothing. Without this, a retry after a dropped connection eats a
-            // use, and a member enrolling a machine twice locks themselves out.
-            if !lodged.admitted.contains(&joiner) {
-                lodged.remaining -= 1;
-                lodged.admitted.push(joiner);
-            }
-            inviter = lodged.signed.invitation.inviter;
-            table.insert(key.as_slice(), postcard::to_stdvec(&lodged)?.as_slice())?;
-        }
-        txn.commit()?;
-        Ok(inviter)
     }
 
     /// Whether no account has ever been registered here.
@@ -837,6 +806,55 @@ fn fold(current: u16, seen: bool) -> u16 {
     u16::try_from(smoothed.min(1000)).unwrap_or(1000)
 }
 
+/// Spend one use of the invitation `secret` opens, for `joiner`.
+///
+/// Takes the caller's open write transaction rather than opening its own, so
+/// that redeeming and creating the account either both happen or neither does.
+/// With two transactions, a registration that failed after the redemption
+/// burned the invitation and created nothing.
+///
+/// Every reason for refusal is deliberately the same error. A coordinator that
+/// distinguished "no such code" from "expired" from "spent" would let anybody
+/// enumerate which codes exist, and the codes are what keeps strangers out.
+fn redeem_in(
+    txn: &redb::WriteTransaction,
+    secret: &Secret,
+    joiner: UserId,
+    now: u64,
+) -> Result<UserId> {
+    let refused = || CoordError::Rejected("that invitation cannot be used");
+    let key = invitation::code_id(secret);
+
+    let mut table = txn.open_table(INVITATIONS)?;
+    let Some(value) = table.get(key.as_slice())? else {
+        return Err(refused());
+    };
+    let mut lodged: LodgedInvitation = postcard::from_bytes(value.value())?;
+    drop(value);
+
+    // Re-checked here rather than trusted from lodging time: the row has been
+    // on disk since, and the signature is the only thing that makes any of it
+    // mean anything.
+    lodged.signed.verify().map_err(|_| refused())?;
+    if !lodged.signed.opens_with(secret)
+        || lodged.remaining == 0
+        || lodged.signed.invitation.expires_unix <= now
+    {
+        return Err(refused());
+    }
+
+    // Somebody re-registering on a code they already used spends nothing.
+    // Without this, a retry after a dropped connection eats a use, and a member
+    // enrolling a machine twice locks themselves out.
+    if !lodged.admitted.contains(&joiner) {
+        lodged.remaining -= 1;
+        lodged.admitted.push(joiner);
+    }
+    let inviter = lodged.signed.invitation.inviter;
+    table.insert(key.as_slice(), postcard::to_stdvec(&lodged)?.as_slice())?;
+    Ok(inviter)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -929,6 +947,45 @@ mod tests {
             found(&directory, &user(3), "carol", 1_200).is_err(),
             "the window reopened"
         );
+    }
+
+    #[test]
+    fn red_team_a_registration_that_fails_does_not_burn_the_invitation() {
+        // Redeeming and creating the account used to be two transactions: spend
+        // the use, commit, then write the account. Anything that failed after
+        // the first — and `NameTaken` is trivial to provoke on purpose and easy
+        // to provoke by accident — destroyed the invitation and created
+        // nothing.
+        //
+        // Free denial of service against the inviter, and an invitee locked out
+        // of the network by their own typing error.
+        let (_dir, directory) = directory();
+        let alice = user(1);
+        let code = [0xBBu8; SECRET_LEN];
+        directory
+            .register(&open_registration(&alice, "alice", 1_000), 1_000)
+            .expect("alice");
+        directory
+            .lodge_invitation(&invite(&alice, &code, 1, 1_000), 1_000)
+            .expect("lodge");
+
+        // Bob mistypes and asks for a name Alice already holds.
+        assert!(
+            join(&directory, &user(2), "alice", Some(&code), 1_100).is_err(),
+            "the name was not actually taken, so this proves nothing"
+        );
+
+        let lodged = directory
+            .invitation(&invitation::code_id(&code))
+            .expect("read")
+            .expect("filed");
+        assert_eq!(
+            lodged.remaining, 1,
+            "a failed registration spent the invitation"
+        );
+
+        // And the same code still works once he types his own name.
+        join(&directory, &user(2), "bob", Some(&code), 1_200).expect("bob, correctly");
     }
 
     #[test]
