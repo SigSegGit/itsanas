@@ -290,7 +290,14 @@ RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
-ReadWritePaths=$STATE_DIR
+
+# StateDirectory rather than ReadWritePaths: systemd creates it, chowns it to
+# the service user, and keeps it. ReadWritePaths on a directory that does not
+# exist makes the unit refuse to start with an error about mount namespaces,
+# which is what happens the first time somebody changes --state and forgets to
+# create the new path by hand.
+StateDirectory=itsanas-coordinator
+StateDirectoryMode=0700
 
 [Install]
 WantedBy=multi-user.target

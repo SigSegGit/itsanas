@@ -87,6 +87,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+ORIGINAL_PATH="$PATH"
+
 printf '%sITSaNAS installer %s%s\n' "$C_DIM" "$VERSION" "$C_OFF"
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -178,6 +180,21 @@ fi
 
 # Rust. Compared as integers after an explicit split, for the same reason as
 # everywhere else: the version string's shape is not a promise.
+# rustup installs into ~/.cargo/bin and this script passes --no-modify-path, so
+# a shell that has not sourced ~/.cargo/env will not see it. Without this, the
+# second run of the installer reports "rust is not installed" about the Rust the
+# first run installed -- nothing broken, everything looking broken, on a machine
+# nobody has set up.
+#
+# --no-modify-path stays: silently editing somebody's shell profile is not an
+# installer's business. Finding what it put there is.
+if [ -x "$HOME/.cargo/bin/rustc" ]; then
+    case ":$PATH:" in
+        *":$HOME/.cargo/bin:"*) ;;
+        *) PATH="$HOME/.cargo/bin:$PATH"; export PATH ;;
+    esac
+fi
+
 rust_is_new_enough() {
     have rustc || return 1
     _v=$(rustc --version 2>/dev/null | awk '{print $2}')
@@ -221,6 +238,16 @@ else
     rust_is_new_enough || die "Rust is still older than ${MIN_RUST_MAJOR}.${MIN_RUST_MINOR}" \
         "Open a new shell and run this again."
     ok "rust $(rustc --version 2>/dev/null | awk '{print $2}')"
+fi
+
+if [ -x "$HOME/.cargo/bin/rustc" ]; then
+    case ":${ORIGINAL_PATH:-$PATH}:" in
+        *":$HOME/.cargo/bin:"*) ;;
+        *)
+            warn "$HOME/.cargo/bin is not on your PATH"
+            info "This run found it anyway. For your shells, add to ~/.profile:"
+            info "  . \"\$HOME/.cargo/env\"" ;;
+    esac
 fi
 
 if [ "$DO_BUILD" -eq 0 ]; then

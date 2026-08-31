@@ -108,11 +108,15 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+ORIGINAL_PATH="$PATH"
+
 printf '%sITSaNAS installer %s%s\n' "$C_DIM" "$VERSION" "$C_OFF"
 
 # ------------------------------------------------------------- what is this
 
 step "Looking at this machine"
+
+have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 UNAME_S=$(uname -s 2>/dev/null || echo unknown)
 UNAME_M=$(uname -m 2>/dev/null || echo unknown)
@@ -165,6 +169,21 @@ if [ -r /proc/meminfo ]; then
 fi
 TOTAL_MB=$(( (MEM_KB + SWAP_KB) / 1024 ))
 
+# The right way to add swap depends on the distribution, and getting it wrong
+# sends somebody to a command that is not installed. Raspberry Pi OS uses
+# dphys-swapfile; Ubuntu on a Pi, and the Freebox VM, use a plain swapfile.
+if [ -f /etc/dphys-swapfile ] && have_cmd dphys-swapfile; then
+    SWAP_ADVICE_1="Enlarge the swap file (Raspberry Pi OS):"
+    SWAP_ADVICE_2="  sudo dphys-swapfile swapoff"
+    SWAP_ADVICE_3="  sudo sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile"
+    SWAP_ADVICE_4="  sudo dphys-swapfile setup && sudo dphys-swapfile swapon"
+else
+    SWAP_ADVICE_1="Add 2 GB of swap:"
+    SWAP_ADVICE_2="  sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile"
+    SWAP_ADVICE_3="  sudo mkswap /swapfile && sudo swapon /swapfile"
+    SWAP_ADVICE_4="  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab"
+fi
+
 if [ "$MEM_KB" -eq 0 ]; then
     warn "could not read /proc/meminfo; skipping the memory check"
 elif [ "$TOTAL_MB" -lt 1200 ]; then
@@ -173,10 +192,10 @@ elif [ "$TOTAL_MB" -lt 1200 ]; then
         "OOM reaper, and what you will see is 'signal: 9, SIGKILL' or a linker" \
         "error that has nothing to do with the real cause." \
         "" \
-        "On Raspberry Pi OS, enlarge the swap file:" \
-        "  sudo dphys-swapfile swapoff" \
-        "  sudo sed -i 's/^CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile" \
-        "  sudo dphys-swapfile setup && sudo dphys-swapfile swapon" \
+        "$SWAP_ADVICE_1" \
+        "$SWAP_ADVICE_2" \
+        "$SWAP_ADVICE_3" \
+        "$SWAP_ADVICE_4" \
         "" \
         "Or build on another machine and copy the binary across:" \
         "  cargo build --release --target aarch64-unknown-linux-gnu"
@@ -214,6 +233,24 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # The C compiler. blake3 builds NEON assembly on aarch64 through cc, and its
 # build script fails with "failed to find tool" rather than anything a person
 # would connect to a missing package.
+# Wait, briefly, for whatever is holding the dpkg lock. A fresh Raspberry Pi OS
+# boot runs unattended-upgrades and holds it for minutes; an installer that does
+# not know this fails on its first action on somebody's first boot.
+wait_for_apt() {
+    _waited=0
+    while [ "$_waited" -lt 180 ]; do
+        if ! sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+           && ! sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+            return 0
+        fi
+        [ "$_waited" -eq 0 ] && info "waiting for another package operation to finish"
+        sleep 5
+        _waited=$((_waited + 5))
+    done
+    warn "still locked after three minutes; trying anyway"
+    return 0
+}
+
 MISSING=""
 have cc || have gcc || MISSING="$MISSING build-essential"
 have git || MISSING="$MISSING git"
@@ -228,13 +265,22 @@ if [ -n "$MISSING" ]; then
         # shellcheck disable=SC2086
         if [ "$ASSUME_YES" -eq 1 ]; then
             info "installing:$MISSING"
+            # A fresh Raspberry Pi OS boot runs unattended-upgrades, which holds
+            # the dpkg lock for several minutes. Without this wait the installer
+            # dies on the very first thing it tries, on the very first boot,
+            # with an error about a lock file.
+            wait_for_apt
             sudo apt-get update -qq \
                 && sudo apt-get install -y $MISSING \
                 || die "apt-get failed" \
-                       "The commonest cause on a fresh image is an apt cache that" \
-                       "predates a repository change. Try:" \
-                       "  sudo apt-get update && sudo apt-get upgrade" \
-                       "and run this installer again."
+                       "Two common causes on a fresh image:" \
+                       "" \
+                       "  A lock held by unattended-upgrades, which runs on first" \
+                       "  boot. Wait a few minutes and run this again, or watch it:" \
+                       "    sudo systemctl status unattended-upgrades" \
+                       "" \
+                       "  A cache older than a repository change:" \
+                       "    sudo apt-get update && sudo apt-get upgrade"
         else
             die "these packages are needed:$MISSING" \
                 "Install them and run this again:" \
@@ -255,6 +301,21 @@ fi
 # the string: `rustc --version` prints things like "rustc 1.88.0-nightly
 # (abc 2026-01-01)" and every regex written for it eventually meets a form it
 # did not expect.
+# rustup installs into ~/.cargo/bin and this script passes --no-modify-path, so
+# a shell that has not sourced ~/.cargo/env will not see it. Without this, the
+# second run of the installer reports "rust is not installed" about the Rust the
+# first run installed -- nothing broken, everything looking broken, on a machine
+# nobody has set up.
+#
+# --no-modify-path stays: silently editing somebody's shell profile is not an
+# installer's business. Finding what it put there is.
+if [ -x "$HOME/.cargo/bin/rustc" ]; then
+    case ":$PATH:" in
+        *":$HOME/.cargo/bin:"*) ;;
+        *) PATH="$HOME/.cargo/bin:$PATH"; export PATH ;;
+    esac
+fi
+
 rust_is_new_enough() {
     have rustc || return 1
     _v=$(rustc --version 2>/dev/null | awk '{print $2}')
@@ -308,6 +369,16 @@ else
         "If rustup just installed it, this shell may still be finding an older" \
         "system rustc first. Open a new shell and run this again."
     ok "rust $(rustc --version 2>/dev/null | awk '{print $2}')"
+fi
+
+if [ -x "$HOME/.cargo/bin/rustc" ]; then
+    case ":${ORIGINAL_PATH:-$PATH}:" in
+        *":$HOME/.cargo/bin:"*) ;;
+        *)
+            warn "$HOME/.cargo/bin is not on your PATH"
+            info "This run found it anyway. For your shells, add to ~/.profile:"
+            info "  . \"\$HOME/.cargo/env\"" ;;
+    esac
 fi
 
 if [ "$DO_BUILD" -eq 0 ]; then
@@ -433,12 +504,24 @@ RestartSec=30
 # failure: a daemon cannot prompt.
 EnvironmentFile=-%h/.config/itsanas/environment
 
-# It only ever touches its own home and the network.
+# What this does and does not buy, because the difference is not obvious.
+#
+# The daemon runs as you and can already write everything you can, so these
+# directives do not contain it the way they would a system service. Measured
+# rather than assumed: with a *user* unit, ProtectSystem=strict leaves $HOME
+# writable — it is /etc, /usr and /boot that become read-only. That is worth
+# having and it is not a sandbox.
+#
+# The leading dash on ReadWritePaths is load-bearing. Without it, a path that
+# does not exist yet makes the unit refuse to start, with an error about mount
+# namespaces. ~/.itsanas is created by `itsanas init`, so enabling the service
+# before initialising — which is exactly what somebody does after an installer
+# says "enable this" — produced a failure nobody could read.
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=false
 NoNewPrivileges=true
-ReadWritePaths=%h/.itsanas %h/.config/itsanas
+ReadWritePaths=-%h/.itsanas -%h/.config/itsanas
 
 [Install]
 WantedBy=default.target

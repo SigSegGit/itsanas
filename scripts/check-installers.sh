@@ -129,6 +129,23 @@ if command -v systemd-analyze >/dev/null 2>&1; then
         | sed 's|\$ADMIT||g' \
         > "$units/itsanas-coordinator.service"
 
+    # A ReadWritePaths entry without a leading dash refuses to start the unit
+    # when the path does not exist yet. That is not hypothetical: the member
+    # unit listed ~/.itsanas, which `itsanas init` creates, so enabling the
+    # service before initialising -- exactly what somebody does when an
+    # installer says "enable this" -- failed with an error about mount
+    # namespaces. systemd-analyze does not catch it, because the unit is valid.
+    for unit in "$units"/*.service; do
+        risky=$(grep -oE '^ReadWritePaths=.*' "$unit"             | tr ' ' '
+' | grep -E '^(/|%h|ReadWritePaths=[^-])'             | grep -vE '^ReadWritePaths=-|^-')
+        if [ -n "$risky" ]; then
+            bad "$(basename "$unit") has a ReadWritePaths without a leading dash:"
+            printf '%s
+' "$risky" | sed 's/^/       /'
+            say "  Without it the unit refuses to start if the path is not there yet."
+        fi
+    done
+
     for unit in "$units"/*.service; do
         # The binary is not installed on the machine doing the checking, so that
         # one complaint is expected and is not what is being asked about.
