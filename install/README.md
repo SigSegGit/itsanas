@@ -7,7 +7,7 @@ says what it is doing, and can be run twice without harm.
 | --- | --- | --- |
 | Linux, including Raspberry Pi and the Freebox VM | [`linux.sh`](linux.sh) | Ubuntu **x86-64**: from a checkout, and through the `curl \| sh` one-liner on a machine with no checkout, both ending in a real store-and-read-back. The binary it builds is exercised on emulated aarch64 by CI; **the installer itself has never run on ARM** |
 | Windows 10 and 11 | [`windows.ps1`](windows.ps1) | Windows 11, PowerShell 5.1, **full run**: built, installed, binary ran |
-| macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | **not yet run on a Mac** |
+| macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | macOS 26.5.2 **Apple silicon**, in CI on every push: built, installed, and stored and returned a file natively on arm64. Never on Intel |
 | Android, through Termux | [`android-termux.sh`](android-termux.sh) | **not yet run on a phone**; refuses correctly outside Termux and under `--check` |
 | Android, as an app | [`android.md`](android.md) | there is no app to install |
 | A coordinator on a machine with a public address | [`coordinator.sh`](coordinator.sh) | **not yet run on the Freebox VM**; `--check` exercised on Linux, including a busy port, a missing binary and an all-private address list |

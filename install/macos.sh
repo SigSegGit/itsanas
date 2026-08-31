@@ -23,6 +23,11 @@
 #
 # The same constraints as the Linux one: POSIX sh, no `set -e`, no parsing that
 # is not checked, and safe to run twice.
+#
+# This runs in CI on every push, on `macos-latest` — Apple silicon — and
+# finishes with `scripts/smoke.sh`. Before that job existed it had never been
+# executed anywhere, by anybody, which is a thing a fresh-machine installer
+# should not be able to say about itself.
 
 set -u
 

@@ -103,9 +103,18 @@ What is missing before this is a *network* rather than a personal sync tool:
 
   It is not the same as running on ARM, and the first version of this paragraph
   said "settles", which is too strong. `qemu-user` executes aarch64 instructions
-  on this runner's x86 kernel: it does not reproduce aarch64's weaker memory
-  ordering, and it reports an emulated CPU's features to any library that picks
-  its code path from them. `docs/PORTING.md` §3 lists what that leaves open.
+  on this runner's x86 kernel, and reports an emulated CPU's features to any
+  library that picks its code path from them. `docs/PORTING.md` §3 lists what
+  that leaves open.
+
+  **Real ARM silicon was already covered and nobody had noticed.**
+  `Test (macos-latest)` runs the whole suite on Apple silicon and has since CI
+  first ran — a genuinely weakly-ordered machine with genuine NEON — and
+  `install/macos.sh` now runs there too, finishing with
+  `PASS: ITSaNAS stored and returned a file -- native arm64`. The job is called
+  "Test (macos-latest)", which is why it never read as an ARM job. What the
+  emulated Linux run adds is the *Linux* half of `aarch64-unknown-linux-gnu`:
+  glibc, ext4, and a kernel that pages differently.
 
   What emulation cannot touch is the part that made the Pi worth worrying about:
   a 4B has 1 GB of RAM and a runner has 16, and nothing here says the index
