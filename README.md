@@ -26,7 +26,7 @@ reboots — and your data stays available and stays in sync.
 > disk that quietly loses a block gets it back from a peer that still has it.
 > Joining is by invitation from an existing member.
 >
-> 637 tests, 29 of them red-team — a red-team test **passes when the attack
+> 638 tests, 30 of them red-team — a red-team test **passes when the attack
 > fails**. See [docs/TESTING.md](docs/TESTING.md), which lists every one of them
 > with the property it establishes.
 >

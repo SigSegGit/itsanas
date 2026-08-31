@@ -21,11 +21,15 @@ fn from_hex(text: &str) -> Result<[u8; ID_LEN], CryptoError> {
         return Err(CryptoError::Malformed("identifier: expected 64 hex digits"));
     }
     let mut out = [0u8; ID_LEN];
-    for (slot, pair) in out.iter_mut().zip(text.as_bytes().chunks_exact(2)) {
-        let hi = (pair[0] as char)
+    // The length check above makes the split exact, so the remainder is empty.
+    // Taking the digits as `[u8; 2]` rather than as a slice is what lets both
+    // of them be read without a bounds check.
+    let (pairs, _) = text.as_bytes().as_chunks::<2>();
+    for (slot, &[high, low]) in out.iter_mut().zip(pairs) {
+        let hi = (high as char)
             .to_digit(16)
             .ok_or(CryptoError::Malformed("identifier: non-hex digit"))?;
-        let lo = (pair[1] as char)
+        let lo = (low as char)
             .to_digit(16)
             .ok_or(CryptoError::Malformed("identifier: non-hex digit"))?;
         *slot = u8::try_from(hi * 16 + lo).expect("hex nibbles fit in a byte");

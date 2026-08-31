@@ -59,7 +59,7 @@ fn main() {
                 Ok(Some((heard, from))) => println!(
                     "heard {} (owner {}) at {}:{}",
                     heard.device.short(),
-                    &hex_short(&heard.owner_tag),
+                    hex_short(&heard.owner_tag),
                     from,
                     heard.port
                 ),

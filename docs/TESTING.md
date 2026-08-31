@@ -1,13 +1,22 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 637 test functions across 21 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. Twenty-nine are red-team tests.**
+**Last updated: 2026-08-31 — 638 test functions across 21 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 30 are red-team tests.**
 
-Three of these counts are checked mechanically by CI, and each check exists
-because the thing it checks had already gone wrong: `check-catalogue.sh` (every
-test named here exists), `check-messages.py` (no message has had a line
-continuation collapsed into it by `cargo fmt`), and `check-wired.py` (every
-public method has a call site somewhere in the workspace).
+Every number on this page is checked against the source by
+`scripts/check-counts.py` on each push, including each row of the table below.
+That check exists because these numbers were wrong: this header said 637 and
+twenty-nine, the README said 637 and 29, `ROADMAP.md` said 589 and sixteen, and
+the table below said `itsanas-folder` had 31 unit tests when it had 32 — which
+is where the missing one in the totals had gone. The sentence that used to
+stand here claimed three of the counts were already checked mechanically, and
+named three checks that verify names, messages and wiring, and no count at all.
+
+Those three exist too, and each because the thing it checks had already gone
+wrong: `check-catalogue.sh` (every test named here exists), `check-messages.py`
+(no message or command has had a line continuation collapsed into it), and
+`check-wired.py` (every public method has a call site somewhere in the
+workspace).
 
 | Binary | Tests |
 | --- | --- |
@@ -27,10 +36,10 @@ public method has a call site somewhere in the workspace).
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 15 |
-| `itsanas-folder` unit | 31 |
+| `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
 | `itsanas-cli` unit | 40 |
-| `itsanas-cli` crash (`tests/crash.rs`) | 1 (`#[ignore]`d) |
+| `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with

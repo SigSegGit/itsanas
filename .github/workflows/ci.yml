@@ -49,12 +49,14 @@ jobs:
       # them in bold as the security property that mattered.
       - name: Test catalogue names real tests
         run: bash scripts/check-catalogue.sh
-      # `cargo fmt` removes a string literal's trailing backslash and joins the
-      # lines, keeping the indentation as literal spaces. The code compiles,
-      # clippy is silent, and the user reads "It still receives          the
-      # log". Every continuation in this repository had been eaten that way,
-      # including the one line an operator sees when a peer is sanctioned.
-      # Nothing else in the toolchain reads the inside of a string.
+      # The counts those documents state are the project's headline evidence,
+      # and all three files disagreed with the tree and with each other: 637 and
+      # 29 in the README, 589 and sixteen in the roadmap, 637 and twenty-nine in
+      # the catalogue, against a real 638 and 30. The catalogue's per-binary
+      # table had drifted by one as well, in the row that accounted for the
+      # difference. A number nobody reads back is not evidence.
+      - name: Documented test counts match the source
+        run: python scripts/check-counts.py
       # Two things nothing else in the toolchain looks at, both of which have
       # already shipped broken. `cargo fmt` removes a string literal's trailing
       # backslash and keeps the indentation as literal spaces — every
@@ -63,6 +65,11 @@ jobs:
       # that write large edits splice text in by concatenation, which is copied
       # through literally when it lands inside a quoted block: six files carried
       # a raw Python splice in their comments and one was committed that way.
+      #
+      # It reads commands as well as messages now, because the same splice ate
+      # the backslashes in this file: the Android step below ran with thirteen
+      # spaces where its continuations had been, from the day it was written,
+      # and the shell collapsed them so nothing ever complained.
       - name: Messages say what they mean
         run: python scripts/check-messages.py
       # Four times in one session a mechanism was designed, implemented, tested,
@@ -86,7 +93,10 @@ jobs:
           # Preinstalled on ubuntu-latest; the `|| true` is for the day it is
           # not, because a missing linter must not fail a build over syntax it
           # was going to agree with.
-          command -v shellcheck >/dev/null 2>&1             || sudo apt-get install -y -qq shellcheck || true
+          # A trailing `||` continues the line on its own, so there is no
+          # backslash here for an editing script to eat. See check-messages.py.
+          command -v shellcheck >/dev/null 2>&1 ||
+            sudo apt-get install -y -qq shellcheck || true
           bash scripts/check-installers.sh
 
   test:
@@ -145,14 +155,43 @@ jobs:
         with:
           targets: aarch64-linux-android
       - uses: Swatinem/rust-cache@v2
+      # This job claimed for weeks that the crates below were "pure Rust" and so
+      # needed no NDK. The first run of this workflow disproved it in one line:
+      # `blake3` compiles C for its SIMD backends, so even `cargo check` — which
+      # runs build scripts — needs a cross compiler. Resolve one explicitly.
+      - name: Point cc-rs at the Android NDK
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}}"
+          if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then
+            echo "no Android NDK on this runner; set ANDROID_NDK_HOME" >&2
+            exit 1
+          fi
+          bin="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          # The wrappers are named for the API level they target. Take the
+          # lowest one present rather than pinning a number a later NDK drops.
+          cc=$(ls "$bin"/aarch64-linux-android[0-9]*-clang 2>/dev/null |
+                 sort -V | head -1)
+          if [ -z "$cc" ]; then
+            echo "no aarch64 clang wrapper under $bin" >&2
+            ls "$bin" >&2 || true
+            exit 1
+          fi
+          echo "cross compiler: $cc"
+          {
+            echo "CC_aarch64_linux_android=$cc"
+            echo "AR_aarch64_linux_android=$bin/llvm-ar"
+            echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$cc"
+          } >> "$GITHUB_ENV"
       # The whole data path, checked for Android on every push. Not the whole
-      # workspace: `ring` assembles its own primitives and needs the NDK, which
-      # is a build-tool requirement rather than a code one and is documented in
-      # docs/PORTING.md. Everything here is pure Rust, so a change that makes
-      # the core unbuildable for a phone fails now rather than on the day
-      # somebody tries to build the app.
-      - run: |
-          cargo check --target aarch64-linux-android             -p itsanas-crypto -p itsanas-store -p itsanas-sync             -p itsanas-policy -p itsanas-discover -p itsanas-placement             -p itsanas-wire
+      # workspace: `ring` assembles its own primitives, which is a separate
+      # question documented in docs/PORTING.md. A change that makes the core
+      # unbuildable for a phone fails here rather than on the day somebody
+      # tries to build the app.
+      - run: >-
+          cargo check --target aarch64-linux-android
+          -p itsanas-crypto -p itsanas-store -p itsanas-sync
+          -p itsanas-policy -p itsanas-discover -p itsanas-placement
+          -p itsanas-wire
 
   minimum-rust-version:
     name: Minimum supported Rust version

@@ -1,30 +1,37 @@
 # Roadmap vs Current State
 
-**Last updated: 2026-08-27.** This file is updated in the same change as the
+**Last updated: 2026-08-31.** This file is updated in the same change as the
 code it describes. If it disagrees with the code, the code is right and this is
 a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 
 ## Current state at a glance
 
-| Milestone | Crate | Status | Tests |
-| --- | --- | --- | --- |
-| M0 Repository, CI, licence | — | ✅ **done** | 7 CI jobs, all gates green locally |
-| M1 Cryptographic core | `itsanas-crypto` | ✅ **done** | 64 unit + 15 property |
-| M1b Published test fixtures | `itsanas-testkit` | ✅ **done** | 7 |
-| M2 Chunking and local store | `itsanas-store` | ✅ **done** | 115 unit + 29 integration |
-| M3 Sync engine | `itsanas-sync` | ✅ **done** | 12 unit + 19 convergence |
-| M4 Network transport | `itsanas-wire`, `itsanas-tls`, `itsanas-net` | ✅ **done** | 17 + 11 + 45 |
-| M4b Local discovery | `itsanas-discover` | ✅ **done** | 36 + 7 |
-| M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not executed** | 29 |
-| M6 Coordinator | `itsanas-coord`, `itsanas-coordinator` | ✅ **done** | 55 + 12 |
-| M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** | 25 + 53 |
-| M8 Three-device bring-up | — | ⬜ not started | — |
-| M11 A catalogue of known-but-absent files | `itsanas-store` | ✅ **done** | 5 |
-| M12 Android shell | — | ⬜ core verified, shell not written; `itsanas-policy` is now wired into `itsanas daemon`, so the phone inherits behaviour a desktop has exercised | 15 (policy) |
-| M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion | 4 |
-| M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 | — |
+| Milestone | Crate | Status |
+| --- | --- | --- |
+| M0 Repository, CI, licence | — | ✅ **done**, and the CI has now actually run |
+| M1 Cryptographic core | `itsanas-crypto` | ✅ **done** |
+| M1b Published test fixtures | `itsanas-testkit` | ✅ **done** |
+| M2 Chunking and local store | `itsanas-store` | ✅ **done** |
+| M3 Sync engine | `itsanas-sync` | ✅ **done** |
+| M4 Network transport | `itsanas-wire`, `itsanas-tls`, `itsanas-net` | ✅ **done** |
+| M4b Local discovery | `itsanas-discover` | ✅ **done** |
+| M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not executed** |
+| M6 Coordinator | `itsanas-coord`, `itsanas-coordinator` | ✅ **done** |
+| M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** |
+| M8 Three-device bring-up | — | ⬜ not started |
+| M11 A catalogue of known-but-absent files | `itsanas-store` | ✅ **done** |
+| M12 Android shell | — | ⬜ core verified, shell not written; `itsanas-policy` is now wired into `itsanas daemon`, so the phone inherits behaviour a desktop has exercised |
+| M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion |
+| M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 |
 
-**589 test functions, 3 of them `#[ignore]`d into the slow job, and sixteen of
+This table used to carry a per-milestone test count. Those numbers were a second
+copy of what [TESTING.md](TESTING.md) already holds, and a second copy is what
+drifts: the store row claimed 115 unit tests against a real 138, the transport
+row was short by 19, and the coordinator row by 17. The counts live in one place
+now, and `scripts/check-counts.py` reads that place back against the source on
+every push.
+
+**638 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -96,11 +103,46 @@ What is missing before this is a *network* rather than a personal sync tool:
 
 - Cargo workspace, Rust 2024 edition, MSRV pinned and enforced.
 - AGPL-3.0-or-later.
-- CI with seven jobs: format, clippy at `-D warnings`, tests on
-  Linux/Windows/macOS, expensive `#[ignore]`d tests, aarch64 cross-build for the
-  Raspberry Pi, MSRV check, dependency advisories and licence audit
-  (`cargo-deny`), coverage.
+- CI with eight jobs: lint (format, clippy at `-D warnings`, rustdoc, and the
+  five checking scripts), tests on Linux/Windows/macOS, expensive `#[ignore]`d
+  tests, aarch64 cross-build for the Raspberry Pi, an Android compile check,
+  MSRV check, dependency advisories and licence audit (`cargo-deny`), coverage.
 - Weekly scheduled CI run so a new advisory surfaces without waiting for a push.
+
+**It had never run.** The workflow was written in the first week and the
+repository was not published until 2026-08-31, so the first execution was also
+the first time any of it was tested. Six jobs passed on the first attempt,
+including two that had never had any evidence behind them: the macOS test run
+and the aarch64 cross-build for the Raspberry Pi. Three failed, and all three
+were real:
+
+- **clippy.** The CI toolchain was five releases ahead of the machine this was
+  written on, so three of its lints had never been seen here. Six errors: four
+  `chunks_exact(2)` on hex digits, now `as_chunks::<2>()`, which reads the pair
+  as a `[u8; 2]` and drops two bounds checks with it; one redundant borrow; and
+  one `map(...).unwrap_or(true)` in the test asserting a host cannot read its
+  guest's files. That last one was worth the trip: the assertion read
+  `read_file("anything")` — a name no store would ever hold — inside a loop,
+  with an error counted as a pass. It now reads the paths the fixture actually
+  wrote and fails on an error, and it was checked by making the host gain the
+  file and watching it fail. The local toolchain is updated to match CI,
+  because a gate that is weaker on the developer's machine is not a gate.
+- **Android.** The job's own comment claimed the crates it checks were "pure
+  Rust" and needed no NDK. `blake3` compiles C for its SIMD backends, so even
+  `cargo check` needs a cross compiler. The job now resolves one from the
+  runner's NDK and fails with a readable message if there is none.
+- **`cargo-deny`.** `chacha20 0.10.1` had been yanked. The reason is an SSE4.1
+  intrinsic in the SSE2 backend of the RNG and 64-bit-counter variants — code
+  this project never calls, since it uses `XChaCha20Poly1305` only, so the
+  exposure was nil. Updated to 0.10.2 regardless: `yanked = "deny"` is the
+  policy precisely so the question gets asked.
+
+The same pass found the Android step running with its line continuations eaten
+and thirteen literal spaces in their place, from the day it was written — the
+third time that has happened here, and the first time it was in a file
+`cargo fmt` never touches. `check-messages.py` now reads commands as well as
+messages, and the step is written as a YAML folded scalar so there is no
+backslash left to lose.
 
 ### M1 — Cryptographic core ✅ (`itsanas-crypto`)
 

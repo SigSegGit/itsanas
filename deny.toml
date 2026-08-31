@@ -11,6 +11,13 @@ yanked = "deny"
 [licenses]
 version = 2
 # AGPL-3.0 can absorb these; anything else needs a deliberate decision.
+#
+# The list is what the dependency tree actually contains, not a wider set of
+# licences that would also be acceptable. `BSD-2-Clause` and `MPL-2.0` sat here
+# for weeks with nothing using them, and cargo-deny said so on every run: an
+# allow-list entry that matches nothing is either a typo or a decision nobody
+# made. Adding one is cheap when a dependency actually needs it, and the point
+# of this file is that somebody looks at that moment.
 allow = [
     # The project's own licence. Every workspace member carries it, so leaving
     # it out fails the check on our own crates before any dependency is
@@ -20,14 +27,12 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "MIT",
     "MIT-0",
-    "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
     "Unicode-3.0",
     "Zlib",
     "CC0-1.0",
     "Unlicense",
-    "MPL-2.0",
 ]
 confidence-threshold = 0.9
 

@@ -149,11 +149,13 @@ mod signature_bytes {
                             return Err(E::invalid_length(value.len(), &self));
                         }
                         let mut out = [0u8; 64];
-                        for (slot, pair) in out.iter_mut().zip(value.as_bytes().chunks_exact(2)) {
-                            let hi = (pair[0] as char)
+                        // The length check above makes the split exact.
+                        let (pairs, _) = value.as_bytes().as_chunks::<2>();
+                        for (slot, &[high, low]) in out.iter_mut().zip(pairs) {
+                            let hi = (high as char)
                                 .to_digit(16)
                                 .ok_or_else(|| E::custom("non-hex digit in signature"))?;
-                            let lo = (pair[1] as char)
+                            let lo = (low as char)
                                 .to_digit(16)
                                 .ok_or_else(|| E::custom("non-hex digit in signature"))?;
                             *slot = u8::try_from(hi * 16 + lo).expect("nibbles fit in a byte");

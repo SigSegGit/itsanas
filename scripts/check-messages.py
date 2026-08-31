@@ -60,6 +60,69 @@ COLLAPSED = re.compile('[^ ] {8,}[a-z]')
 # nothing in the toolchain reads prose.
 RESIDUE = re.compile(r'\"{3}\s*\+|\+\s*\"{3}|\{\}\s*\.format\(|%\(\w+\)s')
 
+# Where a continuation gets eaten outside Rust.
+#
+# `cargo fmt` is not the only thing here that removes a trailing backslash. The
+# scripts that write large edits splice text through Python strings, and a
+# backslash before a newline is a line continuation there too: it and the
+# newline vanish, leaving the next line's indentation behind. That is how
+# `.github/workflows/ci.yml` came to hold
+#
+#     cargo check --target aarch64-linux-android             -p itsanas-crypto
+#
+# from the day it was written. The shell collapses the run of spaces, so the
+# command still did the right thing and nothing ever complained. It was found
+# by reading the file, which is not a method. The same accident one argument to
+# the left, or inside a quoted string, would not have been survivable.
+#
+# Commands get their own rule rather than reusing COLLAPSED. That one wants a
+# letter after the run of spaces, because prose is what it reads, and it does
+# not match the case this section was written for: what followed the eaten
+# backslash in ci.yml was `-p`, a flag. Reusing it would have produced a gate
+# that passed the very line that motivated it — and it did, once, before this
+# was run against the damage instead of only against the clean tree.
+#
+# So: any two non-spaces separated by eight or more spaces. No length floor
+# either, because a command is not padded to fit. Comments are skipped (one of
+# them quotes the damage on purpose), and so are heredoc bodies and PowerShell
+# here-strings, which is where every hand-aligned column in this repository
+# lives. Run against the tree as it stands, that leaves no false positives and
+# three real hits nothing had ever looked for.
+COLLAPSED_COMMAND = re.compile('[^ ] {8,}[^ ]')
+COMMAND_DIRS = ('.github/workflows', 'install', 'scripts')
+COMMAND_SUFFIXES = ('.yml', '.yaml', '.sh', '.ps1')
+HEREDOC = re.compile('<<-?[ ]*[' + chr(34) + chr(39) + ']?([A-Za-z_][A-Za-z0-9_]*)')
+HERESTRING_OPEN = re.compile('@[' + chr(34) + chr(39) + ']')
+HERESTRING_CLOSE = re.compile('^[' + chr(34) + chr(39) + ']@')
+
+
+def command_lines(path):
+    """Yield (number, line) for lines that are actually commands.
+
+    Everything a human aligned by hand in this repository sits inside a heredoc
+    or a here-string, so skipping those bodies is what makes the rule usable.
+    """
+    terminator = None
+    in_herestring = False
+    text = io.open(path, encoding='utf-8', errors='replace').read()
+    for number, line in enumerate(text.split('\n'), 1):
+        stripped = line.strip()
+        if terminator is not None:
+            if stripped == terminator:
+                terminator = None
+            continue
+        if in_herestring:
+            if HERESTRING_CLOSE.match(stripped):
+                in_herestring = False
+            continue
+        if not stripped.startswith('#'):
+            yield number, line
+        found = HEREDOC.search(line)
+        if found:
+            terminator = found.group(1)
+        elif HERESTRING_OPEN.search(line):
+            in_herestring = True
+
 
 def main():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
@@ -82,6 +145,19 @@ def main():
                     if COLLAPSED.search(match.group(0)[1:-1]):
                         hits.append((rel, number, match.group(0)))
 
+    commands = []
+    for relative_dir in COMMAND_DIRS:
+        base = os.path.join(root, *relative_dir.split('/'))
+        for dirpath, dirnames, filenames in os.walk(base):
+            for name in sorted(filenames):
+                if not name.endswith(COMMAND_SUFFIXES):
+                    continue
+                path = os.path.join(dirpath, name)
+                rel = os.path.relpath(path, root).replace(os.sep, '/')
+                for number, line in command_lines(path):
+                    if COLLAPSED_COMMAND.search(line):
+                        commands.append((rel, number, line.strip()))
+
     if residue:
         print('source carrying residue from the scripts that edited it:')
         for rel, number, line in residue:
@@ -103,6 +179,21 @@ def main():
         print('the backslash and keeps the indentation as literal spaces. The')
         print('code compiles, clippy is silent, and the user reads the spaces.')
         print('Use concat!("...", "...") instead, which fmt leaves alone.')
+        return 1
+
+    if commands:
+        print('commands with a line continuation collapsed into them:')
+        for rel, number, line in commands:
+            print('  %s:%d' % (rel, number))
+            print('    %s' % line[:140].encode('ascii', 'replace').decode())
+        print('')
+        print('A trailing backslash is a line continuation in Python too, so a')
+        print('script that splices this file through one eats it. The shell then')
+        print('collapses the spaces and the command still runs, which is why this')
+        print('survived unnoticed in ci.yml from the day it was written.')
+        print('')
+        print('In YAML, use a folded scalar (run: >-) and drop the backslashes')
+        print('entirely: continuations that do not exist cannot be eaten.')
         return 1
 
     print('messages: no collapsed continuations, no editing residue')

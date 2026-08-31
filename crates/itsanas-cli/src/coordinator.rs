@@ -55,7 +55,9 @@ pub fn parse_device(hex: &str) -> Result<DeviceId> {
             hex.len()
         )));
     }
-    for (index, pair) in hex.as_bytes().chunks_exact(2).enumerate() {
+    // The length check above makes the split exact.
+    let (pairs, _) = hex.as_bytes().as_chunks::<2>();
+    for (index, pair) in pairs.iter().enumerate() {
         let text = std::str::from_utf8(pair)
             .map_err(|_| CliError::Usage("a device id must be hexadecimal".to_owned()))?;
         bytes[index] = u8::from_str_radix(text, 16)
@@ -127,7 +129,9 @@ pub fn decode_secret(text: &str) -> Result<Secret> {
         )));
     }
     let mut secret = [0u8; SECRET_LEN];
-    for (index, pair) in cleaned.as_bytes().chunks_exact(2).enumerate() {
+    // The length check above makes the split exact.
+    let (pairs, _) = cleaned.as_bytes().as_chunks::<2>();
+    for (index, pair) in pairs.iter().enumerate() {
         let text = std::str::from_utf8(pair)
             .map_err(|_| CliError::Usage("an invitation code is hexadecimal".to_owned()))?;
         secret[index] = u8::from_str_radix(text, 16)

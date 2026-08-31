@@ -136,12 +136,17 @@ if command -v systemd-analyze >/dev/null 2>&1; then
     # installer says "enable this" -- failed with an error about mount
     # namespaces. systemd-analyze does not catch it, because the unit is valid.
     for unit in "$units"/*.service; do
-        risky=$(grep -oE '^ReadWritePaths=.*' "$unit"             | tr ' ' '
-' | grep -E '^(/|%h|ReadWritePaths=[^-])'             | grep -vE '^ReadWritePaths=-|^-')
+        # Split the entry into its paths, keep the ones that are not prefixed
+        # with a dash. A trailing pipe continues the line on its own, which is
+        # the point: this pipeline was written with backslashes and reached the
+        # repository with them eaten and the indentation left in place.
+        risky=$(grep -oE '^ReadWritePaths=.*' "$unit" |
+            tr ' ' '\n' |
+            grep -E '^(/|%h|ReadWritePaths=[^-])' |
+            grep -vE '^ReadWritePaths=-|^-')
         if [ -n "$risky" ]; then
             bad "$(basename "$unit") has a ReadWritePaths without a leading dash:"
-            printf '%s
-' "$risky" | sed 's/^/       /'
+            printf '%s\n' "$risky" | sed 's/^/       /'
             say "  Without it the unit refuses to start if the path is not there yet."
         fi
     done

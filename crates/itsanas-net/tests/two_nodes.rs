@@ -306,6 +306,18 @@ fn a_host_stores_a_strangers_data_and_cannot_read_a_byte_of_it() {
     assert!(stats.chunks > 0);
     assert!(stats.bytes > 0);
 
+    // Bob's own store must not have gained Alice's files. Checked against the
+    // paths Alice actually wrote, rather than a name no store would ever hold,
+    // and a read error is a failure rather than a pass: a red-team assertion a
+    // broken store sails through is not an assertion.
+    for file in &alice_keys.files {
+        assert!(
+            bob_host.store.read_file(file.path).unwrap().is_none(),
+            "the host's own store gained Alice's file {}",
+            file.path
+        );
+    }
+
     // And cannot read any of it.
     let mut everything = Vec::new();
     for address in bob_host
@@ -319,14 +331,6 @@ fn a_host_stores_a_strangers_data_and_cannot_read_a_byte_of_it() {
             .unwrap()
             .unwrap();
 
-        assert!(
-            bob_host
-                .store
-                .read_file("anything")
-                .map(|f| f.is_none())
-                .unwrap_or(true),
-            "the host's own store somehow gained Alice's file"
-        );
         everything.extend_from_slice(&sealed);
     }
 
