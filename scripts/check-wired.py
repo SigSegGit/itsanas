@@ -76,7 +76,13 @@ ALLOWED = {
     'forget_tombstone': 'needs proof every device saw the delete; see ROADMAP.md',
 }
 
-DEF = re.compile(r'\n    pub (?:const )?(?:async )?fn (\w+)')
+# Methods (indented inside an `impl`) and free functions (at module level).
+# The first version matched only the indented form, which left the whole of
+# `session.rs` outside the gate: `push`, `pull`, `round`, `repair` and
+# `drain_vault` are free functions, and so is `placement::repair::plan`, the
+# canonical example of the problem this gate exists for. It reported that
+# every public method had a call site while covering half the surface.
+DEF = re.compile(r'\n(?:    )?pub (?:const )?(?:async )?fn (\w+)')
 
 
 # A `#[cfg(test)]` at module indentation opens the test module. One indented
@@ -109,7 +115,7 @@ def without_own_body(text, name):
     expression long.
     """
     lines = text.split('\n')
-    signature = re.compile(r'^\s+pub (?:const )?(?:async )?fn ' + re.escape(name) + r'\b')
+    signature = re.compile(r'^\s*pub (?:const )?(?:async )?fn ' + re.escape(name) + r'\b')
     inside = False
     for i, line in enumerate(lines):
         if not inside:
@@ -117,7 +123,7 @@ def without_own_body(text, name):
                 inside = True
                 lines[i] = ''
             continue
-        closing = line == '    }'
+        closing = line in ('    }', '}')
         lines[i] = ''
         if closing:
             inside = False
@@ -164,7 +170,7 @@ def main():
             unwired.append((name, ', '.join(sorted(homes))))
 
     if unwired:
-        print('public methods no code in this workspace calls:')
+        print('public functions no code in this workspace calls:')
         for name, homes in unwired:
             print('  %-40s %s' % (name, homes))
         print('')
@@ -174,7 +180,7 @@ def main():
         print('ALLOWED in this script with the reason it is deliberately kept.')
         return 1
 
-    print('wiring: every public method has a call site')
+    print('wiring: every public function and method has a call site')
     return 0
 
 

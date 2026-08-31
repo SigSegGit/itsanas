@@ -330,7 +330,7 @@ fn fetch_missing(
         }
         match source.fetch(owner, address)? {
             Some(sealed) => {
-                store.put_sealed_chunk(address, &sealed)?;
+                store.accept_chunk(address, &sealed)?;
             }
             None => missing += 1,
         }

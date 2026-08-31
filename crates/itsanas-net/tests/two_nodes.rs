@@ -589,6 +589,93 @@ fn what_doctor_finds_is_what_repair_fixes_first() {
 }
 
 #[test]
+fn red_team_a_relay_cannot_poison_a_chunk_on_the_ordinary_pull_path() {
+    // THE ATTACK, through the door the repair defence did not cover.
+    //
+    // `Store::accept_chunk` verifies, and a red-team test proves a host cannot
+    // answer a *repair* request with rubbish. But repair was never the only way
+    // a peer's bytes reach this disk: every ordinary pull fetches chunks for
+    // the operations it is applying, and that path used a second method which
+    // wrote them unverified, arguing that a chunk which fails to open is caught
+    // later by `read_file`.
+    //
+    // It is not caught later, and the reasoning against it was already written
+    // down fifteen lines away. Noise on disk under a real address makes
+    // `has_chunk` true, so nothing looks for the real bytes: not the repair
+    // scan, which checks presence; not `doctor`, whose recorded loss the next
+    // scan clears because the blob is now there. A recoverable loss made
+    // permanent, on the path every chunk of every sync takes.
+    //
+    // If this test fails, any peer that relays for you can destroy any file of
+    // yours, silently, by answering one fetch with the wrong bytes.
+    let master = alice();
+    let liar = node(&MasterSecret::from_bytes([0xE1; 32]), 80);
+    let author = node(&master, 81);
+    let victim = node(&master, 82);
+
+    let content = a_file_of_many_chunks(41, 128 << 10);
+    let chunks = author
+        .store
+        .write_file("thesis.bin", &content)
+        .expect("write")
+        .chunks;
+    author.store.flush_segment().expect("flush");
+
+    // The author uploads and goes away. The liar now holds the only copy the
+    // victim can reach, which is the ordinary relay arrangement.
+    with_server(&liar, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).expect("dial");
+        session::push(&author.store, &mut client).expect("push");
+    });
+
+    // It substitutes noise of the right length for every chunk it holds.
+    for chunk in &chunks {
+        let sealed = liar
+            .vault
+            .get_chunk(author.store.owner(), chunk)
+            .expect("vault")
+            .expect("held");
+        liar.vault
+            .remove_chunk(author.store.owner(), chunk)
+            .expect("remove");
+        liar.vault
+            .put_chunk(author.store.owner(), chunk, &vec![0x5Cu8; sealed.len()])
+            .expect("substitute");
+    }
+
+    // The victim pulls, in the ordinary way, having never heard of repair.
+    with_server(&liar, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &victim.device, victim.store.owner(), None).expect("dial");
+        let _ = session::round(&victim.store, &victim.vault, &mut client);
+    });
+
+    for chunk in &chunks {
+        assert!(
+            !victim.store.has_chunk(chunk),
+            concat!(
+                "forged bytes were written under a real chunk address, so ",
+                "nothing will ever look for the real ones: not the repair scan, ",
+                "which checks presence, and not doctor, whose finding the next ",
+                "scan clears because the blob is now there"
+            )
+        );
+    }
+
+    // The file is absent rather than corrupt, which is the whole difference:
+    // absent is recoverable from any other holder, corrupt is for ever.
+    assert!(
+        victim
+            .store
+            .read_file("thesis.bin")
+            .unwrap_or(None)
+            .is_none(),
+        "the victim reassembled a file out of the liar's noise"
+    );
+}
+
+#[test]
 fn red_team_a_host_cannot_answer_a_repair_request_with_rubbish() {
     // THE ATTACK. A host cannot read what it stores, so the one way it could
     // destroy data is to wait until the owner asks for a chunk back and answer

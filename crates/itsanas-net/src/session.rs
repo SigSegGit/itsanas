@@ -605,15 +605,29 @@ impl RepairReport {
 /// time that round.
 ///
 /// So a peer is asked **only about chunks the ledger already records it as
-/// holding**. That is not a mitigation, it is the whole disclosure: the peer
-/// told this node it accepted that chunk, so being asked about it reveals
-/// nothing it did not already know. A chunk no peer is recorded as holding is
-/// not asked about by anybody, which is also correct — nobody has it, so the
-/// question buys nothing and costs the answer.
+/// holding**, and a chunk no peer is recorded as holding is asked of nobody:
+/// nobody has it, so the question buys nothing and costs the answer.
+///
+/// What that rule buys, stated honestly rather than generously. It does not
+/// reduce the disclosure to nothing. The peer knew "I was given X"; it now
+/// learns "the owner no longer has X", which is new, and if the ledger names it
+/// as the only holder it has just learned it is the last copy. That is the
+/// short list of what it could destroy, and the rule does not remove it.
+///
+/// What the rule does is cut the audience from *every peer this node dials* —
+/// strangers the local-discovery loop met thirty seconds ago included — down
+/// to the peers already holding the chunk, which is the smallest audience that
+/// can repair it at all. Anything smaller repairs nothing.
+///
+/// One channel is left open and is worth naming rather than discovering later:
+/// **silence**. A host holding a thousand chunks that is never asked about any
+/// of them learns the owner has lost none of them. Cheap to observe, hard to
+/// close without asking for chunks that are not missing, and the cost of that
+/// cover traffic is the bandwidth this whole subsystem exists to conserve.
 ///
 /// # What comes back is verified before it is written
 ///
-/// See [`Store::restore_chunk`]. Accepting unverified bytes would set
+/// See [`Store::accept_chunk`]. Accepting unverified bytes would set
 /// `has_chunk`, stop the scan looking, and turn a recoverable loss into a
 /// permanent one.
 pub fn repair(store: &Store, client: &mut PeerClient, scan: usize) -> Result<RepairReport> {
@@ -659,7 +673,7 @@ pub fn repair(store: &Store, client: &mut PeerClient, scan: usize) -> Result<Rep
         let Some(sealed) = client.chunk(owner, address)? else {
             continue;
         };
-        if store.restore_chunk(&address, &sealed)? {
+        if store.accept_chunk(&address, &sealed)? {
             report.restored += 1;
         } else {
             report.forged += 1;

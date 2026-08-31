@@ -569,28 +569,38 @@ impl Store {
         self.index.loss_count()
     }
 
-    /// Accept a chunk fetched to replace one this node lost, if it is genuine.
+    /// Store a sealed chunk that came from a peer, if it is genuine.
     ///
-    /// # Why this verifies and [`Self::put_sealed_chunk`] does not
+    /// # The rule, and why there is only one method
     ///
-    /// The ordinary path can defer authentication: a chunk that fails to open
-    /// is caught when the file is read, and until then nothing depends on it.
+    /// **Nothing may make [`Self::has_chunk`] true without proof.** It reads
+    /// like belt and braces and it is not: a blob on disk under an address is
+    /// how every other part of this system decides it does not need to go
+    /// looking. Write noise under a missing chunk's address and the repair scan
+    /// stops searching, no other peer is ever asked, the loss queue clears the
+    /// entry `doctor` put there, and a file that was **recoverable** becomes
+    /// permanently unreadable. A host cannot read what it stores, so that is
+    /// its one route to destroying data: answer a request with rubbish.
     ///
-    /// Repair cannot. Writing unverified bytes under a missing chunk's address
-    /// makes [`Self::has_chunk`] true, so the repair scan stops looking for it,
-    /// so nothing ever asks another peer — and a file that was *recoverable*
-    /// becomes permanently unreadable. A host that wanted to destroy data it
-    /// cannot read would do exactly that: wait for a repair request and answer
-    /// with noise.
+    /// This existed as two methods with two different answers. `restore_chunk`
+    /// verified, with the argument above written out above it. `put_sealed_chunk`
+    /// did not, and argued that authentication could wait because "a chunk that
+    /// fails to open is caught by `read_file`, the only place it could do harm"
+    /// — which was already untrue when it was written, and stayed untrue
+    /// through the commit that spelled out why. The unverified one was on the
+    /// **ordinary** path: every chunk pulled from every peer, every round.
     ///
-    /// So the bytes are opened and the plaintext re-addressed here, before
-    /// anything is written. Returns whether the chunk was accepted.
-    pub fn restore_chunk(&self, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
+    /// So there is one method. The cost is decrypting each chunk as it arrives
+    /// rather than when it is first read, which is work this node was going to
+    /// do anyway, moved earlier.
+    ///
+    /// Returns whether the chunk was accepted.
+    pub fn accept_chunk(&self, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
         // Length first, because it is free and decryption is not. The chunker
         // never emits more than its maximum, so anything larger is bogus by
-        // construction — and the wire allows eight megabytes a frame, so a peer
-        // that answers every repair request at that size would have this node
-        // decrypting a quarter of a gigabyte per round for a result known in
+        // construction — and the wire allows eight megabytes a frame, so a
+        // peer answering every request at that size would have this node
+        // decrypting a quarter of a gigabyte a round for a result known in
         // advance. On a Raspberry Pi that is seconds, every round, for free.
         if sealed.len() > self.chunker.max_size() + itsanas_crypto::seal::DETERMINISTIC_OVERHEAD {
             return Ok(false);
@@ -607,15 +617,6 @@ impl Store {
         // repair would keep asking about chunks it has already recovered.
         self.index.clear_loss(address)?;
         Ok(true)
-    }
-
-    /// Store a sealed chunk fetched from a peer.
-    ///
-    /// The bytes are authenticated when they are next opened, not here — a
-    /// chunk that fails to open is caught by [`Self::read_file`], which is the
-    /// only place it could do harm.
-    pub fn put_sealed_chunk(&self, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
-        self.blobs.put(address, sealed)
     }
 
     /// Whether this store already holds the sealed bytes for `address`.

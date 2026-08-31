@@ -53,7 +53,7 @@ fn a_reply_too_large_to_be_a_chunk_is_refused_without_decrypting_it() {
 
     let oversized = vec![0u8; (256 * 1024) + 4096];
     assert!(
-        !store.restore_chunk(&address, &oversized).expect("restore"),
+        !store.accept_chunk(&address, &oversized).expect("restore"),
         "a reply larger than any chunk the chunker can emit was accepted"
     );
     assert!(
@@ -63,7 +63,7 @@ fn a_reply_too_large_to_be_a_chunk_is_refused_without_decrypting_it() {
 
     // And the real thing still comes back, so the bound is not simply "no".
     assert!(
-        store.restore_chunk(&address, &genuine).expect("restore"),
+        store.accept_chunk(&address, &genuine).expect("restore"),
         "the genuine chunk was refused along with the rubbish"
     );
     assert_eq!(
