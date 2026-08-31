@@ -211,6 +211,19 @@ enum Command {
         #[arg(long, conflicts_with_all = ["address", "device"])]
         forget: bool,
     },
+    /// Invite somebody to join the coordinator this node uses.
+    ///
+    /// Prints a code, once. It is not stored anywhere: send it to the person
+    /// joining by whatever means you would have used anyway, and if it is lost,
+    /// issue another.
+    Invite {
+        /// How many accounts it may admit. One unless you say otherwise.
+        #[arg(long, default_value_t = 1)]
+        uses: u32,
+        /// How many days it stays valid.
+        #[arg(long, default_value_t = 7)]
+        days: u64,
+    },
     /// Register this account and device with the configured coordinator.
     Register {
         /// Also lodge a recovery container sealed under this machine's passphrase.
@@ -224,6 +237,13 @@ enum Command {
         /// Withdraw a previously lodged recovery container.
         #[arg(long, conflicts_with = "recovery")]
         withdraw_recovery: bool,
+        /// The invitation code somebody sent you.
+        ///
+        /// Needed only by a coordinator that admits new members by invitation,
+        /// and only the first time: re-registering is how a member refreshes
+        /// their keys and never needs a fresh code.
+        #[arg(long, value_name = "CODE")]
+        invite: Option<String>,
     },
     /// Add a peer to the configuration.
     Peer {
@@ -310,7 +330,9 @@ fn run() -> Result<()> {
         Command::Register {
             recovery,
             withdraw_recovery,
-        } => register(&home, recovery, withdraw_recovery),
+            invite,
+        } => register(&home, recovery, withdraw_recovery, invite.as_deref()),
+        Command::Invite { uses, days } => invite(&home, uses, days),
         Command::Status => status(&home),
         Command::Whoami => whoami(&home),
         Command::Ls => list(&home),
@@ -723,12 +745,46 @@ fn coordinator_setting(
     Ok(())
 }
 
+/// Draw an invitation and print it once.
+fn invite(home: &Path, uses: u32, days: u64) -> Result<()> {
+    let node = open(home)?;
+    let validity = days.saturating_mul(24 * 60 * 60);
+    let secret = coordinator::invite(&node, uses, validity, itsanas_discover::now_unix())?;
+
+    println!("invitation code");
+    println!();
+    println!("  {}", coordinator::encode_secret(&secret));
+    println!();
+    println!("Send it to whoever is joining. They run:");
+    println!();
+    println!("  itsanas init --username <their-name>");
+    println!("  itsanas coordinator {}", coordinator_address(&node));
+    println!("  itsanas register --invite <the code above>");
+    println!();
+    if uses == 1 {
+        println!("Good for one account, for {days} day(s).");
+    } else {
+        println!("Good for {uses} accounts, for {days} day(s).");
+    }
+    println!("It is not stored anywhere. Lose it and issue another.");
+    Ok(())
+}
+
+/// What to tell an invitee to point at.
+fn coordinator_address(node: &Node) -> String {
+    node.config
+        .coordinator
+        .clone()
+        .unwrap_or_else(|| "<host:port>".to_owned())
+}
+
 /// Register this account and device, and optionally lodge a recovery container.
-fn register(home: &Path, recovery: bool, withdraw: bool) -> Result<()> {
+fn register(home: &Path, recovery: bool, withdraw: bool, invite: Option<&str>) -> Result<()> {
     let node = open(home)?;
     let now = itsanas_discover::now_unix();
 
-    coordinator::register(&node, now)?;
+    let secret = invite.map(coordinator::decode_secret).transpose()?;
+    coordinator::register_with(&node, secret.as_ref(), now)?;
     println!(
         "registered {:?} and enrolled this device",
         node.config.username

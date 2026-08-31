@@ -32,7 +32,7 @@ use itsanas_tls::{Authenticated, Identity, accept, connect};
 use itsanas_wire::Connection;
 use rustls::{ClientConfig, ServerConfig};
 
-use crate::directory::Directory;
+use crate::directory::{Admission, Directory};
 use crate::error::{CoordError, Result};
 use crate::protocol::{COORD_VERSION, MAX_REQUESTS_PER_CONNECTION, Request, Response};
 use crate::service::{CoordService, EscrowLimiter};
@@ -99,6 +99,23 @@ impl CoordServer {
         directory: &Directory,
         device: &DeviceKeys,
         shutdown: &AtomicBool,
+        on_event: impl FnMut(&str) + Send,
+    ) -> Result<()> {
+        self.serve_admitting(directory, device, Admission::Open, shutdown, on_event)
+    }
+
+    /// Serve until `shutdown` is set, under a stated admission policy.
+    ///
+    /// `Admission::ByInvitation` is what makes the rest of this project's
+    /// defences describe a real adversary: audits, the reliability pause and
+    /// the probation ladder are all aimed at a hostile *host*, and a hostile
+    /// host is somebody who joined.
+    pub fn serve_admitting(
+        &self,
+        directory: &Directory,
+        device: &DeviceKeys,
+        admission: Admission,
+        shutdown: &AtomicBool,
         mut on_event: impl FnMut(&str) + Send,
     ) -> Result<()> {
         self.listener
@@ -106,7 +123,7 @@ impl CoordServer {
             .map_err(CoordError::from)?;
 
         let live = AtomicUsize::new(0);
-        let service = CoordService::new(directory);
+        let service = CoordService::admitting(directory, admission);
 
         // One limiter for the whole server, not one per connection. A
         // per-connection budget is no budget at all: an attacker reconnects and

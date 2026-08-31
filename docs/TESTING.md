@@ -1,7 +1,7 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 620 test functions across 21 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. Twenty-three are red-team tests.**
+**Last updated: 2026-08-31 — 636 test functions across 21 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. Twenty-nine are red-team tests.**
 
 Three of these counts are checked mechanically by CI, and each check exists
 because the thing it checks had already gone wrong: `check-catalogue.sh` (every
@@ -23,7 +23,7 @@ public method has a call site somewhere in the workspace).
 | `itsanas-net` unit | 30 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 34 |
 | `itsanas-placement` unit | 29 |
-| `itsanas-coord` unit | 55 |
+| `itsanas-coord` unit | 71 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 15 |
@@ -895,6 +895,31 @@ hardware it will actually run on.
 ---
 
 ---
+
+# `itsanas-coord` — admission (19 of the coordinator's unit tests)
+
+`src/invitation.rs` and the invitation half of `src/directory.rs`. The front
+door: until this existed, every other defence in the project — audits, the
+reliability pause, the probation ladder, the keyed audit order — was aimed at a
+hostile *host*, and a hostile host is somebody who joined.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_the_coordinator_cannot_write_itself_an_invitation`** | The coordinator holds every invitation and every account. If it could mint one it would be the admission authority rather than a notice board, and ECONOMICS.md §7 is a promise that it is not. It may refuse — denial of service, already in the threat model — and must not be able to admit. |
+| **`red_team_an_invitation_cannot_be_edited_after_signing`** | Every field is in the signed payload. If the expiry, the use count, the inviter or the code were outside it, an invitation for one machine on one afternoon would become an open door. |
+| **`red_team_one_invitation_admits_one_stranger_however_many_try_it`** | A code posted in a group chat, or forwarded by the person it was sent to. Without spending uses, one endorsement admits everybody who ever saw it and "membership costs a member's endorsement" is false for every account after the first. |
+| **`red_team_re_lodging_a_spent_invitation_does_not_refill_it`** | The way round the previous test. A client whose connection dropped re-sends what it signed; if lodging reset the counter an inviter could refill their own code for ever. |
+| **`red_team_a_stranger_cannot_vouch_for_a_stranger`** | Otherwise invitation buys nothing: mint one keypair, sign invitations with it, admit as many accounts as you like. The endorsement has to come from somebody already inside. |
+| **`red_team_the_founding_window_is_asked_for_and_shuts_by_itself`** | An attack the *fix* introduced. An invitation to admit the first member has no author, so something must open the door once — but if an empty directory always admitted its first caller, then on a public address the founder is whoever finds the port first, and the operator learns this by being refused from their own coordinator with a stranger inside holding the only account that can invite. The window is a flag the operator passes, and it still admits exactly one account. |
+| **`every_refusal_reads_the_same_so_codes_cannot_be_enumerated`** | A coordinator that said "no such code" for one and "already spent" for another would let anybody probe which codes exist, and the codes are the thing keeping strangers out. |
+| **`who_let_them_in_has_an_answer_afterwards`** | Attribution is what an endorsement is *for*. A member who admits forty accounts that all fail their audits has to be findable, or inviting is free in the only sense that matters. |
+| **`a_member_re_registering_needs_no_new_invitation`** | Re-registering is how a member refreshes their agreement key and how a client retries a dropped connection. Demanding a fresh invitation for either would lock people out of their own accounts, on a coordinator whose whole job is letting them back in. |
+| **`the_first_member_of_an_invite_only_coordinator_can_join`** | The chicken and the egg, handled rather than named. The first version required an invitation unconditionally and produced a coordinator that was running, reachable, correct in every detail and impossible to join. |
+| `an_invited_stranger_joins_and_an_uninvited_one_does_not` | The ordinary path, both ways. |
+| `an_expired_invitation_admits_nobody` | A code from last year is not still a way in. |
+| `an_invitation_signed_by_a_member_verifies` / `the_secret_opens_its_own_invitation_and_no_other` | The primitives. |
+| **`the_code_id_reveals_nothing_about_the_secret`** | The coordinator stores the hash, not the secret, so a stolen directory is a list of endorsements nobody can redeem. Two secrets differing in one bit must not produce related ids. |
+| `an_invitation_good_for_nothing_is_refused_rather_than_stored` | Zero uses, or an expiry before the issue date. Neither can admit anybody, so storing them fills the directory with rows that exist only to be rejected. |
 
 # `itsanas-coord` — the coordinator server (12 integration, 8 unit)
 

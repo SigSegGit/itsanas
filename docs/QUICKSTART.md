@@ -285,6 +285,51 @@ relaying for your own devices
   segments held   2 (so this machine can pass your other devices' work along)
 ```
 
+## Letting somebody else in
+
+A coordinator started plainly admits anybody who can reach it, which is right
+for a household: you are the only person who knows the address. Once that
+address is somewhere a stranger could find it, start it differently:
+
+```bash
+itsanas-coordinator --invite-only
+```
+
+New accounts then need a code that an existing member signed. To make one:
+
+```bash
+itsanas invite
+```
+
+```text
+invitation code
+
+  ff129762b1920f1869bffeacca224f2ce10fd7ee20703c723ffa927b081815fa
+
+Send it to whoever is joining. They run:
+
+  itsanas init --username <their-name>
+  itsanas coordinator 192.0.2.10:9898
+  itsanas register --invite <the code above>
+
+Good for one account, for 7 day(s).
+It is not stored anywhere. Lose it and issue another.
+```
+
+`--uses` and `--days` change those two numbers. The code is printed once and
+nowhere else: the coordinator only ever holds its hash, so somebody who steals
+the coordinator's database gets a list of endorsements they cannot redeem.
+
+**The first member is a special case**, because an invitation to admit them
+would have nobody to sign it. Start the coordinator once with
+`--invite-only --admit-first`, register your own account, and restart without
+it. The window admits exactly one account and closes by itself; the flag exists
+so that the window is open only while you are watching it, rather than making
+the founder whoever finds the port first.
+
+Members already registered are never asked for a code. Re-registering is how you
+refresh your keys, and it keeps working.
+
 ## When it syncs, and how much
 
 The daemon does not carry a hard-coded schedule. `itsanas-policy` decides, and

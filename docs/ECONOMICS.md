@@ -324,11 +324,38 @@ contribution before storage means nobody can ever start.
 `JOINING_PERIOD` (30 days), regardless of pledge.** Enough to be useful
 immediately, small enough that farming it with throwaway identities buys little.
 
-Identities are free — they are just keypairs — so this is deliberately not a
-defence against a determined attacker. It is a defence against *friction*. The
-real defence against identity farming is that anchors choose whom they host for,
-and a network of three friends does not have this problem at all. When it
-becomes a real problem, the answer is invitation, not a bigger number.
+Identities are free — they are just keypairs — so the allowance is deliberately
+not a defence against a determined attacker. It is a defence against *friction*.
+
+**The defence against identity farming is invitation, and it is now built.** A
+coordinator started with `--invite-only` admits a stranger only if they present
+a secret an existing member signed. The member draws the secret, publishes its
+hash inside a signed invitation, and hands the secret over by whatever channel
+they were going to use anyway; the coordinator never holds a working code, so a
+stolen directory is a list of endorsements nobody can redeem.
+
+Three properties this was built for, in order of how much they matter:
+
+- **The coordinator cannot admit anybody.** It verifies a signature it cannot
+  produce, from a member it already knows. It can still *refuse*, which is
+  denial of service and is already in the threat model, and is the one thing a
+  notice board can inherently do.
+- **The endorsement is attributable.** Every invitation names its inviter and
+  the directory keeps that link after redemption, so "who let these forty
+  accounts in" is a question with an answer.
+- **One invitation admits the number of accounts it says.** A code posted in a
+  group chat admits one stranger, not everybody who read it, and re-lodging a
+  spent invitation does not refill it.
+
+The first member is the exception that had to be handled rather than named: an
+invitation to admit them would have no author. `--admit-first` opens the door
+for exactly one account. It is a flag rather than automatic because otherwise,
+on a public address, the founder is whoever finds the port first and the
+operator discovers this by being refused from their own coordinator.
+
+What invitation does not buy: it is not proof of good behaviour, and a member
+can invite themselves as often as they like. Rate-limiting invitations per
+member is the next lever and is not built.
 
 ---
 

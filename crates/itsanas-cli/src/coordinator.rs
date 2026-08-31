@@ -14,6 +14,7 @@
 
 use itsanas_coord::claim::{NodeClaim, Presence};
 use itsanas_coord::directory::Registration;
+use itsanas_coord::invitation::{Invitation, SECRET_LEN, Secret};
 use itsanas_coord::protocol::{Request, Response};
 use itsanas_coord::server::CoordClient;
 use itsanas_crypto::{DeviceId, KdfParams, Keystore, UserId};
@@ -63,11 +64,87 @@ pub fn parse_device(hex: &str) -> Result<DeviceId> {
     Ok(DeviceId::from_bytes(bytes))
 }
 
+/// Draw a secret, sign an invitation for it, and lodge it.
+///
+/// The secret is returned so the caller can print it once. It never goes to
+/// disk and the coordinator only ever sees its hash, so this is the single
+/// moment it exists anywhere it can be read.
+pub fn invite(node: &Node, uses: u32, validity: u64, now: u64) -> Result<Secret> {
+    if uses == 0 {
+        return Err(CliError::Usage(
+            "an invitation good for no uses is not an invitation".to_owned(),
+        ));
+    }
+
+    let mut secret = [0u8; SECRET_LEN];
+    getrandom::fill(&mut secret)
+        .map_err(|error| CliError::Usage(format!("could not draw a secret: {error}")))?;
+
+    let signed = Invitation {
+        inviter: node.store.owner(),
+        code: itsanas_coord::code_id(&secret),
+        issued_unix: now,
+        expires_unix: now.saturating_add(validity),
+        uses,
+    }
+    .sign(&node.user);
+
+    let mut client = dial(node)?;
+    match client.ask(&Request::Invite(Box::new(signed)))? {
+        Response::Done => Ok(secret),
+        Response::Refused(why) => Err(CliError::Usage(why)),
+        other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+    }
+}
+
+/// Turn a secret into something a person can send in a message, and back.
+///
+/// Hex, because it survives every chat client, quoting style and font this will
+/// be pasted through, and because a code that a person mistypes must fail rather
+/// than silently mean something else.
+#[must_use]
+pub fn encode_secret(secret: &Secret) -> String {
+    secret
+        .iter()
+        .fold(String::with_capacity(64), |mut out, byte| {
+            use std::fmt::Write as _;
+            let _ = write!(out, "{byte:02x}");
+            out
+        })
+}
+
+/// Read a code somebody was sent.
+pub fn decode_secret(text: &str) -> Result<Secret> {
+    let cleaned: String = text
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .collect();
+    if cleaned.len() != SECRET_LEN * 2 {
+        return Err(CliError::Usage(format!(
+            "an invitation code is {} hexadecimal characters; this one is {}",
+            SECRET_LEN * 2,
+            cleaned.len()
+        )));
+    }
+    let mut secret = [0u8; SECRET_LEN];
+    for (index, pair) in cleaned.as_bytes().chunks_exact(2).enumerate() {
+        let text = std::str::from_utf8(pair)
+            .map_err(|_| CliError::Usage("an invitation code is hexadecimal".to_owned()))?;
+        secret[index] = u8::from_str_radix(text, 16)
+            .map_err(|_| CliError::Usage("an invitation code is hexadecimal".to_owned()))?;
+    }
+    Ok(secret)
+}
+
 /// Register the account name and enrol this device.
 ///
 /// Both are signed by keys the coordinator does not hold, so the worst it can
 /// do is refuse — which is denial of service and already in the threat model.
-pub fn register(node: &Node, now: u64) -> Result<()> {
+/// Register, presenting an invitation code if one was given.
+///
+/// A coordinator that admits openly ignores the code; one that admits by
+/// invitation refuses without it, unless this account is already a member.
+pub fn register_with(node: &Node, invite: Option<&Secret>, now: u64) -> Result<()> {
     let mut client = dial(node)?;
 
     let registration = Registration {
@@ -77,7 +154,15 @@ pub fn register(node: &Node, now: u64) -> Result<()> {
     }
     .sign(&node.user);
 
-    match client.ask(&Request::Register(Box::new(registration)))? {
+    let ask = match invite {
+        Some(secret) => Request::RegisterInvited {
+            registration: Box::new(registration),
+            secret: *secret,
+        },
+        None => Request::Register(Box::new(registration)),
+    };
+
+    match client.ask(&ask)? {
         Response::Account(_) => {}
         Response::Refused(why) => return Err(CliError::Usage(why)),
         other => return Err(CliError::Usage(format!("unexpected answer: {other:?}"))),

@@ -67,6 +67,18 @@ What is missing before this is a *network* rather than a personal sync tool:
   that killed signed node-set epochs. Bounded in practice by how much somebody
   deletes; unbounded in principle. The likely answer is an age threshold well
   past any plausible offline period, which is a decision nobody has taken.
+- ~~**Anyone who can reach the coordinator is a member.**~~ Built.
+  `--invite-only` admits a stranger only with a secret an existing member
+  signed; the coordinator holds the hash, never a working code, and can refuse
+  but not admit. This was the front door, and its absence meant every other
+  defence in the project — audits, the reliability pause, the probation
+  ladder, the keyed audit order — was aimed at an adversary with no way in.
+  ECONOMICS.md §6 had named invitation as the answer and left it as a sentence.
+
+  Not built, and the next lever: **a limit on how many people one member may
+  invite.** Nothing rate-limits it, so a member can invite themselves as often
+  as they like. Attribution makes that visible after the fact; it does not stop
+  it.
 - **Recovery from username plus passphrase is not wired.** The escrow container
   exists and is tested; `itsanas login` still requires the 24 words.
 - **Never run on a Raspberry Pi.** Only `cargo check` for aarch64.

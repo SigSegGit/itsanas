@@ -20,13 +20,14 @@
 use std::path::Path;
 
 use itsanas_crypto::{DeviceId, Signature, UserId, UserKeys, UserPublic, verify};
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     accounting::DeviceContribution,
     claim::{SignedClaim, SignedPresence},
     error::{CoordError, Result},
+    invitation::{self, Secret, SignedInvitation},
 };
 
 /// Signature domain for claiming a username.
@@ -55,6 +56,14 @@ const USAGE: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("usage");
 /// Device → smoothed availability, per mille, plus when it was last folded in.
 const AVAILABILITY: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("availability");
 
+/// Code id -> the signed invitation and how much of it is left.
+///
+/// Filed under the *hash* of the secret, so the directory never holds a working
+/// code. Somebody who steals this database gets a list of endorsements they
+/// cannot redeem, which is the whole reason the secret stays with the inviter
+/// and the invitee.
+const INVITATIONS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("invitations");
+
 /// A member's account, as the coordinator holds it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
@@ -70,12 +79,59 @@ pub struct Account {
     pub escrow_enabled: bool,
 }
 
+/// A lodged invitation, and what remains of it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LodgedInvitation {
+    /// What the inviter signed.
+    pub signed: SignedInvitation,
+    /// Uses not yet spent.
+    pub remaining: u32,
+    /// Who came in on it, in the order they arrived.
+    ///
+    /// Kept after the invitation is spent, because attribution is the point:
+    /// an endorsement nobody can trace back is not an endorsement. This is what
+    /// makes "who let these forty accounts in" a question with an answer.
+    pub admitted: Vec<UserId>,
+}
+
 /// A member's request to hold a username.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Registration {
     pub username: String,
     pub user: UserPublic,
     pub issued_unix: u64,
+}
+
+/// What a coordinator demands of somebody who wants to join.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Admission {
+    /// Anybody who can reach it. What every coordinator did until now, and the
+    /// right answer for a household: the operator is the only person who knows
+    /// the address, and requiring an invitation to admit the *first* member is
+    /// a chicken with no egg.
+    Open,
+    /// Only somebody holding a secret an existing member signed.
+    ///
+    /// A keypair costs nothing, so without this the answer to "who is a member"
+    /// is "anyone who can open a socket". Every other defence in this project
+    /// — audits, the reliability pause, the probation ladder — is aimed at a
+    /// hostile *host*, and a hostile host is somebody who joined.
+    ByInvitation,
+    /// By invitation, except that an empty directory admits one account.
+    ///
+    /// The chicken and the egg: an invitation to admit the first member has no
+    /// author, so an invite-only coordinator with nobody in it can never be
+    /// joined. Something has to open the door once.
+    ///
+    /// It is a separate variant rather than a special case of
+    /// [`Admission::ByInvitation`] because the difference is a **race**. If an
+    /// empty directory always admitted its first caller, then on a public
+    /// address the founder is whoever finds the port first, and the operator
+    /// discovers this by being refused from their own coordinator. Making it a
+    /// flag the operator passes means the window is open only while they are
+    /// standing at the terminal, and it still shuts by itself after one
+    /// account.
+    Founding,
 }
 
 /// A [`Registration`] signed by the key it names.
@@ -196,7 +252,47 @@ impl Directory {
     /// type when they mean a particular person, and a name that can change
     /// hands is a name that can be used to impersonate.
     pub fn register(&self, signed: &SignedRegistration, now: u64) -> Result<Account> {
+        self.register_admitted(signed, None, Admission::Open, now)
+    }
+
+    /// Register, under a stated admission policy.
+    ///
+    /// An account that already exists under the same key skips the invitation
+    /// entirely: re-registering is how a member refreshes their agreement key
+    /// and how a client retries a dropped connection, and demanding a fresh
+    /// invitation for either would lock members out of their own accounts.
+    pub fn register_admitted(
+        &self,
+        signed: &SignedRegistration,
+        secret: Option<&Secret>,
+        admission: Admission,
+        now: u64,
+    ) -> Result<Account> {
         signed.verify()?;
+
+        let joiner = signed.registration.user.id;
+        let returning = self.account_of(joiner)?.is_some();
+
+        // The first member of an invite-only coordinator has nobody to invite
+        // them. Requiring one anyway produces a coordinator that is running,
+        // reachable, correct in every detail and impossible to join — which is
+        // what the first version of this did, and the chicken-and-egg was
+        // written in a doc comment as though naming it were the same as
+        // handling it.
+        //
+        // The only actor who can admit the first member is whoever started the
+        // process. The window is exactly one account wide and closes by itself.
+        let founding = admission == Admission::Founding && self.is_empty()?;
+        let closed = matches!(admission, Admission::ByInvitation | Admission::Founding);
+
+        if closed && !returning && !founding {
+            let Some(secret) = secret else {
+                return Err(CoordError::Rejected(
+                    "this coordinator admits new members by invitation only",
+                ));
+            };
+            self.redeem(secret, joiner, now)?;
+        }
 
         let name = signed.registration.username.as_str();
         let txn = self.db.begin_write()?;
@@ -236,6 +332,114 @@ impl Directory {
 
         txn.commit()?;
         Ok(account)
+    }
+
+    // ------------------------------------------------------------ invitations
+
+    /// File an invitation an existing member has signed.
+    ///
+    /// Refuses one whose inviter is not a member of this coordinator: an
+    /// endorsement from somebody nobody has heard of endorses nothing, and
+    /// accepting it would let anyone with a keypair fill the table.
+    ///
+    /// Re-lodging the same code is a no-op that keeps whatever remains, so a
+    /// client retrying after a dropped connection cannot refill a spent
+    /// invitation.
+    pub fn lodge_invitation(
+        &self,
+        signed: &SignedInvitation,
+        now: u64,
+    ) -> Result<LodgedInvitation> {
+        signed.verify()?;
+        if signed.invitation.expires_unix <= now {
+            return Err(CoordError::Rejected("that invitation has already expired"));
+        }
+        if self.account_of(signed.invitation.inviter)?.is_none() {
+            return Err(CoordError::Rejected(
+                "the inviter is not a member of this coordinator",
+            ));
+        }
+
+        let key = signed.invitation.code;
+        let txn = self.db.begin_write()?;
+        let lodged;
+        {
+            let mut table = txn.open_table(INVITATIONS)?;
+            lodged = match table.get(key.as_slice())? {
+                Some(value) => postcard::from_bytes(value.value())?,
+                None => LodgedInvitation {
+                    signed: signed.clone(),
+                    remaining: signed.invitation.uses,
+                    admitted: Vec::new(),
+                },
+            };
+            table.insert(key.as_slice(), postcard::to_stdvec(&lodged)?.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(lodged)
+    }
+
+    /// What was lodged under this code, if anything.
+    pub fn invitation(&self, code: &[u8; 32]) -> Result<Option<LodgedInvitation>> {
+        let txn = self.db.begin_read()?;
+        match txn.open_table(INVITATIONS)?.get(code.as_slice())? {
+            Some(value) => Ok(Some(postcard::from_bytes(value.value())?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Spend one use of the invitation `secret` opens, for `joiner`.
+    ///
+    /// Every reason for refusal is deliberately the same error. A coordinator
+    /// that distinguished "no such code" from "expired" from "spent" would let
+    /// anybody enumerate which codes exist, and the codes are the thing that
+    /// keeps strangers out.
+    fn redeem(&self, secret: &Secret, joiner: UserId, now: u64) -> Result<UserId> {
+        let refused = || CoordError::Rejected("that invitation cannot be used");
+        let key = invitation::code_id(secret);
+
+        let txn = self.db.begin_write()?;
+        let inviter;
+        {
+            let mut table = txn.open_table(INVITATIONS)?;
+            let Some(value) = table.get(key.as_slice())? else {
+                return Err(refused());
+            };
+            let mut lodged: LodgedInvitation = postcard::from_bytes(value.value())?;
+            drop(value);
+
+            // Re-checked here rather than trusted from lodging time: the row
+            // has been on disk since, and the signature is the only thing that
+            // makes any of it mean anything.
+            lodged.signed.verify().map_err(|_| refused())?;
+            if !lodged.signed.opens_with(secret)
+                || lodged.remaining == 0
+                || lodged.signed.invitation.expires_unix <= now
+            {
+                return Err(refused());
+            }
+
+            // Somebody re-registering on a code they already used spends
+            // nothing. Without this, a retry after a dropped connection eats a
+            // use, and a member enrolling a machine twice locks themselves out.
+            if !lodged.admitted.contains(&joiner) {
+                lodged.remaining -= 1;
+                lodged.admitted.push(joiner);
+            }
+            inviter = lodged.signed.invitation.inviter;
+            table.insert(key.as_slice(), postcard::to_stdvec(&lodged)?.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(inviter)
+    }
+
+    /// Whether no account has ever been registered here.
+    ///
+    /// Only the founding case reads this: an invite-only coordinator admits its
+    /// first member, because an invitation to admit them would have no author.
+    pub fn is_empty(&self) -> Result<bool> {
+        let txn = self.db.begin_read()?;
+        Ok(txn.open_table(ACCOUNTS)?.len()? == 0)
     }
 
     /// Look a member up by name.
@@ -636,6 +840,326 @@ fn fold(current: u16, seen: bool) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::invitation::SECRET_LEN;
+
+    // ------------------------------------------------------------ invitations
+
+    fn open_registration(who: &UserKeys, name: &str, now: u64) -> SignedRegistration {
+        Registration {
+            username: name.to_owned(),
+            user: who.public(),
+            issued_unix: now,
+        }
+        .sign(who)
+    }
+
+    fn invite(inviter: &UserKeys, secret: &Secret, uses: u32, now: u64) -> SignedInvitation {
+        crate::invitation::Invitation {
+            inviter: inviter.user_id(),
+            code: invitation::code_id(secret),
+            issued_unix: now,
+            expires_unix: now + crate::invitation::DEFAULT_VALIDITY,
+            uses,
+        }
+        .sign(inviter)
+    }
+
+    fn found(directory: &Directory, who: &UserKeys, name: &str, now: u64) -> Result<Account> {
+        let signed = Registration {
+            username: name.to_owned(),
+            user: who.public(),
+            issued_unix: now,
+        }
+        .sign(who);
+        directory.register_admitted(&signed, None, Admission::Founding, now)
+    }
+
+    fn join(
+        directory: &Directory,
+        who: &UserKeys,
+        name: &str,
+        secret: Option<&Secret>,
+        now: u64,
+    ) -> Result<Account> {
+        let signed = Registration {
+            username: name.to_owned(),
+            user: who.public(),
+            issued_unix: now,
+        }
+        .sign(who);
+        directory.register_admitted(&signed, secret, Admission::ByInvitation, now)
+    }
+
+    #[test]
+    fn the_first_member_of_an_invite_only_coordinator_can_join() {
+        // The chicken and the egg. An invitation to admit the first member has
+        // no author, so requiring one produces a coordinator that is running,
+        // reachable, correct in every detail and impossible to join. The first
+        // version of this did exactly that and named the problem in a doc
+        // comment, as though naming it were the same as handling it.
+        let (_dir, directory) = directory();
+        found(&directory, &user(1), "alice", 1_000).expect("the founder");
+    }
+
+    #[test]
+    fn red_team_the_founding_window_is_asked_for_and_shuts_by_itself() {
+        // THE ATTACK, and it is one the fix introduced. If an empty directory
+        // always admitted its first caller, then on a public address the
+        // founder is whoever finds the port first — and the operator learns
+        // this by being refused from their own coordinator, with a stranger
+        // already inside holding the only account that can invite.
+        //
+        // So the window is a flag the operator passes, open only while they are
+        // standing at the terminal, and it still admits exactly one account.
+        let (_dir, directory) = directory();
+
+        // Without the flag, an empty directory admits nobody.
+        assert!(
+            join(&directory, &user(9), "mallory", None, 900).is_err(),
+            "an empty invite-only coordinator admitted a stranger unasked"
+        );
+
+        found(&directory, &user(1), "alice", 1_000).expect("the founder");
+
+        assert!(
+            found(&directory, &user(2), "bob", 1_100).is_err(),
+            "the second caller walked in through the founding window"
+        );
+        assert!(
+            found(&directory, &user(3), "carol", 1_200).is_err(),
+            "the window reopened"
+        );
+    }
+
+    #[test]
+    fn an_invited_stranger_joins_and_an_uninvited_one_does_not() {
+        let (_dir, directory) = directory();
+        let alice = user(1);
+        let bob = user(2);
+        let carol = user(3);
+        let code = [0x11u8; SECRET_LEN];
+
+        // Alice is already a member: the first one is admitted by the operator,
+        // because an invitation to admit the first member has no author.
+        directory
+            .register(&open_registration(&alice, "alice", 1_000), 1_000)
+            .expect("alice, openly");
+
+        directory
+            .lodge_invitation(&invite(&alice, &code, 1, 1_000), 1_000)
+            .expect("lodge");
+
+        join(&directory, &bob, "bob", Some(&code), 1_100).expect("bob was invited");
+        assert!(
+            join(&directory, &carol, "carol", None, 1_100).is_err(),
+            "a stranger with no code joined a coordinator that admits by invitation"
+        );
+    }
+
+    #[test]
+    fn red_team_one_invitation_admits_one_stranger_however_many_try_it() {
+        // THE ATTACK: a code posted in a group chat, or leaked by the person it
+        // was sent to. If uses were not spent, one endorsement would admit
+        // everybody who ever saw it, and "membership costs a member's
+        // endorsement" would be false for every account after the first.
+        //
+        // If this test fails, one leaked code is an open door.
+        let (_dir, directory) = directory();
+        let alice = user(1);
+        let code = [0x22u8; SECRET_LEN];
+        directory
+            .register(&open_registration(&alice, "alice", 1_000), 1_000)
+            .expect("alice");
+        directory
+            .lodge_invitation(&invite(&alice, &code, 1, 1_000), 1_000)
+            .expect("lodge");
+
+        join(&directory, &user(2), "first", Some(&code), 1_100).expect("the invited one");
+        for (seed, name) in [(3u8, "second"), (4, "third"), (5, "fourth")] {
+            assert!(
+                join(&directory, &user(seed), name, Some(&code), 1_100).is_err(),
+                "{name} joined on an invitation that had already been spent"
+            );
+        }
+
+        let lodged = directory
+            .invitation(&invitation::code_id(&code))
+            .expect("read")
+            .expect("still filed");
+        assert_eq!(lodged.remaining, 0);
+        assert_eq!(lodged.admitted.len(), 1, "more than one use was recorded");
+    }
+
+    #[test]
+    fn red_team_re_lodging_a_spent_invitation_does_not_refill_it() {
+        // The retry path, and a way round the previous test if it were missed.
+        // A client whose connection dropped re-sends what it signed; if lodging
+        // reset the counter, an inviter could refill their own code for ever
+        // and one endorsement would again admit everybody.
+        let (_dir, directory) = directory();
+        let alice = user(1);
+        let code = [0x33u8; SECRET_LEN];
+        directory
+            .register(&open_registration(&alice, "alice", 1_000), 1_000)
+            .expect("alice");
+        let signed = invite(&alice, &code, 1, 1_000);
+        directory.lodge_invitation(&signed, 1_000).expect("lodge");
+        join(&directory, &user(2), "bob", Some(&code), 1_100).expect("bob");
+
+        let again = directory
+            .lodge_invitation(&signed, 1_200)
+            .expect("re-lodge");
+        assert_eq!(again.remaining, 0, "re-lodging refilled a spent invitation");
+        assert!(
+            join(&directory, &user(3), "mallory", Some(&code), 1_300).is_err(),
+            "a refilled invitation admitted a second stranger"
+        );
+    }
+
+    #[test]
+    fn red_team_a_stranger_cannot_vouch_for_a_stranger() {
+        // Otherwise invitation buys nothing: an attacker mints one keypair,
+        // signs invitations with it, and admits as many accounts as it likes.
+        // The endorsement has to come from somebody already inside.
+        let (_dir, directory) = directory();
+        let outsider = user(9);
+        let code = [0x44u8; SECRET_LEN];
+
+        assert!(
+            directory
+                .lodge_invitation(&invite(&outsider, &code, 5, 1_000), 1_000)
+                .is_err(),
+            "a coordinator accepted an endorsement from somebody it has never heard of"
+        );
+        assert!(
+            join(&directory, &user(10), "mallory", Some(&code), 1_100).is_err(),
+            "the unlodged invitation admitted somebody anyway"
+        );
+    }
+
+    #[test]
+    fn an_expired_invitation_admits_nobody() {
+        let (_dir, directory) = directory();
+        let alice = user(1);
+        let code = [0x55u8; SECRET_LEN];
+        directory
+            .register(&open_registration(&alice, "alice", 1_000), 1_000)
+            .expect("alice");
+        directory
+            .lodge_invitation(&invite(&alice, &code, 1, 1_000), 1_000)
+            .expect("lodge");
+
+        let long_after = 1_000 + crate::invitation::DEFAULT_VALIDITY + 1;
+        assert!(
+            join(&directory, &user(2), "bob", Some(&code), long_after).is_err(),
+            "a code from last year still opened the door"
+        );
+    }
+
+    #[test]
+    fn a_member_re_registering_needs_no_new_invitation() {
+        // Re-registering is how a member refreshes their agreement key and how
+        // a client retries a dropped connection. Demanding a fresh invitation
+        // for either would lock members out of their own accounts, on a
+        // coordinator whose whole job is to let them back in.
+        let (_dir, directory) = directory();
+        let alice = user(1);
+        let bob = user(2);
+        let code = [0x66u8; SECRET_LEN];
+        directory
+            .register(&open_registration(&alice, "alice", 1_000), 1_000)
+            .expect("alice");
+        directory
+            .lodge_invitation(&invite(&alice, &code, 1, 1_000), 1_000)
+            .expect("lodge");
+        join(&directory, &bob, "bob", Some(&code), 1_100).expect("bob joins");
+
+        join(&directory, &bob, "bob", None, 1_200).expect("bob comes back without a code");
+
+        let lodged = directory
+            .invitation(&invitation::code_id(&code))
+            .expect("read")
+            .expect("filed");
+        assert_eq!(
+            lodged.admitted.len(),
+            1,
+            "the return visit spent a second use"
+        );
+    }
+
+    #[test]
+    fn who_let_them_in_has_an_answer_afterwards() {
+        // Attribution is what an endorsement is for. A member who admits forty
+        // accounts that all fail their audits has to be findable, or inviting
+        // is free in the only sense that matters.
+        let (_dir, directory) = directory();
+        let alice = user(1);
+        let code = [0x77u8; SECRET_LEN];
+        directory
+            .register(&open_registration(&alice, "alice", 1_000), 1_000)
+            .expect("alice");
+        directory
+            .lodge_invitation(&invite(&alice, &code, 3, 1_000), 1_000)
+            .expect("lodge");
+
+        for (seed, name) in [(2u8, "bob"), (3, "carol"), (4, "dave")] {
+            join(&directory, &user(seed), name, Some(&code), 1_100).expect(name);
+        }
+
+        let lodged = directory
+            .invitation(&invitation::code_id(&code))
+            .expect("read")
+            .expect("filed");
+        assert_eq!(lodged.signed.invitation.inviter, alice.user_id());
+        assert_eq!(lodged.admitted.len(), 3);
+        assert_eq!(lodged.remaining, 0);
+    }
+
+    #[test]
+    fn every_refusal_reads_the_same_so_codes_cannot_be_enumerated() {
+        // A coordinator that said "no such code" for one and "already spent"
+        // for another would let anybody probe which codes exist, and the codes
+        // are the thing keeping strangers out. Same sentence, every time.
+        let (_dir, directory) = directory();
+        let alice = user(1);
+        let spent = [0x88u8; SECRET_LEN];
+        let expired = [0x99u8; SECRET_LEN];
+        let unknown = [0xAAu8; SECRET_LEN];
+        directory
+            .register(&open_registration(&alice, "alice", 1_000), 1_000)
+            .expect("alice");
+        directory
+            .lodge_invitation(&invite(&alice, &spent, 1, 1_000), 1_000)
+            .expect("lodge");
+        directory
+            .lodge_invitation(&invite(&alice, &expired, 1, 1_000), 1_000)
+            .expect("lodge");
+        join(&directory, &user(2), "bob", Some(&spent), 1_100).expect("bob");
+
+        let after = 1_000 + crate::invitation::DEFAULT_VALIDITY + 1;
+        let reasons: Vec<String> = [&spent, &expired, &unknown]
+            .iter()
+            .enumerate()
+            .map(|(index, code)| {
+                let name = format!("probe{index}");
+                let seed = u8::try_from(20 + index).unwrap_or(20);
+                join(&directory, &user(seed), &name, Some(code), after)
+                    .expect_err("all three must be refused")
+                    .to_string()
+            })
+            .collect();
+
+        assert_eq!(
+            reasons
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            1,
+            "three different refusals let a stranger tell live codes from dead \
+             ones: {reasons:?}"
+        );
+    }
+
     use crate::claim::{NodeClaim, Presence};
     use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes};
 

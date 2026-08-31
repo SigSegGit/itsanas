@@ -34,7 +34,7 @@ use std::{
 };
 
 use clap::Parser;
-use itsanas_coord::{DEFAULT_COORD_PORT, Directory, server::CoordServer};
+use itsanas_coord::{Admission, DEFAULT_COORD_PORT, Directory, server::CoordServer};
 use itsanas_crypto::{DeviceKeys, SecretBytes, SymmetricKey};
 
 /// Filename of the coordinator's own device key, beside its directory.
@@ -64,6 +64,37 @@ struct Cli {
     /// resolving elsewhere is refused rather than trusted.
     #[arg(long)]
     identity: bool,
+
+    /// Admit new members only if an existing one invited them.
+    ///
+    /// Off by default, which is right for a household: the operator is the only
+    /// person who knows the address, and an invitation to admit the *first*
+    /// member has no author. Turn it on once the address is somewhere a stranger
+    /// could find it.
+    ///
+    /// A keypair costs nothing, so without this the answer to "who is a member"
+    /// is "anyone who can open a socket" — and every other defence in this
+    /// project is aimed at a hostile host, which is somebody who joined.
+    ///
+    /// Members already registered are unaffected: re-registering is how a member
+    /// refreshes their keys, and demanding a fresh invitation for it would lock
+    /// people out of their own accounts.
+    #[arg(long)]
+    invite_only: bool,
+
+    /// Admit one account without an invitation, to create the first member.
+    ///
+    /// An invitation to admit the first member has no author, so an invite-only
+    /// coordinator with nobody in it can never be joined. This opens the door
+    /// once.
+    ///
+    /// It is a flag rather than automatic because the difference is a race: an
+    /// empty directory that always admitted its first caller would, on a public
+    /// address, make the founder whoever finds the port first — and the
+    /// operator would learn this by being refused from their own coordinator.
+    /// Pass it, register, and restart without it.
+    #[arg(long, requires = "invite_only")]
+    admit_first: bool,
 }
 
 fn main() -> ExitCode {
@@ -89,6 +120,12 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
+    let admission = match (cli.invite_only, cli.admit_first) {
+        (true, true) => Admission::Founding,
+        (true, false) => Admission::ByInvitation,
+        _ => Admission::Open,
+    };
+
     let directory = Directory::open(cli.state.join("directory.redb"))
         .map_err(|error| format!("could not open the directory: {error}"))?;
 
@@ -109,6 +146,26 @@ fn run() -> Result<(), String> {
     println!("  listening {bound}");
     println!("  device    {}", device.device_id());
     println!("  state     {}", cli.state.display());
+    println!(
+        "  admits    {}",
+        if cli.invite_only {
+            "invited strangers only (existing members are unaffected)"
+        } else {
+            "anybody who can reach this address"
+        }
+    );
+    if cli.invite_only && directory.is_empty().unwrap_or(false) {
+        println!();
+        if cli.admit_first {
+            println!("  --admit-first: the NEXT registration is let in without an invitation.");
+            println!("  Register your own account now. The window shuts after one account,");
+            println!("  and restarting without the flag closes it whatever happens.");
+        } else {
+            println!("  No accounts yet, and no invitation can admit the first member because");
+            println!("  it would have no author. Restart once with --admit-first, register,");
+            println!("  then restart without it.");
+        }
+    }
     println!();
     println!("Members should pin that device id: `itsanas coordinator <address> --device <id>`.");
     println!("An address that answers as anything else is then refused rather than trusted.");
@@ -117,7 +174,7 @@ fn run() -> Result<(), String> {
     println!();
 
     server
-        .serve_until(&directory, &device, &SHUTDOWN, |event| {
+        .serve_admitting(&directory, &device, admission, &SHUTDOWN, |event| {
             eprintln!("itsanas-coordinator: {event}");
         })
         .map_err(|error| format!("the listener stopped: {error}"))?;

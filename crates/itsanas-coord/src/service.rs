@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use itsanas_crypto::{DeviceId, UserId};
 
 use crate::claim::Presence;
-use crate::directory::Directory;
+use crate::directory::{Admission, Directory};
 use crate::error::Result;
 use crate::protocol::{COORD_VERSION, MAX_PEERS_RETURNED, MAX_WIRE_USERNAME, Request, Response};
 
@@ -132,13 +132,36 @@ impl Default for EscrowLimiter {
 #[derive(Debug)]
 pub struct CoordService<'a> {
     directory: &'a Directory,
+    admission: Admission,
 }
 
 impl<'a> CoordService<'a> {
-    /// Answer requests against `directory`.
+    /// Answer requests against `directory`, admitting anybody who asks.
+    ///
+    /// The right answer for a household: the operator is the only person who
+    /// knows the address, and an invitation to admit the *first* member has no
+    /// author. See [`Self::admitting`].
     #[must_use]
     pub const fn new(directory: &'a Directory) -> Self {
-        Self { directory }
+        Self {
+            directory,
+            admission: Admission::Open,
+        }
+    }
+
+    /// Answer requests against `directory` under a stated admission policy.
+    ///
+    /// `Admission::ByInvitation` is what makes every other defence in this
+    /// project mean something. Audits, the reliability pause and the probation
+    /// ladder are all aimed at a hostile *host*, and a hostile host is somebody
+    /// who joined — so until there was a rule about joining, they were
+    /// defences against an adversary with no way in and no reason to exist.
+    #[must_use]
+    pub const fn admitting(directory: &'a Directory, admission: Admission) -> Self {
+        Self {
+            directory,
+            admission,
+        }
     }
 
     /// Answer one request from `caller`, at wall-clock `now_unix`.
@@ -165,8 +188,33 @@ impl<'a> CoordService<'a> {
                 ))
             }),
 
-            Request::Register(signed) => match self.directory.register(signed, now_unix) {
-                Ok(account) => Ok(Response::Account(Box::new(account))),
+            Request::Register(signed) => {
+                match self
+                    .directory
+                    .register_admitted(signed, None, self.admission, now_unix)
+                {
+                    Ok(account) => Ok(Response::Account(Box::new(account))),
+                    Err(error) => Ok(Response::Refused(error.to_string())),
+                }
+            }
+
+            Request::RegisterInvited {
+                registration,
+                secret,
+            } => {
+                match self.directory.register_admitted(
+                    registration,
+                    Some(secret),
+                    self.admission,
+                    now_unix,
+                ) {
+                    Ok(account) => Ok(Response::Account(Box::new(account))),
+                    Err(error) => Ok(Response::Refused(error.to_string())),
+                }
+            }
+
+            Request::Invite(signed) => match self.directory.lodge_invitation(signed, now_unix) {
+                Ok(_) => Ok(Response::Done),
                 Err(error) => Ok(Response::Refused(error.to_string())),
             },
 

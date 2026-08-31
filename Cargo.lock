@@ -720,6 +720,7 @@ dependencies = [
  "blake3",
  "clap",
  "ctrlc",
+ "getrandom 0.4.3",
  "itsanas-coord",
  "itsanas-crypto",
  "itsanas-discover",

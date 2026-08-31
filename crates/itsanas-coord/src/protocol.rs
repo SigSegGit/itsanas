@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::claim::{Presence, SignedClaim, SignedPresence};
 use crate::directory::{Account, SignedRegistration};
+use crate::invitation::{Secret, SignedInvitation};
 
 /// The protocol version this build speaks.
 pub const COORD_VERSION: u16 = 1;
@@ -71,6 +72,26 @@ pub enum Request {
     /// by a different key, so it cannot hand somebody else's name away — but it
     /// can refuse, which is denial of service and is in the threat model.
     Register(Box<SignedRegistration>),
+
+    /// Claim a username, presenting the invitation secret that admits you.
+    ///
+    /// Separate from [`Request::Register`] rather than an `Option` on it,
+    /// because the two are different acts: one is a member refreshing their own
+    /// entry, the other is a stranger asking to be let in. A coordinator that
+    /// admits openly accepts both; one that admits by invitation accepts the
+    /// first only from members it already knows.
+    RegisterInvited {
+        /// The registration, signed by the key being registered.
+        registration: Box<SignedRegistration>,
+        /// The secret the inviter handed over, out of band.
+        secret: Secret,
+    },
+
+    /// Lodge an invitation this member has signed.
+    ///
+    /// The coordinator files it under the hash of the secret, so its database
+    /// never holds a working code.
+    Invite(Box<SignedInvitation>),
 
     /// Look a username up.
     ///
@@ -173,6 +194,8 @@ impl Request {
         match self {
             Self::Hello { .. } => "hello",
             Self::Register(_) => "register",
+            Self::RegisterInvited { .. } => "register-invited",
+            Self::Invite(_) => "invite",
             Self::Lookup { .. } => "lookup",
             Self::Claim(_) => "claim",
             Self::Announce(_) => "announce",
