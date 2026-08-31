@@ -113,7 +113,7 @@ case "$MACOS_MAJOR" in
 esac
 
 case "$(uname -m)" in
-    arm64) ok "Apple silicon (arm64)"; BREW_PREFIX=/opt/homebrew ;;
+    arm64) ok "Apple silicon (arm64)" ;;
     x86_64)
         # Rosetta makes an Apple silicon Mac claim to be x86_64 when the shell
         # itself is translated. Building under Rosetta produces an x86 binary
@@ -126,7 +126,7 @@ case "$(uname -m)" in
         else
             ok "Intel (x86_64)"
         fi
-        BREW_PREFIX=/usr/local ;;
+        ;;
     *) die "unsupported architecture: $(uname -m)" ;;
 esac
 

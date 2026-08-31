@@ -167,6 +167,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let watcher = Watcher::new(dir.path()).unwrap();
 
+        // The folder was created a moment ago, and macOS reports on directories
+        // rather than on individual writes: FSEvents can deliver the folder's
+        // own creation after the stream has started. So let whatever the
+        // platform still has to say about the folder existing arrive and be
+        // discarded first. What this test measures is the behaviour of a *quiet*
+        // folder, and one created a microsecond earlier is not quiet yet.
+        //
+        // This is inferred rather than reproduced: the same code passed on
+        // macOS in one CI run and failed in the next, and passed on Linux and
+        // Windows in both. There is no Mac here to watch it happen on.
+        let _ = watcher.wait_for_quiet(
+            Duration::from_millis(500),
+            Duration::from_millis(50),
+            Duration::from_secs(1),
+        );
+
         let started = Instant::now();
         let changed = watcher.wait_for_quiet(
             Duration::from_millis(200),
