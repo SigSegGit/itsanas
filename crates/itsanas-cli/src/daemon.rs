@@ -603,9 +603,12 @@ fn sync_once(
                 && record.consecutive_failures == itsanas_store::FAILURES_BEFORE_PAUSE
             {
                 println!(
-                    "  {peer} is no longer being sent new data. It still receives                      the log, and one passing challenge clears this."
+                    "  {peer} is no longer being sent new data. It still receives                      the log and one chunk a round to prove itself on; answering                      for that chunk clears this."
                 );
             }
+        }
+        Ok(report) if report.probing && report.confirmed > 0 => {
+            println!("{peer}: answered for the chunk it was given — no longer paused.");
         }
         Ok(_) => {}
         // An audit that could not run is not an accusation. The peer may have

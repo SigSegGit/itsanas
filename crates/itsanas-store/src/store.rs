@@ -742,10 +742,34 @@ impl Store {
         self.index.forget_device(device)
     }
 
-    /// The `limit` chunks this device has least recently confirmed `holder`
-    /// still has.
-    pub fn stalest_holdings(&self, holder: &DeviceId, limit: usize) -> Result<Vec<ChunkId>> {
-        self.index.stalest_holdings(holder, limit)
+    /// Chunks to challenge `holder` on, one drawn per cursor.
+    ///
+    /// The cursors must be unpredictable to the host being audited. A proof of
+    /// storage is worth exactly the host's inability to guess the question, and
+    /// the ordered version this replaced asked the same sixteen questions every
+    /// round for ever. See [`Index::chunks_to_challenge`].
+    pub fn chunks_to_challenge(
+        &self,
+        holder: &DeviceId,
+        cursors: &[ChunkId],
+    ) -> Result<Vec<ChunkId>> {
+        self.index.chunks_to_challenge(holder, cursors)
+    }
+
+    /// Note the one chunk `device` was offered while its sanction was in force.
+    pub fn note_probe(&self, device: &DeviceId, chunk: &ChunkId) -> Result<()> {
+        self.index.note_probe(device, chunk)
+    }
+
+    /// The chunk `device` owes an answer on, if it is paused and has been given
+    /// one.
+    ///
+    /// A paused peer is audited on **this** and nothing else. Drawing its
+    /// questions from the ledger instead would draw them from the thousands of
+    /// stale records it is paused *for*, so it would fail, so the sanction
+    /// would never lift — a ban wearing the words of a suspension.
+    pub fn probe(&self, device: &DeviceId) -> Result<Option<ChunkId>> {
+        self.index.probe(device)
     }
 
     /// Live chunks held by fewer than `target` devices, worst first.

@@ -293,6 +293,21 @@ has a record until a storage challenge fails. That is the honest position, and
 it is why challenges exist — without a ledger there is nothing to challenge,
 because nothing knows who to ask.
 
+**And a challenge is only worth the host's inability to guess it.** The ledger
+is therefore sampled at random: each round draws fresh cursors and asks about
+whatever record sits at or after each one, so what was asked this round says
+nothing about what will be asked next. The first version worked through the
+least recently confirmed records instead, which sounds better and was much
+worse: a push round re-stamps a whole batch of records from one clock reading,
+so the timestamps within a batch were equal and the sort fell through to its
+tie-break, the chunk id. The same sixteen lowest ids, every round, for ever —
+a host could keep sixteen chunks out of fourteen million and never be caught by
+anything in this system. Under random sampling a host keeping a fraction `f`
+survives a round of `n` questions with probability `f` to the `n`, which is the
+property the ordered version did not have at any fraction. The ledger's second
+key ordering is what makes the draw a seek rather than a scan; see
+`holders.rs`.
+
 ### Anchors: decided, not built
 
 Replication buys durability. It does not buy availability, and conflating the

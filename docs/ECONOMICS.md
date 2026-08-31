@@ -397,15 +397,33 @@ Recorded rather than hidden, because they are the ones that will matter next.
   Verified by running it: a host that deleted everything it had accepted was
   caught on the next round and the data was restored automatically.
 
+  **The questions are drawn, not scheduled.** This is the property the whole
+  mechanism rests on, and the first implementation did not have it. The audit
+  worked through the least recently confirmed records first, which reads like
+  diligence — but a push round re-stamps every record the peer *claims* to
+  hold, a whole batch from one clock reading, so within a batch every timestamp
+  was equal and the sort fell through to its tie-break: the chunk id. The same
+  sixteen chunks, the sixteen lowest ids, were challenged every round for ever.
+  A host could keep sixteen chunks out of fourteen million and hold a spotless
+  record. Cursors are now drawn fresh each round and each picks the record the
+  ledger holds at or after it, so a host keeping a fraction `f` of what it
+  accepted survives a round of sixteen questions with probability `f` to the
+  sixteenth — 18% at nine tenths of the data, one in fifty million over ten
+  rounds. Coverage becomes probabilistic instead of exhaustive, which is no loss
+  at all: the exhaustive version was exhaustive over sixteen chunks.
+
   A host that fails three rounds in a row stops being sent new content, which
   is the same sanction shape as everything else here: it restricts new
   commitments, destroys nothing, keeps receiving the log so it can still relay,
   and is cleared by a single passing challenge. It also keeps receiving **one
-  chunk per round** — a probe, and not a rounding error: a peer with no records
-  left has nothing to be challenged on, so withholding everything would make the
-  way back unreachable and turn the suspension into a ban. Without it, detection is not a
-  defence — the owner re-uploads every round and the host pays nothing, which is
-  a free drain on whoever trusted it.
+  chunk per round** — a probe, and not a rounding error. A paused peer's other
+  records are the ones it is paused *for*, so drawing its questions from them
+  would guarantee failure and make the suspension a ban with a friendlier
+  message. The probe is therefore written down when it is accepted, and a paused
+  peer is audited on that chunk **and nothing else**: accept it in one round,
+  answer for it in the next, and the sanction is over. Two rounds, on a store of
+  any size. That is what "one passing challenge clears this" has to mean if it
+  means anything.
 
   The limit is unchanged and still honest: a challenge proves possession at a
   moment, not continuously, and a host that fetches a chunk from another replica
@@ -413,6 +431,11 @@ Recorded rather than hidden, because they are the ones that will matter next.
   it, and the real protection is replication across parties with no reason to
   collude. Erasure coding across six or more independent nodes would change
   this; it is deferred.
+
+  What is still missing, and worth naming: the sample is drawn from the
+  **owner's ledger**, so it can only ask about chunks the owner recorded the
+  peer as taking. It says nothing about a host that accepted nothing in the
+  first place, which is what the pledge accounting is for.
 - **What if the coordinator disappears?** Peers keep their pinned node set and
   keep syncing with known addresses. New members cannot join and addresses go
   stale. Nothing is lost; the network stops growing. A second coordinator, or a

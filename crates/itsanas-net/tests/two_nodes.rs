@@ -1338,26 +1338,142 @@ fn red_team_a_host_that_keeps_discarding_stops_getting_free_uploads() {
     assert!(record.failed > 0);
 }
 
+/// Questions per audit round in these tests, matching
+/// `session::CHALLENGES_PER_ROUND`.
+const CHALLENGES: usize = 16;
+
 #[test]
-fn a_paused_host_that_starts_answering_again_is_sent_data_again() {
-    // The way back, and it has to actually exist. A failed audit withdraws the
-    // record for that chunk, so a paused peer very quickly has no records left
-    // — and an audit can only challenge on a record. Withholding *everything*
-    // would leave nothing to challenge, no audit would ever run, and "one
-    // passing challenge clears this" would be a sentence that could never come
-    // true: a ban wearing the words of a suspension.
+fn red_team_a_host_that_keeps_only_what_it_expects_to_be_asked_is_caught() {
+    // THE ATTACK: accept the whole store, work out which chunks the audit will
+    // ask about, keep exactly those, delete the rest. If the questions are
+    // predictable the host holds a spotless record while storing a rounding
+    // error — and for six commits they were not merely predictable, they were
+    // a constant.
     //
-    // That is exactly what the first version of this did, and the first version
-    // of this test worked around it rather than reporting it.
+    // The audit worked through the least recently confirmed records first,
+    // which reads like diligence. But a push round re-stamps every record the
+    // peer *claims* to hold, a whole batch from one clock reading, so within a
+    // batch every timestamp was equal and the sort fell through to its
+    // tie-break: the chunk id. The sixteen lowest ids, every round, for ever.
+    // At a terabyte that is sixteen chunks out of fourteen million.
+    //
+    // So this attacker keeps precisely the sixteen lowest ids and nothing else.
+    // Under the old rule it survives for ever. If this test fails, a host can
+    // pledge a terabyte, store a megabyte, and never be caught by anything in
+    // this system.
     let master = alice();
     let owner = node(&master, 1);
     let host = node(&master, 2);
 
     let chunks = owner
         .store
-        .write_file("bait.bin", b"content the host loses and then keeps")
+        .write_file("hostage.bin", &a_file_of_many_chunks(11, 8 << 20))
         .expect("write")
         .chunks;
+    owner.store.flush_segment().expect("flush");
+    assert!(
+        chunks.len() > CHALLENGES * 2,
+        "the fixture is {} chunks; with fewer than twice the questions per \
+         round, keeping the answers is not an attack, it is just storing the \
+         data",
+        chunks.len()
+    );
+
+    // Exactly what the old selection rule would have asked, every round.
+    let mut by_id: Vec<_> = chunks.clone();
+    by_id.sort_unstable();
+    let kept: std::collections::BTreeSet<_> = by_id.iter().take(CHALLENGES).copied().collect();
+
+    let discard_everything_else = || {
+        for chunk in &chunks {
+            if !kept.contains(chunk) {
+                let _ = host.vault.remove_chunk(owner.store.owner(), chunk);
+            }
+        }
+    };
+
+    with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).expect("dial");
+        session::push(&owner.store, &mut client).expect("push");
+    });
+    discard_everything_else();
+
+    // Six rounds. Re-deleting after each one so the owner's own pushes cannot
+    // accidentally repair what the attacker threw away.
+    let mut caught_in = None;
+    for round in 1..=6u32 {
+        with_server(&host, Pledge { bytes: 1 << 30 }, |address| {
+            let mut client = PeerClient::connect(address, &owner.device, owner.store.owner(), None)
+                .expect("dial");
+            let report = session::audit(&owner.store, &mut client, CHALLENGES).expect("audit");
+            if report.failed > 0 && caught_in.is_none() {
+                caught_in = Some(round);
+            }
+        });
+        discard_everything_else();
+    }
+
+    let held = kept.len();
+    assert!(
+        caught_in.is_some(),
+        "a host holding {held} of {} chunks answered six rounds of {CHALLENGES} \
+         questions without one failure. The questions are predictable, so the \
+         audit proves nothing at all.",
+        chunks.len()
+    );
+}
+
+/// A file large enough to be split into many chunks.
+///
+/// Single-chunk fixtures make the audit tests pass for the wrong reason: with
+/// one record on the ledger, every way of choosing what to challenge picks the
+/// same thing, so a selection rule that is broken for a real store looks
+/// correct. Twice this happened in this file before anyone noticed.
+fn a_file_of_many_chunks(seed: u8, bytes: usize) -> Vec<u8> {
+    // Not compressible and not repetitive: a repeating pattern would let the
+    // content-defined chunker cut it into a handful of identical pieces, which
+    // would collapse back into the single-record case this exists to avoid.
+    let mut out = Vec::with_capacity(bytes);
+    let mut state = u64::from(seed).wrapping_add(0x9E37_79B9_7F4A_7C15);
+    while out.len() < bytes {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        out.extend_from_slice(&state.to_le_bytes());
+    }
+    out
+}
+
+#[test]
+fn a_paused_host_that_starts_answering_again_is_sent_data_again() {
+    // The way back, and it has to actually exist — on a real store, not on a
+    // fixture of one chunk.
+    //
+    // A paused peer is offered one chunk a round so it has something it can
+    // prove. The first version left the audit to *find* that chunk in the
+    // ledger, where it sat as one fresh record among however many thousand
+    // stale ones the peer is paused for. Every question landed on a record the
+    // peer had already lost, every round failed, and the sanction never lifted:
+    // a ban wearing the words of a suspension. The test that was supposed to
+    // catch that used a thirty-seven byte file — one chunk, one record, the
+    // one case where finding the probe is guaranteed — and so it passed while
+    // the mechanism it named did not work.
+    let master = alice();
+    let owner = node(&master, 1);
+    let host = node(&master, 2);
+
+    let chunks = owner
+        .store
+        .write_file("bait.bin", &a_file_of_many_chunks(3, 2 << 20))
+        .expect("write")
+        .chunks;
+    assert!(
+        chunks.len() > 8,
+        "the fixture is {} chunks, which is small enough for the degenerate \
+         case to hide a broken selection rule again",
+        chunks.len()
+    );
     owner.store.flush_segment().expect("flush");
 
     let round = |discard: bool| {
@@ -1386,19 +1502,20 @@ fn a_paused_host_that_starts_answering_again_is_sent_data_again() {
         "the host was never paused, so this test would prove nothing"
     );
 
-    // The host is repaired and keeps what it is given from now on. Each round
-    // it is offered one probe chunk; keeping it is what lets the next audit
-    // find something to challenge, and passing that clears the pause.
-    for _ in 0..3 {
-        round(false);
-    }
+    // The host is repaired and keeps what it is given from now on. One round
+    // to be handed the probe and accept it, one round for the audit to ask
+    // about that exact chunk. Two, on a store of any size — which is what
+    // "one passing challenge clears this" has to mean if it means anything.
+    round(false);
+    round(false);
 
     assert!(
         owner
             .store
             .worth_sending_to(&host.store.device_id())
             .expect("record"),
-        "a host that has been answering correctly is still paused — there was no          way back, only a ban with a friendlier message"
+        "a host that has been answering correctly is still paused, so there was \
+         no way back — only a ban with a friendlier message"
     );
 
     // And once cleared, the rest of the data flows again.

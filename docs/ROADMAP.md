@@ -44,11 +44,17 @@ What is missing before this is a *network* rather than a personal sync tool:
   repair loop that *chooses* peers to fix a shortfall — which matters once
   there are more peers than a node pushes to anyway.
 - ~~**Nothing challenges a host on a schedule.**~~ Built. The daemon audits
-  every peer it contacts, and a host that cannot prove it still holds a chunk
-  has that record withdrawn — after which the chunk counts as under-replicated
-  and the same round re-uploads it. A host that fails three rounds in a row
-  stops being sent new content, keeps receiving the log so it can still relay,
-  and is cleared by one passing challenge.
+  every peer it contacts on chunks **drawn at random** from what the ledger says
+  that peer took, and a host that cannot prove it still holds one has that
+  record withdrawn — after which the chunk counts as under-replicated and the
+  same round re-uploads it. The randomness is the whole mechanism: the first
+  version asked about the least recently confirmed records, which in practice
+  was the same sixteen chunk ids every round for ever, and a host could keep
+  sixteen out of fourteen million and never be caught. A host that fails three
+  rounds in a row stops being sent new content, keeps receiving the log so it
+  can still relay, and is handed one chunk a round — the probe it is
+  then audited on, and nothing else, so answering for it in the
+  next round lifts the sanction.
 - **Recovery from username plus passphrase is not wired.** The escrow container
   exists and is tested; `itsanas login` still requires the 24 words.
 - **Never run on a Raspberry Pi.** Only `cargo check` for aarch64.

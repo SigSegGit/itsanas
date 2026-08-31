@@ -145,8 +145,11 @@ Each of these has a test that fails if it is:
 | A replay of the vault happens only when a marker says work is outstanding | Unconditional replay turned the daemon's per-round cost from "the new segments" into "the whole chain, times the peers"; never replaying means deferred work is silently never retried | `a_round_that_deferred_nothing_does_not_replay_the_chain_next_time` |
 | The holder ledger is kept in both key orders, written in one transaction | The two questions asked of it are range scans under opposite prefixes; one ordering makes the other a full table walk. Denormalised, and only defensible because every write and every removal touches both | `the_two_orderings_never_disagree_whatever_is_done_to_the_ledger` |
 | Nothing walks a log chain without a bound | `segments_for` returns a `Vec`; an unlimited walk materialises a whole history in RAM. Found once already in `blobs().addresses()` | `catalogue::MAX_SEGMENTS_WALKED`, and `Catalogue::complete` says when a listing was truncated |
-| A paused peer still receives one chunk per round | A failed audit withdraws that chunk's record, so a paused peer soon has nothing to be challenged on — and an audit can only challenge on a record. Withhold everything and the advertised way back can never be taken | `a_paused_host_that_starts_answering_again_is_sent_data_again` |
-| A peer paused for failing audits still receives log segments | Segments are kilobytes and keep it able to relay for devices that have done nothing wrong; cutting it out of the log would punish them too | `a_host_that_starts_answering_again_is_sent_data_again` |
+| An audit's questions are drawn at random, never ordered | Ordered selection is guessable, and one particular ordering — least recently confirmed first — degenerated into a *constant*, because a push round re-stamps a whole batch from one clock reading and the sort fell through to its tie-break. A host could keep the sixteen lowest chunk ids out of fourteen million and hold a spotless record | `red_team_the_same_question_is_not_asked_twice_every_round`; `red_team_a_host_that_keeps_only_what_it_expects_to_be_asked_is_caught` |
+| A paused peer receives one chunk per round **and is audited on that chunk alone** | Its other records are the ones it is paused for, so drawing questions from them guarantees failure and makes the suspension a ban. The probe is written down when accepted, not inferred from a timestamp — "the newest record" is precisely the one an ordered audit never reaches | `a_paused_host_that_starts_answering_again_is_sent_data_again`; `a_probe_is_remembered_until_the_peer_answers_for_it` |
+| Multi-chunk fixtures in every audit test | With one record on the ledger every selection rule picks the same thing, so a broken one looks correct. The way-back test used a 37-byte file and passed for two commits while the mechanism it named did not work | `a_file_of_many_chunks` in `tests/two_nodes.rs`, with a length assertion in each caller |
+| A store written before a table existed is repaired on open, not read as empty | `chunks_to_challenge` reads the device-first ordering; on an older file it would return nothing, no audit would ever ask anything, and a node that has stopped checking its hosts looks exactly like one whose hosts are honest | `a_ledger_written_before_the_second_ordering_is_rebuilt_on_open` |
+| A peer paused for failing audits still receives log segments | Segments are kilobytes and keep it able to relay for devices that have done nothing wrong; cutting it out of the log would punish them too | `a_paused_host_that_starts_answering_again_is_sent_data_again` |
 | A failed storage challenge withdraws evidence and never destroys data | The rule in ECONOMICS.md §5 is that the network never deletes as a sanction; a host that fails an audit simply stops counting as a holder, and the chunk is re-sent | `red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder` |
 | An audit never challenges on a chunk this device cannot verify | Verifying means re-deriving the sealed bytes locally; challenging without a local copy would withdraw an honest peer's record for a reason that is nothing to do with them | `an_audit_never_asks_about_a_chunk_it_could_not_check` |
 | A listing shows files not downloaded, and never writes an index entry for one | An index entry means a readable file, which the conflict and delete logic both assume. Faking one is a bug nobody can locate later | `a_metadata_round_makes_the_file_listable_before_it_is_downloaded`; `catalogue.rs` derives, never records |
@@ -222,11 +225,20 @@ side coming back, a deletion removing it from both, both folders byte-identical.
 5. **Repair execution.** `placement::repair::plan` is wired to nothing. Needs a
    census built from peer queries, which needs (2).
 6. ~~**Scheduled storage challenges.**~~ **Done.** `session::audit` challenges
-   a sample of a peer's holdings each round and withdraws the record when it
-   cannot answer, which makes the chunk under-replicated and gets it re-sent.
-   Three consecutive failures pause new content to that peer —
+   a **randomly drawn** sample of a peer's holdings each round and withdraws the
+   record when it cannot answer, which makes the chunk under-replicated and gets
+   it re-sent. Three consecutive failures pause new content to that peer —
    `itsanas_store::reliability` — because detection without memory lets a host
-   drain an owner's uplink forever by accepting and discarding.
+   drain an owner's uplink forever by accepting and discarding. A paused peer is
+   handed one chunk a round and audited on that chunk alone, so answering for it
+   lifts the sanction in the next round.
+
+   The randomness is not a detail. The first version asked about the least
+   recently confirmed records, which in practice was a fixed list of the sixteen
+   lowest chunk ids, asked every round for ever; a host could keep sixteen
+   chunks out of fourteen million and pass every audit it was ever given. If you
+   change how questions are chosen, the property to preserve is that the host
+   cannot predict them — not that every chunk is eventually covered.
 7. ~~**Benchmarks.**~~ **Done.** `itsanas bench` ships as a command and measures
    throughput, save latency and the round trip. Still never run on a Pi.
 8. **Raspberry Pi bring-up.** Never run on ARM. Only `cargo check` for

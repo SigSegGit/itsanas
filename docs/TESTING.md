@@ -1,26 +1,30 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 593 test functions across 23 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. Sixteen are red-team tests.**
+**Last updated: 2026-08-31 — 599 test functions across 21 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. Eighteen are red-team tests.**
 
 | Binary | Tests |
 | --- | --- |
 | `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
-| `itsanas-wire` unit | 17 |
+| `itsanas-wire` unit | 19 |
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 97 |
+| `itsanas-store` unit | 130 |
 | `itsanas-store` integration (`tests/store.rs`) | 29 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 19 |
-| `itsanas-net` unit | 25 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 12 |
+| `itsanas-net` unit | 30 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 27 |
 | `itsanas-placement` unit | 29 |
-| `itsanas-coord` unit | 47 |
+| `itsanas-coord` unit | 55 |
+| `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
+| `itsanas-discover` unit | 36 |
+| `itsanas-policy` unit | 11 |
 | `itsanas-folder` unit | 31 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 25 |
+| `itsanas-cli` unit | 39 |
+| `itsanas-cli` crash (`tests/crash.rs`) | 1 (`#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with
@@ -272,7 +276,11 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | Test | What it proves |
 | --- | --- |
 | **`the_two_orderings_never_disagree_whatever_is_done_to_the_ledger`** | The ledger is kept in two key orders, because "who holds this chunk?" and "what does this peer hold?" are range scans under opposite prefixes and answering one with the wrong ordering is a full table walk — fourteen million rows per audit round at a terabyte. That is denormalised state, which this project refuses everywhere else, and the refusal is only earned if every path writing one writes the other in the same transaction. Exercised across recording, batching, forgetting a holder, forgetting a device, and collecting a chunk. |
-| `the_stalest_holdings_of_one_device_ignore_every_other_device` | The audit works through the least recently confirmed records of *one* peer, and must not be handed another's. |
+| **`red_team_the_same_question_is_not_asked_twice_every_round`** | The attack that broke the audit for six commits: keep the chunks that will be asked about, delete the rest. Selection used to sort by when each record was last confirmed — but a push round re-stamps a whole batch from one clock reading, so every timestamp in a batch was equal and the sort fell through to its tie-break, the chunk id. The same sixteen lowest ids, every round, for ever. Sixteen chunks out of fourteen million bought a spotless record. |
+| `the_challenges_for_one_device_never_name_another_device_s_chunks` | Exhaustive over every cursor in the space: no draw may wander out of one peer's range into a neighbour's. Auditing a peer on another peer's records fails an innocent host. |
+| **`every_holding_is_reachable_by_some_cursor`** | A cursor past the device's highest id wraps rather than being discarded. Without the wrap the lowest-numbered chunks would be the only ones never asked about — a hole an attacker can park its deletions in. |
+| **`a_probe_is_remembered_until_the_peer_answers_for_it`** | The probe survives a failed round (the peer still owes an answer) and is cleared by a passing one (the sanction is over). A marker left standing after the pause lifts would misdirect the next round's questions. |
+| **`a_ledger_written_before_the_second_ordering_is_rebuilt_on_open`** | Every write path writes both orderings, so they cannot drift while running — but they can *start* apart, on a store written before the device-first table existed. Left alone that is silent and total: challenge selection reads the second table, so no audit would ever ask anything, and a node that has stopped checking its hosts looks exactly like one whose hosts are honest. |
 | **`a_target_counts_this_device_so_three_asks_for_two_elsewhere`** | The counting convention, pinned. Off by one here means the repair loop targets two copies while reporting three, and nothing ever says so — it surfaces as data loss after two machines die instead of after three. |
 | **`the_chunks_closest_to_being_lost_are_reported_first`** | A repair pass on a laptop is interrupted by the lid closing. Ordered by chunk id, the work done before the interruption would be random with respect to risk, and the chunk with one copy left could wait behind a thousand that had two. |
 | **`recording_the_same_holder_twice_refreshes_rather_than_duplicates`** | A peer syncing hourly acknowledges the same chunks every hour. One row per acknowledgement would grow the ledger without bound and inflate the replica count — wrong in the direction that hides a real shortage. |
@@ -545,7 +553,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (26)
+# `itsanas-net` — two-node tests (27)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -556,7 +564,8 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_peer_that_already_had_the_data_is_still_recorded_as_holding_it`** | The property that makes the ledger converge rather than only grow. A device restored from its recovery phrase learns where its data lives by *asking*, instead of re-uploading its whole store to find out — and the answer costs nothing extra, since it is the same round trip that decides what to send. |
 | **`a_host_that_refuses_to_store_is_not_recorded_as_holding_anything`** | A node that pledged nothing still answers, because refusing to host does not stop it being a peer. Recording it as a holder would let a node believe its data was replicated onto a machine that declined it — the worst possible error, indistinguishable from safety until the local disk dies. |
 | **`red_team_a_host_that_keeps_discarding_stops_getting_free_uploads`** | The attack auditing alone does **not** stop. Accept, delete, wait: the audit catches it every round and the owner re-uploads every round, so the host pays nothing and the owner pays a full upload each time. The more data the owner has, the more it costs them. Detection without memory is not a defence. |
-| **`a_paused_host_that_starts_answering_again_is_sent_data_again`** | The way back, and it has to actually exist. A failed audit withdraws the record for that chunk, so a paused peer very quickly has no records left — and an audit can only challenge on a record. Withholding *everything* would leave nothing to challenge, no audit would run, and "one passing challenge clears this" would be a sentence that could never come true: a ban wearing the words of a suspension. That is what the first version did, and the first version of this test worked around it instead of reporting it. |
+| **`red_team_a_host_that_keeps_only_what_it_expects_to_be_asked_is_caught`** | The same attack as the unit test above, end to end over a socket, against the exact set the old rule would have named: the host keeps the sixteen lowest chunk ids out of 117 and deletes the rest. Under the old rule it survived every round for ever. |
+| **`a_paused_host_that_starts_answering_again_is_sent_data_again`** | The way back, on a store of a hundred chunks rather than one. A paused peer is offered one chunk a round; the first version left the audit to *find* it in the ledger, where it sat as one fresh record among the thousands the peer is paused for, so every question landed on something it had already lost and the sanction never lifted — a ban wearing the words of a suspension. The probe is now written down and is the only thing a paused peer is asked about: accept, answer, cleared, in two rounds. **The earlier version of this test used a 37-byte file** — one chunk, one record, the single case where finding the probe is guaranteed — so it passed while the mechanism it named did not work. |
 | **`red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder`** | The attack that costs nothing: accept everything offered, delete it immediately, keep claiming the space. A node trusting its own ledger would believe its files were on three machines while two held nothing, and find out on the day the third disk died. The audit withdraws the record, the chunk shows as under-replicated, and the same round re-uploads it. |
 | **`an_audit_never_asks_about_a_chunk_it_could_not_check`** | Verifying a proof means re-deriving the sealed bytes locally. Challenging on a chunk this device has collected would fail for a reason that is nothing to do with the peer, and would withdraw an honest record. |
 | `an_audit_confirms_a_host_that_is_still_holding_the_data` | The ordinary path: evidence becomes proof, for the moment it is asked. |

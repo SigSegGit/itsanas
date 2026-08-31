@@ -254,9 +254,21 @@ peers that have failed a storage challenge
   9a172f45f52f answered 12 and failed 3, and is answering now
 ```
 
-A host that fails three rounds in a row stops being sent new data — it keeps
-receiving the log and one probe chunk per round, so it can prove itself and be
-reinstated. Nothing of its own is touched.
+Each round the daemon asks every peer it reaches to prove it still holds a
+handful of the chunks the ledger says it took. Which chunks is drawn fresh every
+round: a host that could predict the questions would only have to keep the
+answers.
+
+A host that fails three rounds in a row stops being sent new data. It keeps
+receiving the log, and one chunk a round — the *probe*, which is the only thing
+the next audit asks it about. Take the chunk, answer for it next round, and the
+pause lifts:
+
+```text
+9a172f45f52f: answered for the chunk it was given — no longer paused.
+```
+
+Nothing of its own is ever touched, and nothing is deleted.
 
 `status` separates two things a node holds that are easy to confuse:
 

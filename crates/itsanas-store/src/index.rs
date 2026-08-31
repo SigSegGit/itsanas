@@ -15,7 +15,7 @@ use std::{
 };
 
 use itsanas_crypto::{ChunkId, DeviceId, ObjectId};
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 
 use crate::{
     error::{Result, StoreError},
@@ -94,6 +94,18 @@ pub struct HolderOrderings {
 /// is a full table scan — fourteen million rows per audit round at a terabyte.
 const HOLDINGS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holdings_by_device");
 
+/// Device → the one chunk it was last offered while its sanction was in force.
+///
+/// A paused peer is sent a single chunk per round so that it has something it
+/// can prove. That only works if the audit then *asks about that chunk*, and
+/// the audit picks its questions from the holder ledger, where one fresh record
+/// sits among however many thousand stale ones. Written down explicitly rather
+/// than inferred from a timestamp, because "the newest record" is precisely the
+/// one an ordered audit never reaches.
+///
+/// Cleared when the peer passes, which is the moment the sanction lifts.
+const PROBES: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("probe_offered");
+
 /// Device → what auditing it has shown, over time.
 ///
 /// Detection without memory is not a defence: a host that discards what it
@@ -153,10 +165,80 @@ impl Index {
             let _ = txn.open_table(APPLIED)?;
             let _ = txn.open_table(RELIABILITY)?;
             let _ = txn.open_table(HOLDINGS)?;
+            let _ = txn.open_table(PROBES)?;
         }
         txn.commit()?;
 
+        Self::backfill_holdings(&db)?;
+
         Ok(Self { db })
+    }
+
+    /// Rebuild the device-first ordering for a store written before it existed.
+    ///
+    /// Every path that writes a holder record writes both orderings in one
+    /// transaction, so the two cannot drift *while running*. They can still
+    /// start out disagreeing: a file written by an earlier version has the
+    /// chunk-first table populated and the device-first one absent.
+    ///
+    /// Left alone that is silent and total. `chunks_to_challenge` reads the
+    /// device-first table, so it would return nothing, so no audit would ever
+    /// ask a peer anything, so `note_audit` would never be reached and the
+    /// daemon would print nothing — a node that has stopped checking its hosts
+    /// looks exactly like a node whose hosts are all honest. `forget_device`
+    /// would likewise report zero and leave every row behind.
+    ///
+    /// Runs once: after it, the second table is non-empty and the check is a
+    /// pair of O(1) length reads on every subsequent open.
+    fn backfill_holdings(db: &Database) -> Result<()> {
+        {
+            let txn = db.begin_read()?;
+            let holders = txn.open_table(HOLDERS)?;
+            let holdings = txn.open_table(HOLDINGS)?;
+            if holders.len()? == 0 || holdings.len()? > 0 {
+                return Ok(());
+            }
+        }
+
+        let txn = db.begin_write()?;
+        {
+            let holders = txn.open_table(HOLDERS)?;
+            let mut holdings = txn.open_table(HOLDINGS)?;
+            let mut carried: Vec<([u8; holders::HOLDER_KEY_LEN], u64)> = Vec::new();
+            for row in holders.iter()? {
+                let (key, value) = row?;
+                if let Some((chunk, device)) = holders::split(key.value()) {
+                    carried.push((holders::by_device(&device, &chunk), value.value()));
+                }
+            }
+            for (key, when) in carried {
+                holdings.insert(key.as_slice(), when)?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Drop the device-first ordering, reproducing a file written before it
+    /// existed.
+    ///
+    /// Only the backfill test calls this. Reproducing an old store any other
+    /// way would mean keeping a binary fixture, which rots.
+    #[cfg(test)]
+    fn forget_the_device_ordering_for_test(&self) {
+        let txn = self.db.begin_write().unwrap();
+        {
+            let mut holdings = txn.open_table(HOLDINGS).unwrap();
+            let keys: Vec<Vec<u8>> = holdings
+                .iter()
+                .unwrap()
+                .filter_map(|row| row.ok().map(|(key, _)| key.value().to_vec()))
+                .collect();
+            for key in keys {
+                holdings.remove(key.as_slice()).unwrap();
+            }
+        }
+        txn.commit().unwrap();
     }
 
     // ---------------------------------------------------------------- files
@@ -663,6 +745,11 @@ impl Index {
     }
 
     /// Record one audit outcome for `device`.
+    ///
+    /// A pass clears any outstanding probe in the same transaction: the probe
+    /// exists to give a paused peer a question it can answer, and once it has
+    /// answered one the sanction is over and the marker would only misdirect
+    /// the next round's questions.
     pub fn note_audit(&self, device: &DeviceId, passed: bool, now: u64) -> Result<Reliability> {
         let mut record = self.reliability(device)?;
         if passed {
@@ -677,9 +764,35 @@ impl Index {
                 device.as_bytes().as_slice(),
                 postcard::to_stdvec(&record)?.as_slice(),
             )?;
+            if passed {
+                txn.open_table(PROBES)?
+                    .remove(device.as_bytes().as_slice())?;
+            }
         }
         txn.commit()?;
         Ok(record)
+    }
+
+    /// Note the one chunk `device` was offered while paused.
+    pub fn note_probe(&self, device: &DeviceId, chunk: &ChunkId) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(PROBES)?
+                .insert(device.as_bytes().as_slice(), chunk.as_bytes().as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// The chunk `device` was last offered while paused, if it still owes an
+    /// answer on one.
+    pub fn probe(&self, device: &DeviceId) -> Result<Option<ChunkId>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(PROBES)?;
+        match table.get(device.as_bytes().as_slice())? {
+            Some(value) => Ok(Some(ChunkId::from_slice(value.value())?)),
+            None => Ok(None),
+        }
     }
 
     /// Every device with something on its record, worst first.
@@ -868,39 +981,84 @@ impl Index {
         Ok(out)
     }
 
-    /// The `limit` oldest acknowledgements held by `device`, oldest first.
+    /// Chunks to challenge `device` on, one drawn per cursor.
     ///
-    /// The ledger records *when* each holder last confirmed a chunk, and until
-    /// now nothing read that field. An audit round works through the stalest
-    /// records first, so every chunk a peer claims gets re-checked eventually
-    /// and none is checked twice while another waits — without keeping a
-    /// separate queue that could drift from the ledger it describes.
-    pub fn stalest_holdings(&self, device: &DeviceId, limit: usize) -> Result<Vec<ChunkId>> {
-        if limit == 0 {
-            return Ok(Vec::new());
-        }
-
+    /// # Why this is a lottery and not "the least recently confirmed first"
+    ///
+    /// The first version sorted this device's holdings by when each was last
+    /// confirmed and took the oldest. That reads like diligence and is worth
+    /// nothing, because a push round re-stamps every record the peer *claims*
+    /// to hold — a whole batch per clock reading — so within a batch every
+    /// timestamp is equal and the sort falls through to its tie-break, the
+    /// chunk id. The same sixteen chunks, the sixteen lowest ids, were
+    /// challenged every round for ever. A host could keep sixteen chunks out of
+    /// fourteen million, answer every question it was ever asked, and hold a
+    /// spotless record while storing a millionth of what it promised.
+    ///
+    /// A proof of storage is worth exactly the host's inability to guess the
+    /// question. So the question is drawn: each cursor seeks to the first chunk
+    /// this device holds at or after it, wrapping past the end of the range.
+    /// Chunk ids are BLAKE3 outputs and so uniform over the space, which is what
+    /// makes a uniform cursor land on a near-uniform record.
+    ///
+    /// A host keeping a fraction `f` of what it accepted now passes a round of
+    /// `n` questions with probability `f` to the power `n`. At sixteen
+    /// questions, keeping 90% of the data buys an 18% chance of surviving one
+    /// round and one chance in fifty million of surviving ten. The ordered
+    /// version offered certainty while keeping 0.0001%.
+    ///
+    /// Coverage becomes probabilistic rather than exhaustive. That is the right
+    /// trade and barely a trade at all: the exhaustive version was exhaustive
+    /// over sixteen chunks.
+    ///
+    /// # Cost
+    ///
+    /// One B-tree seek per cursor. The version this replaces walked every
+    /// holding of the device — fourteen million rows per audit at a terabyte,
+    /// on the machine least able to afford it.
+    ///
+    /// Fewer chunks than cursors come back when the device holds fewer records
+    /// than that, or when two cursors land on the same one; duplicates are
+    /// dropped because asking the same question twice proves nothing twice.
+    pub fn chunks_to_challenge(
+        &self,
+        device: &DeviceId,
+        cursors: &[ChunkId],
+    ) -> Result<Vec<ChunkId>> {
         let txn = self.db.begin_read()?;
         let table = txn.open_table(HOLDINGS)?;
+        let start = holders::device_range_start(device);
+        let end = holders::device_range_end(device);
 
-        // A range under this device, not a walk of every holder of every chunk.
-        // The first version scanned the whole ledger and filtered, which at a
-        // terabyte is fourteen million rows read for one audit of one peer,
-        // every round, on the machine least able to afford it.
-        let mut found: Vec<(u64, ChunkId)> = Vec::new();
-        for row in table.range(
-            holders::device_range_start(device).as_slice()
-                ..=holders::device_range_end(device).as_slice(),
-        )? {
-            let (key, value) = row?;
-            if let Some((_, chunk)) = holders::split_by_device(key.value()) {
-                found.push((value.value(), chunk));
+        let mut picked: Vec<ChunkId> = Vec::with_capacity(cursors.len());
+        for cursor in cursors {
+            let from = holders::by_device(device, cursor);
+            let mut hit = table
+                .range(from.as_slice()..=end.as_slice())?
+                .next()
+                .transpose()?;
+            if hit.is_none() {
+                // Past this device's last id. A cursor that fell off the end
+                // must wrap rather than be discarded, or the highest-numbered
+                // chunks would be the only ones ever asked about and the lowest
+                // would be asked about never.
+                hit = table
+                    .range(start.as_slice()..=end.as_slice())?
+                    .next()
+                    .transpose()?;
+            }
+
+            let Some((key, _)) = hit else {
+                return Ok(picked); // this device holds nothing at all
+            };
+            if let Some((_, chunk)) = holders::split_by_device(key.value())
+                && !picked.contains(&chunk)
+            {
+                picked.push(chunk);
             }
         }
 
-        found.sort_unstable();
-        found.truncate(limit);
-        Ok(found.into_iter().map(|(_, chunk)| chunk).collect())
+        Ok(picked)
     }
 
     /// Both orderings of the holder ledger, for cross-checking.
@@ -1213,19 +1371,172 @@ mod tests {
     }
 
     #[test]
-    fn the_stalest_holdings_of_one_device_ignore_every_other_device() {
+    fn the_challenges_for_one_device_never_name_another_device_s_chunks() {
         let (_dir, index) = index();
         index.record_holder(&chunk(1), &device(7), 500).unwrap();
         index.record_holder(&chunk(2), &device(7), 100).unwrap();
         index.record_holder(&chunk(3), &device(8), 1).unwrap();
 
-        assert_eq!(
-            index.stalest_holdings(&device(7), 10).unwrap(),
-            vec![chunk(2), chunk(1)],
-            "oldest confirmation first, and only this device's"
+        // Every cursor in the space, so this is exhaustive rather than a
+        // sample: no draw may ever wander into a neighbour's range.
+        let every: Vec<ChunkId> = (0..=255u8).map(chunk).collect();
+        let drawn = index.chunks_to_challenge(&device(7), &every).unwrap();
+        assert_eq!(drawn.len(), 2, "two records, so at most two questions");
+        assert!(drawn.contains(&chunk(1)) && drawn.contains(&chunk(2)));
+        assert!(
+            !drawn.contains(&chunk(3)),
+            "a cursor reached across into device 8's holdings; auditing one peer \
+             on another peer's records would fail an innocent host"
         );
-        assert_eq!(index.stalest_holdings(&device(9), 10).unwrap(), Vec::new());
-        assert_eq!(index.stalest_holdings(&device(7), 0).unwrap(), Vec::new());
+
+        assert!(
+            index
+                .chunks_to_challenge(&device(9), &every)
+                .unwrap()
+                .is_empty(),
+            "a device that holds nothing was asked something"
+        );
+        assert!(
+            index
+                .chunks_to_challenge(&device(7), &[])
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn every_holding_is_reachable_by_some_cursor() {
+        // The wrap matters: without it a cursor past the device's highest id
+        // would be discarded, and the lowest-numbered chunks would be the only
+        // ones never asked about — a hole an attacker could park its deletions
+        // in.
+        let (_dir, index) = index();
+        let held: Vec<ChunkId> = [3u8, 40, 200].iter().map(|b| chunk(*b)).collect();
+        index.record_holders(&held, &device(7), 1).unwrap();
+
+        let mut seen = std::collections::BTreeSet::new();
+        for byte in 0..=255u8 {
+            for drawn in index
+                .chunks_to_challenge(&device(7), &[chunk(byte)])
+                .unwrap()
+            {
+                seen.insert(drawn);
+            }
+        }
+        assert_eq!(
+            seen.len(),
+            held.len(),
+            "some chunk this peer holds can never be challenged: {seen:?}"
+        );
+    }
+
+    #[test]
+    fn red_team_the_same_question_is_not_asked_twice_every_round() {
+        // THE ATTACK: keep the sixteen chunks that will be asked about and
+        // throw away the other fourteen million. It worked, for six commits.
+        // The audit sorted by when each record was last confirmed and a push
+        // round re-stamps a whole batch from one clock reading, so every
+        // timestamp in the batch was equal and the sort fell through to its
+        // tie-break — the chunk id. The same sixteen lowest ids, every round,
+        // for ever.
+        //
+        // If this test fails, a host can store a millionth of what it promised
+        // and hold a spotless audit record while doing it.
+        let (_dir, index) = index();
+        let all: Vec<ChunkId> = (0..=200u8).map(chunk).collect();
+        index.record_holders(&all, &device(7), 1000).unwrap();
+
+        // Ten rounds, each with its own draw, exactly as `session::audit` does.
+        let mut rounds: Vec<Vec<ChunkId>> = Vec::new();
+        for round in 0..10u8 {
+            let cursors: Vec<ChunkId> = (0..16u8)
+                .map(|slot| {
+                    // Stand-in for getrandom: any spread of cursors will do,
+                    // what is being tested is that the *selection* follows them
+                    // rather than ignoring them for a fixed order.
+                    chunk(round.wrapping_mul(37).wrapping_add(slot.wrapping_mul(11)))
+                })
+                .collect();
+            rounds.push(index.chunks_to_challenge(&device(7), &cursors).unwrap());
+        }
+
+        assert!(
+            rounds.windows(2).any(|pair| pair[0] != pair[1]),
+            "every round asked the identical set of questions, so a host only \
+             has to keep the answers to those"
+        );
+
+        let union: std::collections::BTreeSet<ChunkId> = rounds.iter().flatten().copied().collect();
+        assert!(
+            union.len() > 16,
+            "ten rounds of sixteen questions only ever touched {} chunks, so \
+             the rest of the store is never checked",
+            union.len()
+        );
+    }
+
+    #[test]
+    fn a_probe_is_remembered_until_the_peer_answers_for_it() {
+        let (_dir, index) = index();
+        assert_eq!(index.probe(&device(7)).unwrap(), None);
+
+        index.note_probe(&device(7), &chunk(9)).unwrap();
+        assert_eq!(index.probe(&device(7)).unwrap(), Some(chunk(9)));
+
+        // A failure leaves it standing: the peer still owes an answer, and the
+        // next round hands it a fresh one.
+        index.note_audit(&device(7), false, 1).unwrap();
+        assert_eq!(index.probe(&device(7)).unwrap(), Some(chunk(9)));
+
+        // A pass ends the sanction, so the marker has nothing left to point at.
+        index.note_audit(&device(7), true, 2).unwrap();
+        assert_eq!(index.probe(&device(7)).unwrap(), None);
+    }
+
+    #[test]
+    fn a_ledger_written_before_the_second_ordering_is_rebuilt_on_open() {
+        // Every write path writes both orderings, so they cannot drift while
+        // running. They can still *start* apart: a store written by an earlier
+        // version has the chunk-first table and no other. Left alone that is
+        // silent and total — `chunks_to_challenge` reads the device-first
+        // table, so no audit would ever ask anything, and a node that has
+        // stopped checking its hosts looks exactly like one whose hosts are
+        // honest.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.redb");
+
+        {
+            let index = Index::open(&path).unwrap();
+            index
+                .record_holders(&[chunk(1), chunk(2), chunk(3)], &device(7), 5)
+                .unwrap();
+            // Reach past the API to reproduce the old file: remove the second
+            // ordering and leave the first, which is exactly what an upgrade
+            // from before it existed looks like.
+            index.forget_the_device_ordering_for_test();
+            assert!(
+                index
+                    .chunks_to_challenge(&device(7), &[chunk(0)])
+                    .unwrap()
+                    .is_empty(),
+                "the fixture did not actually reproduce the old file"
+            );
+        }
+
+        let index = Index::open(&path).unwrap();
+        let orderings = index.holder_orderings().unwrap();
+        assert_eq!(
+            orderings.by_chunk, orderings.by_device,
+            "opening an older store left the two orderings disagreeing"
+        );
+        assert_eq!(
+            index
+                .chunks_to_challenge(&device(7), &[chunk(0), chunk(2), chunk(3)])
+                .unwrap()
+                .len(),
+            3,
+            "audits are silently dead on a store written before this table"
+        );
     }
 
     #[test]
