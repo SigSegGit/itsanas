@@ -8,20 +8,38 @@ files live encrypted on their machines, theirs live encrypted on yours, and
 nobody can open anybody else's. Devices come and go — laptops sleep, a Pi
 reboots — and your data stays available and stays in sync.
 
-> **Status: early, but it runs.** Two machines keep a folder in sync over an
-> encrypted, mutually authenticated connection: drop a file in, it appears on
-> the other; delete it, it goes from both. Machines on the same network find
-> each other with nothing configured, and an account can be recovered on a
-> fresh machine from a passphrase alone. 560 tests, thirteen of them red-team.
+> ## ⚠️ Under construction. Do not put data you care about in this.
 >
-> Saving is fast — a 512 KiB document is stored, sealed and announced in 28 ms,
-> measured by `itsanas bench`. Filling a terabyte is not: one file per chunk
-> means 14.7 million of them, so pack files are planned.
+> This is a working prototype being built in the open, not a product. It has
+> never run on the fleet it is designed for, no version has been released, and
+> the on-disk format may change without a migration. **Treat anything you store
+> with it as already lost.**
 >
-> What is missing: none of it has been run on four real machines yet, and there
-> is no repair execution. See [docs/ROADMAP.md](docs/ROADMAP.md) and
-> [docs/MVP.md](docs/MVP.md).
-> Nothing here is ready to hold data you care about yet.
+> **What runs today.** Two machines keep a folder in sync over an encrypted,
+> mutually authenticated connection: drop a file in, it appears on the other;
+> delete it, it goes from both. Machines on one network find each other with
+> nothing configured; machines elsewhere find each other through a coordinator
+> that holds no keys and no file data. An account is recovered on a fresh
+> machine from a passphrase alone — **and the files come back**, verified end
+> to end with the real binaries. Hosts are audited on chunks drawn in an order
+> they cannot predict, and a peer that cannot answer stops being sent data. A
+> disk that quietly loses a block gets it back from a peer that still has it.
+> Joining is by invitation from an existing member.
+>
+> 637 tests, 29 of them red-team — a red-team test **passes when the attack
+> fails**. See [docs/TESTING.md](docs/TESTING.md), which lists every one of them
+> with the property it establishes.
+>
+> **Saving is fast.** A 512 KiB document is stored, sealed and announced in
+> 28 ms, measured by `itsanas bench`. Filling a terabyte is not: one file per
+> chunk is 14.7 million of them, so pack files are planned.
+>
+> **What is missing, and it is not small.** It has never run on four real
+> machines for a week. It has never run on ARM at all — the Raspberry Pi
+> justifies half the constants in this repository and has executed none of
+> them. Repair chooses no peers. Tombstones are never pruned. There is no
+> Android app. See [docs/ROADMAP.md](docs/ROADMAP.md) for the list and
+> [docs/MVP.md](docs/MVP.md) for what would make it worth trusting.
 
 ## The idea in one picture
 
@@ -129,6 +147,27 @@ byte is **pinned by digest** and checked in CI.
 cargo run -p itsanas-testkit --bin generate-fixtures
 ```
 
+## Installing
+
+One script per system, each of which checks the machine before it changes
+anything and says what it found:
+
+```sh
+sh install/linux.sh          # Linux, Raspberry Pi, the Freebox VM
+sh install/macos.sh          # macOS, Apple silicon and Intel
+sudo sh install/coordinator.sh   # the machine with a public address
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install\windows.ps1
+```
+
+[install/README.md](install/README.md) has a column saying which of those has
+actually been executed on the system it claims to install, because an installer
+nobody has run is a hypothesis with a shebang. Android has
+[a page](install/android.md) rather than a script: the core compiles for
+`aarch64-linux-android` and CI checks it, but the app does not exist.
+
 ## Building
 
 **Requires Rust 1.88 or newer** — the code uses let-chains, so edition 2024 on
@@ -149,10 +188,20 @@ cargo test --workspace -- --ignored
 ## Contributing
 
 Bug reports and patches welcome. [CONTRIBUTING.md](CONTRIBUTING.md) has the
-build requirements, the CI gates you can run locally, and the three house rules
-— tests that would fail without the change, an entry in
-[docs/TESTING.md](docs/TESTING.md) saying what each proves, and documentation
-updated in the same commit as the code.
+build requirements, the CI gates you can run locally, and four house rules
+— a test that would fail without the change, an entry in
+[docs/TESTING.md](docs/TESTING.md) saying what each proves, documentation
+updated in the same commit as the code, and nothing merged that no code calls.
+
+The last three are enforced by scripts rather than by review, because each was
+written the day something shipped broken and nothing in the toolchain noticed:
+
+```bash
+bash scripts/check-catalogue.sh    # every test named in the docs exists
+python scripts/check-messages.py   # `cargo fmt` eats line continuations in strings
+python scripts/check-wired.py      # every public function has a caller
+bash scripts/check-installers.sh   # the installers parse, and agree with Cargo.toml
+```
 
 ## Licence
 
