@@ -155,14 +155,21 @@ jobs:
       # A build says the types line up. It does not say the code runs, and until
       # this step existed no line of this project had ever executed on an ARM
       # processor -- the machine half its constants are chosen for. aarch64 is
-      # where blake3 switches to its NEON backend and where alignment rules are
-      # stricter, either of which can link cleanly and then misbehave.
+      # where blake3 switches to its NEON backend, which can link cleanly and
+      # hash wrong.
       #
       # `qemu-user-static` runs the binary against the sysroot the cross
       # compiler already installed, so this costs one apt package and no
-      # container images. It is emulation on a fast machine, so it says nothing
-      # about whether a Pi 4B has the memory for a terabyte of index; that
-      # question needs the Pi. It is the floor.
+      # container images.
+      #
+      # It emulates the instruction set on this machine's kernel, which is a
+      # narrower claim than "runs on ARM". It does not reproduce aarch64's weak
+      # memory ordering -- the one architectural difference that bites a
+      # threaded program -- because the host is x86 and orders more strongly.
+      # It reports an emulated CPU's features, so a library that picks its code
+      # path at runtime may pick a different one here than on a Cortex-A72. And
+      # it says nothing about whether a Pi 4B has the memory for a terabyte of
+      # index. That question needs the Pi. This is the floor.
       - run: sudo apt-get install -y qemu-user-static
       # cargo knows how to hand a test binary to an emulator, so the whole suite
       # can run on the target architecture for the price of one env var. This is

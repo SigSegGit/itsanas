@@ -31,9 +31,14 @@ What is checked
   each row's tests are `#[ignore]`d;
 * that the table has a row for every binary that has tests, and no row for a
   binary that does not;
+* the section headings, which are a partition of each crate and have to add up
+  to that crate's real count;
 * the totals in the `docs/TESTING.md` header, including how many doctests
   there are;
-* the counts in `README.md` and `docs/ROADMAP.md`.
+* how many tests have an entry of their own, and a ceiling on how many do not,
+  so that adding a test without one is a decision rather than an accident;
+* the counts in `README.md` and `docs/ROADMAP.md`, and the number of CI jobs
+  the roadmap claims.
 
 The source is the authority: a test is a function carrying `#[test]` or
 `#[tokio::test]` under `crates/`, and a red-team test is one whose name starts
@@ -73,6 +78,19 @@ CITED = re.compile(r'`([a-z][a-z0-9_]+)`')
 COVERAGE_CLAIM = re.compile(
     r'(\d+) of the (\d+) tests have an entry of their own'
 )
+
+# A ratchet, and the reason for it is the shape of the check above rather than
+# anything about the catalogue. Stating "522 of the 638" and checking both
+# numbers means that adding an uncatalogued test fails on the *denominator*:
+# the check says "the test total it is out of is 638; it is 639", and the
+# cheapest way to satisfy it is to write 639 and never touch the 522. A gate
+# that counts a debt and asks you politely to increment it is not a gate.
+#
+# So the number of tests with no entry has a ceiling, and the ceiling lives
+# here rather than in prose. It may go down. Raising it means editing the file
+# whose purpose is to stop you, which is the amount of friction the decision
+# deserves -- not none, and not a refusal.
+UNCATALOGUED_CEILING = 116
 
 # A row is `crate` then a human label, then a cell that is a number and
 # optionally how many of them are ignored. The label carries the source file in
@@ -268,6 +286,15 @@ def main():
                 int(claim.group(1)), len(cited), problems)
         compare('docs/TESTING.md', 'the test total it is out of',
                 int(claim.group(2)), total, problems)
+
+    uncatalogued = total - len(cited)
+    if uncatalogued > UNCATALOGUED_CEILING:
+        problems.append(
+            '%d tests have no entry of their own in docs/TESTING.md, and the '
+            'ceiling in this script is %d. Write the entry, or raise the '
+            'ceiling here on purpose -- but a test added without one is a debt '
+            'taken out quietly.' % (uncatalogued, UNCATALOGUED_CEILING)
+        )
 
     flat = ' '.join(testing.split())
     header = HEADER.search(flat)

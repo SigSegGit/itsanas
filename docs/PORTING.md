@@ -36,10 +36,11 @@ forty gigabytes either.
 
 ## 2. macOS on Apple Silicon — ready
 
-**Better covered than the Raspberry Pi.** CI runs the full test suite on
-`macos-latest`, which has been Apple Silicon since macOS 14 — so
-`aarch64-apple-darwin` is tested on every push, while `aarch64-unknown-linux-gnu`
-is only cross-*built* and has never been executed.
+**Better covered than the Raspberry Pi, and now by less.** CI runs the full test
+suite on `macos-latest`, which has been Apple Silicon since macOS 14, so
+`aarch64-apple-darwin` is tested on real ARM hardware every push.
+`aarch64-unknown-linux-gnu` now runs its full suite too, but emulated — see §3
+for what that does and does not settle. Real silicon still only happens here.
 
 | | Status |
 | --- | --- |
@@ -121,26 +122,40 @@ across five chunks, reads it back byte for byte and runs `doctor` — the same
 script an installer runs at the end of a real install, with no emulator in the
 way.
 
-All three of the old unknowns are settled:
+The three old unknowns are answered *as far as instruction semantics go*, which
+is a narrower statement than it first looks and is worth keeping narrow:
 
 - `blake3` compiles NEON assembly for aarch64 — **exercised**, it is what hashed
-  every chunk in every store test
+  every chunk in every store test, and a wrong NEON path would have produced
+  wrong hashes
 - `redb` uses memory mapping, which is where architecture surprises usually
   live — **exercised**, 138 store unit tests and 29 integration tests
 - `ring` has its own aarch64 assembly paths — **exercised**, `itsanas-tls`'s
-  eleven tests include a real handshake over a real socket, and the two-node
-  tests move files over one
+  eleven tests include a real handshake over a real socket
 
-What emulation cannot touch is the question the Pi was always really about:
+### What emulation does not establish
 
-- a Pi 4B has 1 GB of RAM and a runner has 16, and nothing here says the index
-  fits. Nor has anything met an SD card, where redb's write pattern meets a
-  medium with erase blocks and a controller that lies about flushes.
+`qemu-user` translates aarch64 instructions and runs them against **this
+machine's kernel**. Three consequences, none of which the green tick above
+covers:
 
-The emulated run is also slow in a way that flatters nothing: the CLI's 40 tests
-took 147 seconds under qemu against about 4 on the host. That says the emulator
-is slow, not the Pi. Real timings need the Pi, and `itsanas bench` is the command
-for it.
+- **Memory ordering.** aarch64 is weakly ordered; x86 is strongly ordered; the
+  emulator does not manufacture the weakness. A data race that a Pi would expose
+  and a laptop would not is exactly as invisible here as it is on the laptop.
+  The exposure is small — one `thread::spawn`, in `itsanas-folder/src/watch.rs`,
+  plus whatever `notify` does behind it — but small is not none, and this is the
+  one architectural difference that a passing test suite cannot speak to.
+- **Which code path a library picks.** `ring` chooses among its assembly
+  implementations from runtime CPU feature detection. Under emulation it is
+  interrogating an emulated CPU, not a Cortex-A72, so the path that passed may
+  not be the path a Pi takes.
+- **The machine.** A Pi 4B has 1 GB of RAM and a runner has 16, and nothing here
+  says the index fits. Nor has anything met an SD card, where redb's write
+  pattern meets erase blocks and a controller that lies about flushes.
+
+Timings say nothing either, in the flattering direction or the other: the CLI's
+40 tests took 147 seconds under qemu against about 4 on the host. That measures
+the emulator. Real numbers need the Pi, and `itsanas bench` is the command.
 
 ```bash
 sudo apt install gcc-aarch64-linux-gnu
@@ -151,9 +166,14 @@ scp target/aarch64-unknown-linux-gnu/release/itsanas pi@raspberrypi:
 ssh pi@raspberrypi ./itsanas bench --quick
 ```
 
-If `bench` completes and its round-trip check passes, all three are settled at
-once — and the latency figures come from the machine that actually matters
-rather than from a laptop.
+That is the command that closes what emulation cannot: it runs on the CPU whose
+features `ring` is asking about, under the memory model the emulator does not
+reproduce, against an SD card, in 1 GB of RAM. The latency figures then come
+from the machine the constants were chosen for rather than from a laptop.
+
+`sh install/linux.sh` does the same thing the long way and ends by running
+`scripts/smoke.sh` on the Pi itself, which is the shorter route to the same
+answer if the Pi has a toolchain.
 
 The coordinator goes on the Freebox VM with the same binary set:
 

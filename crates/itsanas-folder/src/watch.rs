@@ -168,19 +168,29 @@ mod tests {
         let watcher = Watcher::new(dir.path()).unwrap();
 
         // The folder was created a moment ago, and macOS reports on directories
-        // rather than on individual writes: FSEvents can deliver the folder's
-        // own creation after the stream has started. So let whatever the
-        // platform still has to say about the folder existing arrive and be
-        // discarded first. What this test measures is the behaviour of a *quiet*
-        // folder, and one created a microsecond earlier is not quiet yet.
+        // rather than on individual writes: it can deliver the folder's own
+        // creation after the stream is already open. The same code passed on
+        // macOS in one CI run and failed in the next, with Linux and Windows
+        // green in both.
         //
-        // This is inferred rather than reproduced: the same code passed on
-        // macOS in one CI run and failed in the next, and passed on Linux and
-        // Windows in both. There is no Mac here to watch it happen on.
-        let _ = watcher.wait_for_quiet(
-            Duration::from_millis(500),
-            Duration::from_millis(50),
-            Duration::from_secs(1),
+        // The first fix here was to wait 500ms and throw away whatever arrived,
+        // which is a guess about a platform nobody here can observe, dressed as
+        // a fix. This is not a guess: make a change, and wait until it is
+        // reported. The channel is FIFO, so an event queued *before* the write
+        // has necessarily been delivered by the time the write's own event
+        // comes back — and `wait_for_quiet` only returns after a whole debounce
+        // period with nothing arriving, so the queue is empty when it does.
+        //
+        // That is a fact about the queue rather than a belief about FSEvents,
+        // and it holds on every platform for the same reason.
+        std::fs::write(dir.path().join("settle.txt"), b"x").unwrap();
+        assert!(
+            watcher.wait_for_quiet(
+                Duration::from_secs(10),
+                Duration::from_millis(100),
+                Duration::from_secs(2),
+            ),
+            "the watcher never reported a change this test made itself"
         );
 
         let started = Instant::now();

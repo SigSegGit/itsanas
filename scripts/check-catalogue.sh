@@ -44,7 +44,20 @@ not_a_test='^(MAX_SEGMENTS_WALKED|FAILURES_BEFORE_PAUSE|CHALLENGES_PER_ROUND)$'
 total=0
 missing=()
 for doc in "${docs[@]}"; do
-    names=$(grep -oE '`[a-z][a-z0-9_]{14,}`' "$doc" | tr -d '`' | sort -u)
+    # `|| true` because grep exits 1 when it matches nothing, and with `set -e`
+    # that killed this script where it stood: exit 1, not one line of output, on
+    # a documentation file that had simply stopped naming tests. A gate whose
+    # failure mode is silence is a gate somebody eventually deletes, so the
+    # empty case is now a sentence rather than an exit status.
+    names=$(grep -oE '`[a-z][a-z0-9_]{14,}`' "$doc" | tr -d '`' | sort -u || true)
+    if [ -z "$names" ]; then
+        echo "$doc names no tests at all."
+        echo
+        echo "Either it stopped citing them, or the pattern this script looks"
+        echo "for stopped matching. Both make every later line of output a"
+        echo "statement about nothing."
+        exit 1
+    fi
     for name in $names; do
         if [[ "$name" =~ $not_a_test ]]; then
             continue

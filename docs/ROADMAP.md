@@ -23,7 +23,7 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M12 Android shell | — | ⬜ core verified, shell not written; `itsanas-policy` is now wired into `itsanas daemon`, so the phone inherits behaviour a desktop has exercised |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion |
 | M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 |
-| M13 One-click install | `install/` | 🟨 five scripts; **run end to end on Windows only** |
+| M13 One-click install | `install/` | 🟨 five scripts; run end to end on **x86-64 only** — no Pi, no Mac, no phone, no Freebox VM |
 
 This table used to carry a per-milestone test count. Those numbers were a second
 copy of what [TESTING.md](TESTING.md) already holds, and a second copy is what
@@ -95,10 +95,17 @@ What is missing before this is a *network* rather than a personal sync tool:
   followed by `scripts/smoke.sh`: an account, a 24-word phrase, a 350 KB file
   across five chunks read back byte for byte, `doctor` clean.
 
-  That settles all three things ARM changes. blake3's NEON path hashed every
-  chunk in every store test; redb's memory mapping wrote and reopened the index
-  167 times; and `ring`'s aarch64 assembly ran a real TLS handshake over a real
-  socket in `itsanas-tls`, which the smoke test alone would not have touched.
+  That answers all three things ARM changes *at the level of instruction
+  semantics*: blake3's NEON path hashed every chunk in every store test, redb's
+  memory mapping wrote and reopened the index 167 times, and `ring`'s aarch64
+  assembly ran a real TLS handshake over a real socket in `itsanas-tls` — which
+  the smoke test alone would not have touched, since it never opens one.
+
+  It is not the same as running on ARM, and the first version of this paragraph
+  said "settles", which is too strong. `qemu-user` executes aarch64 instructions
+  on this runner's x86 kernel: it does not reproduce aarch64's weaker memory
+  ordering, and it reports an emulated CPU's features to any library that picks
+  its code path from them. `docs/PORTING.md` §3 lists what that leaves open.
 
   What emulation cannot touch is the part that made the Pi worth worrying about:
   a 4B has 1 GB of RAM and a runner has 16, and nothing here says the index
@@ -163,11 +170,17 @@ machine with the public address. `install/README.md` carries a table saying, for
 each one, whether anybody has run it on the system it claims to install --
 because an installer nobody has run is a hypothesis with a shebang.
 
-Only **Windows** has been run end to end: it built the workspace, installed both
-binaries, put them on PATH, changed nothing on a second run, and stored a
-341 KiB file and read it back byte for byte. `linux.sh` has been run twice on a
-bare x86-64 Ubuntu with no toolchain. The Mac, the Pi, the phone and the Freebox
-VM are all untried, and the table says so.
+Two have been run end to end, both on x86-64. **Windows**: built the workspace,
+installed both binaries, put them on PATH, changed nothing on a second run, and
+stored a 341 KiB file and read it back byte for byte, under PowerShell 5.1 rather
+than 7 because 5.1 is what the script promises to support. **Linux**: twice on a
+bare Ubuntu with no toolchain, and again since the smoke step was added.
+
+The architecture refusals are exercised by faking `uname`, and the coordinator's
+`--check` against a free port, a busy one, a present binary, an absent one and an
+all-private address list. What none of that touches is the machines the project
+is for: the Mac, the Pi, the phone and the Freebox VM are all untried, and
+`install/README.md` says so in the column that exists to say it.
 
 Every member installer now ends by proving its own work rather than by running
 `itsanas --version`, which only says the kernel can execute the file.

@@ -76,13 +76,21 @@ ALLOWED = {
     'forget_tombstone': 'needs proof every device saw the delete; see ROADMAP.md',
 }
 
-# Methods (indented inside an `impl`) and free functions (at module level).
-# The first version matched only the indented form, which left the whole of
-# `session.rs` outside the gate: `push`, `pull`, `round`, `repair` and
-# `drain_vault` are free functions, and so is `placement::repair::plan`, the
-# canonical example of the problem this gate exists for. It reported that
-# every public method had a call site while covering half the surface.
-DEF = re.compile(r'\n(?:    )?pub (?:const )?(?:async )?fn (\w+)')
+# `pub fn` at any indentation, and it took two goes to get there. The first
+# version matched only the indented form, which left the whole of `session.rs`
+# outside the gate -- `push`, `pull`, `round`, `repair` and `drain_vault` are
+# free functions, and so is `placement::repair::plan`, the canonical example of
+# the problem this gate exists for. The second allowed zero or four spaces, and
+# that still excluded eleven of the workspace's 466 public functions, among them
+# the entire body of the `define_id!` macro in `crypto/src/ids.rs`, whose
+# `from_bytes`, `as_bytes`, `to_bytes`, `from_slice`, `to_hex` and `short` are
+# the accessors of every identifier type in the project.
+#
+# Both times it reported that every public function had a call site while
+# reading a fraction of them. The lesson is not about indentation: a rule
+# calibrated on the shapes in front of you passes on the shapes you did not
+# look at, and says nothing while doing it. Hence the floor in `main`.
+DEF = re.compile(r'\n[ \t]*pub (?:const )?(?:async )?fn (\w+)')
 
 
 # A `#[cfg(test)]` at module indentation opens the test module. One indented
@@ -152,6 +160,23 @@ def main():
         for match in DEF.finditer(production_half(text)):
             definitions.setdefault(match.group(1), set()).add(rel)
 
+    # Say what was read, and refuse to pass on nothing. With no files or no
+    # matches this printed "every public function and method has a call site"
+    # and returned 0 -- the same silence `check-messages.py` produced while
+    # reading 24 of the 625 lines of `install/linux.sh`. A check whose empty
+    # case is indistinguishable from its success case is a check that will one
+    # day be quietly satisfied by a regex that stopped matching.
+    if not code:
+        print('no Rust files found under crates/. This check read nothing and')
+        print('is refusing to call that a pass.')
+        return 1
+    if len(definitions) < 100:
+        print('only %d public functions found across %d files, which is far too'
+              % (len(definitions), len(code)))
+        print('few for this workspace. The DEF pattern has probably stopped')
+        print('matching rather than the code having shrunk.')
+        return 1
+
     unwired = []
     for name, homes in sorted(definitions.items()):
         if name in ALLOWED:
@@ -180,7 +205,8 @@ def main():
         print('ALLOWED in this script with the reason it is deliberately kept.')
         return 1
 
-    print('wiring: every public function and method has a call site')
+    print('wiring: all %d public functions across %d files have a call site'
+          % (len(definitions), len(code)))
     return 0
 
 

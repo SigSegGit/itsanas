@@ -17,19 +17,33 @@
 # line up and nothing else. A build is not a run.
 #
 # There is a real difference to catch. aarch64 is where `blake3` switches to its
-# NEON backend, where `char` is unsigned by default in the C that gets compiled
-# alongside, and where alignment requirements are stricter than on x86. Any of
-# those can produce a binary that links and then misbehaves.
+# NEON backend and where `char` is unsigned by default in the C compiled
+# alongside it. Either can produce a binary that links and then hashes wrong.
+#
+# Not, as an earlier version of this comment claimed, "where alignment
+# requirements are stricter". Linux on aarch64 permits unaligned access to
+# normal memory, and this workspace sets `unsafe_code = "forbid"`, so safe Rust
+# could not produce a misaligned access even where it mattered. Inventing a risk
+# to justify a measure is how a project ends up with measures nobody can
+# evaluate.
 #
 # What it does not prove
 # -----------------------
 #
-# Under emulation this is one instruction set standing in for another, on a
-# machine with a fast disk and no thermal limit. It says nothing about whether a
-# Pi 4B with 1 GB of RAM can hold a terabyte's worth of index, which is the
-# actual open question. It is the floor, not the ceiling: the same script runs
-# on a real Pi with no runner set, and until it has, the claim is only that the
-# instructions execute.
+# Under emulation this is one instruction set standing in for another, on this
+# machine's kernel, with a fast disk and no thermal limit. Three things it
+# therefore cannot say:
+#
+#   - whether a Pi 4B with 1 GB of RAM can hold a terabyte's worth of index,
+#     which is the actual open question;
+#   - anything about aarch64's weaker memory ordering, which the emulator does
+#     not reproduce when the host is x86;
+#   - which code path a library that detects CPU features at runtime will take
+#     on real silicon, since it is asking an emulated CPU.
+#
+# It is the floor, not the ceiling: the same script runs on a real Pi with no
+# runner set, and until it has, the claim is only that the instructions
+# execute correctly.
 
 set -eu
 
