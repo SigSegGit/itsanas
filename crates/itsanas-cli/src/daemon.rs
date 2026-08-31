@@ -602,8 +602,19 @@ fn sync_once(
             if let Some(record) = report.record
                 && record.consecutive_failures == itsanas_store::FAILURES_BEFORE_PAUSE
             {
+                // `concat!` rather than a trailing backslash: fmt eats the
+                // backslash and leaves the indentation inside the string, which
+                // is how this line spent two commits telling an operator
+                // "receives          the log". It also blocks implicit capture,
+                // hence the named argument. `scripts/check-messages.py` guards
+                // the rest of the codebase against the same thing.
                 println!(
-                    "  {peer} is no longer being sent new data. It still receives                      the log and one chunk a round to prove itself on; answering                      for that chunk clears this."
+                    concat!(
+                        "  {peer} is no longer being sent new data. It still ",
+                        "receives the log and one chunk a round to prove itself ",
+                        "on; answering for that chunk clears this."
+                    ),
+                    peer = peer
                 );
             }
         }

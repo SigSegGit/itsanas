@@ -49,6 +49,14 @@ jobs:
       # them in bold as the security property that mattered.
       - name: Test catalogue names real tests
         run: bash scripts/check-catalogue.sh
+      # `cargo fmt` removes a string literal's trailing backslash and joins the
+      # lines, keeping the indentation as literal spaces. The code compiles,
+      # clippy is silent, and the user reads "It still receives          the
+      # log". Every continuation in this repository had been eaten that way,
+      # including the one line an operator sees when a peer is sanctioned.
+      # Nothing else in the toolchain reads the inside of a string.
+      - name: Messages are not full of collapsed indentation
+        run: python scripts/check-messages.py
 
   test:
     name: Test (${{ matrix.os }})

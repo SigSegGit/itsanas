@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 599 test functions across 21 binaries, 3 of them
+**Last updated: 2026-08-31 — 600 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. Eighteen are red-team tests.**
 
 | Binary | Tests |
@@ -15,7 +15,7 @@
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 19 |
 | `itsanas-net` unit | 30 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 27 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 28 |
 | `itsanas-placement` unit | 29 |
 | `itsanas-coord` unit | 55 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
@@ -553,7 +553,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (27)
+# `itsanas-net` — two-node tests (28)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -564,6 +564,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_peer_that_already_had_the_data_is_still_recorded_as_holding_it`** | The property that makes the ledger converge rather than only grow. A device restored from its recovery phrase learns where its data lives by *asking*, instead of re-uploading its whole store to find out — and the answer costs nothing extra, since it is the same round trip that decides what to send. |
 | **`a_host_that_refuses_to_store_is_not_recorded_as_holding_anything`** | A node that pledged nothing still answers, because refusing to host does not stop it being a peer. Recording it as a holder would let a node believe its data was replicated onto a machine that declined it — the worst possible error, indistinguishable from safety until the local disk dies. |
 | **`red_team_a_host_that_keeps_discarding_stops_getting_free_uploads`** | The attack auditing alone does **not** stop. Accept, delete, wait: the audit catches it every round and the owner re-uploads every round, so the host pays nothing and the owner pays a full upload each time. The more data the owner has, the more it costs them. Detection without memory is not a defence. |
+| **`a_replacement_device_pulls_a_whole_corpus_back_from_a_stranger`** | MVP acceptance test D, the half nobody had checked. Recovery from a passphrase restores the *account* — the user id, the keys, the ability to speak — and says nothing whatever about whether the files come back, which is the only part the user cares about. A machine writes a corpus, edits one file, deletes another, uploads to a host belonging to somebody else, and is destroyed; a replacement built from the same master secret with a **new device id** pulls. Contents byte for byte, the edit rather than the original, and the deletion as a deletion — that last is the one that fails quietly, because a restore which resurrects everything you ever deleted looks exactly like one that worked. It also asserts the restored device knows *where* its data lives, which is what found that a pull recorded no holders at all. |
 | **`red_team_a_host_that_keeps_only_what_it_expects_to_be_asked_is_caught`** | The same attack as the unit test above, end to end over a socket, against the exact set the old rule would have named: the host keeps the sixteen lowest chunk ids out of 117 and deletes the rest. Under the old rule it survived every round for ever. |
 | **`a_paused_host_that_starts_answering_again_is_sent_data_again`** | The way back, on a store of a hundred chunks rather than one. A paused peer is offered one chunk a round; the first version left the audit to *find* it in the ledger, where it sat as one fresh record among the thousands the peer is paused for, so every question landed on something it had already lost and the sanction never lifted — a ban wearing the words of a suspension. The probe is now written down and is the only thing a paused peer is asked about: accept, answer, cleared, in two rounds. **The earlier version of this test used a 37-byte file** — one chunk, one record, the single case where finding the probe is guaranteed — so it passed while the mechanism it named did not work. |
 | **`red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder`** | The attack that costs nothing: accept everything offered, delete it immediately, keep claiming the space. A node trusting its own ledger would believe its files were on three machines while two held nothing, and find out on the day the third disk died. The audit withdraws the record, the chunk shows as under-replicated, and the same round re-uploads it. |

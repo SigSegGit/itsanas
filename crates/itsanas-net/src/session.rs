@@ -112,18 +112,36 @@ impl RoundReport {
 /// request.
 struct RemoteChunks<'a> {
     client: RefCell<&'a mut PeerClient>,
+    /// Chunks this peer actually handed over.
+    ///
+    /// Recorded in the placement ledger afterwards, because a chunk a peer
+    /// *served* is better evidence than one it merely claimed in the
+    /// have/missing exchange: it produced the bytes.
+    ///
+    /// Without this a device restored from a passphrase downloads its whole
+    /// corpus from a host and then believes not one copy of it exists anywhere
+    /// but on its own disk — so `itsanas status` reports every chunk as
+    /// unreplicated, and `under_replicated` calls the entire store critical,
+    /// on the one day a user most needs to be told the truth.
+    served: RefCell<Vec<ChunkId>>,
 }
 
 impl ChunkSource for RemoteChunks<'_> {
     fn fetch(&self, owner: UserId, address: &ChunkId) -> itsanas_sync::Result<Option<Vec<u8>>> {
-        self.client
+        let fetched = self
+            .client
             .borrow_mut()
             .chunk(owner, *address)
             // A peer that fails mid-fetch is a transport problem, not a merge
             // problem. Reporting it as "absent" would let a broken connection
             // masquerade as a device being asleep, and the operation would be
             // deferred forever instead of surfacing the fault.
-            .map_err(|error| itsanas_sync::SyncError::Source(error.to_string()))
+            .map_err(|error| itsanas_sync::SyncError::Source(error.to_string()))?;
+
+        if fetched.is_some() {
+            self.served.borrow_mut().push(*address);
+        }
+        Ok(fetched)
     }
 }
 
@@ -410,15 +428,31 @@ pub fn pull_scoped(
         return Ok(SyncReport::default());
     }
 
-    let (report, _) = if scope.moves_content() {
+    let peer = client.peer_device();
+    let (outcome, served) = if scope.moves_content() {
         let source = RemoteChunks {
             client: RefCell::new(client),
+            served: RefCell::new(Vec::new()),
         };
-        apply_segments(store, &fetched, &source)
+        let outcome = apply_segments(store, &fetched, &source);
+        let served = source.served.into_inner();
+        (outcome, served)
     } else {
-        apply_segments(store, &fetched, &itsanas_sync::EmptySource)
+        (
+            apply_segments(store, &fetched, &itsanas_sync::EmptySource),
+            Vec::new(),
+        )
+    };
+
+    // Before the `?`. A peer that served the bytes held them, whether or not
+    // the merge that asked for them then went wrong, and throwing that away
+    // because of an unrelated failure would leave the ledger understating
+    // replication — which is the direction that hides a real shortage.
+    if !served.is_empty() {
+        store.record_holders(&served, &peer)?;
     }
-    .map_err(|error| NetError::Refused(error.to_string()))?;
+
+    let (report, _) = outcome.map_err(|error| NetError::Refused(error.to_string()))?;
 
     // Only a round that finished everything may move the markers. One deferral
     // and they stay where they are, so the next content round replays.
