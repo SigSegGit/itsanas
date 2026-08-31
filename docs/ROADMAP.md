@@ -90,12 +90,15 @@ What is missing before this is a *network* rather than a personal sync tool:
 - **Recovery from username plus passphrase is not wired.** The escrow container
   exists and is tested; `itsanas login` still requires the 24 words.
 - **Never run on a Raspberry Pi**, though it now runs on ARM. CI cross-builds
-  the workspace for aarch64 and then executes it under `qemu-user-static`:
-  `scripts/smoke.sh` creates an account, checks the recovery phrase is still 24
-  words, stores a 350 KB file across five chunks, reads it back byte for byte
-  and runs `doctor`. That settles two of the three things ARM changes — blake3's
-  NEON path hashed those chunks, and redb's memory mapping wrote and reopened
-  that index.
+  the workspace for aarch64 and then runs **the whole test suite** on that
+  architecture under `qemu-user-static` — 637 pass, 3 `#[ignore]`d, none fail —
+  followed by `scripts/smoke.sh`: an account, a 24-word phrase, a 350 KB file
+  across five chunks read back byte for byte, `doctor` clean.
+
+  That settles all three things ARM changes. blake3's NEON path hashed every
+  chunk in every store test; redb's memory mapping wrote and reopened the index
+  167 times; and `ring`'s aarch64 assembly ran a real TLS handshake over a real
+  socket in `itsanas-tls`, which the smoke test alone would not have touched.
 
   What emulation cannot touch is the part that made the Pi worth worrying about:
   a 4B has 1 GB of RAM and a runner has 16, and nothing here says the index

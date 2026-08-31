@@ -35,9 +35,9 @@ reboots — and your data stays available and stays in sync.
 > chunk is 14.7 million of them, so pack files are planned.
 >
 > **What is missing, and it is not small.** It has never run on four real
-> machines for a week. It runs on **aarch64** now — CI stores a file and reads
-> it back under emulation on every push — but never yet on a Raspberry Pi, and
-> emulation on a fast runner says nothing about 1 GB of RAM. Repair chooses no
+> machines for a week. The whole suite runs on **aarch64** now — 637 tests,
+> under emulation, on every push — but never yet on a Raspberry Pi, and
+> emulation on a 16 GB runner says nothing about a 1 GB Pi. Repair chooses no
 > peers. Tombstones are never pruned. There is no Android app, only a Termux
 > script that builds the command line tool. See [docs/ROADMAP.md](docs/ROADMAP.md) for the list and
 > [docs/MVP.md](docs/MVP.md) for what would make it worth trusting.
