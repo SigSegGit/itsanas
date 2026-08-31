@@ -143,7 +143,9 @@ esac
 ARCH=$(uname -m 2>/dev/null || echo unknown)
 case "$ARCH" in
     aarch64|arm64) ok "64-bit ARM ($ARCH)" ;;
-    armv7l|armv8l|arm)
+    armv6l|armv7l|armv8l|armhf|arm)
+        # `armv8l` is a 64-bit phone running a 32-bit userland, which is the
+        # usual shape of this on Android rather than genuinely old hardware.
         die "this is a 32-bit ARM userland ($ARCH)" \
             "ITSaNAS needs 64-bit. On a 64-bit phone this usually means Termux" \
             "was installed from an old APK; reinstall it from F-Droid." \

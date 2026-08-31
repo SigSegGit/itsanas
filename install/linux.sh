@@ -134,14 +134,27 @@ esac
 case "$UNAME_M" in
     aarch64|arm64) ARCH_NOTE="64-bit ARM" ;;
     x86_64|amd64)  ARCH_NOTE="64-bit x86" ;;
-    armv7l|armv6l)
+    # `armv8l` is the one that matters and the first version of this list did
+    # not have it: it is what a 64-bit Pi reports when it is running a 32-bit
+    # userland, which is exactly the case the message below describes. It would
+    # have been waved through with "untested architecture" and then failed an
+    # hour into the build. `armhf` and `armv6l` are the same mistake with
+    # different names.
+    armv6l|armv7l|armv8l|armhf|arm)
         die "32-bit ARM ($UNAME_M) is not supported" \
             "ITSaNAS needs a 64-bit target: it maps large files and keeps 64-bit" \
             "counters that a 32-bit address space cannot hold." \
             "" \
-            "On a Raspberry Pi 3 or 4 this usually means you are running a 32-bit" \
-            "Raspberry Pi OS on 64-bit hardware. Re-image with the 64-bit build," \
-            "or add 'arm_64bit=1' to /boot/firmware/config.txt and reboot." ;;
+            "On a Raspberry Pi 3, 4 or 5 this almost always means 64-bit hardware" \
+            "running a 32-bit Raspberry Pi OS. Re-image with the 64-bit build, or" \
+            "add 'arm_64bit=1' to /boot/firmware/config.txt and reboot." \
+            "" \
+            "Check which you have with:  getconf LONG_BIT" ;;
+    i386|i486|i586|i686)
+        die "32-bit x86 ($UNAME_M) is not supported" \
+            "Same reason as 32-bit ARM: 64-bit counters and large mapped files." \
+            "If this machine is 64-bit, you are running a 32-bit distribution" \
+            "on it, and re-installing the 64-bit one is the fix." ;;
     *) ARCH_NOTE="$UNAME_M"; warn "untested architecture: $UNAME_M" ;;
 esac
 ok "$ARCH_NOTE ($UNAME_M)"

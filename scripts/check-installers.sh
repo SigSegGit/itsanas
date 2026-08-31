@@ -226,6 +226,55 @@ else
     fi
 fi
 
+# ------------------------------------------------------- what it refuses to do
+#
+# The one branch of an installer that has to be right on a machine nobody here
+# owns is the one that refuses. `install/linux.sh` gets its answer from
+# `uname -m`, so a fake `uname` earlier on PATH exercises every case.
+#
+# This found a real hole. The list was `armv7l|armv6l`, and a 64-bit Raspberry
+# Pi running a 32-bit userland reports **armv8l** — the exact case the error
+# message describes, waved through with "untested architecture" and left to fail
+# an hour into the build. 32-bit x86 was let through too, with the same 64-bit
+# counters the message cites as the reason.
+
+fake=$(mktemp -d)
+cat > "$fake/uname" <<'FAKEUNAME'
+#!/bin/sh
+for arg in "$@"; do
+    if [ "$arg" = "-m" ]; then
+        echo "$FAKE_ARCH"
+        exit 0
+    fi
+done
+exec /usr/bin/uname "$@"
+FAKEUNAME
+chmod +x "$fake/uname"
+
+refused=0
+for arch in armv6l armv7l armv8l armhf arm i386 i686; do
+    output=$(FAKE_ARCH="$arch" PATH="$fake:$PATH" sh install/linux.sh --no-build 2>&1)
+    if printf '%s' "$output" | grep -q "is not supported"; then
+        refused=$((refused + 1))
+    else
+        bad "install/linux.sh does not refuse a 32-bit userland reporting $arch"
+        say "  A 64-bit machine running a 32-bit image is the common case, not"
+        say "  an exotic one, and the build fails an hour later without this."
+    fi
+done
+[ "$refused" -eq 7 ] && say "install/linux.sh refuses all 7 spellings of a 32-bit userland"
+
+for arch in aarch64 arm64 x86_64; do
+    # It may still stop later for want of a compiler on this machine, so look
+    # for the line rather than the exit status.
+    output=$(FAKE_ARCH="$arch" PATH="$fake:$PATH" sh install/linux.sh --no-build 2>&1)
+    if printf '%s' "$output" | grep -q "is not supported"; then
+        bad "install/linux.sh refuses $arch, which is one of its targets"
+    fi
+done
+say "install/linux.sh accepts aarch64, arm64 and x86_64"
+rm -rf "$fake"
+
 if [ "$failed" -ne 0 ]; then
     echo
     echo "An installer is the one program here that runs on a machine nobody has"
@@ -234,4 +283,4 @@ if [ "$failed" -ne 0 ]; then
     exit 1
 fi
 
-echo "installers: parse, no bashisms, all listed, MSRV agrees with Cargo.toml"
+echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused"

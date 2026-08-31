@@ -23,6 +23,7 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M12 Android shell | — | ⬜ core verified, shell not written; `itsanas-policy` is now wired into `itsanas daemon`, so the phone inherits behaviour a desktop has exercised |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion |
 | M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 |
+| M13 One-click install | `install/` | 🟨 five scripts; **run end to end on Windows only** |
 
 This table used to carry a per-milestone test count. Those numbers were a second
 copy of what [TESTING.md](TESTING.md) already holds, and a second copy is what
@@ -150,6 +151,49 @@ third time that has happened here, and the first time it was in a file
 `cargo fmt` never touches. `check-messages.py` now reads commands as well as
 messages, and the step is written as a YAML folded scalar so there is no
 backslash left to lose.
+
+### M13 — One-click install 🟨 (`install/`)
+
+Five scripts: `linux.sh` (which covers the Raspberry Pi and the Freebox VM),
+`macos.sh`, `windows.ps1`, `android-termux.sh`, and `coordinator.sh` for the
+machine with the public address. `install/README.md` carries a table saying, for
+each one, whether anybody has run it on the system it claims to install --
+because an installer nobody has run is a hypothesis with a shebang.
+
+Only **Windows** has been run end to end: it built the workspace, installed both
+binaries, put them on PATH, changed nothing on a second run, and stored a
+341 KiB file and read it back byte for byte. `linux.sh` has been run twice on a
+bare x86-64 Ubuntu with no toolchain. The Mac, the Pi, the phone and the Freebox
+VM are all untried, and the table says so.
+
+Every member installer now ends by proving its own work rather than by running
+`itsanas --version`, which only says the kernel can execute the file.
+`scripts/smoke.sh` creates an account, checks the recovery phrase is still 24
+words, stores a file across several chunks, reads it back and runs `doctor`; CI
+runs the same script under aarch64 emulation, so what a person sees on their own
+Pi is what CI checked. Windows has no `sh`, so `windows.ps1` writes the same
+steps out. The coordinator is the exception: it has no store to exercise.
+
+What `scripts/check-installers.sh` refuses, each item because it happened:
+
+- a script that does not parse, or that uses bash syntax while declaring POSIX
+- a script missing from `install/README.md` -- the first version of the checker
+  named two files by hand, so `coordinator.sh` was written and checked by
+  nothing, which is the failure the checker exists to prevent, committed inside
+  the checker
+- a Rust version that disagrees with `Cargo.toml`, because a machine that passes
+  the installer's check and then fails to compile is the worst possible order
+  for those two to disagree
+- a systemd `ReadWritePaths` without the leading dash that lets a unit start
+  before the path exists -- the member unit listed `~/.itsanas`, which
+  `itsanas init` creates, so enabling the service before initialising failed
+  with an error about mount namespaces
+- a 32-bit userland that `linux.sh` does not refuse. Its list was
+  `armv7l|armv6l`, and a 64-bit Raspberry Pi running a 32-bit image reports
+  **armv8l** -- the exact case the error message describes, waved through with
+  "untested architecture" and left to fail an hour into the build. 32-bit x86
+  was let through too. The checker now fakes `uname` and tries all seven
+  spellings.
 
 ### M1 — Cryptographic core ✅ (`itsanas-crypto`)
 
