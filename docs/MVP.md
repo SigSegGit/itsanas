@@ -54,8 +54,11 @@ at all — three replicas across machines that are mostly off buys durability an
 not availability.
 
 **To confirm before building against it:** the Freebox Delta VM is aarch64. CI
-already cross-builds for `aarch64-unknown-linux-gnu`, but that is a compile, not
-a run.
+cross-builds for `aarch64-unknown-linux-gnu` and now *runs* the result under
+`qemu-user-static` on every push -- an account, a 350 KB file across five
+chunks, read back byte for byte, `doctor` clean. That closes the question of
+whether the instructions execute. It leaves the one that matters for the VM and
+the Pi: whether the memory is there.
 
 ---
 

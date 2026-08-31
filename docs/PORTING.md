@@ -111,15 +111,27 @@ launchctl load ~/Library/LaunchAgents/net.itsanas.daemon.plist
 The application firewall will ask once whether to accept incoming connections.
 Say yes, or nothing will be able to dial this machine.
 
-## 3. Raspberry Pi and the Freebox VM — cross-built, never run
+## 3. Raspberry Pi and the Freebox VM — runs emulated, never on the hardware
 
 Both are `aarch64-unknown-linux-gnu`. CI cross-builds the whole workspace on
-every push, so it links. **Nobody has executed the result.** Three things are
-unverified and one command settles all three:
+every push and then **runs** the result under `qemu-user-static`: it creates an
+account, checks the recovery phrase is still 24 words, stores a 350 KB file
+across five chunks, reads it back byte for byte and runs `doctor`. That is
+`scripts/smoke.sh`, and the same script runs with no emulator when an installer
+calls it at the end of a real install.
 
-- `blake3` compiles NEON assembly for aarch64
-- `ring` has its own aarch64 assembly paths
-- `redb` uses memory mapping, which is where architecture surprises usually live
+So two of the three old unknowns are settled:
+
+- `blake3` compiles NEON assembly for aarch64 — **exercised**, it is what hashed
+  those chunks
+- `redb` uses memory mapping, which is where architecture surprises usually
+  live — **exercised**, the index was written and reopened
+- `ring` has its own aarch64 assembly paths — **not exercised**: the smoke test
+  never opens a socket, so the TLS stack has still only been compiled
+
+And one that emulation cannot touch, which is now the real question:
+
+- a Pi 4B has 1 GB of RAM and a runner has 16. Nothing here says the index fits.
 
 ```bash
 sudo apt install gcc-aarch64-linux-gnu

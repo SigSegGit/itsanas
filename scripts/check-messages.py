@@ -101,11 +101,22 @@ def command_lines(path):
 
     Everything a human aligned by hand in this repository sits inside a heredoc
     or a here-string, so skipping those bodies is what makes the rule usable.
+
+    Both skips are narrower than they look, and the first version of this was
+    not. It applied the PowerShell here-string rule to every file, and `@"` is
+    what the end of `"$@"` looks like: `die()` in `install/linux.sh` uses it on
+    line 61, so the checker skipped the remaining 564 lines of the script and
+    reported it clean. It said the same about every shell script here, all of
+    which pass "$@" somewhere. A checker that silently reads 4% of a file is
+    worse than no checker, because its silence is read as a result -- so the
+    caller is handed the count and prints it.
     """
+    lines = io.open(path, encoding='utf-8', errors='replace').read().split('\n')
+    powershell = path.endswith('.ps1')
     terminator = None
     in_herestring = False
-    text = io.open(path, encoding='utf-8', errors='replace').read()
-    for number, line in enumerate(text.split('\n'), 1):
+
+    for number, line in enumerate(lines, 1):
         stripped = line.strip()
         if terminator is not None:
             if stripped == terminator:
@@ -117,11 +128,21 @@ def command_lines(path):
             continue
         if not stripped.startswith('#'):
             yield number, line
+
+        if powershell:
+            if HERESTRING_OPEN.search(line):
+                in_herestring = True
+            continue
+
         found = HEREDOC.search(line)
-        if found:
-            terminator = found.group(1)
-        elif HERESTRING_OPEN.search(line):
-            in_herestring = True
+        if not found:
+            continue
+        # `<<` also appears in arithmetic, and a word after it would start a
+        # skip that never ends. Only believe it is a heredoc if the terminator
+        # it names actually turns up on a line of its own further down.
+        word = found.group(1)
+        if any(later.strip() == word for later in lines[number:]):
+            terminator = word
 
 
 def main():
@@ -146,6 +167,9 @@ def main():
                         hits.append((rel, number, match.group(0)))
 
     commands = []
+    scanned = 0
+    scripts = 0
+    thin = []
     for relative_dir in COMMAND_DIRS:
         base = os.path.join(root, *relative_dir.split('/'))
         for dirpath, dirnames, filenames in os.walk(base):
@@ -154,9 +178,18 @@ def main():
                     continue
                 path = os.path.join(dirpath, name)
                 rel = os.path.relpath(path, root).replace(os.sep, '/')
+                scripts += 1
+                here = 0
                 for number, line in command_lines(path):
+                    here += 1
                     if COLLAPSED_COMMAND.search(line):
                         commands.append((rel, number, line.strip()))
+                scanned += here
+                total_lines = sum(1 for _ in io.open(path, encoding='utf-8', errors='replace'))
+                # A file that is almost entirely skipped is how this check
+                # failed silently once. Say so rather than counting it as read.
+                if total_lines > 40 and here * 4 < total_lines:
+                    thin.append((rel, here, total_lines))
 
     if residue:
         print('source carrying residue from the scripts that edited it:')
@@ -196,7 +229,21 @@ def main():
         print('entirely: continuations that do not exist cannot be eaten.')
         return 1
 
-    print('messages: no collapsed continuations, no editing residue')
+    if thin:
+        print('files this check barely read, which is how it once passed a')
+        print('script it had skipped 96% of:')
+        for rel, here, total_lines in thin:
+            print('  %s: %d of %d lines examined' % (rel, here, total_lines))
+        print('')
+        print('Either a heredoc or here-string is being tracked wrongly, or the')
+        print('file really is mostly quoted text. Look before assuming it is')
+        print('the second one.')
+        return 1
+
+    print(
+        'messages: no collapsed continuations, no editing residue; '
+        '%d command lines read across %d scripts' % (scanned, scripts)
+    )
     return 0
 
 

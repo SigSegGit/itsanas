@@ -1,15 +1,20 @@
 #!/bin/sh
-# Store a file on ARM and read it back.
+# Store a file on this machine and read it back.
 #
 # Why this exists
 # ---------------
 #
-# The Raspberry Pi justifies half the constants in this repository -- the chunk
-# size, the memory the key derivation is allowed, the audit budget per round --
-# and until this script ran, no line of ITSaNAS had ever executed on an ARM
-# processor. The workspace was cross-compiled for aarch64 on every push, which
-# proves it builds and nothing else. A build says the types line up. It does not
-# say the code runs.
+# Every installer here used to finish by running `itsanas --version` and calling
+# that a verification. It is not one: it proves the file is executable by this
+# kernel and nothing about whether the data path works. On the machines this
+# project is actually for -- a Raspberry Pi, a phone, a VM on a Freebox -- that
+# gap is the whole question.
+#
+# The Pi justifies half the constants in this repository: the chunk size, the
+# memory the key derivation is allowed, the audit budget per round. Until this
+# script ran, no line of ITSaNAS had ever executed on an ARM processor. The
+# workspace was cross-compiled for aarch64 on every push, which proves the types
+# line up and nothing else. A build is not a run.
 #
 # There is a real difference to catch. aarch64 is where `blake3` switches to its
 # NEON backend, where `char` is unsigned by default in the C that gets compiled
@@ -28,7 +33,7 @@
 
 set -eu
 
-BIN=${1:?usage: arm-smoke.sh <path-to-itsanas>}
+BIN=${1:?usage: smoke.sh <path-to-itsanas>}
 
 # The command that runs an ARM binary. Empty on a real Pi, and on CI it is
 # `qemu-aarch64-static -L /usr/aarch64-linux-gnu`, the sysroot the cross
@@ -56,7 +61,7 @@ fi
 echo "   $WHERE"
 
 echo "== an account"
-ITSANAS_PASSPHRASE='arm-smoke-passphrase-9931'
+ITSANAS_PASSPHRASE='itsanas-smoke-passphrase-9931'
 export ITSANAS_PASSPHRASE
 run --home "$WORK/home" init --username armsmoke >"$WORK/init.txt" 2>&1 || {
     cat "$WORK/init.txt"
@@ -76,9 +81,9 @@ echo "== a file, in and out"
 # Larger than one chunk, so this exercises the chunker and the manifest rather
 # than a single sealed blob.
 head -c 350000 /dev/urandom >"$WORK/payload.bin"
-run --home "$WORK/home" put "docs/arm.bin" "$WORK/payload.bin" | sed 's/^/   /'
+run --home "$WORK/home" put "docs/smoke.bin" "$WORK/payload.bin" | sed 's/^/   /'
 run --home "$WORK/home" ls | sed 's/^/   /'
-run --home "$WORK/home" get "docs/arm.bin" "$WORK/back.bin" | sed 's/^/   /'
+run --home "$WORK/home" get "docs/smoke.bin" "$WORK/back.bin" | sed 's/^/   /'
 
 before=$(sha256sum <"$WORK/payload.bin" | cut -d' ' -f1)
 after=$(sha256sum <"$WORK/back.bin" | cut -d' ' -f1)

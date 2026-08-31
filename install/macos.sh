@@ -53,6 +53,7 @@ PREFIX="${ITSANAS_PREFIX:-$HOME/.local}"
 SOURCE_DIR=""
 DO_SERVICE=1
 DO_BUILD=1
+DO_SMOKE=1
 ASSUME_YES=0
 
 usage() {
@@ -66,6 +67,7 @@ Options
   --source DIR     build from this checkout instead of looking for one
   --no-service     do not write the LaunchAgent
   --no-build       check the machine and stop, changing nothing
+  --no-smoke       skip storing a test file once it is installed
   --yes            do not ask before installing anything
   --help           this
 
@@ -81,6 +83,7 @@ while [ $# -gt 0 ]; do
         --source=*) SOURCE_DIR="${1#--source=}"; shift ;;
         --no-service) DO_SERVICE=0; shift ;;
         --no-build) DO_BUILD=0; shift ;;
+        --no-smoke) DO_SMOKE=0; shift ;;
         --yes|-y) ASSUME_YES=1; shift ;;
         --help|-h) usage; exit 0 ;;
         *) die "unknown option: $1" "Run with --help for the list." ;;
@@ -380,6 +383,26 @@ INSTALLED_VERSION=$("$BIN_DIR/itsanas" --version 2>/dev/null)
 [ -n "$INSTALLED_VERSION" ] || die "the installed binary does not run" \
     "Tried: $BIN_DIR/itsanas --version"
 ok "$INSTALLED_VERSION"
+
+# `--version` proves the kernel can execute the file and nothing about whether
+# the data path works. On Apple silicon that is a live question -- a different
+# architecture, a different C compiler, and a filesystem that is case-insensitive
+# by default -- and this is the machine nobody here has ever run the installer on.
+if [ "$DO_SMOKE" -eq 1 ]; then
+    step "Storing a file and reading it back, on this machine"
+    if [ -r "$SOURCE_DIR/scripts/smoke.sh" ]; then
+        if ! sh "$SOURCE_DIR/scripts/smoke.sh" "$BIN_DIR/itsanas"; then
+            die "it installed but did not work" \
+                "The binary runs and the data path does not, which is the" \
+                "interesting kind of failure. The output above says which" \
+                "step it got to." \
+                "" \
+                "Skip this check with --no-smoke if you need the install anyway."
+        fi
+    else
+        warn "scripts/smoke.sh is not in this checkout; skipped"
+    fi
+fi
 
 cat <<NEXT
 

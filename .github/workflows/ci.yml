@@ -157,10 +157,27 @@ jobs:
       # about whether a Pi 4B has the memory for a terabyte of index; that
       # question needs the Pi. It is the floor.
       - run: sudo apt-get install -y qemu-user-static
+      # cargo knows how to hand a test binary to an emulator, so the whole suite
+      # can run on the target architecture for the price of one env var. This is
+      # the strong version of the claim: not "a file went in and came out" but
+      # every property this project checks, checked on ARM.
+      #
+      # It is also what covers `ring`. The smoke test below never opens a
+      # socket, so the TLS stack is only linked by it; `itsanas-tls`'s handshake
+      # tests do open one, and ring's aarch64 assembly is exactly the kind of
+      # thing that links and then misbehaves.
+      - name: The whole test suite, on ARM
+        env:
+          QEMU_LD_PREFIX: /usr/aarch64-linux-gnu
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER: qemu-aarch64-static
+        run: cargo test --workspace --all-features --target aarch64-unknown-linux-gnu
+      # And the same check an installer runs at the end of a real install, so
+      # the thing a person sees on their own machine is the thing CI ran.
       - name: Store a file and read it back, on ARM
         env:
-          RUNNER: qemu-aarch64-static -L /usr/aarch64-linux-gnu
-        run: sh scripts/arm-smoke.sh target/aarch64-unknown-linux-gnu/release/itsanas
+          QEMU_LD_PREFIX: /usr/aarch64-linux-gnu
+          RUNNER: qemu-aarch64-static
+        run: sh scripts/smoke.sh target/aarch64-unknown-linux-gnu/release/itsanas
 
   android-core:
     name: Core compiles for Android

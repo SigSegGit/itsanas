@@ -350,7 +350,7 @@ ok "$VERSION_LINE"
 
 if [ "$DO_SMOKE" -eq 1 ]; then
     step "Storing a file and reading it back, on this phone"
-    if ! sh "$SOURCE_DIR/scripts/arm-smoke.sh" "$BIN"; then
+    if ! sh "$SOURCE_DIR/scripts/smoke.sh" "$BIN"; then
         die "it built but did not work" \
             "This is the interesting kind of failure: the code compiles for" \
             "this processor and does not behave on it. Please report it with" \
