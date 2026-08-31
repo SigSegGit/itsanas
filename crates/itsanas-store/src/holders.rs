@@ -45,7 +45,7 @@
 //! acknowledgements is worth having anyway: without one there is nothing to
 //! challenge, because nothing knows who to ask.
 //!
-//! [`docs/DESIGN.md`]: https://github.com/SigSeg/itsanas/blob/main/docs/DESIGN.md
+//! [`docs/DESIGN.md`]: https://github.com/SigSegGit/itsanas/blob/main/docs/DESIGN.md
 
 use itsanas_crypto::{ChunkId, DeviceId, ID_LEN, SymmetricKey};
 

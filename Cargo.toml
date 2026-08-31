@@ -11,7 +11,7 @@ edition = "2024"
 # repeats on every push.
 rust-version = "1.88"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/SigSeg/itsanas"
+repository = "https://github.com/SigSegGit/itsanas"
 authors = ["Nicolas Girard <nicolas.girard.e@gmail.com>"]
 
 [workspace.lints.rust]

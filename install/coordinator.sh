@@ -262,7 +262,7 @@ if have systemctl; then
     cat > /etc/systemd/system/itsanas-coordinator.service <<UNIT
 [Unit]
 Description=ITSaNAS coordinator
-Documentation=https://github.com/SigSeg/itsanas
+Documentation=https://github.com/SigSegGit/itsanas
 After=network-online.target
 Wants=network-online.target
 

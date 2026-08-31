@@ -488,7 +488,7 @@ if [ "$DO_SERVICE" -eq 1 ]; then
         cat > "$UNIT_DIR/itsanas.service" <<UNIT
 [Unit]
 Description=ITSaNAS peer-to-peer storage
-Documentation=https://github.com/SigSeg/itsanas
+Documentation=https://github.com/SigSegGit/itsanas
 After=network-online.target
 Wants=network-online.target
 

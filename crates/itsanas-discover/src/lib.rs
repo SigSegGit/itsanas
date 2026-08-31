@@ -31,7 +31,7 @@
 //! reviewable on its own — it is, after all, the one component that parses
 //! unsolicited packets from strangers.
 //!
-//! [`docs/DESIGN.md`]: https://github.com/SigSeg/itsanas/blob/main/docs/DESIGN.md
+//! [`docs/DESIGN.md`]: https://github.com/SigSegGit/itsanas/blob/main/docs/DESIGN.md
 
 pub mod beacon;
 pub mod error;

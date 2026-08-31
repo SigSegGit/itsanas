@@ -27,7 +27,7 @@
 //! between peers, which is [`M3`]-and-later work. Until then a peer's guarantee
 //! is "what I have is authentic and gap-free", not "what I have is current".
 //!
-//! [`M3`]: https://github.com/SigSeg/itsanas/blob/main/docs/ROADMAP.md
+//! [`M3`]: https://github.com/SigSegGit/itsanas/blob/main/docs/ROADMAP.md
 
 use itsanas_crypto::{
     ChunkId, DeviceId, DeviceKeys, ObjectId, SealContext, Signature, SymmetricKey, UserId,
