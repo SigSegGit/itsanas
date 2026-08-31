@@ -51,6 +51,29 @@ TEST = re.compile(
     r'#\[(?:tokio::)?test\][^\n]*\n((?:\s*#\[[^\]]*\][^\n]*\n)*)\s*(?:async\s+)?fn\s+([a-z_0-9]+)'
 )
 
+# Every top-level section of the catalogue names a crate and says how many of
+# that crate's tests it covers. Those numbers have to add up to the crate's real
+# count: they are a partition of it, and five of them did not add up. One
+# heading carried two numbers ("12 integration, 8 unit"), which made its crate
+# look eight short until the split moved into the prose below it.
+SECTION = re.compile(r'^# `([a-z0-9-]+)` — .+? \((\d+)')
+
+# How many tests have an entry of their own. `check-catalogue.sh` reads this
+# file the other way round -- every name cited must exist -- and nothing counted
+# how many exist without being cited. The answer was 522 of 638, while the
+# section headings added up to 627, so the file read as a complete catalogue and
+# was not one. Stating the real figure is the difference between a gap and a
+# claim.
+CITED = re.compile(r'`([a-z][a-z0-9_]+)`')
+#
+# The cited figure counts distinct *names*, and the total counts test functions;
+# two names occur in two crates each, so this understates coverage by at most
+# two. Conservative is the right direction for a claim about how complete
+# something is.
+COVERAGE_CLAIM = re.compile(
+    r'(\d+) of the (\d+) tests have an entry of their own'
+)
+
 # A row is `crate` then a human label, then a cell that is a number and
 # optionally how many of them are ignored. The label carries the source file in
 # backticks for anything that is not the crate's own unit tests, which is what
@@ -87,8 +110,9 @@ ROADMAP_CLAIM = re.compile(
 
 
 def collect(root):
-    """Return {(crate, kind): [total, ignored]} and the red-team total."""
+    """Return {(crate, kind): [total, ignored]}, the red-team total, and names."""
     found = {}
+    names = set()
     red_team = 0
     crates = os.path.join(root, 'crates')
     for dirpath, dirnames, filenames in os.walk(crates):
@@ -109,9 +133,10 @@ def collect(root):
                 entry[0] += 1
                 if '#[ignore' in match.group(1):
                     entry[1] += 1
+                names.add(match.group(2))
                 if match.group(2).startswith('red_team_'):
                     red_team += 1
-    return found, red_team
+    return found, red_team, names
 
 
 def count_doctests(root):
@@ -193,7 +218,7 @@ def compare(where, what, claimed, real, problems):
 
 def main():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-    found, red_team = collect(root)
+    found, red_team, test_names = collect(root)
     doctests = count_doctests(root)
     total = sum(entry[0] for entry in found.values())
     ignored = sum(entry[1] for entry in found.values())
@@ -205,6 +230,44 @@ def main():
 
     testing = read('docs/TESTING.md')
     check_table(testing, found, problems)
+
+    # The section headings, added up per crate.
+    per_crate = {}
+    for key, entry in found.items():
+        per_crate[key[0]] = per_crate.get(key[0], 0) + entry[0]
+    claimed_per_crate = {}
+    for line in testing.split('\n'):
+        heading = SECTION.match(line)
+        if heading:
+            crate = heading.group(1)
+            claimed_per_crate[crate] = claimed_per_crate.get(crate, 0) + int(heading.group(2))
+    for crate in sorted(set(per_crate) | set(claimed_per_crate)):
+        claimed_here = claimed_per_crate.get(crate, 0)
+        if not claimed_here:
+            continue
+        compare(
+            'docs/TESTING.md',
+            "the section headings for `%s` adding up" % crate,
+            claimed_here,
+            per_crate.get(crate, 0),
+            problems,
+        )
+
+    # How many tests are catalogued individually.
+    cited = set(CITED.findall(testing)) & test_names
+    claim = COVERAGE_CLAIM.search(' '.join(testing.split()))
+    if not claim:
+        problems.append(
+            'docs/TESTING.md no longer says how many tests have an entry of '
+            'their own. That number is what separates a catalogue from a '
+            'sample, and it was never stated while the headings added up to '
+            '627 out of 638.'
+        )
+    else:
+        compare('docs/TESTING.md', 'the number catalogued individually',
+                int(claim.group(1)), len(cited), problems)
+        compare('docs/TESTING.md', 'the test total it is out of',
+                int(claim.group(2)), total, problems)
 
     flat = ' '.join(testing.split())
     header = HEADER.search(flat)
@@ -275,8 +338,9 @@ def main():
 
     print(
         'counts: %d tests in %d binaries, %d ignored, %d doctests, %d '
-        'red-team; README, ROADMAP and TESTING all agree'
-        % (total, binaries, ignored, doctests, red_team)
+        'red-team, %d catalogued individually; README, ROADMAP and TESTING '
+        'all agree, and every section heading adds up'
+        % (total, binaries, ignored, doctests, red_team, len(cited))
     )
     return 0
 

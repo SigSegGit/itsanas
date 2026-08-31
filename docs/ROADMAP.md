@@ -88,12 +88,19 @@ What is missing before this is a *network* rather than a personal sync tool:
   it.
 - **Recovery from username plus passphrase is not wired.** The escrow container
   exists and is tested; `itsanas login` still requires the 24 words.
-- **Never run on a Raspberry Pi.** Only `cargo check` for aarch64. It now
-  *has* run on Linux — `install/linux.sh` built it from nothing on a bare
-  Ubuntu and two nodes moved a file over a socket — so the gap is specifically
-  ARM, not "anything but Windows". What that leaves untested is what ARM
-  changes: blake3's NEON path, redb on a filesystem backed by an SD card, and
-  every constant in this repository that says "on a Raspberry Pi".
+- **Never run on a Raspberry Pi**, though it now runs on ARM. CI cross-builds
+  the workspace for aarch64 and then executes it under `qemu-user-static`:
+  `scripts/smoke.sh` creates an account, checks the recovery phrase is still 24
+  words, stores a 350 KB file across five chunks, reads it back byte for byte
+  and runs `doctor`. That settles two of the three things ARM changes — blake3's
+  NEON path hashed those chunks, and redb's memory mapping wrote and reopened
+  that index.
+
+  What emulation cannot touch is the part that made the Pi worth worrying about:
+  a 4B has 1 GB of RAM and a runner has 16, and nothing here says the index
+  fits. Nor has anything met an SD card. `install/linux.sh` now ends by running
+  the same smoke script on the machine it just installed on, so the answer for a
+  real Pi is one command away from whoever has one.
 
 ---
 

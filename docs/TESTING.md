@@ -3,8 +3,19 @@
 **Last updated: 2026-08-31 — 638 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 30 are red-team tests.**
 
+**522 of the 638 tests have an entry of their own on this page.** Forty-seven of
+the rest are the `itsanas-coord` section that says outright it catalogues by
+property rather than test by test; the remaining sixty-odd are ordinary
+omission, concentrated in `itsanas-store`'s unit tests and `itsanas-folder`.
+CONTRIBUTING.md says every test gets an entry saying what it proves, so that is
+a debt rather than a policy, and it is written here because a page that lists
+some tests reads exactly like a page that lists all of them. Nothing had ever
+counted: the section headings added up to 627 while the file named 522.
+
 Every number on this page is checked against the source by
-`scripts/check-counts.py` on each push, including each row of the table below.
+`scripts/check-counts.py` on each push, including each row of the table below
+and each section heading — the headings naming one crate have to add up to that
+crate's real test count, which five of them did not.
 That check exists because these numbers were wrong: this header said 637 and
 twenty-nine, the README said 637 and 29, `ROADMAP.md` said 589 and sixteen, and
 the table below said `itsanas-folder` had 31 unit tests when it had 32 — which
@@ -103,14 +114,25 @@ Defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 
 | Job | What it runs | Why it is there |
 | --- | --- | --- |
-| **lint** | `cargo fmt --check`, `cargo clippy -D warnings` | Style drift and lint debt compound. Clippy's `pedantic` set catches real bugs in crypto code — sign confusion, lossy casts, misused ranges. |
-| **test** | `cargo test --workspace` on Ubuntu, Windows, macOS | ITSaNAS must run on a Windows laptop and a Linux Pi simultaneously. Path handling, endianness assumptions and filesystem semantics differ; a Linux-only suite would not notice. |
-| **slow-tests** | `cargo test -- --ignored --test-threads 1` | Two tests are marked `#[ignore]`: the real 64 MiB Argon2id cost, and a 64 MiB streaming round trip that takes ~45s in a debug build. Too slow for every push, far too important to never run. |
-| **cross-build** | `cargo build --release --target aarch64-unknown-linux-gnu` | The Raspberry Pi 4B+ is a first-class deployment target. Catching a dependency that does not cross-compile at PR time is much cheaper than at deploy time. |
+| **lint** | `cargo fmt --check`, `cargo clippy -D warnings`, `cargo doc` with `RUSTDOCFLAGS=-D warnings`, and the five checking scripts below | Style drift and lint debt compound, and clippy catches real bugs in crypto code — sign confusion, lossy casts, misused ranges. Broken intra-doc links are the quietest kind of rot: the documentation keeps claiming a relationship the code no longer has and nothing fails until a reader clicks it. |
+| **test** | `cargo test --workspace` on Ubuntu, Windows, macOS | ITSaNAS must run on a Windows laptop and a Linux Pi at once. Path handling, endianness assumptions and filesystem semantics differ; a Linux-only suite would not notice. macOS also catches things the other two share — a watcher test that assumed a folder is quiet the instant it is created passes on both and is a race there. |
+| **slow-tests** | `cargo test -- --ignored --test-threads 1` | Three tests are marked `#[ignore]`: the real 64 MiB Argon2id cost, a 64 MiB streaming round trip that takes ~45s in a debug build, and the crash-consistency test that spawns a dozen processes each paying a full derivation. Too slow for every push, far too important to never run. |
+| **cross-build** | `cargo build --release` for `aarch64-unknown-linux-gnu`, then `cargo test --workspace` for that target under `qemu-user-static`, then `scripts/smoke.sh` | The Raspberry Pi 4B+ and the Freebox VM are first-class targets, and a cross-*build* only says the types line up. aarch64 is where blake3 switches to its NEON backend and where alignment rules are stricter, either of which links cleanly and then misbehaves. The smoke script is the same one an installer runs at the end of a real install, so what CI checks is what a person sees on their own machine. |
+| **android-core** | `cargo check --target aarch64-linux-android` for the data-path crates | The phone has no app, but the core is meant to compile for it. `ring` is excluded because it assembles its own primitives, which is a build-tool question rather than a code one. The job needed an NDK it did not have for two weeks, because its own comment claimed the crates were pure Rust and blake3 compiles C. |
 | **minimum-rust-version** | `cargo check` on the pinned MSRV | Prevents accidentally requiring a newer toolchain than the documented minimum, which would break users on distro Rust. |
 | **supply-chain** | `cargo deny check` | Fails on any unpatched advisory, any yanked crate, and any licence not compatible with AGPL-3.0. For a system whose entire value is "your host cannot read your data", a vulnerable crypto dependency is a release blocker. |
-| **documentation** | `cargo doc` with `RUSTDOCFLAGS=-D warnings` | Broken intra-doc links are the quietest kind of rot: the documentation keeps claiming a relationship the code no longer has, and nothing fails until a reader clicks it. |
 | **coverage** | `cargo llvm-cov` | Not a target to game — used to spot whole modules or error paths with no test at all. |
+
+The five checking scripts in **lint**, each of which exists because the thing it
+checks had already gone wrong:
+
+| Script | What it refuses |
+| --- | --- |
+| `check-catalogue.sh` | A test named in this file or in HANDOVER.md that does not exist in `crates/`. Three deleted `transport` tests survived here as evidence, one of them in bold as the security property that mattered. |
+| `check-counts.py` | Any number about tests in README.md, ROADMAP.md or this file that the source does not support. All three disagreed with the tree and with each other. |
+| `check-messages.py` | A line continuation collapsed into a message or a command. `cargo fmt` eats them in string literals and the scripts that write large edits eat them everywhere else; the Android job ran with thirteen literal spaces in it from the day it was written. |
+| `check-wired.py` | A `pub fn` with no call site. Four mechanisms were designed, implemented, tested, documented and wired to nothing. |
+| `check-installers.sh` | An installer that does not parse, uses bash syntax while claiming POSIX, is missing from `install/README.md`, demands a Rust version Cargo.toml does not, or writes a systemd `ReadWritePaths` without the leading dash that lets a unit start before the path exists. |
 
 The workflow also runs **weekly on a schedule**, so a newly published advisory
 against a dependency surfaces even when nobody has pushed for a month.
@@ -257,7 +279,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (121, plus the 14 vault tests below)
+# `itsanas-store` — unit tests (124, plus the 14 vault tests below)
 
 ## `reliability` — remembering that a peer failed (6)
 
@@ -403,7 +425,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (29)
+# `itsanas-store` — integration tests (30)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -646,7 +668,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (39)
+# `itsanas-cli` — unit tests (40)
 
 ## `bench` — measuring this machine (4)
 
@@ -779,7 +801,7 @@ uses it today: `itsanas daemon` prints the interval, the scope and the reason.
 
 ---
 
-# `itsanas-folder` — unit tests (31)
+# `itsanas-folder` — unit tests (32)
 
 ## `decision` — what should happen to one path (15)
 
@@ -905,7 +927,7 @@ hardware it will actually run on.
 
 ---
 
-# `itsanas-coord` — admission (20 of the coordinator's unit tests)
+# `itsanas-coord` — admission (17 of the coordinator's unit tests)
 
 `src/invitation.rs` and the invitation half of `src/directory.rs`. The front
 door: until this existed, every other defence in the project — audits, the
@@ -931,10 +953,16 @@ hostile *host*, and a hostile host is somebody who joined.
 | **`the_code_id_reveals_nothing_about_the_secret`** | The coordinator stores the hash, not the secret, so a stolen directory is a list of endorsements nobody can redeem. Two secrets differing in one bit must not produce related ids. |
 | `an_invitation_good_for_nothing_is_refused_rather_than_stored` | Zero uses, or an expiry before the issue date. Neither can admit anybody, so storing them fills the directory with rows that exist only to be rejected. |
 
-# `itsanas-coord` — the coordinator server (12 integration, 8 unit)
+# `itsanas-coord` — the coordinator server (20)
 
-A real coordinator on a real socket: real directory, real TLS with device
-authentication, real signatures, real framing. `tests/coordinator.rs`.
+Twelve integration tests in `tests/coordinator.rs` and eight unit tests beside
+the code. A real coordinator on a real socket: real directory, real TLS with
+device authentication, real signatures, real framing.
+
+One number in the heading, and the split in prose, so that
+`scripts/check-counts.py` can add the headings up: the sum of every heading
+naming a crate has to equal that crate's real test count, and a heading carrying
+two numbers made `itsanas-coord` look eight short.
 
 | Test | What it proves |
 | --- | --- |
