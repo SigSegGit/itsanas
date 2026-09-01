@@ -357,6 +357,19 @@ if [ "$DO_SERVICE" -eq 1 ]; then
         # unit on every run, and the summary at the bottom still told the reader
         # to run `journalctl --user -u itsanas`. Found by reading the Pi after a
         # green run -- the script reported success and the unit was not there.
+        # `systemctl --user` has to find the user manager's bus, and it looks
+        # for it through XDG_RUNTIME_DIR. A login shell sets that; a detached
+        # context does not -- `ssh host 'command'`, cron, a nohup'd
+        # provisioning run -- and systemctl then fails with a message about
+        # $DBUS_SESSION_BUS_ADDRESS that says nothing about this service. Which
+        # is how a reinstall script is actually run: not by somebody sitting at
+        # a prompt.
+        if [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
+            XDG_RUNTIME_DIR="/run/user/$(id -u)"
+            export XDG_RUNTIME_DIR
+            ok "XDG_RUNTIME_DIR was unset; using $XDG_RUNTIME_DIR"
+        fi
+
         UNIT="$HOME/.config/systemd/user/itsanas.service"
         if [ -f "$UNIT" ]; then
             ok "the unit is already installed"
