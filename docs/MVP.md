@@ -53,12 +53,15 @@ by [ECONOMICS.md](ECONOMICS.md) §2, the thing that makes read-on-demand possibl
 at all — three replicas across machines that are mostly off buys durability and
 not availability.
 
-**To confirm before building against it:** the Freebox Delta VM is aarch64. CI
-cross-builds for `aarch64-unknown-linux-gnu` and now runs the whole test suite
-on that architecture under `qemu-user-static` on every push — 637 pass, none
-fail — plus a store-and-read-back. That closes the question of whether the
-instructions execute. It leaves the one that matters for the VM and the Pi:
-whether the memory is there.
+~~**To confirm before building against it:** the Freebox Delta VM is aarch64.~~
+**Confirmed on the machine itself, 2026-09-01.** Ubuntu 26.04 aarch64, 2 vCPU,
+11 GB: installed by the `curl | sh` one-liner on a box with no compiler and no
+Rust, built in 5m37s, **640 tests passing and none failing**, and a benchmark
+that saves a 512 KiB document in 10 ms against the laptop's 29 ms. CI also runs
+the suite for that target under emulation on every push.
+
+What is left for the *Pi* rather than the VM: 1 GB of RAM against 11, and an SD
+card against a virtual disk.
 
 ---
 
@@ -281,7 +284,7 @@ Measured against §3, not against the roadmap.
 | E — never awake together | ✅ *in the laboratory* | `a_host_relays_one_device_to_another_that_it_never_met`; never done with real power cycles |
 | F — delete survives absence | ✅ *in the laboratory* | The local ledger and the 27-case decision matrix; never done across a real reboot |
 | G — two edits, no loss | ✅ *in the laboratory* | Conflict siblings, tested through a real socket |
-| H — cheap to run | 🟨 | Measured. **Saving a document is instant** — 4 KiB in 6.6 ms, a 512 KiB Word document in 28 ms, a 4 MiB PDF in 167 ms. Archive throughput is poor (19 MiB/s, 14.7 million files per terabyte) and pack files are the decided fix, but that is a first-fill problem, not a daily one. Idle CPU and battery over 24 hours are still unmeasured |
+| H — cheap to run | 🟨 | Measured on both machines. **Saving a document is instant** — a 512 KiB Word document takes 29 ms on the laptop and **10 ms on the aarch64 VM**, a 4 MiB PDF 159 ms and 75 ms. The small machine wins because a save is dominated by writing one file per chunk, which NTFS charges for and ext4 does not; the laptop chunks 4.6× faster and still loses. Archive throughput is the weak number (27.2 MiB/s on the laptop, 54.1 on the VM, 14.7 million files per terabyte) and pack files are the decided fix — a first-fill problem, not a daily one, and a bigger win on Windows than anywhere else. Idle CPU and battery over 24 hours are still unmeasured |
 | I — coordinator outage | ✅ *verified locally* | A node with a coordinator configured and unreachable syncs normally with a known peer and the file arrives. The daemon keeps its loop, reports the outage **once** rather than every round, and says what is degraded. Not yet done across the real fleet for 48 hours |
 | J — reboots cleanly | 🟨 | **Half tested.** A crash test kills the process mid-write a dozen times at measured points and checks that nothing is listed-but-unreadable and no repair is needed; it passes. It cannot cover a power cut: killing a process does not discard the kernel's page cache. See below |
 
@@ -294,7 +297,8 @@ because the mistake is instructive. `itsanas bench` measured throughput first an
 concluded the storage layer was the emergency: 19 MiB/s and 14.7 million files
 per terabyte. But throughput answers "how long does the archive take", and nobody
 waits for the archive. Measuring the thing a person actually waits for — a save —
-gave 6.6 ms for a note and 28 ms for a Word document. Pack files are still the
+gave 6.6 ms for a note and 28 ms for a Word document on the laptop, and 1.1 ms
+and 10 ms on the ARM VM. Pack files are still the
 right answer to the archive; they are not an obstacle to using the thing.
 
 That ordering is the plan: the coordinator, then escrow recovery, then the fleet

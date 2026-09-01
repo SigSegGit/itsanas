@@ -23,7 +23,7 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M12 Android shell | — | ⬜ core verified, shell not written; `itsanas-policy` is now wired into `itsanas daemon`, so the phone inherits behaviour a desktop has exercised |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion |
 | M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 |
-| M13 One-click install | `install/` | 🟨 five scripts; run end to end on **x86-64 only** — no Pi, no Mac, no phone, no Freebox VM |
+| M13 One-click install | `install/` | 🟨 five scripts; run end to end on Windows, Linux x86-64, **Linux aarch64 (the Freebox VM)** and macOS in CI — no Pi, no phone |
 
 This table used to carry a per-milestone test count. Those numbers were a second
 copy of what [TESTING.md](TESTING.md) already holds, and a second copy is what
@@ -89,7 +89,20 @@ What is missing before this is a *network* rather than a personal sync tool:
   it.
 - **Recovery from username plus passphrase is not wired.** The escrow container
   exists and is tested; `itsanas login` still requires the 24 words.
-- **Never run on a Raspberry Pi**, though it now runs on ARM. CI cross-builds
+- ~~**Never run on ARM.**~~ Done, twice over. **The Freebox Delta VM has run
+  it**: aarch64 Ubuntu 26.04, 2 vCPU, installed on 2026-09-01 by the `curl | sh`
+  one-liner on a machine with no compiler and no Rust, built in 5m37s, then
+  **640 tests passing with none failing**, the smoke check, and a benchmark that
+  saves a document in a third of the laptop's time. `Test (macos-latest)` had
+  also been running the whole suite on Apple silicon since CI first ran.
+
+  **Still never run on a Raspberry Pi**, and that is now the specific gap rather
+  than a general one: the VM has 11 GB and a virtual disk, a 4B has 1 GB and an
+  SD card, and every constant in this repository that says "on a Raspberry Pi"
+  was chosen for the latter. `install/linux.sh` puts that one command away from
+  anybody who has one.
+
+- CI also cross-builds
   the workspace for aarch64 and then runs **the whole test suite** on that
   architecture under `qemu-user-static` — 637 pass, 3 `#[ignore]`d, none fail —
   followed by `scripts/smoke.sh`: an account, a 24-word phrase, a 350 KB file
@@ -181,7 +194,9 @@ machine with the public address. `install/README.md` carries a table saying, for
 each one, whether anybody has run it on the system it claims to install --
 because an installer nobody has run is a hypothesis with a shebang.
 
-Two have been run end to end, both on x86-64. **Windows**: built the workspace,
+Three have been run end to end. **Linux on aarch64**, on the Freebox VM, through
+the one-liner, on a machine with nothing on it — the case the script was written
+for and the first time it met one. **Windows**: built the workspace,
 installed both binaries, put them on PATH, changed nothing on a second run, and
 stored a 341 KiB file and read it back byte for byte, under PowerShell 5.1 rather
 than 7 because 5.1 is what the script promises to support. **Linux**: twice on a
@@ -735,6 +750,41 @@ can pull. Same laptop:
 **Everything a person saves by hand is under 200 ms, and most of it is under
 30 ms.** The per-chunk `fsync` that costs a factor of two on a 256 MiB archive
 costs four milliseconds on a spreadsheet, which is nothing.
+
+### The same benchmark on ARM, and the surprise in it
+
+Run again on 2026-09-01 on the Freebox Delta VM — aarch64 Ubuntu 26.04, 2 vCPU,
+11 GB — and on the laptop, from the same commit and the same release profile, so
+the two columns are comparable:
+
+| | laptop, x86-64 | VM, aarch64 2 vCPU |
+| --- | --- | --- |
+| chunking | 848.5 MiB/s | 185.0 MiB/s |
+| **store write** | **27.2 MiB/s** | **54.1 MiB/s** |
+| store read | 436.6 MiB/s | 96.0 MiB/s |
+| a note, 4 KiB | 9.2 ms | **1.1 ms** |
+| a Word document, 512 KiB | 29 ms | **10 ms** |
+| a big PDF, 4 MiB | 159 ms | **75 ms** |
+| a photo burst, 32 MiB | 1.29 s | **617 ms** |
+| 1 TB, extrapolated | 10.7 h | 5.4 h |
+| peak memory | — | 9.2 MiB |
+
+The small machine wins on the number that matters, and loses on everything else.
+The laptop chunks 4.6× faster and reads 4.5× faster; it writes at half the speed,
+and writing is what a save is made of.
+
+The store puts **one file per chunk**, so a 256 MiB archive is 3585 file
+creations. That is the operation NTFS is expensive at and ext4 is not, and it is
+the only stage where the ordering flips — if this were CPU, read and write would
+move together, and they move opposite ways. Real-time virus scanning on every
+newly created file is the obvious additional suspect on Windows and has not been
+isolated here, so it stays a suspect.
+
+Two consequences worth writing down. **Pack files (M10) are a Windows problem
+before they are a scale problem** — the same change buys roughly twice as much
+there. And the figure this project has quoted since M9, "a document saves in
+28 ms", was measured on the slower of the two platforms without ever saying
+which, which is how a number becomes a fact by repetition.
 
 That reorders the plan. Pack files remain the right answer to 14.7 million
 files, and they are an **archive** problem — the first terabyte, and the

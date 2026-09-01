@@ -167,15 +167,27 @@ fn kill_one_write(
     // failure — an early version of this test treated any non-zero exit as
     // damage, which is how it found that `doctor` was reporting them as one.
     // What must never appear is a file the store lists and cannot read.
+    // `concat!` rather than a backslash continuation, because fmt eats those and
+    // both of these messages were already damaged. Note that it costs the
+    // implicit captures: a format string produced by a macro cannot name
+    // `delay` and `report` from the surrounding scope, so they are passed.
     assert!(
         !report.contains("failed verification"),
-        "a kill at {delay:?} left a file the store lists whose content does not          match its recorded hash:
-{report}"
+        concat!(
+            "a kill at {:?} left a file the store lists whose content ",
+            "does not match its recorded hash:\n{}"
+        ),
+        delay,
+        report
     );
     assert!(
         !report.contains("referenced but missing"),
-        "a kill at {delay:?} left an index entry pointing at chunks that are not          on disk:
-{report}"
+        concat!(
+            "a kill at {:?} left an index entry pointing at chunks that ",
+            "are not on disk:\n{}"
+        ),
+        delay,
+        report
     );
     assert!(
         !report.contains("has a gap"),

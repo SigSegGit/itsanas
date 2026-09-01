@@ -144,10 +144,19 @@ impl Config {
                 "coordinator_device" => config.coordinator_device = Some(value.to_owned()),
                 "peer" => peers.push(value.to_owned()),
                 other => {
+                    // A backslash continuation here reached the repository with
+                    // its second continuation eaten, so this line printed
+                    // "peer," and twenty-six spaces before "coordinator".
+                    // `concat!` cannot capture `other` implicitly, hence the
+                    // explicit argument.
                     return Err(CliError::Config(format!(
-                        "line {}: unknown setting {other:?}. Known settings: \
-                         username, pledge_bytes, listen, folder, peer,                          coordinator, coordinator_device",
-                        number + 1
+                        concat!(
+                            "line {}: unknown setting {:?}. Known settings: ",
+                            "username, pledge_bytes, listen, folder, peer, ",
+                            "coordinator, coordinator_device"
+                        ),
+                        number + 1,
+                        other
                     )));
                 }
             }

@@ -299,7 +299,8 @@ side coming back, a deletion removing it from both, both folders byte-identical.
   terabyte, and `blobs().addresses()` walks all of them on every sync round.
   Pack files are the decided answer, scheduled after the coordinator because
   M9's third measurement showed the *daily* experience is already fine — a Word
-  document saves in 28 ms.
+  document saves in 29 ms on the laptop and 10 ms on the aarch64 VM; the
+  small machine wins because a save is dominated by one file per chunk.
 - **No file-level sharing between users.** Not needed for mutual storage;
   `UserKeys::agree` exists, is tested, and is deliberately unused until it is.
 

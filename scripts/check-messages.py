@@ -53,6 +53,32 @@ LITERAL = re.compile('"(?:[^"' + chr(92) * 2 + ']|' + chr(92) * 2 + '.)*"')
 # the wrong reason.
 COLLAPSED = re.compile('[^ ] {8,}[a-z]')
 
+# The same damage, in a literal that spans lines — which is *every* literal
+# that ever had a continuation in it, so this is not an edge case but the main
+# one, and the check read line by line and could not see it.
+#
+# A literal split by `\` occupies several source lines. When the first
+# continuation survives and a later one is eaten, the damaged line holds one
+# quote or none, `LITERAL` never matches it, and the file is reported clean.
+# Three messages were sitting in the tree that way, one of them the error
+# `itsanas` prints for an unknown setting in the config file:
+#
+#     Known settings: username, pledge_bytes, listen, folder, peer,
+#                               coordinator, coordinator_device
+#
+# Found while reading config.rs for an unrelated reason, which is the method
+# this file exists to replace.
+LITERAL_MULTILINE = re.compile(
+    chr(34) + '(?:[^' + chr(34) + chr(92) * 2 + ']|' + chr(92) * 2 + '.)*' + chr(34),
+    re.DOTALL,
+)
+
+# The character before the run of spaces must be neither a space nor a newline.
+# After a newline, indentation is what an *intact* continuation looks like:
+# without that exclusion this reports all 110 healthy multi-line literals in the
+# workspace and none of the three broken ones stands out.
+COLLAPSED_MULTILINE = re.compile('[^ \n] {8,}[a-z]')
+
 # Residue from the scripts that write these edits. They splice an em dash in
 # by string concatenation, and a splice that lands inside a triple-quoted
 # block is copied through literally. Six files carried it in their comments
@@ -179,6 +205,22 @@ def main():
                         continue
                     if COLLAPSED.search(match.group(0)[1:-1]):
                         hits.append((rel, number, match.group(0)))
+
+            # And again over the whole file, for the literals that span lines.
+            # Comment lines are blanked first so that an apostrophe or a lone
+            # quote in prose cannot pair with a real one and swallow the file.
+            newline = chr(10)
+            without_comments = newline.join(
+                '' if l.lstrip().startswith('//') else l
+                for l in text.split(newline)
+            )
+            for match in LITERAL_MULTILINE.finditer(without_comments):
+                body = match.group(0)
+                if len(body) <= 90 or newline not in body:
+                    continue
+                if COLLAPSED_MULTILINE.search(body):
+                    number = without_comments[: match.start()].count(newline) + 1
+                    hits.append((rel, number, ' '.join(body.split())))
 
     commands = []
     scanned = 0

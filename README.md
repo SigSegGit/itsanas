@@ -30,16 +30,22 @@ reboots — and your data stays available and stays in sync.
 > fails**. See [docs/TESTING.md](docs/TESTING.md), which lists every one of them
 > with the property it establishes.
 >
-> **Saving is fast.** A 512 KiB document is stored, sealed and announced in
-> 28 ms, measured by `itsanas bench`. Filling a terabyte is not: one file per
-> chunk is 14.7 million of them, so pack files are planned.
+> **Saving is fast, and faster on the small machine.** A 512 KiB document is
+> stored, sealed and announced in **29 ms on an x86-64 laptop and 10 ms on a
+> 2-vCPU aarch64 VM** — same binary, same commit, measured by `itsanas bench`.
+> The laptop chunks 4.6× faster and reads 4.5× faster, and still loses, because
+> what a save costs is dominated by writing one file per chunk and that is where
+> NTFS is expensive. It is also the clearest argument for the pack files that
+> are planned: filling a terabyte means 14.7 million of those files.
 >
 > **What is missing, and it is not small.** It has never run on four real
-> machines for a week. The whole suite runs on **aarch64** now — 637 tests,
-> under emulation, on every push — but never yet on a Raspberry Pi, and
-> emulation on a 16 GB runner says nothing about a 1 GB Pi. Repair chooses no
-> peers. Tombstones are never pruned. There is no Android app, only a Termux
-> script that builds the command line tool. See [docs/ROADMAP.md](docs/ROADMAP.md) for the list and
+> machines for a week. It **has** now run on real ARM: the whole suite passes on
+> Apple silicon in CI, and on an aarch64 Ubuntu VM on a Freebox Delta — 640
+> tests, no failures, installed there by its own one-liner. A Raspberry Pi with
+> 1 GB of RAM is still untried and is the machine the constants were chosen for.
+> Repair chooses no peers. Tombstones are never pruned. There is no Android app,
+> only a Termux script that builds the command line tool. See
+> [docs/ROADMAP.md](docs/ROADMAP.md) for the list and
 > [docs/MVP.md](docs/MVP.md) for what would make it worth trusting.
 
 ## The idea in one picture

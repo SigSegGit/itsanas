@@ -117,9 +117,27 @@ launchctl load ~/Library/LaunchAgents/net.itsanas.daemon.plist
 The application firewall will ask once whether to accept incoming connections.
 Say yes, or nothing will be able to dial this machine.
 
-## 3. Raspberry Pi and the Freebox VM — runs emulated, never on the hardware
+## 3. Raspberry Pi and the Freebox VM — the VM is done, the Pi is not
 
-Both are `aarch64-unknown-linux-gnu`. CI cross-builds the whole workspace on
+**The Freebox Delta VM has run it.** aarch64 Ubuntu 26.04, 2 vCPU, 11 GB,
+installed on 2026-09-01 by `curl … | sh` on a machine that had no compiler and
+no Rust on it. The build took 5m37s. Then, on that machine:
+
+- **640 tests pass, none fail** — the whole suite plus the three `#[ignore]`d
+  ones, natively, no emulator
+- `scripts/smoke.sh`: an account, a 24-word phrase, a 350 KB file across five
+  chunks read back byte for byte, `doctor` clean —
+  `PASS: ITSaNAS stored and returned a file -- native aarch64`
+- `itsanas bench --quick`: it **saves a 512 KiB document in 10 ms against the
+  laptop's 29 ms**, on a machine that chunks 4.6× slower. See ROADMAP.md M9 for
+  why, and for what that says about pack files.
+
+So the coordinator's future home is no longer a hypothesis. What is left is the
+Pi: 1 GB of RAM against this VM's 11, and an SD card against its virtual disk.
+
+### What emulation established before that, and what it did not
+
+Both are `aarch64-unknown-linux-gnu`. CI also cross-builds the whole workspace on
 every push and then **runs it on that architecture** under `qemu-user-static`:
 **637 pass, 3 `#[ignore]`d, none fail.** That is 635 of the project's 638 test
 functions plus its 2 doctests — the arithmetic is worth spelling out because
