@@ -120,7 +120,10 @@ done
 # with ENXIO.
 ask() {
     [ "$ASSUME_YES" -eq 1 ] && return 0
-    if ! { : < /dev/tty; } 2>/dev/null; then
+    # A subshell: `:` is a POSIX special built-in, and a redirection error on
+    # one makes a non-interactive shell exit. dash obeys that and bash does not,
+    # so the brace-group form killed install/linux.sh outright on Debian.
+    if ! (exec 2>/dev/null; : < /dev/tty); then
         warn "nothing to ask on: this is not running from a terminal"
         info "Re-run with --yes to accept."
         return 1

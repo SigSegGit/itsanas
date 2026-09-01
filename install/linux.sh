@@ -71,6 +71,9 @@ DO_SERVICE=1
 DO_BUILD=1
 DO_SMOKE=1
 ASSUME_YES=0
+# Whether --no-build found everything a build would need. It used to end with
+# "this machine can build ITSaNAS" whatever it had just reported missing.
+READY=1
 
 usage() {
     cat <<'USAGE'
@@ -132,7 +135,22 @@ SELF_URL="https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/linux
 # for this case.
 confirm() {
     [ "$ASSUME_YES" -eq 1 ] && return 0
-    if ! { : < /dev/tty; } 2>/dev/null; then
+    # A *subshell*, and that matters more than it looks. `:` is a POSIX special
+    # built-in, and POSIX says a redirection error on a special built-in shall
+    # make a non-interactive shell exit. dash obeys that; bash does not. So the
+    # first version of this guard -- `{ : < /dev/tty; } 2>/dev/null` -- killed
+    # the script outright on Debian, where /bin/sh is dash, with exit status 2
+    # and not one word of output. On a Raspberry Pi 4, which is the machine this
+    # installer names in its first line.
+    #
+    # A subshell contains the exit, so the parent sees a failed command and
+    # carries on to say what is wrong.
+    #
+    # It had never run anywhere before that: this branch is only reached when
+    # Rust is missing *and* --yes was not given, and every earlier test had one
+    # or the other. Testing that the tty is read correctly is not the same as
+    # testing what happens when there is no tty.
+    if ! (exec 2>/dev/null; : < /dev/tty); then
         warn "nothing to ask on: this is not running from a terminal"
         info "Re-run with --yes to accept, or save the script and run it:"
         info "  curl -fsSL $SELF_URL -o itsanas-install.sh"
@@ -383,6 +401,18 @@ rust_is_new_enough() {
 
 if rust_is_new_enough; then
     ok "rust $(rustc --version 2>/dev/null | awk '{print $2}')"
+elif [ "$DO_BUILD" -eq 0 ]; then
+    # --no-build says "change nothing", and offering to install a toolchain is
+    # already a change. The first version asked anyway, then honoured the flag
+    # afterwards, and only left the machine alone because the answer happened to
+    # be no. Report and remember it for the verdict below.
+    if have rustc; then
+        warn "rust $(rustc --version 2>/dev/null | awk '{print $2}') is older than ${MIN_RUST_MAJOR}.${MIN_RUST_MINOR}"
+    else
+        warn "rust is not installed"
+    fi
+    info "This machine would need it; run without --no-build to install it."
+    READY=0
 else
     if have rustc; then
         warn "rust $(rustc --version 2>/dev/null | awk '{print $2}') is older than ${MIN_RUST_MAJOR}.${MIN_RUST_MINOR}"
@@ -432,8 +462,12 @@ fi
 
 if [ "$DO_BUILD" -eq 0 ]; then
     step "Stopping here (--no-build)"
-    ok "this machine can build ITSaNAS"
-    exit 0
+    if [ "$READY" -eq 1 ]; then
+        ok "this machine can build ITSaNAS"
+        exit 0
+    fi
+    warn "this machine is not ready yet; see what is missing above"
+    exit 1
 fi
 
 # ----------------------------------------------------------------- sources
