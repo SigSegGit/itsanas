@@ -274,17 +274,31 @@ Asked because the Pi in this fleet already carries a VPN in Docker, and piling
 services onto one small machine invites the crash that takes the others with it.
 That worry is correct. Containers are the wrong answer to it.
 
-**What a container would not fix.** It shares this kernel and this disk. The
-failure that prompted the question — `rustc` dying with `SIGBUS` on a Pi with a
-damaged filesystem — happens identically inside one. Container isolation is
-about namespaces, not about a machine whose storage is lying.
+**The comparison that matters, stated first.** For the thing actually asked —
+one service must not take the machine down with it — a container and a systemd
+unit are *the same mechanism*. Both set cgroup limits; Docker's `--memory` and
+`MemoryMax=` write to the same controller. So the honest comparison is not
+"container versus unit", it is "container with limits versus unit with limits",
+and on the question asked they tie. An earlier version of this section argued
+against a container by listing what the unit had just gained, which is comparing
+the improved version to the unimproved one.
+
+Given a tie on the point at issue, the rest is cost, and the costs are one-sided.
+
+**What a container would not fix** — worth saying because it was the trigger,
+not because it was the question. `rustc` dying with `SIGBUS` on a Pi with a
+damaged filesystem happens identically inside one: same kernel, same disk.
+Container isolation is about namespaces, not about a machine whose storage is
+lying.
 
 **What it would cost.**
 
-- **Host networking, which is most of the isolation.** Local discovery is a
-  signed UDP beacon on 21037, broadcast on the LAN. Docker's bridge does not
-  carry broadcast to the physical network, so the container needs
-  `--network host` and then shares the host's stack anyway.
+- **Host networking.** Local discovery is a signed UDP beacon on 21037,
+  broadcast on the LAN, and Docker's bridge does not carry broadcast to the
+  physical network — so the container needs `--network host`. That is the normal
+  deployment for a peer-to-peer daemon rather than a defeat, and plenty of
+  production systems run exactly that way. It is a cost because it removes the
+  network isolation, which was never the isolation being asked for.
 - **A bind mount, carefully.** `redb` memory-maps its index. That is fine on a
   bind mount and a bad idea on an overlay, so the volume is not optional and
   getting it wrong is silent.
@@ -292,8 +306,12 @@ about namespaces, not about a machine whose storage is lying.
   `EnvironmentFile` with mode 600; in a container it is an environment variable
   or a secrets mount. Neither is better, and the container's is more visible in
   `docker inspect`.
-- **An image to build and keep current** for a project with no release yet, on
-  a fleet that includes Windows.
+- **An image to build and keep current** — and this is the argument that
+  actually decides it, not the three above. A four-machine fleet running Windows,
+  macOS and two Linuxes does not repay an image pipeline: three of the four could
+  not use it, and the one that could already has a unit that does the same job.
+  Images become the right unit of deployment when the number of machines exceeds
+  the patience for setting each one up. Four is not that number.
 
 **What the worry was actually asking for, and what was missing.** "One service
 must not take the machine down with it" is a resource question, and systemd
