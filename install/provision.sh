@@ -74,6 +74,7 @@ PLEDGE=""
 FOLDER=""
 PEER=""
 DO_SERVICE=1
+SERVICE_OK=0
 DO_INSTALL=1
 
 usage() {
@@ -188,10 +189,10 @@ if [ "$DO_INSTALL" -eq 1 ]; then
         info "Re-run with --no-install to skip this check entirely."
     fi
     if have curl; then
-        curl -fsSL "$INSTALLER" | sh -s -- --yes --no-service --no-smoke \
+        curl -fsSL "$INSTALLER" | sh -s -- --yes --no-smoke \
             || die "the installer failed" "Its output is above."
     elif have wget; then
-        wget -q -O - "$INSTALLER" | sh -s -- --yes --no-service --no-smoke \
+        wget -q -O - "$INSTALLER" | sh -s -- --yes --no-smoke \
             || die "the installer failed" "Its output is above."
     else
         die "neither curl nor wget is here" \
@@ -295,9 +296,15 @@ if [ "$DO_SERVICE" -eq 1 ]; then
         printf 'ITSANAS_PASSPHRASE=%s\n' "$ITSANAS_PASSPHRASE" >> "$ENV_FILE"
         ok "$ENV_FILE (mode 600)"
 
-        # The unit itself comes from install/linux.sh, which was told
-        # --no-service above so that the passphrase would be in place before the
-        # service could try to start without it.
+        # The unit itself comes from install/linux.sh. It used to be told
+        # --no-service here, on the reasoning that the service must not start
+        # before the passphrase is in place. That reasoning was wrong in a way
+        # that made this whole branch dead code: linux.sh *writes* the unit and
+        # reloads systemd, and never enables or starts anything. So the flag
+        # suppressed the only step that creates the file, this branch found no
+        # unit on every run, and the summary at the bottom still told the reader
+        # to run `journalctl --user -u itsanas`. Found by reading the Pi after a
+        # green run -- the script reported success and the unit was not there.
         UNIT="$HOME/.config/systemd/user/itsanas.service"
         if [ -f "$UNIT" ]; then
             ok "the unit is already installed"
@@ -311,6 +318,7 @@ if [ "$DO_SERVICE" -eq 1 ]; then
             systemctl --user daemon-reload 2>/dev/null
             if systemctl --user enable --now itsanas 2>/dev/null; then
                 ok "itsanas.service is enabled and running"
+                SERVICE_OK=1
             else
                 warn "could not enable the service"
                 info "Look at:  systemctl --user status itsanas"
@@ -359,7 +367,12 @@ step "Done"
 
 $BIN status 2>/dev/null | head -12
 
-cat <<NEXT
+# What this prints is what the machine is, not what the script meant to do.
+# The first version printed the journalctl line unconditionally, on a machine
+# where the unit had never been written -- a summary that reports intent is a
+# summary that lies on exactly the runs you needed it not to.
+if [ "$SERVICE_OK" -eq 1 ]; then
+    cat <<NEXT
 
        Watch it:      journalctl --user -u itsanas -f
        Stop it:       systemctl --user stop itsanas
@@ -368,3 +381,17 @@ cat <<NEXT
        To rebuild this machine, keep the command you just ran. That is the
        whole point of this script: it is the artefact, not the machine.
 NEXT
+else
+    cat <<NEXT
+
+       There is no background service on this machine. Run the daemon by
+       hand when you want the node up:
+
+           itsanas daemon
+
+       Ask it:        itsanas status
+
+       To rebuild this machine, keep the command you just ran. That is the
+       whole point of this script: it is the artefact, not the machine.
+NEXT
+fi

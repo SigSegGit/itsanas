@@ -84,7 +84,7 @@ ITSaNAS installer for Linux
 Options
   --prefix DIR     where to put the binaries (default: ~/.local)
   --source DIR     build from this checkout instead of cloning
-  --no-service     do not install or enable the systemd user unit
+  --no-service     do not write the systemd user unit (it is never started here)
   --no-build       check the machine and stop, changing nothing
   --no-smoke       skip storing a test file once it is installed
   --yes            do not ask before installing system packages
