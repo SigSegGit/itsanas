@@ -50,9 +50,15 @@ executed anywhere by anybody.
 | | Status |
 | --- | --- |
 | Compiles | ✅ CI, every push |
-| Full test suite | ✅ CI, every push |
-| Run on real hardware | ❌ nobody has |
+| Full test suite | ✅ CI, every push, **on real Apple silicon** |
+| `install/macos.sh` | ✅ CI, every push, ending in a store-and-read-back |
+| Run by a person on their own Mac | ❌ nobody has |
 | Platform-specific code | one `cfg(unix)` for key file permissions |
+
+That fourth row is the one that is still empty, and the row above it used to say
+"Run on real hardware — nobody has" while the three paragraphs above it said the
+opposite. A `macos-latest` runner *is* real hardware; what is missing is somebody
+using it, which is a different claim.
 
 ### Installing
 

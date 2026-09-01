@@ -42,8 +42,10 @@ reboots — and your data stays available and stays in sync.
 > machines for a week. It **has** now run on real ARM: the whole suite passes on
 > Apple silicon in CI on every push, and on an aarch64 Ubuntu VM on a Freebox
 > Delta — every test, none failing, on 2026-09-01, installed there by its own
-> one-liner. A Raspberry Pi with 1 GB of RAM is still untried and is the machine
-> the constants were chosen for.
+> one-liner, and on a **Raspberry Pi 4B on an SD card** — where it installed,
+> stored and returned a file, and turned out to save a note faster than the
+> laptop. That Pi's filesystem failed an hour later for reasons of its own, so
+> its numbers want repeating on a sound card.
 > Repair chooses no peers. Tombstones are never pruned. There is no Android app,
 > only a Termux script that builds the command line tool. See
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the list and
@@ -64,6 +66,13 @@ Everyone holds everyone's data. Everyone can only read their own. "Blind" is
 literal: a host sees opaque blobs with opaque names, and cannot tell what a
 chunk contains, how large the original file was, what it is called, or even
 whether two of its users are storing the same file.
+
+It does know **whose** data it holds — the blobs are filed under the owner's
+public identifier — because the accounting is bilateral and you cannot charge
+for space without knowing who is using it. Verified on two machines rather than
+asserted: a document with a canary string written on a Windows laptop, pushed to
+a separate account on an ARM VM, whose whole store then contains neither the
+canary nor the file's name.
 
 ## Design goals
 

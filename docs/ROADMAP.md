@@ -773,6 +773,12 @@ Run again on 2026-09-01 on the Freebox Delta VM — aarch64 Ubuntu 26.04, 2 vCPU
 11 GB — and on the laptop, from the same commit and the same release profile, so
 the two columns are comparable:
 
+> **The Pi column was measured on a machine that failed within the hour.** Its
+> root filesystem began returning `EUCLEAN` shortly afterwards; `docs/PORTING.md`
+> §3 has the detail. The figures agree with the VM's, which is why they are kept,
+> and they need repeating on a Pi with a sound card before anything is built on
+> them.
+
 | | laptop, x86-64 | VM, aarch64 2 vCPU | **Pi 4B, aarch64, SD card** |
 | --- | --- | --- | --- |
 | chunking | 848.5 MiB/s | 185.0 MiB/s | 142.5 MiB/s |
