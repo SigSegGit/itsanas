@@ -280,9 +280,19 @@ say "no installer runs a command inside a heredoc by accident"
 # `< /dev/tty` reads the terminal whatever stdin happens to be.
 
 for script in "${SH_SCRIPTS[@]}"; do
-    bare=$(grep -n '^[^#]*\bread\b' "$script" |
-        grep -v '/dev/tty' |
-        grep -vE 'could not read|does not let|read this file|read the' || true)
+    # `read` in *command position*: at the start of a statement, or after a
+    # separator. Matching the word anywhere flagged the sentence "anything
+    # running as you can read that file" and the message "cannot read
+    # $PHRASE_FILE" -- and the answer to that is a tighter pattern, not a
+    # longer list of phrases to forgive. That list grows every time somebody
+    # writes a new sentence containing a common English verb.
+    # Two shapes, and prose matches neither: `read` carrying a flag, which is
+    # every careful use because POSIX says always pass -r; or `read` naming a
+    # single variable at the end of a line. "anything running as you can read
+    # that file" has words after it; "read this file. -->" likewise.
+    bare=$(grep -nE 'read[[:space:]]+(-|[A-Za-z_][A-Za-z0-9_]*[[:space:]]*$)' "$script" |
+        grep -vE '^[0-9]+:[[:space:]]*#' |
+        grep -v '/dev/tty' || true)
     if [ -n "$bare" ]; then
         bad "$script reads a reply from standard input:"
         printf '%s\n' "$bare" | sed 's/^/         /'

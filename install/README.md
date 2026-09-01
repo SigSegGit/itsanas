@@ -10,6 +10,7 @@ says what it is doing, and can be run twice without harm.
 | macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | macOS 26.5.2 **Apple silicon**, in CI on every push: built, installed, and stored and returned a file natively on arm64. Never on Intel |
 | Android, through Termux | [`android-termux.sh`](android-termux.sh) | **not yet run on a phone**; refuses correctly outside Termux and under `--check` |
 | Android, as an app | [`android.md`](android.md) | there is no app to install |
+| Any Linux, from nothing to a running member | [`provision.sh`](provision.sh) | **not yet run end to end**; refuses correctly without a passphrase or a username |
 | A coordinator on a machine with a public address | [`coordinator.sh`](coordinator.sh) | **not yet run on the Freebox VM**; `--check` exercised on Linux, including a busy port, a missing binary and an all-private address list |
 
 That last column is the point of this table. Say plainly which of these has been
@@ -28,6 +29,43 @@ What that replaced was a final `itsanas --version`, which proves the kernel can
 execute the file and nothing else. On a Pi or a phone the difference is the whole question, so the answer
 arrives on the machine rather than being inferred from a laptop. Skip it with
 `--no-smoke` if you need the install regardless.
+
+## From nothing to a running node, in one command
+
+`linux.sh` compiles and installs. It touches no keys, creates no account and
+writes no secret — deliberately. Getting from *installed* to *a member of
+something* was five more commands in an order nobody had written down, half of
+them needing values from another machine.
+
+[`provision.sh`](provision.sh) is that order, written down:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/provision.sh |
+  ITSANAS_PASSPHRASE='...' sh -s --     --username nicolas --pledge 100G --folder ~/Sync     --coordinator 192.168.1.11:9898 --coordinator-device <its id>
+```
+
+It installs, creates or restores the account, sets the pledge and the folder,
+pins and registers with the coordinator, writes the passphrase where systemd can
+read it, enables the service, and finishes by storing a file and reading it back.
+Run it twice and the second run changes nothing — `itsanas init` refuses to
+overwrite an existing node, which is what makes that safe.
+
+**It handles the passphrase, and that is why it is a separate script.** A daemon
+cannot be prompted, so the passphrase goes into
+`~/.config/itsanas/environment` with mode 600, and anything running as you can
+read that file. That is the trade a background service makes. It belongs in a
+script you read before running rather than in an installer's last step.
+
+For a second machine on the same account, add `--phrase-file` with the
+twenty-four words in it, and `--invite` if the coordinator admits by invitation.
+
+**Not a container**, and the reasoning is in
+[docs/PORTING.md](../docs/PORTING.md) §3b. The short version: for "one service
+must not take the machine down with it" a container and a systemd unit are the
+same mechanism, and the reproducibility a container would add needs a published
+image, which does not exist — so on ARM you would build it on the Pi, for
+exactly what building the binary costs. This script is the reproducible artefact
+instead.
 
 ## Linux, Raspberry Pi, the Freebox VM
 
