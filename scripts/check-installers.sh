@@ -308,6 +308,71 @@ for script in "${SH_SCRIPTS[@]}"; do
 done
 say "no installer reads a reply from standard input, or tests /dev/tty by hand"
 
+# --------------------------------------------- refusing without a terminal
+#
+# The branch that asks a question, run where there is nobody to ask: no tty, no
+# --yes, and a prerequisite missing. It must say so and exit 1.
+#
+# It killed the shell instead, on a Raspberry Pi 4 running Debian. The guard was
+# `{ : < /dev/tty; } 2>/dev/null`, and `:` is a POSIX *special built-in*: a
+# redirection error on one makes a non-interactive shell exit. dash obeys that
+# rule and bash does not, so the script died with status 2 and no output on
+# exactly the platform its own header says it is written for, while passing
+# every test on bash.
+#
+# The path had never executed anywhere. It needs Rust missing *and* --yes
+# absent, and every earlier run had one or the other. So this runs it, under
+# both shells, with $HOME pointed somewhere empty so the script cannot find a
+# toolchain to be satisfied by.
+
+probe_no_terminal() {
+    shell=$1
+    empty=$(mktemp -d)
+    # `setsid`, and it is the whole point: redirecting stdin from /dev/null is
+    # not the same as having no terminal. A process whose parent has one can
+    # still open /dev/tty, so the first version of this probe reached the
+    # prompt, blocked on `read`, and hung the check for ten minutes. setsid
+    # detaches from the controlling terminal, which is the state an `ssh host
+    # 'command'` and a CI step are actually in.
+    #
+    # Without --no-build, deliberately: --no-build now reports a missing
+    # toolchain instead of offering to install one, so it never reaches the
+    # question. Probing it would test the wrong branch and pass while the real
+    # one is broken -- which is what the version before this one did.
+    output=$(HOME="$empty" PATH=/usr/bin:/bin         timeout 60 setsid "$shell" install/linux.sh 2>&1 </dev/null)
+    status=$?
+    rm -rf "$empty"
+
+    if [ "$status" -eq 124 ]; then
+        bad "install/linux.sh under $shell hung with no terminal to ask on"
+        say "  It is waiting for an answer nobody can give."
+        return
+    fi
+
+    if [ "$status" -eq 0 ]; then
+        bad "install/linux.sh under $shell says a machine with no Rust is ready"
+    elif [ -z "$output" ]; then
+        bad "install/linux.sh under $shell exited $status without saying anything"
+        say "  A silent non-zero exit is a shell error, not a refusal. dash exits"
+        say "  2 on a redirection error against a special built-in."
+    elif [ "$status" -ne 1 ]; then
+        bad "install/linux.sh under $shell exited $status, not 1"
+        printf '%s\n' "$output" | tail -3 | sed 's/^/         /'
+    else
+        say "install/linux.sh under $shell refuses with a message and exit 1"
+    fi
+}
+
+if PATH=/usr/bin:/bin command -v rustc >/dev/null 2>&1; then
+    say "rustc is in /usr/bin here, so the no-toolchain path cannot be probed"
+elif ! command -v setsid >/dev/null 2>&1 || ! command -v timeout >/dev/null 2>&1; then
+    say "setsid or timeout is missing here; the no-terminal path was not probed"
+else
+    for shell in sh dash bash; do
+        command -v "$shell" >/dev/null 2>&1 && probe_no_terminal "$shell"
+    done
+fi
+
 # ------------------------------------------------------- what it refuses to do
 #
 # The one branch of an installer that has to be right on a machine nobody here
