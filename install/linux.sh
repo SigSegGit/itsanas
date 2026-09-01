@@ -583,6 +583,34 @@ ExecStart=$BIN_DIR/itsanas daemon
 Restart=on-failure
 RestartSec=30
 
+# A ceiling, and an offer to be killed first.
+#
+# The machines this runs on are not dedicated to it. The Raspberry Pi in this
+# fleet also carries a VPN container, and the question that prompted these lines
+# was whether the daemon should be containerised so that it could not take the
+# rest of the machine down with it. It should not: a container shares this
+# kernel and this disk and would not have prevented anything, while costing
+# host networking for the UDP discovery beacons and a bind mount for an index
+# that is memory-mapped. What was actually missing is this.
+#
+# MemoryMax is a hard cap: the daemon is killed rather than the machine
+# swapping or the OOM killer choosing. 512M is roughly sixty times what
+# \`itsanas bench\` peaks at on a Pi (7.6 MiB for a 256 MiB run, because the
+# store streams), so hitting it means a leak, and being killed for a leak is
+# the correct outcome. MemoryHigh throttles before that, which turns a slow
+# leak into slow syncing rather than a kill.
+#
+# OOMScoreAdjust=500 says: if the kernel must choose, choose this. A storage
+# daemon that restarts in thirty seconds is a better casualty than whatever
+# else is on the machine.
+MemoryHigh=384M
+MemoryMax=512M
+OOMScoreAdjust=500
+
+# Sync is background work. Anything a person is waiting for should win.
+CPUWeight=50
+IOWeight=50
+
 # The passphrase. systemd reads this file as the user, so it must not be
 # world-readable; the installer creates it with 600 and refuses to continue if
 # it cannot. Leaving it out means the unit will not start, which is the honest

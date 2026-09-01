@@ -316,6 +316,18 @@ ExecStart=/usr/local/bin/itsanas-coordinator --state $STATE_DIR --listen 0.0.0.0
 Restart=always
 RestartSec=10
 
+# A ceiling. This is the one process in the fleet a stranger can reach
+# unprompted, so a memory-exhaustion attempt against it must cost the attacker
+# a restart rather than costing the machine everything else on it. The
+# coordinator holds a directory and some sealed blobs, not file data, so 256M
+# is generous; hitting it means either a leak or somebody trying.
+#
+# OOMScoreAdjust is *not* raised here, unlike the member unit. On a machine
+# whose job is to be this, there is nothing better to sacrifice.
+MemoryHigh=192M
+MemoryMax=256M
+TasksMax=256
+
 # It is on a public port and it holds no user data and no user keys, so it is
 # given nothing. If it is ever compromised, what an attacker gets is a list of
 # usernames and addresses and some blobs they cannot open.

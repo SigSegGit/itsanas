@@ -117,7 +117,7 @@ launchctl load ~/Library/LaunchAgents/net.itsanas.daemon.plist
 The application firewall will ask once whether to accept incoming connections.
 Say yes, or nothing will be able to dial this machine.
 
-## 3. Raspberry Pi and the Freebox VM — the VM is done, the Pi is not
+## 3. Raspberry Pi and the Freebox VM — both have run it
 
 **The Freebox Delta VM has run it.** aarch64 Ubuntu 26.04, 2 vCPU, 11 GB,
 installed on 2026-09-01 by `curl … | sh` on a machine that had no compiler and
@@ -215,6 +215,52 @@ scp target/aarch64-unknown-linux-gnu/release/itsanas-coordinator vm:
 Forward TCP 9898 to it in the Freebox interface. It is the only publicly
 reachable component; the limits that make that safe are in
 `itsanas-coord::server` rather than in the firewall.
+
+## 3b. Should it be a container? No, and here is what the question was right about
+
+Asked because the Pi in this fleet already carries a VPN in Docker, and piling
+services onto one small machine invites the crash that takes the others with it.
+That worry is correct. Containers are the wrong answer to it.
+
+**What a container would not fix.** It shares this kernel and this disk. The
+failure that prompted the question — `rustc` dying with `SIGBUS` on a Pi with a
+damaged filesystem — happens identically inside one. Container isolation is
+about namespaces, not about a machine whose storage is lying.
+
+**What it would cost.**
+
+- **Host networking, which is most of the isolation.** Local discovery is a
+  signed UDP beacon on 21037, broadcast on the LAN. Docker's bridge does not
+  carry broadcast to the physical network, so the container needs
+  `--network host` and then shares the host's stack anyway.
+- **A bind mount, carefully.** `redb` memory-maps its index. That is fine on a
+  bind mount and a bad idea on an overlay, so the volume is not optional and
+  getting it wrong is silent.
+- **The same passphrase problem.** A daemon cannot prompt. In a unit that is an
+  `EnvironmentFile` with mode 600; in a container it is an environment variable
+  or a secrets mount. Neither is better, and the container's is more visible in
+  `docker inspect`.
+- **An image to build and keep current** for a project with no release yet, on
+  a fleet that includes Windows.
+
+**What the worry was actually asking for, and what was missing.** "One service
+must not take the machine down with it" is a resource question, and systemd
+answers it directly. The units now carry `MemoryMax`, `MemoryHigh`, `CPUWeight`
+and `IOWeight`, and the member unit sets `OOMScoreAdjust=500` — if the kernel
+must pick something to kill, pick the storage daemon, which comes back in thirty
+seconds, rather than the VPN. That is a smaller change than containerising, it
+targets the actual risk, and it was genuinely absent before the question was
+asked.
+
+The ceilings are sized from measurement rather than from caution: `itsanas
+bench` peaks at **7.6 MiB** on the Pi for a 256 MiB run, because the store
+streams. `MemoryMax=512M` is sixty times that, so reaching it means a leak — and
+being killed for a leak is the right outcome.
+
+**When this decision should be revisited.** If a member node ever needs to run
+untrusted code, or if the fleet grows past the point where per-machine setup is
+sensible and images become the unit of deployment. Neither is true of four
+machines.
 
 ## 4. Android — the core compiles, the shell does not exist
 

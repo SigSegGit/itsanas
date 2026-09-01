@@ -97,11 +97,26 @@ What is missing before this is a *network* rather than a personal sync tool:
   saves a document in a third of the laptop's time. `Test (macos-latest)` had
   also been running the whole suite on Apple silicon since CI first ran.
 
-  **Still never run on a Raspberry Pi**, and that is now the specific gap rather
-  than a general one: the VM has 11 GB and a virtual disk, a 4B has 1 GB and an
-  SD card, and every constant in this repository that says "on a Raspberry Pi"
-  was chosen for the latter. `install/linux.sh` puts that one command away from
-  anybody who has one.
+  ~~**Still never run on a Raspberry Pi.**~~ **It has.** A Pi 4 Model B, Debian
+  13, aarch64, on an SD card, on 2026-09-01: installed by the same one-liner on
+  a machine with no Rust on it, built in about twenty minutes at two jobs, and
+  the smoke check passed natively. `itsanas bench` there is in M9 below, and it
+  is the answer to a question this project has carried since week one — **the Pi
+  saves a note in 0.8 ms, the fastest of the three machines, and the whole
+  256 MiB benchmark peaks at 7.6 MiB of memory.** The constants were chosen for
+  a machine nobody had measured, and the machine turns out to be comfortable.
+
+  **The test suite could not be run there**, and that is about the machine
+  rather than about ARM: `rustc` dies with `SIGBUS` on assorted small
+  dependencies, and *which* ones varies between runs, on a Pi whose `ext4`
+  reported six `EFSCORRUPTED` block-bitmap errors at boot and whose last `fsck`
+  was in June. Release builds succeed; debug builds — which is what `cargo test`
+  is — do not. Nothing points at ITSaNAS, and nothing can be concluded about
+  ITSaNAS on a Pi from it either, until that filesystem is checked. What stands
+  is: it installs, it runs, and it is fast there.
+
+  What that leaves untested everywhere: **redb on an SD card under sustained
+  write**, which is the medium's real question and needs a working Pi.
 
 - CI also cross-builds
   the workspace for aarch64 and then runs **the whole test suite** on that
@@ -758,21 +773,28 @@ Run again on 2026-09-01 on the Freebox Delta VM — aarch64 Ubuntu 26.04, 2 vCPU
 11 GB — and on the laptop, from the same commit and the same release profile, so
 the two columns are comparable:
 
-| | laptop, x86-64 | VM, aarch64 2 vCPU |
-| --- | --- | --- |
-| chunking | 848.5 MiB/s | 185.0 MiB/s |
-| **store write** | **27.2 MiB/s** | **54.1 MiB/s** |
-| store read | 436.6 MiB/s | 96.0 MiB/s |
-| a note, 4 KiB | 9.2 ms | **1.1 ms** |
-| a Word document, 512 KiB | 29 ms | **10 ms** |
-| a big PDF, 4 MiB | 159 ms | **75 ms** |
-| a photo burst, 32 MiB | 1.29 s | **617 ms** |
-| 1 TB, extrapolated | 10.7 h | 5.4 h |
-| peak memory | — | 9.2 MiB |
+| | laptop, x86-64 | VM, aarch64 2 vCPU | **Pi 4B, aarch64, SD card** |
+| --- | --- | --- | --- |
+| chunking | 848.5 MiB/s | 185.0 MiB/s | 142.5 MiB/s |
+| **store write** | **27.2 MiB/s** | **54.1 MiB/s** | **44.1 MiB/s** |
+| store read | 436.6 MiB/s | 96.0 MiB/s | 74.8 MiB/s |
+| a note, 4 KiB | 9.2 ms | 1.1 ms | **0.8 ms** |
+| a Word document, 512 KiB | 29 ms | 10 ms | **12 ms** |
+| a big PDF, 4 MiB | 159 ms | 75 ms | **93 ms** |
+| a photo burst, 32 MiB | 1.29 s | 617 ms | **731 ms** |
+| 1 TB, extrapolated | 10.7 h | 5.4 h | 6.6 h |
+| peak memory | — | 9.2 MiB | **7.6 MiB** |
 
-The small machine wins on the number that matters, and loses on everything else.
-The laptop chunks 4.6× faster and reads 4.5× faster; it writes at half the speed,
-and writing is what a save is made of.
+The small machines win on the number that matters and lose on everything else.
+The laptop chunks six times faster than the Pi and reads six times faster, and
+still takes 29 ms to save a document where the Pi takes 12. Writing is what a
+save is made of.
+
+**The Pi is comfortable, which was the open question.** Every constant in this
+repository that says "on a Raspberry Pi" was chosen against a machine nobody had
+measured. Saving a note takes 0.8 ms there — the fastest of the three — and the
+whole 256 MiB benchmark peaks at 7.6 MiB of memory, on a machine with 3.8 GB.
+The worry was whether a Pi could keep up. It is not close.
 
 The store puts **one file per chunk**, so a 256 MiB archive is 3585 file
 creations. That is the operation NTFS is expensive at and ext4 is not, and it is
