@@ -23,8 +23,12 @@ reboots — and your data stays available and stays in sync.
 > machine from a passphrase alone — **and the files come back**, verified end
 > to end with the real binaries. Hosts are audited on chunks drawn in an order
 > they cannot predict, and a peer that cannot answer stops being sent data. A
-> disk that quietly loses a block gets it back from a peer that still has it.
-> Joining is by invitation from an existing member.
+> disk that quietly loses a block gets it back from a peer that still has it —
+> **watched happening between two machines**: a host's blob was deleted from its
+> disk behind its back, and the owner's next round printed
+> `FAILED 1 of 1 storage challenges` and re-uploaded the chunk in the same round.
+> Joining is by invitation from an existing member, also tested between two
+> machines through a real coordinator.
 >
 > 641 tests, 30 of them red-team — a red-team test **passes when the attack
 > fails**. See [docs/TESTING.md](docs/TESTING.md), which lists every one of them

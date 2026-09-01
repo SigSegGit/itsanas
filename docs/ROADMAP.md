@@ -63,6 +63,22 @@ What is missing before this is a *network* rather than a personal sync tool:
   compute — measured, that is the difference between a host losing 10% of
   your data and passing 92% of audits, and passing 18%.
 
+  **Watched working between two machines, 2026-09-01.** Two separate accounts,
+  a Windows laptop and an aarch64 VM. The host's blob was deleted from its disk
+  behind its back; the owner's next daemon round printed `FAILED 1 of 1 storage
+  challenges — it is not holding what it said` and re-uploaded the chunk in that
+  same round, after which rounds went back to 208 bytes of nothing-new. The
+  host's store still contained neither the plaintext canary nor the file's name
+  afterwards. Detection, sanction and repair, on hardware rather than in a test
+  binary.
+
+  Found while doing it: **the coordinator only finds your own devices.**
+  `daemon.rs:495` looks peers up as `coordinator::peers(node, node.store.owner())`,
+  so a member cannot discover *other members* to host with — Alice had to be told
+  `itsanas peer add` before she could reach Bob at all. That is the same gap as
+  "repair chooses no peers" below, seen from the other end, and it is the thing
+  standing between this and a network rather than a set of arranged pairs.
+
   A host that fails three rounds in a row stops being sent new content, keeps
   receiving the log so it can still relay, and is handed one chunk a round —
   chosen by the owner, and the only thing it is then audited on. Each answered
