@@ -734,7 +734,7 @@ And start it:
 
   systemctl --user enable --now itsanas     (after filling in the passphrase in
                                              ~/.config/itsanas/environment)
-  journalctl --user -u itsanas -f           to watch it
+  journalctl --user-unit itsanas -f         to watch it
 
 Or run it in the foreground, which asks for the passphrase properly:
 

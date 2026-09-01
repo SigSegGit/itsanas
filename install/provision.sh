@@ -207,12 +207,47 @@ ok "$($BIN --version 2>/dev/null)"
 
 # -------------------------------------------------------------- the account
 
+step "A node that is already running"
+
+# Everything below this line opens the node's state, and redb allows exactly
+# one writer: with the daemon up, `pledge`, `folder`, `coordinator`, `register`
+# and `status` all refuse with "already open in another process". That is the
+# correct behaviour from the store and it makes this script fail on precisely
+# the machines it has already succeeded on -- the second run of an installer is
+# the run where the service exists.
+#
+# So: stop it, configure, and start it again in the service step below.
+WAS_ACTIVE=0
+if have systemctl && systemctl --user is-active itsanas >/dev/null 2>&1; then
+    WAS_ACTIVE=1
+    if systemctl --user stop itsanas 2>/dev/null; then
+        ok "stopped itsanas.service so the store can be opened"
+    else
+        die "itsanas.service is running and could not be stopped"             "Only one process may hold the node's state. Stop it with:"             "  systemctl --user stop itsanas"
+    fi
+else
+    ok "nothing is holding the node's state"
+fi
+
 step "The account"
 
 # `init` refuses to overwrite an existing node, and that refusal is the thing
 # that makes this script safe to re-run: it will not destroy a master secret
 # because somebody repeated a command.
-if $BIN status >/dev/null 2>&1; then
+#
+# The test is for the keystore, not for `itsanas status`. Status was the
+# first version and it does not discriminate: it exits non-zero when there
+# is no node *and* when there is one the running daemon holds open, so on a
+# machine where this script had already succeeded -- daemon up, which is the
+# whole point -- the second run decided the node was missing and went on to
+# `init`. That was caught by `init` refusing, so nothing was destroyed; the
+# guard was still asking a question whose answer it could not read.
+#
+# keystore.bin is the sealed master secret. Its presence is what "there is a
+# node here" means, and reading a directory entry needs no lock and no
+# passphrase.
+NODE_HOME="${ITSANAS_HOME:-$HOME/.itsanas}"
+if [ -f "$NODE_HOME/keystore.bin" ]; then
     ok "a node already exists here; leaving it alone"
 elif [ -n "$PHRASE_FILE" ]; then
     $BIN login --username "$USERNAME" --phrase-file "$PHRASE_FILE" \
@@ -275,6 +310,12 @@ if [ -n "$COORDINATOR" ]; then
             "then re-run this with --invite <code>."
     fi
 fi
+
+# Read the node's own summary here, while nothing holds the store. After the
+# service starts, `itsanas status` cannot open it -- so the Done block below
+# prints what was read at this point rather than running a command that will
+# fail once the script has succeeded.
+SUMMARY=$($BIN status 2>/dev/null | head -12)
 
 # ----------------------------------------------------------------- service
 
@@ -365,7 +406,19 @@ fi
 
 step "Done"
 
-$BIN status 2>/dev/null | head -12
+[ -n "$SUMMARY" ] && printf '%s
+' "$SUMMARY"
+
+# If this script stopped the daemon and did not start one, it owes the machine
+# the state it found it in.
+if [ "$WAS_ACTIVE" -eq 1 ] && [ "$SERVICE_OK" -eq 0 ]; then
+    if systemctl --user start itsanas 2>/dev/null; then
+        SERVICE_OK=1
+    else
+        warn "itsanas.service was running when this started and is now stopped"
+        info "  systemctl --user start itsanas"
+    fi
+fi
 
 # What this prints is what the machine is, not what the script meant to do.
 # The first version printed the journalctl line unconditionally, on a machine
@@ -374,7 +427,11 @@ $BIN status 2>/dev/null | head -12
 if [ "$SERVICE_OK" -eq 1 ]; then
     cat <<NEXT
 
-       Watch it:      journalctl --user -u itsanas -f
+       Watch it:      journalctl --user-unit itsanas -f
+                      (--user-unit, not --user -u: the second asks for a
+                       per-user journal, which Debian 13 does not keep,
+                       and answers "No journal files were found" while
+                       the service is running fine)
        Stop it:       systemctl --user stop itsanas
        Ask it:        itsanas status
 
