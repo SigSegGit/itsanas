@@ -22,7 +22,7 @@
 //! that needed babysitting would not be one.
 
 use std::io;
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -84,7 +84,7 @@ impl CoordServer {
     }
 
     /// The address actually bound, after a port of zero.
-    pub fn local_addr(&self) -> Result<std::net::SocketAddr> {
+    pub fn local_addr(&self) -> Result<SocketAddr> {
         self.listener.local_addr().map_err(CoordError::from)
     }
 
@@ -248,6 +248,13 @@ fn serve_one(
 #[derive(Debug)]
 pub struct CoordClient {
     connection: Connection<itsanas_tls::session::ClientStream<TcpStream>>,
+    /// The local end of the socket, kept because the TLS wrapper consumes the
+    /// `TcpStream` and a caller cannot ask it afterwards.
+    ///
+    /// It answers "which of this machine's addresses reaches the coordinator",
+    /// which is the only sensible thing to announce when a node is configured
+    /// to listen on every interface. See `itsanas-cli`'s `reachable_address`.
+    local: SocketAddr,
 }
 
 impl CoordClient {
@@ -273,6 +280,7 @@ impl CoordClient {
             .ok_or_else(|| CoordError::Transport("no address to connect to".to_owned()))?;
 
         let stream = TcpStream::connect_timeout(&target, IO_TIMEOUT).map_err(CoordError::from)?;
+        let local = stream.local_addr().map_err(CoordError::from)?;
         stream
             .set_read_timeout(Some(IO_TIMEOUT))
             .map_err(CoordError::from)?;
@@ -293,7 +301,7 @@ impl CoordClient {
             .map_err(|error| CoordError::Transport(format!("handshake failed: {error}")))?;
         let _ = peer;
 
-        let mut client = Self { connection };
+        let mut client = Self { connection, local };
 
         match client.ask(&Request::Hello {
             version: COORD_VERSION,
@@ -304,6 +312,12 @@ impl CoordClient {
                 "expected a version agreement, got {other:?}"
             ))),
         }
+    }
+
+    /// Which of this machine's addresses reached the coordinator.
+    #[must_use]
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local
     }
 
     /// Send one request and read one answer.

@@ -26,7 +26,7 @@ reboots — and your data stays available and stays in sync.
 > disk that quietly loses a block gets it back from a peer that still has it.
 > Joining is by invitation from an existing member.
 >
-> 638 tests, 30 of them red-team — a red-team test **passes when the attack
+> 641 tests, 30 of them red-team — a red-team test **passes when the attack
 > fails**. See [docs/TESTING.md](docs/TESTING.md), which lists every one of them
 > with the property it establishes.
 >
@@ -40,9 +40,10 @@ reboots — and your data stays available and stays in sync.
 >
 > **What is missing, and it is not small.** It has never run on four real
 > machines for a week. It **has** now run on real ARM: the whole suite passes on
-> Apple silicon in CI, and on an aarch64 Ubuntu VM on a Freebox Delta — 640
-> tests, no failures, installed there by its own one-liner. A Raspberry Pi with
-> 1 GB of RAM is still untried and is the machine the constants were chosen for.
+> Apple silicon in CI on every push, and on an aarch64 Ubuntu VM on a Freebox
+> Delta — every test, none failing, on 2026-09-01, installed there by its own
+> one-liner. A Raspberry Pi with 1 GB of RAM is still untried and is the machine
+> the constants were chosen for.
 > Repair chooses no peers. Tombstones are never pruned. There is no Android app,
 > only a Termux script that builds the command line tool. See
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the list and

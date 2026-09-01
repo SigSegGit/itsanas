@@ -123,8 +123,9 @@ Say yes, or nothing will be able to dial this machine.
 installed on 2026-09-01 by `curl … | sh` on a machine that had no compiler and
 no Rust on it. The build took 5m37s. Then, on that machine:
 
-- **640 tests pass, none fail** — the whole suite plus the three `#[ignore]`d
-  ones, natively, no emulator
+- **the whole suite passes, none fail** — including the three `#[ignore]`d ones,
+  natively, no emulator. 640 of them on 2026-09-01; the figure moves as tests are
+  added, and `docs/TESTING.md` holds the current one
 - `scripts/smoke.sh`: an account, a 24-word phrase, a 350 KB file across five
   chunks read back byte for byte, `doctor` clean —
   `PASS: ITSaNAS stored and returned a file -- native aarch64`

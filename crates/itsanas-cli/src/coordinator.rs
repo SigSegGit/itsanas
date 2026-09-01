@@ -12,6 +12,8 @@
 //! anyone who steals its database. Escrow is therefore opt-in, and withdrawing
 //! it is one command.
 
+use std::net::SocketAddr;
+
 use itsanas_coord::claim::{NodeClaim, Presence};
 use itsanas_coord::directory::Registration;
 use itsanas_coord::invitation::{Invitation, SECRET_LEN, Secret};
@@ -188,21 +190,61 @@ pub fn register_with(node: &Node, invite: Option<&Secret>, now: u64) -> Result<(
     }
 }
 
-/// Publish where this device can be reached.
+/// The address to publish for this device.
+///
+/// A node listening on `0.0.0.0:9797` — the default, and the right default —
+/// must not tell the coordinator that this *is* its address. `0.0.0.0` is where
+/// to accept connections from; it is not somewhere to dial. A peer that looked
+/// it up got an address it could not use, and `itsanas register` printed
+/// `announced 0.0.0.0:9797` as though that had worked. The comment above that
+/// call says a device nobody can reach has not really joined anything, which is
+/// exactly what it had just arranged.
+///
+/// So when the configured address is unspecified, publish the local end of the
+/// connection that just reached the coordinator: among this machine's
+/// addresses, that is the one demonstrably able to talk to it. The port stays
+/// the configured one — the listening port, not the ephemeral port this
+/// particular connection went out from.
+///
+/// **This is still wrong behind NAT**, where the address a peer needs is the
+/// router's and only the coordinator can observe it. The fix for that is the
+/// coordinator recording the source address it saw, which is a protocol change
+/// and is safe for the same reason this is: members pin the device id, so an
+/// address leading to the wrong machine is refused rather than trusted.
+#[must_use]
+pub fn reachable_address(configured: &str, local: SocketAddr) -> String {
+    let Ok(parsed) = configured.parse::<SocketAddr>() else {
+        // Not an address literal, so it is a hostname somebody chose on
+        // purpose. Substituting an IP for it would be overruling them.
+        return configured.to_owned();
+    };
+    if parsed.ip().is_unspecified() {
+        SocketAddr::new(local.ip(), parsed.port()).to_string()
+    } else {
+        configured.to_owned()
+    }
+}
+
+/// Publish where this device can be reached, and return what was published.
 ///
 /// Signed by the device, not by the owner: a laptop moving between networks
 /// announces constantly and must never need the key that can revoke everything.
-pub fn announce(node: &Node, address: &str, now: u64) -> Result<()> {
+///
+/// Returns the address rather than the unit, so that a caller reporting what
+/// happened reports what was sent instead of what it asked for. `register`
+/// printed the configured value and was wrong whenever the two differed.
+pub fn announce(node: &Node, address: &str, now: u64) -> Result<String> {
     let mut client = dial(node)?;
+    let address = reachable_address(address, client.local_addr());
     let presence = Presence {
         device: node.store.device_id(),
-        address: address.to_owned(),
+        address: address.clone(),
         at_unix: now,
     }
     .sign(&node.device);
 
     match client.ask(&Request::Announce(Box::new(presence)))? {
-        Response::Done => Ok(()),
+        Response::Done => Ok(address),
         Response::Refused(why) => Err(CliError::Usage(why)),
         other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
     }
@@ -312,6 +354,48 @@ mod tests {
         assert!(parse_device(&"z".repeat(64)).is_err());
         assert!(parse_device(&"a".repeat(63)).is_err());
         assert!(parse_device(&"a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn an_unspecified_listen_address_is_not_what_gets_published() {
+        // The default is `0.0.0.0:9797`, and it is the right default: a node
+        // should accept from every interface. Publishing it is a different
+        // statement, and a false one — nobody can dial 0.0.0.0. A peer that
+        // looked this device up got that string, and `register` printed
+        // "announced 0.0.0.0:9797" as though something had been achieved.
+        let local = "192.168.1.81:54321".parse().unwrap();
+        assert_eq!(
+            reachable_address("0.0.0.0:9797", local),
+            "192.168.1.81:9797"
+        );
+    }
+
+    #[test]
+    fn the_published_port_is_the_listening_one_not_the_one_dialled_from() {
+        // The local end of the connection to the coordinator carries an
+        // ephemeral source port. Taking the address from it and the port with
+        // it would publish somewhere nothing is listening — which fails later,
+        // elsewhere, and looks like a network problem.
+        let local = "10.0.0.5:41999".parse().unwrap();
+        assert_eq!(reachable_address("0.0.0.0:9797", local), "10.0.0.5:9797");
+        assert_eq!(reachable_address("[::]:9797", local), "10.0.0.5:9797");
+    }
+
+    #[test]
+    fn an_address_somebody_chose_is_left_alone() {
+        // Substitution is for the case where the configuration says "anywhere".
+        // A specific address, or a hostname, is a decision, and overruling it
+        // with whatever interface happened to reach the coordinator would break
+        // exactly the setups that were configured on purpose.
+        let local = "192.168.1.81:54321".parse().unwrap();
+        assert_eq!(
+            reachable_address("203.0.113.7:9797", local),
+            "203.0.113.7:9797"
+        );
+        assert_eq!(
+            reachable_address("nas.example.org:9797", local),
+            "nas.example.org:9797"
+        );
     }
 
     #[test]

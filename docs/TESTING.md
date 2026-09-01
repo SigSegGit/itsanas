@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-08-31 — 638 test functions across 21 binaries, 3 of them
+**Last updated: 2026-09-01 — 641 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 30 are red-team tests.**
 
-**522 of the 638 tests have an entry of their own on this page.** Forty-seven of
+**525 of the 641 tests have an entry of their own on this page.** Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
 property rather than test by test; the remaining sixty-odd are ordinary
 omission, concentrated in `itsanas-store`'s unit tests and `itsanas-folder`.
@@ -49,7 +49,7 @@ workspace).
 | `itsanas-policy` unit | 15 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 40 |
+| `itsanas-cli` unit | 43 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -668,7 +668,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (40)
+# `itsanas-cli` — unit tests (43)
 
 ## `bench` — measuring this machine (4)
 
@@ -734,6 +734,21 @@ the function, which is not a property worth having a test for.
 | `sizes_parse_the_way_people_write_them` | `500`, `1K`, `2MB`, `10G`, `1TiB`. |
 | `sizes_format_readably` / `formatting_never_panics_at_the_extremes` | Output is legible at every magnitude. |
 | `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
+
+## `coordinator` — publishing an address (3)
+
+Found on a real coordinator, on the Freebox VM, the first time a member
+registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
+is the default listen address and the right default — accept from every
+interface — but it is not somewhere a peer can dial, and nothing checked. The
+comment above the call says a device nobody can reach has not really joined
+anything.
+
+| Test | What it proves |
+| --- | --- |
+| **`an_unspecified_listen_address_is_not_what_gets_published`** | The address published is the local end of the connection that just reached the coordinator, not `0.0.0.0`. Of this machine's addresses it is the one demonstrably able to talk to the coordinator. Still wrong behind NAT, where only the coordinator can see the address a peer needs; that is a protocol change and is written down in `coordinator.rs`. |
+| **`the_published_port_is_the_listening_one_not_the_one_dialled_from`** | The local end carries an *ephemeral* source port. Taking the port along with the address would publish somewhere nothing listens — a failure that arrives later, elsewhere, and looks like a network fault. |
+| `an_address_somebody_chose_is_left_alone` | Substitution happens only where the configuration said "anywhere". A specific address or a hostname is a decision, and overruling it would break the setups that were configured deliberately. |
 
 ---
 

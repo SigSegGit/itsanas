@@ -495,7 +495,7 @@ fn one_round(
         let discovered = coordinator::peers(node, node.store.owner());
 
         match (published, discovered) {
-            (Ok(()), Ok(found)) => {
+            (Ok(_), Ok(found)) => {
                 outage.succeeded();
                 from_coordinator = found;
             }

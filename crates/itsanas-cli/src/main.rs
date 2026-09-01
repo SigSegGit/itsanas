@@ -794,7 +794,10 @@ fn register(home: &Path, recovery: bool, withdraw: bool, invite: Option<&str>) -
     // device nobody can reach has not really joined anything.
     let listen = node.config.listen.clone();
     match coordinator::announce(&node, &listen, now) {
-        Ok(()) => println!("announced {listen}"),
+        // What was published, not what was configured. With `listen` set to
+        // every interface — the default — those differ, and printing the
+        // configured value told the reader an address no peer can dial.
+        Ok(published) => println!("announced {published}"),
         Err(error) => println!("could not announce an address: {error}"),
     }
 

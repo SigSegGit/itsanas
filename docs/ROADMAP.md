@@ -1,6 +1,6 @@
 # Roadmap vs Current State
 
-**Last updated: 2026-08-31.** This file is updated in the same change as the
+**Last updated: 2026-09-01.** This file is updated in the same change as the
 code it describes. If it disagrees with the code, the code is right and this is
 a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 
@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**638 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
+**641 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -92,7 +92,8 @@ What is missing before this is a *network* rather than a personal sync tool:
 - ~~**Never run on ARM.**~~ Done, twice over. **The Freebox Delta VM has run
   it**: aarch64 Ubuntu 26.04, 2 vCPU, installed on 2026-09-01 by the `curl | sh`
   one-liner on a machine with no compiler and no Rust, built in 5m37s, then
-  **640 tests passing with none failing**, the smoke check, and a benchmark that
+  **the whole suite passing with none failing** — 640 tests on 2026-09-01, a
+  figure that moves as tests are added — the smoke check, and a benchmark that
   saves a document in a third of the laptop's time. `Test (macos-latest)` had
   also been running the whole suite on Apple silicon since CI first ran.
 

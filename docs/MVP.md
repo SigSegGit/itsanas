@@ -56,7 +56,8 @@ not availability.
 ~~**To confirm before building against it:** the Freebox Delta VM is aarch64.~~
 **Confirmed on the machine itself, 2026-09-01.** Ubuntu 26.04 aarch64, 2 vCPU,
 11 GB: installed by the `curl | sh` one-liner on a box with no compiler and no
-Rust, built in 5m37s, **640 tests passing and none failing**, and a benchmark
+Rust, built in 5m37s, **the whole suite passing and none failing** (640 tests on
+2026-09-01), and a benchmark
 that saves a 512 KiB document in 10 ms against the laptop's 29 ms. CI also runs
 the suite for that target under emulation on every push.
 
