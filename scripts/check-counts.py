@@ -69,6 +69,16 @@ SECTION = re.compile(r'^# `([a-z0-9-]+)` — .+? \((\d+)')
 # section headings added up to 627, so the file read as a complete catalogue and
 # was not one. Stating the real figure is the difference between a gap and a
 # claim.
+#
+# An *entry*, not a mention. The first version counted a name appearing anywhere
+# in the file, which would have been satisfied by pasting it into a sentence --
+# a debt counter payable in monopoly money. A name counts when it sits in the
+# first cell of a table row whose last cell says something, which is what
+# CONTRIBUTING.md asks for: every test gets an entry saying what it proves.
+#
+# Tightening it changed nothing today: all 525 cited names were already real
+# entries. That is the moment to tighten a rule -- when it costs nothing and
+# closes the door before somebody needs it open.
 CITED = re.compile(r'`([a-z][a-z0-9_]+)`')
 #
 # The cited figure counts distinct *names*, and the total counts test functions;
@@ -125,6 +135,25 @@ ROADMAP_CLAIM = re.compile(
     r'(\d+) test functions, (\d+) of them `#\[ignore\]`d into the slow job, '
     r'and (\d+) of\s+them red-team'
 )
+
+
+
+def catalogued(text, known):
+    """Test names that have a table entry, not merely a mention."""
+    found = set()
+    for line in text.split(chr(10)):
+        if not line.startswith('|'):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip('|').split('|')]
+        if len(cells) < 2:
+            continue
+        explanation = cells[-1]
+        if not explanation or set(explanation) <= set('- '):
+            continue
+        for name in CITED.findall(cells[0]):
+            if name in known:
+                found.add(name)
+    return found
 
 
 def collect(root):
@@ -272,7 +301,7 @@ def main():
         )
 
     # How many tests are catalogued individually.
-    cited = set(CITED.findall(testing)) & test_names
+    cited = catalogued(testing, test_names)
     claim = COVERAGE_CLAIM.search(' '.join(testing.split()))
     if not claim:
         problems.append(

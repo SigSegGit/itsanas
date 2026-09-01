@@ -3,7 +3,9 @@
 **Last updated: 2026-09-01 — 641 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 30 are red-team tests.**
 
-**525 of the 641 tests have an entry of their own on this page.** Forty-seven of
+**525 of the 641 tests have an entry of their own on this page** — an *entry*,
+meaning a row in one of the tables below whose last cell says something, not a
+name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
 property rather than test by test; the remaining sixty-odd are ordinary
 omission, concentrated in `itsanas-store`'s unit tests and `itsanas-folder`.
