@@ -339,7 +339,12 @@ probe_no_terminal() {
     # toolchain instead of offering to install one, so it never reaches the
     # question. Probing it would test the wrong branch and pass while the real
     # one is broken -- which is what the version before this one did.
-    output=$(HOME="$empty" PATH=/usr/bin:/bin         timeout 60 setsid "$shell" install/linux.sh 2>&1 </dev/null)
+    env="HOME=$empty PATH=/usr/bin:/bin"
+    # One line, because the continuation that was here got eaten by the script
+    # that wrote it -- caught by check-messages.py in the same minute, which is
+    # the fifth time today and the first time it was caught before a push.
+    # shellcheck disable=SC2086
+    output=$(env $env timeout 60 setsid "$shell" install/linux.sh 2>&1 </dev/null)
     status=$?
     rm -rf "$empty"
 
