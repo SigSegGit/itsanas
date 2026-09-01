@@ -141,7 +141,7 @@ container it shares the box with, peaking at 1266 MB of 3795. The smoke check
 passed natively, and the VPN never noticed.
 
 `itsanas bench` there is the measurement this project has been missing since
-week one:
+week one — with a large caveat immediately after it:
 
 | | laptop x86-64 | VM aarch64 | **Pi 4B, SD card** |
 | --- | --- | --- | --- |
@@ -152,7 +152,21 @@ week one:
 
 The Pi saves a note faster than the laptop and uses 7.6 MiB doing 256 MiB of
 work. Every constant in this repository that says "on a Raspberry Pi" was chosen
-against a machine nobody had measured, and the machine is comfortable.
+against a machine nobody had measured, and on this evidence the machine is
+comfortable.
+
+> **Read these Pi numbers with the caveat that follows.** Within the hour after
+> they were taken, that Raspberry Pi's root filesystem failed: files that had
+> just run began returning `EUCLEAN` ("structure needs cleaning") and `sshd`
+> stopped completing a handshake. Its `ext4` had logged six `EFSCORRUPTED`
+> block-bitmap errors at boot, *before* anything here touched it, and the heavy
+> compile load almost certainly accelerated the damage — writing onto a
+> filesystem whose allocator is wrong is how corruption spreads. So the figures
+> below were measured on a machine that was already failing. They are consistent
+> with the VM's and are recorded for that reason, not because they are
+> trustworthy on their own. **They need repeating on a Pi with a sound card
+> before anything is built on them.**
+
 
 **The test suite could not be run on it**, and the reason is the machine rather
 than the architecture. `rustc` dies with `SIGBUS` on assorted small
