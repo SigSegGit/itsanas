@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-01 — 643 test functions across 21 binaries, 3 of them
+**Last updated: 2026-09-01 — 645 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 30 are red-team tests.**
 
-**527 of the 643 tests have an entry of their own on this page** — an *entry*,
+**529 of the 645 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -51,7 +51,7 @@ workspace).
 | `itsanas-policy` unit | 15 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 45 |
+| `itsanas-cli` unit | 47 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -670,7 +670,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (45)
+# `itsanas-cli` — unit tests (47)
 
 ## `bench` — measuring this machine (4)
 
@@ -738,6 +738,18 @@ the function, which is not a property worth having a test for.
 | `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
 | **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
 | `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |
+
+## `main` — leaving quietly when the reader stops reading (2)
+
+`itsanas status | head -20` printed twenty lines and then a Rust panic and a
+note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
+panics where every other command-line program simply ends. It was found in the
+output of `install/provision.sh`, which pipes `status` into `head` itself.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_panic_that_is_not_a_closed_pipe_is_never_swallowed`** | The dangerous half of the fix. A hook that exits 0 on the wrong panic turns a crash into a silent success, which is worse than the noise it removed. Five real panic messages must still reach the reader. |
+| `the_message_std_prints_when_a_pipe_closes_is_recognised` | The message copied from the Pi, and its Windows spelling, are both matched — only on the prefix, because the tail belongs to the platform. |
 
 ## `coordinator` — publishing an address (3)
 

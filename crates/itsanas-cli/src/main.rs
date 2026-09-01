@@ -305,7 +305,53 @@ enum PeerAction {
     Remove { address: String },
 }
 
+/// Whether a panic message is the one std emits when its output has gone away.
+///
+/// The exact text is std's, and this one was copied from a real run on the
+/// Raspberry Pi: `itsanas status | head -20` printed twenty lines and then
+///
+///     thread 'main' panicked at library/std/src/io/stdio.rs:1166:9:
+///     failed printing to stdout: Broken pipe (os error 32)
+///
+/// The tail of that message is the platform's, so the prefix is what is
+/// matched. Widening it is the dangerous direction: a hook that swallows the
+/// wrong panic hides a real crash, which is why the test for this spends its
+/// effort on what must *not* match.
+fn looks_like_a_closed_pipe(message: &str) -> bool {
+    message.starts_with("failed printing to stdout")
+        || message.starts_with("failed printing to stderr")
+}
+
+/// Leave quietly when the reader closes the pipe.
+///
+/// `itsanas status | head` is an ordinary thing to type, and it closes the
+/// pipe as soon as head has its lines. Rust disables SIGPIPE at startup, so
+/// the next `println!` panics instead of the process dying the way every other
+/// command-line program does. `install/provision.sh` pipes `itsanas status`
+/// into `head` and printed a Rust panic, and a note about `RUST_BACKTRACE`, in
+/// the middle of a successful install.
+///
+/// Restoring SIGPIPE is the usual fix and needs `unsafe`, which this crate
+/// forbids for reasons that outrank this. So the panic is intercepted instead:
+/// the cost of the string match failing one day is the behaviour we have now.
+fn leave_quietly_when_the_pipe_closes() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let message = info
+            .payload()
+            .downcast_ref::<String>()
+            .map_or("", String::as_str);
+        if looks_like_a_closed_pipe(message) {
+            // Not a failure: the reader asked for less than was on offer.
+            std::process::exit(0);
+        }
+        previous(info);
+    }));
+}
+
 fn main() -> ExitCode {
+    leave_quietly_when_the_pipe_closes();
+
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -1309,4 +1355,42 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::looks_like_a_closed_pipe;
+
+    #[test]
+    fn a_panic_that_is_not_a_closed_pipe_is_never_swallowed() {
+        // This is the half of the hook that can do damage. Exiting 0 on the
+        // wrong panic turns a crash into a silent success, which is worse than
+        // the noisy `head` output it was written to remove.
+        for message in [
+            "index out of bounds: the len is 3 but the index is 7",
+            "called `Option::unwrap()` on a `None` value",
+            "attempt to subtract with overflow",
+            "assertion failed: the store lied about what it holds",
+            "",
+        ] {
+            assert!(
+                !looks_like_a_closed_pipe(message),
+                "a real panic would be reported as success: {message:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_message_std_prints_when_a_pipe_closes_is_recognised() {
+        // Copied from a run on the Raspberry Pi, `itsanas status | head -20`.
+        // The tail after the colon is the platform's -- "Broken pipe (os error
+        // 32)" on Linux, a different sentence on Windows -- so only the prefix
+        // is matched, and the two spellings are here to say so.
+        assert!(looks_like_a_closed_pipe(
+            "failed printing to stdout: Broken pipe (os error 32)"
+        ));
+        assert!(looks_like_a_closed_pipe(
+            "failed printing to stdout: The pipe is being closed. (os error 232)"
+        ));
+    }
 }
