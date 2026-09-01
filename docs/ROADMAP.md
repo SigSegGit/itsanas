@@ -23,7 +23,7 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M12 Android shell | — | ⬜ core verified, shell not written; `itsanas-policy` is now wired into `itsanas daemon`, so the phone inherits behaviour a desktop has exercised |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion |
 | M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 |
-| M13 One-click install | `install/` | 🟨 five scripts; run end to end on Windows, Linux x86-64, **Linux aarch64 (the Freebox VM)** and macOS in CI — no Pi, no phone |
+| M13 One-click install | `install/` | 🟨 six scripts; run end to end on Windows, Linux x86-64, **Linux aarch64 (the Freebox VM)** and macOS in CI, and on a **Raspberry Pi 4B on an SSD** by hand — `linux.sh`, `coordinator.sh` and the new `provision.sh`, which takes a freshly imaged machine to a running node in one command. No phone |
 
 This table used to carry a per-milestone test count. Those numbers were a second
 copy of what [TESTING.md](TESTING.md) already holds, and a second copy is what
@@ -78,6 +78,12 @@ What is missing before this is a *network* rather than a personal sync tool:
   `itsanas peer add` before she could reach Bob at all. That is the same gap as
   "repair chooses no peers" below, seen from the other end, and it is the thing
   standing between this and a network rather than a set of arranged pairs.
+
+  Confirmed again on 2026-09-01, on two Linux machines this time: `nicolas`
+  on the Raspberry Pi and `voisin` on the Freebox VM were both registered
+  with the same coordinator, and neither saw the other until `itsanas peer
+  add` was typed on each. Registration is not membership of anything a node
+  can act on; it is an entry in a directory nobody reads for this purpose.
 
   A host that fails three rounds in a row stops being sent new content, keeps
   receiving the log so it can still relay, and is handed one chunk a round —
