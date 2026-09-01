@@ -6,7 +6,7 @@ says what it is doing, and can be run twice without harm.
 | System | Script | Tested on |
 | --- | --- | --- |
 | Linux, including Raspberry Pi and the Freebox VM | [`linux.sh`](linux.sh) | Ubuntu **x86-64** from a checkout, and Ubuntu 26.04 **aarch64** on a Freebox Delta VM through the `curl \| sh` one-liner, on a machine with no compiler and no Rust on it. Both ended in a real store-and-read-back; the ARM one then passed all 640 tests. **Never on a Raspberry Pi**, which has a tenth of that VM's memory |
-| Windows 10 and 11 | [`windows.ps1`](windows.ps1) | Windows 11, PowerShell 5.1, **full run**: built, installed, binary ran |
+| Windows 10 and 11 | [`windows.ps1`](windows.ps1) | Windows 11, PowerShell 5.1, **full run**: built, installed, stored and read back a file, idempotent on a second run, and joined a real coordinator on another machine. **Peers cannot dial it** until a firewall rule exists — the installer says so and prints the command |
 | macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | macOS 26.5.2 **Apple silicon**, in CI on every push: built, installed, and stored and returned a file natively on arm64. Never on Intel |
 | Android, through Termux | [`android-termux.sh`](android-termux.sh) | **not yet run on a phone**; refuses correctly outside Termux and under `--check` |
 | Android, as an app | [`android.md`](android.md) | there is no app to install |

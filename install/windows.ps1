@@ -450,6 +450,57 @@ if (-not $NoSmoke) {
     }
 }
 
+# --------------------------------------------------------------- firewall
+
+# Windows blocks inbound connections to a program that has not been allowed, and
+# it does so silently: the node serves happily on 0.0.0.0, `netstat` shows it
+# listening, and every peer that tries to reach it times out. Tested between this
+# laptop and an aarch64 VM on the same LAN -- the laptop could pull, and nothing
+# could ever pull from it.
+#
+# That matters more here than it looks. A node nobody can dial can push its own
+# work and never host anybody else's, which is the half of the bargain that pays
+# for the other half.
+#
+# This does not add the rule. Creating a firewall exception needs administrator
+# rights, and an installer that asks for them in order to open a port is an
+# installer that has to be trusted about which port. It prints the command
+# instead, the same way the linker check prints the winget line.
+Write-Step 'Can peers reach this machine?'
+
+$listenPort = 9797
+$configPath = Join-Path $env:USERPROFILE '.itsanas\config'
+if (Test-Path $configPath) {
+    $configured = Select-String -Path $configPath -Pattern '^listen\s*=\s*\S+:(\d+)' -ErrorAction SilentlyContinue
+    if ($configured) { $listenPort = [int]$configured.Matches[0].Groups[1].Value }
+}
+
+$allowed = $false
+try {
+    $allowed = [bool](Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow -ErrorAction Stop |
+        Get-NetFirewallPortFilter -ErrorAction Stop |
+        Where-Object { $_.Protocol -eq 'TCP' -and $_.LocalPort -eq $listenPort })
+} catch {
+    Write-Warn 'could not read the firewall rules; skipping this check'
+    $allowed = $true
+}
+
+if ($allowed) {
+    Write-Ok "inbound TCP $listenPort is allowed"
+} else {
+    Write-Warn "nothing lets peers connect to this machine on TCP $listenPort"
+    Write-Info 'Windows will accept nothing on that port until a rule exists, and'
+    Write-Info 'the failure is silent: this node will listen, and every peer that'
+    Write-Info 'tries to reach it will time out. It can still push its own work.'
+    Write-Info ''
+    Write-Info 'In an administrator PowerShell, for the local network only:'
+    Write-Info ''
+    Write-Info '  New-NetFirewallRule -DisplayName "ITSaNAS peer" -Direction Inbound ^'
+    Write-Info "    -Action Allow -Protocol TCP -LocalPort $listenPort -Profile Private"
+    Write-Info ''
+    Write-Info 'Leave it out if this machine only ever syncs outwards.'
+}
+
 # ------------------------------------------------------------------- next
 
 Write-Host ''
