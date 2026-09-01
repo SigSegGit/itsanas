@@ -226,7 +226,14 @@ ships a 32-bit userland on some devices, which the script detects and refuses.
 itsanas init --username <your-name>   # writes down 24 words; keep them
 itsanas pledge 100G                   # space you offer other members
 itsanas folder ~/Sync                 # the directory kept in step
+itsanas listen 0.0.0.0:9797           # only if 9797 is taken here
 ```
+
+`listen` matters when something else already holds 9797 on the machine — a
+second node, or another program. Set it *before* `register`, because
+registering is what publishes the address: change it afterwards and the
+coordinator keeps handing other members a port this node does not answer on.
+`itsanas listen` with no argument prints the current one.
 
 Then either a coordinator, so machines on different networks find each other:
 

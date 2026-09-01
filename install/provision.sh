@@ -71,6 +71,7 @@ COORDINATOR=""
 COORDINATOR_DEVICE=""
 INVITE=""
 PLEDGE=""
+LISTEN=""
 FOLDER=""
 PEER=""
 DO_SERVICE=1
@@ -96,6 +97,7 @@ The network
 
 This machine
   --pledge SIZE          space offered to other members, e.g. 100G
+  --listen HOST:PORT     address this node serves on (default 0.0.0.0:9797)
   --folder PATH          the directory kept in step with the account
   --no-service           do not enable the systemd user unit
   --no-install           the binary is already here; only configure
@@ -124,6 +126,8 @@ while [ $# -gt 0 ]; do
         --invite) [ $# -ge 2 ] || die "--invite needs a code"; INVITE="$2"; shift 2 ;;
         --invite=*) INVITE="${1#--invite=}"; shift ;;
         --pledge) [ $# -ge 2 ] || die "--pledge needs a size"; PLEDGE="$2"; shift 2 ;;
+        --listen) [ $# -ge 2 ] || die "--listen needs host:port"; LISTEN="$2"; shift 2 ;;
+        --listen=*) LISTEN="${1#--listen=}"; shift ;;
         --pledge=*) PLEDGE="${1#--pledge=}"; shift ;;
         --folder) [ $# -ge 2 ] || die "--folder needs a path"; FOLDER="$2"; shift 2 ;;
         --folder=*) FOLDER="${1#--folder=}"; shift ;;
@@ -280,6 +284,13 @@ if [ -n "$PLEDGE" ]; then
 else
     warn "no --pledge, so this node offers nothing and hosts nobody"
     info "A node that pledges nothing is a client, not a member."
+fi
+
+# Before the coordinator step, not after: `register` publishes this address,
+# so setting it afterwards would leave the directory handing other members a
+# port this node does not answer on.
+if [ -n "$LISTEN" ]; then
+    $BIN listen "$LISTEN" || die "could not set the listen address to $LISTEN"
 fi
 
 if [ -n "$FOLDER" ]; then

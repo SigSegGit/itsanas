@@ -11,6 +11,7 @@
 
 use std::{
     fmt::Write as _,
+    net::SocketAddr,
     path::{Path, PathBuf},
 };
 
@@ -130,7 +131,12 @@ impl Config {
 
             match key {
                 "username" => value.clone_into(&mut config.username),
-                "listen" => value.clone_into(&mut config.listen),
+                "listen" => {
+                    parse_listen(value).map_err(|error| {
+                        CliError::Config(format!("line {}: {error}", number + 1))
+                    })?;
+                    value.clone_into(&mut config.listen);
+                }
                 "pledge_bytes" => {
                     config.pledge_bytes = value.parse().map_err(|_| {
                         CliError::Config(format!(
@@ -191,6 +197,31 @@ impl Config {
 ///
 /// Nobody wants to type `10737418240`, and a config file full of raw byte counts
 /// is a config file whose numbers nobody checks.
+/// Check that a listen address is one a node could actually bind.
+///
+/// This is checked when the configuration is *read*, not when the socket is
+/// opened. The difference matters on the machines this runs on: the daemon is
+/// a systemd unit with `Restart=on-failure`, so a `listen` line that cannot be
+/// parsed produces a unit that dies and restarts every thirty seconds forever,
+/// with the reason in a journal the owner has no reason to open. Refusing at
+/// load turns that into one message at the moment the file was edited.
+///
+/// A hostname is not accepted, and that is not an oversight: you bind an
+/// address, not a name. `listen = localhost:9797` used to be stored happily
+/// and then failed at `serve` with a parse error naming a line the reader had
+/// not seen since.
+///
+/// # Errors
+///
+/// If `text` is not `host:port` with a literal IP address.
+pub fn parse_listen(text: &str) -> Result<SocketAddr> {
+    text.parse().map_err(|_| {
+        CliError::Config(format!(
+            "listen must be an address and port such as 0.0.0.0:9797, found {text:?}"
+        ))
+    })
+}
+
 pub fn parse_size(text: &str) -> Result<u64> {
     let trimmed = text.trim();
     let digits_end = trimmed
@@ -289,6 +320,49 @@ mod tests {
         };
 
         assert_eq!(Config::parse(&config.render()).unwrap(), config);
+    }
+
+    #[test]
+    fn a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read() {
+        // The failure this prevents is not a bad error message. It is a systemd
+        // unit with Restart=on-failure looping every thirty seconds because the
+        // address it was told to bind is a hostname, with the explanation in a
+        // journal nobody opens. Refuse where the value enters.
+        let refused = Config::parse(
+            "username = nicolas
+listen = localhost:9797
+",
+        );
+        assert!(
+            refused.is_err(),
+            concat!(
+                "a config naming an address no socket can bind was accepted; ",
+                "the node would start, fail at serve, and restart forever"
+            )
+        );
+
+        // The control: the same file with a bindable address must load, or the
+        // check above passes for the wrong reason.
+        let accepted = Config::parse(
+            "username = nicolas
+listen = 0.0.0.0:9797
+",
+        )
+        .expect("a bindable address must still load");
+        assert_eq!(accepted.listen, "0.0.0.0:9797");
+    }
+
+    #[test]
+    fn an_address_that_loads_is_stored_exactly_as_written() {
+        // Validation must not rewrite the value. IPv6 has several spellings of
+        // the same address and a node that publishes one form while its owner
+        // reads another in the file has two answers to one question.
+        let config = Config::parse(
+            "listen = [::]:9797
+",
+        )
+        .unwrap();
+        assert_eq!(config.listen, "[::]:9797");
     }
 
     #[test]

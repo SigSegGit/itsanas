@@ -21,6 +21,7 @@ mod node;
 
 use std::{
     io::{IsTerminal as _, Read as _, Write as _},
+    net::SocketAddr,
     path::{Path, PathBuf},
     process::ExitCode,
     sync::atomic::AtomicBool,
@@ -135,6 +136,16 @@ enum Command {
     Pledge {
         /// e.g. `500M`, `10G`, `1T`.
         size: String,
+    },
+    /// Show or set the address this node serves on.
+    ///
+    /// This is the address `register` and `announce` publish, so changing it
+    /// with `serve --listen` alone is not enough: the coordinator would keep
+    /// handing other members the old port and they would dial whatever now
+    /// answers there. Set it here, and the published address follows.
+    Listen {
+        /// e.g. `0.0.0.0:9797`. Omit to print the current one.
+        address: Option<String>,
     },
     /// Serve peers.
     Serve {
@@ -342,6 +353,7 @@ fn run() -> Result<()> {
         Command::Folder { path } => folder(&home, path.as_deref()),
         Command::Scan { deep } => scan(&home, deep),
         Command::Pledge { size } => pledge(&home, &size),
+        Command::Listen { address } => listen_on(&home, address.as_deref()),
         Command::Serve { listen } => serve(&home, listen.as_deref()),
         Command::Daemon {
             listen,
@@ -982,6 +994,36 @@ fn folder(home: &Path, path: Option<&Path>) -> Result<()> {
         println!("first pass: {}", report.summary());
     } else {
         println!("the folder and the store already agree.");
+    }
+
+    Ok(())
+}
+
+fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
+    let mut node = open(home)?;
+
+    let Some(address) = address else {
+        println!("{}", node.config.listen);
+        return Ok(());
+    };
+
+    // Parsed, not merely stored. An address that does not parse is not found
+    // out here but at `serve`, which on a machine running the daemon under
+    // systemd means a unit that restarts every thirty seconds with the reason
+    // in a journal nobody is reading.
+    let parsed: SocketAddr = crate::config::parse_listen(address)?;
+
+    let previous = std::mem::replace(&mut node.config.listen, parsed.to_string());
+    node.save_config()?;
+
+    println!("serving on {parsed} from now on (was {previous})");
+
+    // The coordinator is still handing out the old one until it is told. Say
+    // so, rather than leaving a node that is reachable and unreachable at the
+    // same time depending on who you ask.
+    if node.config.coordinator.is_some() {
+        println!("  the coordinator still publishes the old address; refresh it with:");
+        println!("    itsanas register");
     }
 
     Ok(())
