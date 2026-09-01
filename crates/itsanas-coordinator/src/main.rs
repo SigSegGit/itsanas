@@ -208,7 +208,18 @@ fn load_or_create_device(state: &Path) -> Result<DeviceKeys, String> {
             fs::write(&path, seed.expose())
                 .map_err(|error| format!("could not write {}: {error}", path.display()))?;
             restrict(&path);
-            println!(
+            // stderr, not stdout. `--identity` exists so that a script can read
+            // the device id, and `install/coordinator.sh` does exactly that:
+            // members have to pin this value, so the installer prints it for
+            // them. On a fresh machine — the only time this branch runs, and
+            // the only time the installer runs — that put a sentence of prose
+            // on stdout ahead of the id, and the installer died with "could not
+            // read the coordinator's device id" while quoting the id back.
+            //
+            // A command whose output is meant to be parsed says one thing on
+            // stdout. Anything for a person goes to stderr, where they still
+            // see it and no parser has to know about it.
+            eprintln!(
                 "Generated a new coordinator identity: {}",
                 device.device_id()
             );
