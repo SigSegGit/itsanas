@@ -133,8 +133,39 @@ no Rust on it. The build took 5m37s. Then, on that machine:
   laptop's 29 ms**, on a machine that chunks 4.6× slower. See ROADMAP.md M9 for
   why, and for what that says about pack files.
 
-So the coordinator's future home is no longer a hypothesis. What is left is the
-Pi: 1 GB of RAM against this VM's 11, and an SD card against its virtual disk.
+**And the Raspberry Pi has run it.** A Pi 4 Model B Rev 1.1, Debian 13, aarch64,
+4 GB, on a 58 GB SD card — not the 1 GB machine this file assumed, which is the
+first correction the hardware made. Installed by the same one-liner on
+2026-09-01 with no Rust on it, built at two jobs to leave room for the VPN
+container it shares the box with, peaking at 1266 MB of 3795. The smoke check
+passed natively, and the VPN never noticed.
+
+`itsanas bench` there is the measurement this project has been missing since
+week one:
+
+| | laptop x86-64 | VM aarch64 | **Pi 4B, SD card** |
+| --- | --- | --- | --- |
+| store write | 27.2 MiB/s | 54.1 MiB/s | **44.1 MiB/s** |
+| a note, 4 KiB | 9.2 ms | 1.1 ms | **0.8 ms** |
+| a Word document, 512 KiB | 29 ms | 10 ms | **12 ms** |
+| peak memory | — | 9.2 MiB | **7.6 MiB** |
+
+The Pi saves a note faster than the laptop and uses 7.6 MiB doing 256 MiB of
+work. Every constant in this repository that says "on a Raspberry Pi" was chosen
+against a machine nobody had measured, and the machine is comfortable.
+
+**The test suite could not be run on it**, and the reason is the machine rather
+than the architecture. `rustc` dies with `SIGBUS` on assorted small
+dependencies — `libc`'s build script, `rand_core`, `rand_xorshift` — and *which*
+ones varies between runs, while release builds of the same tree succeed. That
+Pi's `ext4` logged six `EFSCORRUPTED` block-bitmap errors at boot, its state is
+`clean with errors`, and its last `fsck` was in June. Power and cooling are
+fine: `throttled=0x0`, 37.9 °C. Nothing implicates ITSaNAS, and nothing about
+ITSaNAS on a Pi can be concluded from those crashes either, until that
+filesystem is checked.
+
+What that leaves genuinely untested, on any machine: **redb on an SD card under
+sustained write**, which is the medium's real question.
 
 ### What emulation established before that, and what it did not
 
@@ -170,9 +201,10 @@ covers:
   implementations from runtime CPU feature detection. Under emulation it is
   interrogating an emulated CPU, not a Cortex-A72, so the path that passed may
   not be the path a Pi takes.
-- **The machine.** A Pi 4B has 1 GB of RAM and a runner has 16, and nothing here
-  says the index fits. Nor has anything met an SD card, where redb's write
-  pattern meets erase blocks and a controller that lies about flushes.
+- **The machine.** Answered since: a real Pi 4B ran the installer, the smoke
+  check and the benchmark, and peaked at 7.6 MiB. What no machine has met yet is
+  an SD card under *sustained* write, where redb's pattern meets erase blocks and
+  a controller that lies about flushes.
 - **Linux on ARM specifically.** glibc rather than Darwin's libc, ext4 rather
   than APFS, and a kernel that pages differently.
 
