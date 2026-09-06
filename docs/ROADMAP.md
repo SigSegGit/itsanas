@@ -89,6 +89,22 @@ What is missing before this is a *network* rather than a personal sync tool:
   receiving the log so it can still relay, and is handed one chunk a round —
   chosen by the owner, and the only thing it is then audited on. Each answered
   round pays off one failure, so coming back costs as long as falling did.
+- **Nothing tests the coordinator against a crash.** `announce` was changed on
+  2026-09-06 to commit without waiting for the disk, on the reasoning that a
+  presence announcement is a heartbeat the next round restores, while the
+  writes that cannot be reconstructed -- accounts, enrolments, escrow,
+  invitations -- keep the default durability. The reasoning is sound and
+  **unverified**: an attempt to test it was written and thrown away because it
+  could not fail. redb flushes when the `Database` is dropped, so an in-process
+  reopen returns everything even when *every* transaction is made
+  non-durable -- which was measured by making them all non-durable and watching
+  the test pass anyway.
+
+  Telling the two apart needs what `crates/itsanas-cli/tests/crash.rs` does for
+  the store: kill the process mid-write and reopen from a different one. There
+  is no equivalent for the coordinator, so the durability of everything it
+  holds rests on reading the code.
+
 - **A device that is gone stays in the directory for ever.** Found on
   2026-09-06 while setting up `sigseg42`: an account was created, registered,
   and then its keystore deleted and the account restored from its 24 words on

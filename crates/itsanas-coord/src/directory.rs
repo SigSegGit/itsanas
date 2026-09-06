@@ -545,7 +545,28 @@ impl Directory {
         let _ = claim;
 
         let key = signed.presence.device.to_bytes();
-        let txn = self.db.begin_write()?;
+        let mut txn = self.db.begin_write()?;
+
+        // An announcement is a heartbeat, and this is the one write here that
+        // does not need to survive a power cut.
+        //
+        // Presence is re-sent every round: losing the last few seconds of it
+        // costs a member being unfindable until its next announcement, which is
+        // the same state it is in between announcements anyway. Availability is
+        // a rolling score recomputed from the same stream, so a lost update is
+        // a rounding error in a number that is already an estimate. Everything
+        // that cannot be reconstructed -- registrations, enrolments, escrow,
+        // invitations -- keeps the default durability, and any one of those
+        // commits flushes these along with it.
+        //
+        // What this buys is not a micro-optimisation. Every announce was an
+        // fsync, so a coordinator's presence throughput was one round trip to
+        // the disk per heartbeat per member. Measured through the tests that
+        // model a month of them: two of them took over sixty seconds on a CI
+        // Windows runner and under three on a laptop, which is the same code
+        // meeting a slower disk.
+        txn.set_durability(redb::Durability::None);
+
         {
             let mut presence = txn.open_table(PRESENCE)?;
             let mut availability = txn.open_table(AVAILABILITY)?;
