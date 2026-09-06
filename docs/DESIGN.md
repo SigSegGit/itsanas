@@ -290,6 +290,29 @@ With three copies and a third as the most one holder should have, that is
 **nine candidate holders**. `itsanas_placement::spreading` computes it, and
 `itsanas status` reports which side of it a node is on.
 
+**A count of machines is not the whole condition.** Nine peers offering a
+gigabyte each are nine peers; they cannot hold four terabytes three times over,
+and a threshold expressed in machines says "on" while the data has nowhere to
+go. So the capacity is checked too:
+
+```text
+offered >= stored * copies
+```
+
+This half matters most for the economics. Whoever offers the network the most
+storage has the most of their own to place, and is therefore the hardest to
+serve — which is exactly where "offer storage to earn storage" has to keep
+working, or the scheme rewards only the small. A node does not yet know its
+peers' pledges: the coordinator holds them and nothing asks, so the capacity
+answer today is *unknown*, and unknown blocks rather than passes. An unknown
+treated as a pass is how a check comes to bless the one case it was written for.
+
+**`share` is a choice, not a derivation.** A third rather than a half, because
+two holders with half each are two people who between them have everything
+twice. There is no discontinuity in the security at a third: the number is
+picked and the count follows from it. Presenting nine as *derived* without
+saying that would dress an arbitrary figure in a division.
+
 The bare minimum for "nobody holds everything" is `copies + 1` — with exactly
 `copies` candidates every chunk must go to all of them. That bound is not used,
 because at four candidates and three copies each holder still has three

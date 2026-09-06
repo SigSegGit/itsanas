@@ -655,28 +655,46 @@ fn report_unreliable_peers(node: &Node) -> Result<()> {
 /// With two peers and a target of two copies, every chunk must go to both, so
 /// spreading would give each chunk one holder instead of two: a privacy
 /// preference turned into data loss, on the networks least able to afford it.
-fn spreading_report(candidates: usize) -> String {
+///
+/// The capacity half is why `offered` exists and why it is `None` today. A node
+/// learns its peers' pledges from the coordinator and nothing asks for them, so
+/// the honest answer is "not known" rather than "fine" -- nine peers with a
+/// gigabyte each cannot spread four terabytes, and a threshold in machines
+/// cannot see it.
+fn spreading_report(candidates: usize, stored: u64, offered: Option<u64>) -> String {
+    use itsanas_placement::Blocked;
+
     let mut out = String::new();
     macro_rules! w {
         ($($arg:tt)*) => {{ let _ = writeln!(out, $($arg)*); }};
     }
 
-    let advice = itsanas_placement::spreading(candidates, REPLICATION_TARGET);
-    if advice.enabled {
-        w!(
-            "  spreading      on: {} machines is enough to give each a small share",
-            advice.candidates
-        );
-    } else {
-        w!(
-            concat!(
-                "  spreading      off: {} machines hold anything of yours, and ",
-                "{} are needed"
-            ),
+    let advice = itsanas_placement::spreading(candidates, REPLICATION_TARGET, stored, offered);
+    match advice.blocked_by {
+        None => w!(
+            "  spreading      on: {} machines with room for {} copies",
             advice.candidates,
-            advice.needed
-        );
-        w!("                 until then every holder takes everything, which is right");
+            REPLICATION_TARGET
+        ),
+        Some(Blocked::NothingStored) => {}
+        Some(Blocked::TooFewHolders { have, need }) => {
+            w!(
+                "  spreading      off: {have} machines hold anything of yours, and {need} are needed"
+            );
+            w!("                 until then every holder takes everything, which is right");
+        }
+        Some(Blocked::NotEnoughSpace { offered, needed }) => {
+            w!(
+                "  spreading      off: your peers offer {}, and {} copies need {}",
+                format_size(offered),
+                REPLICATION_TARGET,
+                format_size(needed)
+            );
+        }
+        Some(Blocked::CapacityUnknown) => {
+            w!("  spreading      off: nobody has said how much room they have");
+            w!("                 the coordinator knows; nothing asks it yet");
+        }
     }
     out
 }
@@ -782,7 +800,15 @@ fn coverage_report(node: &Node) -> Result<String> {
             );
         }
 
-        let _ = write!(out, "{}", spreading_report(coverage.distinct_holders));
+        let _ = write!(
+            out,
+            "{}",
+            spreading_report(
+                coverage.distinct_holders,
+                node.store.stats()?.bytes_on_disk,
+                None
+            )
+        );
 
         let short = node.store.under_replicated(REPLICATION_TARGET)?;
         if !short.is_empty() {

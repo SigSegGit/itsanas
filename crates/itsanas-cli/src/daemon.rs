@@ -64,6 +64,7 @@
 //! flag, so `--metered` is asked for. Guessing it from the interface type is
 //! how a sync tool ends up costing somebody fifty euros, and is refused.
 
+use std::fmt::Write as _;
 use std::{
     collections::BTreeSet,
     sync::atomic::{AtomicBool, Ordering},
@@ -499,20 +500,35 @@ fn write_snapshot(node: &Node) {
 fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
     let pledge = Pledge::bytes(node.config.pledge_bytes);
     match session::host_for(&node.vault, client, pledge) {
-        Ok(report) if report.changed_anything() => {
-            println!(
-                "{peer}: now holding {} for them ({} chunks)",
-                format_size(report.bytes_taken),
-                report.taken
-            );
+        // A peer that wanted nothing has nothing to say, and saying it every
+        // five minutes would fill a journal with silence. A peer that wanted
+        // something always leaves a line, even when the answer was "already
+        // held" -- because that is the case that was silent, and a feature
+        // whose success looks exactly like never having run is not verifiable.
+        //
+        // Found by watching for a line that never came: on this project's own
+        // fleet the reciprocal half ran for hours against a peer with three
+        // under-replicated chunks and printed nothing at all, because they were
+        // chunks this node already had.
+        Ok(report) if report.wanted == 0 => {}
+        Ok(report) => {
+            let mut line = format!("{peer}: asked to hold {} chunks", report.wanted);
+            if report.taken > 0 {
+                let _ = write!(
+                    line,
+                    "; took {} ({})",
+                    report.taken,
+                    format_size(report.bytes_taken)
+                );
+            }
+            if report.already_held > 0 {
+                let _ = write!(line, "; {} already held", report.already_held);
+            }
+            if report.pledge_full {
+                line.push_str("; this node is full");
+            }
+            println!("{line}");
         }
-        Ok(report) if report.pledge_full && report.wanted > 0 => {
-            println!(
-                "{peer}: wanted {} chunks held; this node is full",
-                report.wanted
-            );
-        }
-        Ok(_) => {}
         Err(error) => println!("{peer}: could not take on hosting ({error})"),
     }
 }
