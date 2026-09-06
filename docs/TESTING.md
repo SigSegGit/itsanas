@@ -31,6 +31,35 @@ wrong: `check-catalogue.sh` (every test named here exists), `check-messages.py`
 `check-wired.py` (every public method has a call site somewhere in the
 workspace).
 
+## What is verified by hand, and why
+
+Two commands added on 2026-09-06 send requests to a coordinator, and neither has
+an automated test of the sending:
+
+- `itsanas peer find <username>` — `Lookup` then `Peers`
+- `itsanas device forget <id>` — a `Claim` with `revoked` set
+
+The **protocol** behaviour both rely on is covered.
+`a_member_registers_enrols_a_device_and_is_then_findable_by_name` in
+`itsanas-coord/tests/coordinator.rs` runs the exact Lookup-then-Peers sequence
+from a machine that knows only the name, and
+`a_revoked_device_leaves_the_live_set` covers the directory honouring a
+revocation. What is untested is the glue: turning a `Response::Missing` into a
+sentence, refusing your own account, and not adding an address twice.
+
+The dangerous halves *are* tested. `resolve_device` refuses a prefix that names
+no device, because a revocation filed against an identifier nobody holds would
+be silent, permanent and impossible to notice.
+
+Testing the rest would mean a coordinator harness inside the CLI crate for
+about ten lines of glue. That is written here rather than papered over with a
+test that cannot fail: both commands were run against the real coordinator on
+the Raspberry Pi, and both were checked by taking the thing away first — the
+configured address for `mandarine` was removed and recovered from the username
+alone, and the dead device was counted in the daemon log eleven times before and
+zero times after.
+
+## Every test has one minute
 ## Every test has one minute
 
 Tests are run with **`cargo nextest`**, not `cargo test`, and the reason is a
