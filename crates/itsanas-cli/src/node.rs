@@ -6,6 +6,7 @@
 //!   config         non-secret settings
 //!   store/         this user's own data: chunks, index, log
 //!   vault/         other users' sealed data, no keys anywhere near it
+//!   status.snapshot  what the daemon last reported, for asking a busy node
 //! ```
 //!
 //! # Why the device seed lives inside the keystore
@@ -18,6 +19,16 @@
 //! secret was readable because a permission bit did not survive" bugs.
 
 use std::path::{Path, PathBuf};
+
+/// What the daemon leaves behind so a running node can still be asked.
+///
+/// The store allows one writer, and the daemon is it, so every command that
+/// opens the store refuses while the node is up. The daemon writes this after
+/// each round: not secret -- it is the same text `itsanas status` prints, which
+/// is identifiers, paths and counts -- and not authoritative, which is why what
+/// reads it says how old it is.
+pub const SNAPSHOT: &str = "status.snapshot";
+
 
 use itsanas_crypto::{
     DeviceKeys, KdfParams, Keystore, MasterSecret, SecretBytes, UserKeys,

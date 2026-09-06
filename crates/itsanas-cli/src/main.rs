@@ -20,6 +20,7 @@ mod error;
 mod node;
 
 use std::{
+    fmt::Write as _,
     io::{IsTerminal as _, Read as _, Write as _},
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -33,7 +34,7 @@ use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
 use crate::{
     config::{format_size, parse_size},
     error::{CliError, Result},
-    node::Node,
+    node::{Node, SNAPSHOT},
 };
 
 /// Environment variable that supplies the passphrase non-interactively.
@@ -609,68 +610,86 @@ fn report_unreliable_peers(node: &Node) -> Result<()> {
     Ok(())
 }
 
-fn status(home: &Path) -> Result<()> {
-    let node = open(home)?;
+/// The text `itsanas status` prints, built rather than printed.
+///
+/// Separated from the command so the daemon can write the same text to a
+/// snapshot after every round. The store allows one writer, so with the daemon
+/// up `status` cannot open it -- and answering "the node is busy" to somebody
+/// asking what their node is doing is the least useful thing this program could
+/// say.
+fn render_status(node: &Node) -> Result<String> {
+    let mut out = String::new();
+
+    // A local macro, so the body below reads the way it did when it printed.
+    // Defined after `out` because a macro_rules body resolves names where it is
+    // written, and expanding to a block rather than a `let` statement because
+    // half these calls sit in match arms, where a statement is not an
+    // expression. Writing to a String cannot fail, which is why the result is
+    // dropped rather than propagated.
+    macro_rules! w {
+        () => {{ let _ = writeln!(out); }};
+        ($($arg:tt)*) => {{ let _ = writeln!(out, $($arg)*); }};
+    }
     let store = node.store.stats()?;
     let vault = node.vault.stats()?;
 
-    println!("account");
-    println!("  username        {}", node.config.username);
-    println!("  user id         {}", node.store.owner());
-    println!("  device          {}", node.store.device_id());
-    println!("  home            {}", node.home.display());
+    w!("account");
+    w!("  username        {}", node.config.username);
+    w!("  user id         {}", node.store.owner());
+    w!("  device          {}", node.store.device_id());
+    w!("  home            {}", node.home.display());
     match &node.config.folder {
-        Some(folder) => println!("  synced folder   {}", folder.display()),
-        None => println!("  synced folder   none (`itsanas folder <path>`)"),
+        Some(folder) => w!("  synced folder   {}", folder.display()),
+        None => w!("  synced folder   none (`itsanas folder <path>`)"),
     }
-    println!();
-    println!("your data");
-    println!("  files           {}", store.files);
-    println!("  live chunks     {}", store.live_chunks);
-    println!("  on disk         {}", format_size(store.bytes_on_disk));
-    println!("  log segments    {}", store.segments);
+    w!();
+    w!("your data");
+    w!("  files           {}", store.files);
+    w!("  live chunks     {}", store.live_chunks);
+    w!("  on disk         {}", format_size(store.bytes_on_disk));
+    w!("  log segments    {}", store.segments);
     if store.unsealed_entries > 0 {
-        println!(
+        w!(
             "  unannounced     {} (run `itsanas sync` to publish)",
             store.unsealed_entries
         );
     }
     if store.pending_collection > 0 {
-        println!("  awaiting gc     {} chunks", store.pending_collection);
+        w!("  awaiting gc     {} chunks", store.pending_collection);
     }
 
     // The question a backup tool exists to answer, and the one it is easiest
     // to leave unanswered: does this data exist anywhere other than this disk?
     // A count of files says nothing about that.
-    println!();
-    println!("is it anywhere else?");
+    w!();
+    w!("is it anywhere else?");
     let alone = node.store.under_replicated(2)?;
     let short = node.store.under_replicated(REPLICATION_TARGET)?;
     if store.live_chunks == 0 {
-        println!("  nothing stored yet");
+        w!("  nothing stored yet");
     } else if alone.is_empty() && short.is_empty() {
-        println!("  yes            every chunk is on at least {REPLICATION_TARGET} machines");
+        w!("  yes            every chunk is on at least {REPLICATION_TARGET} machines");
     } else {
         if alone.is_empty() {
-            println!("  partly         every chunk is on at least one other machine");
+            w!("  partly         every chunk is on at least one other machine");
         } else {
-            println!(
+            w!(
                 "  NO             {} of {} chunks exist only on this machine",
                 alone.len(),
                 store.live_chunks
             );
         }
         if !short.is_empty() {
-            println!(
+            w!(
                 "  below target   {} chunks are on fewer than {REPLICATION_TARGET} machines",
                 short.len()
             );
         }
-        println!("                 run `itsanas sync`, or add a peer, to spread it");
+        w!("                 run `itsanas sync`, or add a peer, to spread it");
     }
-    println!("  placements     {} recorded", store.holder_records);
+    w!("  placements     {} recorded", store.holder_records);
 
-    report_unreliable_peers(&node)?;
+    report_unreliable_peers(node)?;
     // The vault holds two different things. Reporting them as one number
     // tells the operator they are hosting for a stranger when they are only
     // relaying their own account between their own machines.
@@ -681,38 +700,94 @@ fn status(home: &Path) -> Result<()> {
     let hosted_bytes = vault.bytes.saturating_sub(own_in_vault.bytes);
     let hosted_chunks = vault.chunks.saturating_sub(own_in_vault.chunks);
 
-    println!();
-    println!("hosting for other people");
-    println!(
+    w!();
+    w!("hosting for other people");
+    w!(
         "  pledged         {}",
         format_size(node.config.pledge_bytes)
     );
-    println!("  used            {}", format_size(hosted_bytes));
-    println!("  peers hosted    {hosted_owners}");
-    println!("  chunks held     {hosted_chunks}");
-    println!(
+    w!("  used            {}", format_size(hosted_bytes));
+    w!("  peers hosted    {hosted_owners}");
+    w!("  chunks held     {hosted_chunks}");
+    w!(
         "  segments held   {}",
         vault.segments.saturating_sub(own_in_vault.segments)
     );
-    println!();
-    println!("relaying for your own devices");
-    println!(
+    w!();
+    w!("relaying for your own devices");
+    w!(
         "  segments held   {} (so this machine can pass your other devices' \
          work along)",
         own_in_vault.segments
     );
-    println!();
-    println!("network");
-    println!("  listen          {}", node.config.listen);
+    w!();
+    w!("network");
+    w!("  listen          {}", node.config.listen);
     if node.config.peers.is_empty() {
-        println!("  peers           none configured (`itsanas peer add <host:port>`)");
+        w!("  peers           none configured (`itsanas peer add <host:port>`)");
     } else {
         for peer in &node.config.peers {
-            println!("  peer            {peer}");
+            w!("  peer            {peer}");
         }
     }
 
-    Ok(())
+    Ok(out)
+}
+
+/// How long ago, in words, for a reader who wants to know whether to trust it.
+///
+/// Rounded down and deliberately coarse: the question this answers is "is this
+/// current enough to act on", and a snapshot four minutes old and one four
+/// minutes and fifty seconds old have the same answer.
+fn describe_age(seconds: u64) -> String {
+    match seconds {
+        0..=5 => "just now".to_owned(),
+        6..=89 => format!("{seconds} seconds ago"),
+        90..=5399 => format!("{} minutes ago", seconds / 60),
+        5400..=86_399 => format!("{} hours ago", seconds / 3600),
+        _ => format!("{} days ago", seconds / 86_400),
+    }
+}
+
+fn status(home: &Path) -> Result<()> {
+    match open(home) {
+        Ok(node) => {
+            print!("{}", render_status(&node)?);
+            Ok(())
+        }
+        // The node is running. That is the normal state of a machine doing its
+        // job, and it used to be the state in which this command refused to
+        // answer at all. The daemon leaves a snapshot after every round: read
+        // that, and let it say plainly how old it is rather than passing it off
+        // as live.
+        Err(CliError::Store(itsanas_store::StoreError::Locked(_))) => {
+            match std::fs::read_to_string(home.join(SNAPSHOT)) {
+                Ok(text) => {
+                    let (stamp, body) = text.split_once('\n').unwrap_or(("", &text));
+                    let taken = stamp
+                        .strip_prefix("snapshot ")
+                        .and_then(|seconds| seconds.trim().parse::<u64>().ok());
+                    match taken {
+                        Some(taken) => println!(
+                            "this node is running, so what follows is what it reported {}.",
+                            describe_age(itsanas_discover::now_unix().saturating_sub(taken))
+                        ),
+                        // A snapshot whose first line is not a stamp is one this
+                        // version did not write. Print it rather than refuse,
+                        // and do not put an age on it that was never measured.
+                        None => println!("this node is running; the snapshot it left has no time on it."),
+                    }
+                    println!();
+                    print!("{body}");
+                    Ok(())
+                }
+                Err(_) => Err(CliError::Usage(
+                    "this node is running and has not written a snapshot yet. Wait for its first sync round, or stop it and ask again.".to_owned(),
+                )),
+            }
+        }
+        Err(other) => Err(other),
+    }
 }
 
 /// Restore an account from a coordinator, using a passphrase alone.
@@ -1361,7 +1436,7 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::looks_like_a_closed_pipe;
+    use super::{describe_age, looks_like_a_closed_pipe};
 
     #[test]
     fn a_panic_that_is_not_a_closed_pipe_is_never_swallowed() {
@@ -1380,6 +1455,28 @@ mod tests {
                 "a real panic would be reported as success: {message:?}"
             );
         }
+    }
+
+    #[test]
+    fn an_age_never_reads_as_fresher_than_it_is() {
+        // The number this describes decides whether somebody trusts what they
+        // are looking at, so every boundary rounds *down* -- towards admitting
+        // the snapshot is older -- and nothing below a minute is allowed to
+        // call itself "just now" except the few seconds where it is true.
+        assert_eq!(describe_age(0), "just now");
+        assert_eq!(describe_age(5), "just now");
+        assert_eq!(describe_age(6), "6 seconds ago");
+        assert_eq!(describe_age(89), "89 seconds ago");
+        assert_eq!(describe_age(90), "1 minutes ago");
+        assert_eq!(describe_age(3599), "59 minutes ago");
+        assert_eq!(describe_age(5399), "89 minutes ago");
+        assert_eq!(describe_age(5400), "1 hours ago");
+        assert_eq!(describe_age(86_399), "23 hours ago");
+        assert_eq!(describe_age(86_400), "1 days ago");
+
+        // The case that matters most: a daemon that died three days ago must
+        // not leave a snapshot that reads as if it were current.
+        assert_eq!(describe_age(3 * 86_400 + 7), "3 days ago");
     }
 
     #[test]

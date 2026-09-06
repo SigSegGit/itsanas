@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**645 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
+**646 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -89,8 +89,24 @@ What is missing before this is a *network* rather than a personal sync tool:
   receiving the log so it can still relay, and is handed one chunk a round —
   chosen by the owner, and the only thing it is then audited on. Each answered
   round pays off one failure, so coming back costs as long as falling did.
-- **You cannot ask a running node anything.** The store allows one writer, and
-  the daemon is it, so with the service up every command refuses:
+- **You cannot ask a running node anything except what it is doing.** Fixed by
+  half on 2026-09-06: the daemon now writes what `itsanas status` would say to
+  `<home>/status.snapshot` after every round, and `status` reads it when the
+  store is locked, prefixed with how old it is -- "what it reported four minutes
+  ago". The rendering is shared, so the snapshot cannot drift from the live
+  output, and it is written to a temporary name and renamed so a reader never
+  sees half of it.
+
+  **`ls`, `put`, `get`, `pledge` and `folder` still refuse**, and a snapshot
+  cannot help them: `ls` would be listing a stale copy of something that
+  changes, and the other three need to write. Those need the real fix, which is
+  the daemon answering over a local socket -- a request to the process that
+  already holds the store rather than a second opening of it.
+
+  The original entry, for what it was:
+
+  The store allows one writer, and the daemon is it, so with the service up
+  every command refused:
 
   ```
   itsanas: store: ~/.itsanas/store/index.redb is already open in another process.

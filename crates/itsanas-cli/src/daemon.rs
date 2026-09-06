@@ -443,7 +443,45 @@ fn sync_loop(
             }
         }
 
+        write_snapshot(node);
+
         wait_for_work(folder.as_ref(), next_sync, shutdown);
+    }
+}
+
+/// Leave behind what `itsanas status` would have said.
+///
+/// The store allows one writer and this process is it, so while the daemon runs
+/// every command that opens the store refuses -- including the one whose whole
+/// job is to say what the node is doing. Somebody who has just dropped a file
+/// into their synced folder and types `itsanas status` should not be told to
+/// stop their node in order to find out whether it worked.
+///
+/// Written to a temporary name and renamed, so a reader never sees half of it,
+/// and never sees an empty file because this process was interrupted between
+/// truncating and writing. That failure is not hypothetical: the Windows
+/// provisioning script destroyed a passphrase exactly that way on 2026-09-06.
+///
+/// Failing to write it is not worth interrupting a sync round over, and not
+/// worth a line in the log every five minutes either. `status` says how old the
+/// snapshot is, so a stale one announces itself.
+fn write_snapshot(node: &Node) {
+    let Ok(text) = crate::render_status(node) else {
+        return;
+    };
+
+    // The first line is the time it was taken, in seconds, and the reader turns
+    // that into an age. Storing the age itself would be wrong the moment it was
+    // written, and formatting a date needs a calendar this project does not
+    // carry a dependency for -- while "four minutes ago" is both what somebody
+    // wants to know and arithmetic.
+    let stamped = format!("snapshot {}
+{text}", itsanas_discover::now_unix());
+
+    let final_path = node.home.join(crate::node::SNAPSHOT);
+    let pending = node.home.join(format!("{}.new", crate::node::SNAPSHOT));
+    if std::fs::write(&pending, stamped).is_ok() {
+        let _ = std::fs::rename(&pending, &final_path);
     }
 }
 
