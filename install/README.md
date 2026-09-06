@@ -11,6 +11,7 @@ says what it is doing, and can be run twice without harm.
 | Android, through Termux | [`android-termux.sh`](android-termux.sh) | **not yet run on a phone**; refuses correctly outside Termux and under `--check` |
 | Android, as an app | [`android.md`](android.md) | there is no app to install |
 | Any Linux, from nothing to a running member | [`provision.sh`](provision.sh) | **Run end to end on a freshly imaged Raspberry Pi 4B (Debian 13, SSD) on 2026-09-01**, and again on the Freebox VM to create a second account by invitation. From a machine with no compiler: toolchain, build, install, account, pledge, synced folder, coordinator, registration, systemd unit, and a smoke test that stores and returns a file. Run twice on the same machine to check it changes nothing. Three faults it had are in the git log — the service branch was unreachable, the idempotence guard could not tell "no node" from "node busy", and `systemctl --user` failed in the detached context a reinstall script actually runs in. All three needed a machine it had already succeeded on |
+| Windows, from nothing to a running member | [`provision.ps1`](provision.ps1) | **Run on Windows 11 on 2026-09-06**: refuses without a passphrase and without a username, and its idempotent path was exercised against an already-provisioned node. It is the Windows half of `provision.sh` and carries the same three corrections — the passphrase from the environment only, the secret file locked down before the secret goes in, and idempotence decided by looking for the keystore rather than by asking a program that cannot tell "no node" from "node busy" |
 | A coordinator on a machine with a public address | [`coordinator.sh`](coordinator.sh) | **Run for real twice**: on the Freebox VM (2026-09-01, service enabled at boot, admitted the first member) and on the Raspberry Pi (2026-09-01, `--check` first, then `--admit-first`, which founded the account `nicolas` and then admitted `voisin` on an invitation). `--check` also exercised on Linux with a busy port and a missing binary |
 
 That last column is the point of this table. Say plainly which of these has been
@@ -43,6 +44,19 @@ them needing values from another machine.
 curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/provision.sh |
   ITSANAS_PASSPHRASE='...' sh -s --     --username nicolas --pledge 100G --folder ~/Sync     --coordinator 192.168.1.11:9898 --coordinator-device <its id>
 ```
+
+On Windows the same thing, with the same flags under PowerShell names:
+
+```powershell
+$env:ITSANAS_PASSPHRASE = 'a long one you have written down'
+powershell -ExecutionPolicy Bypass -File install\provision.ps1 `
+  -Username nicolas -Pledge 100G -Folder "$env:USERPROFILE\ITSaNAS-Cloud" `
+  -Coordinator 192.168.1.10:9898 -CoordinatorDevice <its-id> -Invite <code>
+```
+
+It ends by registering a scheduled task that starts the daemon at logon, which
+needs the passphrase in a file only your account can read. `-NoTask` skips that
+and leaves you to run `itsanas daemon` yourself.
 
 It installs, creates or restores the account, sets the pledge and the folder,
 pins and registers with the coordinator, writes the passphrase where systemd can

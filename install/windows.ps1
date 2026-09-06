@@ -57,6 +57,26 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# SHA-256 without `Get-FileHash`.
+#
+# `Get-FileHash` lives in Microsoft.PowerShell.Utility and is normally
+# autoloaded, and "normally" is doing a lot of work in that sentence: run under
+# `powershell.exe -NoProfile` from a non-interactive parent, this script died
+# with "Le terme Get-FileHash n'est pas reconnu". The check that proves the
+# install works is not the place to depend on a module resolving. .NET is
+# always there.
+function Get-Sha256 {
+    param([string] $Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try {
+            return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-', '')
+        } finally { $stream.Dispose() }
+    } finally { $sha.Dispose() }
+}
+
 $MinRustMajor = 1
 $MinRustMinor = 88
 
@@ -444,8 +464,8 @@ if (-not $NoSmoke) {
         & $exe --home (Join-Path $work 'home') put 'docs/smoke.bin' $payload | Out-Null
         & $exe --home (Join-Path $work 'home') get 'docs/smoke.bin' (Join-Path $work 'back.bin') | Out-Null
 
-        $before = (Get-FileHash -Algorithm SHA256 $payload).Hash
-        $after = (Get-FileHash -Algorithm SHA256 (Join-Path $work 'back.bin')).Hash
+        $before = Get-Sha256 $payload
+        $after = Get-Sha256 (Join-Path $work 'back.bin')
         if ($before -ne $after) {
             Stop-WithAdvice 'the bytes changed between storing and reading' @(
                 "wrote $before", "read  $after",
