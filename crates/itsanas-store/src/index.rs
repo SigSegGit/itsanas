@@ -1234,6 +1234,7 @@ impl Index {
             complete_elsewhere: fewest.unwrap_or(0),
             live_chunks,
             only_here,
+            distinct_holders: per_device.len(),
             largest_share: per_device.into_values().max().unwrap_or(0),
         })
     }

@@ -735,6 +735,31 @@ fn coverage_report(node: &Node) -> Result<String> {
             );
         }
 
+        // Whether chunks could be spread around instead of every holder
+        // taking everything -- and it is off below a threshold on purpose.
+        // With two peers and a target of two copies, every chunk must go to
+        // both, so both hold everything; spreading anyway would give each chunk
+        // one holder instead of two and turn a privacy preference into data
+        // loss. `itsanas_placement::spreading` derives the threshold rather
+        // than guessing it.
+        let advice = itsanas_placement::spreading(coverage.distinct_holders, REPLICATION_TARGET);
+        if advice.enabled {
+            w!(
+                "  spreading      on: {} machines is enough to give each a small share",
+                advice.candidates
+            );
+        } else {
+            w!(
+                concat!(
+                    "  spreading      off: {} machines hold anything of yours, ",
+                    "and {} are needed"
+                ),
+                advice.candidates,
+                advice.needed
+            );
+            w!("                 until then every holder takes everything, which is right");
+        }
+
         let short = node.store.under_replicated(REPLICATION_TARGET)?;
         if !short.is_empty() {
             w!(

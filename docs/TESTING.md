@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-01 — 655 test functions across 21 binaries, 3 of them
+**Last updated: 2026-09-01 — 658 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 30 are red-team tests.**
 
-**539 of the 655 tests have an entry of their own on this page** — an *entry*,
+**542 of the 658 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -144,7 +144,7 @@ guarantee and is not one.
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 30 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 37 |
-| `itsanas-placement` unit | 29 |
+| `itsanas-placement` unit | 32 |
 | `itsanas-coord` unit | 72 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
 | `itsanas-discover` unit | 36 |
@@ -903,12 +903,15 @@ uses it today: `itsanas daemon` prints the interval, the scope and the reason.
 | **`background_intervals_sit_above_every_platform_floor`** | Every mobile platform imposes a fifteen-minute floor on periodic background work. An interval below it is not a schedule, it is a number the operating system ignores. |
 | **`a_day_of_metered_checking_is_not_measurable_on_a_data_plan`** | The arithmetic behind the once-a-day metadata round, so the claim in the module documentation is checked rather than asserted. |
 
-# `itsanas-placement` — unit tests (29)
+# `itsanas-placement` — unit tests (32)
 
 ## `nodeset` — where a chunk belongs (16)
 
 | Test | What it proves |
 | --- | --- |
+| **`a_small_network_never_spreads`** | The direction that can do damage. Spreading three copies over two peers means one copy per chunk — a privacy preference turned into data loss, on exactly the networks least able to afford it. Walks every count below the threshold and asserts the answer is off. |
+| **`the_threshold_is_where_a_holder_stops_getting_most_of_the_account`** | Nine candidates for three copies, because each then receives a third. The arithmetic is the reason for the number, so the number is pinned to it rather than chosen. |
+| `replicating_nothing_is_not_a_reason_to_spread` | Zero copies means nothing to place, and spreading nothing is not a state worth entering. |
 | **`removing_a_node_moves_only_that_nodes_share`** | The M5 exit criterion, and stronger than the usual phrasing: **zero** chunks move between two *surviving* nodes. With modulo hashing almost everything moves, which at real scale means re-uploading the whole network. |
 | **`adding_a_node_only_pulls_in_its_own_share`** | The same property in the other direction. |
 | **`distribution_matches_pledged_capacity`** | A node pledging 4× holds roughly 4× as many chunks, measured over 20 000 chunks across a 1:8 spread. Without this the "mutual" in mutual storage is a fiction and the small nodes carry the network. |

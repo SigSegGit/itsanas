@@ -39,6 +39,8 @@
 
 pub mod nodeset;
 pub mod repair;
+pub mod spreading;
 
 pub use nodeset::{MAX_SLOTS, NodeSet, PlacementError, StorageNode};
 pub use repair::{AtRisk, Census, DEFAULT_REPLICATION_FLOOR, Push, RepairPlan, plan};
+pub use spreading::{SHARE_DIVISOR, Spreading, critical_mass, spreading};

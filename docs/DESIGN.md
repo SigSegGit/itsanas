@@ -256,6 +256,66 @@ across them, and the chance of holding the swarm's highest hash is exactly its
 share of the slots. Slots are capped at 64 so one enormous member cannot become
 a single point of concentration.
 
+### Critical mass: when spreading helps, and when it destroys copies
+
+Two goals pull against each other, and which one wins depends on how big the
+network is.
+
+**Durability** wants copies: every chunk on several machines, so losing one
+costs nothing. **Confidentiality and scale** want spread: no single machine
+holding a whole account. A complete holder is one broken cipher away from
+reading it — and if the unit of hosting is "a whole account", then somebody
+offering four terabytes needs peers who can each take four terabytes, which
+makes the largest contributor the hardest to serve and breaks the economics of
+offering storage to earn storage precisely at the top.
+
+On a small network you cannot have both. With two peers and a target of two
+copies, every chunk must go to both, so both hold everything. That is not a
+failure to be fixed. It is the only correct answer available, and spreading
+anyway would give each chunk one holder instead of two — a privacy preference
+turned into data loss, on the networks least able to afford it.
+
+So spreading is **off below a threshold and on above it**, and the threshold is
+derived rather than chosen. Let `copies` be the holders each chunk needs and
+`share` the largest fraction of one account any single holder should end up
+with. Each chunk goes to `copies` of the `candidates` holders, so a holder
+receives `copies / candidates` on average, and keeping that within `share`
+needs:
+
+```text
+candidates >= copies / share
+```
+
+With three copies and a third as the most one holder should have, that is
+**nine candidate holders**. `itsanas_placement::spreading` computes it, and
+`itsanas status` reports which side of it a node is on.
+
+The bare minimum for "nobody holds everything" is `copies + 1` — with exactly
+`copies` candidates every chunk must go to all of them. That bound is not used,
+because at four candidates and three copies each holder still has three
+quarters of the account, which is a complete copy in every sense except the
+arithmetic.
+
+**This is a switch that must not be thrown early.** The dangerous direction is
+switching spreading on below the threshold, and a rule that lives in somebody's
+head gets switched on by somebody else — which is why it is a module with a
+test that walks every count below the threshold and asserts the answer is off.
+
+### Copies are not reachable copies
+
+A count of holders says nothing about how many can be reached now. Two holders
+online a tenth of the time give 0.2 reachable copies on average; having two
+reachable with any confidence at that availability needs on the order of thirty
+holders. The target has to be solved from measured availability — the tail of
+`Binomial(n, a)` — not written down as a constant, and
+`REPLICATION_TARGET = 3` is a placeholder that suits a household of always-on
+machines and is wrongly reassuring anywhere else.
+
+Independence is the harder half. Thirty holders in one timezone, on one ISP or
+on one power grid are not thirty independent chances: they go dark together,
+and a binomial computed as though they were independent overstates availability
+exactly when it matters. `docs/ROADMAP.md` carries the three steps this needs.
+
 Determinism across architectures is not a nicety here. It is the property that
 lets placement work with no agreement protocol at all.
 

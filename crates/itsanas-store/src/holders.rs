@@ -283,6 +283,12 @@ pub struct Coverage {
     /// hardest to serve. Chunks spread over many partial holders have neither
     /// problem.
     pub largest_share: usize,
+    /// How many distinct other machines hold anything of this account.
+    ///
+    /// The candidate count that decides whether spreading chunks around is
+    /// possible at all: below a threshold there are not enough holders to give
+    /// each a small share *and* keep enough copies, and the copies win.
+    pub distinct_holders: usize,
 }
 
 impl Coverage {
