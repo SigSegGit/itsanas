@@ -80,6 +80,15 @@ jobs:
       # work, and the two look identical from outside.
       - name: Every public method has a call site
         run: python scripts/check-wired.py
+      # A job here once ran for five hours before a person stopped it.
+      # `cargo test` has no per-test timeout, so the only thing that ends a
+      # hung test is somebody's patience. The budget lives in
+      # .config/nextest.toml; this checks it still terminates rather than
+      # merely warning, and that every test invocation in this file still
+      # goes through the runner that enforces it. A timeout configured in a
+      # file nothing uses reads like a guarantee and is not one.
+      - name: Every test has a deadline, and every runner enforces it
+        run: python scripts/check-test-budget.py
       # An installer is the one program here that runs on a machine nobody has
       # configured, in a shell nobody chose, in front of somebody who has read
       # nothing — and it is the least exercised code in the project. A syntax
@@ -112,7 +121,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --all-features
+      - uses: taiki-e/install-action@nextest
+      # nextest, not `cargo test`, because it runs each test in its own process
+      # and can therefore time it out. The budget is in .config/nextest.toml:
+      # one minute per test, no exceptions. `cargo test` has no such thing, and
+      # a test that hangs under it hangs the job until a person kills it.
+      - run: cargo nextest run --profile ci --workspace --all-features
+      # nextest does not run doctests, so they need their own invocation. Left
+      # out, this change would have quietly stopped running two tests while the
+      # summary still said everything passed.
+      - run: cargo test --doc --workspace --all-features
 
   slow-tests:
     name: Expensive tests
@@ -121,11 +139,19 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # Tests marked #[ignore] run real production cost parameters. Currently
-      # that is one test — the full 64 MiB Argon2id — which is far too slow for
-      # every push and far too important to never run. Large simulated swarms
-      # will join it at M5.
-      - run: cargo test --workspace --all-features -- --ignored --test-threads 1
+      - uses: taiki-e/install-action@nextest
+      # The #[ignore]d tests run real production cost parameters: the full
+      # 64 MiB Argon2id, a store killed mid-write a dozen times, and a file
+      # larger than any buffer. Too slow for every push, too important never to
+      # run.
+      #
+      # **In release, and that is load-bearing.** In debug the crash test takes
+      # 66 seconds and breaks the one-minute budget — not because of anything it
+      # asserts, but because an unoptimised Argon2id is slow. In release the
+      # three take 0.2 s, 2.4 s and 5.9 s. Running them here rather than writing
+      # them a timeout exception is the difference between a budget that means
+      # something and a list of things it does not apply to.
+      - run: cargo nextest run --release --profile ci --workspace --all-features --run-ignored ignored-only
 
   installers-run:
     name: The installer installs (${{ matrix.os }})
@@ -188,6 +214,7 @@ jobs:
       # ("failed to find tool aarch64-linux-gnu-gcc"). Everything else in the
       # tree is pure Rust.
       - run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - uses: taiki-e/install-action@nextest
       - name: Build
         run: cargo build --workspace --release --target aarch64-unknown-linux-gnu
       # A build says the types line up. It does not say the code runs, and until
@@ -218,8 +245,19 @@ jobs:
       # socket, so the TLS stack is only linked by it; `itsanas-tls`'s handshake
       # tests do open one, and ring's aarch64 assembly is exactly the kind of
       # thing that links and then misbehaves.
+      # Through nextest, for the timeout. Emulation is where a hang is most
+      # likely and least visible: a deadlock that a native run would never
+      # reach can appear here through different timing, and without a per-test
+      # limit the job simply stops producing output until the runner's own
+      # six-hour ceiling. nextest picks up the runner from the cargo
+      # environment variable set at the job level, the same one plain
+      # `cargo test` used.
       - name: The whole test suite, on ARM
-        run: cargo test --workspace --all-features --target aarch64-unknown-linux-gnu
+        run: cargo nextest run --profile ci --workspace --all-features --target aarch64-unknown-linux-gnu
+      # The doctests, which nextest does not run, and which `cargo test` does
+      # not cross-run under a target runner either -- so they stay on the
+      # native job above and are named here so their absence is a decision
+      # rather than an oversight.
       # And the same check an installer runs at the end of a real install, so
       # the thing a person sees on their own machine is the thing CI ran.
       - name: Store a file and read it back, on ARM

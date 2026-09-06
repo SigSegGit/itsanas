@@ -65,10 +65,12 @@ Every gate CI runs, runnable locally:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
-cargo test --workspace --all-features
-cargo test --workspace --all-features -- --ignored     # 3 slow tests
+cargo nextest run --profile ci --workspace --all-features   # 1 min per test, enforced
+cargo test --doc --workspace --all-features                 # nextest skips doctests
+cargo nextest run --release --workspace --all-features --run-ignored ignored-only
 cargo +1.88.0 check --workspace --all-features          # MSRV
 cargo deny --all-features check
+python scripts/check-test-budget.py                     # the timeout is still enforced
 bash scripts/check-catalogue.sh                         # docs/TESTING.md names real tests
 ```
 

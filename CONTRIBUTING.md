@@ -15,12 +15,28 @@ rustup toolchain install 1.88.0
 cargo build --workspace
 ```
 
-`cargo test --workspace` takes about a minute. Two tests are `#[ignore]`d — the
-real 64 MiB Argon2id cost and a 64 MiB streaming round trip — and run in a
-separate CI job:
+The suite is run with **`cargo nextest`**, which gives each test its own
+process and can therefore time it out. The budget is one minute per test,
+terminating — `docs/TESTING.md` has the reasoning and
+[`.config/nextest.toml`](.config/nextest.toml) the settings.
 
 ```bash
-cargo test --workspace --all-features -- --ignored
+cargo install cargo-nextest --locked
+cargo nextest run --workspace --all-features    # about half a minute
+cargo test --doc --workspace --all-features     # nextest does not run doctests
+```
+
+`cargo test --workspace` still works and still passes. It simply has no
+per-test timeout, so a test that hangs under it hangs until you notice.
+
+Three tests are `#[ignore]`d — the real 64 MiB Argon2id cost, a 64 MiB
+streaming round trip, and a crash test that kills a store mid-write a dozen
+times. They run in a separate CI job, **in release**, because in debug the
+crash test takes 66 seconds and the other two are ten times slower than they
+need to be:
+
+```bash
+cargo nextest run --release --workspace --all-features --run-ignored ignored-only
 ```
 
 Cross-compiling for the Raspberry Pi needs `gcc-aarch64-linux-gnu`, because
@@ -34,7 +50,8 @@ Every one of these runs in CI. Running them locally is faster than waiting:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
-cargo test --workspace --all-features
+cargo nextest run --profile ci --workspace --all-features
+cargo test --doc --workspace --all-features
 cargo +1.88.0 check --workspace --all-features
 cargo deny --all-features check
 ```

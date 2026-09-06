@@ -31,6 +31,56 @@ wrong: `check-catalogue.sh` (every test named here exists), `check-messages.py`
 `check-wired.py` (every public method has a call site somewhere in the
 workspace).
 
+## Every test has one minute
+
+Tests are run with **`cargo nextest`**, not `cargo test`, and the reason is a
+timeout. `cargo test` has none: a test that blocks — on a socket that never
+answers, a lock nobody releases, a loop whose exit condition is wrong — blocks
+the run, and the only thing that ends it is a person noticing. One job in this
+project ran for five hours before it was stopped by hand.
+
+nextest gives each test its own process, so it can time it and kill it. The
+budget is in [`.config/nextest.toml`](../.config/nextest.toml): warnings at
+twenty and forty seconds, **termination at sixty**, which turns a hang into a
+failed test with a name.
+
+```sh
+cargo nextest run --workspace --all-features    # the suite, with the budget
+cargo test --doc --workspace --all-features     # the doctests nextest does not run
+cargo nextest run --profile measure ...         # report everything over a second
+```
+
+Measured on 2026-09-01, Windows x86-64:
+
+| | slowest single test | total |
+| --- | --- | --- |
+| the suite, debug | 11.1 s (`a_long_run_of_alternating_partitions_still_converges`) | 26.6 s |
+| the three `#[ignore]`d, release | 5.9 s (`a_store_killed_mid_write_never_lists_a_file_it_cannot_read`) | 5.9 s |
+
+So the limit sits at about five times the slowest thing in the suite. That is
+deliberate. A timeout that fires on a loaded runner teaches people to press
+re-run rather than to look, and a limit nobody trusts protects nothing.
+
+**There are no exceptions, and there was nearly one.** The crash test takes
+**66 seconds in a debug build** — it kills a store mid-write a dozen times, and
+each of those dozen processes pays a full 64 MiB Argon2id derivation, which is
+slow on purpose. Writing it a timeout override was the obvious move and the
+wrong one: the same test takes 5.9 seconds in release, so the cost was an
+artefact of the build profile rather than of anything it asserts. The
+`slow-tests` job therefore runs the `#[ignore]`d tests **in release**, and the
+exception disappears instead of being documented. Before adding an override,
+the question is whether the test is slow for a reason connected to what it
+checks.
+
+`scripts/check-test-budget.py` keeps this true. It checks that the profiles
+still *terminate* rather than merely warn, that retries stay off, that any
+override carries a comment justifying itself, and that every test invocation in
+`.github/workflows` still goes through nextest — with `cargo test --doc` named
+as the one exception, because nextest does not run doctests and moving to it
+without that line would have stopped running two tests while the summary still
+said everything passed. A timeout configured in a file nothing uses reads like a
+guarantee and is not one.
+
 | Binary | Tests |
 | --- | --- |
 | `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |

@@ -1,0 +1,84 @@
+# Per-test timeouts, enforced rather than hoped for.
+#
+# Why this file exists
+# --------------------
+#
+# `cargo test` has no per-test timeout. A test that blocks — on a socket that
+# never answers, a lock nobody releases, a loop whose exit condition is wrong —
+# hangs the whole run until a person notices and kills it. That is not a
+# hypothetical here: a job in this project ran for five hours before it was
+# stopped by hand, and the hours spent noticing bought nothing.
+#
+# `cargo nextest` runs each test in its own process, which is what makes a
+# timeout possible: it can time the process and kill it. `terminate-after` turns
+# a hang into **a failed test with a name**, and that is the whole point. A red
+# test says which one and costs a minute. A hang says nothing and costs as long
+# as your patience.
+#
+# The budget
+# ----------
+#
+# **One minute, for every test, with no exceptions.** Warnings at twenty and
+# forty seconds, so a test drifting towards the limit is visible before it
+# arrives; termination at sixty.
+#
+# The headroom is real rather than nominal. Measured on 2026-09-01, Windows
+# x86-64:
+#
+#   - a debug run of the whole suite: 641 tests, 26.6 s in total, slowest
+#     single test 11.1 s
+#   - the three `#[ignore]`d tests in release: 0.2 s, 2.4 s, 5.9 s
+#
+# So the limit sits at roughly five times the slowest thing in the suite. That
+# is deliberate: a timeout that fires on a loaded runner teaches people to press
+# re-run instead of to look, and a limit nobody trusts protects nothing.
+#
+# Why there are no exceptions
+# ---------------------------
+#
+# There was one, briefly. `a_store_killed_mid_write_never_lists_a_file_it_cannot_read`
+# takes **66 seconds in a debug build** — it kills a store mid-write a dozen
+# times, and each of those dozen processes pays a full production Argon2id
+# derivation, which is 64 MiB of memory-hard work that is slow *on purpose*.
+# Writing it an override was the obvious move.
+#
+# It was the wrong move. The same test takes **5.9 seconds in release**, because
+# what is slow in debug is the unoptimised memory-hard loop, not the thing being
+# tested. The cost was an artefact of the build profile, so the fix is to run
+# those three in release — see the `slow-tests` job in `.github/workflows/ci.yml`
+# — and the exception disappears rather than being documented.
+#
+# The general form: before writing an override here, check whether the test is
+# slow for a reason that has anything to do with what it asserts. An override is
+# a promise that it does, and this file should stay empty of them.
+
+[profile.default]
+slow-timeout = { period = "20s", terminate-after = 3 }
+
+# A test that only passes on the second attempt is a result nobody can act on,
+# and retries would hide precisely the timing bugs the timeout above exists to
+# surface.
+retries = 0
+
+# Run everything and report everything. Stopping at the first failure saves a
+# few seconds and costs a second round trip to find out whether the other forty
+# failures were the same cause or four more.
+fail-fast = false
+
+# For finding out what is slow, rather than guessing: everything over a second
+# is reported, and nothing is terminated — a measurement that kills its subject
+# measures something else.
+#
+#   cargo nextest run --profile measure --workspace --all-features
+[profile.measure]
+slow-timeout = { period = "1s" }
+fail-fast = false
+
+# What CI uses: the same budget, with output tuned for a log somebody reads
+# after the fact rather than a terminal somebody is watching.
+[profile.ci]
+slow-timeout = { period = "20s", terminate-after = 3 }
+retries = 0
+fail-fast = false
+failure-output = "immediate-final"
+status-level = "fail"

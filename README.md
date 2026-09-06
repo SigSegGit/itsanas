@@ -212,14 +212,22 @@ its own is not enough and an older toolchain fails with a parse error rather
 than a version message.
 
 ```bash
-cargo test --workspace
+cargo install cargo-nextest --locked
+cargo nextest run --workspace --all-features
+cargo test --doc --workspace --all-features
 ```
 
-Two tests — the real 64 MiB Argon2id cost and a 64 MiB streaming round trip —
-are marked `#[ignore]` so the normal suite stays fast. CI runs them separately:
+`nextest` rather than `cargo test` because it runs each test in its own process
+and can time it out: **one minute per test, terminating**, so a hang becomes a
+failed test with a name instead of a job nobody stops. `cargo test --workspace`
+still works and still passes; it just has no such limit.
+
+Three tests — the real 64 MiB Argon2id cost, a 64 MiB streaming round trip, and
+a crash test that kills a store mid-write a dozen times — are marked
+`#[ignore]` so the normal suite stays fast. CI runs them separately, in release:
 
 ```bash
-cargo test --workspace -- --ignored
+cargo nextest run --release --workspace --all-features --run-ignored ignored-only
 ```
 
 ## Contributing
