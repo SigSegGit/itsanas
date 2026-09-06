@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**654 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
+**655 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -107,7 +107,40 @@ What is missing before this is a *network* rather than a personal sync tool:
     3 copies      any 3 other machines could rebuild all of it
   ```
 
-  What this does **not** yet do, and it is the next thing:
+  **And the number of copies is not the number of copies you can reach.** Two
+  holders that are online a tenth of the time give, on average, 0.2 reachable
+  copies. To have two reachable with any confidence at that availability you
+  need on the order of thirty holders, not three. The arithmetic is a binomial:
+  with `n` independent holders each up with probability `a`, the chance that at
+  least `k` are up is the tail of `Binomial(n, a)`, and the target has to be
+  solved from the availability rather than written down as a constant.
+
+  `REPLICATION_TARGET = 3` is therefore a placeholder that happens to suit a
+  household of machines that are nearly always on. It is wrong for a network of
+  laptops, and wrongly reassuring, which is worse.
+
+  **Independence is the harder half.** Thirty holders in one timezone, on one
+  ISP, or on one power grid are not thirty independent chances -- they go dark
+  together, and a binomial computed as if they were independent overstates
+  availability exactly when it matters. The coordinator already measures
+  per-device availability (`AvailabilityRecord`,
+  `staying_up_raises_availability_and_going_away_lowers_it`); what it does not
+  do is look for *correlation* between them, which is the only way to tell
+  thirty chances from one chance thirty times.
+
+  Three things have to exist, in this order:
+
+  1. **Report reachable copies, not copies.** A node knows its holders and the
+     coordinator knows their availability; the expected number reachable is
+     computable today and is not computed.
+  2. **Derive the target from measured availability** instead of a constant, so
+     a network of laptops asks for more copies than a network of servers.
+  3. **Select for independence.** Uptime histories that rise and fall together
+     are one holder wearing several hats. The observed public address, which the
+     coordinator sees and currently discards, is a first proxy for "same
+     network"; correlated uptime is the general one.
+
+  What this does **not** yet do, and it is the next thing:  What this does **not** yet do, and it is the next thing:
 
   - **The ledger is optimistic.** A holder that vanished months ago still
     counts until an audit reaches it. So the number is an upper bound, and a
@@ -116,9 +149,9 @@ What is missing before this is a *network* rather than a personal sync tool:
     repaired: repair still chooses no peers, and nothing seeks new hosts when
     an old one leaves. That is the difference between a system that measures
     the promise and one that keeps it.
-  - **Availability is not weighted.** Two copies on machines that are online a
-    third of the time is not two copies you can reach today, which is why the
-    replication target is three and not two.
+  - **Availability is not weighted**, as above. The replication target being
+    three rather than two is not a fix for this; it is the same guess with one
+    more copy.
 
   **And hosting is now mutual over one outbound connection**, which is the
   thing that actually decides whether somebody outside a network can take part.

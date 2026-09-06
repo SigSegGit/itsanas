@@ -67,6 +67,22 @@ pub fn key(chunk: &ChunkId, device: &DeviceId) -> [u8; HOLDER_KEY_LEN] {
     out
 }
 
+/// The device half of a holder key.
+///
+/// `None` when the slice is not a holder key at all, which a caller reading a
+/// range it built itself should never see -- and which is still worth
+/// answering rather than panicking on, because a corrupt row is a thing that
+/// happens to databases and is not worth taking a node down for.
+#[must_use]
+pub fn device_from_key(key: &[u8]) -> Option<DeviceId> {
+    if key.len() != HOLDER_KEY_LEN {
+        return None;
+    }
+    let mut bytes = [0u8; ID_LEN];
+    bytes.copy_from_slice(&key[ID_LEN..]);
+    Some(DeviceId::from_bytes(bytes))
+}
+
 /// The lowest key that can belong to `chunk`.
 #[must_use]
 pub fn range_start(chunk: &ChunkId) -> [u8; HOLDER_KEY_LEN] {
@@ -253,6 +269,20 @@ pub struct Coverage {
     /// Chunks no other machine holds at all — the ones that make the number
     /// above what it is.
     pub only_here: usize,
+    /// The most chunks any single other machine holds.
+    ///
+    /// The privacy half of the picture, and it points the other way from
+    /// [`Self::complete_elsewhere`]. A peer holding *all* of them has a
+    /// complete copy of the account: sealed, and one broken cipher away from
+    /// being readable. Past a certain size the goal is that nobody but the
+    /// owner ever holds a whole set.
+    ///
+    /// It is also what decides whether this scales. If the unit of hosting is
+    /// "a complete copy", then somebody offering four terabytes needs peers who
+    /// can each take four terabytes, and the largest contributor becomes the
+    /// hardest to serve. Chunks spread over many partial holders have neither
+    /// problem.
+    pub largest_share: usize,
 }
 
 impl Coverage {
@@ -260,6 +290,17 @@ impl Coverage {
     #[must_use]
     pub const fn meets(&self, target: usize) -> bool {
         self.live_chunks == 0 || self.complete_elsewhere >= target
+    }
+
+    /// Whether some single other machine holds every chunk of this account.
+    ///
+    /// Not a failure on a small network -- with two peers there is no way to
+    /// have two copies and no complete holder at the same time, and the copies
+    /// matter more. It becomes a failure as the network grows, and the point of
+    /// reporting it is that nobody notices a property they are not shown.
+    #[must_use]
+    pub const fn someone_holds_everything(&self) -> bool {
+        self.live_chunks > 0 && self.largest_share >= self.live_chunks
     }
 }
 

@@ -680,9 +680,24 @@ fn coverage_report(node: &Node) -> Result<String> {
                 coverage.only_here,
                 coverage.live_chunks
             ),
-            1 => w!("  one copy       one other machine could rebuild all of it"),
+            1 => w!(concat!(
+                "  one copy       every chunk is on one other machine, so ",
+                "the network could rebuild all of it once"
+            )),
             copies => {
-                w!("  {copies} copies      any {copies} other machines could rebuild all of it");
+                // Not "any N machines could rebuild it". They could not: N
+                // machines chosen at random may hold overlapping subsets and
+                // nothing else. What is true is that every chunk is on at least
+                // N of them, so the set survives losing any N-1 holders of any
+                // chunk -- and rebuilding draws from many peers, not from one.
+                w!(
+                    concat!(
+                        "  {} copies      every chunk is on at least {} other ",
+                        "machines; rebuilding draws on all of them"
+                    ),
+                    copies,
+                    copies
+                );
             }
         }
 
@@ -696,6 +711,28 @@ fn coverage_report(node: &Node) -> Result<String> {
                 coverage.complete_elsewhere
             );
             w!("                 run `itsanas sync`, or add a peer, to spread it");
+        }
+
+        // The other direction, and it is not the same question. Copies are
+        // about surviving loss; this is about who could read you if the sealing
+        // ever failed, and about whether this can scale at all -- if the unit
+        // of hosting were "a whole account", somebody offering four terabytes
+        // would need peers who could each take four terabytes.
+        if coverage.someone_holds_everything() {
+            w!(
+                concat!(
+                    "  concentrated   one machine holds all {} of your chunks. ",
+                    "Sealed, but a whole set"
+                ),
+                coverage.live_chunks
+            );
+            w!("                 unavoidable with few peers; spread as more join");
+        } else if coverage.largest_share > 0 {
+            w!(
+                "  spread         no machine holds more than {} of your {} chunks",
+                coverage.largest_share,
+                coverage.live_chunks
+            );
         }
 
         let short = node.store.under_replicated(REPLICATION_TARGET)?;

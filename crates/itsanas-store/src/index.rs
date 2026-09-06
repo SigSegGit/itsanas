@@ -1200,6 +1200,10 @@ impl Index {
         let mut live_chunks = 0usize;
         let mut only_here = 0usize;
         let mut fewest: Option<usize> = None;
+        // How much of this account each other machine holds. The largest entry
+        // is the one worth reporting: it is the closest anybody else is to
+        // having a whole copy.
+        let mut per_device: BTreeMap<DeviceId, usize> = BTreeMap::new();
 
         for row in refs.iter()? {
             let (key, value) = row?;
@@ -1209,11 +1213,16 @@ impl Index {
             live_chunks += 1;
 
             let chunk = ChunkId::from_slice(key.value())?;
-            let elsewhere = holders_table
-                .range(
-                    holders::range_start(&chunk).as_slice()..=holders::range_end(&chunk).as_slice(),
-                )?
-                .count();
+            let mut elsewhere = 0usize;
+            for row in holders_table.range(
+                holders::range_start(&chunk).as_slice()..=holders::range_end(&chunk).as_slice(),
+            )? {
+                let (key, _) = row?;
+                elsewhere += 1;
+                if let Some(device) = holders::device_from_key(key.value()) {
+                    *per_device.entry(device).or_default() += 1;
+                }
+            }
 
             if elsewhere == 0 {
                 only_here += 1;
@@ -1225,6 +1234,7 @@ impl Index {
             complete_elsewhere: fewest.unwrap_or(0),
             live_chunks,
             only_here,
+            largest_share: per_device.into_values().max().unwrap_or(0),
         })
     }
 
@@ -1414,6 +1424,14 @@ impl Index {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The same as `index()`, under a name a local binding does not shadow.
+    ///
+    /// A test that wants two stores cannot call `index()` for the second one:
+    /// the first has already bound the name.
+    fn fresh() -> (tempfile::TempDir, Index) {
+        index()
+    }
 
     fn index() -> (tempfile::TempDir, Index) {
         let dir = tempfile::tempdir().expect("temp dir");
@@ -2246,6 +2264,55 @@ mod tests {
         // the others have.
         index.record_holder(&chunk(3), &device(8), 1).unwrap();
         assert!(index.coverage().unwrap().meets(2));
+    }
+
+    #[test]
+    fn a_peer_that_holds_every_chunk_is_reported_as_holding_everything() {
+        // Two things this measures, and they pull in opposite directions.
+        //
+        // A peer holding a complete set is one broken cipher away from reading
+        // the account. Past a certain size the goal is that nobody but the
+        // owner ever holds a whole one -- and it is also what decides whether
+        // this scales at all, because if the unit of hosting is "a complete
+        // copy" then somebody offering four terabytes needs peers who can each
+        // take four terabytes.
+        //
+        // On a small network it is not yet a failure: with two peers you cannot
+        // have two copies and no complete holder at once. It is reported so
+        // that it is noticed, because nobody notices a property they are never
+        // shown.
+        let (_dir, index) = fresh();
+        index.put_file("a", &entry(&[1, 2, 3])).unwrap();
+
+        for id in [1u8, 2, 3] {
+            index.record_holder(&chunk(id), &device(7), 1).unwrap();
+        }
+        let coverage = index.coverage().unwrap();
+        assert_eq!(coverage.largest_share, 3);
+        assert!(
+            coverage.someone_holds_everything(),
+            "one peer holds all three chunks and that was not reported"
+        );
+
+        // Spread instead: each chunk on a different machine. Same number of
+        // holder records, same one complete copy -- and now nobody has a whole
+        // set of anything.
+        let (_spread_dir, spread) = fresh();
+        spread.put_file("a", &entry(&[1, 2, 3])).unwrap();
+        spread.record_holder(&chunk(1), &device(7), 1).unwrap();
+        spread.record_holder(&chunk(2), &device(8), 1).unwrap();
+        spread.record_holder(&chunk(3), &device(9), 1).unwrap();
+
+        let coverage = spread.coverage().unwrap();
+        assert_eq!(
+            coverage.complete_elsewhere, 1,
+            "the account is still reconstructible from the network"
+        );
+        assert_eq!(
+            coverage.largest_share, 1,
+            "no machine holds more than its share"
+        );
+        assert!(!coverage.someone_holds_everything());
     }
 
     #[test]
