@@ -55,7 +55,7 @@ Measured on 2026-09-01, Windows x86-64:
 | | slowest single test | total |
 | --- | --- | --- |
 | the suite, debug | 11.1 s (`a_long_run_of_alternating_partitions_still_converges`) | 26.6 s |
-| the three `#[ignore]`d, release | 5.9 s (`a_store_killed_mid_write_never_lists_a_file_it_cannot_read`) | 5.9 s |
+| the three `#[ignore]`d, release | 16.4 s (`a_store_killed_mid_write_never_lists_a_file_it_cannot_read`) | 16.4 s |
 
 So the limit sits at about five times the slowest thing in the suite. That is
 deliberate. A timeout that fires on a loaded runner teaches people to press
@@ -66,11 +66,32 @@ re-run rather than to look, and a limit nobody trusts protects nothing.
 each of those dozen processes pays a full 64 MiB Argon2id derivation, which is
 slow on purpose. Writing it a timeout override was the obvious move and the
 wrong one: the same test takes 5.9 seconds in release, so the cost was an
-artefact of the build profile rather than of anything it asserts. The
-`slow-tests` job therefore runs the `#[ignore]`d tests **in release**, and the
+artefact of the build profile rather than of anything it asserts.
+
+That was half right, and CI said so. In release the test's *own* guard fired:
+it times one complete write and refuses to continue if that write is too fast
+to interrupt, because otherwise every kill lands after the write has finished
+and the test proves nothing. On a release build on a CI runner a whole write
+finished in under 200 ms. The payload size was a constant picked against a
+debug build, so the test now **calibrates it**: it doubles the payload until a
+whole write crosses 400 ms, and asserts that it got there. That makes the test
+independent of the optimisation level and of how fast the machine is, which is
+what it should have been. It costs 16.4 s in release.
+
+The `slow-tests` job therefore runs the `#[ignore]`d tests **in release**, and the
 exception disappears instead of being documented. Before adding an override,
 the question is whether the test is slow for a reason connected to what it
 checks.
+
+**One profile is exempt, and it is not about this code.** The ARM job
+cross-builds for aarch64 and runs the suite under `qemu-user-static` on an x86
+runner. At sixty seconds that job reported **eight tests timed out and 724
+seconds for the suite** — while the same suite on a real Raspberry Pi 4, slower
+silicon on an SSD, has nothing anywhere near a minute. The limit there was
+measuring an instruction-set emulator, so the `ci-emulated` profile allows five
+minutes. The exemption and its reason live in `scripts/check-test-budget.py`
+itself, which prints them on every run, so it cannot become the norm by sitting
+somewhere nobody reads.
 
 `scripts/check-test-budget.py` keeps this true. It checks that the profiles
 still *terminate* rather than merely warn, that retries stay off, that any

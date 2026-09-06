@@ -253,7 +253,7 @@ jobs:
       # environment variable set at the job level, the same one plain
       # `cargo test` used.
       - name: The whole test suite, on ARM
-        run: cargo nextest run --profile ci --workspace --all-features --target aarch64-unknown-linux-gnu
+        run: cargo nextest run --profile ci-emulated --workspace --all-features --target aarch64-unknown-linux-gnu
       # The doctests, which nextest does not run, and which `cargo test` does
       # not cross-run under a target runner either -- so they stay on the
       # native job above and are named here so their absence is a decision

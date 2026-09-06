@@ -310,8 +310,10 @@ enum PeerAction {
 /// The exact text is std's, and this one was copied from a real run on the
 /// Raspberry Pi: `itsanas status | head -20` printed twenty lines and then
 ///
-///     thread 'main' panicked at library/std/src/io/stdio.rs:1166:9:
-///     failed printing to stdout: Broken pipe (os error 32)
+/// ```text
+/// thread 'main' panicked at library/std/src/io/stdio.rs:1166:9:
+/// failed printing to stdout: Broken pipe (os error 32)
+/// ```
 ///
 /// The tail of that message is the platform's, so the prefix is what is
 /// matched. Widening it is the dangerous direction: a hook that swallows the

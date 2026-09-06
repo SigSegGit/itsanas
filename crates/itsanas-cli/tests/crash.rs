@@ -119,6 +119,71 @@ fn corpus(bytes: usize, salt: u8) -> Vec<u8> {
     out
 }
 
+/// How slow one whole write has to be before a kill can land inside it.
+///
+/// Below this the kill fractions all land after the write has finished and the
+/// test proves nothing, which is what the assertion at the end of `calibrate`
+/// refuses to let happen.
+const FLOOR: Duration = Duration::from_millis(400);
+
+/// The largest payload worth trying before giving up and saying so.
+const CAP: usize = 48_000_000;
+
+/// Find a payload big enough that one write takes long enough to interrupt,
+/// and time it.
+///
+/// The size used to be the constant 3 MB, picked against a debug build. Then
+/// this test was moved to a release build to fit a one-minute budget, a whole
+/// write on a CI runner finished in under 200 ms, and the guard below --
+/// which exists precisely to stop this test going vacuous -- refused to
+/// continue. It was right to. The number was never about bytes: it is about a
+/// write being slow enough that a kill can land inside it, and that depends on
+/// the machine and the optimisation level, neither of which a constant knows
+/// about.
+///
+/// Each attempt uses a different salt. With the same salt a larger corpus
+/// shares its opening chunks with the previous one, they deduplicate, and the
+/// write gets *faster* as the file grows -- which would drive this loop to the
+/// cap on a machine that never needed to get there.
+fn calibrate(home: &Path, scratch: &Path) -> (usize, Duration) {
+    let timing_source = scratch.join("timing.bin");
+    let mut payload = 3_000_000usize;
+    let mut salt = 90u8;
+
+    let whole_write = loop {
+        std::fs::write(&timing_source, corpus(payload, salt)).expect("write timing source");
+        let started = Instant::now();
+        assert!(
+            itsanas(home)
+                .args(["put", &format!("timing/reference-{payload}.bin")])
+                .arg(&timing_source)
+                .status()
+                .expect("run put")
+                .success()
+        );
+        let elapsed = started.elapsed();
+        if elapsed >= FLOOR || payload >= CAP {
+            break elapsed;
+        }
+        payload *= 2;
+        salt = salt.wrapping_add(1);
+    };
+
+    assert!(
+        whole_write >= FLOOR,
+        concat!(
+            "even at {} bytes a whole write takes {:?}, under the {:?} this test ",
+            "needs in order to place a kill inside one. The kill fractions would ",
+            "all land after the write had finished, and this would prove nothing."
+        ),
+        payload,
+        whole_write,
+        FLOOR
+    );
+
+    (payload, whole_write)
+}
+
 /// Start one write, kill it partway through, and check what survived.
 ///
 /// Returns whether chunks reached the disk before the kill — the difference
@@ -129,13 +194,14 @@ fn kill_one_write(
     blobs: &Path,
     round: usize,
     delay: Duration,
+    payload: usize,
 ) -> bool {
     let before = count_blobs(blobs);
 
     let source = scratch.join(format!("victim-{round}.bin"));
     std::fs::write(
         &source,
-        corpus(3_000_000, u8::try_from(round + 1).unwrap_or(255)),
+        corpus(payload, u8::try_from(round + 1).unwrap_or(255)),
     )
     .expect("write source");
 
@@ -232,25 +298,7 @@ fn a_store_killed_mid_write_never_lists_a_file_it_cannot_read() {
             .success()
     );
 
-    // Time one complete write, so the kills can be placed inside it rather
-    // than inside the key derivation that precedes it.
-    let timing_source = dir.path().join("timing.bin");
-    std::fs::write(&timing_source, corpus(3_000_000, 99)).expect("write timing source");
-    let started = Instant::now();
-    assert!(
-        itsanas(&home)
-            .args(["put", "timing/reference.bin"])
-            .arg(&timing_source)
-            .status()
-            .expect("run put")
-            .success()
-    );
-    let whole_write = started.elapsed();
-    assert!(
-        whole_write > Duration::from_millis(200),
-        "a write completed in {whole_write:?}, which is too fast to interrupt \
-         meaningfully — the kill fractions would all land after it finished"
-    );
+    let (payload, whole_write) = calibrate(&home, dir.path());
 
     let blobs = home.join("store").join("blobs");
     let mut saw_partial_work = false;
@@ -262,6 +310,7 @@ fn a_store_killed_mid_write_never_lists_a_file_it_cannot_read() {
             &blobs,
             round,
             whole_write.mul_f64(*fraction),
+            payload,
         ) {
             saw_partial_work = true;
         }

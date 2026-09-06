@@ -65,6 +65,29 @@ retries = 0
 # failures were the same cause or four more.
 fail-fast = false
 
+# Emulation, and the one place the sixty seconds is measuring the wrong thing.
+#
+# The ARM job cross-builds for aarch64 and runs the suite under
+# `qemu-user-static` on an x86 runner. On 2026-09-06, with the sixty-second
+# budget, that job reported **eight tests timed out** and 724 seconds for the
+# whole suite. The same suite on a real Raspberry Pi 4 -- slower silicon than
+# the runner, on an SSD -- finishes with no test anywhere near a minute.
+#
+# So the limit there is not measuring this project. It is measuring an
+# instruction-set emulator, and lowering the code's cost would not move it.
+# Five minutes, which is comfortably above the slowest thing observed under
+# emulation and still small enough to catch a genuine hang.
+#
+# `scripts/check-test-budget.py` knows about this profile by name and prints
+# the reason, so that the exemption is visible from the gate rather than only
+# from this file.
+[profile.ci-emulated]
+slow-timeout = { period = "60s", terminate-after = 5 }
+retries = 0
+fail-fast = false
+failure-output = "immediate-final"
+status-level = "fail"
+
 # For finding out what is slow, rather than guessing: everything over a second
 # is reported, and nothing is terminated — a measurement that kills its subject
 # measures something else.
