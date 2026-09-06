@@ -29,7 +29,6 @@ use std::path::{Path, PathBuf};
 /// reads it says how old it is.
 pub const SNAPSHOT: &str = "status.snapshot";
 
-
 use itsanas_crypto::{
     DeviceKeys, KdfParams, Keystore, MasterSecret, SecretBytes, UserKeys,
     is_published_test_identity,

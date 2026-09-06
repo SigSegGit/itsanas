@@ -413,8 +413,37 @@ exec /usr/bin/uname "$@"
 FAKEUNAME
 chmod +x "$fake/uname"
 
+# Does the harness work at all here? The probe below shadows `uname` on PATH and
+# reads what the installer says about it, which needs a shell that resolves
+# commands through PATH the way a POSIX shell does. Under Git Bash on Windows it
+# does not, and the result was seven confident FAILs saying `install/linux.sh`
+# refuses nothing -- an accusation against the installer for something the test
+# harness could not do.
+#
+# The first attempt at this control asked the fake `uname` to identify itself,
+# and it did -- the harness was fine. The installer was refusing earlier, on
+# `uname -s`: "unsupported system: MINGW64_NT-10.0-26200", before it ever
+# reached the architecture. A control has to test the thing that can be wrong,
+# and the thing that was wrong was not PATH.
+#
+# So: run the installer with the fake reporting a *supported* architecture. If
+# it still refuses the system, the probes below cannot reach the code they test,
+# and "not checked here" is the only honest report. A check whose apparatus
+# cannot run reports zero findings, and zero findings from a broken apparatus
+# reads exactly like a clean bill of health.
+control=$(FAKE_ARCH="x86_64" PATH="$fake:$PATH" sh install/linux.sh --no-build 2>&1)
+case "$control" in
+    *"unsupported system"*)
+        say "install/linux.sh refuses this operating system before it looks at the"
+        say "  architecture, so the 32-bit probes cannot reach the code they test."
+        say "  Not run here; CI runs them on Linux."
+        rm -rf "$fake"
+        fake=""
+        ;;
+esac
+
 refused=0
-for arch in armv6l armv7l armv8l armhf arm i386 i686; do
+for arch in ${fake:+armv6l armv7l armv8l armhf arm i386 i686}; do
     output=$(FAKE_ARCH="$arch" PATH="$fake:$PATH" sh install/linux.sh --no-build 2>&1)
     if printf '%s' "$output" | grep -q "is not supported"; then
         refused=$((refused + 1))
@@ -424,7 +453,9 @@ for arch in armv6l armv7l armv8l armhf arm i386 i686; do
         say "  an exotic one, and the build fails an hour later without this."
     fi
 done
-[ "$refused" -eq 7 ] && say "install/linux.sh refuses all 7 spellings of a 32-bit userland"
+if [ -n "$fake" ] && [ "$refused" -eq 7 ]; then
+    say "install/linux.sh refuses all 7 spellings of a 32-bit userland"
+fi
 
 for arch in aarch64 arm64 x86_64; do
     # It may still stop later for want of a compiler on this machine, so look
@@ -435,7 +466,7 @@ for arch in aarch64 arm64 x86_64; do
     fi
 done
 say "install/linux.sh accepts aarch64, arm64 and x86_64"
-rm -rf "$fake"
+[ -n "$fake" ] && rm -rf "$fake"
 
 if [ "$failed" -ne 0 ]; then
     echo

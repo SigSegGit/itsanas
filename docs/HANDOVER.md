@@ -70,6 +70,7 @@ cargo test --doc --workspace --all-features                 # nextest skips doct
 cargo nextest run --release --workspace --all-features --run-ignored ignored-only
 cargo +1.88.0 check --workspace --all-features          # MSRV
 cargo deny --all-features check
+bash scripts/check-rust.sh                              # fmt, clippy and rustdoc
 python scripts/check-test-budget.py                     # the timeout is still enforced
 bash scripts/check-catalogue.sh                         # docs/TESTING.md names real tests
 ```

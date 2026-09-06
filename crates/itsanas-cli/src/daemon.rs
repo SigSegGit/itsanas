@@ -475,8 +475,7 @@ fn write_snapshot(node: &Node) {
     // written, and formatting a date needs a calendar this project does not
     // carry a dependency for -- while "four minutes ago" is both what somebody
     // wants to know and arithmetic.
-    let stamped = format!("snapshot {}
-{text}", itsanas_discover::now_unix());
+    let stamped = format!("snapshot {}\n{text}", itsanas_discover::now_unix());
 
     let final_path = node.home.join(crate::node::SNAPSHOT);
     let pending = node.home.join(format!("{}.new", crate::node::SNAPSHOT));

@@ -89,6 +89,12 @@ jobs:
       # file nothing uses reads like a guarantee and is not one.
       - name: Every test has a deadline, and every runner enforces it
         run: python scripts/check-test-budget.py
+      # fmt, clippy and the documentation build have their own steps in this
+      # file already; this one exists so that `scripts/check-all.sh` covers them
+      # for a person about to push. It skips where there is no cargo, and CI
+      # always has one, so here it is a second opinion rather than a duplicate.
+      - name: The cargo gates, through the script contributors run
+        run: bash scripts/check-rust.sh
       # An installer is the one program here that runs on a machine nobody has
       # configured, in a shell nobody chose, in front of somebody who has read
       # nothing — and it is the least exercised code in the project. A syntax

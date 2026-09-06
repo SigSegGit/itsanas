@@ -56,6 +56,12 @@ cargo +1.88.0 check --workspace --all-features
 cargo deny --all-features check
 ```
 
+Or, in one command, every gate above that needs no network:
+
+```bash
+bash scripts/check-all.sh
+```
+
 ## Four house rules
 
 **1. New behaviour comes with a test that would fail without it.** A test
