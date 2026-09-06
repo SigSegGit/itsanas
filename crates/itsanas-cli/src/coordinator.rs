@@ -281,6 +281,64 @@ pub fn devices(node: &Node, user: UserId) -> Result<Vec<(DeviceId, String)>> {
     }
 }
 
+/// Find another member's machines by their name.
+///
+/// Two requests the coordinator has always answered and nothing ever sent.
+/// `Lookup` turns a username into an account, `Peers` turns an account into the
+/// addresses its devices published -- and between them they are the difference
+/// between "I need my friend's IP address and port" and "I need my friend's
+/// name".
+///
+/// Until this existed, hosting for somebody on another network meant one of
+/// them reading an address to the other and both typing `itsanas peer add`. On
+/// the same network the discovery beacons do it already; across networks there
+/// was nothing, which is what made the fleet a set of arranged pairs rather
+/// than a network.
+///
+/// What this does *not* do is decide who to host with. It answers a question
+/// somebody asked by name. Choosing partners automatically is a policy this
+/// project has not settled, and guessing at it here would settle it by
+/// accident.
+///
+/// # Errors
+///
+/// If the coordinator cannot be reached, does not know the name, or answers
+/// with something else.
+pub fn find_member(node: &Node, username: &str) -> Result<(UserId, Vec<(DeviceId, String)>)> {
+    let mut client = dial(node)?;
+
+    let account = match client.ask(&Request::Lookup {
+        username: username.to_owned(),
+    })? {
+        Response::Account(account) => *account,
+        Response::Missing => {
+            return Err(CliError::Usage(format!(
+                "the coordinator has no member called {username:?}"
+            )));
+        }
+        Response::Refused(why) => return Err(CliError::Usage(why)),
+        other => return Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+    };
+
+    let user = account.user.id;
+    if user == node.store.owner() {
+        return Err(CliError::Usage(format!(
+            "{username:?} is this account. Its own devices are found already."
+        )));
+    }
+
+    match client.ask(&Request::Peers { user })? {
+        Response::Peers(list) => Ok((
+            user,
+            list.into_iter()
+                .map(|presence| (presence.device, presence.address))
+                .collect(),
+        )),
+        Response::Refused(why) => Err(CliError::Usage(why)),
+        other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+    }
+}
+
 /// Withdraw a device from this account.
 ///
 /// A `NodeClaim` carries a `revoked` flag and the directory has honoured it

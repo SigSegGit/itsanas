@@ -243,6 +243,15 @@ itsanas folder ~/Sync                 # the directory kept in step
 itsanas listen 0.0.0.0:9797           # only if 9797 is taken here
 ```
 
+To host with somebody on another network, you need their name and nothing else:
+
+```sh
+itsanas peer find mandarine
+```
+
+The coordinator turns the name into their machines' addresses. On one network
+the discovery beacons do this without being asked.
+
 `itsanas device list` shows every machine the coordinator has for your account,
 and `itsanas device forget <id>` withdraws one that is gone for good. Without
 it a laptop that was reinstalled or sold stays in the directory and every other

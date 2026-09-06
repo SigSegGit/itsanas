@@ -72,18 +72,27 @@ What is missing before this is a *network* rather than a personal sync tool:
   afterwards. Detection, sanction and repair, on hardware rather than in a test
   binary.
 
-  Found while doing it: **the coordinator only finds your own devices.**
-  `daemon.rs:495` looks peers up as `coordinator::peers(node, node.store.owner())`,
-  so a member cannot discover *other members* to host with — Alice had to be told
-  `itsanas peer add` before she could reach Bob at all. That is the same gap as
-  "repair chooses no peers" below, seen from the other end, and it is the thing
-  standing between this and a network rather than a set of arranged pairs.
+  Found while doing it: **the coordinator only found your own devices.**
+  `daemon.rs` looks peers up as `coordinator::peers(node, node.store.owner())`,
+  so a member could not discover *other members* to host with -- Alice had to be
+  told `itsanas peer add` before she could reach Bob at all. Confirmed again on
+  2026-09-06 between `nicolas` on the Pi and `voisin` on the VM: both registered
+  with the same coordinator, and neither saw the other until an address was
+  typed on each.
 
-  Confirmed again on 2026-09-01, on two Linux machines this time: `nicolas`
-  on the Raspberry Pi and `voisin` on the Freebox VM were both registered
-  with the same coordinator, and neither saw the other until `itsanas peer
-  add` was typed on each. Registration is not membership of anything a node
-  can act on; it is an entry in a directory nobody reads for this purpose.
+  **Half of this is fixed.** `itsanas peer find <username>` looks a member up by
+  name and remembers where their machines are. It uses two requests the
+  coordinator had always answered and nothing had ever sent -- `Lookup` turns a
+  name into an account, `Peers` turns an account into published addresses -- and
+  between them they are the difference between "I need my friend's IP address
+  and port" and "I need my friend's name". Verified by removing the manually
+  configured address for `mandarine` and recovering it from the username alone.
+
+  **What is still missing is the automatic half**, and deliberately so: nothing
+  decides *who* to host with. `peer find` answers a question somebody asked by
+  name. Choosing partners on its own is a policy this project has not settled --
+  everyone on the coordinator? a quota? reciprocity? -- and guessing at it in
+  the discovery code would settle it by accident.
 
   A host that fails three rounds in a row stops being sent new content, keeps
   receiving the log so it can still relay, and is handed one chunk a round —

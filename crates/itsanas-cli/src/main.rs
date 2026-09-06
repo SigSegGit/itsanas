@@ -327,6 +327,15 @@ enum PeerAction {
     List,
     /// Forget a peer address.
     Remove { address: String },
+    /// Find another member by name and remember where their machines are.
+    ///
+    /// On one network the discovery beacons do this already. This is for the
+    /// other case: a member somewhere else, whose address you would otherwise
+    /// have to be told and type in by hand.
+    Find {
+        /// Their username, as registered with the coordinator.
+        username: String,
+    },
 }
 
 /// Whether a panic message is the one std emits when its output has gone away.
@@ -1411,6 +1420,32 @@ fn peer(home: &Path, action: PeerAction) -> Result<()> {
             node.config.peers.push(address.clone());
             node.save_config()?;
             println!("added {address}");
+        }
+        PeerAction::Find { username } => {
+            let (user, found) = coordinator::find_member(&node, &username)?;
+            println!("{username} is {user}");
+
+            if found.is_empty() {
+                println!("  ...and has published no address. They have registered but");
+                println!("  no machine of theirs has announced itself yet.");
+                return Ok(());
+            }
+
+            let mut added = 0;
+            for (device, address) in found {
+                if node.config.peers.contains(&address) {
+                    println!("  {device}  {address}  (already configured)");
+                } else {
+                    node.config.peers.push(address.clone());
+                    added += 1;
+                    println!("  {device}  {address}");
+                }
+            }
+
+            if added > 0 {
+                node.save_config()?;
+                println!("added {added} address(es)");
+            }
         }
         PeerAction::Remove { address } => {
             let before = node.config.peers.len();
