@@ -357,8 +357,19 @@ if (-not $NoService) {
     # trade is that it starts at logon rather than at boot, which is stated
     # rather than hidden.
     $taskName = 'ITSaNAS'
-    $existing = schtasks /Query /TN $taskName 2>$null
-    if ($LASTEXITCODE -eq 0) {
+
+    # $ErrorActionPreference is 'Stop' for this whole script, and under it a
+    # native command writing to stderr is a terminating error. `schtasks /Query`
+    # writes to stderr when the task is absent -- which is the case on every
+    # machine this has never been installed on. So the installer died here, with
+    # a PowerShell NativeCommandError about schtasks, on exactly the run it is
+    # for: the first one. `2>$null` does not help; the redirection happens after
+    # PowerShell has already decided the stderr output is an error.
+    #
+    # Asking the task scheduler through its COM-backed cmdlet avoids the
+    # question entirely: absent means $null, not an error.
+    $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($null -ne $existing) {
         Write-Ok "the '$taskName' task already exists; left alone"
         Write-Info "Delete it with:  schtasks /Delete /TN $taskName /F"
     } else {

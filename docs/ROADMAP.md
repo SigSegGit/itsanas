@@ -89,6 +89,39 @@ What is missing before this is a *network* rather than a personal sync tool:
   receiving the log so it can still relay, and is handed one chunk a round —
   chosen by the owner, and the only thing it is then audited on. Each answered
   round pays off one failure, so coming back costs as long as falling did.
+- **A device that is gone stays in the directory for ever.** Found on
+  2026-09-06 while setting up `sigseg42`: an account was created, registered,
+  and then its keystore deleted and the account restored from its 24 words on
+  the same machine. `login` correctly issues a *new* device id, and `register`
+  correctly enrols it — but the old one is still listed, so every round the
+  node dials an address where its own dead device used to be and gets:
+
+  ```
+  192.168.1.142:9797: unreachable
+    (tls: expected to reach device 393f7d4acf72 but d5af6664ae53 answered)
+  ```
+
+  The pinning is doing its job: the wrong device answered and was refused
+  rather than trusted. What is missing is any way to say "that device is
+  gone" — there is no `itsanas device forget`, the coordinator has no
+  retirement path, and nothing ages an entry out. A laptop that is lost,
+  reinstalled, or sold therefore leaves a permanent entry that every one of
+  its owner's other machines will keep dialling, and every failure it causes
+  is indistinguishable from a machine that is merely switched off.
+
+  It is worse than noise for the audit: a host that has genuinely gone away and
+  a device that never existed after the restore both look like an unreachable
+  peer, and the probation ladder counts them the same way.
+
+- **A username belongs to a key, and losing the key loses the name.** Same
+  session, same cause: re-registering `sigseg42` from a fresh keystore is
+  refused with `the username "sigseg42" is already registered to a different
+  key`. That is the correct defence — otherwise anyone could take a name by
+  claiming it louder — and it is also, today, unrecoverable without the 24
+  words. The recovery path exists (`login --phrase-file`, and `login --from`
+  through the escrow) and worked here; what does not exist is any way for the
+  legitimate owner to give up a name they can no longer prove.
+
 - **Tombstones are never pruned.** One small record per file ever deleted,
   kept for the life of the account. `Index::forget_tombstone` exists and cannot
   be called safely: dropping a tombstone before every device has seen the delete
