@@ -1223,7 +1223,19 @@ fn list(home: &Path) -> Result<()> {
 
     if absent > 0 {
         println!();
-        println!("{absent} file(s) are known but not downloaded. `itsanas sync` fetches them.");
+        // What is actually true, which is not the same as what this used to
+        // say. `itsanas sync` fetches them *if there is room*: on a device with
+        // a `keep` limit already reached, sync brings nothing more down, and
+        // telling somebody to run it would send them round a loop that changes
+        // nothing. Opening one file always works, because an explicit request
+        // beats a background budget.
+        println!("{absent} file(s) are known and not on this device.");
+        println!("  `itsanas get <path>` fetches one, whatever the limit.");
+        if node.config.keep_bytes.is_some() {
+            println!("  `itsanas sync` fetches more only while this device is under its limit.");
+        } else {
+            println!("  `itsanas sync` fetches them.");
+        }
     }
 
     Ok(())
