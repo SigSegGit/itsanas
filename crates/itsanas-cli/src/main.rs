@@ -1659,7 +1659,17 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
                 }
             };
 
-        match session::round_scoped(&node.store, &node.vault, &mut client, scope) {
+        // The same budget the daemon honours. It used to be the daemon's
+        // alone, so `itsanas sync` downloaded the whole account on a device
+        // that had asked to hold two hundred kilobytes of it -- the mechanism
+        // existed and the path a person actually takes did not use it. Found by
+        // running it on a real machine, not by reading it.
+        let budget = node.config.keep_bytes.map(|keep| {
+            let held = node.store.stats().map_or(0, |stats| stats.bytes_on_disk);
+            keep.saturating_sub(held)
+        });
+
+        match session::round_within(&node.store, &node.vault, &mut client, scope, budget) {
             Ok(report) => {
                 any_succeeded = true;
                 println!(
