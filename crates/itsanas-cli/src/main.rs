@@ -33,6 +33,15 @@ use itsanas_crypto::DeviceId;
 use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
 use itsanas_store::REPLICATION_TARGET;
 
+/// How many complete copies elsewhere this system exists to keep.
+///
+/// Two, because one is a copy and two is a system: with one, the machine
+/// holding it going away takes the last copy with it, and nobody finds out
+/// until they need it. `REPLICATION_TARGET` is three and counts this machine,
+/// which is the same promise with the headroom that variable availability
+/// needs -- a copy on a laptop that is shut is a copy you cannot reach today.
+const SAFE_COPIES: usize = 2;
+
 use crate::{
     config::{format_size, parse_size},
     error::{CliError, Result},
@@ -640,6 +649,71 @@ fn report_unreliable_peers(node: &Node) -> Result<()> {
     Ok(())
 }
 
+/// The part of `status` that answers the question this project exists for.
+///
+/// Separated because it is the headline and deserves to be readable on its own,
+/// and because `render_status` went over its line budget the moment it grew.
+fn coverage_report(node: &Node) -> Result<String> {
+    let mut out = String::new();
+    macro_rules! w {
+        () => {{ let _ = writeln!(out); }};
+        ($($arg:tt)*) => {{ let _ = writeln!(out, $($arg)*); }};
+    }
+
+    w!("could you get it all back without this machine?");
+
+    // The headline is a minimum, not an average, and it does not count this
+    // machine. A file comes back only if every one of its chunks does, so an
+    // account with almost everything on three machines and one chunk on none
+    // has no complete copy at all -- and an average would report that as
+    // "nearly three" and read as comfortable.
+    let coverage = node.store.coverage()?;
+    if coverage.live_chunks == 0 {
+        w!("  nothing stored yet");
+    } else {
+        match coverage.complete_elsewhere {
+            0 => w!(
+                concat!(
+                    "  NO             not one complete copy exists anywhere ",
+                    "else; {} of {} chunks are only here"
+                ),
+                coverage.only_here,
+                coverage.live_chunks
+            ),
+            1 => w!("  one copy       one other machine could rebuild all of it"),
+            copies => {
+                w!("  {copies} copies      any {copies} other machines could rebuild all of it");
+            }
+        }
+
+        if !coverage.meets(SAFE_COPIES) {
+            w!(
+                concat!(
+                    "  the promise    {} complete copies is what this is for; ",
+                    "you have {}"
+                ),
+                SAFE_COPIES,
+                coverage.complete_elsewhere
+            );
+            w!("                 run `itsanas sync`, or add a peer, to spread it");
+        }
+
+        let short = node.store.under_replicated(REPLICATION_TARGET)?;
+        if !short.is_empty() {
+            w!(
+                concat!(
+                    "  headroom       {} chunks are on fewer than {} machines, ",
+                    "counting this one"
+                ),
+                short.len(),
+                REPLICATION_TARGET
+            );
+        }
+    }
+
+    Ok(out)
+}
+
 /// The text `itsanas status` prints, built rather than printed.
 ///
 /// Separated from the command so the daemon can write the same text to a
@@ -692,31 +766,7 @@ fn render_status(node: &Node) -> Result<String> {
     // to leave unanswered: does this data exist anywhere other than this disk?
     // A count of files says nothing about that.
     w!();
-    w!("is it anywhere else?");
-    let alone = node.store.under_replicated(2)?;
-    let short = node.store.under_replicated(REPLICATION_TARGET)?;
-    if store.live_chunks == 0 {
-        w!("  nothing stored yet");
-    } else if alone.is_empty() && short.is_empty() {
-        w!("  yes            every chunk is on at least {REPLICATION_TARGET} machines");
-    } else {
-        if alone.is_empty() {
-            w!("  partly         every chunk is on at least one other machine");
-        } else {
-            w!(
-                "  NO             {} of {} chunks exist only on this machine",
-                alone.len(),
-                store.live_chunks
-            );
-        }
-        if !short.is_empty() {
-            w!(
-                "  below target   {} chunks are on fewer than {REPLICATION_TARGET} machines",
-                short.len()
-            );
-        }
-        w!("                 run `itsanas sync`, or add a peer, to spread it");
-    }
+    let _ = write!(out, "{}", coverage_report(node)?);
     w!("  placements     {} recorded", store.holder_records);
 
     report_unreliable_peers(node)?;

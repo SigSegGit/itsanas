@@ -219,6 +219,50 @@ pub struct Holder {
     pub confirmed_unix: u64,
 }
 
+/// Whether this account's data could be put back together without this machine.
+///
+/// # Why a minimum and not an average
+///
+/// The promise a storage system makes is not "most of your data is safe". A
+/// file is reconstituted from every one of its chunks, so a set of copies is
+/// complete only if *each* chunk is in it. Ninety-nine per cent of chunks on
+/// three machines and one per cent on none is not 2.97 copies. It is **zero**
+/// copies: nothing can be rebuilt.
+///
+/// So [`Coverage::complete_elsewhere`] is the minimum holder count across every
+/// live chunk, and it is the number to put in front of somebody. An average
+/// hides exactly the failure that matters, and it hides it in the direction of
+/// reassurance.
+///
+/// # Why "elsewhere"
+///
+/// The copy on this disk is not a copy for this purpose. The question this
+/// answers is what survives the loss of this machine, and counting the machine
+/// you are asking about is how a backup report comes to say two when the answer
+/// is one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Coverage {
+    /// Complete copies that could be reassembled with this machine gone.
+    ///
+    /// Zero means the network holds no complete copy, however many chunks are
+    /// well replicated.
+    pub complete_elsewhere: usize,
+    /// How many live chunks were counted. Zero data is not zero copies; it is
+    /// no question.
+    pub live_chunks: usize,
+    /// Chunks no other machine holds at all — the ones that make the number
+    /// above what it is.
+    pub only_here: usize,
+}
+
+impl Coverage {
+    /// Whether the account is at or above a target number of complete copies.
+    #[must_use]
+    pub const fn meets(&self, target: usize) -> bool {
+        self.live_chunks == 0 || self.complete_elsewhere >= target
+    }
+}
+
 /// A chunk that fewer devices hold than it should.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AtRisk {

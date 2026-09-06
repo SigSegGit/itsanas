@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**651 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
+**654 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -87,6 +87,38 @@ What is missing before this is a *network* rather than a personal sync tool:
   between them they are the difference between "I need my friend's IP address
   and port" and "I need my friend's name". Verified by removing the manually
   configured address for `mandarine` and recovering it from the username alone.
+
+  **The guarantee is now measured, and measured honestly.** The question this
+  project exists to answer is "could I get all of it back without this
+  machine", and until 2026-09-06 nothing computed it. `status` reported chunks
+  below a target, which buries the only number that matters.
+
+  `Store::coverage` returns the **minimum** holder count across every live
+  chunk, not counting this machine. A file is reconstituted from every one of
+  its chunks, so a set of copies is complete only if each chunk is in it:
+  ninety-nine per cent of chunks on three machines and one per cent on none is
+  not 2.97 copies, it is **zero**. An average hides exactly the failure that
+  matters and hides it in the direction of reassurance.
+
+  `status` now leads with it:
+
+  ```text
+  could you get it all back without this machine?
+    3 copies      any 3 other machines could rebuild all of it
+  ```
+
+  What this does **not** yet do, and it is the next thing:
+
+  - **The ledger is optimistic.** A holder that vanished months ago still
+    counts until an audit reaches it. So the number is an upper bound, and a
+    node that has been away is indistinguishable from one that is gone.
+  - **Nothing acts on it.** Falling below two complete copies is reported, not
+    repaired: repair still chooses no peers, and nothing seeks new hosts when
+    an old one leaves. That is the difference between a system that measures
+    the promise and one that keeps it.
+  - **Availability is not weighted.** Two copies on machines that are online a
+    third of the time is not two copies you can reach today, which is why the
+    replication target is three and not two.
 
   **And hosting is now mutual over one outbound connection**, which is the
   thing that actually decides whether somebody outside a network can take part.

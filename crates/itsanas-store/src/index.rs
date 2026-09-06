@@ -20,7 +20,7 @@ use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 use crate::{
     error::{Result, StoreError},
     holders::AuditCursor,
-    holders::{self, AtRisk, Holder},
+    holders::{self, AtRisk, Coverage, Holder},
     local::LocalState,
     oplog::{FileEntry, LogEntry, SegmentEnvelope, Tombstone},
     reliability::Reliability,
@@ -1183,6 +1183,51 @@ impl Index {
     /// Ordered by how close each chunk is to being lost rather than by chunk
     /// id, so a repair pass that is interrupted — a laptop closing, a Pi
     /// rebooting — has spent its time on the chunks with the least margin.
+    /// How many complete copies of this node's data exist on other machines.
+    ///
+    /// The minimum holder count over every live chunk, not counting this
+    /// machine. See [`Coverage`] for why a minimum rather than an average, and
+    /// why this machine does not count.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn coverage(&self) -> Result<Coverage> {
+        let txn = self.db.begin_read()?;
+        let refs = txn.open_table(CHUNK_REFS)?;
+        let holders_table = txn.open_table(HOLDERS)?;
+
+        let mut live_chunks = 0usize;
+        let mut only_here = 0usize;
+        let mut fewest: Option<usize> = None;
+
+        for row in refs.iter()? {
+            let (key, value) = row?;
+            if value.value() == 0 {
+                continue;
+            }
+            live_chunks += 1;
+
+            let chunk = ChunkId::from_slice(key.value())?;
+            let elsewhere = holders_table
+                .range(
+                    holders::range_start(&chunk).as_slice()..=holders::range_end(&chunk).as_slice(),
+                )?
+                .count();
+
+            if elsewhere == 0 {
+                only_here += 1;
+            }
+            fewest = Some(fewest.map_or(elsewhere, |least: usize| least.min(elsewhere)));
+        }
+
+        Ok(Coverage {
+            complete_elsewhere: fewest.unwrap_or(0),
+            live_chunks,
+            only_here,
+        })
+    }
+
     /// Ordering by id would make the work random with respect to risk.
     pub fn under_replicated(&self, target: usize) -> Result<Vec<AtRisk>> {
         let txn = self.db.begin_read()?;
@@ -2158,6 +2203,84 @@ mod tests {
             index.under_replicated(3).unwrap().is_empty(),
             "two remote holders plus this device meets a target of three"
         );
+    }
+
+    #[test]
+    fn one_chunk_nobody_holds_makes_the_whole_account_unrecoverable() {
+        // The reason this is a minimum and not an average, in one test.
+        //
+        // A file comes back only if every one of its chunks does. So an account
+        // whose chunks are almost all on three other machines, with one on
+        // none, has ZERO complete copies elsewhere -- not "nearly three". An
+        // average would report 2.0 here and read as comfortable.
+        let (_dir, index) = index();
+        index.put_file("a", &entry(&[1, 2, 3])).unwrap();
+
+        for id in [1u8, 2] {
+            index.record_holder(&chunk(id), &device(7), 1).unwrap();
+            index.record_holder(&chunk(id), &device(8), 1).unwrap();
+            index.record_holder(&chunk(id), &device(9), 1).unwrap();
+        }
+        // Chunk 3 is held by nobody.
+
+        let coverage = index.coverage().unwrap();
+        assert_eq!(
+            coverage.complete_elsewhere, 0,
+            concat!(
+                "eight of nine holder records exist, and not one complete copy: ",
+                "the account cannot be rebuilt without this machine"
+            )
+        );
+        assert_eq!(coverage.only_here, 1);
+        assert_eq!(coverage.live_chunks, 3);
+        assert!(!coverage.meets(2));
+
+        // And the moment that last chunk is placed once, one copy exists.
+        index.record_holder(&chunk(3), &device(7), 1).unwrap();
+        let coverage = index.coverage().unwrap();
+        assert_eq!(coverage.complete_elsewhere, 1);
+        assert_eq!(coverage.only_here, 0);
+        assert!(!coverage.meets(2), "one copy is not two");
+
+        // Two holders for the weakest chunk is two complete copies, whatever
+        // the others have.
+        index.record_holder(&chunk(3), &device(8), 1).unwrap();
+        assert!(index.coverage().unwrap().meets(2));
+    }
+
+    #[test]
+    fn this_machine_is_not_one_of_the_copies() {
+        // The question is what survives losing this machine. Counting it is how
+        // a backup report comes to say two when the answer is one.
+        let (_dir, index) = index();
+        index.put_file("a", &entry(&[1])).unwrap();
+
+        assert_eq!(
+            index.coverage().unwrap().complete_elsewhere,
+            0,
+            concat!(
+                "with no remote holder there is no copy elsewhere, though the ",
+                "data is perfectly safe on this disk right now"
+            )
+        );
+        assert_eq!(
+            index.under_replicated(3).unwrap()[0].held_by,
+            1,
+            concat!(
+                "under_replicated counts this machine, and deliberately: the ",
+                "two measurements answer different questions"
+            )
+        );
+    }
+
+    #[test]
+    fn an_account_with_nothing_stored_is_not_reported_as_unsafe() {
+        // Zero data is no question, not a failure. Reporting "0 copies" for an
+        // empty account would train somebody to ignore the number that matters.
+        let (_dir, index) = index();
+        let coverage = index.coverage().unwrap();
+        assert_eq!(coverage.live_chunks, 0);
+        assert!(coverage.meets(2));
     }
 
     #[test]

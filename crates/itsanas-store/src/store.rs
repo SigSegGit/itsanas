@@ -27,7 +27,7 @@ use crate::{
     blob::BlobStore,
     chunker::ChunkerConfig,
     error::{Result, StoreError},
-    holders::{AtRisk, AuditCursor, Holder},
+    holders::{AtRisk, AuditCursor, Coverage, Holder},
     index::{Index, now_unix},
     local::LocalState,
     oplog::{
@@ -873,6 +873,15 @@ impl Store {
     /// `target` counts this device: a target of three asks for two elsewhere.
     pub fn under_replicated(&self, target: usize) -> Result<Vec<AtRisk>> {
         self.index.under_replicated(target)
+    }
+
+    /// How many complete copies exist on other machines.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn coverage(&self) -> Result<Coverage> {
+        self.index.coverage()
     }
 
     /// Coarse statistics, cheap enough for a status command.

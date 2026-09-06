@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-01 — 651 test functions across 21 binaries, 3 of them
+**Last updated: 2026-09-01 — 654 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 30 are red-team tests.**
 
-**535 of the 651 tests have an entry of their own on this page** — an *entry*,
+**538 of the 654 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -138,7 +138,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 138 |
+| `itsanas-store` unit | 141 |
 | `itsanas-store` integration (`tests/store.rs`) | 30 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
@@ -381,7 +381,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (124, plus the 14 vault tests below)
+# `itsanas-store` — unit tests (127, plus the 14 vault tests below)
 
 ## `reliability` — remembering that a peer failed (6)
 
@@ -426,6 +426,9 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | **`a_probe_is_remembered_until_the_peer_answers_for_it`** | The probe survives a failed round (the peer still owes an answer) and is cleared by a passing one (the sanction is over). A marker left standing after the pause lifts would misdirect the next round's questions. |
 | **`a_ledger_written_before_the_second_ordering_is_rebuilt_on_open`** | Every write path writes both orderings, so they cannot drift while running — but they can *start* apart, on a store written before the device-first table existed. Left alone that is silent and total: challenge selection reads the second table, so no audit would ever ask anything, and a node that has stopped checking its hosts looks exactly like one whose hosts are honest. |
 | **`a_target_counts_this_device_so_three_asks_for_two_elsewhere`** | The counting convention, pinned. Off by one here means the repair loop targets two copies while reporting three, and nothing ever says so — it surfaces as data loss after two machines die instead of after three. |
+| **`one_chunk_nobody_holds_makes_the_whole_account_unrecoverable`** | Why the headline number is a minimum and not an average, in one test. Eight of nine holder records exist and not one complete copy does: a file comes back only if every chunk does, so almost-everywhere is nowhere. An average would report 2.0 here and read as comfortable. |
+| **`this_machine_is_not_one_of_the_copies`** | The question is what survives losing this machine, so this machine does not count. Pins the difference from `under_replicated`, which counts it on purpose — the two answer different questions, and confusing them is how a backup report says two when the answer is one. |
+| `an_account_with_nothing_stored_is_not_reported_as_unsafe` | Zero data is no question, not a failure. Reporting zero copies for an empty account trains somebody to ignore the number that matters. |
 | **`the_chunks_closest_to_being_lost_are_reported_first`** | A repair pass on a laptop is interrupted by the lid closing. Ordered by chunk id, the work done before the interruption would be random with respect to risk, and the chunk with one copy left could wait behind a thousand that had two. |
 | **`recording_the_same_holder_twice_refreshes_rather_than_duplicates`** | A peer syncing hourly acknowledges the same chunks every hour. One row per acknowledgement would grow the ledger without bound and inflate the replica count — wrong in the direction that hides a real shortage. |
 | **`forgetting_a_device_clears_it_from_every_chunk_and_nothing_else`** | A peer that left stops being evidence for every chunk at once, and every other device's records survive. Otherwise losing one peer looks like losing all of them and the node re-uploads its entire store. |
