@@ -89,6 +89,28 @@ What is missing before this is a *network* rather than a personal sync tool:
   receiving the log so it can still relay, and is handed one chunk a round —
   chosen by the owner, and the only thing it is then audited on. Each answered
   round pays off one failure, so coming back costs as long as falling did.
+- **You cannot ask a running node anything.** The store allows one writer, and
+  the daemon is it, so with the service up every command refuses:
+
+  ```
+  itsanas: store: ~/.itsanas/store/index.redb is already open in another process.
+  ```
+
+  `status`, `ls`, `put`, `get`, `pledge`, `folder` -- all of them. On the three
+  machines set up on 2026-09-06 the only way to see what a node holds is to
+  stop it, look, and start it again, and `install/provision.sh` had to grow a
+  stop-and-restart around its own configuration steps for the same reason.
+
+  This is the most visible thing wrong with the product as it stands. Somebody
+  who drops a file in the synced folder gets what they wanted; somebody who
+  then types `itsanas status` gets a sentence about redb. The fix is not more
+  locking: it is for the daemon to answer questions over a local socket, so
+  `status` and `ls` are requests to the process that already holds the store
+  rather than second openings of it. `put` and `get` follow the same way.
+
+  Recorded here rather than in a comment because it is a product decision with
+  a size, not a bug with a patch.
+
 - **Nothing tests the coordinator against a crash.** `announce` was changed on
   2026-09-06 to commit without waiting for the disk, on the reasoning that a
   presence announcement is a heartbeat the next round restores, while the
