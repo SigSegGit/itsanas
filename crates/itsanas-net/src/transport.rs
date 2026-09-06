@@ -143,7 +143,6 @@ impl PeerServer {
             peer,
             mut connection,
         } = itsanas_tls::accept(&self.config, device, stream)?;
-        let _ = peer;
 
         loop {
             let request: Request = match connection.receive()? {
@@ -152,7 +151,11 @@ impl PeerServer {
                 None => return Ok(()),
             };
 
-            let response = service.handle(&request)?;
+            // `peer` is who TLS proved is on the other end, and it used to be
+            // dropped on the line above with `let _ = peer;`. Answering
+            // `Request::Hosted` needs it: recording that somebody holds a chunk
+            // is worthless if you cannot say who.
+            let response = service.handle(&request, peer)?;
             connection.send(&response)?;
         }
     }
@@ -275,6 +278,48 @@ impl PeerClient {
             Response::Chunk(chunk) => Ok(chunk),
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse { expected: "chunk" }),
+        }
+    }
+
+    /// Ask the peer whether it has anything it would like this node to hold.
+    ///
+    /// The question that makes hosting mutual over a single outbound
+    /// connection. Everything else here runs one way -- this node offers its
+    /// work and the peer stores it -- which made hosting something only the
+    /// dialled side could do, and so shut out every member behind a router they
+    /// do not control.
+    ///
+    /// Returns whose data it is along with the list, because the opening
+    /// exchange carries this node's owner to the peer and not the other way
+    /// round.
+    ///
+    /// # Errors
+    ///
+    /// If the peer refuses, or answers something else.
+    pub fn want_hosted(&mut self, limit: u32) -> Result<(UserId, Vec<ChunkId>)> {
+        match self.request(&Request::WantHosted { limit })? {
+            Response::WantHosted { owner, chunks } => Ok((owner, chunks)),
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse {
+                expected: "chunks wanted",
+            }),
+        }
+    }
+
+    /// Tell the peer which of its chunks this node has taken.
+    ///
+    /// So the peer can record who holds them. It is the owner's ledger, and
+    /// this is a claim rather than a proof -- the owner's storage challenges
+    /// are what make it evidence.
+    ///
+    /// # Errors
+    ///
+    /// If the peer refuses, or answers something else.
+    pub fn hosted(&mut self, chunks: Vec<ChunkId>) -> Result<bool> {
+        match self.request(&Request::Hosted { chunks })? {
+            Response::Stored { accepted } => Ok(accepted),
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
         }
     }
 

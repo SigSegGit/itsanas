@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**648 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
+**651 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -88,7 +88,31 @@ What is missing before this is a *network* rather than a personal sync tool:
   and port" and "I need my friend's name". Verified by removing the manually
   configured address for `mandarine` and recovering it from the username alone.
 
-  **What is still missing is the automatic half**, and deliberately so: nothing
+  **And hosting is now mutual over one outbound connection**, which is the
+  thing that actually decides whether somebody outside a network can take part.
+  A round was push and pull, both started by whoever dialled, and in both of
+  them the *dialled* side was the one that ended up holding data. So a member
+  behind a router they do not control could be hosted and could host nobody --
+  which in a system built on members holding each other's data is not an
+  inconvenience, it is being unable to keep half of the bargain.
+
+  Nothing about networks required that. It was a question nobody asked. The
+  peer protocol gains `WantHosted` ("have you anything you would like me to
+  hold?") and `Hosted` ("I have taken these"), and a round gains a third half.
+  **One reachable side per pair is now enough**, and the reachable side can be
+  the one machine somebody has a port forwarded to.
+
+  Bounded on the side that matters: the peer names what it wants and the caller
+  decides what it takes, checking its own pledge rather than trusting the
+  request. The placement is recorded by the owner and then *checked* -- the
+  storage challenges already in place are what turn a host's claim into
+  evidence, exactly as they do for a chunk pushed the other way.
+
+  Protocol version 1 becomes 2. An older peer answers `Refused` to the new
+  question, which the caller treats as "this one cannot host for me" and not as
+  a failed round.
+
+  **What is still missing is the automatic half**, and deliberately so:  **What is still missing is the automatic half**, and deliberately so: nothing
   decides *who* to host with. `peer find` answers a question somebody asked by
   name. Choosing partners on its own is a policy this project has not settled --
   everyone on the coordinator? a quota? reciprocity? -- and guessing at it in

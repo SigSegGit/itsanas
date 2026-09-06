@@ -62,6 +62,19 @@ pub mod store;
 pub mod vault;
 pub mod version;
 
+/// How many machines a chunk should be on before it counts as safe.
+///
+/// Three, because two is one plus a coincidence: a chunk on two machines is one
+/// failure away from a chunk on one, and nobody notices the first failure until
+/// they need the second copy.
+///
+/// It lives here rather than in the command line, which is where it used to be,
+/// because `Index::under_replicated` is what measures against it and a peer
+/// deciding what to ask a neighbour to hold needs the same number. Two copies
+/// of a constant is how two parts of one system come to disagree about what
+/// safe means.
+pub const REPLICATION_TARGET: usize = 3;
+
 pub use blob::BlobStore;
 pub use catalogue::{Known, Presence, absent_count, catalogue};
 pub use chunker::split_stream;

@@ -484,6 +484,40 @@ fn write_snapshot(node: &Node) {
     }
 }
 
+/// The third half of a round: hold some of what this peer needs held.
+///
+/// Without it the *dialled* side does all the hosting, because `push` gives
+/// this node's work away and `pull` only fetches. That shut out every member
+/// behind a router they do not control -- and in a system built on members
+/// holding each other's data, being unable to host is being unable to keep your
+/// half of the bargain, not a missing convenience.
+///
+/// Runs after push and pull: a peer is given what it is owed before being asked
+/// a favour, and a failure here must not cost this node the sync it came for.
+/// Nothing here is fatal, including a peer too old to understand the question,
+/// which answers `Refused`.
+fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
+    let pledge = Pledge::bytes(node.config.pledge_bytes);
+    match session::host_for(&node.vault, client, pledge) {
+        Ok(report) if report.changed_anything() => {
+            println!(
+                "{peer}: now holding {} for them ({} chunks)",
+                format_size(report.bytes_taken),
+                report.taken
+            );
+        }
+        Ok(report) if report.pledge_full && report.wanted > 0 => {
+            println!(
+                "{peer}: wanted {} chunks held; this node is full",
+                report.wanted
+            );
+        }
+        Ok(_) => {}
+        Err(error) => println!("{peer}: could not take on hosting ({error})"),
+    }
+}
+
+/// One pass over every way this node knows of reaching a peer.
 /// One pass over every way this node knows of reaching a peer.
 ///
 /// In order: addresses somebody typed into the configuration; the account's
@@ -826,6 +860,8 @@ fn sync_once(
             false
         }
     };
+
+    take_on_hosting(node, peer, &mut client);
 
     Some(Outcome {
         device: answered,

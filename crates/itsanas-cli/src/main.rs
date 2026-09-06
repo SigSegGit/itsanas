@@ -31,6 +31,7 @@ use std::{
 use clap::{Parser, Subcommand};
 use itsanas_crypto::DeviceId;
 use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
+use itsanas_store::REPLICATION_TARGET;
 
 use crate::{
     config::{format_size, parse_size},
@@ -48,10 +49,6 @@ const PASSPHRASE_ENV: &str = "ITSANAS_PASSPHRASE";
 
 /// How many machines should hold each chunk, this one included.
 ///
-/// Three is the smallest number where losing one machine is not an emergency
-/// and two have to fail at once to lose anything. The reasoning, and why the
-/// contribution ratio is the same number, is in `docs/ECONOMICS.md` §1.
-const REPLICATION_TARGET: usize = 3;
 
 #[derive(Parser)]
 #[command(

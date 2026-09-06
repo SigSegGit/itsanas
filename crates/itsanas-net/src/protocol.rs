@@ -32,7 +32,14 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
+
+/// The version before `WantHosted` and `Hosted` existed.
+///
+/// Kept named rather than as a literal because the difference between 1 and 2
+/// is exactly "can this peer be asked to host for the side that dialled it",
+/// and that is worth being able to find.
+pub const PROTOCOL_WITHOUT_RECIPROCAL_HOSTING: u16 = 1;
 
 /// Domain string for storage-challenge proofs.
 const CHALLENGE_DOMAIN: &str = "itsanas v1 storage challenge";
@@ -86,6 +93,33 @@ pub enum Request {
         address: ChunkId,
         nonce: [u8; 32],
     },
+
+    /// "Have you anything you would like me to hold for you?"
+    ///
+    /// Every other verb here runs one way: the caller offers its work to the
+    /// peer, and the peer stores it. That made hosting something only the
+    /// *dialled* side could do, and so made mutual storage impossible for
+    /// anyone behind a router they do not control -- which is most people.
+    /// Nothing about the network forced that. It was simply a question nobody
+    /// asked.
+    ///
+    /// The answer is bounded by `limit` so one round cannot be turned into an
+    /// unbounded transfer, and it names the peer's owner because the caller has
+    /// no other way to learn it: the opening exchange carries the *caller's*
+    /// owner, not the peer's.
+    WantHosted { limit: u32 },
+
+    /// "I have stored these, on your behalf."
+    ///
+    /// Sent after the chunks a peer offered have been fetched and put in this
+    /// node's vault, so the peer can record who holds them. The record is the
+    /// peer's to keep: it is the owner of that data, and this project puts the
+    /// placement ledger in the owner's hands rather than in an agreement.
+    ///
+    /// It is a claim, and it is checked rather than believed -- the owner's
+    /// storage challenges are what turn it into evidence, and a host that
+    /// claimed and did not store fails the next one.
+    Hosted { chunks: Vec<ChunkId> },
 }
 
 /// What a peer answers.
@@ -105,6 +139,11 @@ pub enum Response {
         accepted: bool,
     },
     ChallengeProof([u8; 32]),
+    /// Chunks this peer would like the caller to hold, and whose they are.
+    WantHosted {
+        owner: UserId,
+        chunks: Vec<ChunkId>,
+    },
     /// A request this peer refused or could not serve.
     ///
     /// Carries a short reason for the operator's logs. Never carries anything

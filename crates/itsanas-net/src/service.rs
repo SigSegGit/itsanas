@@ -44,6 +44,12 @@ impl Pledge {
     /// hosts nothing for anyone else.
     pub const NONE: Self = Self { bytes: 0 };
 
+    /// A pledge of exactly this many bytes.
+    #[must_use]
+    pub const fn bytes(bytes: u64) -> Self {
+        Self { bytes }
+    }
+
     #[must_use]
     pub const fn gigabytes(count: u64) -> Self {
         Self {
@@ -76,13 +82,23 @@ impl<'a> PeerService<'a> {
         self.store.device_id()
     }
 
+    /// Answer one request from a caller whose identity does not matter here.
+    ///
+    /// Only for tests that are about the answer rather than about who asked.
+    /// Anything that records who holds what must use [`Self::handle`] with the
+    /// device TLS actually proved.
+    #[cfg(test)]
+    fn handle_from_test(&self, request: &Request) -> Result<Response> {
+        self.handle(request, DeviceId::from_bytes([0xee; 32]))
+    }
+
     /// Answer one request.
     ///
     /// Never returns `Err` for anything a peer did — a misbehaving peer gets a
     /// [`Response::Refused`], because turning a peer's bad request into a local
     /// error would let a peer decide when this node stops working. `Err` is
     /// reserved for this node's own storage failing.
-    pub fn handle(&self, request: &Request) -> Result<Response> {
+    pub fn handle(&self, request: &Request, caller: DeviceId) -> Result<Response> {
         if !request.is_acceptable() {
             return Ok(Response::Refused("malformed request".to_owned()));
         }
@@ -151,7 +167,47 @@ impl<'a> PeerService<'a> {
                 Some(sealed) => Ok(Response::ChallengeProof(challenge_proof(nonce, &sealed))),
                 None => Ok(Response::Refused("chunk not held".to_owned())),
             },
+
+            Request::WantHosted { limit } => self.want_hosted(*limit),
+
+            Request::Hosted { chunks } => {
+                // A claim, recorded and then checked. The storage challenges
+                // this node already runs are what turn it into evidence: a peer
+                // that says it stored something and did not fails the next one
+                // and the chunk is sent somewhere else. Believing it for now
+                // costs one audit round and is what makes the offer worth
+                // making at all.
+                self.store.record_holders(chunks, &caller)?;
+                Ok(Response::Stored { accepted: true })
+            }
         }
+    }
+
+    /// Chunks this node would like the caller to hold for it.
+    ///
+    /// The ones with fewest copies first, which is what
+    /// [`Store::under_replicated`] already orders by, so the scarcest coverage
+    /// is what a round of reciprocal hosting buys.
+    ///
+    /// Bounded twice: by what the caller asked for, and by a ceiling here. A
+    /// peer that asks for everything gets a page, because the alternative is
+    /// letting a caller decide how much work this node does in one answer.
+    fn want_hosted(&self, limit: u32) -> Result<Response> {
+        const CEILING: usize = 64;
+
+        let wanted = (limit as usize).min(CEILING);
+        let at_risk = self
+            .store
+            .under_replicated(itsanas_store::REPLICATION_TARGET)?;
+
+        Ok(Response::WantHosted {
+            owner: self.store.owner(),
+            chunks: at_risk
+                .into_iter()
+                .take(wanted)
+                .map(|risk| risk.chunk)
+                .collect(),
+        })
     }
 
     /// Chain tips, from both this node's own log and its vault.
@@ -276,7 +332,7 @@ mod tests {
         let service = service(&node);
 
         let response = service
-            .handle(&Request::Hello {
+            .handle_from_test(&Request::Hello {
                 protocol: PROTOCOL_VERSION,
                 device: DeviceId::from_bytes([9; 32]),
                 owner: node.store.owner(),
@@ -296,7 +352,7 @@ mod tests {
     fn a_hello_from_a_future_protocol_version_is_refused_not_guessed_at() {
         let node = node(&alice(), 2);
         let response = service(&node)
-            .handle(&Request::Hello {
+            .handle_from_test(&Request::Hello {
                 protocol: PROTOCOL_VERSION + 5,
                 device: DeviceId::from_bytes([9; 32]),
                 owner: node.store.owner(),
@@ -316,7 +372,7 @@ mod tests {
         let service = service(&node);
 
         let heads = match service
-            .handle(&Request::Heads {
+            .handle_from_test(&Request::Heads {
                 owner: node.store.owner(),
             })
             .unwrap()
@@ -329,7 +385,7 @@ mod tests {
         assert_eq!(heads[0].length, 1);
 
         let segments = match service
-            .handle(&Request::Segments {
+            .handle_from_test(&Request::Segments {
                 owner: node.store.owner(),
                 device: node.store.device_id(),
                 after: None,
@@ -344,7 +400,7 @@ mod tests {
         segments[0].verify_signature().unwrap();
 
         let chunk = match service
-            .handle(&Request::Chunk {
+            .handle_from_test(&Request::Chunk {
                 owner: node.store.owner(),
                 address: entry.chunks[0],
             })
@@ -367,7 +423,7 @@ mod tests {
         let entry = node.store.stat("secret.txt").unwrap().unwrap();
 
         let chunk = match service(&node)
-            .handle(&Request::Chunk {
+            .handle_from_test(&Request::Chunk {
                 owner: node.store.owner(),
                 address: entry.chunks[0],
             })
@@ -397,7 +453,7 @@ mod tests {
         // peer's request decide when this node reports a fault.
         let node = node(&alice(), 5);
         let response = service(&node)
-            .handle(&Request::Chunk {
+            .handle_from_test(&Request::Chunk {
                 owner: node.store.owner(),
                 address: ChunkId::from_bytes([0xEE; 32]),
             })
@@ -417,7 +473,7 @@ mod tests {
 
         assert_eq!(
             service
-                .handle(&Request::StoreChunk {
+                .handle_from_test(&Request::StoreChunk {
                     owner: guest_keys.user_id(),
                     address,
                     sealed: sealed.clone(),
@@ -427,7 +483,7 @@ mod tests {
         );
 
         let served = match service
-            .handle(&Request::Chunk {
+            .handle_from_test(&Request::Chunk {
                 owner: guest_keys.user_id(),
                 address,
             })
@@ -460,7 +516,7 @@ mod tests {
 
         let service = service(&host);
         service
-            .handle(&Request::StoreChunk {
+            .handle_from_test(&Request::StoreChunk {
                 owner: guest.user_id(),
                 address,
                 sealed: sealed.clone(),
@@ -469,7 +525,7 @@ mod tests {
 
         let nonce = [0x5A; 32];
         let proof = match service
-            .handle(&Request::Challenge {
+            .handle_from_test(&Request::Challenge {
                 owner: guest.user_id(),
                 address,
                 nonce,
@@ -488,7 +544,7 @@ mod tests {
         // A chunk it never had.
         assert!(matches!(
             service
-                .handle(&Request::Challenge {
+                .handle_from_test(&Request::Challenge {
                     owner: guest.user_id(),
                     address: ChunkId::from_bytes([0xDD; 32]),
                     nonce,
@@ -506,7 +562,7 @@ mod tests {
 
         let service = service(&host);
         service
-            .handle(&Request::StoreChunk {
+            .handle_from_test(&Request::StoreChunk {
                 owner: guest.user_id(),
                 address,
                 sealed: sealed.clone(),
@@ -519,7 +575,7 @@ mod tests {
         assert!(
             matches!(
                 service
-                    .handle(&Request::Challenge {
+                    .handle_from_test(&Request::Challenge {
                         owner: guest.user_id(),
                         address,
                         nonce: [1; 32],
@@ -542,7 +598,7 @@ mod tests {
         let (first, first_sealed) = guest.seal_chunk(&vec![1u8; 400]).unwrap();
         assert_eq!(
             service
-                .handle(&Request::StoreChunk {
+                .handle_from_test(&Request::StoreChunk {
                     owner: guest.user_id(),
                     address: first,
                     sealed: first_sealed,
@@ -555,7 +611,7 @@ mod tests {
         assert!(
             matches!(
                 service
-                    .handle(&Request::StoreChunk {
+                    .handle_from_test(&Request::StoreChunk {
                         owner: guest.user_id(),
                         address: second,
                         sealed: second_sealed,
@@ -577,7 +633,7 @@ mod tests {
         let service = PeerService::new(&node.store, &node.vault, Pledge::NONE);
 
         match service
-            .handle(&Request::Heads {
+            .handle_from_test(&Request::Heads {
                 owner: node.store.owner(),
             })
             .unwrap()
@@ -598,7 +654,7 @@ mod tests {
         envelope.sealed_body[0] ^= 0xFF;
 
         let response = service(&host)
-            .handle(&Request::StoreSegment {
+            .handle_from_test(&Request::StoreSegment {
                 envelope: Box::new(envelope),
             })
             .unwrap();
@@ -629,7 +685,7 @@ mod tests {
             },
         ] {
             let response = service
-                .handle(&request)
+                .handle_from_test(&request)
                 .expect("a peer's bad request must not be a local error");
             assert!(matches!(response, Response::Refused(_)));
         }
@@ -639,7 +695,7 @@ mod tests {
     fn heads_for_an_unknown_owner_are_empty_rather_than_an_error() {
         let node = node(&alice(), 14);
         let response = service(&node)
-            .handle(&Request::Heads {
+            .handle_from_test(&Request::Heads {
                 owner: UserKeys::derive(&MasterSecret::from_bytes([0xEE; 32])).user_id(),
             })
             .unwrap();
@@ -658,7 +714,7 @@ mod tests {
         }
 
         match service(&node)
-            .handle(&Request::Segments {
+            .handle_from_test(&Request::Segments {
                 owner: node.store.owner(),
                 device: node.store.device_id(),
                 after: None,
