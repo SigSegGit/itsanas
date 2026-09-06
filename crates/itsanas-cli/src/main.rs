@@ -157,6 +157,19 @@ enum Command {
         #[arg(long)]
         deep: bool,
     },
+    /// Say how much of your own data to keep on this device.
+    ///
+    /// A phone has a few gigabytes free and an account can have hundreds. What
+    /// does not fit is not downloaded -- it stays listed and can be fetched
+    /// when you open it, rather than being brought down and deleted.
+    ///
+    /// This is room for *your* data. `pledge` is room you offer *others*, and
+    /// the two are not the same decision: having a terabyte free is not
+    /// agreeing to lend a terabyte.
+    Keep {
+        /// e.g. `2G`, or `all` to hold everything.
+        size: Option<String>,
+    },
     /// Say how much space this node offers to other people.
     Pledge {
         /// e.g. `500M`, `10G`, `1T`.
@@ -439,6 +452,7 @@ fn run() -> Result<()> {
         Command::Rm { path } => remove(&home, &path),
         Command::Folder { path } => folder(&home, path.as_deref()),
         Command::Scan { deep } => scan(&home, deep),
+        Command::Keep { size } => keep(&home, size.as_deref()),
         Command::Pledge { size } => pledge(&home, &size),
         Command::Device { what } => device(&home, &what),
         Command::Listen { address } => listen_on(&home, address.as_deref()),
@@ -863,6 +877,21 @@ fn render_status(node: &Node) -> Result<String> {
     w!("  files           {}", store.files);
     w!("  live chunks     {}", store.live_chunks);
     w!("  on disk         {}", format_size(store.bytes_on_disk));
+    match node.config.keep_bytes {
+        None => w!("  keeping         all of it here"),
+        Some(keep) if store.bytes_on_disk >= keep => w!(
+            concat!(
+                "  keeping         at most {} here, which is reached; new content ",
+                "stays listed and is fetched when opened"
+            ),
+            format_size(keep)
+        ),
+        Some(keep) => w!(
+            "  keeping         at most {} here ({} to go)",
+            format_size(keep),
+            format_size(keep.saturating_sub(store.bytes_on_disk))
+        ),
+    }
     w!("  log segments    {}", store.segments);
     if store.unsealed_entries > 0 {
         w!(
@@ -1444,6 +1473,51 @@ fn scan(home: &Path, deep: bool) -> Result<()> {
     }
     for (path, why) in &report.failed {
         eprintln!("  err  {path}: {why}");
+    }
+
+    Ok(())
+}
+
+fn keep(home: &Path, size: Option<&str>) -> Result<()> {
+    let mut node = open(home)?;
+
+    let Some(size) = size else {
+        match node.config.keep_bytes {
+            Some(bytes) => println!(
+                "keeping at most {} of your own data here",
+                format_size(bytes)
+            ),
+            None => println!("keeping all of your own data here (`itsanas keep 2G` to limit it)"),
+        }
+        return Ok(());
+    };
+
+    if size.eq_ignore_ascii_case("all") || size.eq_ignore_ascii_case("none") {
+        node.config.keep_bytes = None;
+        node.save_config()?;
+        println!("keeping all of your own data on this device");
+        return Ok(());
+    }
+
+    let bytes = parse_size(size)?;
+    let held = node.store.stats()?.bytes_on_disk;
+
+    node.config.keep_bytes = Some(bytes);
+    node.save_config()?;
+    println!(
+        "keeping at most {} of your own data here",
+        format_size(bytes)
+    );
+
+    // Said plainly rather than dressed up: this setting stops new content
+    // arriving, it does not remove what is already here. Claiming otherwise
+    // would be a number that looks enforced and is not.
+    if held > bytes {
+        println!(
+            "  {} is already stored, which is over that. Nothing is deleted:",
+            format_size(held)
+        );
+        println!("  the limit stops more arriving, and there is no eviction yet.");
     }
 
     Ok(())

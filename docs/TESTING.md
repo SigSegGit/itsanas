@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-01 — 661 test functions across 21 binaries, 3 of them
+**Last updated: 2026-09-01 — 662 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 30 are red-team tests.**
 
-**545 of the 661 tests have an entry of their own on this page** — an *entry*,
+**546 of the 662 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -143,7 +143,7 @@ guarantee and is not one.
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 30 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 37 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 38 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 72 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
@@ -704,7 +704,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (37)
+# `itsanas-net` — two-node tests (38)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -733,6 +733,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_file_deleted_elsewhere_is_never_offered_for_download`** | A client that listed a file deleted last week, and fetched it when tapped, would have resurrected it. |
 | `a_metadata_round_offers_the_log_but_sends_no_chunks` | The upload direction: a photo taken on mobile data does not upload itself, and the peer still learns it happened. |
 | **`two_nodes_sync_a_file_over_a_real_socket`** | The M4 exit criterion. |
+| **`a_device_with_less_room_than_the_account_stops_instead_of_filling_up`** | The ordinary case for a phone, not an edge case: a few gigabytes free against an account of hundreds. The budget is spent by declining *before* fetching, so the merge engine treats it as it treats a sleeping peer — the operation is deferred, nothing is half-written, and the file stays known-but-absent for a client to fetch on demand. Asserts the budget is what stopped it, that the device stayed under it, and that everything which did arrive is whole. Fails when the budget check is removed. |
 | **`the_side_that_dialled_ends_up_hosting_too`** | The reciprocal half, and the test that decides whether somebody behind a router they do not control can take part at all. Only one of the two nodes runs a server, which is the same asymmetry NAT produces. Before `host_for` existed the dialling side could only give its data away; now its vault grows. Fails if the offer is emptied. |
 | **`the_owner_learns_who_is_holding_after_a_reciprocal_round`** | Taking the chunks is half of it. An owner that does not record where its copies went cannot audit them and will keep asking somebody to hold what is already held. Measured through `under_replicated`, before and after. |
 | `a_pledge_of_nothing_takes_nothing_on` | Hosting stays opt-in over the new path: a node that offered no space must not have its disk filled by a peer that asked nicely. Fails when the pledge is ignored. |

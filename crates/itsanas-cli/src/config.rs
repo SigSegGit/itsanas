@@ -61,6 +61,23 @@ pub struct Config {
     /// Optional on purpose: a node can be a pure host, offering space and
     /// holding other people's sealed data without syncing a folder of its own.
     pub folder: Option<PathBuf>,
+    /// The most of this account's own data to keep on this device.
+    ///
+    /// `None` is "all of it", which is what every machine wanted before devices
+    /// smaller than the account existed -- which is to say, before phones.
+    ///
+    /// This is not a cache eviction policy. Content that does not fit is simply
+    /// never brought down: `itsanas_store::catalogue` lists every file the
+    /// account has, marking the ones this device does not hold, and a client
+    /// shows them and fetches on demand. Nothing is downloaded and then thrown
+    /// away, which on a mobile connection is the difference between a setting
+    /// and an insult.
+    ///
+    /// Separate from `pledge_bytes` on purpose, and the two are not
+    /// interchangeable: this is room for *your* data, that is room you offer
+    /// *others*. Having a terabyte free is not agreeing to lend a terabyte, and
+    /// wanting to hold two gigabytes of your own says nothing about either.
+    pub keep_bytes: Option<u64>,
 }
 
 impl Default for Config {
@@ -73,6 +90,7 @@ impl Default for Config {
             coordinator: None,
             coordinator_device: None,
             folder: None,
+            keep_bytes: None,
         }
     }
 }
@@ -88,6 +106,9 @@ impl Config {
         let _ = writeln!(out, "username = {}", self.username);
         let _ = writeln!(out, "pledge_bytes = {}", self.pledge_bytes);
         let _ = writeln!(out, "listen = {}", self.listen);
+        if let Some(keep) = self.keep_bytes {
+            let _ = writeln!(out, "keep_bytes = {keep}");
+        }
         if let Some(folder) = &self.folder {
             let _ = writeln!(out, "folder = {}", folder.display());
         }
@@ -145,6 +166,14 @@ impl Config {
                         ))
                     })?;
                 }
+                "keep_bytes" => {
+                    config.keep_bytes = Some(value.parse().map_err(|_| {
+                        CliError::Config(format!(
+                            "line {}: keep_bytes must be a whole number of bytes, found {value:?}",
+                            number + 1
+                        ))
+                    })?);
+                }
                 "folder" => config.folder = Some(PathBuf::from(value)),
                 "coordinator" => config.coordinator = Some(value.to_owned()),
                 "coordinator_device" => config.coordinator_device = Some(value.to_owned()),
@@ -158,7 +187,7 @@ impl Config {
                     return Err(CliError::Config(format!(
                         concat!(
                             "line {}: unknown setting {:?}. Known settings: ",
-                            "username, pledge_bytes, listen, folder, peer, ",
+                            "username, pledge_bytes, keep_bytes, listen, folder, peer, ",
                             "coordinator, coordinator_device"
                         ),
                         number + 1,
@@ -316,6 +345,7 @@ mod tests {
             peers: vec!["pi.local:9797".to_owned(), "vm.local:9797".to_owned()],
             coordinator: None,
             coordinator_device: None,
+            keep_bytes: Some(2 * 1024 * 1024 * 1024),
             folder: Some(PathBuf::from("/home/nicolas/ITSaNAS")),
         };
 

@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**661 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
+**662 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -140,7 +140,42 @@ What is missing before this is a *network* rather than a personal sync tool:
      coordinator sees and currently discards, is a first proxy for "same
      network"; correlated uptime is the general one.
 
-  What this does **not** yet do, and it is the next thing:  What this does **not** yet do, and it is the next thing:
+  **A device can now say how much of its own account to hold.** `itsanas keep
+  2G` sets a budget, and content beyond it is *never downloaded* rather than
+  downloaded and deleted: the fetch declines before asking, the merge engine
+  defers the operation exactly as it does for a sleeping peer, and
+  `itsanas_store::catalogue` lists the file as known-but-absent for a client to
+  fetch when it is opened. On a mobile connection the difference between those
+  two designs is the whole point.
+
+  This is deliberately **not** a cache with eviction. What is already stored
+  stays; the limit stops more arriving, and `itsanas keep` says so out loud when
+  the store is already over it. Eviction is a harder problem than it looks --
+  dropping a live file's content means either writing a tombstone, which
+  propagates a deletion nobody asked for, or forgetting the index entry, which
+  the next sync round would simply undo. Recorded rather than half-built.
+
+  `keep` and `pledge` are separate settings on purpose and are not
+  interchangeable: one is room for your own data, the other room you offer
+  others. Having a terabyte free is not agreeing to lend a terabyte, and wanting
+  two gigabytes of your own says nothing about either.
+
+  What is still missing around this, and the user has asked for all of it:
+
+  - **Choosing what to keep when it does not all fit.** The budget currently
+    stops at whatever the sync round reached, which is arrival order, not
+    importance. A selection -- newest first, a chosen folder, pinned files --
+    is the difference between a budget and a useful budget.
+  - **Network budgets.** Nothing distinguishes wifi from mobile data beyond the
+    existing metered flag, and a phone needs a ceiling per connection type.
+  - **A pledge checked against real free space.** Nothing verifies that a node
+    offering 100G has 100G, so the first honest failure happens when a peer's
+    data will not fit.
+  - **Ratio, paid capacity and copy count as settings.** Deliberately deferred,
+    but the shape above is chosen so they fit: they are all numbers attached to
+    the same two budgets.
+
+  What this does **not** yet do, and it is the next thing:  What this does **not** yet do, and it is the next thing:  What this does **not** yet do, and it is the next thing:
 
   - **The ledger is optimistic.** A holder that vanished months ago still
     counts until an audit reaches it. So the number is an upper bound, and a

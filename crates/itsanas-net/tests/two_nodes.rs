@@ -2250,3 +2250,71 @@ fn a_pledge_of_nothing_takes_nothing_on() {
         "a node that pledged nothing is holding something"
     );
 }
+
+#[test]
+fn a_device_with_less_room_than_the_account_stops_instead_of_filling_up() {
+    // The ordinary case for a phone, not an edge case: a few gigabytes free
+    // against an account of hundreds. What must NOT happen is the device
+    // filling its disk, and what must not happen either is a half-written file.
+    //
+    // The budget is spent by declining before fetching, so the merge engine
+    // treats it exactly as it treats a peer that is asleep: the operation is
+    // deferred and nothing is written. The file stays known to the account and
+    // absent from this device, which is the state a client shows and fetches
+    // on demand.
+    let big = node(&MasterSecret::from_bytes([0x1A; 32]), 50);
+    let small = node(&MasterSecret::from_bytes([0x1A; 32]), 51);
+
+    // Four files of a quarter-megabyte each, so a budget can fall between them.
+    for name in ["one.bin", "two.bin", "three.bin", "four.bin"] {
+        let payload = itsanas_testkit::filler(name, 256 * 1024);
+        big.store.write_file(name, &payload).unwrap();
+    }
+    big.store.flush_segment().unwrap();
+    let whole = big.store.stats().unwrap().bytes_on_disk;
+    assert!(
+        whole > 900 * 1024,
+        "the fixture is too small to budget against"
+    );
+
+    // Room for roughly one file.
+    let budget = 300 * 1024;
+
+    with_server(&big, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &small.device, small.store.owner(), None).unwrap();
+        let report = session::round_within(
+            &small.store,
+            &small.vault,
+            &mut client,
+            session::Scope::Everything,
+            Some(budget),
+        )
+        .expect("a budgeted round is not an error");
+        assert!(
+            report.budget_spent,
+            "the budget was not what stopped it, so this test proves nothing"
+        );
+    });
+
+    let held = small.store.stats().unwrap().bytes_on_disk;
+    assert!(
+        held <= budget + 256 * 1024,
+        "the small device took {held} bytes against a budget of {budget}"
+    );
+    assert!(
+        held < whole,
+        "the small device took the whole account despite its budget"
+    );
+
+    // Whatever did arrive is whole. A budget that produced a truncated file
+    // would be worse than no budget at all.
+    for path in small.store.list().unwrap() {
+        let content = small
+            .store
+            .read_file(&path)
+            .unwrap()
+            .unwrap_or_else(|| panic!("{path} is listed and unreadable"));
+        assert_eq!(content.len(), 256 * 1024, "{path} came back truncated");
+    }
+}

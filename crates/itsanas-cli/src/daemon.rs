@@ -485,6 +485,42 @@ fn write_snapshot(node: &Node) {
     }
 }
 
+/// Say when the device's own limit, rather than the peer, is what stopped
+/// content arriving.
+///
+/// Worth a line because it is not a failure and reads like one otherwise: the
+/// device has as much of the account as it agreed to hold, the rest is listed,
+/// and opening a file fetches it. Somebody who is not told this sees a sync
+/// that never finishes.
+fn report_budget_stop(node: &Node, peer: &str, stopped: bool) {
+    if !stopped {
+        return;
+    }
+    let limit = node
+        .config
+        .keep_bytes
+        .map_or_else(|| "no limit".to_owned(), format_size);
+    println!(
+        "{peer}: stopped at this device's limit of {limit}; the rest is listed and fetched when opened"
+    );
+}
+
+/// What is left of this device's budget for its own data, or `None` for no limit.
+///
+/// Computed per round rather than held: the store grows between rounds, and a
+/// stale budget would either overshoot the limit or stop short of it.
+///
+/// A store that cannot be read is treated as empty, which errs towards
+/// downloading. The alternative -- treating an unreadable store as full --
+/// would silently stop a device syncing because of a transient read failure,
+/// and a device that quietly stops syncing is the failure this project is
+/// least able to notice.
+fn remaining_budget(node: &Node) -> Option<u64> {
+    let keep = node.config.keep_bytes?;
+    let held = node.store.stats().map_or(0, |stats| stats.bytes_on_disk);
+    Some(keep.saturating_sub(held))
+}
+
 /// The third half of a round: hold some of what this peer needs held.
 ///
 /// Without it the *dialled* side does all the hosting, because `push` gives
@@ -849,7 +885,15 @@ fn sync_once(
         PolicyScope::Metadata | PolicyScope::Nothing => session::Scope::Metadata,
         PolicyScope::Everything => session::Scope::Everything,
     };
-    let earned_trust = match session::round_scoped(&node.store, &node.vault, &mut client, wire) {
+    let budget = remaining_budget(node);
+
+    let earned_trust = match session::round_within(
+        &node.store,
+        &node.vault,
+        &mut client,
+        wire,
+        budget,
+    ) {
         Ok(report) => {
             if report.changed_anything() {
                 println!(
@@ -866,6 +910,7 @@ fn sync_once(
                     }
                 );
             }
+            report_budget_stop(node, peer, report.budget_spent);
             // A quiet round is the common case. Saying so every five minutes
             // would fill a journal with nothing and train the operator to
             // ignore it.

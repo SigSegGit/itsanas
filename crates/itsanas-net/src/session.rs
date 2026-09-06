@@ -67,6 +67,12 @@ pub struct PushReport {
 pub struct RoundReport {
     pub push: PushReport,
     pub pull: SyncReport,
+    /// Whether the local storage budget is what stopped content arriving.
+    ///
+    /// Not a failure. It means this device has as much of the account as it
+    /// agreed to hold, and the rest is listed as known-but-absent and can be
+    /// fetched when asked for.
+    pub budget_spent: bool,
 }
 
 impl RoundReport {
@@ -125,10 +131,31 @@ struct RemoteChunks<'a> {
     /// unreplicated, and `under_replicated` calls the entire store critical,
     /// on the one day a user most needs to be told the truth.
     served: RefCell<Vec<ChunkId>>,
+    /// Bytes this round is still willing to bring down, or `None` for no limit.
+    ///
+    /// A device with less room than the account is the ordinary case, not the
+    /// exception: a phone has a few gigabytes free and an account can have
+    /// hundreds. Enforcing the budget here rather than by deleting afterwards
+    /// means nothing is ever written and then removed -- the merge engine
+    /// treats a source that declines exactly as it treats a peer that is
+    /// asleep, and the file stays *known but absent*, listed and fetchable
+    /// later. That machinery already exists; this only has to stop asking.
+    budget: RefCell<Option<u64>>,
+    /// Whether the budget is what stopped this round.
+    exhausted: RefCell<bool>,
 }
 
 impl ChunkSource for RemoteChunks<'_> {
     fn fetch(&self, owner: UserId, address: &ChunkId) -> itsanas_sync::Result<Option<Vec<u8>>> {
+        // Declining before asking, when there is no room left. The refusal has
+        // to happen here rather than after the bytes arrive: downloading a
+        // chunk in order to throw it away spends the one resource a phone on a
+        // mobile connection has least of.
+        if self.budget.borrow().is_some_and(|left| left == 0) {
+            *self.exhausted.borrow_mut() = true;
+            return Ok(None);
+        }
+
         let fetched = self
             .client
             .borrow_mut()
@@ -139,8 +166,16 @@ impl ChunkSource for RemoteChunks<'_> {
             // deferred forever instead of surfacing the fault.
             .map_err(|error| itsanas_sync::SyncError::Source(error.to_string()))?;
 
-        if fetched.is_some() {
+        if let Some(bytes) = &fetched {
             self.served.borrow_mut().push(*address);
+
+            // Saturating, so a chunk larger than what is left spends the rest
+            // of the budget rather than wrapping into a very large one. It has
+            // already been fetched by this point, which is why the check above
+            // is the one that matters.
+            if let Some(left) = self.budget.borrow_mut().as_mut() {
+                *left = left.saturating_sub(bytes.len() as u64);
+            }
         }
         Ok(fetched)
     }
@@ -188,9 +223,27 @@ pub fn round_scoped(
     client: &mut PeerClient,
     scope: Scope,
 ) -> Result<RoundReport> {
+    round_within(store, vault, client, scope, None)
+}
+
+/// One round, bringing down at most `budget` bytes of content.
+///
+/// # Errors
+///
+/// If the peer fails, or the store cannot be written.
+pub fn round_within(
+    store: &Store,
+    vault: &Vault,
+    client: &mut PeerClient,
+    scope: Scope,
+    budget: Option<u64>,
+) -> Result<RoundReport> {
+    let push = push_scoped(store, client, scope)?;
+    let (pull, budget_spent) = pull_within(store, vault, client, scope, budget)?;
     Ok(RoundReport {
-        push: push_scoped(store, client, scope)?,
-        pull: pull_scoped(store, vault, client, scope)?,
+        push,
+        pull,
+        budget_spent,
     })
 }
 
@@ -451,6 +504,32 @@ pub fn pull_scoped(
     client: &mut PeerClient,
     scope: Scope,
 ) -> Result<SyncReport> {
+    pull_within(store, vault, client, scope, None).map(|(report, _)| report)
+}
+
+/// Fetch and merge, bringing down at most `budget` bytes of content.
+///
+/// `None` is no limit and is what every caller wanted before devices with less
+/// room than the account existed -- which is to say, before phones.
+///
+/// Running out is not an error and not a partial write. The merge engine treats
+/// a source that declines exactly as it treats a peer that is asleep: the
+/// operation is deferred, the file stays *known but absent*, and
+/// `itsanas_store::catalogue` lists it so a client can show it and fetch it on
+/// demand. The second element of the result says whether the budget is what
+/// stopped it, because "nothing more arrived" and "I stopped asking" are
+/// different states and only one of them is worth telling somebody about.
+///
+/// # Errors
+///
+/// If the peer fails, or the store cannot be written.
+pub fn pull_within(
+    store: &Store,
+    vault: &Vault,
+    client: &mut PeerClient,
+    scope: Scope,
+    budget: Option<u64>,
+) -> Result<(SyncReport, bool)> {
     let owner = store.owner();
     let mine = store.device_id();
 
@@ -532,22 +611,25 @@ pub fn pull_scoped(
     }
 
     if fetched.is_empty() {
-        return Ok(SyncReport::default());
+        return Ok((SyncReport::default(), false));
     }
 
     let peer = client.peer_device();
-    let (outcome, served) = if scope.moves_content() {
+    let (outcome, served, budget_spent) = if scope.moves_content() {
         let source = RemoteChunks {
             client: RefCell::new(client),
             served: RefCell::new(Vec::new()),
+            budget: RefCell::new(budget),
+            exhausted: RefCell::new(false),
         };
         let outcome = apply_segments(store, &fetched, &source);
         let served = source.served.into_inner();
-        (outcome, served)
+        (outcome, served, source.exhausted.into_inner())
     } else {
         (
             apply_segments(store, &fetched, &itsanas_sync::EmptySource),
             Vec::new(),
+            false,
         )
     };
 
@@ -567,7 +649,7 @@ pub fn pull_scoped(
         store.note_all_applied(vault)?;
     }
 
-    Ok(report)
+    Ok((report, budget_spent))
 }
 
 /// Apply this user's own segments that peers have pushed into the vault.
