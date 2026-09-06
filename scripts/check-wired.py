@@ -74,6 +74,29 @@ ALLOWED = {
     # not have. Recorded in ROADMAP.md so the gap lives somewhere a reader will
     # find it, not only in this file.
     'forget_tombstone': 'needs proof every device saw the delete; see ROADMAP.md',
+
+    # Rendezvous placement: the mechanism that decides WHERE data goes, which is
+    # the centre of this product. 1,187 lines, fully tested, and called by
+    # nothing outside its own crate. It passed this gate for weeks because its
+    # tests are call sites -- the weakness this file's own docstring admits to,
+    # and which nobody had connected to the largest unwired thing in the
+    # repository until an audit went looking.
+    #
+    # Naming them here does not wire them. It stops the gate reporting silence
+    # as health: a `pub fn` in this list is unfinished work with a sentence
+    # saying what would finish it, and the list is read by people. Silence is
+    # not.
+    #
+    # What would wire them: a node needs the set of candidate holders and their
+    # pledged capacity, which means a coordinator request that lists members --
+    # `Lookup` answers about one name at a time. And spreading must stay off
+    # below critical mass (`itsanas_placement::spreading`), or it costs copies
+    # on exactly the small networks that cannot spare them.
+    'replicas_for': 'rendezvous placement; needs a member list from the coordinator',
+    'holds': 'rendezvous placement; needs a member list from the coordinator',
+    'slots_for': 'rendezvous placement; needs a member list from the coordinator',
+    'observe': 'repair census; needs repair to choose peers, see ROADMAP.md',
+    'note': 'repair census; needs repair to choose peers, see ROADMAP.md',
 }
 
 # `pub fn` at any indentation, and it took two goes to get there. The first
@@ -205,8 +228,25 @@ def main():
         print('ALLOWED in this script with the reason it is deliberately kept.')
         return 1
 
-    print('wiring: all %d public functions across %d files have a call site'
+    # What this actually checked, said precisely. "All of them have a call
+    # site" was true and misleading: tests count as call sites, so a mechanism
+    # with tests and no production caller passes -- which is how 1,187 lines of
+    # rendezvous placement, the code that decides where data goes, sat unwired
+    # for weeks behind a green line.
+    print('wiring: %d public functions across %d files are called from somewhere'
           % (len(definitions), len(code)))
+    print('        (tests count as callers, so this does not mean "in use")')
+
+    if ALLOWED:
+        print()
+        print('known debt: %d public functions this gate is told to excuse.'
+              % len(ALLOWED))
+        for name in sorted(ALLOWED):
+            print('  %-18s %s' % (name, ALLOWED[name]))
+        print()
+        print('        Printed every run on purpose. An allowlist nobody reads')
+        print('        is a way of forgetting, and the largest thing on it is')
+        print('        the placement mechanism this product is built around.')
     return 0
 
 

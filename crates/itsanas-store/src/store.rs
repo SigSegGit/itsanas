@@ -880,8 +880,8 @@ impl Store {
     /// # Errors
     ///
     /// If the index cannot be read.
-    pub fn coverage(&self) -> Result<Coverage> {
-        self.index.coverage()
+    pub fn coverage(&self, now: u64) -> Result<Coverage> {
+        self.index.coverage(now)
     }
 
     /// Coarse statistics, cheap enough for a status command.

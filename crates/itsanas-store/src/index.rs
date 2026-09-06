@@ -1192,14 +1192,19 @@ impl Index {
     /// # Errors
     ///
     /// If the index cannot be read.
-    pub fn coverage(&self) -> Result<Coverage> {
+    pub fn coverage(&self, now: u64) -> Result<Coverage> {
         let txn = self.db.begin_read()?;
         let refs = txn.open_table(CHUNK_REFS)?;
         let holders_table = txn.open_table(HOLDERS)?;
 
+        // Anything older than this is a memory, not an observation.
+        let fresh_since = now.saturating_sub(holders::CONFIRMED_FOR);
+
         let mut live_chunks = 0usize;
         let mut only_here = 0usize;
         let mut fewest: Option<usize> = None;
+        let mut fewest_claimed: Option<usize> = None;
+        let mut stale_records = 0usize;
         // How much of this account each other machine holds. The largest entry
         // is the one worth reporting: it is the closest anybody else is to
         // having a whole copy.
@@ -1213,25 +1218,40 @@ impl Index {
             live_chunks += 1;
 
             let chunk = ChunkId::from_slice(key.value())?;
-            let mut elsewhere = 0usize;
+            let mut confirmed = 0usize;
+            let mut claimed = 0usize;
             for row in holders_table.range(
                 holders::range_start(&chunk).as_slice()..=holders::range_end(&chunk).as_slice(),
             )? {
-                let (key, _) = row?;
-                elsewhere += 1;
+                let (key, value) = row?;
+                claimed += 1;
+
+                if value.value() < fresh_since {
+                    stale_records += 1;
+                    continue;
+                }
+                confirmed += 1;
+
+                // Only confirmed holders count towards concentration too. A
+                // machine that has gone quiet is not one that holds a share of
+                // you; it is one nobody can say anything about.
                 if let Some(device) = holders::device_from_key(key.value()) {
                     *per_device.entry(device).or_default() += 1;
                 }
             }
 
-            if elsewhere == 0 {
+            if confirmed == 0 {
                 only_here += 1;
             }
-            fewest = Some(fewest.map_or(elsewhere, |least: usize| least.min(elsewhere)));
+            fewest = Some(fewest.map_or(confirmed, |least: usize| least.min(confirmed)));
+            fewest_claimed =
+                Some(fewest_claimed.map_or(claimed, |least: usize| least.min(claimed)));
         }
 
         Ok(Coverage {
             complete_elsewhere: fewest.unwrap_or(0),
+            claimed_elsewhere: fewest_claimed.unwrap_or(0),
+            stale_records,
             live_chunks,
             only_here,
             distinct_holders: per_device.len(),
@@ -2242,7 +2262,7 @@ mod tests {
         }
         // Chunk 3 is held by nobody.
 
-        let coverage = index.coverage().unwrap();
+        let coverage = index.coverage(1).unwrap();
         assert_eq!(
             coverage.complete_elsewhere, 0,
             concat!(
@@ -2256,7 +2276,7 @@ mod tests {
 
         // And the moment that last chunk is placed once, one copy exists.
         index.record_holder(&chunk(3), &device(7), 1).unwrap();
-        let coverage = index.coverage().unwrap();
+        let coverage = index.coverage(1).unwrap();
         assert_eq!(coverage.complete_elsewhere, 1);
         assert_eq!(coverage.only_here, 0);
         assert!(!coverage.meets(2), "one copy is not two");
@@ -2264,7 +2284,7 @@ mod tests {
         // Two holders for the weakest chunk is two complete copies, whatever
         // the others have.
         index.record_holder(&chunk(3), &device(8), 1).unwrap();
-        assert!(index.coverage().unwrap().meets(2));
+        assert!(index.coverage(1).unwrap().meets(2));
     }
 
     #[test]
@@ -2288,7 +2308,7 @@ mod tests {
         for id in [1u8, 2, 3] {
             index.record_holder(&chunk(id), &device(7), 1).unwrap();
         }
-        let coverage = index.coverage().unwrap();
+        let coverage = index.coverage(1).unwrap();
         assert_eq!(coverage.largest_share, 3);
         assert!(
             coverage.someone_holds_everything(),
@@ -2304,7 +2324,7 @@ mod tests {
         spread.record_holder(&chunk(2), &device(8), 1).unwrap();
         spread.record_holder(&chunk(3), &device(9), 1).unwrap();
 
-        let coverage = spread.coverage().unwrap();
+        let coverage = spread.coverage(1).unwrap();
         assert_eq!(
             coverage.complete_elsewhere, 1,
             "the account is still reconstructible from the network"
@@ -2324,7 +2344,7 @@ mod tests {
         index.put_file("a", &entry(&[1])).unwrap();
 
         assert_eq!(
-            index.coverage().unwrap().complete_elsewhere,
+            index.coverage(1).unwrap().complete_elsewhere,
             0,
             concat!(
                 "with no remote holder there is no copy elsewhere, though the ",
@@ -2342,11 +2362,59 @@ mod tests {
     }
 
     #[test]
+    fn a_holder_nobody_has_heard_from_stops_counting_as_a_copy() {
+        // The failure this prevents was live in this project's own fleet on
+        // 2026-09-06: a device that had been destroyed was still listed as a
+        // holder, and was removed by hand only because somebody read a log.
+        //
+        // A holder record is a memory. It says a device once acknowledged this
+        // chunk; it says nothing about whether that device still exists. Counted
+        // as a copy, it is how a backup report stays green after the machine it
+        // describes has been thrown away.
+        let (_dir, index) = fresh();
+        index.put_file("a", &entry(&[1, 2])).unwrap();
+
+        let long_ago = 1_000;
+        let now = long_ago + holders::CONFIRMED_FOR + 1;
+
+        // Two holders each, but one of them answered a fortnight and a second
+        // ago and has not been heard from since.
+        for id in [1u8, 2] {
+            index.record_holder(&chunk(id), &device(7), now).unwrap();
+            index
+                .record_holder(&chunk(id), &device(8), long_ago)
+                .unwrap();
+        }
+
+        let coverage = index.coverage(now).unwrap();
+        assert_eq!(
+            coverage.claimed_elsewhere, 2,
+            "the optimistic count is what the ledger remembers"
+        );
+        assert_eq!(
+            coverage.complete_elsewhere, 1,
+            "only one holder has been heard from, so there is one copy"
+        );
+        assert_eq!(coverage.stale_records, 2);
+        assert!(coverage.resting_on_memory());
+        assert!(
+            !coverage.meets(2),
+            "two claims and one observation is not two copies"
+        );
+
+        // A stale holder is not part of anybody's share either: a machine that
+        // has gone quiet is not one that holds a third of you, it is one
+        // nobody can say anything about.
+        assert_eq!(coverage.largest_share, 2);
+        assert_eq!(coverage.distinct_holders, 1);
+    }
+
+    #[test]
     fn an_account_with_nothing_stored_is_not_reported_as_unsafe() {
         // Zero data is no question, not a failure. Reporting "0 copies" for an
         // empty account would train somebody to ignore the number that matters.
         let (_dir, index) = index();
-        let coverage = index.coverage().unwrap();
+        let coverage = index.coverage(1).unwrap();
         assert_eq!(coverage.live_chunks, 0);
         assert!(coverage.meets(2));
     }

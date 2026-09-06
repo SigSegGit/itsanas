@@ -258,11 +258,30 @@ pub struct Holder {
 /// is one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Coverage {
-    /// Complete copies that could be reassembled with this machine gone.
+    /// Complete copies that could be reassembled with this machine gone,
+    /// counting only holders confirmed recently.
+    ///
+    /// **This is the number to show somebody.** A holder record is a memory,
+    /// not an observation: it says a device once said it had this chunk. It
+    /// says nothing about whether that device still exists. A laptop that was
+    /// reinstalled, sold or thrown away keeps its entries for ever, and every
+    /// one of them inflates the count of copies somebody is relying on.
+    ///
+    /// That is not hypothetical. On 2026-09-06 this project's own fleet had a
+    /// destroyed device still listed as a holder, and it was removed by hand
+    /// after somebody noticed the log.
     ///
     /// Zero means the network holds no complete copy, however many chunks are
     /// well replicated.
     pub complete_elsewhere: usize,
+    /// The same count including holders nobody has heard from lately.
+    ///
+    /// The optimistic figure -- an upper bound. Kept beside the honest one
+    /// because the gap between them is itself the interesting number: it is how
+    /// much of your safety is memory rather than observation.
+    pub claimed_elsewhere: usize,
+    /// Holder records not confirmed inside the freshness horizon.
+    pub stale_records: usize,
     /// How many live chunks were counted. Zero data is not zero copies; it is
     /// no question.
     pub live_chunks: usize,
@@ -293,9 +312,18 @@ pub struct Coverage {
 
 impl Coverage {
     /// Whether the account is at or above a target number of complete copies.
+    ///
+    /// Measured on confirmed holders, not on claims. A promise checked against
+    /// memory is not checked.
     #[must_use]
     pub const fn meets(&self, target: usize) -> bool {
         self.live_chunks == 0 || self.complete_elsewhere >= target
+    }
+
+    /// Whether some of the apparent safety is memory rather than observation.
+    #[must_use]
+    pub const fn resting_on_memory(&self) -> bool {
+        self.claimed_elsewhere > self.complete_elsewhere
     }
 
     /// Whether some single other machine holds every chunk of this account.
@@ -339,6 +367,19 @@ impl AtRisk {
         self.held_by <= 1
     }
 }
+
+/// How long a holder's acknowledgement counts for.
+///
+/// Fourteen days. A holder is re-confirmed whenever the owner pushes to it or
+/// audits it, and the audit walks a slice of the account every round, so a
+/// device that is present and answering refreshes itself well inside this. One
+/// that has gone quiet for a fortnight is not evidence of anything, and
+/// counting it as a copy is how a backup report stays green after the machine
+/// it describes has been thrown away.
+///
+/// Long enough that a laptop taken on holiday does not raise an alarm; short
+/// enough that a machine which never comes back stops counting inside a month.
+pub const CONFIRMED_FOR: u64 = 14 * 24 * 60 * 60;
 
 #[cfg(test)]
 mod tests {

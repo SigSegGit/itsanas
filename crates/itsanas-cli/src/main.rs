@@ -649,6 +649,38 @@ fn report_unreliable_peers(node: &Node) -> Result<()> {
     Ok(())
 }
 
+/// Whether chunks could be spread around instead of every holder taking
+/// everything -- and it is off below a threshold on purpose.
+///
+/// With two peers and a target of two copies, every chunk must go to both, so
+/// spreading would give each chunk one holder instead of two: a privacy
+/// preference turned into data loss, on the networks least able to afford it.
+fn spreading_report(candidates: usize) -> String {
+    let mut out = String::new();
+    macro_rules! w {
+        ($($arg:tt)*) => {{ let _ = writeln!(out, $($arg)*); }};
+    }
+
+    let advice = itsanas_placement::spreading(candidates, REPLICATION_TARGET);
+    if advice.enabled {
+        w!(
+            "  spreading      on: {} machines is enough to give each a small share",
+            advice.candidates
+        );
+    } else {
+        w!(
+            concat!(
+                "  spreading      off: {} machines hold anything of yours, and ",
+                "{} are needed"
+            ),
+            advice.candidates,
+            advice.needed
+        );
+        w!("                 until then every holder takes everything, which is right");
+    }
+    out
+}
+
 /// The part of `status` that answers the question this project exists for.
 ///
 /// Separated because it is the headline and deserves to be readable on its own,
@@ -667,7 +699,7 @@ fn coverage_report(node: &Node) -> Result<String> {
     // account with almost everything on three machines and one chunk on none
     // has no complete copy at all -- and an average would report that as
     // "nearly three" and read as comfortable.
-    let coverage = node.store.coverage()?;
+    let coverage = node.store.coverage(itsanas_discover::now_unix())?;
     if coverage.live_chunks == 0 {
         w!("  nothing stored yet");
     } else {
@@ -713,6 +745,21 @@ fn coverage_report(node: &Node) -> Result<String> {
             w!("                 run `itsanas sync`, or add a peer, to spread it");
         }
 
+        // How much of the reassurance above is memory rather than observation.
+        // A holder record says a device once acknowledged a chunk; it says
+        // nothing about whether that device still exists. This fleet had a
+        // destroyed machine listed as a holder until somebody read a log.
+        if coverage.resting_on_memory() {
+            w!(
+                concat!(
+                    "  unconfirmed    the ledger remembers {} copies; {} holder ",
+                    "records have gone quiet and are not counted above"
+                ),
+                coverage.claimed_elsewhere,
+                coverage.stale_records
+            );
+        }
+
         // The other direction, and it is not the same question. Copies are
         // about surviving loss; this is about who could read you if the sealing
         // ever failed, and about whether this can scale at all -- if the unit
@@ -735,30 +782,7 @@ fn coverage_report(node: &Node) -> Result<String> {
             );
         }
 
-        // Whether chunks could be spread around instead of every holder
-        // taking everything -- and it is off below a threshold on purpose.
-        // With two peers and a target of two copies, every chunk must go to
-        // both, so both hold everything; spreading anyway would give each chunk
-        // one holder instead of two and turn a privacy preference into data
-        // loss. `itsanas_placement::spreading` derives the threshold rather
-        // than guessing it.
-        let advice = itsanas_placement::spreading(coverage.distinct_holders, REPLICATION_TARGET);
-        if advice.enabled {
-            w!(
-                "  spreading      on: {} machines is enough to give each a small share",
-                advice.candidates
-            );
-        } else {
-            w!(
-                concat!(
-                    "  spreading      off: {} machines hold anything of yours, ",
-                    "and {} are needed"
-                ),
-                advice.candidates,
-                advice.needed
-            );
-            w!("                 until then every holder takes everything, which is right");
-        }
+        let _ = write!(out, "{}", spreading_report(coverage.distinct_holders));
 
         let short = node.store.under_replicated(REPLICATION_TARGET)?;
         if !short.is_empty() {

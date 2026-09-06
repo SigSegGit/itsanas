@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-01 — 658 test functions across 21 binaries, 3 of them
+**Last updated: 2026-09-01 — 659 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 30 are red-team tests.**
 
-**542 of the 658 tests have an entry of their own on this page** — an *entry*,
+**543 of the 659 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -138,7 +138,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 142 |
+| `itsanas-store` unit | 143 |
 | `itsanas-store` integration (`tests/store.rs`) | 30 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
@@ -381,7 +381,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (128, plus the 14 vault tests below)
+# `itsanas-store` — unit tests (129, plus the 14 vault tests below)
 
 ## `reliability` — remembering that a peer failed (6)
 
@@ -428,6 +428,7 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | **`a_target_counts_this_device_so_three_asks_for_two_elsewhere`** | The counting convention, pinned. Off by one here means the repair loop targets two copies while reporting three, and nothing ever says so — it surfaces as data loss after two machines die instead of after three. |
 | **`one_chunk_nobody_holds_makes_the_whole_account_unrecoverable`** | Why the headline number is a minimum and not an average, in one test. Eight of nine holder records exist and not one complete copy does: a file comes back only if every chunk does, so almost-everywhere is nowhere. An average would report 2.0 here and read as comfortable. |
 | **`a_peer_that_holds_every_chunk_is_reported_as_holding_everything`** | The other direction from the copy count, and not the same question. A peer holding a complete set is one broken cipher away from reading the account, and it is also what decides whether this scales: if the unit of hosting were "a whole account", somebody offering four terabytes would need peers who could each take four terabytes. The second half of the test spreads the same three chunks over three machines — same one complete copy, and nobody holding a whole set. |
+| **`a_holder_nobody_has_heard_from_stops_counting_as_a_copy`** | A holder record is a memory: it says a device once acknowledged a chunk, not that the device still exists. This fleet had a destroyed machine listed as a holder until somebody read a log. Two claims and one observation must report one copy, not two — and a machine that has gone quiet is not one holding a share of you, it is one nobody can say anything about. |
 | **`this_machine_is_not_one_of_the_copies`** | The question is what survives losing this machine, so this machine does not count. Pins the difference from `under_replicated`, which counts it on purpose — the two answer different questions, and confusing them is how a backup report says two when the answer is one. |
 | `an_account_with_nothing_stored_is_not_reported_as_unsafe` | Zero data is no question, not a failure. Reporting zero copies for an empty account trains somebody to ignore the number that matters. |
 | **`the_chunks_closest_to_being_lost_are_reported_first`** | A repair pass on a laptop is interrupted by the lid closing. Ordered by chunk id, the work done before the interruption would be random with respect to risk, and the chunk with one copy left could wait behind a thousand that had two. |
