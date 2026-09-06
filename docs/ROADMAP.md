@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**646 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
+**648 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -143,29 +143,27 @@ What is missing before this is a *network* rather than a personal sync tool:
   is no equivalent for the coordinator, so the durability of everything it
   holds rests on reading the code.
 
-- **A device that is gone stays in the directory for ever.** Found on
-  2026-09-06 while setting up `sigseg42`: an account was created, registered,
-  and then its keystore deleted and the account restored from its 24 words on
-  the same machine. `login` correctly issues a *new* device id, and `register`
-  correctly enrols it — but the old one is still listed, so every round the
-  node dials an address where its own dead device used to be and gets:
+- ~~**A device that is gone stays in the directory for ever.**~~ **Fixed**
+  2026-09-06. The capability was already there and unreachable: `NodeClaim`
+  carries a `revoked` flag, the directory has honoured it since it was written
+  (`a_revoked_device_leaves_the_live_set`), and nothing could send one. So a
+  device that was lost, reinstalled or sold stayed listed, and every other
+  machine on the account dialled it every round and was correctly refused by
+  the pinning.
 
-  ```
-  192.168.1.142:9797: unreachable
-    (tls: expected to reach device 393f7d4acf72 but d5af6664ae53 answered)
-  ```
+  `itsanas device list` shows them and `itsanas device forget <id>` withdraws
+  one. The claim is signed by the *user* key rather than the device's, which is
+  what makes it possible at all: a machine that has been lost cannot sign its
+  own withdrawal. It takes the twelve-character short form as well as the full
+  id, because the short form is what the error naming a dead device prints.
 
-  The pinning is doing its job: the wrong device answered and was refused
-  rather than trusted. What is missing is any way to say "that device is
-  gone" — there is no `itsanas device forget`, the coordinator has no
-  retirement path, and nothing ages an entry out. A laptop that is lost,
-  reinstalled, or sold therefore leaves a permanent entry that every one of
-  its owner's other machines will keep dialling, and every failure it causes
-  is indistinguishable from a machine that is merely switched off.
+  Measured on the laptop that had the problem: eleven mentions of the dead
+  device in the log before, none in the log after.
 
-  It is worse than noise for the audit: a host that has genuinely gone away and
-  a device that never existed after the restore both look like an unreachable
-  peer, and the probation ladder counts them the same way.
+  What remains: nothing ages an entry out on its own, so a device whose owner
+  never runs the command stays listed. That is a smaller problem than having no
+  way at all, and the automatic version needs a decision about how long absent
+  is gone.
 
 - **A username belongs to a key, and losing the key loses the name.** Same
   session, same cause: re-registering `sigseg42` from a fresh keystore is

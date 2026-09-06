@@ -252,13 +252,71 @@ pub fn announce(node: &Node, address: &str, now: u64) -> Result<String> {
 
 /// Where the other devices of `user` say they are.
 pub fn peers(node: &Node, user: UserId) -> Result<Vec<(DeviceId, String)>> {
+    Ok(devices(node, user)?
+        .into_iter()
+        .filter(|(device, _)| *device != node.store.device_id())
+        .collect())
+}
+
+/// Every device the coordinator lists for an account, this one included.
+///
+/// `peers` drops this machine, because dialling yourself is not useful. Listing
+/// them for a person is the other case: leaving this device out of a list of
+/// your devices makes the list wrong, and makes the one you are looking for --
+/// the one you are trying to tell from the others -- invisible.
+///
+/// # Errors
+///
+/// If the coordinator cannot be reached, refuses, or answers with something
+/// else.
+pub fn devices(node: &Node, user: UserId) -> Result<Vec<(DeviceId, String)>> {
     let mut client = dial(node)?;
     match client.ask(&Request::Peers { user })? {
         Response::Peers(list) => Ok(list
             .into_iter()
-            .filter(|presence| presence.device != node.store.device_id())
             .map(|presence| (presence.device, presence.address))
             .collect()),
+        Response::Refused(why) => Err(CliError::Usage(why)),
+        other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+    }
+}
+
+/// Withdraw a device from this account.
+///
+/// A `NodeClaim` carries a `revoked` flag and the directory has honoured it
+/// since it was written -- `a_revoked_device_leaves_the_live_set` covers it --
+/// but nothing could send one. So a device that was lost, reinstalled or sold
+/// stayed in the directory for ever, and every other machine on the account
+/// kept dialling it every round and being correctly refused by the pinning:
+///
+/// ```text
+/// 192.168.1.142:9797: unreachable
+///   (tls: expected to reach device 393f7d4acf72 but d5af6664ae53 answered)
+/// ```
+///
+/// The claim is signed by the *user* key, not the device's, which is what makes
+/// this possible at all: a machine that has been lost cannot sign its own
+/// withdrawal.
+///
+/// # Errors
+///
+/// If the coordinator cannot be reached, or refuses the claim.
+pub fn forget_device(node: &Node, device: DeviceId, now: u64) -> Result<()> {
+    let claim = NodeClaim {
+        owner: node.store.owner(),
+        device,
+        // A withdrawn device offers nothing. The field is not read for a
+        // revoked claim, and setting it to anything else would be a number
+        // that means nothing sitting in a signed record.
+        pledged_bytes: 0,
+        issued_unix: now,
+        revoked: true,
+    }
+    .sign(&node.user);
+
+    let mut client = dial(node)?;
+    match client.ask(&Request::Claim(Box::new(claim)))? {
+        Response::Done => Ok(()),
         Response::Refused(why) => Err(CliError::Usage(why)),
         other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
     }

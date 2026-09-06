@@ -29,6 +29,7 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
+use itsanas_crypto::DeviceId;
 use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
 
 use crate::{
@@ -66,6 +67,23 @@ struct Cli {
 
     #[command(subcommand)]
     command: Command,
+}
+
+/// What to do with the devices on this account.
+#[derive(Debug, Subcommand)]
+enum DeviceCommand {
+    /// List them, as the coordinator has them.
+    List,
+    /// Withdraw one, so nothing dials it again.
+    ///
+    /// Takes the full device id or the twelve-character short form -- the short
+    /// form because that is what the error naming a dead device prints, and
+    /// asking somebody to go and find the long one is asking them to do work
+    /// the program can do.
+    Forget {
+        /// The device to withdraw.
+        device: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -137,6 +155,11 @@ enum Command {
     Pledge {
         /// e.g. `500M`, `10G`, `1T`.
         size: String,
+    },
+    /// The devices enrolled in this account.
+    Device {
+        #[command(subcommand)]
+        what: DeviceCommand,
     },
     /// Show or set the address this node serves on.
     ///
@@ -402,6 +425,7 @@ fn run() -> Result<()> {
         Command::Folder { path } => folder(&home, path.as_deref()),
         Command::Scan { deep } => scan(&home, deep),
         Command::Pledge { size } => pledge(&home, &size),
+        Command::Device { what } => device(&home, &what),
         Command::Listen { address } => listen_on(&home, address.as_deref()),
         Command::Serve { listen } => serve(&home, listen.as_deref()),
         Command::Daemon {
@@ -1122,6 +1146,76 @@ fn folder(home: &Path, path: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
+fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
+    let node = open(home)?;
+    let mine = node.store.device_id();
+    let listed = coordinator::devices(&node, node.store.owner())?;
+
+    match what {
+        DeviceCommand::List => {
+            if listed.is_empty() {
+                println!("the coordinator lists no devices for this account");
+                return Ok(());
+            }
+            for (device, address) in &listed {
+                let here = if *device == mine {
+                    "  (this machine)"
+                } else {
+                    ""
+                };
+                println!("{device}  {address}{here}");
+            }
+            Ok(())
+        }
+
+        DeviceCommand::Forget { device } => {
+            let wanted = resolve_device(device, &listed)?;
+
+            if wanted == mine {
+                return Err(CliError::Usage(
+                    "that is this machine. Withdrawing it from here would leave a node running and unlisted; run this from another device of the account.".to_owned(),
+                ));
+            }
+
+            coordinator::forget_device(&node, wanted, itsanas_discover::now_unix())?;
+            println!("withdrew {wanted}");
+            println!("  Nothing will dial it again. If that machine comes back, run");
+            println!("  `itsanas register` on it to enrol it afresh.");
+            Ok(())
+        }
+    }
+}
+
+/// Turn what somebody typed into a device on this account.
+///
+/// Accepts the full identifier, and the short form the logs print. A short form
+/// is matched against the account's own devices rather than parsed, so a string
+/// that matches nothing says so -- instead of becoming an identifier for a
+/// device that does not exist, which the coordinator would accept and file a
+/// revocation against, silently, for ever.
+fn resolve_device(typed: &str, listed: &[(DeviceId, String)]) -> Result<DeviceId> {
+    if let Ok(parsed) = typed.parse::<DeviceId>() {
+        return Ok(parsed);
+    }
+
+    let matches: Vec<DeviceId> = listed
+        .iter()
+        .map(|(device, _)| *device)
+        .filter(|device| device.to_string().starts_with(typed))
+        .collect();
+
+    match matches.as_slice() {
+        [one] => Ok(*one),
+        [] => Err(CliError::Usage(format!(
+            "no device on this account starts with {typed:?}. `itsanas device list` shows them."
+        ))),
+        several => Err(CliError::Usage(format!(
+            "{} devices start with {typed:?}; give more of it.",
+            several.len()
+        ))),
+    }
+}
+
 fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
     let mut node = open(home)?;
 
@@ -1436,7 +1530,7 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{describe_age, looks_like_a_closed_pipe};
+    use super::{DeviceId, describe_age, looks_like_a_closed_pipe, resolve_device};
 
     #[test]
     fn a_panic_that_is_not_a_closed_pipe_is_never_swallowed() {
@@ -1455,6 +1549,48 @@ mod tests {
                 "a real panic would be reported as success: {message:?}"
             );
         }
+    }
+
+    fn listed() -> Vec<(DeviceId, String)> {
+        vec![
+            (DeviceId::from_bytes([0xab; 32]), "a:1".to_owned()),
+            (DeviceId::from_bytes([0xcd; 32]), "b:2".to_owned()),
+        ]
+    }
+
+    #[test]
+    fn a_prefix_that_names_no_device_is_refused_rather_than_invented() {
+        // This is the half that can do damage. A revocation is a signed record
+        // the coordinator files and honours; one written against an identifier
+        // nobody holds is silent, permanent, and impossible to notice.
+        let devices = listed();
+        for typed in ["ffff", "0", "not-hex", "abcdef01", ""] {
+            assert!(
+                resolve_device(typed, &devices).is_err(),
+                concat!(
+                    "{:?} was resolved to a device, and no device on the ",
+                    "account starts with it"
+                ),
+                typed
+            );
+        }
+    }
+
+    #[test]
+    fn the_short_form_the_logs_print_is_enough_to_name_a_device() {
+        // The error a person is reacting to prints twelve characters. Making
+        // them go and find the other fifty-two is asking them to do work the
+        // program can do -- but only when the answer is unambiguous.
+        let devices = listed();
+        let full = DeviceId::from_bytes([0xab; 32]);
+
+        assert_eq!(resolve_device(&full.to_string(), &devices).unwrap(), full);
+        assert_eq!(resolve_device(&full.short(), &devices).unwrap(), full);
+
+        // "ab" is unique here; a prefix shared by both must refuse rather than
+        // pick one.
+        assert_eq!(resolve_device("ab", &devices).unwrap(), full);
+        assert!(resolve_device("", &devices).is_err());
     }
 
     #[test]

@@ -243,6 +243,15 @@ itsanas folder ~/Sync                 # the directory kept in step
 itsanas listen 0.0.0.0:9797           # only if 9797 is taken here
 ```
 
+`itsanas device list` shows every machine the coordinator has for your account,
+and `itsanas device forget <id>` withdraws one that is gone for good. Without
+it a laptop that was reinstalled or sold stays in the directory and every other
+machine you own keeps dialling it. The short id from the log is enough:
+
+```sh
+itsanas device forget 393f7d4acf72
+```
+
 `listen` matters when something else already holds 9797 on the machine — a
 second node, or another program. Set it *before* `register`, because
 registering is what publishes the address: change it afterwards and the
