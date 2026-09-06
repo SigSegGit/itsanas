@@ -164,6 +164,11 @@ carries the coordinator as a system service as well. On that machine:
   and nothing about the architecture.
 - `scripts/smoke.sh` passes as part of every install
 - both directions of cross-account hosting, with the coordinator on this machine
+- **it survives a reboot**, which nothing had checked: `systemctl reboot`, and the
+  coordinator and the member node both came back without a hand on them --
+  the first as a system service, the second as a user unit through lingering.
+  The fourteen blobs it hosts for another account were still there, and
+  `scripts/disk-health.sh` bracketing the reboot reported nothing moved
 
 `itsanas bench` on the SSD, against the two machines that had numbers before:
 
