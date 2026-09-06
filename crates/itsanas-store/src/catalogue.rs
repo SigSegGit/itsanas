@@ -55,10 +55,10 @@ use std::collections::BTreeMap;
 /// which exists for the same reason.
 pub const MAX_SEGMENTS_WALKED: usize = 256;
 
-use itsanas_crypto::UserId;
+use itsanas_crypto::{ChunkId, UserId};
 
 use crate::error::Result;
-use crate::oplog::Operation;
+use crate::oplog::{FileEntry, Operation};
 use crate::store::Store;
 use crate::vault::Vault;
 use crate::version::{CausalOrder, VersionVector};
@@ -92,7 +92,12 @@ pub struct Known {
 struct Latest {
     version: VersionVector,
     /// `None` for a delete.
-    file: Option<(u64, u64)>,
+    ///
+    /// The whole entry rather than its size and date, because the chunk list is
+    /// what turns "you have a file you have not downloaded" into "here it is".
+    /// Keeping two walks -- one for listing and one for fetching -- is how the
+    /// listing and the fetch come to disagree about what a path is.
+    file: Option<FileEntry>,
 }
 
 /// A listing, and whether it is the whole story.
@@ -148,9 +153,10 @@ pub fn catalogue(store: &Store, vault: &Vault) -> Result<Catalogue> {
         }
 
         // The log's last word on this path is a delete. Nothing to show.
-        let Some((size, modified_unix)) = latest.file else {
+        let Some(entry) = &latest.file else {
             continue;
         };
+        let (size, modified_unix) = (entry.size, entry.modified_unix);
 
         // A delete recorded *here* that the remote edit did not see. The
         // asymmetry is deliberate and documented in `sync`: a delete concurrent
@@ -180,6 +186,46 @@ pub fn catalogue(store: &Store, vault: &Vault) -> Result<Catalogue> {
         files: out.into_values().collect(),
         complete,
     })
+}
+
+/// The chunks a known-but-absent file is made of.
+///
+/// `None` when the account has no such live file. `Some` with the chunk ids in
+/// order, which is what a caller needs to go and fetch exactly that file rather
+/// than syncing the whole account -- the difference between opening one
+/// document on a phone and downloading somebody's photo library.
+///
+/// Read from the same walk that produces the listing, so a path that appears in
+/// `catalogue` cannot fail to resolve here.
+///
+/// # Errors
+///
+/// If the vault or the store cannot be read.
+pub fn chunks_for(store: &Store, vault: &Vault, path: &str) -> Result<Option<Vec<ChunkId>>> {
+    let owner = store.owner();
+    let mine = store.device_id();
+    let (from_log, _) = walk_vault(store, vault, owner, mine)?;
+
+    let Some(latest) = from_log.get(path) else {
+        return Ok(None);
+    };
+    let Some(entry) = &latest.file else {
+        return Ok(None);
+    };
+
+    // A delete recorded here that the remote edit did not see loses, exactly as
+    // it does in the listing. Repeating the rule rather than sharing it would be
+    // two answers to one question.
+    if let Some(tombstone) = store.tombstone(path)?
+        && matches!(
+            tombstone.version.compare(&latest.version),
+            CausalOrder::After | CausalOrder::Equal
+        )
+    {
+        return Ok(None);
+    }
+
+    Ok(Some(entry.chunks.clone()))
 }
 
 /// How many files are known but not downloaded.
@@ -219,9 +265,7 @@ fn walk_vault(
             let body = store.open_segment(&envelope)?;
             for entry in body.entries {
                 let (path, file) = match &entry.operation {
-                    Operation::Upsert { path, entry } => {
-                        (path.clone(), Some((entry.size, entry.modified_unix)))
-                    }
+                    Operation::Upsert { path, entry } => (path.clone(), Some(entry.clone())),
                     Operation::Remove { path, .. } => (path.clone(), None),
                 };
                 let version = entry.operation.version().clone();
@@ -238,7 +282,7 @@ fn record(
     latest: &mut BTreeMap<String, Latest>,
     path: String,
     version: VersionVector,
-    file: Option<(u64, u64)>,
+    file: Option<FileEntry>,
 ) {
     match latest.get_mut(&path) {
         None => {

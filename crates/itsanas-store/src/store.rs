@@ -740,6 +740,20 @@ impl Store {
     }
 
     /// Record one audit outcome, and return the updated record.
+    /// Record that `device` answered something, whatever it was.
+    ///
+    /// Liveness is what decides whether that device's acknowledgements still
+    /// count as copies, and it has to be refreshed by *any* contact -- a peer
+    /// that syncs every round but happens not to be audited this round is
+    /// plainly still there.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn note_seen(&self, device: &DeviceId) -> Result<()> {
+        self.index.note_seen(device, now_unix())
+    }
+
     pub fn note_audit(&self, device: &DeviceId, passed: bool) -> Result<Reliability> {
         self.index.note_audit(device, passed, now_unix())
     }

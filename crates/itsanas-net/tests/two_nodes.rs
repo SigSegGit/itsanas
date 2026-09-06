@@ -2318,3 +2318,74 @@ fn a_device_with_less_room_than_the_account_stops_instead_of_filling_up() {
         assert_eq!(content.len(), 256 * 1024, "{path} came back truncated");
     }
 }
+
+#[test]
+fn a_file_this_device_never_downloaded_can_be_fetched_when_it_is_asked_for() {
+    // The capability the storage budget's whole justification rests on, and
+    // which did not exist when the budget shipped: a device lists a file it
+    // does not hold, and opening it goes and gets it.
+    //
+    // Without this, `keep` produces files that are visible and unopenable, and
+    // a phone client is a browser for things you cannot read.
+    let big = node(&MasterSecret::from_bytes([0x2B; 32]), 60);
+    let phone = node(&MasterSecret::from_bytes([0x2B; 32]), 61);
+
+    for name in ["wanted.bin", "ignored.bin"] {
+        let payload = itsanas_testkit::filler(name, 256 * 1024);
+        big.store.write_file(name, &payload).unwrap();
+    }
+    big.store.flush_segment().unwrap();
+    let wanted_bytes = big.store.read_file("wanted.bin").unwrap().unwrap();
+
+    // Metadata only: the phone learns what exists and downloads nothing.
+    with_server(&big, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).unwrap();
+        session::pull_scoped(
+            &phone.store,
+            &phone.vault,
+            &mut client,
+            session::Scope::Metadata,
+        )
+        .unwrap();
+    });
+
+    let known = itsanas_store::catalogue(&phone.store, &phone.vault).unwrap();
+    assert_eq!(known.files.len(), 2, "the phone did not learn what exists");
+    assert!(
+        known
+            .files
+            .iter()
+            .all(|file| file.presence == itsanas_store::Presence::Absent),
+        "the metadata round downloaded content"
+    );
+    assert!(
+        phone.store.read_file("wanted.bin").unwrap().is_none(),
+        "the file is present before the fetch, so this test would prove nothing"
+    );
+
+    // The chunk list has to be reachable from the path alone, or nothing can
+    // go and get it.
+    let chunks = itsanas_store::chunks_for(&phone.store, &phone.vault, "wanted.bin")
+        .unwrap()
+        .expect("a listed file has no chunk list");
+    let wanted: std::collections::BTreeSet<_> = chunks.into_iter().collect();
+
+    with_server(&big, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &phone.device, phone.store.owner(), None).unwrap();
+        session::fetch_only(&phone.store, &phone.vault, &mut client, &wanted).unwrap();
+    });
+
+    assert_eq!(
+        phone.store.read_file("wanted.bin").unwrap().as_ref(),
+        Some(&wanted_bytes),
+        "the file asked for did not arrive"
+    );
+
+    // And only that file. Opening one document must not pull the rest.
+    assert!(
+        phone.store.read_file("ignored.bin").unwrap().is_none(),
+        "asking for one file downloaded another"
+    );
+}

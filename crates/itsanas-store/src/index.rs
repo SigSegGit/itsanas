@@ -152,6 +152,26 @@ const PROBES: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("probe_of
 /// rounds, which is a cheap price for not having to guess at old bytes.
 const RELIABILITY: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("peer_reliability_v2");
 
+/// Device → this node's clock when it was last heard from.
+///
+/// Separate from the per-chunk holder timestamps, and the difference is the
+/// whole point. "Does this device still hold this chunk" is answered by the
+/// audit, one slice per round. "Is this device still there" is answered every
+/// time it answers anything -- and only the second question scales.
+///
+/// The arithmetic that forced this: the audit checks sixteen chunks per peer
+/// per round at three hundred seconds a round, so a chunk waits
+/// `chunks / 16` rounds for its turn. Past about sixty-four thousand chunks --
+/// four or five gigabytes -- the oldest chunk cannot be re-confirmed inside a
+/// fortnight, and a per-chunk freshness rule would report **zero complete
+/// copies** for a perfectly healthy fleet whose every audit passes. The rule
+/// would break at exactly the size this project is for.
+///
+/// A new table rather than a field on `Reliability`, because that record is
+/// postcard-encoded and adding a field would make every existing row
+/// undecodable on machines already running.
+const DEVICE_SEEN: TableDefinition<'_, &[u8], u64> = TableDefinition::new("device_last_seen");
+
 const META_NEXT_SEQUENCE: &str = "next_sequence";
 const META_HEAD_SEGMENT: &str = "head_segment";
 const META_CHAIN_LENGTH: &str = "chain_length";
@@ -213,6 +233,7 @@ impl Index {
             let _ = txn.open_table(HOLDERS)?;
             let _ = txn.open_table(APPLIED)?;
             let _ = txn.open_table(RELIABILITY)?;
+            let _ = txn.open_table(DEVICE_SEEN)?;
             let _ = txn.open_table(HOLDINGS)?;
             let _ = txn.open_table(PROBES)?;
             let _ = txn.open_table(LOSSES)?;
@@ -985,6 +1006,35 @@ impl Index {
     /// exists to give a paused peer a question it can answer, and once it has
     /// answered one the sanction is over and the marker would only misdirect
     /// the next round's questions.
+    /// Record that `device` answered something, whatever it was.
+    ///
+    /// Liveness, not correctness: a peer that answers and is wrong is recorded
+    /// here and punished elsewhere.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn note_seen(&self, device: &DeviceId, now: u64) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(DEVICE_SEEN)?
+                .insert(device.as_bytes().as_slice(), now)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// This node's clock when `device` last answered, or `None`.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn last_seen(&self, device: &DeviceId) -> Result<Option<u64>> {
+        let txn = self.db.begin_read()?;
+        let seen = txn.open_table(DEVICE_SEEN)?;
+        Ok(seen.get(device.as_bytes().as_slice())?.map(|v| v.value()))
+    }
+
     pub fn note_audit(&self, device: &DeviceId, passed: bool, now: u64) -> Result<Reliability> {
         let mut record = self.reliability(device)?;
         if passed {
@@ -999,6 +1049,10 @@ impl Index {
                 device.as_bytes().as_slice(),
                 postcard::to_stdvec(&record)?.as_slice(),
             )?;
+            // Answering at all is evidence the device exists, whether the
+            // answer was right or wrong.
+            txn.open_table(DEVICE_SEEN)?
+                .insert(device.as_bytes().as_slice(), now)?;
             if passed {
                 txn.open_table(PROBES)?
                     .remove(device.as_bytes().as_slice())?;
@@ -1076,6 +1130,8 @@ impl Index {
         }
         let txn = self.db.begin_write()?;
         {
+            txn.open_table(DEVICE_SEEN)?
+                .insert(device.as_bytes().as_slice(), now)?;
             let mut holders = txn.open_table(HOLDERS)?;
             let mut holdings = txn.open_table(HOLDINGS)?;
             for chunk in chunks {
@@ -1197,8 +1253,18 @@ impl Index {
         let refs = txn.open_table(CHUNK_REFS)?;
         let holders_table = txn.open_table(HOLDERS)?;
 
-        // Anything older than this is a memory, not an observation.
+        // Anything from a device nobody has heard from since this is a memory,
+        // not an observation.
+        //
+        // Per *device*, not per chunk, and the arithmetic on DEVICE_SEEN says
+        // why: the audit re-checks sixteen chunks per peer per round, so a
+        // per-chunk rule collapses to "no copies" on any account past a few
+        // gigabytes, however healthy. Liveness is asked of the machine; whether
+        // it still holds a particular chunk is the audit's job, and a failed
+        // challenge removes that holder outright.
         let fresh_since = now.saturating_sub(holders::CONFIRMED_FOR);
+        let seen_table = txn.open_table(DEVICE_SEEN)?;
+        let mut alive: BTreeMap<DeviceId, bool> = BTreeMap::new();
 
         let mut live_chunks = 0usize;
         let mut only_here = 0usize;
@@ -1223,21 +1289,37 @@ impl Index {
             for row in holders_table.range(
                 holders::range_start(&chunk).as_slice()..=holders::range_end(&chunk).as_slice(),
             )? {
-                let (key, value) = row?;
+                let (key, _) = row?;
                 claimed += 1;
 
-                if value.value() < fresh_since {
+                let Some(device) = holders::device_from_key(key.value()) else {
+                    stale_records += 1;
+                    continue;
+                };
+
+                // Cached per device: a chunk held by twenty machines would
+                // otherwise cost twenty lookups of the same row.
+                let live = if let Some(live) = alive.get(&device) {
+                    *live
+                } else {
+                    let seen = seen_table
+                        .get(device.as_bytes().as_slice())?
+                        .map_or(0, |v| v.value());
+                    let live = seen >= fresh_since;
+                    alive.insert(device, live);
+                    live
+                };
+
+                if !live {
                     stale_records += 1;
                     continue;
                 }
                 confirmed += 1;
 
-                // Only confirmed holders count towards concentration too. A
-                // machine that has gone quiet is not one that holds a share of
-                // you; it is one nobody can say anything about.
-                if let Some(device) = holders::device_from_key(key.value()) {
-                    *per_device.entry(device).or_default() += 1;
-                }
+                // Only live holders count towards concentration too. A machine
+                // that has gone quiet is not one that holds a share of you; it
+                // is one nobody can say anything about.
+                *per_device.entry(device).or_default() += 1;
             }
 
             if confirmed == 0 {
@@ -2407,6 +2489,55 @@ mod tests {
         // nobody can say anything about.
         assert_eq!(coverage.largest_share, 2);
         assert_eq!(coverage.distinct_holders, 1);
+    }
+
+    #[test]
+    fn a_big_account_does_not_report_itself_lost_because_the_audit_is_slow() {
+        // The arithmetic that made a per-chunk freshness rule wrong, in a test.
+        //
+        // The audit re-checks sixteen chunks per peer per round at three
+        // hundred seconds a round, so a chunk waits `chunks / 16` rounds for its
+        // turn -- past about sixty-four thousand chunks, four or five
+        // gigabytes, longer than the fortnight. A rule that asked "was THIS
+        // CHUNK confirmed recently" would report zero complete copies for a
+        // fleet whose every audit passes, at exactly the size this project is
+        // for.
+        //
+        // So the question is asked of the machine: acknowledgements recorded
+        // long ago still count while the device that made them is answering.
+        let (_dir, index) = fresh();
+        index.put_file("a", &entry(&[1, 2, 3])).unwrap();
+
+        let long_ago = 1_000;
+        let now = long_ago + holders::CONFIRMED_FOR * 10;
+
+        for id in [1u8, 2, 3] {
+            index
+                .record_holder(&chunk(id), &device(7), long_ago)
+                .unwrap();
+        }
+        // Every acknowledgement is ancient.
+        assert_eq!(
+            index.coverage(now).unwrap().complete_elsewhere,
+            0,
+            "a device nobody has heard from must not count"
+        );
+
+        // The device answers one challenge now. Nothing about the chunks
+        // changed; what changed is that the machine is known to be there.
+        index.note_audit(&device(7), true, now).unwrap();
+
+        let coverage = index.coverage(now).unwrap();
+        assert_eq!(
+            coverage.complete_elsewhere, 1,
+            concat!(
+                "acknowledgements from a live device stopped counting because ",
+                "they were old, which is the bug that breaks every account over ",
+                "a few gigabytes"
+            )
+        );
+        assert_eq!(coverage.stale_records, 0);
+        assert!(!coverage.resting_on_memory());
     }
 
     #[test]

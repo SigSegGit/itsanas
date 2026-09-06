@@ -76,7 +76,7 @@ pub mod version;
 pub const REPLICATION_TARGET: usize = 3;
 
 pub use blob::BlobStore;
-pub use catalogue::{Known, Presence, absent_count, catalogue};
+pub use catalogue::{Known, Presence, absent_count, catalogue, chunks_for};
 pub use chunker::split_stream;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};

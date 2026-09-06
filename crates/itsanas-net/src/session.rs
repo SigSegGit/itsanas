@@ -238,6 +238,12 @@ pub fn round_within(
     scope: Scope,
     budget: Option<u64>,
 ) -> Result<RoundReport> {
+    // A round that got this far spoke to the peer. Whether it had anything to
+    // say is beside the point: the acknowledgements it made in the past count
+    // as copies only while it is known to be there, and being answered is what
+    // knowing consists of.
+    store.note_seen(&client.peer_device())?;
+
     let push = push_scoped(store, client, scope)?;
     let (pull, budget_spent) = pull_within(store, vault, client, scope, budget)?;
     Ok(RoundReport {
@@ -370,7 +376,98 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
 }
 
 /// Fetch what the peer has from this user's *other* devices, and merge it.
-/// What one round of hosting for a peer did.
+/// Fetch exactly the chunks of one file from a peer, and apply it.
+///
+/// # The gap this closes
+///
+/// A device with a storage budget, or one that synced over a metered link, ends
+/// up with files it knows about and has not downloaded --
+/// `itsanas_store::catalogue` lists them, which is what a phone should show.
+/// Until this existed there was no way to then *open* one: `itsanas get`
+/// answered "no such file" for a file the account plainly had, and the design
+/// that justified the budget had no mechanism behind it.
+///
+/// # Why a filtered source rather than a plain pull
+///
+/// The merge engine drives which chunks it asks for, so restricting a fetch to
+/// one file means restricting what the *source* will serve. Everything outside
+/// `wanted` is declined, the engine defers those operations exactly as it does
+/// for a sleeping peer, and nothing else is downloaded. Opening one document on
+/// a phone does not pull somebody's photo library.
+///
+/// # Errors
+///
+/// If the peer fails, or the store cannot be written.
+pub fn fetch_only(
+    store: &Store,
+    vault: &Vault,
+    client: &mut PeerClient,
+    wanted: &BTreeSet<ChunkId>,
+) -> Result<SyncReport> {
+    let owner = store.owner();
+    let mine = store.device_id();
+
+    let mut segments = Vec::new();
+    for (device, _, _) in vault.heads_for(owner)? {
+        if device == mine {
+            continue;
+        }
+        segments.extend(vault.segments_for(
+            owner,
+            device,
+            None,
+            usize::from(MAX_SEGMENTS_PER_REQUEST),
+        )?);
+    }
+
+    if segments.is_empty() {
+        return Ok(SyncReport::default());
+    }
+
+    let source = SelectedChunks {
+        client: RefCell::new(client),
+        wanted,
+        served: RefCell::new(Vec::new()),
+    };
+    let (report, _) = apply_segments(store, &segments, &source)
+        .map_err(|error| NetError::Refused(error.to_string()))?;
+
+    let served = source.served.into_inner();
+    if !served.is_empty() {
+        let peer = source.client.into_inner().peer_device();
+        store.record_holders(&served, &peer)?;
+    }
+
+    Ok(report)
+}
+
+/// A remote source that serves only the chunks of one file.
+struct SelectedChunks<'a> {
+    client: RefCell<&'a mut PeerClient>,
+    wanted: &'a BTreeSet<ChunkId>,
+    served: RefCell<Vec<ChunkId>>,
+}
+
+impl ChunkSource for SelectedChunks<'_> {
+    fn fetch(&self, owner: UserId, address: &ChunkId) -> itsanas_sync::Result<Option<Vec<u8>>> {
+        if !self.wanted.contains(address) {
+            return Ok(None);
+        }
+
+        let fetched = self
+            .client
+            .borrow_mut()
+            .chunk(owner, *address)
+            .map_err(|error| itsanas_sync::SyncError::Source(error.to_string()))?;
+
+        if fetched.is_some() {
+            self.served.borrow_mut().push(*address);
+        }
+        Ok(fetched)
+    }
+}
+
+/// What one round of hosting for a peer did./// What one round of hosting for a peer did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct HostReport {
     /// How many chunks the peer asked this node to hold.

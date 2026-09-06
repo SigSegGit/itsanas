@@ -1259,11 +1259,57 @@ fn put(home: &Path, path: &str, source: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+/// Go and get a file this device knows about and has not downloaded.
+///
+/// Fetches exactly that file's chunks from the first peer that has them, rather
+/// than syncing the account: opening one document on a phone must not pull
+/// somebody's photo library.
+fn fetch_absent(node: &Node, path: &str) -> Result<Vec<u8>> {
+    let Some(chunks) = itsanas_store::chunks_for(&node.store, &node.vault, path)? else {
+        return Err(CliError::Usage(format!("no such file: {path}")));
+    };
+
+    let wanted: std::collections::BTreeSet<_> = chunks.into_iter().collect();
+
+    if node.config.peers.is_empty() {
+        return Err(CliError::Usage(format!(
+            "{path} is in this account and not on this device, and there is no peer to fetch it from. Try `itsanas peer add <host:port>` or `itsanas peer find <username>`."
+        )));
+    }
+
+    for target in &node.config.peers {
+        let Ok(mut client) =
+            PeerClient::connect(target.as_str(), &node.device, node.store.owner(), None)
+        else {
+            continue;
+        };
+
+        if session::fetch_only(&node.store, &node.vault, &mut client, &wanted).is_err() {
+            continue;
+        }
+
+        if let Some(content) = node.store.read_file(path)? {
+            println!("fetched {path} from {target}");
+            return Ok(content);
+        }
+    }
+
+    Err(CliError::Usage(format!(
+        "{path} is in this account and no reachable peer would serve it. It is still listed; try again when one is up."
+    )))
+}
+
 fn get(home: &Path, path: &str, destination: Option<&std::path::Path>) -> Result<()> {
     let node = open(home)?;
 
-    let Some(content) = node.store.read_file(path)? else {
-        return Err(CliError::Usage(format!("no such file: {path}")));
+    let content = match node.store.read_file(path)? {
+        Some(content) => content,
+        // Not here does not mean not yours. A device with a storage budget, or
+        // one that synced over a metered link, knows about files it has not
+        // downloaded -- `itsanas ls` shows them. This used to answer "no such
+        // file" for a file the account plainly had, which was both a lie and
+        // the reason the budget setting had nothing behind it.
+        None => fetch_absent(&node, path)?,
     };
 
     match destination {
