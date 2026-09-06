@@ -139,62 +139,87 @@ no Rust on it. The build took 5m37s. Then, on that machine:
   laptop's 29 ms**, on a machine that chunks 4.6× slower. See ROADMAP.md M9 for
   why, and for what that says about pack files.
 
-**And the Raspberry Pi has run it.** A Pi 4 Model B Rev 1.1, Debian 13, aarch64,
-4 GB, on a 58 GB SD card — not the 1 GB machine this file assumed, which is the
-first correction the hardware made. Installed by the same one-liner on
-2026-09-01 with no Rust on it, built at two jobs to leave room for the VPN
-container it shares the box with, peaking at 1266 MB of 3795. The smoke check
-passed natively, and the VPN never noticed.
+**And the Raspberry Pi has run it — twice, on two different disks, and the
+second time is the one to read.**
 
-`itsanas bench` there is the measurement this project has been missing since
-week one — with a large caveat immediately after it:
+The first Pi was a 4 Model B Rev 1.1, Debian 13, aarch64, 4 GB, on a 58 GB SD
+card — not the 1 GB machine this file assumed, which is the first correction the
+hardware made. It installed and benchmarked. Within the hour its root filesystem
+failed: `EUCLEAN`, and `sshd` stopped completing a handshake. Its `ext4` had
+logged six `EFSCORRUPTED` block-bitmap errors at boot, *before* anything here
+touched it, and the compile load almost certainly accelerated the damage. The
+test suite could not be run on it at all: `rustc` died with `SIGBUS` on assorted
+small dependencies, varying between runs.
 
-| | laptop x86-64 | VM aarch64 | **Pi 4B, SD card** |
-| --- | --- | --- | --- |
-| store write | 27.2 MiB/s | 54.1 MiB/s | **44.1 MiB/s** |
-| a note, 4 KiB | 9.2 ms | 1.1 ms | **0.8 ms** |
-| a Word document, 512 KiB | 29 ms | 10 ms | **12 ms** |
-| peak memory | — | 9.2 MiB | **7.6 MiB** |
+**The second Pi is the same board reimaged onto a 119 GB SSD**, Debian 13
+trixie, 3.8 GB, four cores, `/dev/sda2`. On 2026-09-01 it was taken from a
+freshly written image to a running node by `install/provision.sh`, and it now
+carries the coordinator as a system service as well. On that machine:
 
-The Pi saves a note faster than the laptop and uses 7.6 MiB doing 256 MiB of
-work. Every constant in this repository that says "on a Raspberry Pi" was chosen
-against a machine nobody had measured, and on this evidence the machine is
-comfortable.
+- **the whole test suite passes natively — every binary, no failures.** This is
+  the first time it has run on a Pi at all. All three `#[ignore]`d tests ran too
+  and passed: the crash test that kills a store mid-write a dozen times
+  (15.9 s), the real 64 MiB Argon2id derivation, and the streaming test for a
+  file larger than any buffer. The `SIGBUS` crashes were the card, as suspected,
+  and nothing about the architecture.
+- `scripts/smoke.sh` passes as part of every install
+- both directions of cross-account hosting, with the coordinator on this machine
 
-> **Read these Pi numbers with the caveat that follows.** Within the hour after
-> they were taken, that Raspberry Pi's root filesystem failed: files that had
-> just run began returning `EUCLEAN` ("structure needs cleaning") and `sshd`
-> stopped completing a handshake. Its `ext4` had logged six `EFSCORRUPTED`
-> block-bitmap errors at boot, *before* anything here touched it, and the heavy
-> compile load almost certainly accelerated the damage — writing onto a
-> filesystem whose allocator is wrong is how corruption spreads. So the figures
-> below were measured on a machine that was already failing. They are consistent
-> with the VM's and are recorded for that reason, not because they are
-> trustworthy on their own. **They need repeating on a Pi with a sound card
-> before anything is built on them.**
+`itsanas bench` on the SSD, against the two machines that had numbers before:
 
+| | laptop x86-64 | VM aarch64 | Pi 4B, SD card | **Pi 4B, SSD** |
+| --- | --- | --- | --- | --- |
+| store write | 27.2 MiB/s | 54.1 MiB/s | 44.1 MiB/s | **44.1 MiB/s** |
+| store read | — | — | — | **75.7 MiB/s** |
+| a note, 4 KiB | 9.2 ms | 1.1 ms | 0.8 ms | **0.7 ms** |
+| a spreadsheet, 64 KiB | — | — | — | **2.1 ms** |
+| a Word document, 512 KiB | 29 ms | 10 ms | 12 ms | **12 ms** |
+| a big PDF, 4 MiB | 159 ms | 75 ms | — | **94 ms** |
+| a photo burst, 32 MiB | — | — | — | **729 ms (p95 737 ms)** |
+| peak memory | — | 9.2 MiB | 7.6 MiB | **7.5 MiB** |
 
-**The test suite could not be run on it**, and the reason is the machine rather
-than the architecture. `rustc` dies with `SIGBUS` on assorted small
-dependencies — `libc`'s build script, `rand_core`, `rand_xorshift` — and *which*
-ones varies between runs, while release builds of the same tree succeed. That
-Pi's `ext4` logged six `EFSCORRUPTED` block-bitmap errors at boot, its state is
-`clean with errors`, and its last `fsck` was in June. Power and cooling are
-fine: `throttled=0x0`, 37.9 °C. Nothing implicates ITSaNAS, and nothing about
-ITSaNAS on a Pi can be concluded from those crashes either, until that
-filesystem is checked.
+**The SD card's numbers survived.** Store write is identical to three
+significant figures, the Word document is identical, the note is within a tenth
+of a millisecond, and peak memory is within 0.1 MiB. So the caveat that used to
+stand here — that those figures were taken on a failing machine and needed
+repeating — is now discharged: they were right.
+
+That is worth stating carefully, because it is the kind of result that invites
+the wrong lesson. The measurements being reproducible does **not** make it
+correct to have run a long compile on a filesystem that had already logged
+corruption. The check made beforehand was a single reading of the error counter,
+which cannot show a direction; the decision was wrong when it was made, and it
+would have been wrong if the card had survived. `scripts/disk-health.sh` exists
+so that check cannot be made that way again: it takes two readings and reports
+what moved, and it carries a control so that a count of zero from a search that
+finds nothing is not mistaken for a clean machine. It was used around this
+suite run — `errors_count` 0 before and after, kernel errors 0 with a control
+that matched, 41.8 °C rising to 50.1 °C, `throttled=0x0`.
+
+The photo burst is the one figure that fails its own bar: 737 ms at the 95th
+percentile against the 100 ms that reads as instant. That is a 32 MiB write, and
+it is what `bench` says to fix.
 
 What that leaves genuinely untested, on any machine: **redb on an SD card under
-sustained write**, which is the medium's real question.
+sustained write**. The medium's real question is now unanswered in a different
+way than before — this fleet no longer has an SD card in it.
+
 
 ### What emulation established before that, and what it did not
 
 Both are `aarch64-unknown-linux-gnu`. CI also cross-builds the whole workspace on
 every push and then **runs it on that architecture** under `qemu-user-static`:
-**637 pass, 3 `#[ignore]`d, none fail.** That is 635 of the project's 638 test
-functions plus its 2 doctests — the arithmetic is worth spelling out because
-`TESTING.md` says 638 and this says 637, and a reader who cannot reconcile two
-numbers on the same subject is right not to trust either. Then `scripts/smoke.sh` creates an
+the whole suite except the three `#[ignore]`d, plus the doctests, and **none
+fail**.
+
+No total is written here on purpose. This paragraph used to carry one, and a
+sentence explaining why it differed by three from the total in `TESTING.md` —
+and then the suite grew and both numbers here went stale while the explanation
+of their difference stayed, which is worse than either number being wrong on
+its own. `docs/TESTING.md` holds the count, `scripts/check-counts.py` checks it
+against the source, and this file describes what runs rather than how many.
+
+Then `scripts/smoke.sh` creates an
 account, checks the recovery phrase is still 24 words, stores a 350 KB file
 across five chunks, reads it back byte for byte and runs `doctor` — the same
 script an installer runs at the end of a real install, with no emulator in the

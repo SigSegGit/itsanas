@@ -46,10 +46,11 @@ reboots — and your data stays available and stays in sync.
 > machines for a week. It **has** now run on real ARM: the whole suite passes on
 > Apple silicon in CI on every push, and on an aarch64 Ubuntu VM on a Freebox
 > Delta — every test, none failing, on 2026-09-01, installed there by its own
-> one-liner, and on a **Raspberry Pi 4B on an SD card** — where it installed,
-> stored and returned a file, and turned out to save a note faster than the
-> laptop. That Pi's filesystem failed an hour later for reasons of its own, so
-> its numbers want repeating on a sound card.
+> one-liner, and on a **Raspberry Pi 4B** — where the whole suite passes
+> natively, including all three `#[ignore]`d tests, and where it saves a note
+> faster than the laptop. The first Pi's filesystem failed an hour after its
+> numbers were taken; the board was reimaged onto an SSD and the numbers came
+> back the same, which settles them.
 > Repair chooses no peers. Tombstones are never pruned. There is no Android app,
 > only a Termux script that builds the command line tool. See
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the list and

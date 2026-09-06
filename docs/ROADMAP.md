@@ -119,30 +119,42 @@ What is missing before this is a *network* rather than a personal sync tool:
   saves a document in a third of the laptop's time. `Test (macos-latest)` had
   also been running the whole suite on Apple silicon since CI first ran.
 
-  ~~**Still never run on a Raspberry Pi.**~~ **It has.** A Pi 4 Model B, Debian
-  13, aarch64, on an SD card, on 2026-09-01: installed by the same one-liner on
-  a machine with no Rust on it, built in about twenty minutes at two jobs, and
-  the smoke check passed natively. `itsanas bench` there is in M9 below, and it
-  is the answer to a question this project has carried since week one — **the Pi
-  saves a note in 0.8 ms, the fastest of the three machines, and the whole
-  256 MiB benchmark peaks at 7.6 MiB of memory.** The constants were chosen for
-  a machine nobody had measured, and the machine turns out to be comfortable.
+  ~~**Still never run on a Raspberry Pi.**~~ **It has, on two disks.** A Pi 4
+  Model B, Debian 13, aarch64, first on an SD card on 2026-09-01: installed by
+  the same one-liner on a machine with no Rust on it, smoke check passing
+  natively. The test suite could not be run there — `rustc` died with `SIGBUS`
+  on assorted small dependencies, varying between runs, on a Pi whose `ext4`
+  had reported six `EFSCORRUPTED` block-bitmap errors at boot. That filesystem
+  failed within the hour.
 
-  **The test suite could not be run there**, and that is about the machine
-  rather than about ARM: `rustc` dies with `SIGBUS` on assorted small
-  dependencies, and *which* ones varies between runs, on a Pi whose `ext4`
-  reported six `EFSCORRUPTED` block-bitmap errors at boot and whose last `fsck`
-  was in June. Release builds succeed; debug builds — which is what `cargo test`
-  is — do not. Nothing points at ITSaNAS, and nothing can be concluded about
-  ITSaNAS on a Pi from it either, until that filesystem is checked. What stands
-  is: it installs, it runs, and it is fast there.
+  **The same board, reimaged onto a 119 GB SSD, runs everything.** The whole
+  suite passes natively, every binary, no failures — the first time it has run
+  on a Pi — and so do all three `#[ignore]`d tests, including the crash test
+  that kills a store mid-write a dozen times and the real 64 MiB Argon2id
+  derivation. So the `SIGBUS` crashes were the card, as suspected, and said
+  nothing about ARM.
+
+  `itsanas bench` there is in M9 below. **The Pi saves a note in 0.7 ms, the
+  fastest of the three machines, and the whole 256 MiB benchmark peaks at
+  7.5 MiB of memory** — within a tenth of a millisecond and a tenth of a
+  megabyte of what the failing card reported, which discharges the caveat that
+  those figures needed repeating. The constants were chosen for a machine
+  nobody had measured, and the machine turns out to be comfortable.
+
+  The numbers surviving does not make it correct to have run that load on a
+  filesystem already logging corruption; the check made beforehand was a single
+  reading of an error counter, which cannot show a direction.
+  `scripts/disk-health.sh` now takes two readings and reports what moved, with
+  a control so a zero from a broken search is not read as a clean machine.
 
   What that leaves untested everywhere: **redb on an SD card under sustained
-  write**, which is the medium's real question and needs a working Pi.
+  write**. This fleet no longer contains an SD card, so answering it now needs
+  hardware nobody here has.
 
 - CI also cross-builds
   the workspace for aarch64 and then runs **the whole test suite** on that
-  architecture under `qemu-user-static` — 637 pass, 3 `#[ignore]`d, none fail —
+  architecture under `qemu-user-static` — the whole suite bar the three
+  `#[ignore]`d, none fail —
   followed by `scripts/smoke.sh`: an account, a 24-word phrase, a 350 KB file
   across five chunks read back byte for byte, `doctor` clean.
 
@@ -795,13 +807,15 @@ Run again on 2026-09-01 on the Freebox Delta VM — aarch64 Ubuntu 26.04, 2 vCPU
 11 GB — and on the laptop, from the same commit and the same release profile, so
 the two columns are comparable:
 
-> **The Pi column was measured on a machine that failed within the hour.** Its
-> root filesystem began returning `EUCLEAN` shortly afterwards; `docs/PORTING.md`
-> §3 has the detail. The figures agree with the VM's, which is why they are kept,
-> and they need repeating on a Pi with a sound card before anything is built on
-> them.
+> **The Pi column was measured on a machine that failed within the hour**, and
+> has since been repeated on the same board reimaged onto an SSD. The two runs
+> agree: store write identical to three significant figures, the Word document
+> identical, the note within a tenth of a millisecond, peak memory within a
+> tenth of a megabyte. The caveat that used to stand here is discharged.
+> `docs/PORTING.md` §3 has both runs and the reason the agreement does not
+> excuse how the first was taken.
 
-| | laptop, x86-64 | VM, aarch64 2 vCPU | **Pi 4B, aarch64, SD card** |
+| | laptop, x86-64 | VM, aarch64 2 vCPU | **Pi 4B, aarch64** |
 | --- | --- | --- | --- |
 | chunking | 848.5 MiB/s | 185.0 MiB/s | 142.5 MiB/s |
 | **store write** | **27.2 MiB/s** | **54.1 MiB/s** | **44.1 MiB/s** |
