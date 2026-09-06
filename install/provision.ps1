@@ -281,25 +281,137 @@ if ($Coordinator) {
 # ------------------------------------------------------------- the daemon
 
 $taskOk = $false
+$taskForeign = $false
+$daemonIsTask = $false
 if (-not $NoTask) {
     Write-Step 'The background task'
 
     New-Item -ItemType Directory -Force -Path $secretDir | Out-Null
 
-    # Locked down before the secret goes in, not after.
-    Set-Content -LiteralPath $secretFile -Value '' -NoNewline
-    icacls $secretFile /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
-    Set-Content -LiteralPath $secretFile -Value $passphrase -NoNewline -Encoding ascii
-    Write-Ok "$secretFile (readable only by $env:USERNAME)"
-    Write-Info 'Anything running as you can read that file. That is the trade a'
-    Write-Info 'background service makes; it is not a default this script hid.'
+    # Written beside the old one, locked down, filled in, and only then moved
+    # into place.
+    #
+    # The obvious order -- truncate, set the permissions, write the secret -- is
+    # what was here, and it destroyed the passphrase on this machine. The middle
+    # step failed on a file an elevated run had created, the script stopped, and
+    # what was left was an empty file where the credential used to be. A
+    # provisioning script that can lose the secret it manages is worse than one
+    # that refuses to run.
+    #
+    # Writing a new file first means the worst case is a stray `.new` beside an
+    # untouched original.
+    $pending = "$secretFile.new"
+    $lockedDown = $false
+    $aclError = ''
+    $moveError = ''
+    Set-Content -LiteralPath $pending -Value '' -NoNewline
+
+    # Neither `icacls` nor `Set-Acl`, and both exclusions were earned.
+    #
+    # `icacls` is a native command, and this script runs with
+    # $ErrorActionPreference = 'Stop', under which anything a native command
+    # writes to standard error is a *terminating* error. It writes there when it
+    # cannot re-permission a file, so the version that shelled out died
+    # mid-step -- which is how the passphrase came to be destroyed. `*> $null`
+    # does not help: PowerShell has classified the output as an error before the
+    # redirection applies. Same trap as `schtasks` in `windows.ps1`.
+    #
+    # `Set-Acl` then failed too, and for a reason worth recording because it
+    # was not the one guessed: under `powershell.exe -NoProfile` from a
+    # non-interactive parent it reports that Microsoft.PowerShell.Security
+    # "could not be loaded". The same context resolves Set-Content and
+    # Move-Item without complaint, and the same context could not find
+    # `Get-FileHash` earlier today. Module autoloading is not something the one
+    # step that protects a credential should depend on.
+    #
+    # `FileInfo.SetAccessControl` is a method on a .NET type. It was measured in
+    # exactly this context: it works, `Set-Acl` beside it does not, and the
+    # resulting list is this account and nobody else.
+    try {
+        $acl = New-Object System.Security.AccessControl.FileSecurity
+        # Protected, and do not copy the inherited rules across: the point is
+        # that nobody but this account is on the list.
+        $acl.SetAccessRuleProtection($true, $false)
+        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
+            $env:USERNAME, 'FullControl', 'Allow')))
+        ([System.IO.FileInfo]$pending).SetAccessControl($acl)
+        $lockedDown = $true
+    } catch {
+        # Keep the reason. An empty catch here is what made this take an hour
+        # to work out: the script could say the permissions were not set and
+        # not say why, which is a worse position than not checking at all.
+        $aclError = $_.Exception.Message
+    }
+
+    Set-Content -LiteralPath $pending -Value $passphrase -NoNewline -Encoding ascii
+
+    $inPlace = $false
+    if ($lockedDown) {
+        try {
+            Move-Item -LiteralPath $pending -Destination $secretFile -Force -ErrorAction Stop
+            $inPlace = $true
+        } catch {
+            $moveError = $_.Exception.Message
+        }
+    }
+
+    # Read back what is actually there. This step used to print "readable only
+    # by you" without checking anything, on a run where the permissions had in
+    # fact been refused. The one file in this project whose protection must
+    # never be asserted without looking is this one.
+    $stored = ''
+    try { $stored = (Get-Content -LiteralPath $secretFile -Raw -ErrorAction Stop) } catch { }
+
+    if ($inPlace -and $stored -eq $passphrase) {
+        Write-Ok "$secretFile (readable only by $env:USERNAME)"
+        Write-Info 'Anything running as you can read that file. That is the trade a'
+        Write-Info 'background service makes; it is not a default this script hid.'
+    } else {
+        Remove-Item -LiteralPath $pending -Force -ErrorAction SilentlyContinue
+        Write-Warn "could not replace $secretFile"
+        if (-not $lockedDown) {
+            Write-Info "Its permissions could not be set: $aclError"
+        } elseif ($moveError) {
+            Write-Info "It could not be moved into place: $moveError"
+            Write-Info 'That usually means the existing file was created by an elevated'
+            Write-Info 'run and this session cannot replace it.'
+        }
+        Write-Info 'The file you already had has been left alone, so the daemon keeps'
+        Write-Info 'whatever passphrase it was working with.'
+        Write-Info ''
+        Write-Info 'To repair it, as administrator:'
+        Write-Info "  Remove-Item `"$secretFile`""
+        Write-Info 'then run this again.'
+    }
 
     $wrapper = Join-Path $secretDir 'run-daemon.ps1'
     @(
         '# Started by the ITSaNAS scheduled task at logon. A daemon cannot be',
         '# prompted, so the passphrase comes from a file only this account can read.',
         '$env:ITSANAS_PASSPHRASE = Get-Content "$env:LOCALAPPDATA\itsanas\passphrase.txt" -Raw',
-        '& "$env:LOCALAPPDATA\Programs\itsanas\bin\itsanas.exe" daemon'
+        '',
+        '# Everything the daemon says, into a file somebody can read.',
+        '#',
+        '# The first version of this wrapper redirected nothing, so a task started',
+        '# at logon wrote its output into a window that does not exist -- while the',
+        '# summary at the end of provisioning told the reader to follow a log file',
+        '# that would never gain another line. Measured, not guessed: the task was',
+        '# running and its log had last been touched ninety seconds before the',
+        '# daemon started. It is the same fault the Linux script had, describing an',
+        '# observation that was not actually available.',
+        '#',
+        '# In LOCALAPPDATA rather than TEMP, because TEMP is a directory Windows',
+        '# and every cleaner on the machine feel free to empty.',
+        '$log = "$env:LOCALAPPDATA\itsanas\daemon.log"',
+        '',
+        '# One rotation, so a node left running for a year does not fill a disk',
+        '# with its own chatter, and so the previous run is still readable after a',
+        '# restart.',
+        'if ((Test-Path $log) -and ((Get-Item $log).Length -gt 5MB)) {',
+        '    Move-Item -LiteralPath $log -Destination "$log.1" -Force',
+        '}',
+        '',
+        '& "$env:LOCALAPPDATA\Programs\itsanas\bin\itsanas.exe" daemon *>> $log'
     ) | Set-Content -LiteralPath $wrapper -Encoding utf8
 
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
@@ -307,6 +419,8 @@ if (-not $NoTask) {
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+    $before = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+
     try {
         Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
             -Settings $settings -Force `
@@ -315,14 +429,34 @@ if (-not $NoTask) {
         Start-Sleep -Seconds 3
         $taskOk = $null -ne (Get-Process -Name 'itsanas' -ErrorAction SilentlyContinue)
         if ($taskOk) {
+            $daemonIsTask = $true
             Write-Ok "the $taskName task is registered and the daemon is running"
         } else {
             Write-Warn 'the task was registered but the daemon is not running'
             Write-Info "  Get-ScheduledTaskInfo -TaskName $taskName"
         }
     } catch {
-        Write-Warn "could not register the task: $($_.Exception.Message)"
-        Write-Info 'Run the daemon by hand with:  itsanas daemon'
+        # A task created from an elevated PowerShell gets a security descriptor
+        # that an ordinary session cannot modify or delete. Every later run of
+        # this script then fails here with the two words "Access denied", which
+        # say nothing about what happened or what to do -- and the machine is
+        # left running the *previous* wrapper, so any improvement made here
+        # silently does not apply. Seen on the machine this was written on.
+        if ($null -ne $before) {
+            $taskForeign = $true
+            Write-Warn "the $taskName task exists and this account cannot replace it"
+            Write-Info 'That happens when it was created from an elevated PowerShell:'
+            Write-Info 'the task then has a security descriptor an ordinary session'
+            Write-Info 'cannot modify. It keeps running whatever it was given before,'
+            Write-Info 'which is not what this run just wrote.'
+            Write-Info ''
+            Write-Info 'In an administrator PowerShell:'
+            Write-Info "  Unregister-ScheduledTask -TaskName $taskName -Confirm:`$false"
+            Write-Info 'and run this again -- or run this script elevated.'
+        } else {
+            Write-Warn "could not register the task: $($_.Exception.Message)"
+            Write-Info 'Run the daemon by hand with:  itsanas daemon'
+        }
     }
 }
 
@@ -372,8 +506,8 @@ Write-Step 'Done'
 if ($wasRunning -and -not $taskOk) {
     $env:ITSANAS_PASSPHRASE = $passphrase
     Start-Process -FilePath $bin -ArgumentList 'daemon' -WindowStyle Hidden `
-        -RedirectStandardOutput "$env:TEMP\itsanas-daemon.log" `
-        -RedirectStandardError "$env:TEMP\itsanas-daemon.err"
+        -RedirectStandardOutput (Join-Path $secretDir 'daemon.log') `
+        -RedirectStandardError (Join-Path $secretDir 'daemon.err')
     Start-Sleep -Seconds 3
     if (Get-Process -Name 'itsanas' -ErrorAction SilentlyContinue) {
         $taskOk = $true
@@ -387,9 +521,25 @@ if ($wasRunning -and -not $taskOk) {
 # What this prints is what the machine is, not what the script meant to do.
 if ($taskOk) {
     Write-Host ""
-    Write-Host "       Watch it:  Get-Content `$env:TEMP\itsanas-daemon.log -Wait"
-    Write-Host "       Stop it:   Stop-ScheduledTask -TaskName $taskName"
+    Write-Host "       Watch it:  Get-Content `$env:LOCALAPPDATA\itsanas\daemon.log -Wait -Tail 20"
+    # Which command stops it depends on which thing started it. Printing the
+    # task command for a daemon this script started by hand is the same kind of
+    # lie as printing a log path nothing writes to.
+    if ($daemonIsTask) {
+        Write-Host "       Stop it:   Stop-ScheduledTask -TaskName $taskName"
+    } else {
+        Write-Host "       Stop it:   Stop-Process -Name itsanas"
+        Write-Host "                  (it is a plain process: this run put back the"
+        Write-Host "                   daemon it stopped, and no task was registered)"
+    }
     Write-Host "       Ask it:    itsanas status   (stop it first: one writer)"
+} elseif ($taskForeign) {
+    Write-Host ""
+    Write-Host "       The $taskName task is still the one that was already here, running"
+    Write-Host "       the wrapper it was given before this run. Replace it as"
+    Write-Host "       administrator and run this again to pick up what changed:"
+    Write-Host ""
+    Write-Host "           Unregister-ScheduledTask -TaskName $taskName -Confirm:`$false"
 } else {
     Write-Host ""
     Write-Host "       There is no background task running on this machine. Start the"
