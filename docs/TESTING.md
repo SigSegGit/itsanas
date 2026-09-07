@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-01 — 687 test functions across 21 binaries, 3 of them
+**Last updated: 2026-09-01 — 689 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
 
-**571 of the 687 tests have an entry of their own on this page** — an *entry*,
+**573 of the 689 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -139,11 +139,11 @@ guarantee and is not one.
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 144 |
-| `itsanas-store` integration (`tests/store.rs`) | 36 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 37 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 34 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 41 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 42 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 72 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
@@ -533,7 +533,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (36)
+# `itsanas-store` — integration tests (37)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -625,6 +625,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 | **`a_file_this_device_made_and_released_is_still_listed_and_still_fetchable`** | Found on a Raspberry Pi, not in a test: a file put on a device with a 300 KiB limit, pushed to two hosts, released exactly as designed — and then gone from `itsanas ls` on the machine that made it, with `itsanas get` answering "no such file" for a file two other machines were holding. The catalogue walked only *other* devices' chains, on a rule that stopped being true the day content could be released. Fails when the walk over this device's own log is removed. |
 | **`a_deleted_file_is_not_resurrected_by_reading_this_devices_own_log`** | The other half. Reading one's own chain must not bring back everything one has ever deleted. |
 | **`a_file_can_be_released_fetched_back_and_released_again`** | A limit has to work more than once. Releasing erased the holder ledger along with the local copy, reusing the rule garbage collection needs — where a chunk goes because its *file* went. A release is the opposite case: the file is still in the account and the copies elsewhere are what made letting go safe. Observed on a Raspberry Pi before it was fixed: a device stuck at 380 KiB against a 300 KiB limit, refusing round after round because it had forgotten the second holder while fetching the file back. Fails when `release_chunk` is put back to `forget_chunk`. |
+| **`a_reachable_machine_with_stale_records_does_not_authorise_a_release`** | The case a per-machine liveness rule cannot see, and the one that costs data: a peer that stays online and empties its disk. the count of live holders asked only whether the *device* had been heard from, so such a peer counted as a copy for ever — and after a release there is no audit left to contradict it. Two bars now, and the per-`(chunk, device)` timestamp that tells them apart was already being written and read by nothing. Fails when the second bar is removed. |
 
 ---
 
@@ -715,7 +716,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (41)
+# `itsanas-net` — two-node tests (42)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -748,6 +749,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_second_push_offers_nothing_and_says_so`** | Found by reading three machines' daemon logs after an upgrade: "sent 400 B (0 chunks, 1 segments)" every five minutes on a fleet where nothing was happening. A push offered the whole chain every round whatever the peer held, the vault refused each already-held segment with a chain-break, and `store_segment` maps every refusal to `false` — so the waste was invisible from the pushing side and grows without bound as the chain does. Fails when the resume is removed. |
 | **`a_file_this_device_never_downloaded_can_be_fetched_when_it_is_asked_for`** | The capability the storage budget rests on, and which did not exist when the budget shipped: a device lists a file it does not hold, and opening it goes and gets it — that one file, not the account. Without this, `keep` produces files that are visible and unopenable, and a phone client is a browser for things you cannot read. |
 | **`a_file_this_device_made_and_released_can_be_fetched_back_from_a_host`** | The worse half of the same defect, and the one that only showed itself once the listing was fixed: opening a released file still answered "no such file" while two hosts held it. `apply_segments` skips a device's own chain, on the reasoning that its own state already reflects it — untrue the moment content can be released. A listed file that cannot be opened looks like corruption; a file that is not listed looks like a device that has not synced. Fails when the replay mode is put back to `OthersOnly`. |
+| **`a_release_rests_on_two_real_peers_and_notices_when_one_stops_holding`** | The test this repository did not have, and the reason three defects in the release path were found by hand on a Raspberry Pi and none by 683 tests. Every other release test writes the holder ledger directly — a device that never spoke to anything — and reads it back, which is sound for testing the *choice* and useless for testing the release: a release never fails on the choice, it fails on the provenance of the evidence. Here two real hosts take a copy over two real sockets, the release decides from what those exchanges left behind, one host then throws the chunk away, and the next round has to notice — which no audit could, because a challenge is checked against a local copy this device released. Fails when the ledger sweep is removed. |
 | **`the_side_that_dialled_ends_up_hosting_too`** | The reciprocal half, and the test that decides whether somebody behind a router they do not control can take part at all. Only one of the two nodes runs a server, which is the same asymmetry NAT produces. Before `host_for` existed the dialling side could only give its data away; now its vault grows. Fails if the offer is emptied. |
 | **`the_owner_learns_who_is_holding_after_a_reciprocal_round`** | Taking the chunks is half of it. An owner that does not record where its copies went cannot audit them and will keep asking somebody to hold what is already held. Measured through `under_replicated`, before and after. |
 | `a_pledge_of_nothing_takes_nothing_on` | Hosting stays opt-in over the new path: a node that offered no space must not have its disk filled by a peer that asked nicely. Fails when the pledge is ignored. |

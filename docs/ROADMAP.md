@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**687 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
+**689 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1266,7 +1266,14 @@ is making a *disagreement* cheap to detect in bulk rather than one chunk at a
 time — a Merkle summary over what each side believes the other holds. Not
 started, and not needed below tens of gigabytes.
 
-### A verifier has to hold the bytes it challenges
+### A verifier has to hold the bytes it challenges — no longer a future ceiling
+
+**This was filed as a consequence of the sharded future, with a note saying it
+would not bite below tens of gigabytes. That was true when it was written and
+was false six commits later:** `keep` made "this node does not hold what it
+released" ordinary, today, on a Raspberry Pi, at 300 KiB. A documented ceiling
+that has become an active defect is worse than an undocumented one, because it
+looks watched.
 
 `session::audit` re-derives the expected ciphertext from this device's own copy,
 so a device that has released content reports those challenges as `unverifiable`
@@ -1276,7 +1283,15 @@ rather than failing the peer. Correct, and it means:
 * the sharded future in `docs/DESIGN.md` §5 — where by design nobody holds a
   whole copy of anybody else's account — has no verification story yet.
 
-Two options, neither built. **Precomputed challenges**: while the owner still
+**Half of the damage is repaired, and it is worth being precise about which
+half.** A round now asks each peer about the chunks the ledger says that peer
+holds and this device does not, so a holder that threw released content away is
+still heard saying "missing" — the *no* is back, including in the three-machine
+case where A tells B and C never hears. What is still missing is the *yes*: a
+released chunk's holders can be contradicted but not challenged, so a peer that
+claims to still have it cannot be made to prove it.
+
+Two options for the remaining half, neither built. **Precomputed challenges**: while the owner still
 holds a chunk, compute *n* (nonce, answer) pairs and keep the answers; 8-byte
 answers and four per chunk is 32 bytes per 64 KiB, or half a gigabyte per
 terabyte, and they run out. **Cross-checking**: send the same fresh nonce to two

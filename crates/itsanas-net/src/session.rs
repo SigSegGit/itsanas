@@ -24,7 +24,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 
-use itsanas_crypto::{ChunkId, UserId};
+use itsanas_crypto::{ChunkId, DeviceId, UserId};
 use itsanas_store::{SegmentEnvelope, Store, Vault};
 use itsanas_sync::{ChunkSource, SyncReport, apply_segments};
 
@@ -202,6 +202,77 @@ pub fn round_scoped(
     Ok(RoundReport { push, pull })
 }
 
+/// Ask this peer about chunks it is recorded as holding that this device no
+/// longer holds itself, and correct the ledger from the answer.
+///
+/// # The hole this closes
+///
+/// The have/missing sweep above starts from `store.blobs().addresses()`. A
+/// released chunk is not there, so it was never offered, never came back in a
+/// "missing" answer, and was never withdrawn. The audit could not reach it
+/// either: `session::audit` re-derives the expected ciphertext from this
+/// device's own copy, and a device that let go of a chunk has no copy to derive
+/// from, so those challenges come back `unverifiable`.
+///
+/// Both together meant that **once a device released a chunk, nothing could
+/// ever again tell it that the holders had lost that chunk** — leaving only the
+/// peer's voluntary drop notice, which is the honesty of the party the whole
+/// mechanism exists not to have to trust. And the device where it mattered most
+/// was the one that had released the most: the phone.
+///
+/// It also fixes the three-machine case with no new message. A releases and
+/// tells B; C never hears it, and goes on counting A. Now C's own next round
+/// asks A about the chunks it thinks A holds, A answers "missing", and C
+/// corrects itself.
+///
+/// # What it costs, and what it does not
+///
+/// Nothing at all on a machine that holds its whole account: every recorded
+/// chunk is one this device also has, and those are filtered out before a single
+/// question is asked. On a device short of room it is 32 bytes per released
+/// chunk per round, the same order as the sweep it complements — and it is
+/// paged with a cursor rather than a fixed prefix, because a fixed prefix is a
+/// fixed list and this project has already been caught by one.
+///
+/// The answer is a *claim*, not a proof. A peer that says "I still have it"
+/// cannot be challenged on a chunk this device no longer holds; that limit is
+/// real and is stated in `docs/DESIGN.md` §6.4. What this restores is the
+/// ability to hear "no".
+fn refresh_released(store: &Store, client: &mut PeerClient, peer: &DeviceId) -> Result<usize> {
+    let owner = store.owner();
+    let mut recorded = 0usize;
+    let mut cursor: Option<Vec<u8>> = None;
+
+    loop {
+        let (page, next) = store.holdings_page(peer, cursor.as_deref(), MAX_HAVE_BATCH)?;
+        if page.is_empty() {
+            break;
+        }
+
+        let ask: Vec<ChunkId> = page
+            .into_iter()
+            .filter(|chunk| !store.has_chunk(chunk))
+            .collect();
+
+        if !ask.is_empty() {
+            let missing = client.missing_chunks(owner, ask.clone())?;
+            let gone: BTreeSet<ChunkId> = missing.iter().copied().collect();
+            store.forget_holders(&missing, peer)?;
+
+            let still: Vec<ChunkId> = ask.into_iter().filter(|c| !gone.contains(c)).collect();
+            recorded += still.len();
+            store.record_holders(&still, peer)?;
+        }
+
+        match next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+
+    Ok(recorded)
+}
+
 /// Offer this node's work to a peer, moving everything.
 pub fn push(store: &Store, client: &mut PeerClient) -> Result<PushReport> {
     push_scoped(store, client, Scope::Everything)
@@ -363,6 +434,8 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
         report.holders_recorded += confirmed.len();
         store.record_holders(&confirmed, &peer)?;
     }
+
+    report.holders_recorded += refresh_released(store, client, &peer)?;
 
     Ok(report)
 }

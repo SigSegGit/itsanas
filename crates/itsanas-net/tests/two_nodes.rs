@@ -2541,3 +2541,95 @@ fn a_second_push_offers_nothing_and_says_so() {
         assert_eq!(third.segments_accepted, 1);
     });
 }
+
+#[test]
+fn a_release_rests_on_two_real_peers_and_notices_when_one_stops_holding() {
+    // The test the repository did not have, and the reason three defects in the
+    // release path were found by hand on a Raspberry Pi and none by 683 tests.
+    //
+    // Every other release test writes the holder ledger directly — a
+    // `DeviceKeys::generate()` that never spoke to anything — and then reads it
+    // back. That is sound for testing the *choice*, and useless for testing the
+    // release, because a release never fails on the choice. It fails on the
+    // provenance of the evidence. A test that fabricates its own input cannot
+    // catch a bug in how that input is derived, and all three defects were
+    // bugs in derivation.
+    //
+    // So: nothing here is written into the ledger by hand. Two real hosts, two
+    // real pushes over two real sockets, and the release decides from what
+    // those exchanges left behind.
+    let author = node(&alice(), 90);
+    let host_one = node(&MasterSecret::from_bytes([0xC1; 32]), 91);
+    let host_two = node(&MasterSecret::from_bytes([0xC2; 32]), 92);
+
+    let payload = itsanas_testkit::filler("provenance", 200 * 1024);
+    author.store.write_file("real.bin", &payload).unwrap();
+    author.store.flush_segment().unwrap();
+    let chunks = author.store.stat("real.bin").unwrap().unwrap().chunks;
+
+    let push_to = |host: &Node| {
+        with_server(host, Pledge::gigabytes(1), |address| {
+            let mut client =
+                PeerClient::connect(address, &author.device, author.store.owner(), None).unwrap();
+            session::push(&author.store, &mut client).unwrap()
+        })
+    };
+
+    push_to(&host_one);
+    push_to(&host_two);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let earned = author.store.holder_evidence(&chunks[0], now).unwrap();
+    assert_eq!(
+        earned.live, 2,
+        "two real pushes did not produce two holders"
+    );
+    assert_eq!(
+        earned.fresh, 2,
+        "the records were not fresh for this chunk, which is what a release needs"
+    );
+
+    match author.store.release("real.bin", now).unwrap() {
+        itsanas_store::Release::Gone(_) => {}
+        other => panic!("a release backed by two real hosts was refused: {other:?}"),
+    }
+    assert!(
+        author.store.read_file("real.bin").unwrap().is_none(),
+        "nothing was released, so the rest of this test proves nothing"
+    );
+
+    // One host throws the data away. The author no longer holds the bytes, so
+    // no storage challenge can catch this — `audit` re-derives the expected
+    // ciphertext from a local copy that does not exist any more. Before the
+    // ledger sweep covered released chunks, NOTHING could catch it, and the
+    // author went on reporting two copies for ever.
+    for chunk in &chunks {
+        assert!(
+            host_one
+                .vault
+                .remove_chunk(author.store.owner(), chunk)
+                .unwrap(),
+            "the host was not holding what it acknowledged"
+        );
+    }
+
+    push_to(&host_one);
+
+    let after = author.store.holder_evidence(&chunks[0], now).unwrap();
+    assert_eq!(
+        after.live, 1,
+        "the ledger still counts a host that threw the chunk away"
+    );
+
+    // And the consequence that matters: with one holder left, the next release
+    // of that content would be refused rather than taking it to zero.
+    author.store.write_file("real.bin", &payload).unwrap();
+    match author.store.release("real.bin", now).unwrap() {
+        itsanas_store::Release::NotSafeYet { evidence, .. } => assert_eq!(evidence.live, 1),
+        other => panic!("released down to a single copy: {other:?}"),
+    }
+}

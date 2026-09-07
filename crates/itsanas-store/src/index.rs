@@ -20,7 +20,7 @@ use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 use crate::{
     error::{Result, StoreError},
     holders::AuditCursor,
-    holders::{self, AtRisk, Coverage, Holder},
+    holders::{self, AtRisk, Coverage, Holder, HolderEvidence},
     local::LocalState,
     oplog::{FileEntry, LogEntry, SegmentEnvelope, Tombstone},
     reliability::Reliability,
@@ -1332,29 +1332,106 @@ impl Index {
         Ok(self.remote_holders(chunk)?.len())
     }
 
-    /// How many other devices are known to hold `chunk` **and** have been heard
-    /// from recently enough for that to still mean something.
+    /// What this node can actually say about who else holds `chunk`.
     ///
-    /// The same rule [`Index::coverage`] applies, asked about one chunk. It
-    /// exists because letting go of local content is the one operation where
-    /// being wrong destroys data: a record from a machine that has been silent
-    /// for a fortnight is a memory, and releasing on the strength of a memory
-    /// is how the last copy disappears.
-    pub fn live_holder_count(&self, chunk: &ChunkId, now: u64) -> Result<usize> {
+    /// Two numbers, because they answer two different questions and conflating
+    /// them is how a release comes to rest on a belief.
+    ///
+    /// `live` counts holders whose **machine** has been heard from within
+    /// [`holders::CONFIRMED_FOR`] — the same rule [`Index::coverage`] uses. It
+    /// says the holder still exists.
+    ///
+    /// `fresh` counts holders whose record **for this chunk** was refreshed
+    /// within the same window — by a successful audit, or by that peer
+    /// answering "I am not missing it" during a push. It says somebody
+    /// answered about *this* chunk, not merely that the machine picked up the
+    /// phone about something else.
+    ///
+    /// The distinction was invisible until content could be released. A
+    /// per-machine rule cannot tell a peer that still has your data from one
+    /// that emptied its disk and stayed online, and the one operation that
+    /// destroys data on the strength of these numbers is exactly the one that
+    /// should not be told they are the same.
+    pub fn holder_evidence(&self, chunk: &ChunkId, now: u64) -> Result<HolderEvidence> {
         let fresh_since = now.saturating_sub(holders::CONFIRMED_FOR);
         let txn = self.db.begin_read()?;
         let seen = txn.open_table(DEVICE_SEEN)?;
+        let holders_table = txn.open_table(HOLDERS)?;
 
-        let mut live = 0usize;
-        for holder in self.remote_holders(chunk)? {
-            let last = seen
-                .get(holder.device.as_bytes().as_slice())?
-                .map_or(0, |value| value.value());
-            if last >= fresh_since {
-                live += 1;
+        let mut evidence = HolderEvidence::default();
+        for row in holders_table
+            .range(holders::range_start(chunk).as_slice()..=holders::range_end(chunk).as_slice())?
+        {
+            let (key, value) = row?;
+            let Some((_, device)) = holders::split(key.value()) else {
+                continue;
+            };
+
+            let last_seen = seen
+                .get(device.as_bytes().as_slice())?
+                .map_or(0, |v| v.value());
+            if last_seen < fresh_since {
+                continue;
+            }
+            evidence.live += 1;
+
+            // The timestamp on the record itself, which is written every time
+            // that peer confirms this chunk and was never read until now.
+            if value.value() >= fresh_since {
+                evidence.fresh += 1;
             }
         }
-        Ok(live)
+        Ok(evidence)
+    }
+
+    /// A page of the chunks `device` is recorded as holding.
+    ///
+    /// `after` is the raw key a previous page ended on, or `None` to start.
+    /// Returns the chunks and the cursor to continue from, or `None` when the
+    /// device's records are exhausted.
+    ///
+    /// # Why a cursor and not a limit
+    ///
+    /// Because a fixed prefix is a fixed list, and this project has already
+    /// made that mistake once: the first audit worked through the sixteen
+    /// lowest chunk ids every round for ever, so a host could keep sixteen
+    /// chunks out of millions and never be caught. A sweep that only ever sees
+    /// the head of the ledger leaves the tail unchecked in exactly the same
+    /// way.
+    pub fn holdings_page(
+        &self,
+        device: &DeviceId,
+        after: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<(Vec<ChunkId>, Option<Vec<u8>>)> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(HOLDINGS)?;
+
+        let start = after.map_or_else(
+            || holders::device_range_start(device).to_vec(),
+            <[u8]>::to_vec,
+        );
+        let end = holders::device_range_end(device);
+
+        let mut out = Vec::new();
+        for row in table.range(start.as_slice()..=end.as_slice())? {
+            let (key, _) = row?;
+            let raw = key.value().to_vec();
+            if after.is_some_and(|previous| previous == raw.as_slice()) {
+                continue; // the page boundary itself, already returned
+            }
+            let Some((_, chunk)) = holders::split_by_device(&raw) else {
+                continue;
+            };
+            out.push(chunk);
+            if out.len() >= limit {
+                // Only a full page has a continuation. A short page is the end,
+                // and handing back a cursor for it would make the caller ask
+                // once more for nothing.
+                return Ok((out, Some(raw)));
+            }
+        }
+        Ok((out, None))
     }
 
     /// Live chunks held by fewer than `target` devices, worst first.

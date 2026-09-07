@@ -693,6 +693,60 @@ fn report_unreliable_peers(node: &Node) -> Result<()> {
 /// the honest answer is "not known" rather than "fine" -- nine peers with a
 /// gigabyte each cannot spread four terabytes, and a threshold in machines
 /// cannot see it.
+/// The other direction, and it is not the same question.
+///
+/// Copies are about surviving loss; this is about who could read you if the
+/// sealing ever failed, and about whether this can scale at all — if the unit of
+/// hosting were "a whole account", somebody offering four terabytes would need
+/// peers who could each take four terabytes.
+fn concentration_report(node: &Node, coverage: &itsanas_store::Coverage) -> Result<String> {
+    let mut out = String::new();
+    macro_rules! w {
+        ($($arg:tt)*) => {{ let _ = writeln!(out, $($arg)*); }};
+    }
+
+    if coverage.someone_holds_everything() {
+        w!(
+            concat!(
+                "  concentrated   one machine holds all {} of your chunks. ",
+                "Sealed, but a whole set"
+            ),
+            coverage.live_chunks
+        );
+        w!("                 unavoidable with few peers; spread as more join");
+    } else if coverage.largest_share > 0 {
+        w!(
+            "  spread         no machine holds more than {} of your {} chunks",
+            coverage.largest_share,
+            coverage.live_chunks
+        );
+    }
+
+    let _ = write!(
+        out,
+        "{}",
+        spreading_report(
+            coverage.distinct_holders,
+            node.store.stats()?.bytes_on_disk,
+            None
+        )
+    );
+
+    let short = node.store.under_replicated(REPLICATION_TARGET)?;
+    if !short.is_empty() {
+        w!(
+            concat!(
+                "  headroom       {} chunks are on fewer than {} machines, ",
+                "counting this one"
+            ),
+            short.len(),
+            REPLICATION_TARGET
+        );
+    }
+
+    Ok(out)
+}
+
 fn spreading_report(candidates: usize, stored: u64, offered: Option<u64>) -> String {
     use itsanas_placement::Blocked;
 
@@ -735,6 +789,32 @@ fn spreading_report(candidates: usize, stored: u64, offered: Option<u64>) -> Str
 ///
 /// Separated because it is the headline and deserves to be readable on its own,
 /// and because `render_status` went over its line budget the moment it grew.
+/// Chunks this account has that this machine does not hold.
+///
+/// The measure of how much of the reassurance in `status` is out of scope. It
+/// is zero on every machine that holds its whole account, which is why it went
+/// unnoticed until one did not.
+fn chunks_not_here(node: &Node) -> Result<usize> {
+    let listing = itsanas_store::catalogue(&node.store, &node.vault)?;
+    let absent: std::collections::BTreeSet<String> = listing
+        .files
+        .into_iter()
+        .filter(|file| file.presence == itsanas_store::Presence::Absent)
+        .map(|file| file.path)
+        .collect();
+
+    if absent.is_empty() {
+        return Ok(0);
+    }
+
+    Ok(
+        itsanas_store::chunks_for_all(&node.store, &node.vault, &absent)?
+            .into_iter()
+            .filter(|chunk| !node.store.has_chunk(chunk))
+            .count(),
+    )
+}
+
 fn coverage_report(node: &Node) -> Result<String> {
     let mut out = String::new();
     macro_rules! w {
@@ -742,7 +822,24 @@ fn coverage_report(node: &Node) -> Result<String> {
         ($($arg:tt)*) => {{ let _ = writeln!(out, $($arg)*); }};
     }
 
-    w!("could you get it all back without this machine?");
+    // What this question can and cannot cover, said before the answer rather
+    // than after it.
+    //
+    // `Store::coverage` walks chunks with a live local reference -- that is,
+    // the ones this machine holds. On a machine that holds its whole account
+    // that is the account. On one that has released content it is a slice, and
+    // the reassuring line underneath was being computed over the slice while
+    // reading as though it covered everything. Worse: the released chunks are
+    // exactly the ones this machine can no longer audit, because a challenge is
+    // verified against a local copy.
+    //
+    // So the count comes first, and the headline changes with it.
+    let unspoken = chunks_not_here(node)?;
+    if unspoken > 0 {
+        w!("could you get back what is ON THIS MACHINE, without this machine?");
+    } else {
+        w!("could you get it all back without this machine?");
+    }
 
     // The headline is a minimum, not an average, and it does not count this
     // machine. A file comes back only if every one of its chunks does, so an
@@ -783,6 +880,18 @@ fn coverage_report(node: &Node) -> Result<String> {
             }
         }
 
+        if unspoken > 0 {
+            w!(
+                concat!(
+                    "  not covered    {} more chunks belong to this account and ",
+                    "are not on this machine"
+                ),
+                unspoken
+            );
+            w!("                 nothing above speaks for them, and this node cannot");
+            w!("                 audit them: a challenge is checked against a local copy");
+        }
+
         if !coverage.meets(SAFE_COPIES) {
             w!(
                 concat!(
@@ -810,49 +919,7 @@ fn coverage_report(node: &Node) -> Result<String> {
             );
         }
 
-        // The other direction, and it is not the same question. Copies are
-        // about surviving loss; this is about who could read you if the sealing
-        // ever failed, and about whether this can scale at all -- if the unit
-        // of hosting were "a whole account", somebody offering four terabytes
-        // would need peers who could each take four terabytes.
-        if coverage.someone_holds_everything() {
-            w!(
-                concat!(
-                    "  concentrated   one machine holds all {} of your chunks. ",
-                    "Sealed, but a whole set"
-                ),
-                coverage.live_chunks
-            );
-            w!("                 unavoidable with few peers; spread as more join");
-        } else if coverage.largest_share > 0 {
-            w!(
-                "  spread         no machine holds more than {} of your {} chunks",
-                coverage.largest_share,
-                coverage.live_chunks
-            );
-        }
-
-        let _ = write!(
-            out,
-            "{}",
-            spreading_report(
-                coverage.distinct_holders,
-                node.store.stats()?.bytes_on_disk,
-                None
-            )
-        );
-
-        let short = node.store.under_replicated(REPLICATION_TARGET)?;
-        if !short.is_empty() {
-            w!(
-                concat!(
-                    "  headroom       {} chunks are on fewer than {} machines, ",
-                    "counting this one"
-                ),
-                short.len(),
-                REPLICATION_TARGET
-            );
-        }
+        let _ = write!(out, "{}", concentration_report(node, &coverage)?);
     }
 
     Ok(out)
@@ -1663,11 +1730,32 @@ fn keep(home: &Path, size: Option<&str>, order: Option<&str>, only: &[String]) -
     node.save_config()?;
     report_keeping_settings(&node);
 
+    // The consequence nobody would guess from the command they just typed.
+    //
+    // On a machine with a synced folder, letting go of content removes the file
+    // from that folder: the store loses the entry, and the folder layer's next
+    // pass sees content in its ledger and none in the store and deletes it from
+    // disk. That is what a limit smaller than the account has to mean without a
+    // placeholder filesystem, and it is what every selective-sync product did
+    // before placeholders existed -- but it is a file disappearing from
+    // somebody's Explorer window, and the fact that `itsanas get` brings it
+    // back is knowledge only the author of this system has.
+    //
+    // `keep` and `folder` arm independently, so the destructive combination can
+    // be reached without either command mentioning it. This is the mention.
+    if node.config.folder.is_some() && node.config.keep_bytes.is_some() {
+        println!();
+        println!("  This machine syncs a folder, so a limit smaller than the account");
+        println!("  will REMOVE files from it. They stay in the account and");
+        println!("  `itsanas get <path>` brings one back, but they leave the folder.");
+        println!("  `itsanas keep all` undoes the limit.");
+    }
+
     // Said plainly rather than dressed up. A device over its limit comes back
     // down on the next sync, by letting go of what the order ranks lowest --
-    // and only of content another live machine is known to hold, so a limit can
-    // never delete the last copy of anything. Until such a machine is known,
-    // the device stays over its limit and says so.
+    // and only of content two other live machines are known to hold, at least
+    // one of which has said so about that very chunk. Until then, the device
+    // stays over its limit and says so.
     let held = node.store.stats()?.bytes_on_disk;
     if let Some(limit) = node.config.keep_bytes
         && held > limit
@@ -1844,8 +1932,8 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
                 if keeping.not_safe_yet > 0 {
                     println!(
                         concat!(
-                            "  {} file(s) stayed: fewer than {} other live machines ",
-                            "hold them, so this device is over its limit until they do."
+                            "  {} file(s) stayed: letting go needs {} other live ",
+                            "machines, one of which has confirmed that very chunk"
                         ),
                         keeping.not_safe_yet,
                         itsanas_store::holders::SAFE_TO_RELEASE

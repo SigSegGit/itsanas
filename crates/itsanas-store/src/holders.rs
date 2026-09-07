@@ -379,6 +379,18 @@ impl AtRisk {
 ///
 /// Long enough that a laptop taken on holiday does not raise an alarm; short
 /// enough that a machine which never comes back stops counting inside a month.
+/// What a node can say about who else holds one chunk.
+///
+/// See [`Index::holder_evidence`](crate::Index::holder_evidence) for why these
+/// are two numbers rather than one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HolderEvidence {
+    /// Holders whose machine has been heard from within [`CONFIRMED_FOR`].
+    pub live: usize,
+    /// Holders whose record *for this chunk* was refreshed within the window.
+    pub fresh: usize,
+}
+
 /// How many *other* live machines must hold a chunk before this one may let it
 /// go.
 ///

@@ -989,7 +989,7 @@ fn content_is_not_released_until_two_other_machines_have_it() {
 
     // Nobody has acknowledged holding any of it.
     match store.release("report.pdf", now).expect("release") {
-        itsanas_store::Release::NotSafeYet { holders: 0, .. } => {}
+        itsanas_store::Release::NotSafeYet { evidence, .. } if evidence.live == 0 => {}
         other => panic!("released the only copy in existence: {other:?}"),
     }
 
@@ -1015,7 +1015,7 @@ fn content_is_not_released_until_two_other_machines_have_it() {
     let first = DeviceKeys::generate().expect("device key").device_id();
     store.record_holders(&chunks, &first).expect("record");
     match store.release("report.pdf", now).expect("release") {
-        itsanas_store::Release::NotSafeYet { holders: 1, .. } => {}
+        itsanas_store::Release::NotSafeYet { evidence, .. } if evidence.live == 1 => {}
         other => panic!("released with a single copy elsewhere: {other:?}"),
     }
 
@@ -1099,7 +1099,7 @@ fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
         )
         .expect("release")
     {
-        itsanas_store::Release::NotSafeYet { holders: 0, .. } => {}
+        itsanas_store::Release::NotSafeYet { evidence, .. } if evidence.live == 0 => {}
         other => panic!("devices silent for a fortnight authorised a release: {other:?}"),
     }
 }
@@ -1296,5 +1296,68 @@ fn a_file_can_be_released_fetched_back_and_released_again() {
     match store.release("again.bin", now).expect("release") {
         itsanas_store::Release::Gone(_) => {}
         other => panic!("the second release was refused: {other:?}"),
+    }
+}
+
+/// A machine that answers the phone with an empty disk does not authorise a
+/// release.
+///
+/// The case a per-machine liveness rule cannot see, and the one that costs
+/// data. `live_holder_count` asked only whether the *device* had been heard
+/// from, so a peer that stayed online and threw everything away went on
+/// counting as a copy for ever — and after a release there is no audit left to
+/// contradict it, because auditing a chunk means re-deriving it from a local
+/// copy this device no longer has.
+///
+/// Two bars now: the machine must be live, and at least one holder's record
+/// *for this chunk* must have been refreshed inside the same window.
+#[test]
+fn a_reachable_machine_with_stale_records_does_not_authorise_a_release() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let master = MasterSecret::generate().expect("master secret");
+    let store = store_for(&master, dir.path());
+
+    store
+        .write_file("held.bin", &vec![6u8; 200_000])
+        .expect("write");
+    let chunks = store.stat("held.bin").expect("stat").expect("here").chunks;
+
+    let hosts: Vec<_> = (0..itsanas_store::holders::SAFE_TO_RELEASE)
+        .map(|_| DeviceKeys::generate().expect("device key").device_id())
+        .collect();
+    for host in &hosts {
+        store.record_holders(&chunks, host).expect("record");
+    }
+    let recorded = store
+        .last_seen(&hosts[0])
+        .expect("last seen")
+        .expect("seen");
+
+    // Right now both bars are clear.
+    let fresh = store
+        .holder_evidence(&chunks[0], recorded)
+        .expect("evidence");
+    assert_eq!(fresh.live, hosts.len());
+    assert_eq!(fresh.fresh, hosts.len());
+
+    // A fortnight later both machines are still answering — and neither has
+    // said anything about this chunk since.
+    let later = recorded + itsanas_store::holders::CONFIRMED_FOR + 10;
+    for host in &hosts {
+        store.note_seen_at(host, later).expect("seen later");
+    }
+
+    let stale = store.holder_evidence(&chunks[0], later).expect("evidence");
+    assert_eq!(stale.live, hosts.len(), "the machines are reachable");
+    assert_eq!(stale.fresh, 0, "nothing was said about this chunk");
+
+    match store.release("held.bin", later).expect("release") {
+        itsanas_store::Release::NotSafeYet { evidence, .. } => {
+            assert_eq!(evidence.live, hosts.len());
+            assert_eq!(evidence.fresh, 0);
+        }
+        other => {
+            panic!("released on the word of two machines that had gone quiet about it: {other:?}")
+        }
     }
 }

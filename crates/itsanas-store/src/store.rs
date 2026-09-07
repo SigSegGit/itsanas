@@ -27,7 +27,7 @@ use crate::{
     blob::BlobStore,
     chunker::ChunkerConfig,
     error::{Result, StoreError},
-    holders::{AtRisk, AuditCursor, Coverage, Holder},
+    holders::{AtRisk, AuditCursor, Coverage, Holder, HolderEvidence},
     index::{Index, now_unix},
     local::LocalState,
     oplog::{
@@ -126,8 +126,8 @@ pub enum Release {
     NotSafeYet {
         /// The chunk that stopped it.
         chunk: ChunkId,
-        /// How many other live machines are known to hold it.
-        holders: usize,
+        /// What this node could say about who else holds it.
+        evidence: HolderEvidence,
     },
 }
 
@@ -362,14 +362,22 @@ impl Store {
     /// This is the one operation in the store that destroys data if it is
     /// wrong, so it will not act on a memory. Every chunk that would actually
     /// be deleted -- a chunk another kept file still references is not deleted
-    /// and does not need to qualify -- must be held by
-    /// [`SAFE_TO_RELEASE`](crate::holders::SAFE_TO_RELEASE) other machines that
-    /// have each been *heard from* within
-    /// [`CONFIRMED_FOR`](crate::holders::CONFIRMED_FOR). A record from a machine
-    /// nobody has seen in a fortnight is not a copy; it is a note about one, and
-    /// one copy left standing is not a floor but the last one. If any chunk
-    /// fails that test, nothing at all is released and the caller is told which
-    /// chunk stopped it and how many machines have it.
+    /// and does not need to qualify -- must clear two bars at once:
+    ///
+    /// * [`SAFE_TO_RELEASE`](crate::holders::SAFE_TO_RELEASE) holders whose
+    ///   **machine** has been heard from within
+    ///   [`CONFIRMED_FOR`](crate::holders::CONFIRMED_FOR), and
+    /// * at least one holder whose record **for this chunk** was refreshed
+    ///   inside the same window.
+    ///
+    /// The second bar is the one that was missing, and its absence was not
+    /// theoretical: a per-machine rule cannot tell a peer that still has your
+    /// data from one that emptied its disk and stayed online. A record from a
+    /// machine nobody has seen in a fortnight is not a copy; a record nobody has
+    /// re-confirmed about *this chunk* is not much better. One copy left
+    /// standing is not a floor but the last one. If any chunk fails, nothing at
+    /// all is released and the caller is told which chunk stopped it and what
+    /// the evidence was.
     ///
     /// # What the rest of the system then sees
     ///
@@ -420,11 +428,11 @@ impl Store {
                 continue;
             }
 
-            let holders = self.index.live_holder_count(address, now)?;
-            if holders < crate::holders::SAFE_TO_RELEASE {
+            let evidence = self.index.holder_evidence(address, now)?;
+            if evidence.live < crate::holders::SAFE_TO_RELEASE || evidence.fresh == 0 {
                 return Ok(Release::NotSafeYet {
                     chunk: *address,
-                    holders,
+                    evidence,
                 });
             }
         }
@@ -884,7 +892,24 @@ impl Store {
     ///
     /// If the index cannot be written.
     pub fn note_seen(&self, device: &DeviceId) -> Result<()> {
-        self.index.note_seen(device, now_unix())
+        self.note_seen_at(device, now_unix())
+    }
+
+    /// Record contact at a stated time.
+    ///
+    /// The clock is an argument for the same reason it is one on
+    /// [`Store::coverage`] and [`Store::release`]: the interesting states are
+    /// the ones a real clock cannot reach inside a test. The one this exists
+    /// for is a machine that answers the phone while its disk is empty --
+    /// contact recent, records about individual chunks months old -- which is
+    /// precisely the case a per-machine liveness rule cannot see and the case
+    /// that costs data.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn note_seen_at(&self, device: &DeviceId, now: u64) -> Result<()> {
+        self.index.note_seen(device, now)
     }
 
     /// When this node last had any contact with `device`, if ever.
@@ -979,6 +1004,37 @@ impl Store {
     /// Two callers, both of which correct the ledger with something better than
     /// a memory: a peer that answers "I am missing this" during a push, and a
     /// peer that says outright what it has let go of.
+    /// What this node can say about who else holds `chunk`, and how recently
+    /// they said it about *this* chunk.
+    ///
+    /// See [`Index::holder_evidence`]. Reported by `itsanas status` and used by
+    /// [`Store::release`], which is the operation that must not act on a
+    /// machine-level liveness signal alone.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn holder_evidence(&self, chunk: &ChunkId, now: u64) -> Result<HolderEvidence> {
+        self.index.holder_evidence(chunk, now)
+    }
+
+    /// A page of the chunks `device` is recorded as holding.
+    ///
+    /// What a sync round needs in order to keep the ledger honest about content
+    /// this device no longer holds itself. See [`Index::holdings_page`].
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn holdings_page(
+        &self,
+        device: &DeviceId,
+        after: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<(Vec<ChunkId>, Option<Vec<u8>>)> {
+        self.index.holdings_page(device, after, limit)
+    }
+
     pub fn forget_holders(&self, chunks: &[ChunkId], device: &DeviceId) -> Result<()> {
         self.index.forget_holders(chunks, device)
     }

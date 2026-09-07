@@ -80,7 +80,7 @@ pub use catalogue::{Known, Presence, absent_count, catalogue, chunks_for, chunks
 pub use chunker::split_stream;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};
-pub use holders::{AtRisk, AuditCursor, Coverage, Holder};
+pub use holders::{AtRisk, AuditCursor, Coverage, Holder, HolderEvidence};
 pub use index::{HolderOrderings, Index};
 pub use local::LocalState;
 pub use oplog::{

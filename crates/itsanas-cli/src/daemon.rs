@@ -516,12 +516,13 @@ fn report_keeping(peer: &str, keeping: &crate::keeping::KeepingReport) {
     if keeping.not_safe_yet > 0 {
         println!(
             concat!(
-                "  {} file(s) could not be let go of: fewer than {} other live ",
-                "machines are known to hold them."
+                "  {} file(s) could not be let go of: letting go needs {} other ",
+                "live machines,"
             ),
             keeping.not_safe_yet,
             itsanas_store::holders::SAFE_TO_RELEASE
         );
+        println!("  one of which has confirmed that very chunk recently.");
         println!("  This device stays over its limit until they do.");
     }
 }

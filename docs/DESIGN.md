@@ -508,11 +508,20 @@ passes. That is acceptable — such a host is still serving the data — and it 
 the honest limit: challenges raise the cost of lying without eliminating it, and
 the real protection is replication across parties with no reason to collude.
 
-It also requires **the verifier to hold the bytes**. A device that has let go of
-its own content — which is now an ordinary thing for a phone to do, see §11 —
-reports those challenges as `unverifiable` rather than failing the peer. This is
-the limit that blocks the sharded future described in §5: when no single machine
-holds a whole account, nobody can challenge on the chunks they do not have.
+It also requires **the verifier to hold the bytes**, and that is not a future
+problem. A device that has let go of its own content — an ordinary thing for a
+phone to do, see §11 — reports those challenges as `unverifiable` rather than
+failing the peer. It was filed under the sharded future of §5 with a note saying
+it would not bite below tens of gigabytes; `keep` made it ordinary at 300 KiB on
+a Raspberry Pi, and a documented ceiling that has quietly become an active
+defect is worse than an undocumented one, because it looks watched.
+
+Half of what it broke is now repaired elsewhere: a round asks its peer about
+chunks the ledger says that peer holds and this device does not (§6.5), so a
+holder that throws released content away is still heard saying "missing". That
+restores the *no*. The *yes* stays unproven for released chunks, and the honest
+summary is that a released chunk's holders can be contradicted but not
+challenged.
 Options exist — precomputed challenge tables, or comparing two independent
 holders' answers to one nonce, which needs no local copy but detects loss rather
 than collusion — and none is built. Recorded in `docs/ROADMAP.md` rather than
@@ -542,6 +551,18 @@ Two cheaper mechanisms do the actual work:
   chunks it lacks. What the peer asks for, it does not have — so every round
   withdraws, exactly and immediately, every holder record that peer has
   outgrown. Free: it is the same round trip that decides what to send.
+* **The same question about content this device no longer holds.** The sweep
+  above starts from the local blob store, so a released chunk was never asked
+  about, never came back "missing", and was never withdrawn — and the audit
+  could not reach it either. Once a device had released a chunk, *nothing* could
+  tell it the holders had lost that chunk, leaving only the peer's voluntary
+  drop notice: the honesty of the party the mechanism exists not to have to
+  trust. A round now pages through the chunks each peer is recorded as holding,
+  asks about the ones this device lacks, and corrects itself from the answer. It
+  costs nothing on a machine that holds its whole account, because every recorded
+  chunk is one it also has. It also fixes the three-machine case with no new
+  message: A releases and tells B, C never hears it, and C's own next round asks
+  A directly.
 * **Drop notices.** A device that deliberately lets go of content says so
   (`Request::Dropped`), and the owner withdraws those records at once. A device
   can only ever withdraw records about *itself*, so this makes honesty cheap
@@ -946,9 +967,11 @@ get` fetches it back.
 
 The whole safety of that rests on one check. `Store::release` refuses unless
 every chunk it would actually delete — a chunk another kept file still
-references is not deleted and does not have to qualify — is held by
-`SAFE_TO_RELEASE` other machines, each *heard from* within `CONFIRMED_FOR`. Two
-things are being insisted on there, and both were nearly got wrong:
+references is not deleted and does not have to qualify — clears **two** bars:
+`SAFE_TO_RELEASE` holders whose *machine* has been heard from within
+`CONFIRMED_FOR`, and at least one holder whose record *for that chunk* was
+refreshed inside the same window. Three things are being insisted on, and all
+three were nearly got wrong:
 
 * **Two, not one.** Releasing is the only operation that reduces the number of
   copies on purpose. One remaining copy is not a floor, it is the last one, and
@@ -961,6 +984,29 @@ things are being insisted on there, and both were nearly got wrong:
 * **Heard from, not recorded.** A record from a machine nobody has seen in a
   fortnight is a memory, not a copy, and acting on a memory is how the last copy
   of somebody's file disappears.
+* **Heard from about *this chunk*, not merely reachable.** The first version
+  asked only whether the machine had answered the phone, which cannot tell a
+  peer that still has your data from one that emptied its disk and stayed
+  online. The per-`(chunk, device)` timestamp needed to tell them apart was
+  already being written on every acknowledgement and was read by nothing. It is
+  read now, and one holder must have confirmed that very chunk.
+
+**What the number still does not mean.** Two is a floor on *counting*, and it is
+not two independent copies:
+
+* The confirmation is a **claim, not a proof**. A storage challenge is verified
+  against a local copy, and a device that released a chunk has none — see §6.4.
+  What the second bar buys is the ability to hear "no", not the ability to prove
+  "yes".
+* Nothing in this code knows about **failure domains**. §5 already argues that
+  thirty holders on one power grid are not thirty chances; that argument was
+  written about availability and has never been applied here, where correlation
+  costs data rather than patience. The fleet this was tested on is the worst
+  case: the Pi and the VM are in one house, on one subscription, and the VM runs
+  on the box that gives the Pi its connectivity. Two live holders there is one
+  power cut. `live_holder_count` counts `DeviceId`s and has no notion of a
+  domain; neither does `itsanas-placement`. Until it does, "two copies" is two
+  records, and this document should not be read as promising more.
 
 When the check refuses, the device stays over its limit and says so, which is
 the correct outcome: an over-full device is a nuisance and a lost file is not.
@@ -976,6 +1022,14 @@ Two consequences worth stating rather than discovering:
   before two other machines have it, and a local edit made since is never lost:
   the folder's decision table resolves "edited here, absent from the store" as
   an import, not a delete.
+
+  It is still a file vanishing from somebody's Explorer window, seconds after a
+  sync round, with no placeholder left behind — and the fact that `itsanas get`
+  brings it back is knowledge only the author of this system has. `keep` and
+  `folder` arm independently, so the combination can be reached without either
+  command mentioning it. `itsanas keep` now says so, in plain words, at the
+  moment the limit is set on a machine with a folder. That is the minimum; a
+  placeholder file is the real answer and is not built.
 * **`itsanas get` overrides the budget, and the next round may undo it.** An
   explicit request beats a background choice, so the fetch always works; but the
   choice has not changed, so a device short of room will let that content go
