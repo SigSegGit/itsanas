@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-01 — 684 test functions across 21 binaries, 3 of them
+**Last updated: 2026-09-01 — 685 test functions across 21 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
 
-**568 of the 684 tests have an entry of their own on this page** — an *entry*,
+**569 of the 685 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -139,7 +139,7 @@ guarantee and is not one.
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 144 |
-| `itsanas-store` integration (`tests/store.rs`) | 35 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 36 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 33 |
@@ -533,7 +533,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (35)
+# `itsanas-store` — integration tests (36)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -624,6 +624,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 | **`releasing_one_file_leaves_a_chunk_another_file_still_uses`** | Deduplication means two paths can share a chunk. Freeing by path rather than by reference would empty half of a file the device was told to keep, and the damage would surface only the next time somebody opened it. |
 | **`a_file_this_device_made_and_released_is_still_listed_and_still_fetchable`** | Found on a Raspberry Pi, not in a test: a file put on a device with a 300 KiB limit, pushed to two hosts, released exactly as designed — and then gone from `itsanas ls` on the machine that made it, with `itsanas get` answering "no such file" for a file two other machines were holding. The catalogue walked only *other* devices' chains, on a rule that stopped being true the day content could be released. Fails when the walk over this device's own log is removed. |
 | **`a_deleted_file_is_not_resurrected_by_reading_this_devices_own_log`** | The other half. Reading one's own chain must not bring back everything one has ever deleted. |
+| **`a_file_can_be_released_fetched_back_and_released_again`** | A limit has to work more than once. Releasing erased the holder ledger along with the local copy, reusing the rule garbage collection needs — where a chunk goes because its *file* went. A release is the opposite case: the file is still in the account and the copies elsewhere are what made letting go safe. Observed on a Raspberry Pi before it was fixed: a device stuck at 380 KiB against a 300 KiB limit, refusing round after round because it had forgotten the second holder while fetching the file back. Fails when `release_chunk` is put back to `forget_chunk`. |
 
 ---
 

@@ -438,7 +438,13 @@ impl Store {
                 report.chunks += 1;
                 report.bytes = report.bytes.saturating_add(size);
             }
-            self.index.forget_chunk(address)?;
+            // `release_chunk`, not `forget_chunk`: the file is still in the
+            // account and the copies elsewhere are what made this safe. Erasing
+            // the ledger would leave this device unable to say how replicated
+            // its own account is -- and unable ever to release that file again
+            // after fetching it back, because the record of the second holder
+            // would be gone.
+            self.index.release_chunk(address)?;
         }
 
         Ok(Release::Gone(report))

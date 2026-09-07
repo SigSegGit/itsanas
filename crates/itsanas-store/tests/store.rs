@@ -1238,3 +1238,63 @@ fn a_deleted_file_is_not_resurrected_by_reading_this_devices_own_log() {
         "a deleted file could still be fetched"
     );
 }
+
+/// Releasing does not make this device forget who else holds the content.
+///
+/// A limit has to work more than once. The first version erased the holder
+/// ledger along with the local copy, reusing the rule garbage collection needs
+/// -- where a chunk goes because its *file* went, and repairing it would be
+/// work for nobody. A release is the opposite case: the file is still in the
+/// account, and the copies elsewhere are exactly what made letting go safe.
+///
+/// Observed on a Raspberry Pi before it was fixed: a device stuck at 380 KiB
+/// against a 300 KiB limit, refusing to let go round after round because it had
+/// forgotten the second holder while fetching the file back.
+#[test]
+fn a_file_can_be_released_fetched_back_and_released_again() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let master = MasterSecret::generate().expect("master secret");
+    let store = store_for(&master, dir.path());
+
+    let payload = vec![4u8; 200_000];
+    store.write_file("again.bin", &payload).expect("write");
+    let chunks = store.stat("again.bin").expect("stat").expect("here").chunks;
+
+    let hosts: Vec<_> = (0..itsanas_store::holders::SAFE_TO_RELEASE)
+        .map(|_| DeviceKeys::generate().expect("device key").device_id())
+        .collect();
+    for host in &hosts {
+        store.record_holders(&chunks, host).expect("record");
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs();
+
+    match store.release("again.bin", now).expect("release") {
+        itsanas_store::Release::Gone(_) => {}
+        other => panic!("the first release was refused: {other:?}"),
+    }
+
+    // What the device still knows. Forgetting this is what broke the second
+    // round: it is also the only reason the account looks replicated at all
+    // once a device holds a slice of it.
+    assert_eq!(
+        store.remote_holders(&chunks[0]).expect("holders").len(),
+        hosts.len(),
+        "releasing erased what this device knew about the copies elsewhere"
+    );
+
+    // Fetched back the way `itsanas get` fetches it: one holder serves, and is
+    // recorded for having served.
+    store.write_file("again.bin", &payload).expect("refetch");
+    store
+        .record_holders(&chunks, &hosts[0])
+        .expect("record the server");
+
+    match store.release("again.bin", now).expect("release") {
+        itsanas_store::Release::Gone(_) => {}
+        other => panic!("the second release was refused: {other:?}"),
+    }
+}

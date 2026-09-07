@@ -794,6 +794,38 @@ impl Index {
     }
 
     /// Forget a chunk entirely, after its blob has been deleted.
+    /// Forget that this device holds `chunk`, while keeping what it knows about
+    /// who else does.
+    ///
+    /// The difference from [`Index::forget_chunk`] is the whole point, and it
+    /// was found by running the same file through twice. `forget_chunk` erases
+    /// the holder ledger deliberately: a chunk deleted because its file was
+    /// deleted must not keep the repair loop working to restore data nobody
+    /// wants. A chunk *released* is the opposite case -- the file is still in
+    /// the account, and the copies elsewhere are exactly what made letting go
+    /// of it safe.
+    ///
+    /// Erasing them cost two things at once. The device stopped being able to
+    /// say how well replicated its own account was, and it could never release
+    /// that file again: `itsanas get` brings the content back, the ledger now
+    /// knows one holder instead of two, and the next round refuses to let go
+    /// and leaves the device permanently over its limit. Observed on a
+    /// Raspberry Pi, stuck at 380 KiB against a 300 KiB limit, round after
+    /// round, saying so each time.
+    pub fn release_chunk(&self, chunk: &ChunkId) -> Result<()> {
+        // Not a loss: this device let it go on purpose.
+        self.clear_loss(chunk)?;
+        let txn = self.db.begin_write()?;
+        {
+            let mut refs = txn.open_table(CHUNK_REFS)?;
+            let mut unreferenced = txn.open_table(UNREFERENCED)?;
+            refs.remove(chunk.as_bytes().as_slice())?;
+            unreferenced.remove(chunk.as_bytes().as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
     pub fn forget_chunk(&self, chunk: &ChunkId) -> Result<()> {
         // A chunk nothing references any more cannot be a loss. Leaving the
         // entry would make repair ask peers, for ever, about data this node
