@@ -118,6 +118,41 @@ pub fn apply_segments(
     segments: &[SegmentEnvelope],
     source: &dyn ChunkSource,
 ) -> Result<(SyncReport, Vec<Outcome>)> {
+    apply_replaying(store, segments, source, Replay::OthersOnly)
+}
+
+/// Whether to replay this device's own chain as well.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Replay {
+    /// The ordinary rule: a device's own segments are already reflected in its
+    /// index, so replaying them is pointless work.
+    OthersOnly,
+    /// Replay this device's own chain too.
+    ///
+    /// For the one case where the ordinary rule is false. A device that has
+    /// *released* content -- let go of the bytes while the file stays in the
+    /// account -- has an operation in its own chain and no index entry, so its
+    /// own log is the only log that describes the file. Without this, asking
+    /// for that file back answers "no such file" while two other machines are
+    /// holding it.
+    ///
+    /// Only safe with a source that serves a chosen set: replaying with a source
+    /// that serves everything would undo every release on the next round.
+    IncludingOwn,
+}
+
+/// Apply segments, choosing whether this device's own chain is replayed.
+///
+/// # Errors
+///
+/// If a chain is broken, a segment fails verification, or the store cannot be
+/// written.
+pub fn apply_replaying(
+    store: &Store,
+    segments: &[SegmentEnvelope],
+    source: &dyn ChunkSource,
+    replay: Replay,
+) -> Result<(SyncReport, Vec<Outcome>)> {
     // Chains are per device. A host serves segments from several devices
     // interleaved, so they have to be separated before any chain can be
     // checked — validating the interleaved sequence would report a break on
@@ -139,9 +174,11 @@ pub fn apply_segments(
     // be order-independent anyway, but determinism here means a divergence
     // shows up as a reproducible test failure rather than a flaky one.
     for (device, chain) in by_device {
-        // A device's own segments are already reflected in its state; replaying
-        // them would be harmless but pointless work.
-        if device == store.device_id() {
+        // A device's own segments are normally already reflected in its state,
+        // so replaying them is pointless work. The exception is a device that
+        // has released content: the file is still in the account and still in
+        // this chain, and there is no index entry left. See [`Replay`].
+        if replay == Replay::OthersOnly && device == store.device_id() {
             continue;
         }
 

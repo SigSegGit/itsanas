@@ -2413,3 +2413,69 @@ fn a_file_this_device_never_downloaded_can_be_fetched_when_it_is_asked_for() {
         "asking for one file downloaded another"
     );
 }
+
+#[test]
+fn a_file_this_device_made_and_released_can_be_fetched_back_from_a_host() {
+    // The other half of the same defect, and the worse half. Once the listing
+    // showed a released file again, opening it still answered "no such file" --
+    // on a Raspberry Pi, for a file two hosts were holding at that moment.
+    //
+    // `fetch_only` applies other devices' segments, because the index is the
+    // authority for anything this machine wrote. Releasing content removes the
+    // index entry while leaving the operation in this device's own chain, so
+    // the one log that describes the file was the one log not being read.
+    //
+    // A listed file that cannot be opened is worse than a file that is not
+    // listed: the first looks like corruption, the second like a device that
+    // has not synced.
+    let mine = node(&MasterSecret::from_bytes([0x3C; 32]), 70);
+    let host = node(&MasterSecret::from_bytes([0x4D; 32]), 71);
+
+    let payload = itsanas_testkit::filler("released", 200 * 1024);
+    mine.store.write_file("mine.bin", &payload).unwrap();
+    mine.store.flush_segment().unwrap();
+    let chunks = mine.store.stat("mine.bin").unwrap().unwrap().chunks;
+
+    // The host takes a copy, the ordinary way.
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &mine.device, mine.store.owner(), None).unwrap();
+        session::push(&mine.store, &mut client).unwrap();
+    });
+
+    // Two live holders, so the release is allowed. One is the host that just
+    // acknowledged; the second stands for the other machine a real account has,
+    // and is written straight into the ledger because this test is about the
+    // fetch, not about the threshold.
+    let elsewhere =
+        itsanas_crypto::DeviceKeys::from_seed(&itsanas_crypto::SecretBytes::new([0xEE; 32]))
+            .device_id();
+    mine.store.record_holders(&chunks, &elsewhere).unwrap();
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    match mine.store.release("mine.bin", now).unwrap() {
+        itsanas_store::Release::Gone(_) => {}
+        other => panic!("release refused, so this test proves nothing: {other:?}"),
+    }
+    assert!(
+        mine.store.read_file("mine.bin").unwrap().is_none(),
+        "the content is still here, so fetching it back proves nothing"
+    );
+
+    // Listed, and now fetchable.
+    let wanted: std::collections::BTreeSet<_> = chunks.iter().copied().collect();
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &mine.device, mine.store.owner(), None).unwrap();
+        session::fetch_only(&mine.store, &mine.vault, &mut client, &wanted).unwrap();
+    });
+
+    assert_eq!(
+        mine.store.read_file("mine.bin").unwrap(),
+        Some(payload),
+        "a file this device made, released and asked for again did not come back"
+    );
+}

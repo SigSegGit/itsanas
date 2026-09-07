@@ -376,6 +376,20 @@ pub fn fetch_only(
         )?);
     }
 
+    // And this device's own chain, which the ordinary pull skips because the
+    // index is the authority for anything this machine wrote. That stops being
+    // true once content can be *released*: the file is still in the account and
+    // its operation is still in this chain, but there is no index entry, so
+    // without this `itsanas get` answers "no such file" for a file two other
+    // machines are holding. Measured on a Raspberry Pi, after the catalogue had
+    // been fixed to list it -- listing it and being unable to fetch it is the
+    // worse of the two failures.
+    //
+    // Safe to replay because the filter decides: everything outside `wanted`
+    // is declined and deferred, and a `Remove` later in the same chain still
+    // wins, so nothing this device deleted comes back.
+    segments.extend(store.segments()?);
+
     if segments.is_empty() {
         return Ok(SyncReport::default());
     }
@@ -385,8 +399,18 @@ pub fn fetch_only(
         wanted,
         served: RefCell::new(Vec::new()),
     };
-    let (report, _) = apply_segments(store, &segments, &source)
-        .map_err(|error| NetError::Refused(error.to_string()))?;
+    // Replaying this device's own chain as well, which the ordinary pull does
+    // not: see the comment above `segments.extend(store.segments()?)`. Safe
+    // here and only here, because this source serves a chosen set and declines
+    // everything else -- replaying with a source that serves everything would
+    // undo every release on the next round.
+    let (report, _) = itsanas_sync::apply_replaying(
+        store,
+        &segments,
+        &source,
+        itsanas_sync::Replay::IncludingOwn,
+    )
+    .map_err(|error| NetError::Refused(error.to_string()))?;
 
     let served = source.served.into_inner();
     if !served.is_empty() {
