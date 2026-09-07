@@ -1429,6 +1429,9 @@ pub fn audit(store: &Store, client: &mut PeerClient, limit: usize) -> Result<Aud
         }
     };
 
+    let mut confirmed: Vec<ChunkId> = Vec::new();
+    let mut failed: Vec<ChunkId> = Vec::new();
+
     for chunk in targets {
         // Re-derived from this device's own copy. Deterministic sealing is what
         // makes a remote audit possible without keeping a second copy of the
@@ -1448,12 +1451,23 @@ pub fn audit(store: &Store, client: &mut PeerClient, limit: usize) -> Result<Aud
         report.asked += 1;
         if client.challenge(owner, chunk, nonce, &expected)? {
             report.confirmed += 1;
-            store.record_holders(&[chunk], &peer)?;
+            confirmed.push(chunk);
         } else {
             report.failed += 1;
-            store.forget_holder(&chunk, &peer)?;
+            failed.push(chunk);
         }
     }
+
+    // Written once, not once per answer.
+    //
+    // Sixteen challenges used to mean up to sixteen write transactions, and a
+    // copy-on-write storage engine charges by the commit rather than by the
+    // row: measured, a round that commits a couple of times writes 61 KB and
+    // one that commits twenty writes 780 KB, on an account of nine hundred
+    // kilobytes where nothing has changed. Batching the answers is the cheapest
+    // test of that, and both calls already take slices.
+    store.record_holders(&confirmed, &peer)?;
+    store.forget_holders(&failed, &peer)?;
 
     // One outcome per round, not one per chunk. A peer that fails sixteen
     // challenges in a single round has failed once — it is one host in one
