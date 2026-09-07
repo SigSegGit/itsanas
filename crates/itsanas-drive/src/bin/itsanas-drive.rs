@@ -42,7 +42,7 @@ mod windows {
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
 
-    use itsanas_drive::{Entry, Known, listing, logical};
+    use itsanas_drive::{Entry, Known, listing, logical, projfs};
     use itsanas_node::Node;
     use itsanas_store::Presence;
 
@@ -149,77 +149,42 @@ mod windows {
             .saturating_mul(10_000_000)
     }
 
-    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
-    const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
-
-    fn to_info(entry: &Entry, modified: u64) -> projfs::FileBasicInfo {
-        let time = to_filetime(modified);
+    fn to_info(entry: &Entry) -> projfs::Info {
         match entry {
-            Entry::Directory(name) => projfs::FileBasicInfo {
-                file_name: PathBuf::from(name),
+            // A directory here is a prefix several paths share rather than
+            // something the account stores, so it has no date of its own. Zero
+            // shows as an absent time; a clock reading would show as a fact.
+            Entry::Directory(name) => projfs::Info {
+                name: name.clone(),
                 is_dir: true,
-                file_size: 0,
-                created: time,
-                accessed: time,
-                writed: time,
-                changed: time,
-                attrs: FILE_ATTRIBUTE_DIRECTORY,
+                size: 0,
+                written: 0,
             },
             Entry::File {
                 name,
                 size,
                 modified_unix,
                 ..
-            } => {
-                let time = to_filetime(*modified_unix);
-                projfs::FileBasicInfo {
-                    file_name: PathBuf::from(name),
-                    is_dir: false,
-                    file_size: *size,
-                    created: time,
-                    accessed: time,
-                    writed: time,
-                    changed: time,
-                    attrs: FILE_ATTRIBUTE_NORMAL,
-                }
-            }
+            } => projfs::Info {
+                name: name.clone(),
+                is_dir: false,
+                size: *size,
+                written: to_filetime(*modified_unix),
+            },
         }
     }
 
-    impl projfs::ProjFSDirEnum for Account {
-        type DirIter = std::vec::IntoIter<projfs::FileBasicInfo>;
-
-        fn dir_iter(
-            &self,
-            _id: projfs::Guid,
-            path: projfs::RawPath,
-            _pattern: Option<projfs::RawPath>,
-            _version: projfs::VersionInfo,
-        ) -> io::Result<Self::DirIter> {
-            let directory = logical(&path.to_path_buf().to_string_lossy());
-            let entries: Vec<_> = self
-                .entries(&directory)
-                .iter()
-                .map(|entry| to_info(entry, 0))
-                .collect();
-            Ok(entries.into_iter())
+    // One trait now, instead of two plus a blanket implementation plus a
+    // global cache. `src/projfs.rs` owns the enumeration cursors, so this is
+    // three questions and no state.
+    impl projfs::Source for Account {
+        fn list(&self, directory: &str) -> io::Result<Vec<projfs::Info>> {
+            let directory = logical(directory);
+            Ok(self.entries(&directory).iter().map(to_info).collect())
         }
 
-        fn dir_iter_cache(
-            &self,
-            _version: projfs::VersionInfo,
-        ) -> &projfs::CacheMap<Self::DirIter> {
-            &CACHE
-        }
-    }
-
-    impl projfs::ProjFSRead for Account {
-        fn get_metadata(
-            &self,
-            path: projfs::RawPath,
-            _version: projfs::VersionInfo,
-        ) -> io::Result<projfs::FileBasicInfo> {
-            let wanted = logical(&path.to_path_buf().to_string_lossy());
+        fn stat(&self, path: &str) -> io::Result<projfs::Info> {
+            let wanted = logical(path);
             let name = wanted.rsplit('/').next().unwrap_or(&wanted).to_owned();
             let parent = match wanted.rfind('/') {
                 Some(at) => wanted[..at].to_owned(),
@@ -229,35 +194,23 @@ mod windows {
             self.entries(&parent)
                 .iter()
                 .find(|entry| entry.name() == name)
-                .map(|entry| to_info(entry, 0))
+                .map(to_info)
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, wanted))
         }
 
-        fn read(
-            &self,
-            path: projfs::RawPath,
-            _version: projfs::VersionInfo,
-            offset: u64,
-            buf: &mut [u8],
-        ) -> io::Result<()> {
-            let wanted = logical(&path.to_path_buf().to_string_lossy());
+        fn read(&self, path: &str, offset: u64, into: &mut [u8]) -> io::Result<()> {
+            let wanted = logical(path);
             let content = self.content(&wanted)?;
 
             let start = usize::try_from(offset)
                 .unwrap_or(usize::MAX)
                 .min(content.len());
-            let end = start.saturating_add(buf.len()).min(content.len());
+            let end = start.saturating_add(into.len()).min(content.len());
             let slice = &content[start..end];
-            buf[..slice.len()].copy_from_slice(slice);
+            into[..slice.len()].copy_from_slice(slice);
             Ok(())
         }
     }
-
-    // The crate's blanket implementation keeps one enumeration cursor per
-    // directory handle here. A single map is right: the callbacks are `&self`
-    // and Windows may enumerate several directories at once.
-    static CACHE: std::sync::LazyLock<projfs::CacheMap<std::vec::IntoIter<projfs::FileBasicInfo>>> =
-        std::sync::LazyLock::new(projfs::CacheMap::new);
 
     pub fn run() -> Result<(), String> {
         let mut args = std::env::args().skip(1);
@@ -310,14 +263,14 @@ mod windows {
             node: Arc::clone(&shared),
         };
 
-        let _instance =
-            projfs::start_proj_virtualization(&at, Box::new(account)).map_err(|code| {
-                format!(
-                    "Windows would not start the projected file system (0x{code:08X}).\n  \
-                 It is an optional feature. In an Administrator PowerShell:\n    \
+        let _mount = projfs::mount(&at, account).map_err(|why| {
+            format!(
+                "{why}.\n  \
+                 The projected file system is an optional Windows feature. In an\n  \
+                 Administrator PowerShell:\n    \
                  Enable-WindowsOptionalFeature -Online -FeatureName Client-ProjFS -All"
-                )
-            })?;
+            )
+        })?;
 
         println!("showing your account at {}", at.display());
         println!("  every file is listed; opening one that is not here downloads it");

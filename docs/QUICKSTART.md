@@ -92,6 +92,49 @@ stored 2.0 MiB as archive/big.bin (27 chunks)
 
 ## 3. Offer some space, and serve
 
+Two numbers, bound to each other. `pledge` is room you offer other members;
+`keep` (§"A machine that cannot hold everything") is room this machine may use
+for your own data. **Keeping a byte of your own costs three pledged** — a
+network where everyone stores and nobody hosts has no storage in it — with a
+10 GiB allowance for the first thirty days so a new member is useful before it
+has earned anything.
+
+Ask before you commit to either:
+
+```bash
+itsanas space --pledge 90G --keep 30G
+```
+
+```text
+this machine
+  node at         /home/nicolas/.itsanas
+  free space      412.0 GiB
+  your data here  1.2 GiB
+  held for others 0 B
+
+the bargain
+  you offer       90.0 GiB
+  that earns you  30.0 GiB (3 pledged for each byte you keep)
+  first 30 days    at least 10.0 GiB, whatever you pledge
+
+keeping 30.0 GiB of your own here is within both limits
+```
+
+Ask for one gigabyte more and it says why, before anything is set:
+
+```text
+that does not fit:
+  keeping 31.0 GiB needs 93.0 GiB pledged; you are offering 90.0 GiB
+```
+
+It changes nothing without `--apply`, and it refuses to apply what it has just
+said does not fit. The free space it reports is on the disk the node actually
+sits on, not the default drive — a laptop with a small system disk and a large
+second one is the ordinary case. Both provisioners call this command rather
+than doing the arithmetic themselves.
+
+Then:
+
 ```bash
 itsanas pledge 10G
 itsanas serve
@@ -355,6 +398,15 @@ itsanas keep 2G --only Documents --only Photos/2026
 
 `--only all` clears the restriction, and `itsanas keep all` removes the limit.
 `itsanas keep` on its own prints the current settings without changing them.
+
+It also refuses a figure this machine has not earned — the same rule `itsanas
+space` explains, enforced where the number is typed rather than a fortnight
+later by a coordinator:
+
+```text
+itsanas: keeping 31.0 GiB needs 93.0 GiB pledged, and this node offers 90.0 GiB.
+`itsanas space --pledge 93.0 GiB --keep 31.0 GiB --apply` sets both, or ask for less.
+```
 
 **What the rest of the account looks like on that machine.** Everything is
 listed; what is not held says so, and asking for one fetches it:

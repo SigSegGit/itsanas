@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-08 — 705 test functions across 24 binaries, 3 of them
+**Last updated: 2026-09-08 — 708 test functions across 24 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
 
-**589 of the 705 tests have an entry of their own on this page** — an *entry*,
+**592 of the 708 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -153,7 +153,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
 | `itsanas-cli` unit | 25 |
 | `itsanas-android` unit | 2 |
-| `itsanas-drive` unit | 4 |
+| `itsanas-drive` unit | 7 |
 | `itsanas-node` unit | 28 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
@@ -223,7 +223,7 @@ Defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 | **test** | `cargo test --workspace` on Ubuntu, Windows, macOS | ITSaNAS must run on a Windows laptop and a Linux Pi at once. Path handling, endianness assumptions and filesystem semantics differ; a Linux-only suite would not notice. macOS also catches things the other two share — a watcher test that assumed a folder is quiet the instant it is created passes on both and is a race there. |
 | **slow-tests** | `cargo test -- --ignored --test-threads 1` | Three tests are marked `#[ignore]`: the real 64 MiB Argon2id cost, a 64 MiB streaming round trip that takes ~45s in a debug build, and the crash-consistency test that spawns a dozen processes each paying a full derivation. Too slow for every push, far too important to never run. |
 | **cross-build** | `cargo build --release` for `aarch64-unknown-linux-gnu`, then `cargo test --workspace` for that target under `qemu-user-static`, then `scripts/smoke.sh` | The Raspberry Pi 4B+ and the Freebox VM are first-class targets, and a cross-*build* only says the types line up. aarch64 is where blake3 switches to its NEON backend, which links cleanly and hashes wrong. Emulation runs the instruction set on the host's kernel, so it does not reproduce aarch64's weaker memory ordering and asks an emulated CPU which features it has. The smoke script is the same one an installer runs at the end of a real install, so what CI checks is what a person sees on their own machine. |
-| **android-core** | `cargo check --target aarch64-linux-android` for the data-path crates | The phone has no app, but the core is meant to compile for it. `ring` is excluded because it assembles its own primitives, which is a build-tool question rather than a code one. The job needed an NDK it did not have for two weeks, because its own comment claimed the crates were pure Rust and blake3 compiles C. |
+| **android-core** | `cargo check --target aarch64-linux-android` for the data-path crates | The app is built from these crates, so this job is what stops a change breaking the phone build a week before anybody opens Gradle. `ring` is excluded because it assembles its own primitives, which is a build-tool question rather than a code one. The job needed an NDK it did not have for two weeks, because its own comment claimed the crates were pure Rust and blake3 compiles C. |
 | **minimum-rust-version** | `cargo check` on the pinned MSRV | Prevents accidentally requiring a newer toolchain than the documented minimum, which would break users on distro Rust. |
 | **supply-chain** | `cargo deny check` | Fails on any unpatched advisory, any yanked crate, and any licence not compatible with AGPL-3.0. For a system whose entire value is "your host cannot read your data", a vulnerable crypto dependency is a release blocker. |
 | **coverage** | `cargo llvm-cov` | Not a target to game — used to spot whole modules or error paths with no test at all. |
@@ -237,7 +237,7 @@ checks had already gone wrong:
 | `check-counts.py` | Any number about tests in README.md, ROADMAP.md or this file that the source does not support. All three disagreed with the tree and with each other. |
 | `check-messages.py` | A line continuation collapsed into a message or a command. `cargo fmt` eats them in string literals and the scripts that write large edits eat them everywhere else; the Android job ran with thirteen literal spaces in it from the day it was written. |
 | `check-wired.py` | A `pub fn` with no call site. Four mechanisms were designed, implemented, tested, documented and wired to nothing. |
-| `check-installers.sh` | An installer that does not parse, uses bash syntax while claiming POSIX, is missing from `install/README.md`, demands a Rust version Cargo.toml does not, or writes a systemd `ReadWritePaths` without the leading dash that lets a unit start before the path exists. |
+| `check-installers.sh` | An installer that does not parse, uses bash syntax while claiming POSIX, is missing from `install/README.md`, demands a Rust version Cargo.toml does not, writes a systemd `ReadWritePaths` without the leading dash that lets a unit start before the path exists, or cannot undo itself — every entry point is *run* with `--clean` and has to reach the uninstaller's dry run. A grep for the flag would have passed on all three ways that delegation breaks: a missing sibling, a case arm that shifts and falls through, and a script that never had the arm at all. |
 
 The workflow also runs **weekly on a schedule**, so a newly published advisory
 against a dependency surfaces even when nobody has pushed for a month.
@@ -998,13 +998,29 @@ from a host over a real socket, and one of them opened.
 | **`a_plan_is_reported_with_the_names_kotlin_reads`** | The field names are a contract with another language, and a rename here fails silently over there — the application would show an empty reason and no interval, and nothing would say why. |
 | **`asking_a_closed_node_says_so_rather_than_crashing`** | Every entry point can be called before an account is open, because Android restarts a process whenever it likes. It has to answer with a sentence a person can act on, not with a panic crossing into the JVM. |
 
-# `itsanas-drive` — the account as a folder (4)
+# `itsanas-drive` — the account as a folder (7)
 
-`src/lib.rs`. The projection: given everything the account knows and a
-directory somebody is looking at, what should appear. The binding to the
-operating system is not written — see the crate documentation for the two
-findings that decided that, one of them a licence — so what is tested is the
-part where the bugs live and which needs no filesystem driver.
+Two files, and they are tested for two different reasons.
+
+`src/lib.rs` is the **projection**: given everything the account knows and a
+directory somebody is looking at, what should appear. That is where the bugs
+live — a prefix is not a directory, a path separator is not the same on both
+sides, an absent file must still have a size — and none of it needs a
+filesystem driver.
+
+`src/projfs.rs` is the **binding**, written here rather than taken from
+crates.io because `projfs 0.1.2` reaches `owning_ref 0.3.3` through `chashmap`
+and that is RUSTSEC-2022-0040. Driving real ProjFS in a test needs the Windows
+feature enabled, an administrator to enable it and a reboot, none of which
+belong in a suite that has to pass in under a minute on a Raspberry Pi. So what
+is tested is the three conversions that sit either side of the boundary and
+would fail silently: the tests below are the ones whose failure Windows would
+report as something other than itself. The binding as a whole is covered by
+having been used — the account was browsed in Explorer on 2026-09-08.
+
+Writing back into the folder is not built. The notification callback exists and
+is deliberately unbound: honouring it means deciding what a local edit does to
+an account several machines hold.
 
 | Test | What it proves |
 | --- | --- |
@@ -1012,6 +1028,9 @@ part where the bugs live and which needs no filesystem driver.
 | **`a_file_that_is_not_here_is_still_a_file_with_a_size`** | The whole point of a virtual drive. A placeholder with no size shows as zero bytes, and somebody concludes their file is damaged rather than absent. |
 | `a_name_that_merely_starts_the_same_is_not_inside_it` | `Photos-old` is not inside `Photos`. |
 | **`the_separators_the_operating_system_uses_are_not_the_accounts`** | Windows hands back backslashes and the account speaks in slashes. Getting it wrong does not fail: the listing comes back empty, which reads as "the account is empty" rather than as "the path did not match". |
+| **`a_guid_survives_the_round_trip_that_keys_the_cursor_map`** | Enumeration cursors are keyed by the sixteen bytes of the id Windows hands back, because keying them on a `uuid` would mean a crate for it. If that conversion were not injective, two open enumerations would share a cursor and Explorer would show one directory's entries inside another — with nothing in any log, because both lookups succeed. |
+| **`a_directory_is_flagged_as_one_and_a_file_is_not`** | Windows decides whether to offer a folder or a file from one bit. Wrong, and a directory is unopenable rather than wrong-looking. |
+| **`every_string_handed_to_windows_ends_in_a_nul`** | Every call in the binding takes a `PCWSTR` and walks it until it finds a zero. A `Vec<u16>` without one is a read past the end of an allocation, and it would work by accident most of the time. |
 
 # `itsanas-placement` — unit tests (34)
 

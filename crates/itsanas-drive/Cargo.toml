@@ -14,13 +14,24 @@ itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
 itsanas-node = { version = "0.1.0", path = "../itsanas-node" }
 itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
 
-# MIT. `windows-projfs` has a nicer API and is GPL-2.0, which cannot be combined
-# with this project's AGPL-3.0-or-later; the copyright holder offered to change
-# the licence and it was declined, because AGPL's network clause is the one that
-# matters for a system whose purpose is other people running nodes.
+# The generated header and nothing else. MIT, and -- the reason this is not the
+# friendlier `projfs` wrapper that sits on top of it -- **no dependencies**.
+# `projfs 0.1.2` pulls in `chashmap`, and through it `owning_ref 0.3.3`, which
+# is RUSTSEC-2022-0040: unsound, unmaintained, no fix. The wrapper it provided
+# is written in `src/projfs.rs` instead.
 [target.'cfg(windows)'.dependencies]
-projfs = "0.1.2"
+projfs-sys = "0.1.2"
+getrandom = "0.4.3"
 
 
-[lints]
-workspace = true
+# The workspace forbids unsafe. One module in this crate binds five Win32
+# functions and cannot, so the lint is relaxed to a warning here and
+# `scripts/check-unsafe.py` polices which crates may do that -- the same
+# arrangement as `itsanas-android`, and for the same reason: FFI is where a
+# blanket ban stops being a safety property and starts being a fiction.
+[lints.rust]
+unsafe_code = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

@@ -40,25 +40,33 @@
 //!
 //! # What it does not do yet
 //!
-//! **Reading only.** Files put into the folder by hand are not imported: that
-//! needs the notification callbacks, and the binding used here does not expose
-//! them. `itsanas put` and `itsanas folder` still work and are how things get
-//! in.
+//! **Reading only.** Files put into the folder by hand are not imported. The
+//! callback exists and is deliberately not bound: honouring it means deciding
+//! what a local edit does to an account several machines hold, and that is a
+//! design question rather than a missing function. `itsanas put` and
+//! `itsanas folder` still work and are how things get in.
 //!
 //! **Whole-file hydration.** A read of an absent file fetches all of it and
 //! blocks until it arrives. Fine for a document, unpleasant for a film over a
 //! slow link, and the projection is entitled to give up waiting.
 //!
-//! # The licence, since it decided the binding
+//! # Two dependency questions, and how they were answered
 //!
-//! `windows-projfs` has the better API by a distance — a safe trait, no unsafe
-//! on our side — and is **GPL-2.0**, which cannot be combined with this
-//! project's AGPL-3.0-or-later. The copyright holder offered to change the
-//! project's licence to make it fit. Declined: AGPL's network clause is the one
-//! that matters for a system whose whole purpose is other people running nodes,
-//! and under GPL-2.0 somebody could run a modified node as a service and owe
-//! nothing. `projfs` (MIT) is thinner and costs only more code, which is the
-//! cheap side of that trade.
+//! **A licence.** `windows-projfs` has the better API by a distance — a safe
+//! trait, no unsafe on our side — and is **GPL-2.0**, which cannot be combined
+//! with this project's AGPL-3.0-or-later. The copyright holder offered to
+//! change the project's licence to make it fit. Declined: AGPL's network clause
+//! is the one that matters for a system whose whole purpose is other people
+//! running nodes, and under GPL-2.0 somebody could run a modified node as a
+//! service and owe nothing.
+//!
+//! **An advisory.** The replacement, `projfs` (MIT), depends on `chashmap`,
+//! which depends on `owning_ref 0.3.3` — **RUSTSEC-2022-0040**, unsound in four
+//! documented ways, unmaintained, with no patched version. CI caught it the day
+//! it landed. So the binding is written here instead, over `projfs-sys` alone,
+//! which is the generated header and has no dependencies to be unsound about.
+//! See [`projfs`](mod@crate::projfs) for what that cost and the three faults it
+//! fixed on the way.
 //!
 //! # Linux
 //!
@@ -66,7 +74,14 @@
 //! somebody sits in front of; on this fleet the Pi and the VM are servers that
 //! hold everything and that nobody browses.
 
-#![forbid(unsafe_code)]
+// `deny`, not `forbid`, and the difference is the whole point: `forbid` cannot
+// be lifted anywhere inside the crate, and one module has to lift it. Every
+// other line here is still refused, and `scripts/check-unsafe.py` names which
+// module is allowed rather than trusting this attribute alone.
+#![deny(unsafe_code)]
+
+#[cfg(windows)]
+pub mod projfs;
 
 use std::collections::BTreeSet;
 

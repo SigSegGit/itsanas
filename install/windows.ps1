@@ -393,6 +393,44 @@ foreach ($prog in @('itsanas.exe', 'itsanas-coordinator.exe')) {
     Write-Ok (Join-Path $binDir $prog)
 }
 
+# The virtual drive, and it is optional on purpose rather than by omission.
+#
+# `itsanas-drive.exe` links ProjectedFSLib.dll at load time, so on a machine
+# where the Windows Projected File System feature is off it does not start --
+# it fails to *load*, before any code of ours runs and can explain itself. That
+# is why it is a separate binary from `itsanas.exe` instead of a subcommand: a
+# missing optional feature must not stop the daemon.
+#
+# So it is installed if the build produced it, and the feature is reported
+# rather than enabled. Turning on a Windows optional feature is a system change
+# an installer for a storage tool has no business making without being asked.
+$drive = Join-Path $buildDir 'target\release\itsanas-drive.exe'
+if (Test-Path $drive) {
+    try {
+        Copy-Item $drive (Join-Path $binDir 'itsanas-drive.exe') -Force
+        Write-Ok (Join-Path $binDir 'itsanas-drive.exe')
+    } catch {
+        Write-Warn "could not replace itsanas-drive.exe: $($_.Exception.Message)"
+    }
+
+    # Not `Get-WindowsOptionalFeature -Online`, which is the obvious way and
+    # **requires elevation** -- in a script that deliberately never asks for it.
+    # Run as an ordinary user it prints a red error and returns nothing, so the
+    # installer would then advise enabling a feature that may already be on.
+    # The filter driver is visible to anybody: it is running exactly when the
+    # feature is enabled, and its absence is what makes the binary fail to load.
+    $prjflt = Get-Service PrjFlt -ErrorAction SilentlyContinue
+    if ($prjflt -and $prjflt.Status -eq 'Running') {
+        Write-Info 'ProjFS is on, so itsanas-drive can mount the account as a folder.'
+    } else {
+        Write-Info 'The virtual drive needs a Windows feature that is off, and without it'
+        Write-Info 'itsanas-drive.exe will not start. To turn it on, in an administrator'
+        Write-Info 'PowerShell, then reboot if it asks:'
+        Write-Info '  Enable-WindowsOptionalFeature -Online -FeatureName Client-ProjFS -All'
+        Write-Info 'Everything else works without it.'
+    }
+}
+
 # PATH, for this user only. A machine-wide change needs administrator rights
 # that a storage tool has no business asking for.
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
