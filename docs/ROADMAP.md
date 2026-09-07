@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**696 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
+**702 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1226,100 +1226,46 @@ chunks awaiting collection, which preserves today's behaviour and does not fix
 the underlying thing: the replay wants the **last** operation per path when the
 earlier ones cannot be completed, and does not know it.
 
-### The have/missing sweep is O(account) per round, per peer
+### The have/missing sweep was O(account) per round, per peer — reconciled now
 
-`push_scoped` lists every chunk this device holds and asks the peer which ones
-it lacks. That is what makes the placement ledger converge without re-uploading
-anything, and what withdraws a holder record the moment a peer says it no longer
-has something — the cheapest and most exact correction in the system.
+`push_scoped` listed every chunk it held to ask a peer which were missing: 32
+bytes per chunk, per round, per peer. One two-thousandth of the account each
+round.
 
-It costs 32 bytes per chunk, and chunks average 64 KiB: **one two-thousandth of
-the account, per round, per peer.**
-
-| Account | Per round, per peer | Per day at the five-minute service interval |
+| Account | Per round, per peer | Per day at the five-minute interval |
 | --- | --- | --- |
 | 1 GB | 512 KB | 144 MB |
 | 10 GB | 5 MB | 1.4 GB |
 | 1 TB | 512 MB | 147 GB |
 
-Ten gigabytes is where it stops being free and a terabyte is impossible. The fix
-does not need new state: the ledger already records, per (chunk, device), when
-that peer last confirmed holding it, so a round need only ask about chunks with
-no fresh record for this peer. What it needs is a way to compute that difference
-without a per-chunk lookup — the holder table is keyed by chunk and the
-per-device table by audit tag, so neither gives the set in chunk order for a
-merge-join. Not started.
+It bought an exact answer to a question whose answer is almost always "nothing
+has changed", and paid in full for it every five minutes.
 
-### The whole log was re-offered every round, to every peer — fixed
+**A round now asks for a summary first**: one hash over the chunk id space,
+split into 256 buckets. Agreement ends the exchange — the ordinary round costs
+about a hundred bytes whatever the account weighs. Disagreement names the
+buckets that differ and only those are listed, so the cost follows the
+*difference* rather than the size. That is the property that makes this
+affordable at a scale nobody has arbitrated.
 
-`push_scoped` used to send every segment in this device's chain on every round, whatever
-the peer already has. The peer's vault refuses the ones it holds — a segment that
-is not the tip and not the next link answers `SegmentChainBroken` — and the tip
-comes back `accepted: true` despite not being stored, because the service maps
-`Ok(_)` to accepted rather than passing the real answer through.
+Three things it deliberately does not do:
 
-Three costs, in increasing order of how long they stay hidden:
+* **It does not judge.** A differing hash is a question. What follows is the
+  same have/missing exchange as before, over a slice. Nothing is withdrawn,
+  sanctioned or repaired on the strength of a summary — an aggregate-challenge
+  design considered first would have destroyed sixty healthy holder records for
+  every real one, on nothing worse than a disk going soft.
+* **It does not let the ledger rot.** A round that touches nothing would let
+  every holder record age past `CONFIRMED_FOR` in silence, and `release`
+  destroys local data on the strength of those records. The full walk still
+  happens, once every `REFRESH_AFTER` per peer rather than every round.
+* **It does not assume the peer can answer.** Below `PROTOCOL_WITH_CHUNK_SUMMARY`,
+  or on any unexpected answer, the round lists everything exactly as before. An
+  optimisation that can break a sync is not one.
 
-* **A line every round on an idle fleet.** `segments_accepted` counts a segment
-  that was already held, so `RoundReport::changed_anything()` is true on every
-  round for ever. The daemon's own comment says a quiet round is the common case
-  and that saying so every five minutes would fill a journal with nothing; it has
-  been saying so every five minutes since the counter existed. Found by reading
-  three machines' logs after an upgrade and noticing that "sent 400 B, 1 segments"
-  never stopped.
-* **A refusal is indistinguishable from "already had it".** `store_segment` maps
-  every `Refused` to `false`, so a forged signature or a genuine chain break looks
-  exactly like a peer that was already current.
-* **O(chain) bytes per round per peer.** A segment's sealed body is a few hundred
-  bytes on this fleet, and the chain grows by one per batch of edits and is never
-  compacted. A thousand segments is roughly 350 KB re-uploaded per round per peer
-  — 100 MB a day against one peer, for nothing. It is the same shape as the
-  have/missing sweep above and was not written down with it.
-
-The fix needs no new state: `pull` already resumes from the peer's head, and
-`heads` is a verb this protocol has. A push should ask what the peer holds for
-this device's chain and send only what comes after it.
-
-**Fixed** in the commit that added `a_second_push_offers_nothing_and_says_so`: a push now
-resumes from the peer's head, exactly as `pull` does in the other direction, and the service
-answers with what `put_segment` actually did.
-
-### An idle node writes three hundred megabytes a day — and the first fix bought 19%
-
-Measured over seven hours on three machines with an account of about a
-megabyte: **313 MB/day on the Pi, 296 on the VM**. Then a controlled experiment
-on a test node, two six-minute phases:
-
-| | written per round |
-| --- | --- |
-| daemon with no peer configured | 61 KB |
-| daemon with its two peers | 962 KB |
-
-So **94% of it is the sync round**, not the daemon loop. The first suspect was
-the ledger: a round confirms every chunk a peer holds and wrote the timestamp
-back for all of them, every five minutes, to record that nothing had changed.
-That is now skipped unless the record has aged past a quarter of the freshness
-window (`holders::REFRESH_AFTER`).
-
-**It went from 962 KB to 780 KB per round.** Nineteen per cent — worth having,
-and not the answer. Writing fewer rows was the wrong axis.
-
-What the numbers point at instead is the **number of transactions**, not their
-content: 61 KB for a round that commits once or twice, 780 KB for one that
-commits perhaps twenty times, which puts a commit at some tens of kilobytes
-whatever it contains. That is what a copy-on-write engine costs when a round
-opens a transaction for contact, then one per batch to withdraw, then one to
-record, then one per audit answer, then one for the applied markers.
-
-**Stated as a hypothesis, because it has not been measured.** The next
-measurement is a count of write transactions per round, and the likely fix is a
-round that opens one. Not started.
-
-
-CPU over the same period was 1.4% of one core on the Pi, 1.1% on the VM and
-2.5% on the laptop, and peak resident memory 7 to 17 MiB. Those are fine. A
-hundred gigabytes a year written to store nothing new is unremarkable on an SSD
-and is not on an SD card, which this project has already destroyed one of.
+What remains: computing a summary is a scan of the local index, which is cheap
+at the sizes measured and is O(account) in reads. Caching it against a change
+counter is the next step and is not built.
 
 ### The audit is a deterrent, not a detector, above a few gigabytes
 

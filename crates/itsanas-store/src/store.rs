@@ -1018,6 +1018,37 @@ impl Store {
         self.index.holder_evidence(chunk, now)
     }
 
+    /// Whether the whole holder ledger for `device` is due a walk.
+    ///
+    /// A round that reconciles in one hash does not touch the ledger when the
+    /// two sides agree. This is what stops every record quietly ageing out of
+    /// countable while that happens.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn ledger_walk_due(&self, device: &DeviceId, now: u64) -> Result<bool> {
+        self.index.ledger_walk_due(device, now)
+    }
+
+    /// Record that the whole ledger for `device` has just been walked.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn note_ledger_walk(&self, device: &DeviceId, now: u64) -> Result<()> {
+        self.index.note_ledger_walk(device, now)
+    }
+
+    /// A summary of what this device holds, for reconciling with a peer.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn chunk_summary(&self) -> Result<Vec<crate::summary::Digest>> {
+        self.index.chunk_summary()
+    }
+
     /// One page of the chunks this device holds, in chunk order.
     ///
     /// What a push walks to ask a peer what it is missing. See

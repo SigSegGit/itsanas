@@ -49,6 +49,17 @@ const CHAIN_LENGTHS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("vau
 /// `owner ‖ device` → the most recent segment id held.
 const HEADS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("vault_heads");
 
+/// Which chunks this vault holds, keyed by `owner ‖ chunk`.
+///
+/// The blob directories are the authority on what is on disk; this is an index
+/// over them, and it exists for one reason: **order**. Reconciling with an owner
+/// means hashing the ids this vault holds for them in ascending order, and the
+/// only other way to get that list is `BlobStore::addresses`, a recursive walk
+/// whose own documentation says it is never for a hot path. A host with a
+/// million chunks would walk a million files to answer "have we both got the
+/// same set", which is the question that exists to be cheap.
+const CHUNKS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("vault_chunks");
+
 /// Bytes in a `owner ‖ device` key.
 const CHAIN_KEY_LEN: usize = 64;
 
@@ -83,6 +94,31 @@ pub struct VaultStats {
     pub bytes: u64,
 }
 
+/// `owner ‖ chunk`, so one owner's chunks are a contiguous, ordered range.
+fn chunk_key(owner: UserId, chunk: &ChunkId) -> [u8; 64] {
+    let mut out = [0u8; 64];
+    out[..32].copy_from_slice(owner.as_bytes().as_slice());
+    out[32..].copy_from_slice(chunk.as_bytes().as_slice());
+    out
+}
+
+fn chunk_range_start(owner: UserId) -> [u8; 64] {
+    chunk_key(owner, &ChunkId::from_bytes([0x00; 32]))
+}
+
+fn chunk_range_end(owner: UserId) -> [u8; 64] {
+    chunk_key(owner, &ChunkId::from_bytes([0xFF; 32]))
+}
+
+fn chunk_from_key(bytes: &[u8]) -> Option<ChunkId> {
+    if bytes.len() != 64 {
+        return None;
+    }
+    let mut chunk = [0u8; 32];
+    chunk.copy_from_slice(&bytes[32..]);
+    Some(ChunkId::from_bytes(chunk))
+}
+
 impl Vault {
     /// Open or create a vault at `root`.
     ///
@@ -97,10 +133,13 @@ impl Vault {
             let _ = txn.open_table(SEGMENTS)?;
             let _ = txn.open_table(CHAIN_LENGTHS)?;
             let _ = txn.open_table(HEADS)?;
+            let _ = txn.open_table(CHUNKS)?;
         }
         txn.commit()?;
 
-        Ok(Self { root, db })
+        let vault = Self { root, db };
+        vault.backfill_chunks()?;
+        Ok(vault)
     }
 
     /// Per-owner blob directory.
@@ -119,7 +158,17 @@ impl Vault {
     /// Returns whether it was newly stored. The bytes are opaque and are not
     /// validated — see the module docs for why that is not a gap at this layer.
     pub fn put_chunk(&self, owner: UserId, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
-        self.blobs_for(owner)?.put(address, sealed)
+        let stored = self.blobs_for(owner)?.put(address, sealed)?;
+        // Indexed whether or not it was new: a blob present without its index
+        // row is exactly the state that makes a reconciliation disagree for
+        // ever, and re-inserting an existing key costs nothing.
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(CHUNKS)?
+                .insert(chunk_key(owner, address).as_slice(), sealed.len() as u64)?;
+        }
+        txn.commit()?;
+        Ok(stored)
     }
 
     /// Serve a sealed chunk.
@@ -134,12 +183,75 @@ impl Vault {
 
     /// Drop a chunk.
     pub fn remove_chunk(&self, owner: UserId, address: &ChunkId) -> Result<bool> {
-        self.blobs_for(owner)?.remove(address)
+        let removed = self.blobs_for(owner)?.remove(address)?;
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(CHUNKS)?
+                .remove(chunk_key(owner, address).as_slice())?;
+        }
+        txn.commit()?;
+        Ok(removed)
     }
 
-    /// Every chunk address held for one owner.
+    /// Every chunk address held for one owner, in ascending order.
+    ///
+    /// From the index rather than the directory, so it is a range scan instead
+    /// of a recursive walk, and sorted — which is what
+    /// [`crate::summary`] requires of both sides.
     pub fn chunks_for(&self, owner: UserId) -> Result<Vec<ChunkId>> {
-        self.blobs_for(owner)?.addresses()
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(CHUNKS)?;
+
+        let mut out = Vec::new();
+        for row in
+            table.range(chunk_range_start(owner).as_slice()..=chunk_range_end(owner).as_slice())?
+        {
+            let (key, _) = row?;
+            if let Some(chunk) = chunk_from_key(key.value()) {
+                out.push(chunk);
+            }
+        }
+        Ok(out)
+    }
+
+    /// A summary of what this vault holds for one owner.
+    ///
+    /// The answer to "have we both got the same set", in one hash. See
+    /// [`crate::summary`].
+    pub fn chunk_summary(&self, owner: UserId) -> Result<Vec<crate::summary::Digest>> {
+        Ok(crate::summary::buckets(self.chunks_for(owner)?))
+    }
+
+    /// Populate the chunk index from the directories, once.
+    ///
+    /// Vaults created before the index existed have blobs and no rows. Doing it
+    /// at open is a single walk on the first start after an upgrade, which is
+    /// the cheapest honest moment: the alternative is a vault that silently
+    /// reports an empty set and makes every peer re-send everything it holds.
+    fn backfill_chunks(&self) -> Result<()> {
+        let txn = self.db.begin_read()?;
+        let indexed = txn.open_table(CHUNKS)?.iter()?.next().is_some();
+        drop(txn);
+        if indexed {
+            return Ok(());
+        }
+
+        for owner in self.owners()? {
+            let addresses = self.blobs_for(owner)?.addresses()?;
+            if addresses.is_empty() {
+                continue;
+            }
+            let txn = self.db.begin_write()?;
+            {
+                let mut table = txn.open_table(CHUNKS)?;
+                for address in addresses {
+                    let size = self.blobs_for(owner)?.size_of(&address)?.unwrap_or(0);
+                    table.insert(chunk_key(owner, &address).as_slice(), size)?;
+                }
+            }
+            txn.commit()?;
+        }
+        Ok(())
     }
 
     // -------------------------------------------------------------- segments

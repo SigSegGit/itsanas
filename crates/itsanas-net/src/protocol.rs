@@ -32,7 +32,7 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;
 
 /// The oldest version this node will still talk to.
 ///
@@ -70,6 +70,14 @@ pub const PROTOCOL_WITHOUT_RECIPROCAL_HOSTING: u16 = 1;
 /// window rather than a comment: a peer at 2 is simply not told, and the audit
 /// remains the backstop it always was.
 pub const PROTOCOL_WITH_DROP_NOTICES: u16 = 3;
+
+/// The first version in which two nodes can ask "do we hold the same set?"
+/// before listing anything.
+///
+/// A peer below it is asked the old way — every chunk id, every round — which
+/// is correct and expensive. Gated rather than assumed, because that is what
+/// [`MIN_PROTOCOL_VERSION`] is for.
+pub const PROTOCOL_WITH_CHUNK_SUMMARY: u16 = 4;
 
 /// Domain string for storage-challenge proofs.
 const CHALLENGE_DOMAIN: &str = "itsanas v1 storage challenge";
@@ -173,6 +181,25 @@ pub enum Request {
     /// about what it dropped is caught by the audit exactly as before. This
     /// makes honesty cheap; it does not make dishonesty possible.
     Dropped { owner: UserId, chunks: Vec<ChunkId> },
+
+    /// "Do we hold the same chunks for this account?"
+    ///
+    /// # Why a round should ask this first
+    ///
+    /// The have/missing exchange answers exactly, and costs thirty-two bytes
+    /// per chunk, per round, per peer — a two-thousandth of the account each
+    /// round, or a hundred and forty gigabytes a day for a terabyte. It pays
+    /// that in full to learn what is almost always "nothing has changed".
+    ///
+    /// A summary costs the same whatever the account weighs. Agreement ends the
+    /// exchange; disagreement names the buckets that differ, and only those are
+    /// listed. The cost follows the difference rather than the size, which is
+    /// what makes it affordable at a scale nobody has arbitrated yet.
+    ///
+    /// The answer is a **question, not a verdict**: nothing is withdrawn,
+    /// sanctioned or repaired on the strength of it. What follows a mismatch is
+    /// the same have/missing exchange as before, over a slice of the id space.
+    ChunkSummary { owner: UserId },
 }
 
 /// What a peer answers.
@@ -192,6 +219,9 @@ pub enum Response {
         accepted: bool,
     },
     ChallengeProof([u8; 32]),
+    /// One digest per bucket of the chunk id space. See
+    /// [`itsanas_store::summary`].
+    ChunkSummary(Vec<[u8; 32]>),
     /// Chunks this peer would like the caller to hold, and whose they are.
     WantHosted {
         owner: UserId,
@@ -341,6 +371,7 @@ mod tests {
                 owner: user(),
                 chunks: vec![ChunkId::from_bytes([10; 32])],
             },
+            Request::ChunkSummary { owner: user() },
         ]
     }
 
@@ -366,6 +397,7 @@ mod tests {
             Request::WantHosted { .. } => {}
             Request::Hosted { .. } => {}
             Request::Dropped { .. } => {}
+            Request::ChunkSummary { .. } => {}
         }
     }
 

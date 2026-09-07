@@ -62,6 +62,19 @@ const META: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("meta");
 /// `holders.rs` for the argument.
 const HOLDERS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holders");
 
+/// When this node last walked its whole chunk set against one peer, per device.
+///
+/// A round that reconciles in one hash no longer touches the ledger at all when
+/// the two sides agree — which is the point, and which would let every record
+/// for that peer age quietly past [`holders::CONFIRMED_FOR`] until `release`
+/// stopped working and `coverage` reported no copies. So the full walk still
+/// happens, just rarely: once the last one is older than
+/// [`holders::REFRESH_AFTER`], which is a quarter of the window and leaves
+/// three further chances before anything could go stale.
+///
+/// One row per peer, against sixteen million reads per round for a terabyte.
+const LEDGER_REFRESHED: TableDefinition<'_, &[u8], u64> = TableDefinition::new("ledger_refreshed");
+
 /// Device → the head of that device's chain when it was last applied with
 /// nothing left over.
 ///
@@ -234,6 +247,7 @@ impl Index {
             let _ = txn.open_table(APPLIED)?;
             let _ = txn.open_table(RELIABILITY)?;
             let _ = txn.open_table(DEVICE_SEEN)?;
+            let _ = txn.open_table(LEDGER_REFRESHED)?;
             let _ = txn.open_table(HOLDINGS)?;
             let _ = txn.open_table(PROBES)?;
             let _ = txn.open_table(LOSSES)?;
@@ -745,6 +759,52 @@ impl Index {
     /// there are fourteen million live chunks and stat-ing all of them every
     /// round would cost more than the loss it is looking for. Successive calls
     /// with fresh cursors cover the store over time.
+    /// Whether the whole ledger for `device` is due a walk.
+    ///
+    /// A round that reconciles in one hash does not touch the ledger when the
+    /// two sides agree, so without this every record for that peer would age
+    /// past [`holders::CONFIRMED_FOR`] in silence — `release` would stop
+    /// working and `coverage` would report no copies, on an account nothing had
+    /// gone wrong with. The walk still happens, once every
+    /// [`holders::REFRESH_AFTER`] rather than every round.
+    pub fn ledger_walk_due(&self, device: &DeviceId, now: u64) -> Result<bool> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(LEDGER_REFRESHED)?;
+        let last = table
+            .get(device.as_bytes().as_slice())?
+            .map_or(0, |value| value.value());
+        Ok(last < now.saturating_sub(holders::REFRESH_AFTER))
+    }
+
+    /// Record that the whole ledger for `device` has just been walked.
+    pub fn note_ledger_walk(&self, device: &DeviceId, now: u64) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(LEDGER_REFRESHED)?
+                .insert(device.as_bytes().as_slice(), now)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// A summary of the chunks this device holds, for reconciling with a peer.
+    ///
+    /// One sequential scan of the reference table, which is keyed by chunk id
+    /// and therefore already in the order the summary requires. See
+    /// [`crate::summary`] for what it is for and why the ordering is a
+    /// contract rather than a detail.
+    pub fn chunk_summary(&self) -> Result<Vec<crate::summary::Digest>> {
+        let txn = self.db.begin_read()?;
+        let refs = txn.open_table(CHUNK_REFS)?;
+
+        let mut chunks = Vec::new();
+        for row in refs.iter()? {
+            let (key, _) = row?;
+            chunks.push(ChunkId::from_slice(key.value())?);
+        }
+        Ok(crate::summary::buckets(chunks))
+    }
+
     /// One page of the chunks this device still has on disk, in chunk order.
     ///
     /// Everything the index knows a blob for: referenced by a live file, **and**

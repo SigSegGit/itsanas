@@ -25,7 +25,7 @@ use std::cell::RefCell;
 use std::collections::BTreeSet;
 
 use itsanas_crypto::{ChunkId, DeviceId, UserId};
-use itsanas_store::{SegmentEnvelope, Store, Vault};
+use itsanas_store::{SegmentEnvelope, Store, Vault, summary};
 use itsanas_sync::{ChunkSource, SyncReport, apply_segments};
 
 use crate::{
@@ -60,6 +60,15 @@ pub struct PushReport {
     /// different questions: how much work this round did, and how much of this
     /// node's data now exists somewhere other than this disk.
     pub holders_recorded: usize,
+    /// How many chunk ids this round put on the wire to ask "have you got
+    /// these?".
+    ///
+    /// The number the reconciliation exists to keep at zero. It used to be the
+    /// whole account, every round, per peer: a two-thousandth of the account in
+    /// bytes, or a hundred and forty gigabytes a day for a terabyte. Reported
+    /// so a test can hold it to zero, because an optimisation nothing measures
+    /// is an optimisation nobody notices losing.
+    pub chunks_asked_about: usize,
 }
 
 /// What a whole round did.
@@ -200,6 +209,131 @@ pub fn round_scoped(
     let push = push_scoped(store, client, scope)?;
     let pull = pull_scoped(store, vault, client, scope)?;
     Ok(RoundReport { push, pull })
+}
+
+/// Ask the peer about the chunks this device holds, and send what it lacks.
+///
+/// `only` narrows it to the buckets a summary said the two sides disagree
+/// about; `None` means all of them, which is what happens against a peer too
+/// old to summarise and on the periodic full walk of the ledger.
+fn sweep(
+    store: &Store,
+    client: &mut PeerClient,
+    report: &mut PushReport,
+    only: Option<&[u8]>,
+) -> Result<()> {
+    let owner = store.owner();
+    let peer = client.peer_device();
+
+    let mut cursor: Option<ChunkId> = None;
+    loop {
+        let (page, next) = store.live_chunks_page(cursor.as_ref(), MAX_HAVE_BATCH)?;
+        if page.is_empty() {
+            break;
+        }
+
+        let filtered: Vec<ChunkId> = match &only {
+            Some(buckets) => page
+                .iter()
+                .copied()
+                .filter(|chunk| buckets.iter().any(|b| summary::in_bucket(chunk, *b)))
+                .collect(),
+            None => page.clone(),
+        };
+
+        if filtered.is_empty() {
+            match next {
+                Some(next) => {
+                    cursor = Some(next);
+                    continue;
+                }
+                None => break,
+            }
+        }
+
+        let batch = filtered.as_slice();
+        report.chunks_asked_about += batch.len();
+        let missing = client.missing_chunks(owner, batch.to_vec())?;
+        let wanted: BTreeSet<ChunkId> = missing.iter().copied().collect();
+
+        // What the peer did *not* ask for, it already has. That answer costs
+        // nothing extra — it is the same round trip that decides what to send —
+        // and it is what makes the placement ledger converge on every sync
+        // rather than only recording chunks this node happened to upload. A
+        // node restored from its recovery phrase learns where its data lives by
+        // asking, instead of re-uploading everything to find out.
+        let mut confirmed: Vec<ChunkId> = batch
+            .iter()
+            .filter(|address| !wanted.contains(address))
+            .copied()
+            .collect();
+
+        // And what it *did* ask for, it does not have -- whatever this node's
+        // ledger says. Free, exact, and immediate: the same round trip that
+        // decides what to send also withdraws every record this peer has
+        // outgrown, which matters now that a device with a storage budget lets
+        // go of content on purpose. Waiting for the audit to notice would mean
+        // sixteen chunks per round against an account of millions.
+        store.forget_holders(&missing, &peer)?;
+
+        for address in missing {
+            let Some(sealed) = store.blobs().get(&address)? else {
+                // Collected between listing and sending. Not an error.
+                continue;
+            };
+
+            report.chunks_offered += 1;
+            let len = sealed.len() as u64;
+            if client.store_chunk(owner, address, sealed)? {
+                report.chunks_accepted += 1;
+                report.bytes_sent = report.bytes_sent.saturating_add(len);
+                confirmed.push(address);
+            }
+        }
+
+        report.holders_recorded += confirmed.len();
+        store.record_holders(&confirmed, &peer)?;
+
+        match next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+
+    Ok(())
+}
+
+/// What a summary exchange concluded.
+enum Reconciled {
+    /// The two sides hold the same set. Nothing to list.
+    Identical,
+    /// They differ, in these buckets of the chunk id space.
+    Buckets(Vec<u8>),
+    /// The peer is too old to be asked, so nothing is known and everything is
+    /// listed — which is what every round did before this existed.
+    Unknown,
+}
+
+/// Compare what the two sides hold, in one hash.
+///
+/// The whole point of the exercise: the ordinary answer is "the same", and
+/// saying so should not cost a two-thousandth of the account.
+///
+/// A failure to summarise is not a failure of the round. A peer that refuses
+/// the question, or answers something unexpected, is treated exactly as one too
+/// old to be asked: the sweep runs in full, correctly and expensively. This is
+/// an optimisation, and an optimisation that can break a sync is not one.
+fn reconcile(store: &Store, client: &mut PeerClient, owner: UserId) -> Result<Reconciled> {
+    let Some(theirs) = client.chunk_summary(owner).unwrap_or(None) else {
+        return Ok(Reconciled::Unknown);
+    };
+
+    let ours = store.chunk_summary()?;
+    if summary::root(&ours) == summary::root(&theirs) {
+        return Ok(Reconciled::Identical);
+    }
+
+    Ok(Reconciled::Buckets(summary::differing(&ours, &theirs)))
 }
 
 /// Ask this peer about chunks it is recorded as holding that this device no
@@ -401,58 +535,42 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
     // allocation, on machines whose measured peak is 17 MiB. The account size at
     // which this sweep becomes expensive on the wire is far past the size at
     // which it kills the process; the bandwidth was the second problem.
-    let mut cursor: Option<ChunkId> = None;
-    loop {
-        let (batch, next) = store.live_chunks_page(cursor.as_ref(), MAX_HAVE_BATCH)?;
-        if batch.is_empty() {
-            break;
+    //
+    // And before any of that: ask whether there is anything to reconcile at
+    // all. One hash, whatever the account weighs. If the two sides hold the
+    // same set — which is the answer on almost every round of almost every day
+    // — the sweep is skipped entirely and the round costs nothing. If they
+    // differ, the summary says *where*, and only those buckets are listed.
+    //
+    // A differing hash is a question, not a verdict: what follows is the same
+    // have/missing exchange as before, over a slice.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    let only = match reconcile(store, client, owner)? {
+        // The two sides hold the same set, so there is nothing to send. The
+        // ledger still needs its records re-stamped now and then, or every one
+        // of them would age past `CONFIRMED_FOR` while the rounds went by in
+        // silence -- `release` would stop working and `coverage` would report
+        // no copies, on an account nothing had gone wrong with. So the walk
+        // still happens, once every `REFRESH_AFTER` rather than every round:
+        // one round in a few hundred instead of sixteen million reads in each.
+        Reconciled::Identical if !store.ledger_walk_due(&peer, now)? => {
+            report.holders_recorded += refresh_released(store, client, &peer)?;
+            return Ok(report);
         }
-        let batch = batch.as_slice();
-        let missing = client.missing_chunks(owner, batch.to_vec())?;
-        let wanted: BTreeSet<ChunkId> = missing.iter().copied().collect();
+        // A due walk and an unanswerable peer both mean the same thing here:
+        // list everything.
+        Reconciled::Identical | Reconciled::Unknown => None,
+        Reconciled::Buckets(buckets) => Some(buckets),
+    };
 
-        // What the peer did *not* ask for, it already has. That answer costs
-        // nothing extra — it is the same round trip that decides what to send —
-        // and it is what makes the placement ledger converge on every sync
-        // rather than only recording chunks this node happened to upload. A
-        // node restored from its recovery phrase learns where its data lives by
-        // asking, instead of re-uploading everything to find out.
-        let mut confirmed: Vec<ChunkId> = batch
-            .iter()
-            .filter(|address| !wanted.contains(address))
-            .copied()
-            .collect();
+    sweep(store, client, &mut report, only.as_deref())?;
 
-        // And what it *did* ask for, it does not have -- whatever this node's
-        // ledger says. Free, exact, and immediate: the same round trip that
-        // decides what to send also withdraws every record this peer has
-        // outgrown, which matters now that a device with a storage budget lets
-        // go of content on purpose. Waiting for the audit to notice would mean
-        // sixteen chunks per round against an account of millions.
-        store.forget_holders(&missing, &peer)?;
-
-        for address in missing {
-            let Some(sealed) = store.blobs().get(&address)? else {
-                // Collected between listing and sending. Not an error.
-                continue;
-            };
-
-            report.chunks_offered += 1;
-            let len = sealed.len() as u64;
-            if client.store_chunk(owner, address, sealed)? {
-                report.chunks_accepted += 1;
-                report.bytes_sent = report.bytes_sent.saturating_add(len);
-                confirmed.push(address);
-            }
-        }
-
-        report.holders_recorded += confirmed.len();
-        store.record_holders(&confirmed, &peer)?;
-
-        match next {
-            Some(next) => cursor = Some(next),
-            None => break,
-        }
+    // A full walk happened, so the clock restarts. Only when it really was
+    // full: a round that listed a few buckets has said nothing about the rest.
+    if only.is_none() {
+        store.note_ledger_walk(&peer, now)?;
     }
 
     report.holders_recorded += refresh_released(store, client, &peer)?;

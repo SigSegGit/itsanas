@@ -177,6 +177,20 @@ impl<'a> PeerService<'a> {
 
             Request::WantHosted { limit } => self.want_hosted(*limit),
 
+            Request::ChunkSummary { owner } => {
+                // Over the same set this node would answer `HaveChunks` from:
+                // its own store when the account is its own, its vault when it
+                // is holding for somebody else. Any other set and the summary
+                // would disagree with the exchange that follows it, which is
+                // the one way this mechanism can be worse than none.
+                let digests = if *owner == self.store.owner() {
+                    self.store.chunk_summary()?
+                } else {
+                    self.vault.chunk_summary(*owner)?
+                };
+                Ok(Response::ChunkSummary(digests))
+            }
+
             Request::Dropped { owner, chunks } => {
                 // Only the owner keeps a ledger about its own chunks. A node
                 // hosting somebody else's data has nothing to correct, and

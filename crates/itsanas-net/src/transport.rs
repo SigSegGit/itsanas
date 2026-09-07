@@ -52,7 +52,8 @@ use itsanas_wire::Connection;
 use crate::{
     error::{NetError, Result},
     protocol::{
-        Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_DROP_NOTICES, Request, Response,
+        Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_CHUNK_SUMMARY,
+        PROTOCOL_WITH_DROP_NOTICES, Request, Response,
     },
     service::PeerService,
 };
@@ -340,6 +341,23 @@ impl PeerClient {
             Response::Stored { accepted } => Ok(accepted),
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
+        }
+    }
+
+    /// Ask whether this peer holds the same chunks for `owner`.
+    ///
+    /// `None` when the peer is too old to be asked, which is not a failure:
+    /// the caller then does what every round did before, and lists everything.
+    pub fn chunk_summary(&mut self, owner: UserId) -> Result<Option<Vec<[u8; 32]>>> {
+        if self.spoken < PROTOCOL_WITH_CHUNK_SUMMARY {
+            return Ok(None);
+        }
+        match self.request(&Request::ChunkSummary { owner })? {
+            Response::ChunkSummary(digests) => Ok(Some(digests)),
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse {
+                expected: "chunk summary",
+            }),
         }
     }
 

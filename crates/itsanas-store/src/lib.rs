@@ -59,6 +59,7 @@ pub mod oplog;
 pub mod path;
 pub mod reliability;
 pub mod store;
+pub mod summary;
 pub mod vault;
 pub mod version;
 

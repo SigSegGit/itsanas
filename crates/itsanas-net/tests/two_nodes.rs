@@ -2633,3 +2633,84 @@ fn a_release_rests_on_two_real_peers_and_notices_when_one_stops_holding() {
         other => panic!("released down to a single copy: {other:?}"),
     }
 }
+
+#[test]
+fn a_round_that_has_nothing_to_say_says_it_in_one_hash() {
+    // The cost that made a terabyte impossible. A round asked its peer about
+    // every chunk it held, every time -- thirty-two bytes each, per round, per
+    // peer, which is a two-thousandth of the account each round and a hundred
+    // and forty gigabytes a day at a terabyte. It paid that in full to learn
+    // what is almost always "nothing has changed".
+    //
+    // A summary answers that in one hash whatever the account weighs, and when
+    // the two sides disagree it says *where*, so only that slice is listed.
+    // Nothing is judged on a summary: what follows a mismatch is the same
+    // have/missing exchange as before.
+    let author = node(&alice(), 95);
+    let host = node(&MasterSecret::from_bytes([0xD3; 32]), 96);
+
+    for index in 0..8 {
+        let payload = itsanas_testkit::filler(&format!("recon-{index}"), 128 * 1024);
+        author
+            .store
+            .write_file(&format!("file-{index}.bin"), &payload)
+            .unwrap();
+    }
+    author.store.flush_segment().unwrap();
+    let held = author.store.stats().unwrap().live_chunks;
+    assert!(held > 8, "the fixture is too small: {held} chunks");
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).unwrap();
+
+        let first = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(
+            first.chunks_asked_about, held,
+            "the first round should list everything: the host has none of it"
+        );
+        assert!(first.chunks_accepted > 0, "the host took nothing");
+
+        // The second round agrees on the summary and still walks, because the
+        // ledger has never been walked against this peer and its records would
+        // otherwise age out of countable in silence -- `release` destroys local
+        // data on the strength of them. That walk happens once every
+        // `REFRESH_AFTER`, not every round.
+        let second = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(second.chunks_offered, 0, "the host was sent data it had");
+        assert_eq!(
+            second.chunks_asked_about, held,
+            "the first walk against a peer should still cover everything"
+        );
+
+        // And now nothing has changed and the ledger is fresh. Saying so costs
+        // one hash rather than one identifier per chunk.
+        let third = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(
+            third.chunks_asked_about, 0,
+            "a round with nothing to say listed {} chunks",
+            third.chunks_asked_about
+        );
+        assert_eq!(third.chunks_offered, 0);
+
+        // One new file. The summary locates the disagreement, so the round
+        // lists a slice of the id space rather than the account.
+        author
+            .store
+            .write_file("late.bin", &itsanas_testkit::filler("late", 128 * 1024))
+            .unwrap();
+        author.store.flush_segment().unwrap();
+        let after = author.store.stats().unwrap().live_chunks;
+
+        let fourth = session::push(&author.store, &mut client).unwrap();
+        assert!(
+            fourth.chunks_accepted > 0,
+            "the new file never reached the host"
+        );
+        assert!(
+            fourth.chunks_asked_about < after,
+            "a change listed the whole account again: {} of {after}",
+            fourth.chunks_asked_about
+        );
+    });
+}

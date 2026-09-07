@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-07 — 696 test functions across 24 binaries, 3 of them
+**Last updated: 2026-09-07 — 702 test functions across 24 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
 
-**580 of the 696 tests have an entry of their own on this page** — an *entry*,
+**586 of the 702 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -138,12 +138,12 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 144 |
+| `itsanas-store` unit | 149 |
 | `itsanas-store` integration (`tests/store.rs`) | 38 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 34 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 42 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 43 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 72 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
@@ -384,7 +384,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (130, plus the 14 vault tests below)
+# `itsanas-store` — unit tests (135, plus the 14 vault tests below)
 
 ## `reliability` — remembering that a peer failed (6)
 
@@ -446,6 +446,20 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | `holders_are_kept_apart_by_chunk` / `a_recorded_holder_comes_back` | The basic paths. |
 | `recording_a_batch_matches_recording_one_at_a_time` | A sync round commits once rather than once per chunk, which on an SD card is most of the time spent. |
 | `recording_an_empty_batch_does_nothing_rather_than_opening_a_transaction` | A quiet round costs no write. |
+
+## `summary` — do we hold the same chunks? (5)
+
+`src/summary.rs`. One hash instead of one identifier per chunk. The tests are
+about the two ways a reconciliation can be worse than none: agreeing about
+something nobody looked at, and disagreeing for a reason that is not data.
+
+| Test | What it proves |
+| --- | --- |
+| **`two_machines_holding_the_same_set_agree_in_one_hash`** | The case that happens on almost every round of almost every day, and the reason this exists: saying "nothing changed" costs thirty-two bytes rather than a two-thousandth of the account. |
+| **`one_chunk_missing_is_located_rather_than_merely_noticed`** | A differing hash has to say *where*, or the only possible response is to list everything — which is the cost it exists to avoid. |
+| **`order_within_a_bucket_is_part_of_the_contract`** | Both sides scan a table keyed by chunk id, so both are sorted. If one ever were not, two honest machines would disagree for ever and it would look exactly like data loss. |
+| `an_empty_set_has_a_defined_answer_on_both_sides` | Two nodes holding nothing agree without a special case, and one holding nothing does not accidentally agree with one holding something. |
+| **`a_summary_of_a_different_length_is_all_disagreement`** | Comparing the overlap would report agreement about a part nobody looked at, which is the one answer a reconciliation must never give. |
 
 ## `chunker` — content-defined chunking (13)
 
@@ -720,7 +734,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (42)
+# `itsanas-net` — two-node tests (43)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -751,6 +765,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`two_nodes_sync_a_file_over_a_real_socket`** | The M4 exit criterion. |
 | **`a_device_takes_the_files_it_asked_for_and_none_of_the_others`** | The ordinary case for a phone, not an edge case: a few gigabytes free against an account of hundreds. The device names what it wants and the source declines everything else, so the merge engine treats the rest as it treats a sleeping peer — deferred, nothing half-written, still listed for a client to fetch on demand. This was a byte budget inside the pull, which stopped when the allowance ran out and therefore kept whatever the log replayed first; deciding *which* files is now `itsanas_policy::keeping`, and this is the network half. |
 | **`a_second_push_offers_nothing_and_says_so`** | Found by reading three machines' daemon logs after an upgrade: "sent 400 B (0 chunks, 1 segments)" every five minutes on a fleet where nothing was happening. A push offered the whole chain every round whatever the peer held, the vault refused each already-held segment with a chain-break, and `store_segment` maps every refusal to `false` — so the waste was invisible from the pushing side and grows without bound as the chain does. Fails when the resume is removed. |
+| **`a_round_that_has_nothing_to_say_says_it_in_one_hash`** | The cost that made a terabyte impossible: a round asked its peer about every chunk it held, every time — a two-thousandth of the account per round, a hundred and forty gigabytes a day at a terabyte, to learn what is almost always "nothing has changed". Asserts the idle round lists **zero** chunks, that a change lists a slice rather than the account, and that the periodic ledger walk still happens — because a round that never touches the ledger lets every record age out of countable in silence, and `release` destroys local data on the strength of them. Fails when the reconciliation is bypassed. |
 | **`a_file_this_device_never_downloaded_can_be_fetched_when_it_is_asked_for`** | The capability the storage budget rests on, and which did not exist when the budget shipped: a device lists a file it does not hold, and opening it goes and gets it — that one file, not the account. Without this, `keep` produces files that are visible and unopenable, and a phone client is a browser for things you cannot read. |
 | **`a_file_this_device_made_and_released_can_be_fetched_back_from_a_host`** | The worse half of the same defect, and the one that only showed itself once the listing was fixed: opening a released file still answered "no such file" while two hosts held it. `apply_segments` skips a device's own chain, on the reasoning that its own state already reflects it — untrue the moment content can be released. A listed file that cannot be opened looks like corruption; a file that is not listed looks like a device that has not synced. Fails when the replay mode is put back to `OthersOnly`. |
 | **`a_release_rests_on_two_real_peers_and_notices_when_one_stops_holding`** | The test this repository did not have, and the reason three defects in the release path were found by hand on a Raspberry Pi and none by 683 tests. Every other release test writes the holder ledger directly — a device that never spoke to anything — and reads it back, which is sound for testing the *choice* and useless for testing the release: a release never fails on the choice, it fails on the provenance of the evidence. Here two real hosts take a copy over two real sockets, the release decides from what those exchanges left behind, one host then throws the chunk away, and the next round has to notice — which no audit could, because a challenge is checked against a local copy this device released. Fails when the ledger sweep is removed. |
