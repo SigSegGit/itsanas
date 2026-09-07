@@ -139,6 +139,19 @@ function Get-Sha256 {
     } finally { $sha.Dispose() }
 }
 
+# Same reasoning as windows.ps1's -Prefix default: `Join-Path` refuses a null
+# first argument, and the resulting message names a parameter called 'Path'
+# and nothing about this script. LOCALAPPDATA is set for every interactive
+# Windows session; when it is not -- a stripped service environment -- say so
+# here rather than three lines later in somebody else's words.
+if (-not $env:LOCALAPPDATA) {
+    Die 'LOCALAPPDATA is not set' @(
+        'This script installs into %LOCALAPPDATA%\Programs\itsanas and keeps the',
+        'service passphrase in %LOCALAPPDATA%\itsanas. Neither has a fallback.',
+        'Run it from an ordinary interactive session.'
+    )
+}
+
 $binDir = Join-Path $env:LOCALAPPDATA 'Programs\itsanas\bin'
 $bin = Join-Path $binDir 'itsanas.exe'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path

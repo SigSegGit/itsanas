@@ -60,7 +60,15 @@
 
 [CmdletBinding()]
 param(
-    [string] $Prefix = (Join-Path $env:LOCALAPPDATA 'Programs\itsanas'),
+    # Interpolation rather than `Join-Path`, and it is not a style choice.
+    # `Join-Path` refuses a null first argument, and a parameter default that
+    # throws takes the whole script down during *binding* -- before the body
+    # runs, before -Clean is looked at, with a message naming a parameter
+    # called 'Path' and nothing else. That happens wherever LOCALAPPDATA is
+    # unset: a stripped service environment, and every CI runner that is not
+    # Windows. The install path checks the value properly below; it is not
+    # this line's job to refuse, only its job not to explode.
+    [string] $Prefix = "$env:LOCALAPPDATA\Programs\itsanas",
     [string] $Source = '',
     [switch] $NoService,
     [switch] $NoBuild,
@@ -367,6 +375,14 @@ Write-Ok 'built'
 Write-Step 'Installing'
 
 $binDir = Join-Path $Prefix 'bin'
+if (-not $env:LOCALAPPDATA -and -not $PSBoundParameters.ContainsKey('Prefix')) {
+    Stop-WithAdvice 'LOCALAPPDATA is not set, so there is no default place to install' @(
+        'That variable is normally set for every interactive Windows session.',
+        'Say where the binaries should go instead:',
+        '  -Prefix C:\Tools\itsanas'
+    )
+}
+
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 
 foreach ($prog in @('itsanas.exe', 'itsanas-coordinator.exe')) {
