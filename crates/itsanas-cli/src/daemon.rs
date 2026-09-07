@@ -485,40 +485,41 @@ fn write_snapshot(node: &Node) {
     }
 }
 
-/// Say when the device's own limit, rather than the peer, is what stopped
-/// content arriving.
+/// Say what a device short of room did with this round.
 ///
-/// Worth a line because it is not a failure and reads like one otherwise: the
-/// device has as much of the account as it agreed to hold, the rest is listed,
-/// and opening a file fetches it. Somebody who is not told this sees a sync
-/// that never finishes.
-fn report_budget_stop(node: &Node, peer: &str, stopped: bool) {
-    if !stopped {
+/// Worth a line because none of it is a failure and all of it reads like one
+/// otherwise: files arriving, files being let go of, and the case that has to be
+/// said out loud -- content this device would have released and could not,
+/// because no live holder is known for it. That last one means the device is
+/// over its limit *and* is the only place that data exists, which is the state
+/// a person most needs to be told about and the one a silent implementation
+/// would hide.
+fn report_keeping(peer: &str, keeping: &crate::keeping::KeepingReport) {
+    if !keeping.worth_reporting() {
         return;
     }
-    let limit = node
-        .config
-        .keep_bytes
-        .map_or_else(|| "no limit".to_owned(), format_size);
-    println!(
-        "{peer}: stopped at this device's limit of {limit}; the rest is listed and fetched when opened"
-    );
-}
 
-/// What is left of this device's budget for its own data, or `None` for no limit.
-///
-/// Computed per round rather than held: the store grows between rounds, and a
-/// stale budget would either overshoot the limit or stop short of it.
-///
-/// A store that cannot be read is treated as empty, which errs towards
-/// downloading. The alternative -- treating an unreadable store as full --
-/// would silently stop a device syncing because of a transient read failure,
-/// and a device that quietly stops syncing is the failure this project is
-/// least able to notice.
-fn remaining_budget(node: &Node) -> Option<u64> {
-    let keep = node.config.keep_bytes?;
-    let held = node.store.stats().map_or(0, |stats| stats.bytes_on_disk);
-    Some(keep.saturating_sub(held))
+    let mut line = format!("{peer}: keeping");
+    if keeping.fetched > 0 {
+        let _ = write!(line, " {} fetched", keeping.fetched);
+    }
+    if keeping.released > 0 {
+        let _ = write!(
+            line,
+            " {} let go ({} freed)",
+            keeping.released,
+            format_size(keeping.freed)
+        );
+    }
+    println!("{line}");
+
+    if keeping.only_copy_here > 0 {
+        println!(
+            "  {} file(s) could not be let go of: no other machine is known to hold them.",
+            keeping.only_copy_here
+        );
+        println!("  This device is over its limit until one does.");
+    }
 }
 
 /// The third half of a round: hold some of what this peer needs held.
@@ -885,16 +886,14 @@ fn sync_once(
         PolicyScope::Metadata | PolicyScope::Nothing => session::Scope::Metadata,
         PolicyScope::Everything => session::Scope::Everything,
     };
-    let budget = remaining_budget(node);
-
-    let earned_trust = match session::round_within(
+    let earned_trust = match crate::keeping::round(
         &node.store,
         &node.vault,
+        &node.config.keeping(),
         &mut client,
         wire,
-        budget,
     ) {
-        Ok(report) => {
+        Ok((report, keeping)) => {
             if report.changed_anything() {
                 println!(
                     "{peer}: sent {} ({} chunks, {} segments), received {} files, {} conflicts{}",
@@ -910,7 +909,7 @@ fn sync_once(
                     }
                 );
             }
-            report_budget_stop(node, peer, report.budget_spent);
+            report_keeping(peer, &keeping);
             // A quiet round is the common case. Saying so every five minutes
             // would fill a journal with nothing and train the operator to
             // ignore it.

@@ -33,14 +33,17 @@
 //! behaviour people already expect from Drive and Dropbox, arrived at from the
 //! cost rather than copied.
 //!
-//! **The other half of that behaviour is not built.** Fetching the segments
-//! makes the *next* content round instant and lets this device relay work
-//! onwards; it does not yet make the files appear in a listing, because a
-//! deferred operation writes no index entry. "Everything is listed, tap one to
-//! download it" needs a catalogue derived from the vault, and that does not
-//! exist. See `docs/ROADMAP.md`.
+//! Both halves are built. Fetching the segments makes the *next* content round
+//! instant, lets this device relay work onwards, and — through
+//! `itsanas_store::catalogue`, which derives the account's whole file list from
+//! those segments — makes every file appear in a listing marked as not
+//! downloaded. `itsanas get` fetches one. That is "everything is listed, tap one
+//! to download it", and [`keeping`] is what decides which ones a device short of
+//! room holds without being asked.
 
 #![forbid(unsafe_code)]
+
+pub mod keeping;
 
 use core::time::Duration;
 
@@ -162,10 +165,10 @@ pub enum Scope {
     Nothing,
     /// Exchange log segments and heads. Kilobytes.
     ///
-    /// Enough to know that work is waiting, to relay it onwards, and to make
-    /// the next content round resume rather than restart. Not yet enough to
-    /// *show* the files: that needs a catalogue derived from the vault, which
-    /// is not built.
+    /// Enough to know that work is waiting, to relay it onwards, to make the
+    /// next content round resume rather than restart, and to *show* the files:
+    /// `itsanas_store::catalogue` derives the listing from exactly these
+    /// segments, marking what this device has not downloaded.
     Metadata,
     /// Metadata and file contents. Megabytes to gigabytes.
     Everything,

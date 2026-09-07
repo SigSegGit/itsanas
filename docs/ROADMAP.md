@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**664 test functions, 3 of them `#[ignore]`d into the slow job, and 30 of
+**681 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1185,6 +1185,70 @@ SHA-256.
 **Cost:** O(history) of segment decoding per call, no network. The same walk
 `pull` already does on every content round. It joins the queue behind pack
 files rather than being a new class of problem.
+
+---
+
+## Known ceilings, with the arithmetic
+
+Three limits that are fine at the size this runs at today and are not fine at
+the size it is aimed at. Written with the number where each one breaks, because
+a limit described in words gets rediscovered as a surprise.
+
+### The have/missing sweep is O(account) per round, per peer
+
+`push_scoped` lists every chunk this device holds and asks the peer which ones
+it lacks. That is what makes the placement ledger converge without re-uploading
+anything, and what withdraws a holder record the moment a peer says it no longer
+has something — the cheapest and most exact correction in the system.
+
+It costs 32 bytes per chunk, and chunks average 64 KiB: **one two-thousandth of
+the account, per round, per peer.**
+
+| Account | Per round, per peer | Per day at the five-minute service interval |
+| --- | --- | --- |
+| 1 GB | 512 KB | 144 MB |
+| 10 GB | 5 MB | 1.4 GB |
+| 1 TB | 512 MB | 147 GB |
+
+Ten gigabytes is where it stops being free and a terabyte is impossible. The fix
+does not need new state: the ledger already records, per (chunk, device), when
+that peer last confirmed holding it, so a round need only ask about chunks with
+no fresh record for this peer. What it needs is a way to compute that difference
+without a per-chunk lookup — the holder table is keyed by chunk and the
+per-device table by audit tag, so neither gives the set in chunk order for a
+merge-join. Not started.
+
+### The audit is a deterrent, not a detector, above a few gigabytes
+
+Sixteen challenges per peer per round is 4,608 chunks a day: 3.5 days to cover a
+1 GB account, 36 days for 10 GB, ten years for 1 TB. It is why holder freshness
+asks whether the *machine* has been heard from rather than whether that chunk
+was re-challenged — a per-chunk rule reports "no copies" on a perfectly healthy
+account above about 4 GB, purely because the audit could not have got round to
+it. See `docs/DESIGN.md` §6.5.
+
+Raising the rate does not fix it; the ratio does not change. What would fix it
+is making a *disagreement* cheap to detect in bulk rather than one chunk at a
+time — a Merkle summary over what each side believes the other holds. Not
+started, and not needed below tens of gigabytes.
+
+### A verifier has to hold the bytes it challenges
+
+`session::audit` re-derives the expected ciphertext from this device's own copy,
+so a device that has released content reports those challenges as `unverifiable`
+rather than failing the peer. Correct, and it means:
+
+* a phone holding a slice of its account can only audit that slice, and
+* the sharded future in `docs/DESIGN.md` §5 — where by design nobody holds a
+  whole copy of anybody else's account — has no verification story yet.
+
+Two options, neither built. **Precomputed challenges**: while the owner still
+holds a chunk, compute *n* (nonce, answer) pairs and keep the answers; 8-byte
+answers and four per chunk is 32 bytes per 64 KiB, or half a gigabyte per
+terabyte, and they run out. **Cross-checking**: send the same fresh nonce to two
+independent holders and compare their answers, which needs no local copy at all
+and detects silent loss — the dominant failure — while not detecting two holders
+who collude. The second is cheap and partial, the first is expensive and sound.
 
 ---
 

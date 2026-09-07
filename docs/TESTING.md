@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-01 — 664 test functions across 21 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 30 are red-team tests.**
+**Last updated: 2026-09-01 — 681 test functions across 21 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
 
-**548 of the 664 tests have an entry of their own on this page** — an *entry*,
+**565 of the 681 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -139,19 +139,19 @@ guarantee and is not one.
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 144 |
-| `itsanas-store` integration (`tests/store.rs`) | 30 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 33 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
-| `itsanas-net` unit | 30 |
+| `itsanas-net` unit | 33 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 39 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 72 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
 | `itsanas-discover` unit | 36 |
-| `itsanas-policy` unit | 15 |
+| `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 50 |
+| `itsanas-cli` unit | 53 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -533,7 +533,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (30)
+# `itsanas-store` — integration tests (33)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -619,6 +619,9 @@ failure reproduces exactly. `tests/convergence.rs`.
 | **`every_segment_a_host_holds_is_verifiable_by_that_host`** | Hosts cannot read segments but must be able to authenticate them, or anyone could flood a host with garbage attributed to a peer. |
 | **`a_full_corpus_converges_across_three_devices_with_partitions`** | The realistic end-to-end case: a real data set written across three devices that are never all online together, converging byte-identically. |
 | **`version_vectors_order_sequential_writes_and_flag_concurrent_ones`** | The underlying primitive, checked at the level of real stores rather than in isolation. |
+| **`content_is_not_released_while_this_is_the_only_machine_that_has_it`** | The one store operation that destroys data if it is wrong. A device with a limit has to be able to let go of files, and the difference between that and deleting somebody's only copy is this check. Confirmed by sabotage: removing the guard turns this and the next test red. |
+| **`a_holder_nobody_has_heard_from_does_not_authorise_letting_go`** | An acknowledgement is evidence about the past. `coverage` already refuses to count a silent machine as a copy; letting go of local content on the strength of one is worse, because it acts on the belief rather than reporting it. Reachable only by moving the clock, because recording a holder *is* contact. |
+| **`releasing_one_file_leaves_a_chunk_another_file_still_uses`** | Deduplication means two paths can share a chunk. Freeing by path rather than by reference would empty half of a file the device was told to keep, and the damage would surface only the next time somebody opened it. |
 
 ---
 
@@ -647,7 +650,7 @@ about reading.
 
 ---
 
-# `itsanas-net` — unit tests (30)
+# `itsanas-net` — unit tests (33)
 
 ## `protocol` — messages and challenges (9)
 
@@ -660,10 +663,10 @@ about reading.
 | **`a_maximum_size_chunk_fits_in_one_frame`** | The largest legitimate message fits the frame limit, so normal operation does not hit it. |
 | `every_request_variant_round_trips_through_the_wire` | A variant that fails to encode is a runtime failure on a live connection. |
 | `every_response_variant_round_trips_through_the_wire` | The same, for responses. |
-| `a_hello_from_a_different_protocol_version_is_not_acceptable` | Version negotiation is real. |
+| `a_hello_is_accepted_from_the_floor_upwards_and_refused_below_it` | Version negotiation is a window, not a point: anything at or above the floor is answered with what both sides know. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 
-## `service` — what a peer may obtain (14)
+## `service` — what a peer may obtain (17)
 
 | Test | What it proves |
 | --- | --- |
@@ -678,7 +681,10 @@ about reading.
 | `a_node_that_pledged_nothing_still_serves_its_own_data` | Hosting nothing must not break syncing your own devices. |
 | `heads_for_an_unknown_owner_are_empty_rather_than_an_error` | No invented chains. |
 | `hello_reports_this_nodes_device_and_agrees_on_a_version` | The opening exchange. |
-| `a_hello_from_a_future_protocol_version_is_refused_not_guessed_at` | No optimistic guessing. |
+| **`red_team_a_peer_can_only_withdraw_records_about_itself`** | `Dropped` corrects a ledger, which is the shape of request that becomes an attack if the subject is taken from the message. A host able to say "device B no longer holds these" could make an owner believe its data is unreplicated, or erase the record of the only holder that still has it. The subject is the connection's proven device and cannot be named in the request at all. |
+| **`a_hello_from_a_newer_peer_is_answered_with_the_version_both_sides_know`** | The version window. Requiring an exact match — which is what this did — meant no node could speak to a node one commit ahead, so every protocol addition partitioned the network until every machine upgraded at the same instant. Survivable in one household; impossible for people who join and leave. |
+| `a_hello_from_below_the_floor_is_refused_rather_than_guessed_at` | A window has a bottom. Below it there is no shared vocabulary, and pretending otherwise fails on some later message instead of this one. |
+| `a_drop_notice_for_another_account_is_refused` | A node hosting somebody else's sealed data keeps no ledger about it. Accepting silently would look like the record had been withdrawn somewhere. |
 | `a_peer_can_fetch_this_nodes_own_segments_and_chunks` | The basic serving path. |
 | `the_segment_limit_is_clamped_to_the_protocol_maximum` | Limits are applied. |
 
@@ -734,7 +740,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_file_deleted_elsewhere_is_never_offered_for_download`** | A client that listed a file deleted last week, and fetched it when tapped, would have resurrected it. |
 | `a_metadata_round_offers_the_log_but_sends_no_chunks` | The upload direction: a photo taken on mobile data does not upload itself, and the peer still learns it happened. |
 | **`two_nodes_sync_a_file_over_a_real_socket`** | The M4 exit criterion. |
-| **`a_device_with_less_room_than_the_account_stops_instead_of_filling_up`** | The ordinary case for a phone, not an edge case: a few gigabytes free against an account of hundreds. The budget is spent by declining *before* fetching, so the merge engine treats it as it treats a sleeping peer — the operation is deferred, nothing is half-written, and the file stays known-but-absent for a client to fetch on demand. Asserts the budget is what stopped it, that the device stayed under it, and that everything which did arrive is whole. Fails when the budget check is removed. |
+| **`a_device_takes_the_files_it_asked_for_and_none_of_the_others`** | The ordinary case for a phone, not an edge case: a few gigabytes free against an account of hundreds. The device names what it wants and the source declines everything else, so the merge engine treats the rest as it treats a sleeping peer — deferred, nothing half-written, still listed for a client to fetch on demand. This was a byte budget inside the pull, which stopped when the allowance ran out and therefore kept whatever the log replayed first; deciding *which* files is now `itsanas_policy::keeping`, and this is the network half. |
 | **`a_file_this_device_never_downloaded_can_be_fetched_when_it_is_asked_for`** | The capability the storage budget rests on, and which did not exist when the budget shipped: a device lists a file it does not hold, and opening it goes and gets it — that one file, not the account. Without this, `keep` produces files that are visible and unopenable, and a phone client is a browser for things you cannot read. |
 | **`the_side_that_dialled_ends_up_hosting_too`** | The reciprocal half, and the test that decides whether somebody behind a router they do not control can take part at all. Only one of the two nodes runs a server, which is the same asymmetry NAT produces. Before `host_for` existed the dialling side could only give its data away; now its vault grows. Fails if the offer is emptied. |
 | **`the_owner_learns_who_is_holding_after_a_reciprocal_round`** | Taking the chunks is half of it. An owner that does not record where its copies went cannot audit them and will keep asking somebody to hold what is already held. Measured through `under_replicated`, before and after. |
@@ -781,7 +787,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (50)
+# `itsanas-cli` — unit tests (53)
 
 ## `bench` — measuring this machine (4)
 
@@ -835,6 +841,18 @@ the function, which is not a property worth having a test for.
 | `a_created_node_reopens_with_the_same_identity` | Reopening does not orphan the data. |
 | `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
 
+## `keeping` — a round on a device short of room (3)
+
+`src/keeping.rs`. Where the choice, the catalogue and a real socket meet. Both
+tests were confirmed by sabotage: removing the release, and removing the notice
+to the peer, each turns the matching test red.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_full_device_makes_room_for_a_better_ranked_file`** | The property that separates a budget from a ratchet. The first version filled up once and from then on nothing new could arrive, because nothing old could leave — measured on the trial device, told to keep 200 KiB and holding 907 KiB with no path back down. |
+| **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
+| `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
+
 ## `config` — settings (12)
 
 | Test | What it proves |
@@ -882,12 +900,14 @@ anything.
 
 ---
 
-# `itsanas-policy` — when to sync, and how much (15)
+# `itsanas-policy` — when to sync, and how much (23)
 
 `src/lib.rs`. A decision table with an argument attached to every row, and no
 dependency on anything — so the phone, the Mac shell and `itsanas daemon` reach
 the same schedule instead of each keeping its own number. The daemon is what
 uses it today: `itsanas daemon` prints the interval, the scope and the reason.
+
+## `plan` — when to sync (15)
 
 | Test | What it proves |
 | --- | --- |
@@ -906,6 +926,24 @@ uses it today: `itsanas daemon` prints the interval, the scope and the reason.
 | `switching_background_syncing_off_leaves_the_foreground_alone` | The setting is about the background, and only the background. |
 | **`background_intervals_sit_above_every_platform_floor`** | Every mobile platform imposes a fifteen-minute floor on periodic background work. An interval below it is not a schedule, it is a number the operating system ignores. |
 | **`a_day_of_metered_checking_is_not_measurable_on_a_data_plan`** | The arithmetic behind the once-a-day metadata round, so the claim in the module documentation is checked rather than asserted. |
+
+## `keeping` — what a device holds when it cannot hold everything (8)
+
+`src/keeping.rs`. A budget bounds the *quantity*; this decides the *choice*.
+Pure, so the reasoning can be argued with in a test instead of observed on a
+phone, and deterministic, so two rounds never disagree and spend a data plan
+swapping the same two files back and forth.
+
+| Test | What it proves |
+| --- | --- |
+| **`the_budget_keeps_what_was_asked_for_not_what_arrived_first`** | The defect the module exists for. The listing is deliberately given oldest-first, which is the order a log replays in: an implementation that kept whatever arrived first would keep the file from six years ago. That is what shipped before this, and "keep two gigabytes" meant "keep the first two gigabytes the log mentions". |
+| **`a_file_too_large_for_the_room_left_does_not_starve_the_rest`** | The boundary that decides whether the setting is usable. A phone whose account starts with a film must still get the documents behind it, and "stop at the first thing that does not fit" is the obvious implementation that would not. |
+| **`the_answer_does_not_depend_on_the_order_the_files_were_listed_in`** | Stability is the anti-thrashing property. Every file in the fixture shares a date, because ties on the sort key are where an unstable implementation shows itself — and two devices that disagree about what matters most is the churn this prevents. |
+| **`what_is_here_and_not_wanted_is_offered_up_and_what_is_wanted_is_fetched`** | Both directions come from one decision. Computing them separately is how a device comes to release a file it is about to fetch again. |
+| `a_filter_matches_a_directory_and_not_a_name_that_merely_starts_the_same` | `Photos` must not match `Photos-old/x`. A filter that silently matches more than it names is how a phone fills with the wrong gigabytes. |
+| `no_budget_and_no_filter_keeps_everything` | The laptop case, and the one that must not change. |
+| `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
+| `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
 # `itsanas-placement` — unit tests (34)
 

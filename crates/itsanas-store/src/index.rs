@@ -438,6 +438,53 @@ impl Index {
         Ok(newly_unreferenced)
     }
 
+    /// Forget the local content of `path` without deleting the file.
+    ///
+    /// The difference from [`Index::remove_file`] is the whole point: no
+    /// tombstone is written and no operation is logged, so as far as the account
+    /// is concerned the file still exists. This device simply stops being one of
+    /// the places it can be read from, which is what a phone told to hold two
+    /// gigabytes of a forty-gigabyte account has to be able to do.
+    ///
+    /// Returns the chunks that lost their last reference.
+    ///
+    /// A path with no entry returns an empty list rather than an error: the
+    /// caller is asking for a state, not performing a transaction, and "it was
+    /// already not here" is that state.
+    pub fn release_file(&self, path: &str) -> Result<Vec<ChunkId>> {
+        let txn = self.db.begin_write()?;
+        let newly_unreferenced;
+
+        {
+            let mut files = txn.open_table(FILES)?;
+            let mut refs = txn.open_table(CHUNK_REFS)?;
+            let mut unreferenced = txn.open_table(UNREFERENCED)?;
+
+            let previous: Option<FileEntry> = match files.get(path)? {
+                Some(value) => Some(postcard::from_bytes(value.value())?),
+                None => None,
+            };
+
+            newly_unreferenced = match previous {
+                None => Vec::new(),
+                Some(previous) => {
+                    let mut delta: BTreeMap<[u8; 32], i64> = BTreeMap::new();
+                    for chunk in &previous.chunks {
+                        *delta.entry(chunk.to_bytes()).or_default() -= 1;
+                    }
+
+                    let dropped =
+                        Self::apply_reference_delta(&mut refs, &mut unreferenced, &delta)?;
+                    files.remove(path)?;
+                    dropped
+                }
+            };
+        }
+
+        txn.commit()?;
+        Ok(newly_unreferenced)
+    }
+
     /// Remove `path`, leaving `tombstone` in its place.
     ///
     /// Returns the chunks that lost their last reference.
@@ -1144,6 +1191,30 @@ impl Index {
         Ok(())
     }
 
+    /// Drop many records for one device, in one transaction.
+    ///
+    /// A round learns about thousands of chunks at once -- every address the
+    /// peer answers "missing" to is one it does not have, whatever the ledger
+    /// says -- and a commit per chunk would make the correction cost more than
+    /// the sync it rode in on.
+    pub fn forget_holders(&self, chunks: &[ChunkId], device: &DeviceId) -> Result<()> {
+        if chunks.is_empty() {
+            return Ok(());
+        }
+        let txn = self.db.begin_write()?;
+        {
+            let mut holders = txn.open_table(HOLDERS)?;
+            let mut holdings = txn.open_table(HOLDINGS)?;
+            for chunk in chunks {
+                let tag = holders::audit_tag(&self.audit_key, chunk);
+                holders.remove(holders::key(chunk, device).as_slice())?;
+                holdings.remove(holders::by_device(device, &tag, chunk).as_slice())?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
     /// Drop the record that `device` holds `chunk`.
     ///
     /// Called when a storage challenge fails. A record is evidence that a host
@@ -1227,6 +1298,31 @@ impl Index {
     /// or use [`Index::under_replicated`], which does it for you.
     pub fn remote_holder_count(&self, chunk: &ChunkId) -> Result<usize> {
         Ok(self.remote_holders(chunk)?.len())
+    }
+
+    /// How many other devices are known to hold `chunk` **and** have been heard
+    /// from recently enough for that to still mean something.
+    ///
+    /// The same rule [`Index::coverage`] applies, asked about one chunk. It
+    /// exists because letting go of local content is the one operation where
+    /// being wrong destroys data: a record from a machine that has been silent
+    /// for a fortnight is a memory, and releasing on the strength of a memory
+    /// is how the last copy disappears.
+    pub fn live_holder_count(&self, chunk: &ChunkId, now: u64) -> Result<usize> {
+        let fresh_since = now.saturating_sub(holders::CONFIRMED_FOR);
+        let txn = self.db.begin_read()?;
+        let seen = txn.open_table(DEVICE_SEEN)?;
+
+        let mut live = 0usize;
+        for holder in self.remote_holders(chunk)? {
+            let last = seen
+                .get(holder.device.as_bytes().as_slice())?
+                .map_or(0, |value| value.value());
+            if last >= fresh_since {
+                live += 1;
+            }
+        }
+        Ok(live)
     }
 
     /// Live chunks held by fewer than `target` devices, worst first.

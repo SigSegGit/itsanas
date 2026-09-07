@@ -40,7 +40,7 @@
 //! making that untrue is the kind of change that produces a bug nobody can
 //! locate six months later.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Most segments read from one device's chain in a single walk.
 ///
@@ -209,13 +209,68 @@ pub fn chunks_for(store: &Store, vault: &Vault, path: &str) -> Result<Option<Vec
     let Some(latest) = from_log.get(path) else {
         return Ok(None);
     };
+
+    Ok(still_a_file(store, path, latest)?.map(|entry| entry.chunks.clone()))
+}
+
+/// The chunks of many known-but-absent files, from a single walk.
+///
+/// Paths the account does not have are silently absent from the answer rather
+/// than an error: the caller is naming what it would like, and a file deleted
+/// between the listing and this call is an ordinary race.
+///
+/// # Why not `chunks_for` in a loop
+///
+/// Each call walks every segment of every other device's chain. A device
+/// deciding what to fetch names as many files as its budget holds, so the loop
+/// is O(files x history) on the one class of machine -- a phone -- least able to
+/// afford it. This is O(history).
+///
+/// # Errors
+///
+/// If the vault or the store cannot be read.
+pub fn chunks_for_all(
+    store: &Store,
+    vault: &Vault,
+    paths: &BTreeSet<String>,
+) -> Result<BTreeSet<ChunkId>> {
+    if paths.is_empty() {
+        return Ok(BTreeSet::new());
+    }
+
+    let owner = store.owner();
+    let mine = store.device_id();
+    let (from_log, _) = walk_vault(store, vault, owner, mine)?;
+
+    let mut wanted = BTreeSet::new();
+    for path in paths {
+        let Some(latest) = from_log.get(path) else {
+            continue;
+        };
+        if let Some(entry) = still_a_file(store, path, latest)? {
+            wanted.extend(entry.chunks.iter().copied());
+        }
+    }
+    Ok(wanted)
+}
+
+/// The log's last word on `path`, unless a local delete supersedes it.
+///
+/// A delete recorded here that the remote edit did not see loses, exactly as it
+/// does in [`catalogue`] and in the merge engine: a delete concurrent with an
+/// edit is resolved in favour of the edit, because an unexpected file costs a
+/// second to remove again and a lost edit is unrecoverable. Written once and
+/// called from each place that asks, because three copies of a rule is three
+/// answers to one question.
+fn still_a_file<'a>(
+    store: &Store,
+    path: &str,
+    latest: &'a Latest,
+) -> Result<Option<&'a FileEntry>> {
     let Some(entry) = &latest.file else {
         return Ok(None);
     };
 
-    // A delete recorded here that the remote edit did not see loses, exactly as
-    // it does in the listing. Repeating the rule rather than sharing it would be
-    // two answers to one question.
     if let Some(tombstone) = store.tombstone(path)?
         && matches!(
             tombstone.version.compare(&latest.version),
@@ -225,7 +280,7 @@ pub fn chunks_for(store: &Store, vault: &Vault, path: &str) -> Result<Option<Vec
         return Ok(None);
     }
 
-    Ok(Some(entry.chunks.clone()))
+    Ok(Some(entry))
 }
 
 /// How many files are known but not downloaded.

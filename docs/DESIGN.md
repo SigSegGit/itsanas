@@ -435,27 +435,152 @@ is the right call at n=3.
 
 ---
 
-## 6. Proof of storage
+## 6. Verification: what is checked, by whom, and what it costs
+
+Three different questions get asked, by three different mechanisms, and
+conflating them is how a system ends up believing it has verified something it
+never looked at.
+
+### 6.1 Is this metadata genuine? — signatures and a chain
+
+Every operation travels inside a **segment**: a batch of log entries, sealed,
+carrying the owner, the writing device, a sequence range, the id of the previous
+segment on that device's chain, and an Ed25519 signature over all of it. The
+signing payload length-prefixes every variable field, so no two distinct
+envelopes can share a signature.
+
+A receiver checks the signature before storing, and `put_segment` refuses a
+segment whose `previous` does not match the chain it already holds — a hole in
+the middle is detectable and rejected rather than papered over. So a host cannot
+edit a file's name, size or date, cannot reorder history, and cannot quietly
+drop a segment from the middle of a chain and pass the rest on.
+
+This costs nothing per round beyond the signature check, and it is why the
+listing a phone shows can be trusted without holding a byte of content.
+
+### 6.2 Is this content intact? — content addressing
+
+A chunk's id is derived from its plaintext, and sealing is deterministic, so a
+chunk that comes back altered does not match the address it was asked for. That
+check happens on every fetch, in the merge engine, against every source
+including a relay. There is no separate integrity pass because there is nothing
+a separate pass would add.
+
+### 6.3 Does that machine still have it? — a keyed challenge
 
 ```
-verifier → host:  chunk_id, random nonce
+verifier → host:  chunk_id, fresh 32-byte nonce
 host     → verifier: BLAKE3_keyed(nonce, ciphertext)
 ```
 
-The verifier re-derives the expected ciphertext locally — possible only because
-sealing is deterministic — and compares. A host that discarded or corrupted the
-data cannot answer.
+The verifier re-derives the expected ciphertext from its own copy — possible
+only because sealing is deterministic — and compares. A host that discarded or
+corrupted the data cannot answer, and a proof for one nonce answers no other, so
+a host cannot compute one answer, delete the chunk, and reply from cache.
+
+**Nothing is re-downloaded.** That is the property worth naming, because the
+obvious way to check storage is to fetch it back, and at any real size that
+turns verification into a monthly re-download of everything. The cost per
+challenge is:
+
+| | |
+| --- | --- |
+| on the wire | ~100 bytes out, 32 bytes back |
+| on the host | one read of the chunk (64 KiB average) and a hash |
+| on the verifier | the same, on its own copy |
+
+Sixteen chunks per peer per round: about 2 KB of traffic and a megabyte of disk
+read on each side. That is the whole cost, and it does not grow with the size of
+the account.
+
+**The questions are drawn, not scheduled.** The first version worked through the
+least recently confirmed records, which sounds diligent and was in fact a fixed
+list of the sixteen lowest chunk ids, asked every round for ever — a host could
+keep sixteen chunks out of fourteen million and never be caught. Cursors are now
+drawn from randomness each round, so what is asked this round says nothing about
+what will be asked next.
+
+### 6.4 What a challenge does not prove
+
+It proves the host had the bytes when asked. It does not prove it will have them
+tomorrow, and a host that fetched the chunk from another replica just in time
+passes. That is acceptable — such a host is still serving the data — and it is
+the honest limit: challenges raise the cost of lying without eliminating it, and
+the real protection is replication across parties with no reason to collude.
+
+It also requires **the verifier to hold the bytes**. A device that has let go of
+its own content — which is now an ordinary thing for a phone to do, see §11 —
+reports those challenges as `unverifiable` rather than failing the peer. This is
+the limit that blocks the sharded future described in §5: when no single machine
+holds a whole account, nobody can challenge on the chunks they do not have.
+Options exist — precomputed challenge tables, or comparing two independent
+holders' answers to one nonce, which needs no local copy but detects loss rather
+than collusion — and none is built. Recorded in `docs/ROADMAP.md` rather than
+implied by silence.
+
+### 6.5 Why the audit is not the main way a lost copy is noticed
+
+Do the arithmetic. Sixteen challenges per peer per round, at the five-minute
+service interval, is 4,608 chunks a day. At a 64 KiB average chunk:
+
+| Account | Chunks | Time for one full pass |
+| --- | --- | --- |
+| 1 GB | ~16 thousand | 3.5 days |
+| 10 GB | ~164 thousand | 36 days |
+| 1 TB | ~16.8 million | 10 years |
+
+So on anything past a few gigabytes the audit is a *sampling* deterrent, not a
+detector. It is why the freshness rule that decides whether a holder still
+counts asks whether the **machine** has been heard from, not whether that
+particular chunk was re-challenged: a per-chunk rule collapses to "no copies" on
+any healthy account above about 4 GB, purely because the audit could not have
+got round to it.
+
+Two cheaper mechanisms do the actual work:
+
+* **The have/missing exchange.** Every push asks the peer which of this device's
+  chunks it lacks. What the peer asks for, it does not have — so every round
+  withdraws, exactly and immediately, every holder record that peer has
+  outgrown. Free: it is the same round trip that decides what to send.
+* **Drop notices.** A device that deliberately lets go of content says so
+  (`Request::Dropped`), and the owner withdraws those records at once. A device
+  can only ever withdraw records about *itself*, so this makes honesty cheap
+  without making dishonesty possible; a device that stays silent is caught by
+  the audit exactly as before.
+
+**The have/missing sweep has its own ceiling, and it is nearer than it looks.**
+It lists every chunk this device holds, every round, to every peer: 32 bytes per
+64 KiB of account, or one two-thousandth of the account per round per peer. At
+10 GB that is 5 MB per round — 1.4 GB a day against one peer. At 1 TB it is
+half a gigabyte per round and plainly impossible. The fix is to ask only about
+chunks with no fresh record for that peer, which the ledger already knows; it is
+not built. See `docs/ROADMAP.md`.
+
+### 6.6 Why not sample random blocks inside a chunk
+
+Because the chunks are already small. Hashing a whole 64 KiB chunk costs one
+read of 64 KiB; sampling four 4 KiB blocks chosen by the nonce would cost 16 KiB
+and would be *weaker* — a host that kept one per cent of a chunk would pass with
+probability 10⁻⁸ rather than zero. Four times the read for a strictly stronger
+answer is the right trade at this size.
+
+It stops being the right trade if chunks grow — the argument turns at a few
+megabytes per chunk, where the read starts to matter and the sampling error is
+still negligible — or if a single host is audited by hundreds of owners at once.
+Fifty owners each challenging sixteen chunks every five minutes is 2.7 MB/s of
+sustained reading on the host, which a Raspberry Pi with an SD card would feel.
+That is the number to watch, and it is written here rather than discovered.
 
 **Why challenge–response rather than trusting reports:** the fair-share model
 gives storage in proportion to storage provided. Self-reported capacity is an
 invitation to claim 10 TB, store nothing, and collect. The challenge makes the
 claim cost something to fake, which is exactly enough.
 
-**Its limit, stated plainly:** this proves the host has the bytes *now*, not
-that it kept them continuously, and a host that fetched the chunk from another
-replica just in time would pass. That is acceptable — such a host is still
-serving the data. Genuine proof-of-retrievability schemes exist and are much
-heavier; they are not worth it at this scale.
+**Failure withdraws evidence rather than punishing.** A failed challenge removes
+that one (chunk, device) record, so the chunk shows as under-replicated and
+repair can act. Nothing is deleted and nobody is blocked, consistent with the
+rule in `docs/ECONOMICS.md` §5 that the network never destroys data as a
+sanction.
 
 ---
 
@@ -766,3 +891,84 @@ job is to be reviewable.
 
 `cargo-deny` enforces licence compatibility with AGPL-3.0 and fails CI on any
 unpatched advisory.
+
+---
+
+## 11. What a device keeps, and what it lets go of
+
+A phone has a few gigabytes free and an account can have hundreds. This is the
+ordinary case, not an edge case, and it has three parts that are easy to run
+together and must not be.
+
+### 11.1 How much — and what that number does *not* bound
+
+`itsanas keep 2G` bounds this account's own content on this device. It does not
+bound the disk, and pretending otherwise would be the kind of number that looks
+enforced and is not. A node's directory holds three things:
+
+| | Bounded by |
+| --- | --- |
+| your own content | `keep` |
+| sealed data held for other people, and your own log relayed between your devices | `pledge` |
+| the databases: the index, and the vault's | nothing |
+
+The third is proportional to the *number* of files and log entries rather than
+their size, and on a nearly empty account it is most of the total. Measured on
+the trial device: told to keep 200 KiB, its directory held 4.3 MiB — 907 KiB of
+content and the rest index and vault. `itsanas status` now prints all three and
+the total, because the only way to know whether this fits on a phone is to be
+told the whole number.
+
+### 11.2 Which — the part that was missing
+
+A budget bounds the quantity and says nothing about the choice. The first
+version simply stopped downloading when the allowance ran out, so what a device
+ended up with was whatever the merge engine asked for first — which is the order
+operations were written, possibly by another machine, years ago. "Keep two
+gigabytes of my files" delivering "keep the two gigabytes you happened to create
+first" is worse than no setting, because it invites trust it cannot repay.
+
+`itsanas_policy::keeping` decides instead: rank by `--order` (newest, oldest or
+smallest), restrict to `--only` prefixes, fill the budget, and skip — rather than
+stop at — a file too large for the room left, so one film near the top of the
+order cannot starve everything behind it. The function is pure and
+deterministic, which is not tidiness: the same listing and settings must give
+the same answer on every round, or two rounds disagree and spend a data plan
+swapping the same two files back and forth.
+
+### 11.3 Letting go — and the refusal that makes it safe
+
+A budget that only ever refuses is a ratchet. It fills once, and from then on
+the file edited this morning never arrives because the one from six years ago is
+still there. So a device also **releases**: the content leaves this machine, the
+file stays in the account, `itsanas ls` shows it as `not here`, and `itsanas
+get` fetches it back.
+
+The whole safety of that rests on one check. `Store::release` refuses unless
+every chunk it would actually delete — a chunk another kept file still
+references is not deleted and does not have to qualify — is held by another
+device that has been *heard from* within `CONFIRMED_FOR`. A record from a
+machine nobody has seen in a fortnight is a memory, not a copy, and acting on a
+memory is how the last copy of somebody's file disappears. When the check
+refuses, the device stays over its limit and says so, which is the correct
+outcome: an over-full device is a nuisance and a lost file is not.
+
+Two consequences worth stating rather than discovering:
+
+* **On a device that mirrors a real folder, releasing removes the file from
+  disk.** That is what "this device keeps two gigabytes" has to mean, it is what
+  every selective-sync product does, and it is safe only because of the refusal
+  above.
+* **`itsanas get` overrides the budget, and the next round may undo it.** An
+  explicit request beats a background choice, so the fetch always works; but the
+  choice has not changed, so a device short of room will let that content go
+  again. On a device that cannot hold the file, "fetch on demand, release later"
+  is the only honest behaviour available.
+
+### 11.4 Saying so
+
+A device that lets go of content and does not tell anybody becomes a liar, and
+the lie inflates the one number somebody consults before believing their data is
+safe. `Request::Dropped` says it outright on the connection that is already
+open, and the have/missing exchange catches the rest for free. See §6.5 for why
+neither can be left to the audit.

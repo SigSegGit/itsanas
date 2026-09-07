@@ -170,6 +170,23 @@ impl<'a> PeerService<'a> {
 
             Request::WantHosted { limit } => self.want_hosted(*limit),
 
+            Request::Dropped { owner, chunks } => {
+                // Only the owner keeps a ledger about its own chunks. A node
+                // hosting somebody else's data has nothing to correct, and
+                // saying so plainly beats a silent success that looks like the
+                // record was withdrawn somewhere.
+                if *owner != self.store.owner() {
+                    return Ok(Response::Refused(
+                        "this node keeps no ledger for that account".to_owned(),
+                    ));
+                }
+                // Scoped to the caller by construction: the device is the one
+                // this connection proved, not one it named. A peer can only
+                // ever withdraw records about itself.
+                self.store.forget_holders(chunks, &caller)?;
+                Ok(Response::Stored { accepted: true })
+            }
+
             Request::Hosted { chunks } => {
                 // A claim, recorded and then checked. The storage challenges
                 // this node already runs are what turn it into evidence: a peer
@@ -349,11 +366,40 @@ mod tests {
     }
 
     #[test]
-    fn a_hello_from_a_future_protocol_version_is_refused_not_guessed_at() {
+    fn a_hello_from_a_newer_peer_is_answered_with_the_version_both_sides_know() {
+        // The property the version window rests on. Refusing anything but an
+        // exact match -- which is what this did -- meant no node could speak to
+        // a node one commit ahead of it, so every addition to the protocol
+        // partitioned the network until every machine was upgraded at the same
+        // instant. Fine for three machines in one house; impossible for people
+        // who join and leave.
         let node = node(&alice(), 2);
         let response = service(&node)
             .handle_from_test(&Request::Hello {
                 protocol: PROTOCOL_VERSION + 5,
+                device: DeviceId::from_bytes([9; 32]),
+                owner: node.store.owner(),
+            })
+            .unwrap();
+
+        match response {
+            Response::Hello { protocol, .. } => assert_eq!(
+                protocol, PROTOCOL_VERSION,
+                "this node claimed to speak a version it has never heard of"
+            ),
+            other => panic!("a newer peer was turned away: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_hello_from_below_the_floor_is_refused_rather_than_guessed_at() {
+        // The other half: a window has a bottom. Below it there is no shared
+        // vocabulary to fall back to, and pretending otherwise would fail on
+        // some later message instead of this one.
+        let node = node(&alice(), 22);
+        let response = service(&node)
+            .handle_from_test(&Request::Hello {
+                protocol: crate::protocol::MIN_PROTOCOL_VERSION - 1,
                 device: DeviceId::from_bytes([9; 32]),
                 owner: node.store.owner(),
             })
@@ -666,6 +712,73 @@ mod tests {
     }
 
     #[test]
+    fn red_team_a_peer_can_only_withdraw_records_about_itself() {
+        // `Dropped` lets a device correct a ledger, which is exactly the shape
+        // of request that becomes an attack if the subject is taken from the
+        // message. A host that could say "device B no longer holds these" would
+        // be able to make an owner believe its data is unreplicated and trigger
+        // an endless repair, or -- worse in the other direction -- be used to
+        // erase the record of the only holder that still has it.
+        //
+        // The subject is the connection's proven device and cannot be named in
+        // the request at all, so this test is about keeping it that way.
+        let node = node(&alice(), 23);
+        node.store.write_file("notes.txt", b"content").unwrap();
+        let entry = node.store.stat("notes.txt").unwrap().unwrap();
+        let chunk = entry.chunks[0];
+
+        let honest = DeviceId::from_bytes([0xA1; 32]);
+        let liar = DeviceId::from_bytes([0xB2; 32]);
+        node.store.record_holders(&[chunk], &honest).unwrap();
+        node.store.record_holders(&[chunk], &liar).unwrap();
+
+        let service = service(&node);
+        let response = service
+            .handle(
+                &Request::Dropped {
+                    owner: node.store.owner(),
+                    chunks: vec![chunk],
+                },
+                liar,
+            )
+            .unwrap();
+        assert!(matches!(response, Response::Stored { accepted: true }));
+
+        let left: Vec<_> = node
+            .store
+            .remote_holders(&chunk)
+            .unwrap()
+            .into_iter()
+            .map(|holder| holder.device)
+            .collect();
+        assert_eq!(
+            left,
+            vec![honest],
+            "a peer's notice removed somebody else's record"
+        );
+    }
+
+    #[test]
+    fn a_drop_notice_for_another_account_is_refused() {
+        // A node hosting somebody else's sealed data keeps no ledger about it:
+        // the owner does. Accepting the notice silently would look like the
+        // record had been withdrawn somewhere, which is the kind of quiet
+        // success that hides a hole for months.
+        let node = node(&alice(), 24);
+        let response = service(&node)
+            .handle(
+                &Request::Dropped {
+                    owner: itsanas_crypto::UserId::from_bytes([0xCC; 32]),
+                    chunks: vec![ChunkId::from_bytes([1; 32])],
+                },
+                DeviceId::from_bytes([2; 32]),
+            )
+            .unwrap();
+
+        assert!(matches!(response, Response::Refused(_)));
+    }
+
+    #[test]
     fn a_bad_request_never_becomes_a_local_error() {
         // A peer must not be able to decide when this node reports a fault.
         let node = node(&alice(), 13);
@@ -679,7 +792,7 @@ mod tests {
                 limit: 0,
             },
             Request::Hello {
-                protocol: 9999,
+                protocol: 0,
                 device: DeviceId::from_bytes([1; 32]),
                 owner: node.store.owner(),
             },

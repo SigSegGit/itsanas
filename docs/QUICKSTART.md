@@ -330,6 +330,68 @@ the founder whoever finds the port first.
 Members already registered are never asked for a code. Re-registering is how you
 refresh your keys, and it keeps working.
 
+## A machine that cannot hold everything
+
+A phone, or a laptop you do not want to give the whole account to. Say how much
+of *your own* data it should hold, and which files matter most when that is not
+all of them:
+
+```bash
+itsanas keep 2G --order newest
+```
+
+```text
+keeping at most 2.0 GiB of your own data here
+  when it does not all fit: most recently changed first
+```
+
+`--order` takes `newest` (the default), `oldest` — for a machine you keep as an
+archive — or `smallest`, which fits the largest number of files. Add `--only` to
+restrict it to part of the account, repeated as often as you like:
+
+```bash
+itsanas keep 2G --only Documents --only Photos/2026
+```
+
+`--only all` clears the restriction, and `itsanas keep all` removes the limit.
+`itsanas keep` on its own prints the current settings without changing them.
+
+**What the rest of the account looks like on that machine.** Everything is
+listed; what is not held says so, and asking for one fetches it:
+
+```text
+itsanas ls
+      59 B            note.txt
+  700.0 KiB  not here  gros.bin
+
+1 file(s) are known and not on this device.
+  `itsanas get <path>` fetches one, whatever the limit.
+  `itsanas sync` fetches whatever this device's limit chooses to hold.
+```
+
+**The limit works in both directions.** When something better-ranked arrives,
+the device lets go of what the order puts last — the content leaves this
+machine, the file stays in the account, and it can be fetched again. It will
+*not* let go of anything no other live machine is known to hold; in that case it
+stays over its limit and says so, because an over-full device is a nuisance and
+a lost file is not.
+
+**`keep` bounds your own content, and nothing else.** `itsanas status` shows the
+three things a node's directory holds and the total:
+
+```text
+disk used by this node
+  your content    907.0 KiB
+  vault           1.2 MiB
+  indexes         3.2 MiB
+  total           5.3 MiB
+  `keep` bounds the first line only; the rest is index and vault.
+```
+
+The vault is bounded by `itsanas pledge`; the databases are bounded by nothing
+and grow with the number of files and log entries rather than their size. On a
+nearly empty account they are most of the total.
+
 ## When it syncs, and how much
 
 The daemon does not carry a hard-coded schedule. `itsanas-policy` decides, and

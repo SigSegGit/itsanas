@@ -76,7 +76,7 @@ pub mod version;
 pub const REPLICATION_TARGET: usize = 3;
 
 pub use blob::BlobStore;
-pub use catalogue::{Known, Presence, absent_count, catalogue, chunks_for};
+pub use catalogue::{Known, Presence, absent_count, catalogue, chunks_for, chunks_for_all};
 pub use chunker::split_stream;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};
@@ -87,6 +87,6 @@ pub use oplog::{
     FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
 };
 pub use reliability::{FAILURES_BEFORE_PAUSE, PROBATION_CEILING, Reliability};
-pub use store::{GcReport, IntegrityReport, Store, StoreStats};
+pub use store::{GcReport, IntegrityReport, Release, ReleaseReport, Store, StoreStats};
 pub use vault::{Vault, VaultStats};
 pub use version::{CausalOrder, VersionVector};

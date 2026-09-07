@@ -32,7 +32,30 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 2;
+pub const PROTOCOL_VERSION: u16 = 3;
+
+/// The oldest version this node will still talk to.
+///
+/// # Why a floor and not an equality
+///
+/// Until this existed the opening exchange required the two sides to agree
+/// *exactly*, which meant every addition to this file was a flag day: no node
+/// could speak to a node one commit behind it, so the whole network had to be
+/// upgraded at the same instant or it partitioned. That is survivable with
+/// three machines in one household and impossible for the thing this project is
+/// meant to become — people join and leave, and nobody is going to coordinate a
+/// simultaneous upgrade with strangers.
+///
+/// So the rule is a window. A peer offering anything at or above this floor is
+/// answered with `min(theirs, ours)`, both sides then speak that version, and a
+/// verb added later is simply not used against an older peer. New requests are
+/// gated on the negotiated number rather than assumed.
+///
+/// **The change to get here costs one last flag day.** A node still running
+/// version 2 refuses anything but 2, because that is what its own copy of this
+/// file says; the window only starts protecting upgrades once every node has a
+/// version of the code that has one.
+pub const MIN_PROTOCOL_VERSION: u16 = 2;
 
 /// The version before `WantHosted` and `Hosted` existed.
 ///
@@ -40,6 +63,13 @@ pub const PROTOCOL_VERSION: u16 = 2;
 /// is exactly "can this peer be asked to host for the side that dialled it",
 /// and that is worth being able to find.
 pub const PROTOCOL_WITHOUT_RECIPROCAL_HOSTING: u16 = 1;
+
+/// The first version in which a device can say what it has let go of.
+///
+/// Named because gating on it is what keeps [`MIN_PROTOCOL_VERSION`] a real
+/// window rather than a comment: a peer at 2 is simply not told, and the audit
+/// remains the backstop it always was.
+pub const PROTOCOL_WITH_DROP_NOTICES: u16 = 3;
 
 /// Domain string for storage-challenge proofs.
 const CHALLENGE_DOMAIN: &str = "itsanas v1 storage challenge";
@@ -120,6 +150,29 @@ pub enum Request {
     /// storage challenges are what turn it into evidence, and a host that
     /// claimed and did not store fails the next one.
     Hosted { chunks: Vec<ChunkId> },
+
+    /// "I no longer hold these."
+    ///
+    /// # Why a device has to be able to say this
+    ///
+    /// A device with a storage budget lets go of content on purpose: that is
+    /// what makes the budget a window rather than a ratchet. The moment it
+    /// does, every ledger that recorded it as a holder is wrong, and a ledger
+    /// that overstates how many copies exist is the single most dangerous kind
+    /// of error this system can make -- it is the number somebody consults
+    /// before deciding they are safe.
+    ///
+    /// The audit is the backstop and it is far too slow to be the only one: it
+    /// re-checks sixteen chunks per peer per round, so a million-chunk account
+    /// takes sixty-odd thousand rounds -- most of a year at the service
+    /// interval -- to notice by challenge alone. Saying so directly costs one
+    /// message on a connection that is already open.
+    ///
+    /// It is not *trusted* in the direction that would matter: a device can
+    /// only withdraw records about **itself**, and a device that stays silent
+    /// about what it dropped is caught by the audit exactly as before. This
+    /// makes honesty cheap; it does not make dishonesty possible.
+    Dropped { owner: UserId, chunks: Vec<ChunkId> },
 }
 
 /// What a peer answers.
@@ -197,7 +250,11 @@ impl Request {
     pub fn is_acceptable(&self) -> bool {
         match self {
             Self::Segments { limit, .. } => *limit > 0 && *limit <= MAX_SEGMENTS_PER_REQUEST,
-            Self::Hello { protocol, .. } => *protocol == PROTOCOL_VERSION,
+            // A floor, not an equality. Something newer than this node is not
+            // malformed -- the answer names the version both sides will speak,
+            // and it is the caller's business to stay inside it.
+            Self::Hello { protocol, .. } => *protocol >= MIN_PROTOCOL_VERSION,
+            Self::Dropped { chunks, .. } => !chunks.is_empty() && chunks.len() <= MAX_HAVE_BATCH,
             Self::HaveChunks { addresses, .. } => {
                 !addresses.is_empty() && addresses.len() <= MAX_HAVE_BATCH
             }
@@ -219,11 +276,15 @@ mod tests {
         DeviceId::from_bytes([9; 32])
     }
 
-    #[test]
-    fn every_request_variant_round_trips_through_the_wire() {
-        // A variant that fails to encode is a runtime failure on a live
-        // connection, which is a bad place to discover it.
-        let requests = vec![
+    /// One example of every request, for the round-trip test.
+    ///
+    /// Kept beside [`every_variant_is_in_the_round_trip_list`], which fails to
+    /// compile when a variant is added and not listed here. The list used to be
+    /// written inline and called "every variant" while omitting four of them —
+    /// a test that overstates its coverage is worse than a missing one, because
+    /// it answers the question nobody asks again.
+    fn one_of_each() -> Vec<Request> {
+        vec![
             Request::Hello {
                 protocol: PROTOCOL_VERSION,
                 device: device(),
@@ -246,19 +307,74 @@ mod tests {
                 owner: user(),
                 address: ChunkId::from_bytes([1; 32]),
             },
+            Request::HaveChunks {
+                owner: user(),
+                addresses: vec![ChunkId::from_bytes([6; 32])],
+            },
             Request::StoreChunk {
                 owner: user(),
                 address: ChunkId::from_bytes([2; 32]),
                 sealed: vec![0xAB; 1024],
+            },
+            Request::StoreSegment {
+                envelope: Box::new(SegmentEnvelope {
+                    segment_id: ObjectId::from_bytes([7; 32]),
+                    owner: user(),
+                    device: device(),
+                    first_sequence: 1,
+                    last_sequence: 4,
+                    previous: None,
+                    sealed_body: vec![0xCD; 64],
+                    signature: itsanas_crypto::Signature::from_bytes([8; 64]),
+                }),
             },
             Request::Challenge {
                 owner: user(),
                 address: ChunkId::from_bytes([4; 32]),
                 nonce: [5; 32],
             },
-        ];
+            Request::WantHosted { limit: 16 },
+            Request::Hosted {
+                chunks: vec![ChunkId::from_bytes([9; 32])],
+            },
+            Request::Dropped {
+                owner: user(),
+                chunks: vec![ChunkId::from_bytes([10; 32])],
+            },
+        ]
+    }
 
-        for request in requests {
+    /// Fails to compile when a request variant is added.
+    ///
+    /// The only reminder that works. A list of examples is a list somebody
+    /// forgets, and the failure it lets through — a variant that cannot be
+    /// encoded — happens on a live connection.
+    #[expect(
+        clippy::match_same_arms,
+        reason = "one arm per variant is the point; merging them removes the reminder"
+    )]
+    fn every_variant_is_in_the_round_trip_list(request: &Request) {
+        match request {
+            Request::Hello { .. } => {}
+            Request::Heads { .. } => {}
+            Request::Segments { .. } => {}
+            Request::Chunk { .. } => {}
+            Request::HaveChunks { .. } => {}
+            Request::StoreChunk { .. } => {}
+            Request::StoreSegment { .. } => {}
+            Request::Challenge { .. } => {}
+            Request::WantHosted { .. } => {}
+            Request::Hosted { .. } => {}
+            Request::Dropped { .. } => {}
+        }
+    }
+
+    #[test]
+    fn every_request_variant_round_trips_through_the_wire() {
+        // A variant that fails to encode is a runtime failure on a live
+        // connection, which is a bad place to discover it.
+        for request in one_of_each() {
+            every_variant_is_in_the_round_trip_list(&request);
             let frame = wire::encode(&request).unwrap();
             assert_eq!(
                 wire::decode::<Request>(&frame).unwrap(),
@@ -377,19 +493,30 @@ mod tests {
     }
 
     #[test]
-    fn a_hello_from_a_different_protocol_version_is_not_acceptable() {
-        assert!(
-            !Request::Hello {
-                protocol: PROTOCOL_VERSION + 1,
-                device: device(),
-                owner: user(),
-            }
-            .is_acceptable()
-        );
+    fn a_hello_is_accepted_from_the_floor_upwards_and_refused_below_it() {
+        // A window, not a point. Anything at or above the floor is answered
+        // with the version both sides know; anything below it has no shared
+        // vocabulary and is turned away here rather than three messages later.
+        for protocol in [
+            MIN_PROTOCOL_VERSION,
+            PROTOCOL_VERSION,
+            PROTOCOL_VERSION + 1,
+            u16::MAX,
+        ] {
+            assert!(
+                Request::Hello {
+                    protocol,
+                    device: device(),
+                    owner: user(),
+                }
+                .is_acceptable(),
+                "version {protocol} was refused, which partitions the network on every upgrade"
+            );
+        }
 
         assert!(
-            Request::Hello {
-                protocol: PROTOCOL_VERSION,
+            !Request::Hello {
+                protocol: MIN_PROTOCOL_VERSION - 1,
                 device: device(),
                 owner: user(),
             }

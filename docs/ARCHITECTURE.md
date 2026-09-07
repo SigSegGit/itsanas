@@ -29,9 +29,12 @@ Three properties have to hold at once, and each one constrains the design:
 │  itsanas (CLI, and `itsanas daemon` as the background service)      │
 │  init / login / pledge  file watcher, sync loop, repair loop, alerts  │
 ├───────────────────────────────────────────────────────────────────────┤
-│  itsanas-sync                      itsanas-placement                  │
-│  version vectors, op-log merge,    rendezvous hashing, replica        │
-│  conflict materialisation          targets, repair, quota accounting  │
+│  itsanas-sync     itsanas-policy    itsanas-placement                 │
+│  version vectors, when to sync,    rendezvous hashing, replica        │
+│  op-log merge,    and what a       targets, repair, quota accounting  │
+│  conflict         device keeps                                        │
+│  materialisation  when it cannot                                      │
+│                   keep everything                                     │
 ├───────────────────────────────────────────────────────────────────────┤
 │  itsanas-store   itsanas-folder    itsanas-net                        │
 │  FastCDC chunking, blob store,     peer protocol, sessions,           │

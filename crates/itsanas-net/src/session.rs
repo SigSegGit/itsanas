@@ -67,12 +67,6 @@ pub struct PushReport {
 pub struct RoundReport {
     pub push: PushReport,
     pub pull: SyncReport,
-    /// Whether the local storage budget is what stopped content arriving.
-    ///
-    /// Not a failure. It means this device has as much of the account as it
-    /// agreed to hold, and the rest is listed as known-but-absent and can be
-    /// fetched when asked for.
-    pub budget_spent: bool,
 }
 
 impl RoundReport {
@@ -131,31 +125,10 @@ struct RemoteChunks<'a> {
     /// unreplicated, and `under_replicated` calls the entire store critical,
     /// on the one day a user most needs to be told the truth.
     served: RefCell<Vec<ChunkId>>,
-    /// Bytes this round is still willing to bring down, or `None` for no limit.
-    ///
-    /// A device with less room than the account is the ordinary case, not the
-    /// exception: a phone has a few gigabytes free and an account can have
-    /// hundreds. Enforcing the budget here rather than by deleting afterwards
-    /// means nothing is ever written and then removed -- the merge engine
-    /// treats a source that declines exactly as it treats a peer that is
-    /// asleep, and the file stays *known but absent*, listed and fetchable
-    /// later. That machinery already exists; this only has to stop asking.
-    budget: RefCell<Option<u64>>,
-    /// Whether the budget is what stopped this round.
-    exhausted: RefCell<bool>,
 }
 
 impl ChunkSource for RemoteChunks<'_> {
     fn fetch(&self, owner: UserId, address: &ChunkId) -> itsanas_sync::Result<Option<Vec<u8>>> {
-        // Declining before asking, when there is no room left. The refusal has
-        // to happen here rather than after the bytes arrive: downloading a
-        // chunk in order to throw it away spends the one resource a phone on a
-        // mobile connection has least of.
-        if self.budget.borrow().is_some_and(|left| left == 0) {
-            *self.exhausted.borrow_mut() = true;
-            return Ok(None);
-        }
-
         let fetched = self
             .client
             .borrow_mut()
@@ -166,22 +139,13 @@ impl ChunkSource for RemoteChunks<'_> {
             // deferred forever instead of surfacing the fault.
             .map_err(|error| itsanas_sync::SyncError::Source(error.to_string()))?;
 
-        if let Some(bytes) = &fetched {
+        if fetched.is_some() {
             self.served.borrow_mut().push(*address);
-
-            // Saturating, so a chunk larger than what is left spends the rest
-            // of the budget rather than wrapping into a very large one. It has
-            // already been fetched by this point, which is why the check above
-            // is the one that matters.
-            if let Some(left) = self.budget.borrow_mut().as_mut() {
-                *left = left.saturating_sub(bytes.len() as u64);
-            }
         }
         Ok(fetched)
     }
 }
 
-/// Offer this device's segments and any chunks the peer lacks.
 /// How much of a round to do.
 ///
 /// A phone on mobile data, and a laptop tethered to one, both want to know what
@@ -217,26 +181,15 @@ pub fn round(store: &Store, vault: &Vault, client: &mut PeerClient) -> Result<Ro
 }
 
 /// One round, both directions, at `scope`.
+///
+/// # Errors
+///
+/// If the peer fails, or the store cannot be written.
 pub fn round_scoped(
     store: &Store,
     vault: &Vault,
     client: &mut PeerClient,
     scope: Scope,
-) -> Result<RoundReport> {
-    round_within(store, vault, client, scope, None)
-}
-
-/// One round, bringing down at most `budget` bytes of content.
-///
-/// # Errors
-///
-/// If the peer fails, or the store cannot be written.
-pub fn round_within(
-    store: &Store,
-    vault: &Vault,
-    client: &mut PeerClient,
-    scope: Scope,
-    budget: Option<u64>,
 ) -> Result<RoundReport> {
     // A round that got this far spoke to the peer. Whether it had anything to
     // say is beside the point: the acknowledgements it made in the past count
@@ -245,12 +198,8 @@ pub fn round_within(
     store.note_seen(&client.peer_device())?;
 
     let push = push_scoped(store, client, scope)?;
-    let (pull, budget_spent) = pull_within(store, vault, client, scope, budget)?;
-    Ok(RoundReport {
-        push,
-        pull,
-        budget_spent,
-    })
+    let pull = pull_scoped(store, vault, client, scope)?;
+    Ok(RoundReport { push, pull })
 }
 
 /// Offer this node's work to a peer, moving everything.
@@ -353,6 +302,14 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
             .copied()
             .collect();
 
+        // And what it *did* ask for, it does not have -- whatever this node's
+        // ledger says. Free, exact, and immediate: the same round trip that
+        // decides what to send also withdraws every record this peer has
+        // outgrown, which matters now that a device with a storage budget lets
+        // go of content on purpose. Waiting for the audit to notice would mean
+        // sixteen chunks per round against an account of millions.
+        store.forget_holders(&missing, &peer)?;
+
         for address in missing {
             let Some(sealed) = store.blobs().get(&address)? else {
                 // Collected between listing and sending. Not an error.
@@ -375,8 +332,7 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
     Ok(report)
 }
 
-/// Fetch what the peer has from this user's *other* devices, and merge it.
-/// Fetch exactly the chunks of one file from a peer, and apply it.
+/// Fetch exactly the chunks named, from a peer, and apply what they complete.
 ///
 /// # The gap this closes
 ///
@@ -575,6 +531,11 @@ pub fn host_for(vault: &Vault, client: &mut PeerClient, pledge: Pledge) -> Resul
     Ok(report)
 }
 
+/// Fetch what the peer has from this user's *other* devices, and merge it.
+///
+/// # Errors
+///
+/// If the peer fails, or the store cannot be written.
 pub fn pull(store: &Store, vault: &Vault, client: &mut PeerClient) -> Result<SyncReport> {
     pull_scoped(store, vault, client, Scope::Everything)
 }
@@ -589,44 +550,26 @@ pub fn pull(store: &Store, vault: &Vault, client: &mut PeerClient) -> Result<Syn
 /// applied with its content or left for later, which is the same guarantee a
 /// sleeping peer already gets.
 ///
-/// **What this does not yet do is show you the file.** A deferred operation
-/// writes no index entry, so `Store::list` does not report it — the paths are
-/// in the returned outcomes and in the vault's segments, and nothing keeps them
-/// anywhere a browser could read. Presenting "known but not downloaded", the
-/// way a phone client should, needs a catalogue derived from the vault that
-/// does not exist yet. Recorded in `docs/ROADMAP.md`.
-pub fn pull_scoped(
-    store: &Store,
-    vault: &Vault,
-    client: &mut PeerClient,
-    scope: Scope,
-) -> Result<SyncReport> {
-    pull_within(store, vault, client, scope, None).map(|(report, _)| report)
-}
-
-/// Fetch and merge, bringing down at most `budget` bytes of content.
+/// Bring this node's vault up to date with what the peer knows, without
+/// applying anything.
 ///
-/// `None` is no limit and is what every caller wanted before devices with less
-/// room than the account existed -- which is to say, before phones.
+/// Kilobytes: signed log segments, not content. What it buys is the ability to
+/// *decide* — `itsanas_store::catalogue` reads the vault, so after this a device
+/// knows every file the account has, with its size and date, and can choose
+/// which ones are worth its remaining room before spending a byte of it on
+/// content.
 ///
-/// Running out is not an error and not a partial write. The merge engine treats
-/// a source that declines exactly as it treats a peer that is asleep: the
-/// operation is deferred, the file stays *known but absent*, and
-/// `itsanas_store::catalogue` lists it so a client can show it and fetch it on
-/// demand. The second element of the result says whether the budget is what
-/// stopped it, because "nothing more arrived" and "I stopped asking" are
-/// different states and only one of them is worth telling somebody about.
+/// Returns the segments newly fetched in this call, which is what the callers
+/// that go on to apply them need.
 ///
 /// # Errors
 ///
-/// If the peer fails, or the store cannot be written.
-pub fn pull_within(
+/// If the peer fails, or the vault cannot be written.
+pub fn refresh(
     store: &Store,
     vault: &Vault,
     client: &mut PeerClient,
-    scope: Scope,
-    budget: Option<u64>,
-) -> Result<(SyncReport, bool)> {
+) -> Result<Vec<SegmentEnvelope>> {
     let owner = store.owner();
     let mine = store.device_id();
 
@@ -661,6 +604,36 @@ pub fn pull_within(
 
         fetched.extend(segments);
     }
+
+    Ok(fetched)
+}
+
+/// Fetch and merge everything the peer has, at `scope`.
+///
+/// A deferred operation writes no index entry, so `Store::list` does not report
+/// it. [`catalogue`](mod@itsanas_store::catalogue) is what shows it anyway: it derives the
+/// account's whole file list from the vault's segments, marking what this device
+/// has not downloaded, and [`fetch_only`] brings one down on demand.
+///
+/// A device that cannot hold its whole account does not call this: it decides
+/// what belongs on it and calls [`fetch_only`]. The two used to be one function
+/// with a byte budget, which stopped downloading when the allowance ran out and
+/// so kept whatever the log happened to replay first -- a limit on the quantity
+/// with no say over the choice.
+///
+/// # Errors
+///
+/// If the peer fails, or the store cannot be written.
+pub fn pull_scoped(
+    store: &Store,
+    vault: &Vault,
+    client: &mut PeerClient,
+    scope: Scope,
+) -> Result<SyncReport> {
+    let owner = store.owner();
+    let mine = store.device_id();
+
+    let mut fetched = refresh(store, vault, client)?;
 
     // A round that can move content applies from the **vault**, not from what
     // this round happened to fetch.
@@ -708,25 +681,22 @@ pub fn pull_within(
     }
 
     if fetched.is_empty() {
-        return Ok((SyncReport::default(), false));
+        return Ok(SyncReport::default());
     }
 
     let peer = client.peer_device();
-    let (outcome, served, budget_spent) = if scope.moves_content() {
+    let (outcome, served) = if scope.moves_content() {
         let source = RemoteChunks {
             client: RefCell::new(client),
             served: RefCell::new(Vec::new()),
-            budget: RefCell::new(budget),
-            exhausted: RefCell::new(false),
         };
         let outcome = apply_segments(store, &fetched, &source);
         let served = source.served.into_inner();
-        (outcome, served, source.exhausted.into_inner())
+        (outcome, served)
     } else {
         (
             apply_segments(store, &fetched, &itsanas_sync::EmptySource),
             Vec::new(),
-            false,
         )
     };
 
@@ -746,7 +716,7 @@ pub fn pull_within(
         store.note_all_applied(vault)?;
     }
 
-    Ok((report, budget_spent))
+    Ok(report)
 }
 
 /// Apply this user's own segments that peers have pushed into the vault.

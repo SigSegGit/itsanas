@@ -17,6 +17,7 @@ mod coordinator;
 mod daemon;
 mod discovery;
 mod error;
+mod keeping;
 mod node;
 
 use std::{
@@ -169,6 +170,21 @@ enum Command {
     Keep {
         /// e.g. `2G`, or `all` to hold everything.
         size: Option<String>,
+        /// Which files matter most when the limit cannot hold them all:
+        /// `newest`, `oldest` or `smallest`.
+        ///
+        /// Without this the limit bounds the quantity and says nothing about
+        /// the choice, so what a device ends up with is whatever the log
+        /// replayed first -- which is the order things were written, possibly
+        /// by another machine, years ago.
+        #[arg(long)]
+        order: Option<String>,
+        /// Hold only these paths, and let go of the rest. Repeatable.
+        ///
+        /// `--only all` clears the restriction. A directory prefix matches
+        /// everything under it; `Photos` does not match `Photos-old`.
+        #[arg(long)]
+        only: Vec<String>,
     },
     /// Say how much space this node offers to other people.
     Pledge {
@@ -452,7 +468,9 @@ fn run() -> Result<()> {
         Command::Rm { path } => remove(&home, &path),
         Command::Folder { path } => folder(&home, path.as_deref()),
         Command::Scan { deep } => scan(&home, deep),
-        Command::Keep { size } => keep(&home, size.as_deref()),
+        Command::Keep { size, order, only } => {
+            keep(&home, size.as_deref(), order.as_deref(), &only)
+        }
         Command::Pledge { size } => pledge(&home, &size),
         Command::Device { what } => device(&home, &what),
         Command::Listen { address } => listen_on(&home, address.as_deref()),
@@ -840,6 +858,64 @@ fn coverage_report(node: &Node) -> Result<String> {
     Ok(out)
 }
 
+/// What this node is costing the disk, in the three parts a person can act on.
+///
+/// # Why this is measured and not implied
+///
+/// `keep` bounds one of these numbers and reads as though it bounds the disk.
+/// On the trial device it did not, and by a factor of twenty: told to keep 200
+/// KiB, the node's directory held 4.3 MiB — 907 KiB of content, and the rest
+/// index and vault. Somebody deciding whether this fits on a phone needs the
+/// total, and the breakdown to know which setting moves it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct DiskUse {
+    /// This account's own content. The number `keep` bounds.
+    mine: u64,
+    /// Sealed data held for other people, and this account's own log relayed
+    /// between its devices. The number `pledge` bounds.
+    vault: u64,
+    /// The databases: the index and the vault's own store.
+    ///
+    /// Bounded by nothing, and proportional to the number of files and log
+    /// entries rather than to their size. On a nearly empty account it is most
+    /// of the total.
+    indexes: u64,
+}
+
+impl DiskUse {
+    const fn total(self) -> u64 {
+        self.mine
+            .saturating_add(self.vault)
+            .saturating_add(self.indexes)
+    }
+}
+
+/// Measure it.
+///
+/// Only the files sitting directly in the store and vault directories are
+/// stat'ed — the databases. Content is already counted, and walking a blob
+/// store of a million files to add up what the index already knows would make
+/// `status` cost a minute on the machines that most need it.
+fn disk_use(node: &Node) -> Result<DiskUse> {
+    fn databases(root: &Path) -> u64 {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return 0;
+        };
+        entries
+            .flatten()
+            .filter_map(|entry| entry.metadata().ok())
+            .filter(std::fs::Metadata::is_file)
+            .map(|metadata| metadata.len())
+            .sum()
+    }
+
+    Ok(DiskUse {
+        mine: node.store.stats()?.bytes_on_disk,
+        vault: node.vault.stats()?.bytes,
+        indexes: databases(node.store.root()) + databases(&node.home.join("vault")),
+    })
+}
+
 /// The text `itsanas status` prints, built rather than printed.
 ///
 /// Separated from the command so the daemon can write the same text to a
@@ -920,6 +996,17 @@ fn render_status(node: &Node) -> Result<String> {
         .saturating_sub(usize::from(own_in_vault.segments > 0));
     let hosted_bytes = vault.bytes.saturating_sub(own_in_vault.bytes);
     let hosted_chunks = vault.chunks.saturating_sub(own_in_vault.chunks);
+
+    w!();
+    let disk = disk_use(node)?;
+    w!("disk used by this node");
+    w!("  your content    {}", format_size(disk.mine));
+    w!("  vault           {}", format_size(disk.vault));
+    w!("  indexes         {}", format_size(disk.indexes));
+    w!("  total           {}", format_size(disk.total()));
+    if node.config.keep_bytes.is_some() {
+        w!("  `keep` bounds the first line only; the rest is index and vault.");
+    }
 
     w!();
     w!("hosting for other people");
@@ -1223,16 +1310,17 @@ fn list(home: &Path) -> Result<()> {
 
     if absent > 0 {
         println!();
-        // What is actually true, which is not the same as what this used to
-        // say. `itsanas sync` fetches them *if there is room*: on a device with
-        // a `keep` limit already reached, sync brings nothing more down, and
-        // telling somebody to run it would send them round a loop that changes
-        // nothing. Opening one file always works, because an explicit request
-        // beats a background budget.
+        // What is actually true, which is not the same as what this said in
+        // either of its two earlier versions. On a device with a `keep` limit,
+        // sync fetches what the limit and the order choose and lets go of the
+        // rest, so "run sync" is not advice that brings a particular file down.
+        // Opening one always works, because an explicit request beats a
+        // background choice.
         println!("{absent} file(s) are known and not on this device.");
         println!("  `itsanas get <path>` fetches one, whatever the limit.");
-        if node.config.keep_bytes.is_some() {
-            println!("  `itsanas sync` fetches more only while this device is under its limit.");
+        if node.config.keep_bytes.is_some() || !node.config.keep_only.is_empty() {
+            println!("  `itsanas sync` fetches whatever this device's limit chooses to hold.");
+            println!("  `itsanas keep` shows and changes that choice.");
         } else {
             println!("  `itsanas sync` fetches them.");
         }
@@ -1536,49 +1624,96 @@ fn scan(home: &Path, deep: bool) -> Result<()> {
     Ok(())
 }
 
-fn keep(home: &Path, size: Option<&str>) -> Result<()> {
+fn keep(home: &Path, size: Option<&str>, order: Option<&str>, only: &[String]) -> Result<()> {
     let mut node = open(home)?;
 
-    let Some(size) = size else {
-        match node.config.keep_bytes {
-            Some(bytes) => println!(
-                "keeping at most {} of your own data here",
-                format_size(bytes)
-            ),
-            None => println!("keeping all of your own data here (`itsanas keep 2G` to limit it)"),
-        }
-        return Ok(());
-    };
-
-    if size.eq_ignore_ascii_case("all") || size.eq_ignore_ascii_case("none") {
-        node.config.keep_bytes = None;
-        node.save_config()?;
-        println!("keeping all of your own data on this device");
+    if size.is_none() && order.is_none() && only.is_empty() {
+        report_keeping_settings(&node);
         return Ok(());
     }
 
-    let bytes = parse_size(size)?;
-    let held = node.store.stats()?.bytes_on_disk;
+    if let Some(order) = order {
+        node.config.keep_order = crate::config::parse_order(order).ok_or_else(|| {
+            CliError::Usage(format!(
+                "unknown order {order:?}. Try newest, oldest or smallest."
+            ))
+        })?;
+    }
 
-    node.config.keep_bytes = Some(bytes);
+    // Given at all, `--only` replaces the whole list rather than adding to it.
+    // Appending would make the setting impossible to narrow without editing the
+    // file by hand, and a filter that can only ever grow is one that quietly
+    // stops filtering.
+    if !only.is_empty() {
+        node.config.keep_only = if only.iter().any(|prefix| prefix == "all") {
+            Vec::new()
+        } else {
+            only.to_vec()
+        };
+    }
+
+    if let Some(size) = size {
+        if size.eq_ignore_ascii_case("all") || size.eq_ignore_ascii_case("none") {
+            node.config.keep_bytes = None;
+        } else {
+            node.config.keep_bytes = Some(parse_size(size)?);
+        }
+    }
+
     node.save_config()?;
-    println!(
-        "keeping at most {} of your own data here",
-        format_size(bytes)
-    );
+    report_keeping_settings(&node);
 
-    // Said plainly rather than dressed up: this setting stops new content
-    // arriving, it does not remove what is already here. Claiming otherwise
-    // would be a number that looks enforced and is not.
-    if held > bytes {
+    // Said plainly rather than dressed up. A device over its limit comes back
+    // down on the next sync, by letting go of what the order ranks lowest --
+    // and only of content another live machine is known to hold, so a limit can
+    // never delete the last copy of anything. Until such a machine is known,
+    // the device stays over its limit and says so.
+    let held = node.store.stats()?.bytes_on_disk;
+    if let Some(limit) = node.config.keep_bytes
+        && held > limit
+    {
         println!(
-            "  {} is already stored, which is over that. Nothing is deleted:",
+            "  {} is stored now, over that limit. The next sync lets go of what",
             format_size(held)
         );
-        println!("  the limit stops more arriving, and there is no eviction yet.");
+        println!("  the order ranks lowest, keeping anything no other machine holds.");
     }
 
     Ok(())
+}
+
+/// Print what this device has been told to hold, in one place.
+///
+/// One function rather than a line at each call site, because the three
+/// settings answer one question and a device that printed only the one just
+/// changed would keep leaving out the one that explains the result.
+fn report_keeping_settings(node: &Node) {
+    match node.config.keep_bytes {
+        Some(bytes) => println!(
+            "keeping at most {} of your own data here",
+            format_size(bytes)
+        ),
+        None => println!("keeping all of your own data here (`itsanas keep 2G` to limit it)"),
+    }
+
+    if node.config.keep_bytes.is_some() {
+        println!(
+            "  when it does not all fit: {} first",
+            match node.config.keep_order {
+                itsanas_policy::keeping::Order::Newest => "most recently changed",
+                itsanas_policy::keeping::Order::Oldest => "least recently changed",
+                itsanas_policy::keeping::Order::Smallest => "smallest",
+            }
+        );
+    }
+
+    if node.config.keep_only.is_empty() {
+        return;
+    }
+    println!("  only these paths:");
+    for prefix in &node.config.keep_only {
+        println!("    {prefix}");
+    }
 }
 
 fn pledge(home: &Path, size: &str) -> Result<()> {
@@ -1671,18 +1806,20 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
                 }
             };
 
-        // The same budget the daemon honours. It used to be the daemon's
-        // alone, so `itsanas sync` downloaded the whole account on a device
-        // that had asked to hold two hundred kilobytes of it -- the mechanism
-        // existed and the path a person actually takes did not use it. Found by
-        // running it on a real machine, not by reading it.
-        let budget = node.config.keep_bytes.map(|keep| {
-            let held = node.store.stats().map_or(0, |stats| stats.bytes_on_disk);
-            keep.saturating_sub(held)
-        });
-
-        match session::round_within(&node.store, &node.vault, &mut client, scope, budget) {
-            Ok(report) => {
+        // The same path the daemon takes, including the choice of what a
+        // device short of room keeps. It used to be the daemon's alone, so
+        // `itsanas sync` downloaded the whole account on a device that had
+        // asked to hold two hundred kilobytes of it -- the mechanism existed
+        // and the path a person actually takes did not use it. Found by running
+        // it on a real machine, not by reading it.
+        match crate::keeping::round(
+            &node.store,
+            &node.vault,
+            &node.config.keeping(),
+            &mut client,
+            scope,
+        ) {
+            Ok((report, keeping)) => {
                 any_succeeded = true;
                 println!(
                     "sent {} in {} chunks, {} segments; received {} files, {} conflicts{}",
@@ -1697,6 +1834,22 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
                         String::new()
                     }
                 );
+                if keeping.released > 0 {
+                    println!(
+                        "  let go of {} file(s), freeing {}",
+                        keeping.released,
+                        format_size(keeping.freed)
+                    );
+                }
+                if keeping.only_copy_here > 0 {
+                    println!(
+                        concat!(
+                            "  {} file(s) stayed: no other machine is known to hold ",
+                            "them, so this device is over its limit until one does."
+                        ),
+                        keeping.only_copy_here
+                    );
+                }
             }
             Err(error) => println!("failed ({error})"),
         }

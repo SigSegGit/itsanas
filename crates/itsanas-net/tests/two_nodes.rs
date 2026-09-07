@@ -2252,20 +2252,26 @@ fn a_pledge_of_nothing_takes_nothing_on() {
 }
 
 #[test]
-fn a_device_with_less_room_than_the_account_stops_instead_of_filling_up() {
+fn a_device_takes_the_files_it_asked_for_and_none_of_the_others() {
     // The ordinary case for a phone, not an edge case: a few gigabytes free
     // against an account of hundreds. What must NOT happen is the device
     // filling its disk, and what must not happen either is a half-written file.
     //
-    // The budget is spent by declining before fetching, so the merge engine
-    // treats it exactly as it treats a peer that is asleep: the operation is
-    // deferred and nothing is written. The file stays known to the account and
-    // absent from this device, which is the state a client shows and fetches
-    // on demand.
+    // The device names what it wants and the source declines everything else,
+    // so the merge engine treats the rest exactly as it treats a peer that is
+    // asleep: the operation is deferred and nothing is written. Those files
+    // stay known to the account and absent from this device, which is the state
+    // a client shows and fetches on demand.
+    //
+    // This used to be a byte budget inside the pull, which stopped when the
+    // allowance ran out and therefore kept whatever the log replayed first.
+    // Deciding *which* files is `itsanas_policy::keeping`; this is the network
+    // half of it, and the assertion that matters here is that nothing outside
+    // the request arrives.
     let big = node(&MasterSecret::from_bytes([0x1A; 32]), 50);
     let small = node(&MasterSecret::from_bytes([0x1A; 32]), 51);
 
-    // Four files of a quarter-megabyte each, so a budget can fall between them.
+    // Four files of a quarter-megabyte each.
     for name in ["one.bin", "two.bin", "three.bin", "four.bin"] {
         let payload = itsanas_testkit::filler(name, 256 * 1024);
         big.store.write_file(name, &payload).unwrap();
@@ -2274,41 +2280,46 @@ fn a_device_with_less_room_than_the_account_stops_instead_of_filling_up() {
     let whole = big.store.stats().unwrap().bytes_on_disk;
     assert!(
         whole > 900 * 1024,
-        "the fixture is too small to budget against"
+        "the fixture is too small to be selective about"
     );
-
-    // Room for roughly one file.
-    let budget = 300 * 1024;
 
     with_server(&big, Pledge::gigabytes(1), |address| {
         let mut client =
             PeerClient::connect(address, &small.device, small.store.owner(), None).unwrap();
-        let report = session::round_within(
+
+        // Learn what exists without downloading any of it.
+        session::pull_scoped(
             &small.store,
             &small.vault,
             &mut client,
-            session::Scope::Everything,
-            Some(budget),
+            session::Scope::Metadata,
         )
-        .expect("a budgeted round is not an error");
+        .unwrap();
+
+        let wanted: std::collections::BTreeSet<String> = ["two.bin".to_owned()].into();
+        let chunks = itsanas_store::chunks_for_all(&small.store, &small.vault, &wanted).unwrap();
         assert!(
-            report.budget_spent,
-            "the budget was not what stopped it, so this test proves nothing"
+            !chunks.is_empty(),
+            "the file's chunks could not be resolved"
         );
+
+        session::fetch_only(&small.store, &small.vault, &mut client, &chunks)
+            .expect("a selective round is not an error");
     });
 
+    assert_eq!(
+        small.store.list().unwrap(),
+        vec!["two.bin".to_owned()],
+        "the device took files it did not ask for"
+    );
     let held = small.store.stats().unwrap().bytes_on_disk;
     assert!(
-        held <= budget + 256 * 1024,
-        "the small device took {held} bytes against a budget of {budget}"
-    );
-    assert!(
         held < whole,
-        "the small device took the whole account despite its budget"
+        "the small device took the whole account despite asking for one file"
     );
 
-    // Whatever did arrive is whole. A budget that produced a truncated file
-    // would be worse than no budget at all.
+    // Whatever did arrive is whole. A selective fetch that produced a truncated
+    // file would be worse than no selection at all.
     for path in small.store.list().unwrap() {
         let content = small
             .store
@@ -2317,6 +2328,19 @@ fn a_device_with_less_room_than_the_account_stops_instead_of_filling_up() {
             .unwrap_or_else(|| panic!("{path} is listed and unreadable"));
         assert_eq!(content.len(), 256 * 1024, "{path} came back truncated");
     }
+
+    // And the rest is listed rather than lost.
+    let listing = itsanas_store::catalogue(&small.store, &small.vault).unwrap();
+    assert_eq!(listing.files.len(), 4, "the account's other files vanished");
+    assert_eq!(
+        listing
+            .files
+            .iter()
+            .filter(|file| file.presence == itsanas_store::Presence::Absent)
+            .count(),
+        3,
+        "files nobody asked for were downloaded anyway"
+    );
 }
 
 #[test]

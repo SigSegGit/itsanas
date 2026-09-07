@@ -1,10 +1,11 @@
 //! Node configuration.
 //!
-//! A deliberately small `key = value` file rather than TOML or JSON. There are
-//! four settings; pulling in a configuration-language parser to read four
-//! settings adds a dependency tree to a security-sensitive binary in exchange
-//! for nothing. The format is a strict subset of TOML's simplest form, so if it
-//! ever grows enough to justify a real parser, existing files keep working.
+//! A deliberately small `key = value` file rather than TOML or JSON. There is a
+//! handful of settings; pulling in a configuration-language parser to read a
+//! handful of settings adds a dependency tree to a security-sensitive binary in
+//! exchange for nothing. The format is a strict subset of TOML's simplest form,
+//! so if it ever grows enough to justify a real parser, existing files keep
+//! working.
 //!
 //! Everything here is public, non-secret configuration. Secrets live in the
 //! passphrase-sealed keystore and never appear in this file.
@@ -15,7 +16,31 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use itsanas_policy::keeping::{Keeping, Order};
+
 use crate::error::{CliError, Result};
+
+/// The on-disk name of an ordering, and its parser.
+///
+/// Written out rather than derived so that renaming a variant cannot silently
+/// change the meaning of every configuration file already on a disk somewhere.
+const fn order_name(order: Order) -> &'static str {
+    match order {
+        Order::Newest => "newest",
+        Order::Oldest => "oldest",
+        Order::Smallest => "smallest",
+    }
+}
+
+/// Parse an ordering, or `None` if it is not one.
+pub fn parse_order(value: &str) -> Option<Order> {
+    match value {
+        "newest" => Some(Order::Newest),
+        "oldest" => Some(Order::Oldest),
+        "smallest" => Some(Order::Smallest),
+        _ => None,
+    }
+}
 
 /// Default pledge when a node has not chosen one: nothing.
 ///
@@ -78,6 +103,15 @@ pub struct Config {
     /// *others*. Having a terabyte free is not agreeing to lend a terabyte, and
     /// wanting to hold two gigabytes of your own says nothing about either.
     pub keep_bytes: Option<u64>,
+    /// Which files matter most when the budget cannot hold them all.
+    ///
+    /// Without this the budget bounds the quantity and says nothing about the
+    /// choice, so what a device ends up with is whatever the log replayed
+    /// first -- the order operations were written, possibly by another machine,
+    /// years ago. See `itsanas_policy::keeping`.
+    pub keep_order: Order,
+    /// Path prefixes this device restricts itself to. Empty means everything.
+    pub keep_only: Vec<String>,
 }
 
 impl Default for Config {
@@ -91,11 +125,28 @@ impl Default for Config {
             coordinator_device: None,
             folder: None,
             keep_bytes: None,
+            keep_order: Order::default(),
+            keep_only: Vec::new(),
         }
     }
 }
 
 impl Config {
+    /// What this device has been told to hold of its own account.
+    ///
+    /// The three settings that answer one question, gathered so that no caller
+    /// has to remember they belong together — the budget without the order is
+    /// how "keep two gigabytes" came to mean "keep the first two gigabytes the
+    /// log mentions".
+    #[must_use]
+    pub fn keeping(&self) -> Keeping {
+        Keeping {
+            budget: self.keep_bytes,
+            order: self.keep_order,
+            only: self.keep_only.clone(),
+        }
+    }
+
     /// Render to the on-disk form.
     #[must_use]
     pub fn render(&self) -> String {
@@ -108,6 +159,12 @@ impl Config {
         let _ = writeln!(out, "listen = {}", self.listen);
         if let Some(keep) = self.keep_bytes {
             let _ = writeln!(out, "keep_bytes = {keep}");
+        }
+        if self.keep_bytes.is_some() || !self.keep_only.is_empty() {
+            let _ = writeln!(out, "keep_order = {}", order_name(self.keep_order));
+        }
+        for only in &self.keep_only {
+            let _ = writeln!(out, "keep_only = {only}");
         }
         if let Some(folder) = &self.folder {
             let _ = writeln!(out, "folder = {}", folder.display());
@@ -166,6 +223,15 @@ impl Config {
                         ))
                     })?;
                 }
+                "keep_order" => {
+                    config.keep_order = parse_order(value).ok_or_else(|| {
+                        CliError::Config(format!(
+                            "line {}: keep_order must be newest, oldest or smallest, found {value:?}",
+                            number + 1
+                        ))
+                    })?;
+                }
+                "keep_only" => config.keep_only.push(value.to_owned()),
                 "keep_bytes" => {
                     config.keep_bytes = Some(value.parse().map_err(|_| {
                         CliError::Config(format!(
@@ -187,7 +253,8 @@ impl Config {
                     return Err(CliError::Config(format!(
                         concat!(
                             "line {}: unknown setting {:?}. Known settings: ",
-                            "username, pledge_bytes, keep_bytes, listen, folder, peer, ",
+                            "username, pledge_bytes, keep_bytes, keep_order, keep_only, ",
+                            "listen, folder, peer, ",
                             "coordinator, coordinator_device"
                         ),
                         number + 1,
@@ -346,6 +413,8 @@ mod tests {
             coordinator: None,
             coordinator_device: None,
             keep_bytes: Some(2 * 1024 * 1024 * 1024),
+            keep_order: Order::Oldest,
+            keep_only: vec!["Documents".to_owned(), "Photos/2026".to_owned()],
             folder: Some(PathBuf::from("/home/nicolas/ITSaNAS")),
         };
 

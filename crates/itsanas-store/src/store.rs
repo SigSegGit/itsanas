@@ -103,6 +103,29 @@ impl IntegrityReport {
     }
 }
 
+/// What releasing a file's local content freed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReleaseReport {
+    /// Chunks deleted from this device.
+    pub chunks: usize,
+    /// Bytes reclaimed.
+    pub bytes: u64,
+}
+
+/// What [`Store::release`] did, or why it would not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Release {
+    /// The content is gone from this device and the file is still in the
+    /// account.
+    Gone(ReleaseReport),
+    /// This device was not holding it, so there was nothing to release.
+    NotHere,
+    /// Refused: no other device that has been heard from recently is known to
+    /// hold this chunk, so letting go of it here would be letting go of it
+    /// entirely.
+    OnlyCopyHere(ChunkId),
+}
+
 /// Coarse size and count statistics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StoreStats {
@@ -315,6 +338,98 @@ impl Store {
         })?;
 
         Ok(true)
+    }
+
+    /// Stop holding the content of `path` on this device, without deleting it
+    /// from the account.
+    ///
+    /// # Why a budget needs this to be a budget
+    ///
+    /// Refusing to download more is only half of a limit. A device that fills
+    /// its allowance and can never let anything go is a ratchet: from that
+    /// moment the file edited this morning never arrives, because the one from
+    /// six years ago is still sitting there. Measured on the trial device --
+    /// told to keep 200 KiB, holding 907 KiB of blobs after a single explicit
+    /// fetch, with nothing in the system able to bring it back down.
+    ///
+    /// # The refusal is the important part
+    ///
+    /// This is the one operation in the store that destroys data if it is
+    /// wrong, so it will not act on a memory. Every chunk that would actually
+    /// be deleted -- a chunk another kept file still references is not deleted
+    /// and does not need to qualify -- must be held by another device that has
+    /// been *heard from* within [`CONFIRMED_FOR`](crate::holders::CONFIRMED_FOR). A record from a
+    /// machine nobody has seen in a fortnight is not a copy; it is a note about
+    /// one. If any chunk fails that test, nothing at all is released and the
+    /// caller is told which chunk stopped it.
+    ///
+    /// # What the rest of the system then sees
+    ///
+    /// The file leaves the index, so `stat` and `list` no longer report it, and
+    /// [`catalogue`](mod@crate::catalogue) lists it as [`Presence::Absent`] because
+    /// the log in the vault still describes it. `itsanas get` fetches it back on
+    /// demand. If this device mirrors a real directory, the folder layer's next
+    /// pass sees content in the ledger and none in the store and removes the
+    /// file from disk -- which is the intended meaning of "this device keeps
+    /// two gigabytes", and is safe precisely because of the refusal above.
+    ///
+    /// # The clock is an argument
+    ///
+    /// Like [`Store::coverage`], because the answer depends on it and a test
+    /// that cannot move it cannot reach the case that matters: a holder
+    /// recorded and then silent for a fortnight. Recording an acknowledgement
+    /// *is* contact -- `record_holders` stamps `DEVICE_SEEN` -- so the stale
+    /// case is unreachable at the current time by construction.
+    ///
+    /// # Errors
+    ///
+    /// If the index or the blob store cannot be read or written.
+    ///
+    /// [`Presence::Absent`]: crate::catalogue::Presence::Absent
+    pub fn release(&self, path: &str, now: u64) -> Result<Release> {
+        logical_path::validate(path)?;
+
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
+
+        let Some(entry) = self.index.get_file(path)? else {
+            return Ok(Release::NotHere);
+        };
+
+        for address in &entry.chunks {
+            // A chunk another file still references survives this release, so
+            // it is not the release that would lose it and it does not have to
+            // qualify. Counted against this file's own references rather than
+            // one, because a file may legitimately contain the same chunk
+            // twice.
+            let own = entry
+                .chunks
+                .iter()
+                .filter(|chunk| *chunk == address)
+                .count() as u64;
+            if self.index.reference_count(address)? > own {
+                continue;
+            }
+
+            if self.index.live_holder_count(address, now)? == 0 {
+                return Ok(Release::OnlyCopyHere(*address));
+            }
+        }
+
+        let dropped = self.index.release_file(path)?;
+        let mut report = ReleaseReport::default();
+        for address in &dropped {
+            if let Some(size) = self.blobs.size_of(address)?
+                && self.blobs.remove(address)?
+            {
+                report.chunks += 1;
+                report.bytes = report.bytes.saturating_add(size);
+            }
+            self.index.forget_chunk(address)?;
+        }
+
+        Ok(Release::Gone(report))
     }
 
     /// The version currently stamped on `path`, live or deleted.
@@ -754,6 +869,14 @@ impl Store {
         self.index.note_seen(device, now_unix())
     }
 
+    /// When this node last had any contact with `device`, if ever.
+    ///
+    /// What separates a holder record that still means something from one that
+    /// is only a memory. See [`CONFIRMED_FOR`](crate::holders::CONFIRMED_FOR).
+    pub fn last_seen(&self, device: &DeviceId) -> Result<Option<u64>> {
+        self.index.last_seen(device)
+    }
+
     pub fn note_audit(&self, device: &DeviceId, passed: bool) -> Result<Reliability> {
         self.index.note_audit(device, passed, now_unix())
     }
@@ -833,6 +956,15 @@ impl Store {
     ///
     /// For a failed storage challenge: a record is evidence that a host once
     /// accepted a chunk, never proof that it still has it.
+    /// Withdraw many records for one device at once.
+    ///
+    /// Two callers, both of which correct the ledger with something better than
+    /// a memory: a peer that answers "I am missing this" during a push, and a
+    /// peer that says outright what it has let go of.
+    pub fn forget_holders(&self, chunks: &[ChunkId], device: &DeviceId) -> Result<()> {
+        self.index.forget_holders(chunks, device)
+    }
+
     pub fn forget_holder(&self, chunk: &ChunkId, device: &DeviceId) -> Result<()> {
         self.index.forget_holder(chunk, device)
     }

@@ -35,8 +35,8 @@ pub use protocol::{Head, PROTOCOL_VERSION, Request, Response, challenge_holds, c
 pub use service::{PeerService, Pledge};
 pub use session::{
     AuditReport, CHALLENGES_PER_ROUND, HostReport, PushReport, RoundReport, Scope, audit,
-    drain_vault, fetch_only, host_for, pull, pull_scoped, pull_within, push, push_scoped, round,
-    round_scoped, round_within,
+    drain_vault, fetch_only, host_for, pull, pull_scoped, push, push_scoped, refresh, round,
+    round_scoped,
 };
 pub use transport::{IO_TIMEOUT, PeerClient, PeerServer};
 pub use wire::{FrameReader, MAX_FRAME_LEN, WIRE_VERSION};

@@ -51,7 +51,9 @@ use itsanas_wire::Connection;
 
 use crate::{
     error::{NetError, Result},
-    protocol::{Head, PROTOCOL_VERSION, Request, Response},
+    protocol::{
+        Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_DROP_NOTICES, Request, Response,
+    },
     service::PeerService,
 };
 
@@ -165,6 +167,12 @@ impl PeerServer {
 pub struct PeerClient {
     connection: Connection<itsanas_tls::session::ClientStream<TcpStream>>,
     peer_device: DeviceId,
+    /// The version both sides agreed to speak.
+    ///
+    /// Not a formality: a verb added after that version does not exist for this
+    /// peer, and sending it would fail the connection rather than the feature.
+    /// Every caller of a newer request asks this first.
+    spoken: u16,
 }
 
 impl std::fmt::Debug for PeerClient {
@@ -204,6 +212,7 @@ impl PeerClient {
         let mut client = Self {
             connection,
             peer_device: peer,
+            spoken: MIN_PROTOCOL_VERSION,
         };
 
         // Version negotiation after authentication, so an incompatible peer
@@ -214,12 +223,17 @@ impl PeerClient {
             owner,
         })? {
             Response::Hello { protocol, .. } => {
-                if protocol != PROTOCOL_VERSION {
+                if protocol < MIN_PROTOCOL_VERSION {
                     return Err(NetError::UnsupportedProtocolVersion {
                         found: protocol,
                         supported: PROTOCOL_VERSION,
                     });
                 }
+                // Capped at what this node knows how to speak. A peer answering
+                // with something higher is newer than us and has agreed to come
+                // down; believing its number would have us using verbs we do
+                // not have.
+                client.spoken = protocol.min(PROTOCOL_VERSION);
             }
             Response::Refused(reason) => return Err(NetError::Refused(reason)),
             _ => {
@@ -234,6 +248,12 @@ impl PeerClient {
     #[must_use]
     pub const fn peer_device(&self) -> DeviceId {
         self.peer_device
+    }
+
+    /// The protocol version both sides settled on.
+    #[must_use]
+    pub const fn spoken(&self) -> u16 {
+        self.spoken
     }
 
     /// Send a request and wait for its response.
@@ -317,6 +337,25 @@ impl PeerClient {
     /// If the peer refuses, or answers something else.
     pub fn hosted(&mut self, chunks: Vec<ChunkId>) -> Result<bool> {
         match self.request(&Request::Hosted { chunks })? {
+            Response::Stored { accepted } => Ok(accepted),
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
+        }
+    }
+
+    /// Tell the peer this device no longer holds these chunks.
+    ///
+    /// Answers `false`, having sent nothing, when the peer is too old to know
+    /// the verb. That is not a failure: the audit still catches the same
+    /// staleness, more slowly, which is what happened before this existed.
+    ///
+    /// Batched by the caller: the request carries at most `MAX_HAVE_BATCH`
+    /// addresses, the same ceiling the have/missing exchange uses.
+    pub fn dropped(&mut self, owner: UserId, chunks: Vec<ChunkId>) -> Result<bool> {
+        if self.spoken < PROTOCOL_WITH_DROP_NOTICES || chunks.is_empty() {
+            return Ok(false);
+        }
+        match self.request(&Request::Dropped { owner, chunks })? {
             Response::Stored { accepted } => Ok(accepted),
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse { expected: "stored" }),

@@ -960,3 +960,178 @@ fn a_non_default_chunker_still_round_trips() {
     assert!(entry.chunks.len() > 20, "the custom chunker was ignored");
     assert_eq!(store.read_file("tuned.bin").unwrap().unwrap(), payload);
 }
+
+/// Releasing local content refuses when nothing else is known to hold it.
+///
+/// The one operation in the store that destroys data if it is wrong. A device
+/// with a storage budget has to be able to let go of files -- otherwise the
+/// budget fills once and the file edited this morning never arrives -- and the
+/// difference between that and deleting somebody's only copy is exactly this
+/// check.
+#[test]
+fn content_is_not_released_while_this_is_the_only_machine_that_has_it() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let master = MasterSecret::generate().expect("master secret");
+    let store = store_for(&master, dir.path());
+
+    let payload = vec![7u8; 300_000];
+    store.write_file("report.pdf", &payload).expect("write");
+    let before = store.stats().expect("stats").bytes_on_disk;
+    assert!(before >= 300_000, "the file was not stored");
+
+    // The store's own clock, because `record_holders` stamps contact with the
+    // real time and a fixed timestamp in the future would make every record
+    // look stale.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs();
+
+    // Nobody has acknowledged holding any of it.
+    match store.release("report.pdf", now).expect("release") {
+        itsanas_store::Release::OnlyCopyHere(_) => {}
+        other => panic!("released the only copy in existence: {other:?}"),
+    }
+
+    assert_eq!(
+        store.read_file("report.pdf").expect("read"),
+        Some(payload.clone()),
+        "a refused release still removed the content"
+    );
+    assert_eq!(
+        store.stats().expect("stats").bytes_on_disk,
+        before,
+        "a refused release still freed space"
+    );
+
+    // Now a peer acknowledges every chunk, and is heard from.
+    let peer = DeviceKeys::generate().expect("device key").device_id();
+    let chunks = store
+        .stat("report.pdf")
+        .expect("stat")
+        .expect("the file is here")
+        .chunks;
+    store.record_holders(&chunks, &peer).expect("record");
+    store.note_seen(&peer).expect("seen");
+
+    let freed = match store.release("report.pdf", now).expect("release") {
+        itsanas_store::Release::Gone(report) => report,
+        other => panic!("release refused after a live holder acknowledged it: {other:?}"),
+    };
+
+    assert!(
+        freed.bytes >= 300_000,
+        "release reported {} bytes freed for a 300 KB file",
+        freed.bytes
+    );
+    assert_eq!(
+        store.stats().expect("stats").bytes_on_disk,
+        before - freed.bytes,
+        "the space was not actually reclaimed"
+    );
+    assert!(
+        store.read_file("report.pdf").expect("read").is_none(),
+        "the content is still readable after being released"
+    );
+    assert!(
+        store.tombstone("report.pdf").expect("tombstone").is_none(),
+        "releasing content deleted the file from the account"
+    );
+}
+
+/// A holder that has not been heard from in a fortnight does not authorise a
+/// release.
+///
+/// The distinction the whole ledger rests on: an acknowledgement is evidence
+/// about the past. `coverage` already refuses to count a silent machine as a
+/// copy; letting go of local content on the strength of one would be worse,
+/// because it acts on the belief instead of merely reporting it.
+///
+/// Note what recording a holder implies: `record_holders` stamps the device as
+/// seen, because an acknowledgement *is* contact. The stale case is therefore
+/// only reachable by moving the clock, which is why `release` takes one.
+#[test]
+fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let master = MasterSecret::generate().expect("master secret");
+    let store = store_for(&master, dir.path());
+
+    store
+        .write_file("notes.txt", b"small but mine")
+        .expect("write");
+    let chunks = store.stat("notes.txt").expect("stat").expect("here").chunks;
+
+    let peer = DeviceKeys::generate().expect("device key").device_id();
+    store.record_holders(&chunks, &peer).expect("record");
+    let recorded = store.last_seen(&peer).expect("last seen").expect("seen");
+
+    // One second before the record goes stale, it still counts.
+    let last_moment = recorded + itsanas_store::holders::CONFIRMED_FOR;
+    match store.release("notes.txt", last_moment).expect("release") {
+        itsanas_store::Release::Gone(_) => {}
+        other => panic!("a record inside the window was refused: {other:?}"),
+    }
+
+    // Put it back and step one second past the window.
+    store
+        .write_file("notes.txt", b"small but mine")
+        .expect("rewrite");
+    let chunks = store.stat("notes.txt").expect("stat").expect("here").chunks;
+    store.record_holders(&chunks, &peer).expect("record");
+    let recorded = store.last_seen(&peer).expect("last seen").expect("seen");
+
+    match store
+        .release(
+            "notes.txt",
+            recorded + itsanas_store::holders::CONFIRMED_FOR + 1,
+        )
+        .expect("release")
+    {
+        itsanas_store::Release::OnlyCopyHere(_) => {}
+        other => panic!("a device silent for a fortnight authorised a release: {other:?}"),
+    }
+}
+
+/// Releasing one file does not delete chunks another file still needs.
+///
+/// Deduplication means two paths can share a chunk. Freeing by path rather than
+/// by reference would empty half of a file the device was told to keep, and the
+/// damage would only surface the next time somebody opened it.
+#[test]
+fn releasing_one_file_leaves_a_chunk_another_file_still_uses() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let master = MasterSecret::generate().expect("master secret");
+    let store = store_for(&master, dir.path());
+
+    let shared = vec![3u8; 200_000];
+    store.write_file("copy-one.bin", &shared).expect("write");
+    store.write_file("copy-two.bin", &shared).expect("write");
+
+    let chunks = store
+        .stat("copy-one.bin")
+        .expect("stat")
+        .expect("here")
+        .chunks;
+    let peer = DeviceKeys::generate().expect("device key").device_id();
+    store.record_holders(&chunks, &peer).expect("record");
+    store.note_seen(&peer).expect("seen");
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs();
+
+    match store.release("copy-one.bin", now).expect("release") {
+        itsanas_store::Release::Gone(report) => assert_eq!(
+            report.chunks, 0,
+            "chunks were deleted while another file still referenced them"
+        ),
+        other => panic!("release refused: {other:?}"),
+    }
+
+    assert_eq!(
+        store.read_file("copy-two.bin").expect("read"),
+        Some(shared),
+        "releasing one file destroyed the other"
+    );
+}
