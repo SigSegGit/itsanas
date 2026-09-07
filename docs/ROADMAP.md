@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**685 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
+**687 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1217,6 +1217,40 @@ no fresh record for this peer. What it needs is a way to compute that difference
 without a per-chunk lookup — the holder table is keyed by chunk and the
 per-device table by audit tag, so neither gives the set in chunk order for a
 merge-join. Not started.
+
+### The whole log was re-offered every round, to every peer — fixed
+
+`push_scoped` used to send every segment in this device's chain on every round, whatever
+the peer already has. The peer's vault refuses the ones it holds — a segment that
+is not the tip and not the next link answers `SegmentChainBroken` — and the tip
+comes back `accepted: true` despite not being stored, because the service maps
+`Ok(_)` to accepted rather than passing the real answer through.
+
+Three costs, in increasing order of how long they stay hidden:
+
+* **A line every round on an idle fleet.** `segments_accepted` counts a segment
+  that was already held, so `RoundReport::changed_anything()` is true on every
+  round for ever. The daemon's own comment says a quiet round is the common case
+  and that saying so every five minutes would fill a journal with nothing; it has
+  been saying so every five minutes since the counter existed. Found by reading
+  three machines' logs after an upgrade and noticing that "sent 400 B, 1 segments"
+  never stopped.
+* **A refusal is indistinguishable from "already had it".** `store_segment` maps
+  every `Refused` to `false`, so a forged signature or a genuine chain break looks
+  exactly like a peer that was already current.
+* **O(chain) bytes per round per peer.** A segment's sealed body is a few hundred
+  bytes on this fleet, and the chain grows by one per batch of edits and is never
+  compacted. A thousand segments is roughly 350 KB re-uploaded per round per peer
+  — 100 MB a day against one peer, for nothing. It is the same shape as the
+  have/missing sweep above and was not written down with it.
+
+The fix needs no new state: `pull` already resumes from the peer's head, and
+`heads` is a verb this protocol has. A push should ask what the peer holds for
+this device's chain and send only what comes after it.
+
+**Fixed** in the commit that added `a_second_push_offers_nothing_and_says_so`: a push now
+resumes from the peer's head, exactly as `pull` does in the other direction, and the service
+answers with what `put_segment` actually did.
 
 ### The audit is a deterrent, not a detector, above a few gigabytes
 

@@ -153,8 +153,15 @@ impl<'a> PeerService<'a> {
                 }
                 // A rejected segment is the peer's problem, not ours: refuse it
                 // and say why, rather than failing the connection.
+                //
+                // `accepted` is what `put_segment` actually did, not `Ok(_)`.
+                // Re-offering the tip is normal and stores nothing, and claiming
+                // it was stored made every idle round look like a round that had
+                // moved something -- so the daemon printed a line every five
+                // minutes on a fleet where nothing was happening, which is how an
+                // operator learns to stop reading the log.
                 match self.vault.put_segment(envelope) {
-                    Ok(_) => Ok(Response::Stored { accepted: true }),
+                    Ok(accepted) => Ok(Response::Stored { accepted }),
                     Err(error) => Ok(Response::Refused(error.to_string())),
                 }
             }
@@ -776,6 +783,45 @@ mod tests {
             .unwrap();
 
         assert!(matches!(response, Response::Refused(_)));
+    }
+
+    #[test]
+    fn a_segment_already_held_is_answered_not_stored() {
+        // `accepted` has to be what happened, not what the call returned. The
+        // handler mapped `Ok(_)` to `accepted: true`, so re-offering the tip --
+        // which stores nothing, and which every push used to do on every round
+        // -- was reported as a segment moved. Downstream, `changed_anything()`
+        // was true on every idle round for ever, and the daemon printed a line
+        // every five minutes on a fleet where nothing was happening.
+        //
+        // Found by reading three machines' logs, not by a test. The push side
+        // no longer re-offers, so this is the only place that keeps the answer
+        // honest for any other caller.
+        let node = node(&alice(), 25);
+        node.store.write_file("notes.txt", b"content").unwrap();
+        let envelope = node
+            .store
+            .flush_segment()
+            .unwrap()
+            .expect("a written file produces a segment");
+
+        let service = service(&node);
+        let request = Request::StoreSegment {
+            envelope: Box::new(envelope),
+        };
+
+        match service.handle_from_test(&request).unwrap() {
+            Response::Stored { accepted } => assert!(accepted, "the first offer was not stored"),
+            other => panic!("expected stored, got {other:?}"),
+        }
+
+        match service.handle_from_test(&request).unwrap() {
+            Response::Stored { accepted } => assert!(
+                !accepted,
+                "a segment the vault already held was reported as stored"
+            ),
+            other => panic!("expected stored, got {other:?}"),
+        }
     }
 
     #[test]

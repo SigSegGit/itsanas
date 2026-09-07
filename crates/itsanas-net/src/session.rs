@@ -213,9 +213,44 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
     let peer = client.peer_device();
     let mut report = PushReport::default();
 
-    for envelope in store.segments()? {
+    // Resume from what the peer already holds, exactly as `pull` does in the
+    // other direction.
+    //
+    // Without this a push offered the whole chain on every round, for ever. The
+    // peer refused each segment it already had -- a segment that is neither the
+    // tip nor the next link answers `SegmentChainBroken` -- and `store_segment`
+    // maps every refusal to `false`, so the waste was invisible from here.
+    // Found by reading three machines' daemon logs after an upgrade and noticing
+    // that "sent 400 B, 1 segments" never stopped on a fleet where nothing was
+    // happening.
+    //
+    // The cost it removes grows without bound: a segment is a few hundred bytes,
+    // the chain gains one per batch of edits and is never compacted, so a
+    // thousand segments is roughly 350 KB re-uploaded per round per peer -- a
+    // hundred megabytes a day against one peer, for nothing.
+    //
+    // One extra round trip buys it. `heads` is a verb this protocol already has.
+    let already = client
+        .heads(owner)?
+        .into_iter()
+        .find(|head| head.device == store.device_id())
+        .map(|head| head.head);
+
+    let chain = store.segments()?;
+    let after = match already {
+        // A head this device does not recognise means the peer is holding
+        // something this chain does not contain, which is not a state a push can
+        // repair. Offer everything and let the peer's own chain check decide.
+        Some(head) => chain
+            .iter()
+            .position(|envelope| envelope.segment_id == head)
+            .map_or(0, |index| index + 1),
+        None => 0,
+    };
+
+    for envelope in &chain[after..] {
         report.segments_offered += 1;
-        if client.store_segment(&envelope)? {
+        if client.store_segment(envelope)? {
             report.segments_accepted += 1;
             report.bytes_sent = report
                 .bytes_sent

@@ -2479,3 +2479,65 @@ fn a_file_this_device_made_and_released_can_be_fetched_back_from_a_host() {
         "a file this device made, released and asked for again did not come back"
     );
 }
+
+#[test]
+fn a_second_push_offers_nothing_and_says_so() {
+    // Found by reading three machines' daemon logs after an upgrade: "sent
+    // 400 B (0 chunks, 1 segments)" every five minutes, on a fleet where
+    // nothing was happening. Two faults met there.
+    //
+    // A push offered the whole chain on every round, whatever the peer already
+    // had. The vault refused each segment it held -- one that is neither the tip
+    // nor the next link answers `SegmentChainBroken` -- and `store_segment` maps
+    // every refusal to `false`, so the waste was invisible from the pushing
+    // side. It grows without bound: a chain gains a segment per batch of edits
+    // and is never compacted, so a thousand segments is around 350 KB
+    // re-uploaded per round per peer, a hundred megabytes a day, for nothing.
+    //
+    // And the service answered `accepted: true` for a segment it had not
+    // stored, so `changed_anything()` was true on every idle round for ever --
+    // in a daemon whose own comment says a quiet round is the common case and
+    // that reporting it every five minutes would fill a journal with nothing.
+    let author = node(&alice(), 80);
+    let host = node(&MasterSecret::from_bytes([0x9F; 32]), 81);
+
+    author.store.write_file("first.txt", b"one").unwrap();
+    author.store.flush_segment().unwrap();
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).unwrap();
+
+        let first = session::push(&author.store, &mut client).unwrap();
+        assert!(first.segments_offered > 0, "the first push offered nothing");
+        assert_eq!(
+            first.segments_accepted, first.segments_offered,
+            "the host did not take what it had never seen"
+        );
+
+        // Nothing has changed. The peer already has the chain, and it should be
+        // asked for nothing at all.
+        let second = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(
+            second.segments_offered, 0,
+            "the whole chain was offered again to a peer that already had it"
+        );
+        assert_eq!(
+            second.segments_accepted, 0,
+            "a segment the host already held was counted as stored"
+        );
+        assert_eq!(second.bytes_sent, 0, "bytes were sent for nothing");
+
+        // One new segment, and exactly one is offered.
+        author.store.write_file("second.txt", b"two").unwrap();
+        author.store.flush_segment().unwrap();
+
+        let third = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(
+            third.segments_offered, 1,
+            "a push after one new segment offered {} of them",
+            third.segments_offered
+        );
+        assert_eq!(third.segments_accepted, 1);
+    });
+}
