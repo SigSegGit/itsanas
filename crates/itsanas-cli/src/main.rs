@@ -201,6 +201,23 @@ enum Command {
         #[arg(long)]
         only: Vec<String>,
     },
+    /// Show what this machine can offer, what that earns, and what limits it.
+    ///
+    /// Two limits decide how much of your own data a device may hold: the free
+    /// space on the disk the node lives on, and what you have offered other
+    /// people — this network gives storage in proportion to storage provided.
+    /// Both, together, before anything is committed to.
+    Space {
+        /// Space to offer other people, e.g. `100G`.
+        #[arg(long)]
+        pledge: Option<String>,
+        /// Space for your own data, e.g. `10G`, or `all`.
+        #[arg(long)]
+        keep: Option<String>,
+        /// Set them, rather than only saying whether they would fit.
+        #[arg(long)]
+        apply: bool,
+    },
     /// Say how much space this node offers to other people.
     Pledge {
         /// e.g. `500M`, `10G`, `1T`.
@@ -483,6 +500,11 @@ fn run() -> Result<()> {
         Command::Rm { path } => remove(&home, &path),
         Command::Folder { path } => folder(&home, path.as_deref()),
         Command::Scan { deep } => scan(&home, deep),
+        Command::Space {
+            pledge,
+            keep,
+            apply,
+        } => space(&home, pledge.as_deref(), keep.as_deref(), apply),
         Command::Keep { size, order, only } => {
             keep(&home, size.as_deref(), order.as_deref(), &only)
         }
@@ -1738,7 +1760,34 @@ fn keep(home: &Path, size: Option<&str>, order: Option<&str>, only: &[String]) -
         if size.eq_ignore_ascii_case("all") || size.eq_ignore_ascii_case("none") {
             node.config.keep_bytes = None;
         } else {
-            node.config.keep_bytes = Some(parse_size(size)?);
+            let bytes = parse_size(size)?;
+
+            // The bargain, enforced where the number is typed.
+            //
+            // This network gives storage in proportion to storage provided, and
+            // the ratio lives in `itsanas-coord`. Checking it only there would
+            // mean somebody sets a limit, fills it over a fortnight, and is
+            // then told it was never theirs to set -- with the data already on
+            // the machine. Refused here, with the number that would make it
+            // legal.
+            let allowed = itsanas_coord::accounting::room_earned(node.config.pledge_bytes)
+                .max(itsanas_coord::accounting::JOINING_ALLOWANCE);
+            if bytes > allowed {
+                return Err(CliError::Usage(format!(
+                    concat!(
+                        "keeping {} needs {} pledged, and this node offers {}. ",
+                        "`itsanas space --pledge {} --keep {} --apply` sets both, ",
+                        "or ask for less."
+                    ),
+                    format_size(bytes),
+                    format_size(itsanas_coord::accounting::pledge_needed_for(bytes)),
+                    format_size(node.config.pledge_bytes),
+                    format_size(itsanas_coord::accounting::pledge_needed_for(bytes)),
+                    format_size(bytes),
+                )));
+            }
+
+            node.config.keep_bytes = Some(bytes);
         }
     }
 
@@ -1819,6 +1868,132 @@ fn report_keeping_settings(node: &Node) {
     }
 }
 
+/// What this machine can offer, what that earns, and which limit is binding.
+///
+/// # Why this is one command and not three questions in an installer
+///
+/// Two limits decide how much of your own data a device may hold, and they come
+/// from different places: **the disk**, which is a fact about the machine, and
+/// **what you have offered other people**, which is the bargain this network
+/// runs on. A person choosing numbers needs both, together, before anything is
+/// installed — otherwise the first they hear of the second is a coordinator
+/// disagreeing with them a fortnight later.
+///
+/// Every installer asks this program rather than reimplementing the arithmetic
+/// in shell, PowerShell and again in the Android settings screen. Three copies
+/// of a rule is three answers to one question.
+fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> Result<()> {
+    let mut node = open(home)?;
+
+    let wanted_pledge = match pledge {
+        Some(size) => parse_size(size)?,
+        None => node.config.pledge_bytes,
+    };
+    let wanted_keep = match keep {
+        Some(size) if size.eq_ignore_ascii_case("all") => None,
+        Some(size) => Some(parse_size(size)?),
+        None => node.config.keep_bytes,
+    };
+
+    // Free space where this node actually lives, not on some default drive: a
+    // laptop with a small C: and a large D: is the ordinary case, and telling
+    // somebody they have room they do not have is the one answer this must
+    // never give.
+    let free = fs4::available_space(&node.home).unwrap_or(0);
+    let held = node.store.stats()?.bytes_on_disk;
+    let hosted = node.vault.stats()?.bytes;
+
+    println!("this machine");
+    println!("  node at         {}", node.home.display());
+    if free == 0 {
+        println!("  free space      unknown (the filesystem would not say)");
+    } else {
+        println!("  free space      {}", format_size(free));
+    }
+    println!("  your data here  {}", format_size(held));
+    println!("  held for others {}", format_size(hosted));
+
+    let earned = itsanas_coord::accounting::room_earned(wanted_pledge);
+    println!();
+    println!("the bargain");
+    println!("  you offer       {}", format_size(wanted_pledge));
+    println!(
+        "  that earns you  {} ({} pledged for each byte you keep)",
+        format_size(earned),
+        itsanas_coord::accounting::CONTRIBUTION_RATIO
+    );
+    println!(
+        "  first {} days    at least {}, whatever you pledge",
+        itsanas_coord::accounting::JOINING_PERIOD_SECONDS / 86_400,
+        format_size(itsanas_coord::accounting::JOINING_ALLOWANCE)
+    );
+
+    // Everything this machine would be committing to, together. The pledge is
+    // room for other people's data and `keep` is room for yours; a disk has to
+    // hold both, and neither setting knows about the other.
+    let committed = wanted_pledge.saturating_add(wanted_keep.unwrap_or(0));
+    let mut refusals: Vec<String> = Vec::new();
+
+    if free > 0 && committed > free.saturating_add(held).saturating_add(hosted) {
+        refusals.push(format!(
+            "offering {} and keeping {} needs {} on a disk with {} free",
+            format_size(wanted_pledge),
+            wanted_keep.map_or_else(|| "everything".to_owned(), format_size),
+            format_size(committed),
+            format_size(free)
+        ));
+    }
+
+    let allowed = earned.max(itsanas_coord::accounting::JOINING_ALLOWANCE);
+    if let Some(keep) = wanted_keep
+        && keep > allowed
+    {
+        refusals.push(format!(
+            "keeping {} needs {} pledged; you are offering {}",
+            format_size(keep),
+            format_size(itsanas_coord::accounting::pledge_needed_for(keep)),
+            format_size(wanted_pledge)
+        ));
+    }
+
+    println!();
+    if refusals.is_empty() {
+        match wanted_keep {
+            Some(keep) => println!(
+                "keeping {} of your own here is within both limits",
+                format_size(keep)
+            ),
+            None => println!("keeping all of your own data here is within both limits"),
+        }
+    } else {
+        println!("that does not fit:");
+        for refusal in &refusals {
+            println!("  {refusal}");
+        }
+    }
+
+    if !apply {
+        if pledge.is_some() || keep.is_some() {
+            println!();
+            println!("Nothing was changed. Add `--apply` to set these.");
+        }
+        return Ok(());
+    }
+
+    if !refusals.is_empty() {
+        return Err(CliError::Usage(
+            "refusing to set numbers this machine cannot honour".to_owned(),
+        ));
+    }
+
+    node.config.pledge_bytes = wanted_pledge;
+    node.config.keep_bytes = wanted_keep;
+    node.save_config()?;
+    println!();
+    println!("set.");
+    Ok(())
+}
+
 fn pledge(home: &Path, size: &str) -> Result<()> {
     let bytes = parse_size(size)?;
     let mut node = open(home)?;
@@ -1836,6 +2011,20 @@ fn pledge(home: &Path, size: &str) -> Result<()> {
             format_size(held),
             format_size(bytes)
         );
+    }
+
+    // Refusing to promise a disk this machine has not got. A host that accepts
+    // data and then runs out has failed the person who trusted it, and "I
+    // offered more than I had" is not a failure anybody discovers until it
+    // matters.
+    let free = fs4::available_space(&node.home).unwrap_or(0);
+    if free > 0 && bytes > free.saturating_add(held) {
+        return Err(CliError::Usage(format!(
+            "offering {} on a disk with {} free, already holding {} for others",
+            format_size(bytes),
+            format_size(free),
+            format_size(held)
+        )));
     }
 
     node.config.pledge_bytes = bytes;

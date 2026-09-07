@@ -2,7 +2,7 @@
 # Take a machine with nothing on it to a running ITSaNAS node, in one command.
 #
 #   curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/provision.sh |
-#     ITSANAS_PASSPHRASE='...' sh -s -- --username nicolas --pledge 100G
+#     ITSANAS_PASSPHRASE='...' sh -s -- --username nicolas --pledge 100G --keep 10G
 #
 # What this is, and why it is not `linux.sh`
 # ------------------------------------------
@@ -71,6 +71,7 @@ COORDINATOR=""
 COORDINATOR_DEVICE=""
 INVITE=""
 PLEDGE=""
+KEEP=""
 LISTEN=""
 FOLDER=""
 PEER=""
@@ -97,10 +98,15 @@ The network
 
 This machine
   --pledge SIZE          space offered to other members, e.g. 100G
+  --keep SIZE            space this machine may use for your own data, e.g. 10G
+                         (or `all`; bounded by the disk and by what --pledge
+                         earns, and refused here rather than a fortnight later)
   --listen HOST:PORT     address this node serves on (default 0.0.0.0:9797)
   --folder PATH          the directory kept in step with the account
   --no-service           do not enable the systemd user unit
   --no-install           the binary is already here; only configure
+  --clean                remove what a previous install put here, then stop
+                         (a dry run; add --yes to actually do it)
   --help                 this
 
 The passphrase comes from ITSANAS_PASSPHRASE and nowhere else. It unlocks this
@@ -111,6 +117,32 @@ this script picked for you.
 
 Run it twice and the second run changes nothing.
 USAGE
+}
+
+# ------------------------------------------------------------------- clean-up
+#
+# Delegation, not a second implementation. There is one uninstaller and it lives
+# in `clean.sh`; three copies of a list of paths is how a machine ends up with a
+# service pointing at a binary that was removed by the other copy.
+#
+# Every entry point in this directory takes --clean, checked by
+# scripts/check-installers.sh, because "which script do I run to undo this?" is
+# a question nobody should have to answer from memory at the wrong moment.
+#
+# Piped from the network there is no sibling to delegate to, and downloading a
+# second script to delete things with is not a thing this should do quietly. It
+# says where the script is instead.
+run_clean() {
+    here=$(dirname -- "$0" 2>/dev/null || echo .)
+    if [ -f "$here/clean.sh" ]; then
+        exec sh "$here/clean.sh" "$@"
+    fi
+    die "--clean needs the checkout" \
+        "This was run without install/clean.sh beside it, which happens when" \
+        "the script is piped from the network. Clone the repository and:" \
+        "" \
+        "  sh install/clean.sh          # show what would go" \
+        "  sh install/clean.sh --yes    # do it"
 }
 
 while [ $# -gt 0 ]; do
@@ -126,6 +158,8 @@ while [ $# -gt 0 ]; do
         --invite) [ $# -ge 2 ] || die "--invite needs a code"; INVITE="$2"; shift 2 ;;
         --invite=*) INVITE="${1#--invite=}"; shift ;;
         --pledge) [ $# -ge 2 ] || die "--pledge needs a size"; PLEDGE="$2"; shift 2 ;;
+        --keep) [ $# -ge 2 ] || die "--keep needs a size"; KEEP="$2"; shift 2 ;;
+        --keep=*) KEEP="${1#--keep=}"; shift ;;
         --listen) [ $# -ge 2 ] || die "--listen needs host:port"; LISTEN="$2"; shift 2 ;;
         --listen=*) LISTEN="${1#--listen=}"; shift ;;
         --pledge=*) PLEDGE="${1#--pledge=}"; shift ;;
@@ -136,6 +170,7 @@ while [ $# -gt 0 ]; do
         --no-service) DO_SERVICE=0; shift ;;
         --no-install) DO_INSTALL=0; shift ;;
         --help|-h) usage; exit 0 ;;
+        --clean) shift; run_clean "$@" ;;
         *) die "unknown option: $1" "Run with --help for the list." ;;
     esac
 done
@@ -279,8 +314,18 @@ fi
 
 step "Configuring this machine"
 
-if [ -n "$PLEDGE" ]; then
-    $BIN pledge "$PLEDGE" || die "could not set the pledge to $PLEDGE"
+# Both numbers go through `space --apply`, which is the one place the arithmetic
+# lives: it knows the free space on the disk this node actually sits on, and it
+# knows that keeping a byte of your own costs three pledged. Setting them
+# separately here would be a third copy of a rule that already has two homes,
+# and the failure mode of a third copy is a machine that accepts numbers the
+# coordinator will refuse a fortnight later.
+if [ -n "$PLEDGE" ] || [ -n "$KEEP" ]; then
+    set -- space
+    [ -n "$PLEDGE" ] && set -- "$@" --pledge "$PLEDGE"
+    [ -n "$KEEP" ] && set -- "$@" --keep "$KEEP"
+    $BIN "$@" --apply || die "these numbers do not fit this machine" \
+        "The reason is above. Lower --keep, raise --pledge, or free some disk."
 else
     warn "no --pledge, so this node offers nothing and hosts nobody"
     info "A node that pledges nothing is a client, not a member."

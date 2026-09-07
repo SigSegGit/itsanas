@@ -7,11 +7,11 @@
 # Read this first
 # ---------------
 #
-# **This does not install a sync app, and there is no app to install.** There is
-# no APK, no JNI bridge, no file picker and no background service. What this
+# **This does not install the app.** There is one — Kotlin and Compose over the
+# same core, built by `scripts/build-apk.sh` — and this is not it. What this
 # gives you is the command-line tool running on your phone's own processor, and
 # a check that it stores a file and reads it back there. See `android.md` for
-# what a real app would take and why none of it is written.
+# the difference and for what the app still does not do.
 #
 # That is worth doing anyway, and it is the reason this script exists rather
 # than a paragraph telling you to type six commands. Half the constants in this
@@ -91,11 +91,40 @@ Options
   --yes            do not ask before installing packages
   --check          look at the phone and stop, changing nothing
   --no-smoke       build, but do not store a test file afterwards
+  --clean          remove what a previous install put here, then stop
+                   (a dry run; add --yes to actually do it)
   --help           this
 
 What you get is the `itsanas` command-line tool built for your phone's
-processor, and a check that it works there. There is no app.
+processor, and a check that it works there. The app is a separate thing, built
+by scripts/build-apk.sh; see install/android.md.
 USAGE
+}
+
+# ------------------------------------------------------------------- clean-up
+#
+# Delegation, not a second implementation. There is one uninstaller and it lives
+# in `clean.sh`; three copies of a list of paths is how a machine ends up with a
+# service pointing at a binary that was removed by the other copy.
+#
+# Every entry point in this directory takes --clean, checked by
+# scripts/check-installers.sh, because "which script do I run to undo this?" is
+# a question nobody should have to answer from memory at the wrong moment.
+#
+# Piped from the network there is no sibling to delegate to, and downloading a
+# second script to delete things with is not a thing this should do quietly. It
+# says where the script is instead.
+run_clean() {
+    here=$(dirname -- "$0" 2>/dev/null || echo .)
+    if [ -f "$here/clean.sh" ]; then
+        exec sh "$here/clean.sh" "$@"
+    fi
+    die "--clean needs the checkout" \
+        "This was run without install/clean.sh beside it, which happens when" \
+        "the script is piped from the network. Clone the repository and:" \
+        "" \
+        "  sh install/clean.sh          # show what would go" \
+        "  sh install/clean.sh --yes    # do it"
 }
 
 while [ $# -gt 0 ]; do
@@ -104,6 +133,7 @@ while [ $# -gt 0 ]; do
         --check)    DO_BUILD=0; DO_SMOKE=0 ;;
         --no-smoke) DO_SMOKE=0 ;;
         --help|-h)  usage; exit 0 ;;
+        --clean)    shift; run_clean "$@" ;;
         *) die "unknown option: $1" "Run with --help to see what there is." ;;
     esac
     shift

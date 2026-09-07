@@ -83,6 +83,9 @@ Options
   --binary PATH     use this itsanas-coordinator instead of looking for one
   --admit-first     let the next registration in without an invitation, once
   --check           look at the machine and stop, changing nothing
+  --clean           remove what a previous install put here, then stop
+                    (a dry run; add --yes, and --purge-coordinator for the
+                    member directory; needs root)
   --help            this
 
 Run --admit-first exactly once, register your own account from another
@@ -91,6 +94,32 @@ first member has no author, so something has to open the door once — and a
 door that opens by itself on a public address is opened by whoever finds
 the port first.
 USAGE
+}
+
+# ------------------------------------------------------------------- clean-up
+#
+# Delegation, not a second implementation. There is one uninstaller and it lives
+# in `clean.sh`; three copies of a list of paths is how a machine ends up with a
+# service pointing at a binary that was removed by the other copy.
+#
+# Every entry point in this directory takes --clean, checked by
+# scripts/check-installers.sh, because "which script do I run to undo this?" is
+# a question nobody should have to answer from memory at the wrong moment.
+#
+# Piped from the network there is no sibling to delegate to, and downloading a
+# second script to delete things with is not a thing this should do quietly. It
+# says where the script is instead.
+run_clean() {
+    here=$(dirname -- "$0" 2>/dev/null || echo .)
+    if [ -f "$here/clean.sh" ]; then
+        exec sh "$here/clean.sh" "$@"
+    fi
+    die "--clean needs the checkout" \
+        "This was run without install/clean.sh beside it, which happens when" \
+        "the script is piped from the network. Clone the repository and:" \
+        "" \
+        "  sh install/clean.sh          # show what would go" \
+        "  sh install/clean.sh --yes    # do it"
 }
 
 while [ $# -gt 0 ]; do
@@ -102,6 +131,7 @@ while [ $# -gt 0 ]; do
         --admit-first) OPEN_DOOR=1; shift ;;
         --check) DO_INSTALL=0; shift ;;
         --help|-h) usage; exit 0 ;;
+        --clean) shift; run_clean "$@" ;;
         *) die "unknown option: $1" "Run with --help for the list." ;;
     esac
 done

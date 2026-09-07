@@ -1,7 +1,7 @@
 ﻿# Take a Windows machine with nothing on it to a running ITSaNAS node.
 #
 #   $env:ITSANAS_PASSPHRASE = '...'
-#   powershell -ExecutionPolicy Bypass -File install\provision.ps1 -Username nicolas -Pledge 100G
+#   powershell -ExecutionPolicy Bypass -File install\provision.ps1 -Username nicolas -Pledge 100G -Keep 10G
 #
 # What this is, and why it is not `windows.ps1`
 # ---------------------------------------------
@@ -49,6 +49,11 @@ param(
     # Space offered to other members, e.g. 100G.
     [string] $Pledge = '',
 
+    # Space this machine may use for your own data, e.g. 10G (or 'all'). Bounded
+    # by the free space on the disk the node sits on and by what -Pledge earns,
+    # and refused here rather than a fortnight later by a coordinator.
+    [string] $Keep = '',
+
     # The directory kept in step with the account.
     [string] $Folder = '',
 
@@ -66,12 +71,39 @@ param(
     # A peer to sync with directly. Repeatable.
     [string[]] $Peer = @(),
 
+    # Remove what a previous install put here, then stop. A dry run on its own;
+    # add -Yes to do it, -PurgeAccount to take the node itself. It hands over to
+    # clean.ps1, which is the only uninstaller.
+    [switch] $Clean,
+    [switch] $PurgeAccount,
+
+    # Only meaningful with -Clean: without it the clean-up is a dry run.
+    [switch] $Yes,
+
     # Do not register a scheduled task to start the daemon at logon.
     [switch] $NoTask,
 
     # The binary is already here; only configure.
     [switch] $NoInstall
 )
+
+
+# Delegation, not a second implementation. There is one uninstaller and it lives
+# in clean.ps1. Placed before every other check because -Clean is what somebody
+# reaches for when the install is broken, and it must not first have to satisfy
+# the checks that a working install would pass.
+if ($Clean) {
+    $cleaner = Join-Path $PSScriptRoot 'clean.ps1'
+    if (-not (Test-Path -LiteralPath $cleaner)) {
+        Write-Host ''
+        Write-Host 'error -Clean needs the checkout'
+        Write-Host '      Run install/clean.ps1 from a clone of the repository.'
+        exit 1
+    }
+    $LASTEXITCODE = 0
+    & $cleaner -Yes:$Yes -PurgeAccount:$PurgeAccount
+    exit $LASTEXITCODE
+}
 
 $ErrorActionPreference = 'Stop'
 
@@ -220,9 +252,21 @@ if (Test-Path -LiteralPath (Join-Path $nodeHome 'keystore.bin')) {
 
 Write-Step 'Configuring this machine'
 
-if ($Pledge) {
-    & $bin pledge $Pledge
-    if ($LASTEXITCODE -ne 0) { Die "could not set the pledge to $Pledge" }
+# Both numbers go through `space --apply`, which is the one place the arithmetic
+# lives: it knows the free space on the disk this node actually sits on, and it
+# knows that keeping a byte of your own costs three pledged. Setting them
+# separately here would be a third copy of a rule that already has two homes,
+# and the failure mode of a third copy is a machine that accepts numbers the
+# coordinator refuses a fortnight later.
+if ($Pledge -or $Keep) {
+    $ask = @('space')
+    if ($Pledge) { $ask += @('--pledge', $Pledge) }
+    if ($Keep) { $ask += @('--keep', $Keep) }
+    & $bin @ask --apply
+    if ($LASTEXITCODE -ne 0) {
+        Die 'these numbers do not fit this machine' `
+            'The reason is above. Lower -Keep, raise -Pledge, or free some disk.'
+    }
 } else {
     Write-Warn 'no -Pledge, so this node offers nothing and hosts nobody'
     Write-Info 'A node that pledges nothing is a client, not a member.'

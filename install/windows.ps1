@@ -39,8 +39,20 @@
 .PARAMETER Yes
     Do not ask before installing anything.
 
+.PARAMETER Clean
+    Remove what a previous install put here, then stop. On its own it is a dry
+    run that lists what would go; add -Yes to do it. This hands over to
+    clean.ps1, which is the only uninstaller.
+
+.PARAMETER PurgeAccount
+    With -Clean, also remove the node itself: the sealed master secret and every
+    chunk on this machine. Anything held here and nowhere else is gone for good.
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File install\windows.ps1
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File install\windows.ps1 -Clean
 
 .EXAMPLE
     .\install\windows.ps1 -NoBuild
@@ -53,8 +65,34 @@ param(
     [switch] $NoService,
     [switch] $NoBuild,
     [switch] $NoSmoke,
-    [switch] $Yes
+    [switch] $Yes,
+
+    # Remove what a previous install put here, then stop. A dry run on its own;
+    # pass -Yes as well to actually do it, and -PurgeAccount to take the node
+    # itself -- the sealed master secret and every chunk on this machine.
+    [switch] $Clean,
+    [switch] $PurgeAccount
 )
+
+# Delegation, not a second implementation. There is one uninstaller and it lives
+# in `clean.ps1`; three copies of a list of paths is how a machine ends up with
+# a scheduled task pointing at a binary the other copy removed.
+if ($Clean) {
+    $script = Join-Path $PSScriptRoot 'clean.ps1'
+    if (-not (Test-Path -LiteralPath $script)) {
+        Write-Host ''
+        Write-Host 'error -Clean needs the checkout'
+        Write-Host '      This was run without install\clean.ps1 beside it. Clone the'
+        Write-Host '      repository and run install\clean.ps1 directly.'
+        exit 1
+    }
+    # A .ps1 invoked with `&` only sets $LASTEXITCODE if it calls `exit`, and
+    # clean.ps1 falls off the end on its success path. Defaulting to 0 is not
+    # optimism here: the failure paths all exit explicitly.
+    $LASTEXITCODE = 0
+    & $script -Yes:$Yes -PurgeAccount:$PurgeAccount
+    exit $LASTEXITCODE
+}
 
 $ErrorActionPreference = 'Stop'
 

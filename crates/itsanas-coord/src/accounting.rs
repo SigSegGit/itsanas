@@ -27,6 +27,33 @@ use serde::{Deserialize, Serialize};
 /// member to offer `R × S`.
 pub const CONTRIBUTION_RATIO: u64 = 3;
 
+/// How much of their own data a member earns by pledging `pledged_bytes`.
+///
+/// The arithmetic behind [`CONTRIBUTION_RATIO`], written as a function because
+/// three places need it and one of them is an installer asking somebody how
+/// much room they want: offering ninety gigabytes earns thirty, and a person
+/// choosing those numbers should be told that before the node is running rather
+/// than by a coordinator a fortnight later.
+///
+/// Availability is not weighted in here. A machine that has never run has no
+/// availability to weight by, and guessing one would make the first number a
+/// member sees a number the network later disagrees with. See
+/// [`DeviceContribution::effective_bytes`] for what the coordinator actually
+/// counts once a node has a history.
+#[must_use]
+pub const fn room_earned(pledged_bytes: u64) -> u64 {
+    pledged_bytes / CONTRIBUTION_RATIO
+}
+
+/// How much must be pledged to earn `keep_bytes` of one's own.
+///
+/// The same rule read the other way round, for the question people actually
+/// ask: "I want ten gigabytes — what does that cost me?"
+#[must_use]
+pub const fn pledge_needed_for(keep_bytes: u64) -> u64 {
+    keep_bytes.saturating_mul(CONTRIBUTION_RATIO)
+}
+
 /// Availability at or above which a node counts as an *anchor*.
 ///
 /// Anchors are what make the network readable rather than merely durable. See
@@ -255,6 +282,63 @@ mod tests {
             over_since_unix: None,
             now_unix: NOW,
         })
+    }
+
+    #[test]
+    fn the_limit_and_the_price_quoted_for_exceeding_it_never_contradict() {
+        // `itsanas space` uses both: `room_earned` decides whether to refuse,
+        // and `pledge_needed_for` writes the refusal — "keeping 31 GiB needs
+        // 93 GiB pledged; you are offering 90". If those two ever disagreed the
+        // message would name a figure that is still refused when supplied, and
+        // the person would raise their pledge to exactly what they were told
+        // and be turned away again with the same sentence.
+        //
+        // Integer division truncates, so this is not free: the property has to
+        // hold at every remainder, not only at multiples of three.
+        for pledged in [
+            0_u64,
+            1,
+            2,
+            3,
+            4,
+            5,
+            100,
+            3 * GB - 1,
+            3 * GB,
+            3 * GB + 1,
+            90 * GB,
+        ] {
+            let allowed = room_earned(pledged);
+            assert!(
+                pledge_needed_for(allowed) <= pledged,
+                "pledging {pledged} earns {allowed}, which the quote then prices \
+                 at {} — above what was pledged",
+                pledge_needed_for(allowed)
+            );
+        }
+
+        // And the other direction: the figure the message quotes must actually
+        // buy what it was quoted for. `pledge_needed_for(k)` has to earn at
+        // least `k`, or following the instruction lands in the same refusal.
+        for keep in [0_u64, 1, 2, 3, 4, 5, 100, GB - 1, GB, 31 * GB] {
+            let quoted = pledge_needed_for(keep);
+            assert!(
+                room_earned(quoted) >= keep,
+                "the message tells somebody wanting {keep} to pledge {quoted}, \
+                 which earns only {}",
+                room_earned(quoted)
+            );
+        }
+    }
+
+    #[test]
+    fn the_quote_saturates_rather_than_wrapping_on_an_absurd_request() {
+        // A `keep` typed as a very large number must not wrap round to a small
+        // pledge requirement and let it through. `u64::MAX / 3` is the largest
+        // request that has an honest answer; above it the only honest answer is
+        // "more than exists".
+        assert_eq!(pledge_needed_for(u64::MAX), u64::MAX);
+        assert!(room_earned(pledge_needed_for(u64::MAX)) < u64::MAX);
     }
 
     #[test]

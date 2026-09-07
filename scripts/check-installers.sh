@@ -182,6 +182,72 @@ for script in "${SH_SCRIPTS[@]}" "${PS_SCRIPTS[@]}" install/*.md; do
     fi
 done
 
+# ------------------------------------------------------- undoing the install
+#
+# install/README.md says "every installer takes --clean". That sentence is worth
+# exactly what checks it, and until this block existed the answer was nothing —
+# the same shape as every other prose claim in this repository that turned out
+# to be false months after it was written.
+#
+# It is not a grep for the string. Each script is *run* with --clean and has to
+# reach the uninstaller's dry run, which is what proves the delegation resolves,
+# the sibling is found, and the argument is not being swallowed by a case arm
+# that shifts and falls through. A grep would have passed on all three faults.
+#
+# Discovered, not listed, for the reason at the top of this file.
+
+CLEAN_MARK="Nothing was changed"
+
+# A hang here is worse than a failure -- it is a gate that never finishes on
+# somebody else's machine -- but `timeout` is not everywhere, and a missing
+# tool must not turn into seven false accusations against the installers.
+if command -v timeout >/dev/null 2>&1; then
+    LIMIT="timeout 60"
+else
+    LIMIT=""
+fi
+
+for script in "${SH_SCRIPTS[@]}"; do
+    [ "$script" = "install/clean.sh" ] && continue
+    # shellcheck disable=SC2086
+    out=$($LIMIT sh "$script" --clean 2>&1 </dev/null)
+    if printf '%s' "$out" | grep -q "$CLEAN_MARK"; then
+        say "$script --clean reaches the uninstaller"
+    else
+        bad "$script --clean does not reach the uninstaller's dry run"
+        printf '%s\n' "$out" | tail -3 | sed 's/^/       /'
+        say "  Every entry point must be able to undo itself, by delegating to"
+        say "  install/clean.sh. One list of paths, not six."
+    fi
+done
+
+for script in "${PS_SCRIPTS[@]}"; do
+    [ "$script" = "install/clean.ps1" ] && continue
+    if ! command -v pwsh >/dev/null 2>&1; then
+        say "pwsh is not here; $script -Clean was not run"
+        continue
+    fi
+    # shellcheck disable=SC2086
+    out=$($LIMIT pwsh -NoProfile -File "$script" -Clean 2>&1 </dev/null)
+    if printf '%s' "$out" | grep -q "$CLEAN_MARK"; then
+        say "$script -Clean reaches the uninstaller"
+    else
+        bad "$script -Clean does not reach the uninstaller's dry run"
+        printf '%s\n' "$out" | tail -3 | sed 's/^/       /'
+    fi
+done
+
+# And the flag has to be findable. A switch that works and is undocumented is a
+# switch nobody types.
+for script in "${SH_SCRIPTS[@]}"; do
+    [ "$script" = "install/clean.sh" ] && continue
+    # shellcheck disable=SC2086
+    if ! $LIMIT sh "$script" --help 2>&1 </dev/null | grep -q -- '--clean'; then
+        bad "$script --help does not mention --clean"
+    fi
+done
+say "every installer offers --clean, and says so in its help"
+
 # ---------------------------------------------------------- the Rust version
 
 msrv=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)

@@ -9,7 +9,7 @@ says what it is doing, and can be run twice without harm.
 | Windows 10 and 11 | [`windows.ps1`](windows.ps1) | Windows 11, PowerShell 5.1, **full run, twice**: built, installed, stored and read back a file, and on 2026-09-06 created the account `sigseg42`, joined the Raspberry Pi's coordinator, and exchanged data with a second account on another machine in both directions. The second run is what found the bug below |
 | macOS, Apple silicon and Intel | [`macos.sh`](macos.sh) | macOS 26.5.2 **Apple silicon**, in CI on every push: built, installed, and stored and returned a file natively on arm64. Never on Intel |
 | Android, through Termux | [`android-termux.sh`](android-termux.sh) | **not yet run on a phone**; refuses correctly outside Termux and under `--check` |
-| Android, as an app | [`android.md`](android.md) | there is no app to install |
+| Android, as an app | [`android.md`](android.md), built by `scripts/build-apk.sh` | **Android 15 emulator, 2026-09-07, end to end through the interface**: restored an account from 24 words, added a desktop peer belonging to a *different* account, pulled 5 files and 910 KiB from it, opened one, and left the foreground service running. Never on physical hardware, never on a manufacturer skin, and never installed from anywhere but `adb install` |
 | Any Linux, from nothing to a running member | [`provision.sh`](provision.sh) | **Run end to end on a freshly imaged Raspberry Pi 4B (Debian 13, SSD) on 2026-09-01**, and again on the Freebox VM to create a second account by invitation. From a machine with no compiler: toolchain, build, install, account, pledge, synced folder, coordinator, registration, systemd unit, and a smoke test that stores and returns a file. Run twice on the same machine to check it changes nothing. Three faults it had are in the git log — the service branch was unreachable, the idempotence guard could not tell "no node" from "node busy", and `systemctl --user` failed in the detached context a reinstall script actually runs in. All three needed a machine it had already succeeded on |
 | Windows, from nothing to a running member | [`provision.ps1`](provision.ps1) | **Run on Windows 11 on 2026-09-06**: refuses without a passphrase and without a username, and its idempotent path was exercised against an already-provisioned node. It is the Windows half of `provision.sh` and carries the same three corrections — the passphrase from the environment only, the secret file locked down before the secret goes in, and idempotence decided by looking for the keystore rather than by asking a program that cannot tell "no node" from "node busy" |
 | A coordinator on a machine with a public address | [`coordinator.sh`](coordinator.sh) | **Run for real twice**: on the Freebox VM (2026-09-01, service enabled at boot, admitted the first member) and on the Raspberry Pi (2026-09-01, `--check` first, then `--admit-first`, which founded the account `nicolas` and then admitted `voisin` on an invitation). `--check` also exercised on Linux with a busy port and a missing binary |
@@ -42,7 +42,9 @@ them needing values from another machine.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/provision.sh |
-  ITSANAS_PASSPHRASE='...' sh -s --     --username nicolas --pledge 100G --folder ~/Sync     --coordinator 192.168.1.11:9898 --coordinator-device <its id>
+  ITSANAS_PASSPHRASE='...' sh -s -- \
+    --username nicolas --pledge 100G --keep 10G --folder ~/Sync \
+    --coordinator 192.168.1.11:9898 --coordinator-device <its id>
 ```
 
 On Windows the same thing, with the same flags under PowerShell names:
@@ -50,7 +52,7 @@ On Windows the same thing, with the same flags under PowerShell names:
 ```powershell
 $env:ITSANAS_PASSPHRASE = 'a long one you have written down'
 powershell -ExecutionPolicy Bypass -File install\provision.ps1 `
-  -Username nicolas -Pledge 100G -Folder "$env:USERPROFILE\ITSaNAS-Cloud" `
+  -Username nicolas -Pledge 100G -Keep 10G -Folder "$env:USERPROFILE\ITSaNAS-Cloud" `
   -Coordinator 192.168.1.10:9898 -CoordinatorDevice <its-id> -Invite <code>
 ```
 
@@ -209,22 +211,39 @@ Paramètres > Gestion des ports.
 
 ## Android
 
+There are two things here and they are not the same thing.
+
+**The app.** Kotlin and Compose over the same Rust core, through a JNI boundary
+in `crates/itsanas-android`. It restores an account from its twenty-four words,
+adds a machine, runs sync rounds in a foreground service, lists the account and
+opens a file. Build it in one command:
+
+```sh
+sh scripts/build-apk.sh
+```
+
+The APK lands in `android/app/build/outputs/apk/`. It carries three ABIs and
+weighs about 19.5 MB. There is no Play Store listing and no signed release
+channel, so installing it means enabling unknown sources on the phone — which
+is a real cost and the honest state of things, not a step being skipped here.
+
+What it does not do: no automatic photo backup, no storage-access-framework
+folder watching, no doze-proof scheduling. Android will still stop a background
+service on a manufacturer skin that decides to, and the foreground notification
+only makes that less likely. [`android.md`](android.md) has the details and the
+measurements.
+
+**The command line, through Termux**, which is a different and older answer:
+
 ```sh
 pkg install git && git clone https://github.com/SigSegGit/itsanas && cd itsanas
 sh install/android-termux.sh
 ```
 
-**This installs the command-line tool on your phone. It is not a sync app, and
-there is no sync app.** No APK, no file picker, no background service; Android
-will kill a daemon left running overnight whatever you do about wake-locks.
-[`android.md`](android.md) says what a real client would take and why none of it
-is written.
-
-What it is for is the one thing a phone is genuinely good for here: half the
-constants in this project are chosen for ARM devices, and a phone is the ARM
-device most people own. The script builds `itsanas` for the phone's own
-processor and then stores a file and reads it back on it. CI runs the same check
-under emulation on every push; a phone is the real thing.
+This builds `itsanas` for the phone's own processor and stores a file and reads
+it back on it. It is worth having even now the app exists: half the constants in
+this project are chosen for ARM devices, and this is the check that runs the
+real test suite on the real silicon rather than under emulation.
 
 Termux's package mirror is down or stale often enough that "E: Unable to locate
 package rust" is the most common way this fails, and it reads as if the package
@@ -233,6 +252,90 @@ does not exist. The script handles that case by name and tells you to run
 
 Install Termux from **F-Droid**. The Google Play build is unmaintained and
 ships a 32-bit userland on some devices, which the script detects and refuses.
+
+## How much space, and for whom
+
+Two numbers, and they are not the same number. **The pledge** is room you offer
+other members; **keep** is room this machine may use for your own data. A disk
+has to hold both.
+
+They are bound to each other and to the disk:
+
+- Keeping a byte of your own costs **three pledged**. That ratio is the whole
+  bargain — a network where everyone stores and nobody hosts has no storage in
+  it — and it is stated once, in `itsanas-coord::accounting`.
+- For the first thirty days a new member may keep **10 GiB** whatever they
+  pledge, so a machine can be useful before it has earned anything.
+- Neither number may exceed what the disk the node sits on can actually give,
+  counting what is already there.
+
+So offering 90 GiB earns 30 GiB, and asking for 31 GiB is refused:
+
+```sh
+itsanas space --pledge 90G --keep 31G
+```
+
+```
+that does not fit:
+  keeping 31.0 GiB needs 93.0 GiB pledged; you are offering 90.0 GiB
+```
+
+`itsanas space` on its own reports the current bargain and changes nothing.
+Add `--apply` to set the numbers, and it refuses to set any it has just said do
+not fit.
+
+The provisioners take both and hand them to the same command, so an installer
+cannot accept numbers a coordinator will reject later:
+
+```sh
+sh install/provision.sh --username nicolas --pledge 100G --keep 10G
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install\provision.ps1 `
+  -Username nicolas -Pledge 100G -Keep 10G
+```
+
+Leaving `--keep` out means "keep everything here", which is the right answer for
+a laptop that is the only copy and the wrong one for a phone. It is bounded by
+the ratio all the same.
+
+## Removing it
+
+Every installer takes `--clean` (`-Clean` on Windows), and every one of them
+hands the work to a single uninstaller — [`clean.sh`](clean.sh) and
+[`clean.ps1`](clean.ps1). Three lists of paths that drift apart is how a machine
+ends up with a service pointing at a binary something else removed.
+
+It is a dry run by default, because the first thing anybody does with an
+unfamiliar clean-up script is run it to see what it says:
+
+```sh
+sh install/linux.sh --clean          # list what would go
+sh install/linux.sh --clean --yes    # do it
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install\windows.ps1 -Clean
+powershell -ExecutionPolicy Bypass -File install\windows.ps1 -Clean -Yes
+```
+
+It takes the service or scheduled task first — removing a binary out from under
+a running daemon leaves a process with a deleted executable — then the binaries,
+the passphrase file, the wrapper script and the logs.
+
+**It leaves the account alone unless asked twice.** `~/.itsanas` holds this
+machine's sealed copy of the master secret and the only copy of anything not yet
+replicated elsewhere; removing it is losing data, not uninstalling a program, so
+it takes its own flag:
+
+```sh
+sh install/clean.sh --yes --purge-account
+```
+
+One thing it cannot do: other members still count this machine as holding their
+data until their next audit withdraws it. It says so at the end. If this machine
+was a host for somebody, tell them.
 
 ## After installing, on any of them
 

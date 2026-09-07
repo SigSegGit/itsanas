@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-07 — 703 test functions across 24 binaries, 3 of them
+**Last updated: 2026-09-08 — 705 test functions across 24 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
 
-**587 of the 703 tests have an entry of their own on this page** — an *entry*,
+**589 of the 705 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -145,7 +145,7 @@ guarantee and is not one.
 | `itsanas-net` unit | 34 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 44 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 72 |
+| `itsanas-coord` unit | 74 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 23 |
@@ -1295,7 +1295,7 @@ Six unit tests in `auth.rs`, five integration tests in `tests/handshake.rs`.
 
 ---
 
-# `itsanas-coord` — claims, directory, accounting (47)
+# `itsanas-coord` — claims, directory, accounting (49)
 
 Catalogued by property rather than test by test: the crate is a library with no
 server yet, and what matters is which rule each group of tests pins down.
@@ -1313,6 +1313,17 @@ coordinator that was itself offline for a year does not annihilate everyone's
 standing; escrow is off until asked for; the accounting floors entitlement
 against the member, clamps availability at both ends, and permits reclaiming
 only in the harshest state.
+
+**The two halves of the space bargain agree.** `itsanas space` and both
+provisioners refuse a `--keep` larger than the pledge earns, and the refusal
+quotes what would be needed instead — so `room_earned` decides and
+`pledge_needed_for` writes the sentence. These two are catalogued by name
+because they hold a rule two other programs depend on:
+
+| Test | What it pins down |
+| --- | --- |
+| **`the_limit_and_the_price_quoted_for_exceeding_it_never_contradict`** | The worst kind of instruction: somebody is told "keeping 31 GiB needs 93 GiB pledged", pledges exactly 93, and meets the same sentence again. Two functions write that message between them and integer division truncates, so the property has to hold at every remainder rather than at multiples of three. Checked in both directions — what the limit allows is never priced above what was pledged, and the price quoted always buys what it was quoted for. |
+| **`the_quote_saturates_rather_than_wrapping_on_an_absurd_request`** | Where that stops being true. Above `u64::MAX / 3` the quote saturates and understates what would be needed. The refusal is still correct there and the free-space check refuses such a number anyway, so this is a boundary written down rather than a bug left open — but a multiplication that wrapped instead would turn an absurd request into a small one and let it through. |
 
 ---
 
