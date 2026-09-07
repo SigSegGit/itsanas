@@ -1,41 +1,30 @@
 [package]
-name = "itsanas-cli"
+name = "itsanas-node"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Command-line interface for ITSaNAS"
-
-[[bin]]
-name = "itsanas"
-path = "src/main.rs"
+description = "A node on disk: keystore, configuration, and one sync round"
 
 [dependencies]
-blake3 = "1.8.7"
-getrandom = "0.4.3"
-clap = { version = "4.5.51", features = ["derive", "env"] }
-ctrlc = "3.5.0"
 itsanas-coord = { version = "0.1.0", path = "../itsanas-coord" }
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
 itsanas-discover = { version = "0.1.0", path = "../itsanas-discover" }
 itsanas-folder = { version = "0.1.0", path = "../itsanas-folder" }
 itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
-itsanas-node = { version = "0.1.0", path = "../itsanas-node" }
-itsanas-placement = { version = "0.1.0", path = "../itsanas-placement" }
 itsanas-policy = { version = "0.1.0", path = "../itsanas-policy" }
 itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
 itsanas-sync = { version = "0.1.0", path = "../itsanas-sync", default-features = false }
 postcard = { version = "1.1.1", default-features = false, features = ["use-std"] }
-rpassword = "7.4.0"
 serde = { version = "1.0.229", features = ["derive"] }
-tempfile = "3.23.0"
 thiserror = "2.0.20"
 zeroize = "1.9.0"
 
+[dev-dependencies]
+blake3 = "1.8.7"
+tempfile = "3.23.0"
+
 [lints]
 workspace = true
-
-[dev-dependencies]
-# blake3 and tempfile are ordinary dependencies now: `itsanas bench` ships.

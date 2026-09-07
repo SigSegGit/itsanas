@@ -1,8 +1,13 @@
 use std::path::PathBuf;
 
-/// Everything the CLI can fail at, phrased for someone reading a terminal.
+/// Everything opening or driving a node can fail at, phrased for a person.
+///
+/// Written for a terminal reader first, and every shell shows the same words:
+/// an Android dialog saying "wrong passphrase, or the keystore has been
+/// tampered with" is telling the truth in the same terms as the command line,
+/// which is what makes a support conversation possible at all.
 #[derive(Debug, thiserror::Error)]
-pub enum CliError {
+pub enum NodeError {
     #[error("{path}: {source}")]
     Io {
         path: PathBuf,
@@ -53,4 +58,4 @@ pub enum CliError {
     Usage(String),
 }
 
-pub type Result<T> = std::result::Result<T, CliError>;
+pub type Result<T> = std::result::Result<T, NodeError>;

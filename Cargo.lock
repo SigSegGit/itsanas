@@ -726,6 +726,7 @@ dependencies = [
  "itsanas-discover",
  "itsanas-folder",
  "itsanas-net",
+ "itsanas-node",
  "itsanas-placement",
  "itsanas-policy",
  "itsanas-store",
@@ -822,6 +823,26 @@ dependencies = [
  "serde",
  "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "itsanas-node"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "itsanas-coord",
+ "itsanas-crypto",
+ "itsanas-discover",
+ "itsanas-folder",
+ "itsanas-net",
+ "itsanas-policy",
+ "itsanas-store",
+ "itsanas-sync",
+ "postcard",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "zeroize",
 ]
 
 [[package]]

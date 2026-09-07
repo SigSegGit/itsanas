@@ -1,6 +1,6 @@
 # Test Catalogue
 
-**Last updated: 2026-09-01 — 689 test functions across 21 binaries, 3 of them
+**Last updated: 2026-09-07 — 689 test functions across 22 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
 
 **573 of the 689 tests have an entry of their own on this page** — an *entry*,
@@ -151,7 +151,8 @@ guarantee and is not one.
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 53 |
+| `itsanas-cli` unit | 25 |
+| `itsanas-node` unit | 28 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -795,7 +796,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (53)
+# `itsanas-cli` — unit tests (25)
 
 ## `bench` — measuring this machine (4)
 
@@ -834,47 +835,6 @@ The daemon's real behaviour — that two nodes converge with nobody running
 twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
-
-## `node` — identity on disk (9)
-
-| Test | What it proves |
-| --- | --- |
-| **`the_phrase_is_not_written_anywhere_under_the_node_directory`** | Scans every file under the node's home for the phrase. A recovery phrase stored on the machine it protects is not a backup, it is an extra copy for an attacker to find. |
-| **`the_phrase_does_not_leak_through_debug`** | The single most likely way for a phrase to escape is a stray `dbg!` or a derived `Debug`. |
-| **`a_published_test_phrase_is_refused_as_a_real_account`** | Restoring Alice's published phrase as a real account is refused, with an explanation. |
-| **`the_device_identity_also_survives_a_restart`** | If the device key changed on every start, every restart would look like a new device to the version vectors and history would fragment. |
-| **`creating_over_an_existing_node_is_refused`** | Overwriting would destroy the master secret and make every chunk stored under it permanently unreadable. |
-| **`a_phrase_round_trips_through_restore`** | Same account, *different* device id — two machines sharing a device identity would share a sequence counter and fork the log. |
-| **`opening_a_missing_node_says_what_to_do_about_it`** | The error names both `init` and `login`. |
-| `a_created_node_reopens_with_the_same_identity` | Reopening does not orphan the data. |
-| `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
-
-## `keeping` — a round on a device short of room (3)
-
-`src/keeping.rs`. Where the choice, the catalogue and a real socket meet. Both
-tests were confirmed by sabotage: removing the release, and removing the notice
-to the peer, each turns the matching test red.
-
-| Test | What it proves |
-| --- | --- |
-| **`a_full_device_makes_room_for_a_better_ranked_file`** | The property that separates a budget from a ratchet. The first version filled up once and from then on nothing new could arrive, because nothing old could leave — measured on the trial device, told to keep 200 KiB and holding 907 KiB with no path back down. |
-| **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
-| `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
-
-## `config` — settings (12)
-
-| Test | What it proves |
-| --- | --- |
-| **`an_unknown_setting_is_an_error_rather_than_being_ignored`** | A silently discarded typo is how a node ends up pledging nothing while its operator believes it pledged a terabyte. |
-| **`defaults_are_safe`** | Pledge defaults to zero and listen defaults to loopback. A node that has not said what it offers has not offered any. |
-| **`a_nonsense_size_is_refused_rather_than_read_as_zero`** | Reading "ten gigabytes" as 0 would silently disable hosting. |
-| `a_malformed_line_names_its_line_number` | Errors are actionable. |
-| `an_overflowing_size_is_refused` | `999999999999T` does not wrap. |
-| `sizes_parse_the_way_people_write_them` | `500`, `1K`, `2MB`, `10G`, `1TiB`. |
-| `sizes_format_readably` / `formatting_never_panics_at_the_extremes` | Output is legible at every magnitude. |
-| `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
-| **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
-| `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |
 
 ## `main` — leaving quietly, saying how old an answer is, naming a device (5)
 
@@ -952,6 +912,54 @@ swapping the same two files back and forth.
 | `no_budget_and_no_filter_keeps_everything` | The laptop case, and the one that must not change. |
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
+
+# `itsanas-node` — a node on disk (28)
+
+`src/`. Keystore, configuration, and the one sync round that honours what a
+device was told to keep. It lived inside the command-line binary until the
+Android shell needed exactly the same things: two implementations of the
+passphrase handling is one too many.
+
+## `node` — identity on disk (9)
+
+| Test | What it proves |
+| --- | --- |
+| **`the_phrase_is_not_written_anywhere_under_the_node_directory`** | Scans every file under the node's home for the phrase. A recovery phrase stored on the machine it protects is not a backup, it is an extra copy for an attacker to find. |
+| **`the_phrase_does_not_leak_through_debug`** | The single most likely way for a phrase to escape is a stray `dbg!` or a derived `Debug`. |
+| **`a_published_test_phrase_is_refused_as_a_real_account`** | Restoring Alice's published phrase as a real account is refused, with an explanation. |
+| **`the_device_identity_also_survives_a_restart`** | If the device key changed on every start, every restart would look like a new device to the version vectors and history would fragment. |
+| **`creating_over_an_existing_node_is_refused`** | Overwriting would destroy the master secret and make every chunk stored under it permanently unreadable. |
+| **`a_phrase_round_trips_through_restore`** | Same account, *different* device id — two machines sharing a device identity would share a sequence counter and fork the log. |
+| **`opening_a_missing_node_says_what_to_do_about_it`** | The error names both `init` and `login`. |
+| `a_created_node_reopens_with_the_same_identity` | Reopening does not orphan the data. |
+| `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
+
+## `keeping` — a round on a device short of room (3)
+
+`src/keeping.rs`. Where the choice, the catalogue and a real socket meet. Both
+tests were confirmed by sabotage: removing the release, and removing the notice
+to the peer, each turns the matching test red.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_full_device_makes_room_for_a_better_ranked_file`** | The property that separates a budget from a ratchet. The first version filled up once and from then on nothing new could arrive, because nothing old could leave — measured on the trial device, told to keep 200 KiB and holding 907 KiB with no path back down. |
+| **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
+| `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
+
+## `config` — settings (12)
+
+| Test | What it proves |
+| --- | --- |
+| **`an_unknown_setting_is_an_error_rather_than_being_ignored`** | A silently discarded typo is how a node ends up pledging nothing while its operator believes it pledged a terabyte. |
+| **`defaults_are_safe`** | Pledge defaults to zero and listen defaults to loopback. A node that has not said what it offers has not offered any. |
+| **`a_nonsense_size_is_refused_rather_than_read_as_zero`** | Reading "ten gigabytes" as 0 would silently disable hosting. |
+| `a_malformed_line_names_its_line_number` | Errors are actionable. |
+| `an_overflowing_size_is_refused` | `999999999999T` does not wrap. |
+| `sizes_parse_the_way_people_write_them` | `500`, `1K`, `2MB`, `10G`, `1TiB`. |
+| `sizes_format_readably` / `formatting_never_panics_at_the_extremes` | Output is legible at every magnitude. |
+| `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
+| **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
+| `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |
 
 # `itsanas-placement` — unit tests (34)
 

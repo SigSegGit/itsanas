@@ -12,13 +12,28 @@
 //! rather than glossed over.
 
 mod bench;
-mod config;
 mod coordinator;
 mod daemon;
 mod discovery;
-mod error;
-mod keeping;
-mod node;
+
+// The node itself -- keystore, configuration, and the round that honours what
+// this device keeps -- lives in `itsanas-node`, because the Android shell needs
+// exactly the same things and two implementations of the passphrase handling is
+// one too many. These are re-exports, so the paths this binary already used
+// still resolve and say where the code went.
+mod config {
+    pub use itsanas_node::config::*;
+}
+mod error {
+    pub use itsanas_node::NodeError as CliError;
+    pub use itsanas_node::Result;
+}
+mod keeping {
+    pub use itsanas_node::keeping::*;
+}
+mod node {
+    pub use itsanas_node::node::*;
+}
 
 use std::{
     fmt::Write as _,

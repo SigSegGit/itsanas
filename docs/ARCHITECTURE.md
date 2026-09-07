@@ -26,8 +26,12 @@ Three properties have to hold at once, and each one constrains the design:
 
 ```
 ┌───────────────────────────────────────────────────────────────────────┐
-│  itsanas (CLI, and `itsanas daemon` as the background service)      │
-│  init / login / pledge  file watcher, sync loop, repair loop, alerts  │
+│  itsanas (CLI)   itsanas-android (JNI)   … other shells             │
+├───────────────────────────────────────────────────────────────────────┤
+│  itsanas-node                                                         │
+│  keystore, configuration, and one sync round that honours what this   │
+│  device keeps. Every shell opens a node the same way, with the same   │
+│  passphrase handling and the same refusals                            │
 ├───────────────────────────────────────────────────────────────────────┤
 │  itsanas-sync     itsanas-policy    itsanas-placement                 │
 │  version vectors, when to sync,    rendezvous hashing, replica        │

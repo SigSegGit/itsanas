@@ -38,14 +38,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     config::Config,
-    error::{CliError, Result},
+    error::{NodeError, Result},
 };
 
 /// Label bound into the keystore's associated data.
 ///
 /// Distinguishes the on-device keystore from the coordinator-hosted escrow blob,
 /// so one can never be substituted for the other.
-pub(crate) const KEYSTORE_LABEL: &str = "itsanas/keystore/local";
+pub const KEYSTORE_LABEL: &str = "itsanas/keystore/local";
 
 /// Label for the escrow copy a coordinator holds.
 ///
@@ -53,7 +53,7 @@ pub(crate) const KEYSTORE_LABEL: &str = "itsanas/keystore/local";
 /// same secrets under different threat models — one on a disk the owner
 /// controls, one on a machine that may be stolen — and a shared label would
 /// mean a copy of either could be dropped in as the other.
-pub(crate) const ESCROW_LABEL: &str = "itsanas/keystore/escrow";
+pub const ESCROW_LABEL: &str = "itsanas/keystore/escrow";
 
 /// The secrets a node needs to operate.
 #[derive(Serialize, Deserialize)]
@@ -94,6 +94,7 @@ impl Node {
         home.join("keystore.bin")
     }
 
+    #[must_use]
     pub fn config_path(home: &Path) -> PathBuf {
         home.join("config")
     }
@@ -115,7 +116,7 @@ impl Node {
         username: &str,
     ) -> Result<(Self, zeroize_phrase::Phrase)> {
         if Self::exists(home) {
-            return Err(CliError::NodeExists(home.to_owned()));
+            return Err(NodeError::NodeExists(home.to_owned()));
         }
 
         let master = MasterSecret::generate()?;
@@ -128,7 +129,7 @@ impl Node {
     /// Create a node by restoring an identity from its recovery phrase.
     pub fn restore(home: &Path, passphrase: &str, username: &str, phrase: &str) -> Result<Self> {
         if Self::exists(home) {
-            return Err(CliError::NodeExists(home.to_owned()));
+            return Err(NodeError::NodeExists(home.to_owned()));
         }
 
         let master = MasterSecret::from_recovery_phrase(phrase)?;
@@ -148,7 +149,7 @@ impl Node {
         secrets: &[u8],
     ) -> Result<Self> {
         if Self::exists(home) {
-            return Err(CliError::NodeExists(home.to_owned()));
+            return Err(NodeError::NodeExists(home.to_owned()));
         }
 
         let recovered: NodeSecrets = postcard::from_bytes(secrets)?;
@@ -180,13 +181,13 @@ impl Node {
         let keystore =
             Keystore::lock(passphrase, KEYSTORE_LABEL, &encoded, KdfParams::RECOMMENDED)?;
 
-        std::fs::create_dir_all(home).map_err(|error| CliError::Io {
+        std::fs::create_dir_all(home).map_err(|error| NodeError::Io {
             path: home.to_owned(),
             source: error,
         })?;
 
         let keystore_path = Self::keystore_path(home);
-        std::fs::write(&keystore_path, keystore.to_bytes()).map_err(|error| CliError::Io {
+        std::fs::write(&keystore_path, keystore.to_bytes()).map_err(|error| NodeError::Io {
             path: keystore_path,
             source: error,
         })?;
@@ -206,10 +207,10 @@ impl Node {
         let bytes = match std::fs::read(&keystore_path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(CliError::NoNode(home.to_owned()));
+                return Err(NodeError::NoNode(home.to_owned()));
             }
             Err(error) => {
-                return Err(CliError::Io {
+                return Err(NodeError::Io {
                     path: keystore_path,
                     source: error,
                 });
@@ -219,7 +220,7 @@ impl Node {
         let keystore = Keystore::from_bytes(&bytes)?;
         let plaintext = keystore
             .unlock(passphrase, KEYSTORE_LABEL)
-            .map_err(|_| CliError::Unlock)?;
+            .map_err(|_| NodeError::Unlock)?;
 
         let secrets: NodeSecrets = postcard::from_bytes(&plaintext)?;
         let master = MasterSecret::from_bytes(secrets.master);
@@ -242,7 +243,7 @@ impl Node {
         // here produces a message about the *account* rather than about a
         // storage path, which is what the person reading it needs.
         if is_published_test_identity(&user.user_id()) {
-            return Err(CliError::Usage(
+            return Err(NodeError::Usage(
                 "this recovery phrase belongs to one of the published test \
                  identities in docs/TEST-USERS.md. Its private keys are printed \
                  in the documentation, so anyone at all can read data stored \
@@ -381,7 +382,7 @@ mod tests {
 
         assert!(matches!(
             Node::open(&home, "not the passphrase"),
-            Err(CliError::Unlock)
+            Err(NodeError::Unlock)
         ));
     }
 
@@ -395,11 +396,11 @@ mod tests {
 
         assert!(matches!(
             Node::create(&home, PASSPHRASE, "someone-else"),
-            Err(CliError::NodeExists(_))
+            Err(NodeError::NodeExists(_))
         ));
         assert!(matches!(
             Node::restore(&home, PASSPHRASE, "nicolas", "irrelevant"),
-            Err(CliError::NodeExists(_))
+            Err(NodeError::NodeExists(_))
         ));
     }
 
@@ -409,7 +410,7 @@ mod tests {
         let error = Node::open(&dir.path().join("nothing-here"), PASSPHRASE).unwrap_err();
 
         let message = error.to_string();
-        assert!(matches!(error, CliError::NoNode(_)));
+        assert!(matches!(error, NodeError::NoNode(_)));
         assert!(
             message.contains("itsanas init") && message.contains("itsanas login"),
             "the error does not tell the user what to do: {message}"

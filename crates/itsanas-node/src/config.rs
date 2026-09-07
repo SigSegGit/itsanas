@@ -18,7 +18,7 @@ use std::{
 
 use itsanas_policy::keeping::{Keeping, Order};
 
-use crate::error::{CliError, Result};
+use crate::error::{NodeError, Result};
 
 /// The on-disk name of an ordering, and its parser.
 ///
@@ -33,6 +33,7 @@ const fn order_name(order: Order) -> &'static str {
 }
 
 /// Parse an ordering, or `None` if it is not one.
+#[must_use]
 pub fn parse_order(value: &str) -> Option<Order> {
     match value {
         "newest" => Some(Order::Newest),
@@ -198,7 +199,7 @@ impl Config {
             }
 
             let Some((key, value)) = line.split_once('=') else {
-                return Err(CliError::Config(format!(
+                return Err(NodeError::Config(format!(
                     "line {}: expected `key = value`, found {line:?}",
                     number + 1
                 )));
@@ -211,13 +212,13 @@ impl Config {
                 "username" => value.clone_into(&mut config.username),
                 "listen" => {
                     parse_listen(value).map_err(|error| {
-                        CliError::Config(format!("line {}: {error}", number + 1))
+                        NodeError::Config(format!("line {}: {error}", number + 1))
                     })?;
                     value.clone_into(&mut config.listen);
                 }
                 "pledge_bytes" => {
                     config.pledge_bytes = value.parse().map_err(|_| {
-                        CliError::Config(format!(
+                        NodeError::Config(format!(
                             "line {}: pledge_bytes must be a whole number of bytes, found {value:?}",
                             number + 1
                         ))
@@ -225,7 +226,7 @@ impl Config {
                 }
                 "keep_order" => {
                     config.keep_order = parse_order(value).ok_or_else(|| {
-                        CliError::Config(format!(
+                        NodeError::Config(format!(
                             "line {}: keep_order must be newest, oldest or smallest, found {value:?}",
                             number + 1
                         ))
@@ -234,7 +235,7 @@ impl Config {
                 "keep_only" => config.keep_only.push(value.to_owned()),
                 "keep_bytes" => {
                     config.keep_bytes = Some(value.parse().map_err(|_| {
-                        CliError::Config(format!(
+                        NodeError::Config(format!(
                             "line {}: keep_bytes must be a whole number of bytes, found {value:?}",
                             number + 1
                         ))
@@ -250,7 +251,7 @@ impl Config {
                     // "peer," and twenty-six spaces before "coordinator".
                     // `concat!` cannot capture `other` implicitly, hence the
                     // explicit argument.
-                    return Err(CliError::Config(format!(
+                    return Err(NodeError::Config(format!(
                         concat!(
                             "line {}: unknown setting {:?}. Known settings: ",
                             "username, pledge_bytes, keep_bytes, keep_order, keep_only, ",
@@ -273,7 +274,7 @@ impl Config {
         match std::fs::read_to_string(path) {
             Ok(text) => Self::parse(&text),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(error) => Err(CliError::Io {
+            Err(error) => Err(NodeError::Io {
                 path: path.to_owned(),
                 source: error,
             }),
@@ -282,7 +283,7 @@ impl Config {
 
     /// Write to `path`.
     pub fn save(&self, path: &Path) -> Result<()> {
-        std::fs::write(path, self.render()).map_err(|error| CliError::Io {
+        std::fs::write(path, self.render()).map_err(|error| NodeError::Io {
             path: path.to_owned(),
             source: error,
         })
@@ -312,7 +313,7 @@ impl Config {
 /// If `text` is not `host:port` with a literal IP address.
 pub fn parse_listen(text: &str) -> Result<SocketAddr> {
     text.parse().map_err(|_| {
-        CliError::Config(format!(
+        NodeError::Config(format!(
             "listen must be an address and port such as 0.0.0.0:9797, found {text:?}"
         ))
     })
@@ -326,14 +327,14 @@ pub fn parse_size(text: &str) -> Result<u64> {
 
     let (number, suffix) = trimmed.split_at(digits_end);
     if number.is_empty() {
-        return Err(CliError::Config(format!(
+        return Err(NodeError::Config(format!(
             "{text:?} does not start with a number"
         )));
     }
 
     let number: u64 = number
         .parse()
-        .map_err(|_| CliError::Config(format!("{text:?} is not a valid size")))?;
+        .map_err(|_| NodeError::Config(format!("{text:?} is not a valid size")))?;
 
     let multiplier: u64 = match suffix.trim().to_ascii_uppercase().as_str() {
         "" | "B" => 1,
@@ -342,7 +343,7 @@ pub fn parse_size(text: &str) -> Result<u64> {
         "G" | "GB" | "GIB" => 1024 * 1024 * 1024,
         "T" | "TB" | "TIB" => 1024 * 1024 * 1024 * 1024,
         other => {
-            return Err(CliError::Config(format!(
+            return Err(NodeError::Config(format!(
                 "unknown size suffix {other:?}; use K, M, G or T"
             )));
         }
@@ -350,7 +351,7 @@ pub fn parse_size(text: &str) -> Result<u64> {
 
     number
         .checked_mul(multiplier)
-        .ok_or_else(|| CliError::Config(format!("{text:?} overflows a 64-bit byte count")))
+        .ok_or_else(|| NodeError::Config(format!("{text:?} overflows a 64-bit byte count")))
 }
 
 /// Render a byte count the way a person would read it.
