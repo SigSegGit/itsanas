@@ -1284,25 +1284,42 @@ this device's chain and send only what comes after it.
 resumes from the peer's head, exactly as `pull` does in the other direction, and the service
 answers with what `put_segment` actually did.
 
-### An idle node writes three hundred megabytes a day
+### An idle node writes three hundred megabytes a day — and the first fix bought 19%
 
-Measured over seven hours on three machines, with an account of about a
-megabyte and nothing happening: **313 MB/day on the Pi, 296 on the VM**. That is
-around five hundred kilobytes per round against a handful of small
-transactions — `note_seen`, `record_holders`, the applied markers — so it is the
-storage engine's commit cost rather than the data being written.
+Measured over seven hours on three machines with an account of about a
+megabyte: **313 MB/day on the Pi, 296 on the VM**. Then a controlled experiment
+on a test node, two six-minute phases:
+
+| | written per round |
+| --- | --- |
+| daemon with no peer configured | 61 KB |
+| daemon with its two peers | 962 KB |
+
+So **94% of it is the sync round**, not the daemon loop. The first suspect was
+the ledger: a round confirms every chunk a peer holds and wrote the timestamp
+back for all of them, every five minutes, to record that nothing had changed.
+That is now skipped unless the record has aged past a quarter of the freshness
+window (`holders::REFRESH_AFTER`).
+
+**It went from 962 KB to 780 KB per round.** Nineteen per cent — worth having,
+and not the answer. Writing fewer rows was the wrong axis.
+
+What the numbers point at instead is the **number of transactions**, not their
+content: 61 KB for a round that commits once or twice, 780 KB for one that
+commits perhaps twenty times, which puts a commit at some tens of kilobytes
+whatever it contains. That is what a copy-on-write engine costs when a round
+opens a transaction for contact, then one per batch to withdraw, then one to
+record, then one per audit answer, then one for the applied markers.
+
+**Stated as a hypothesis, because it has not been measured.** The next
+measurement is a count of write transactions per round, and the likely fix is a
+round that opens one. Not started.
+
 
 CPU over the same period was 1.4% of one core on the Pi, 1.1% on the VM and
-2.5% on the laptop, and peak resident memory 7 to 17 MiB. Those are fine. The
-writes are the number to watch: a hundred gigabytes a year to store nothing new
-is unremarkable on an SSD and is not on an SD card, which this project has
-already destroyed one of.
-
-What is not known is which transaction dominates, and that is the next
-measurement rather than a guess. The candidates are a commit per peer per round
-for liveness, the holder records refreshed every round whether or not anything
-changed, and redb's copy-on-write page allocation against a file that only
-grows.
+2.5% on the laptop, and peak resident memory 7 to 17 MiB. Those are fine. A
+hundred gigabytes a year written to store nothing new is unremarkable on an SSD
+and is not on an SD card, which this project has already destroyed one of.
 
 ### The audit is a deterrent, not a detector, above a few gigabytes
 
