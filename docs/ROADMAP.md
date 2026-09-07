@@ -1226,39 +1226,36 @@ chunks awaiting collection, which preserves today's behaviour and does not fix
 the underlying thing: the replay wants the **last** operation per path when the
 earlier ones cannot be completed, and does not know it.
 
-### An idle node writes three hundred megabytes a day — the first fix bought 19%
+### An idle node's disk writes: 962 KB a round, now 447
 
 Measured over seven hours on three machines with an account of about a
 megabyte: **313 MB/day on the Pi, 296 on the VM**. Then a controlled experiment
-on a test node, two six-minute phases:
+on a test node — two six-minute phases, repeated after each change:
 
 | | written per round |
 | --- | --- |
 | daemon with no peer configured | 61 KB |
-| daemon with its two peers | 962 KB |
+| with two peers, at the start | 962 KB |
+| after re-stamping only aged ledger rows | 780 KB |
+| after replacing the O(account) listing with a summary | 788 KB |
+| after writing the audit's sixteen answers once instead of sixteen times | **447 KB** |
 
-**94% of it is the sync round**, not the daemon loop. The first suspect was the
-ledger: a round confirms every chunk a peer holds and wrote the timestamp back
-for all of them, every five minutes, to record that nothing had changed. That is
-now skipped unless the record has aged past `holders::REFRESH_AFTER`.
+**94% of it is the sync round**, and the hypothesis those numbers pointed at was
+right: the cost is the **number of transactions**, not their content. Writing
+fewer rows bought 19%. Removing the whole chunk listing from the wire bought
+*nothing at all* on disk — it is a network saving, and reporting it as anything
+else would have been the failure this project keeps catching itself in.
+Collapsing sixteen commits into two bought 43%.
 
-**It went from 962 KB to 780 KB.** Nineteen per cent — worth having, and not the
-answer. Writing fewer rows was the wrong axis.
+A copy-on-write engine charges by the commit: some tens of kilobytes whatever
+the transaction contains. That is now measured rather than supposed.
 
-What the numbers point at instead is the **number of transactions**, not their
-content: 61 KB for a round that commits once or twice, 780 KB for one that
-commits perhaps twenty times, which puts a commit at some tens of kilobytes
-whatever it contains. That is what a copy-on-write engine costs when a round
-opens a transaction for contact, then one per batch to withdraw, then one to
-record, then one per audit answer, then one for the applied markers.
-
-**Stated as a hypothesis, because it has not been measured.** The next
-measurement is a count of write transactions per round, and the likely fix is a
-round that opens one. Not started.
-
-This section was briefly deleted and replaced by a sentence inside a benchmark
-table in `docs/MVP.md`. That is how an open problem stops being one, so it is
-back, with its title.
+**What is left, and it is the same shape.** A round still opens a transaction
+for contact, one for the applied markers, one per accepted segment, one for the
+probe, one for the reliability record, and `refresh_released` and
+`take_on_hosting` open their own. One transaction per round is the end state and
+is a real refactor of the index API; 129 MB/day is where this sits until then,
+against 313 when it was found.
 
 ### The have/missing sweep was O(account) per round, per peer — reconciled now
 
