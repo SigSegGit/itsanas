@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose draws everything; this exists so the window has a sane
+         background and no action bar before the first frame. -->
+    <style name="Theme.ITSaNAS" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**689 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
+**691 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1302,6 +1302,20 @@ who collude. The second is cheap and partial, the first is expensive and sound.
 ---
 
 ## Not started
+
+### A folder that syncs by itself on Android
+
+The application holds files and does not watch a directory. Scoped storage means
+an app may not watch an arbitrary one since Android 10, so this is a design
+question — a document tree the person grants, polled — rather than a port of
+`itsanas-folder`.
+
+### The `dataSync` budget and Doze, measured rather than remembered
+
+`docs/PORTING.md` says Android 14 caps foreground data-sync at about six hours a
+day. That was written from memory and has never been checked. The
+twenty-four-hour cost measurement now running on the three desktops is the first
+honest number this project will have about idle cost; the phone needs its own.
 
 ### M8 — Three-device bring-up
 

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-07 — 689 test functions across 22 binaries, 3 of them
+**Last updated: 2026-09-07 — 691 test functions across 23 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
 
-**573 of the 689 tests have an entry of their own on this page** — an *entry*,
+**575 of the 691 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -152,6 +152,7 @@ guarantee and is not one.
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
 | `itsanas-cli` unit | 25 |
+| `itsanas-android` unit | 2 |
 | `itsanas-node` unit | 28 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
@@ -960,6 +961,24 @@ to the peer, each turns the matching test red.
 | `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
 | **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
 | `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |
+
+# `itsanas-android` — the JNI boundary (2)
+
+`src/lib.rs`. The only crate that relaxes the unsafe lint, and the only one
+whose contract is with another language. What is tested here is deliberately
+thin: the behaviour underneath belongs to the crates that own it, and repeating
+it through a JNI call would test the same thing twice. What cannot be tested
+anywhere else is the *shape* — field names Kotlin parses by string, and a
+failure that has to arrive as a sentence rather than a crash.
+
+The real test of this crate is the one in `docs/PORTING.md` §4: an account
+restored from twenty-four words on an Android 15 emulator, five files pulled
+from a host over a real socket, and one of them opened.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_plan_is_reported_with_the_names_kotlin_reads`** | The field names are a contract with another language, and a rename here fails silently over there — the application would show an empty reason and no interval, and nothing would say why. |
+| **`asking_a_closed_node_says_so_rather_than_crashing`** | Every entry point can be called before an account is open, because Android restarts a process whenever it likes. It has to answer with a sentence a person can act on, not with a panic crossing into the JVM. |
 
 # `itsanas-placement` — unit tests (34)
 

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Only the copies made for a viewer. The node's own directory is never
+         shared: a store another application can open is one it can corrupt. -->
+    <cache-path name="opened" path="opened/" />
+</paths>

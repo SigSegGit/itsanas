@@ -362,149 +362,96 @@ untrusted code, or if the fleet grows past the point where per-machine setup is
 sensible and images become the unit of deployment. Neither is true of four
 machines.
 
-## 4. Android — the core compiles, the shell does not exist
+## 4. Android — built, and it runs
 
-### What was actually measured
+### What was measured, on 2026-09-07
 
-```bash
-rustup target add aarch64-linux-android
-cargo check -p itsanas-crypto -p itsanas-store -p itsanas-sync \
-            -p itsanas-policy -p itsanas-discover -p itsanas-placement \
-            -p itsanas-wire --target aarch64-linux-android
-```
-
-**Passes.** That is identity, key schedule, sealing, blinded addressing,
-chunking, the blob store, the index, the operation log, version vectors,
-conflict resolution, the vault, framing, local discovery and the sync policy —
-the entire data path — type-checking for Android with no changes.
+The open question was `ring`, which assembles its own primitives for every
+target and needs a cross compiler. With NDK 27.3 it builds:
 
 ```bash
-cargo check --workspace --target aarch64-linux-android
+cargo ndk -t arm64-v8a check -p itsanas-store -p itsanas-net -p itsanas-tls
+    Finished `dev` profile in 12.19s
 ```
 
-**Fails**, at `ring`, for a missing C compiler. Not a code problem: `ring`
-assembles its own primitives on every target and needs a cross compiler, exactly
-as the Pi build needs `gcc-aarch64-linux-gnu`. On Android that compiler is the
-NDK, and the standard tool that wires it up is `cargo-ndk`:
+Then the whole thing, on an Android 15 emulator, driven through the interface
+rather than through a test harness:
 
-```bash
-cargo install cargo-ndk
-rustup target add aarch64-linux-android armv7-linux-androideabi
-cargo ndk -t arm64-v8a -o app/src/main/jniLibs build --release
-```
+1. **Restored an account from its twenty-four words.** Typed into the phone;
+   the keystore was created, the master secret derived, the store and the vault
+   opened. No `UnsatisfiedLinkError`, no crash, and the account name came back
+   on the next screen.
+2. **Added a machine and synced.** One peer, `10.0.2.2:9797` — a desktop node
+   belonging to a *different account*, holding this one's sealed chunks in its
+   vault. Five files arrived: **`5 here · 0 not here · 910 KiB`**, which is
+   exactly 120 + 130 + 400 + 60 + 200 KiB of file, so the bytes are on the
+   phone rather than merely listed.
+3. **Opened one.** The file was written out through a `FileProvider` and handed
+   to the system chooser. A `.bin` has no viewer on a bare emulator, so the
+   first attempt answered "No apps can perform this action" — a dead end for a
+   file the person can plainly see. It falls back to sharing now, which always
+   has somewhere to go.
+4. **The foreground service ran**, `isForeground=true`, with its notification.
 
-*Untried here — this machine has no NDK. It is the documented path, not a
-verified one.*
+The APK is 19.5 MB with three ABIs inside it, and `scripts/build-apk.sh`
+produces it in one command.
 
-### What still has to be written
+### How it is put together
 
-| Piece | Why the existing code cannot serve | Size |
-| --- | --- | --- |
-| An FFI boundary | Kotlin cannot call Rust functions directly | small, and the only `unsafe` in the project |
-| A replacement for `itsanas-folder` | `notify` plus scoped storage: an app may not watch an arbitrary directory since Android 10 | medium |
-| A replacement for `itsanas-cli` | no terminal, no `argv`, no signals | medium |
-| A foreground service | the system kills background processes; periodic work goes through `WorkManager` | medium |
+| Piece | Where |
+| --- | --- |
+| The core | unchanged, cross-compiled |
+| Keystore, configuration, one sync round | `crates/itsanas-node`, shared with the command line |
+| The JNI boundary | `crates/itsanas-android`, the only crate that relaxes the unsafe lint |
+| The application | `android/`, Kotlin and Compose, about 900 lines |
 
-### The browse-then-download behaviour — built
+**`itsanas-node` is the part worth explaining.** All of it used to live inside
+the command-line binary. Writing the passphrase handling a second time for
+Android would have meant two implementations of the most security-sensitive
+glue in the project — the key derivation, the refusal of published test
+identities, the "a node already exists here" guard — drifting apart from the day
+the second one was written. So the binary became a shell over a library, and the
+application is a second shell over the same library.
 
-`itsanas_store::catalogue` reports every file the account has, marking each
-`Local` or `Absent`, by combining the index with a walk of the vault's log
-segments. So a client on a metered connection shows the whole account and
-fetches on demand, which is the Drive model.
+**The JNI boundary is coarse on purpose.** Every crossing allocates and can
+throw, so the calls are whole operations — list the account, run a round, fetch
+this file — each answering with one JSON string. Errors are Java exceptions
+carrying the same sentence the command line prints for the same fault, which is
+what makes it possible to help somebody over a telephone.
 
-Derived from the vault rather than recorded in a table, so it cannot go stale.
-It does not write an index entry for an absent file: that would break the
-invariant that a listed file is readable, which the conflict and delete logic
-both assume.
+**The unsafe exception is checked, not asserted.** A JVM calls
+`extern "system"` symbols by name, so `#[unsafe(no_mangle)]` is unavoidable and
+the workspace's `forbid` cannot cover that crate. `scripts/check-unsafe.py`
+fails if any crate holds an `unsafe` block or an `unsafe fn`, and if any crate
+but that one relaxes the lint. The sentence "the only unsafe in this project is
+the export attribute" is therefore a thing the build verifies.
 
-Reachable from the command line too — `itsanas sync --metadata-only`, then
-`itsanas ls` — because a laptop tethered to a phone wants it as much as a phone
-does. This was the last piece missing from the *core*; what remains for Android
-is shell work.
+### What the shell decides, and what it does not
 
-### The sync policy, decided and running
+Nothing about *when* to sync. The application reports what it can see — Android
+answers "is this connection metered" directly, through
+`NET_CAPABILITY_NOT_METERED` — and `itsanas-policy` returns an interval, a scope
+and a sentence to show. That is the same decision table the desktop daemon has
+been running for weeks, so the phone inherits behaviour that has been exercised
+instead of being the first caller of it.
 
-Implemented and tested in `itsanas-policy`, and **`itsanas daemon` is its first
-consumer**. The daemon no longer carries a hard-coded interval: it asks the
-policy, prints the interval, the scope and the reason, and honours `--interval`
-when an operator wants to decide instead.
-
-```text
-itsanas daemon                    itsanas daemon --metered
-  interval  300s                    interval  86400s
-  syncing   everything              syncing   the log only (no file contents)
-  because   running as a           because   metered connection — checking
-            service on an                     for changes only, once a day
-            unmetered connection
-```
-
-That means the Android shell inherits behaviour that a desktop has already
-exercised, rather than being the first thing ever to call this crate.
-
-Wiring it added the state that had been missing: a **service**. A daemon is not
-a backgrounded app — nobody is watching it *and* no platform is restricting it
-— and conflating the two would have given the Pi in the cupboard a two-hour
-interval. Two hours is not a considered choice about ethernet; it is the
-smallest number that survives Android's Doze. See `Attention::Unattended`.
-
-The one thing still asked for rather than detected is whether the connection is
-metered. Windows and macOS both expose it, and reading it would mean a platform
-crate for a single flag; `--metered` is honest in the meantime, and guessing
-from the interface type is refused outright.
-
-The rule is **metered or not**,
-never Wi-Fi or not: a phone's own hotspot is Wi-Fi and charged by the gigabyte,
-and plenty of mobile plans are unlimited. Android answers the right question
-directly through `NET_CAPABILITY_NOT_METERED`.
-
-| Situation | What it would select | Interval |
+| Situation | What it selects | Interval |
 | --- | --- | --- |
 | App open, unmetered | everything | 30 s |
 | App open, metered | segments only; tap a file to download it | 30 s |
 | Background, unmetered | everything | 2 h |
 | Background, metered | segments only | 24 h |
-| **Service, unmetered** | **everything** | **5 min** |
-| **Service, metered** | **segments only** | **24 h** |
 | Battery low, not watching | nothing | — |
 | "Sync now" pressed | everything, whatever the conditions | once |
 
-The two service rows are what `itsanas daemon` selects today. A service is
-exempt from the "background syncing is off" switch — starting a daemon is the
-deliberate act that switch exists to require — but not from the low-battery
-rule, because nothing about being a service makes the battery bigger.
+### What is still missing
 
-Two deliberate choices. The button always works: a button that does nothing
-teaches people the application is broken, and somebody pressing it on mobile
-data has decided. And a low battery never stops a person who is watching — they
-can see their own battery indicator.
-
-### Two Android constraints worth knowing before starting
-
-**Android 15 caps `dataSync` foreground services** at roughly six hours per day
-in total. That is the service type a continuous sync would use. It does not
-prevent the design above — 2 h and 24 h intervals are `WorkManager` periodic
-work, not a foreground service — but it does rule out "always running".
-
-**Samsung One UI puts apps into deep sleep** far more aggressively than stock
-Android. Without the user excluding the app from battery optimisation, periodic
-work stops. That is a checkbox somebody has to find, and it is the sort of
-friction that gets an application uninstalled.
-
-*Both from memory; verify against current Android documentation before building
-against them. Background execution rules change with almost every release.*
-
-### And the reason a phone is a client, not an anchor
-
-[ECONOMICS.md](ECONOMICS.md) §2 argues that the network needs always-on anchors,
-and a phone looks like an excellent one — far higher uptime than a laptop.
-
-It is not, and the reason has nothing to do with battery. **A phone on mobile
-data is behind carrier-grade NAT and cannot be dialled at all.** It can push and
-it can poll; nothing can reach it. On home Wi-Fi it becomes reachable, and there
-local discovery already handles it with no coordinator and no app.
-
-So the value of a phone here is as a client — which is what it was wanted for
-anyway.
+| Piece | Why it matters |
+| --- | --- |
+| A folder that syncs by itself | The application holds files; it does not watch a directory. Scoped storage means an app may not watch an arbitrary one since Android 10, so this is a design question rather than a port |
+| Doze and the `dataSync` budget | Android 14 caps foreground data-sync at about six hours a day. **Written from memory and still unverified** — the twenty-four-hour measurement now running on three desktops is the first honest number this project will have about idle cost |
+| A signing key of its own | The APK is signed with the debug key, which is fine for installing by hand and not for anything else |
+| Folders in the interface | Every file is listed flat. The paths carry directories and nothing renders them |
 
 ## 5. iOS and iPadOS — a different problem, not attempted
 

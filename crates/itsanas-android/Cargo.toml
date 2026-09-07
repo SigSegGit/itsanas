@@ -1,0 +1,43 @@
+[package]
+name = "itsanas-android"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The JNI boundary: everything Kotlin is allowed to ask the core"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+itsanas-discover = { version = "0.1.0", path = "../itsanas-discover" }
+itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
+itsanas-node = { version = "0.1.0", path = "../itsanas-node" }
+itsanas-policy = { version = "0.1.0", path = "../itsanas-policy" }
+itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
+jni = "0.21.1"
+serde_json = "1.0.145"
+
+[dev-dependencies]
+tempfile = "3.23.0"
+
+# Deliberately NOT `workspace = true`.
+#
+# The workspace forbids unsafe code, and `forbid` cannot be lifted by an inner
+# `allow` -- which is the point of it. This crate is the one place that has to
+# declare `extern "system"` entry points for a Java virtual machine to call.
+#
+# It opts down to `warn` and the crate root allows it, which on its own would be
+# a wide exception written narrowly. `scripts/check-unsafe.py` is what makes it
+# narrow: it fails if any crate holds an `unsafe` block or an `unsafe fn`, and
+# if any crate but this one relaxes the lint.
+[lints.rust]
+unsafe_code = "warn"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

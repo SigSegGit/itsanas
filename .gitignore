@@ -10,3 +10,14 @@
 
 # Python bytecode from the CI check scripts.
 __pycache__/
+
+# Android build outputs, and the native libraries built into the app by
+# `scripts/build-apk.sh`. The libraries are a build product of `crates/`, not a
+# source: committing them would put three architectures of the same code in
+# every clone and let them drift from the Rust that produced them.
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/jniLibs/
+android/.kotlin/
