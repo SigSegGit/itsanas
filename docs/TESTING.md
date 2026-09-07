@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-07 — 695 test functions across 24 binaries, 3 of them
+**Last updated: 2026-09-07 — 696 test functions across 24 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
 
-**579 of the 695 tests have an entry of their own on this page** — an *entry*,
+**580 of the 696 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -139,7 +139,7 @@ guarantee and is not one.
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 144 |
-| `itsanas-store` integration (`tests/store.rs`) | 37 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 38 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 34 |
@@ -536,7 +536,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (37)
+# `itsanas-store` — integration tests (38)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -629,6 +629,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 | **`a_deleted_file_is_not_resurrected_by_reading_this_devices_own_log`** | The other half. Reading one's own chain must not bring back everything one has ever deleted. |
 | **`a_file_can_be_released_fetched_back_and_released_again`** | A limit has to work more than once. Releasing erased the holder ledger along with the local copy, reusing the rule garbage collection needs — where a chunk goes because its *file* went. A release is the opposite case: the file is still in the account and the copies elsewhere are what made letting go safe. Observed on a Raspberry Pi before it was fixed: a device stuck at 380 KiB against a 300 KiB limit, refusing round after round because it had forgotten the second holder while fetching the file back. Fails when `release_chunk` is put back to `forget_chunk`. |
 | **`a_reachable_machine_with_stale_records_does_not_authorise_a_release`** | The case a per-machine liveness rule cannot see, and the one that costs data: a peer that stays online and empties its disk. the count of live holders asked only whether the *device* had been heard from, so such a peer counted as a copy for ever — and after a release there is no audit left to contradict it. Two bars now, and the per-`(chunk, device)` timestamp that tells them apart was already being written and read by nothing. Fails when the second bar is removed. |
+| **`the_chunks_a_device_holds_can_be_paged_without_walking_the_directories`** | The push sweep built its list with `BlobStore::addresses`, which walks the fan-out directories and says in its own documentation that it is never on a hot path. It was on the hottest one: every round, per peer — at a terabyte, a recursive `readdir` over sixteen million files every five minutes and 537 MB allocated in one go, against a measured peak of 17 MiB. The replacement pages from the index in chunk order; the test checks the paging is exact, and that chunks awaiting collection stay in it, because a replay needs the chunks of the operation it is applying and not only of the current state. |
 
 ---
 

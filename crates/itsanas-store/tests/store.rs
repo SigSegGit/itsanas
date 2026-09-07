@@ -1361,3 +1361,97 @@ fn a_reachable_machine_with_stale_records_does_not_authorise_a_release() {
         }
     }
 }
+
+/// The sweep enumerates from the index, not from the blob directory.
+///
+/// The push loop asks a peer "which of my chunks are you missing", and it used
+/// to build that list with `BlobStore::addresses`, whose own documentation says
+/// it walks the fan-out directories and is "never on a hot path". It was on the
+/// hottest path there is: every round, per peer. At a terabyte that is a
+/// recursive `readdir` over sixteen million files every five minutes, and a
+/// `Vec` of sixteen million ids — 537 MB resident in one allocation, on
+/// machines whose measured peak is 17 MiB.
+///
+/// This is what replaced it: paged, in chunk order, from a table the index
+/// already keeps. The page is exact — no chunk twice, none missed — because a
+/// sweep that skips is a holder record that never gets corrected.
+#[test]
+fn the_chunks_a_device_holds_can_be_paged_without_walking_the_directories() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let master = MasterSecret::generate().expect("master secret");
+    let store = store_for(&master, dir.path());
+
+    for index in 0..6 {
+        let payload = testkit::filler(&format!("page-{index}"), 200 * 1024);
+        store
+            .write_file(&format!("file-{index}.bin"), &payload)
+            .expect("write");
+    }
+
+    let everything: HashSet<ChunkId> = store
+        .blobs()
+        .addresses()
+        .expect("addresses")
+        .into_iter()
+        .collect();
+    assert!(
+        everything.len() > 8,
+        "the fixture is too small to page: {} chunks",
+        everything.len()
+    );
+
+    // Three at a time, which forces several pages and a boundary that is not a
+    // multiple of the total.
+    let mut seen: Vec<ChunkId> = Vec::new();
+    let mut cursor = None;
+    loop {
+        let (page, next) = store.live_chunks_page(cursor.as_ref(), 3).expect("page");
+        if page.is_empty() {
+            break;
+        }
+        assert!(page.len() <= 3, "a page came back over its limit");
+        seen.extend(page);
+        match next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+
+    let unique: HashSet<ChunkId> = seen.iter().copied().collect();
+    assert_eq!(
+        unique.len(),
+        seen.len(),
+        "a chunk was returned on two pages"
+    );
+    assert_eq!(
+        unique, everything,
+        "paging from the index did not see what the device holds"
+    );
+
+    // And an overwrite leaves the superseded chunks in the sweep until
+    // collection takes them: a replacement device replaying the log needs the
+    // chunks of the operation it is applying, not only of the current state.
+    store
+        .write_file("file-0.bin", b"second thoughts")
+        .expect("overwrite");
+
+    let mut after = Vec::new();
+    let mut cursor = None;
+    loop {
+        let (page, next) = store.live_chunks_page(cursor.as_ref(), 64).expect("page");
+        if page.is_empty() {
+            break;
+        }
+        after.extend(page);
+        match next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    let after: HashSet<ChunkId> = after.into_iter().collect();
+    assert!(
+        everything.is_subset(&after),
+        "chunks awaiting collection dropped out of the sweep, so a peer would \
+         never be offered what a replay still needs"
+    );
+}

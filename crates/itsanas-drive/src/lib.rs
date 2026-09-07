@@ -44,8 +44,15 @@
 //! `windows-projfs` has the best API for this by a distance — a safe trait, no
 //! unsafe on our side — and is **GPL-2.0**. This project is AGPL-3.0-or-later,
 //! and GPL-2.0-only cannot be combined with the GPLv3 family. It was in the
-//! dependency tree for about an hour and is not any more. `projfs` (MIT) is
-//! thinner and workable, and is the intended route.
+//! dependency tree for about an hour and is not any more.
+//!
+//! The copyright holder offered to change the project's licence to make it fit.
+//! Declined, and the reason is not sentiment: AGPL's network clause is the one
+//! that matters for a system whose whole purpose is other people running nodes.
+//! Under GPL-2.0 somebody could run a modified node as a service and owe
+//! nothing, and "or later" would be gone as well. That is a large thing to
+//! trade for a nicer binding API when `projfs` (MIT) is thinner, workable, and
+//! costs only more code — which is the cheap side of that trade.
 //!
 //! # Linux
 //!

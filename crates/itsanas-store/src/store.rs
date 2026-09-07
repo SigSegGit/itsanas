@@ -1018,6 +1018,22 @@ impl Store {
         self.index.holder_evidence(chunk, now)
     }
 
+    /// One page of the chunks this device holds, in chunk order.
+    ///
+    /// What a push walks to ask a peer what it is missing. See
+    /// [`Index::live_chunks_page`] for why it is not a directory scan.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn live_chunks_page(
+        &self,
+        after: Option<&ChunkId>,
+        limit: usize,
+    ) -> Result<(Vec<ChunkId>, Option<ChunkId>)> {
+        self.index.live_chunks_page(after, limit)
+    }
+
     /// A page of the chunks `device` is recorded as holding.
     ///
     /// What a sync round needs in order to keep the ledger honest about content

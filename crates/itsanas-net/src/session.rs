@@ -391,8 +391,23 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
     // Ask before sending. Re-uploading a hundred thousand chunks every round
     // because we never asked is the difference between a usable system and one
     // that saturates the link forever.
-    let addresses = store.blobs().addresses()?;
-    for batch in addresses.chunks(MAX_HAVE_BATCH) {
+    // Paged from the index, in chunk order, rather than from a directory walk.
+    //
+    // This loop used to begin `store.blobs().addresses()?`, whose own
+    // documentation says it "walks the fan-out directories [...] never on a hot
+    // path" -- and this is the hottest path there is, every round, per peer. At
+    // a terabyte that is a recursive `readdir` over sixteen million files every
+    // five minutes and a `Vec` of sixteen million ids, 537 MB resident in one
+    // allocation, on machines whose measured peak is 17 MiB. The account size at
+    // which this sweep becomes expensive on the wire is far past the size at
+    // which it kills the process; the bandwidth was the second problem.
+    let mut cursor: Option<ChunkId> = None;
+    loop {
+        let (batch, next) = store.live_chunks_page(cursor.as_ref(), MAX_HAVE_BATCH)?;
+        if batch.is_empty() {
+            break;
+        }
+        let batch = batch.as_slice();
         let missing = client.missing_chunks(owner, batch.to_vec())?;
         let wanted: BTreeSet<ChunkId> = missing.iter().copied().collect();
 
@@ -433,6 +448,11 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
 
         report.holders_recorded += confirmed.len();
         store.record_holders(&confirmed, &peer)?;
+
+        match next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
     }
 
     report.holders_recorded += refresh_released(store, client, &peer)?;

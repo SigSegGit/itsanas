@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**695 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
+**696 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1193,6 +1193,38 @@ files rather than being a new class of problem.
 Three limits that are fine at the size this runs at today and are not fine at
 the size it is aimed at. Written with the number where each one breaks, because
 a limit described in words gets rediscovered as a surprise.
+
+### The have/missing sweep was going to kill the process before it cost bandwidth
+
+The bandwidth table below was the second problem. The first was that the sweep
+built its list with `BlobStore::addresses`, whose own documentation says it walks
+the fan-out directories and is "only used by garbage collection and integrity
+checking, **never on a hot path**". It was on the hottest path there is: every
+round, per peer. At a terabyte that is a recursive `readdir` over sixteen
+million files every five minutes, and a `Vec` of sixteen million chunk ids —
+**537 MB resident, allocated in one go, against a measured peak of 17 MiB**. The
+account size at which the sweep becomes expensive on the wire is far past the
+size at which it kills a Raspberry Pi.
+
+**Fixed**: it pages from the index, in chunk order, bounded. That leaves the
+bandwidth, below, which is real and still unsolved.
+
+### A restore depends on chunks that garbage collection will take
+
+Found by the paging change, which briefly narrowed the sweep to *referenced*
+chunks and made `a_replacement_device_pulls_a_whole_corpus_back_from_a_stranger`
+defer two operations out of thirteen. The reason is worth keeping: a replay
+applies operations one at a time, so restoring an account needs the chunks of
+every operation in its log — including a version that a later edit superseded
+and a file that was deleted. Those chunks live on only until collection takes
+them.
+
+So a device restoring *today* works because the superseded chunks are still
+around, and a device restoring after the origin has collected them defers those
+operations for ever, never marking the replay applied. The sweep now includes
+chunks awaiting collection, which preserves today's behaviour and does not fix
+the underlying thing: the replay wants the **last** operation per path when the
+earlier ones cannot be completed, and does not know it.
 
 ### The have/missing sweep is O(account) per round, per peer
 

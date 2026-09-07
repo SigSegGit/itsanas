@@ -745,6 +745,73 @@ impl Index {
     /// there are fourteen million live chunks and stat-ing all of them every
     /// round would cost more than the loss it is looking for. Successive calls
     /// with fresh cursors cover the store over time.
+    /// One page of the chunks this device still has on disk, in chunk order.
+    ///
+    /// Everything the index knows a blob for: referenced by a live file, **and**
+    /// unreferenced but not yet collected. The second half is not an oversight.
+    /// A device that edits a file and then uploads still holds the superseded
+    /// chunks until garbage collection takes them, and a replacement device
+    /// replaying the log needs them to apply the operation they belonged to.
+    /// Leaving them out made a restore defer two operations out of thirteen and
+    /// say nothing -- caught by
+    /// `a_replacement_device_pulls_a_whole_corpus_back_from_a_stranger`, which
+    /// exists because that failure is silent.
+    ///
+    /// **That dependency is itself fragile and is written down in
+    /// `docs/ROADMAP.md`:** once collection has taken those chunks, nobody can
+    /// serve them, and a device restoring later defers those operations for
+    /// ever. The replay wants the *last* operation per path, not every one of
+    /// them; it does not know that yet.
+    ///
+    /// Straight, not a ring: `live_chunks_from` wraps, which is right for a
+    /// sampler that should never run out of things to look at and wrong for a
+    /// sweep that has to know when it has finished. `after` is exclusive;
+    /// `None` starts at the beginning. The second element is where to continue,
+    /// or `None` when there is nothing after this page.
+    ///
+    /// # Why this exists rather than `BlobStore::addresses`
+    ///
+    /// That function walks the fan-out directories and its own documentation
+    /// says it is "only used by garbage collection and integrity checking,
+    /// never on a hot path". The push loop called it every round, per peer. At a
+    /// terabyte that is a recursive `readdir` over sixteen million files every
+    /// five minutes, and a `Vec` of sixteen million chunk ids — **537 MB
+    /// resident, allocated in one go, on a machine whose measured peak is
+    /// 17 MiB**. The account size at which the sweep becomes expensive on the
+    /// wire is far past the size at which it kills the process.
+    ///
+    /// The index already knows which chunks are live and keeps them in order,
+    /// so the answer was one table scan away.
+    pub fn live_chunks_page(
+        &self,
+        after: Option<&ChunkId>,
+        limit: usize,
+    ) -> Result<(Vec<ChunkId>, Option<ChunkId>)> {
+        if limit == 0 {
+            return Ok((Vec::new(), None));
+        }
+
+        let txn = self.db.begin_read()?;
+        let refs = txn.open_table(CHUNK_REFS)?;
+
+        let start: Vec<u8> = after.map_or_else(Vec::new, |chunk| chunk.as_bytes().to_vec());
+        let mut out = Vec::with_capacity(limit);
+
+        for row in refs.range(start.as_slice()..)? {
+            let (key, _) = row?;
+            let chunk = ChunkId::from_slice(key.value())?;
+            if after.is_some_and(|previous| previous == &chunk) {
+                continue; // the page boundary itself, already returned
+            }
+            out.push(chunk);
+            if out.len() == limit {
+                return Ok((out, Some(chunk)));
+            }
+        }
+
+        Ok((out, None))
+    }
+
     pub fn live_chunks_from(&self, cursor: &ChunkId, limit: usize) -> Result<Vec<ChunkId>> {
         if limit == 0 {
             return Ok(Vec::new());
