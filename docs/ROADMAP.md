@@ -1252,6 +1252,26 @@ this device's chain and send only what comes after it.
 resumes from the peer's head, exactly as `pull` does in the other direction, and the service
 answers with what `put_segment` actually did.
 
+### An idle node writes three hundred megabytes a day
+
+Measured over seven hours on three machines, with an account of about a
+megabyte and nothing happening: **313 MB/day on the Pi, 296 on the VM**. That is
+around five hundred kilobytes per round against a handful of small
+transactions — `note_seen`, `record_holders`, the applied markers — so it is the
+storage engine's commit cost rather than the data being written.
+
+CPU over the same period was 1.4% of one core on the Pi, 1.1% on the VM and
+2.5% on the laptop, and peak resident memory 7 to 17 MiB. Those are fine. The
+writes are the number to watch: a hundred gigabytes a year to store nothing new
+is unremarkable on an SSD and is not on an SD card, which this project has
+already destroyed one of.
+
+What is not known is which transaction dominates, and that is the next
+measurement rather than a guess. The candidates are a commit per peer per round
+for liveness, the holder records refreshed every round whether or not anything
+changed, and redb's copy-on-write page allocation against a file that only
+grows.
+
 ### The audit is a deterrent, not a detector, above a few gigabytes
 
 Sixteen challenges per peer per round is 4,608 chunks a day: 3.5 days to cover a
