@@ -9,9 +9,17 @@ authors.workspace = true
 description = "The account as a folder: everything listed, downloaded when opened"
 
 [dependencies]
+itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
 itsanas-node = { version = "0.1.0", path = "../itsanas-node" }
 itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
-itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
+
+# MIT. `windows-projfs` has a nicer API and is GPL-2.0, which cannot be combined
+# with this project's AGPL-3.0-or-later; the copyright holder offered to change
+# the licence and it was declined, because AGPL's network clause is the one that
+# matters for a system whose purpose is other people running nodes.
+[target.'cfg(windows)'.dependencies]
+projfs = "0.1.2"
 
 
 [lints]

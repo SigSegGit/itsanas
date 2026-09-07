@@ -1393,7 +1393,7 @@ real network.
 | Item | Why it is deferred |
 | --- | --- |
 | Reed–Solomon erasure coding | Needs ≥6 independent nodes to beat replication; the interface is already shaped for it |
-| Virtual drive mount (ProjFS on Windows, FUSE on Linux) | Started: `crates/itsanas-drive` holds the projection and its tests. Two things stand in the way of the binding, both measured rather than guessed: the Windows feature is off by default and a binary that *links* `ProjectedFSLib.dll` will not start without it — `STATUS_DLL_NOT_FOUND` before `main`, so it cannot live in `itsanas.exe` — and the best library for it, `windows-projfs`, is GPL-2.0, which cannot be combined with this project's AGPL-3.0-or-later. `projfs` (MIT) is the intended route |
+| Virtual drive mount, writing into it | **Reading works** — `itsanas-drive` shows the whole account in Explorer and downloads a file when it is opened, verified on 2026-09-08. What is missing is the other direction: a file dropped into the folder is not imported, because that needs ProjFS notification callbacks the MIT binding does not expose. `itsanas put` and `itsanas folder` are how things get in meanwhile. FUSE on Linux is untouched and low value: the Pi and the VM are servers nobody browses |
 | Tray / desktop GUI | The Pi needs the CLI regardless, so the CLI is the surface that must exist first |
 | Fully decentralised discovery (DHT) | The coordinator is control-plane only and swappable; building both at once doubles the surface |
 | Traffic padding and cover traffic | Would hide object sizes and access timing, currently accepted as visible |

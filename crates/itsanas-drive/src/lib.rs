@@ -10,49 +10,55 @@
 //! and it is the difference between "your files" and "the part of your files
 //! that fitted".
 //!
-//! # What is here, and what is not
+//! # How it is put together
 //!
-//! Here: the **projection** — given everything the account knows and a
-//! directory somebody is looking at, what should appear. That is where the bugs
-//! live (a prefix is not a directory, a path separator is not the same on both
-//! sides, an absent file must still have a size), and it is testable without
-//! any filesystem driver at all.
+//! Two pieces, and the split is not tidiness. This library holds the
+//! **projection** — given everything the account knows and a directory somebody
+//! is looking at, what should appear — which is where the bugs live (a prefix
+//! is not a directory, a path separator is not the same on both sides, an
+//! absent file must still have a size) and which is testable without any
+//! filesystem driver at all.
 //!
-//! Not here yet: the binding to the operating system. Two findings decided
-//! that, and both are worth writing down rather than rediscovering.
+//! `itsanas-drive`, the binary beside it, binds that to Windows. It is a
+//! separate program on purpose: it links `ProjectedFSLib.dll`, and a binary
+//! that links a DLL the machine does not have **does not start at all** —
+//! `STATUS_DLL_NOT_FOUND`, before `main`. Measured by wiring it into
+//! `itsanas.exe` and watching the command line stop working on a machine where
+//! the feature was off. A daemon that stops starting because somebody upgraded
+//! is not a trade this project makes.
 //!
-//! ## The Windows mechanism is right, and off by default
-//!
-//! The **Projected File System** is exactly this shape — placeholders,
-//! hydration on read, change notifications — ships with Windows, needs no
-//! third-party driver, and is what VFS for Git is built on. It is an optional
-//! feature, off unless somebody turns it on:
+//! # The feature is off until somebody turns it on
 //!
 //! ```text
 //! Enable-WindowsOptionalFeature -Online -FeatureName Client-ProjFS -All
 //! ```
 //!
-//! Until then `ProjectedFSLib.dll` does not exist on the machine. That matters
-//! more than it sounds: a binary that *links* it will not start at all —
-//! measured, `STATUS_DLL_NOT_FOUND` before `main` — so the projection cannot
-//! live inside `itsanas.exe`. It belongs in a separate binary, or behind a
-//! delayed load. A daemon that stops starting because somebody upgraded is not
-//! a trade this project makes.
+//! Verified working on 2026-09-08: an account with `notes/hello.txt` and
+//! `top.txt` showed a `notes` directory and a 27-byte `top.txt` in Explorer,
+//! and reading either returned its contents. Nothing was on that disk before
+//! the read.
 //!
-//! ## The obvious library is licensed incompatibly
+//! # What it does not do yet
 //!
-//! `windows-projfs` has the best API for this by a distance — a safe trait, no
-//! unsafe on our side — and is **GPL-2.0**. This project is AGPL-3.0-or-later,
-//! and GPL-2.0-only cannot be combined with the GPLv3 family. It was in the
-//! dependency tree for about an hour and is not any more.
+//! **Reading only.** Files put into the folder by hand are not imported: that
+//! needs the notification callbacks, and the binding used here does not expose
+//! them. `itsanas put` and `itsanas folder` still work and are how things get
+//! in.
 //!
-//! The copyright holder offered to change the project's licence to make it fit.
-//! Declined, and the reason is not sentiment: AGPL's network clause is the one
-//! that matters for a system whose whole purpose is other people running nodes.
-//! Under GPL-2.0 somebody could run a modified node as a service and owe
-//! nothing, and "or later" would be gone as well. That is a large thing to
-//! trade for a nicer binding API when `projfs` (MIT) is thinner, workable, and
-//! costs only more code — which is the cheap side of that trade.
+//! **Whole-file hydration.** A read of an absent file fetches all of it and
+//! blocks until it arrives. Fine for a document, unpleasant for a film over a
+//! slow link, and the projection is entitled to give up waiting.
+//!
+//! # The licence, since it decided the binding
+//!
+//! `windows-projfs` has the better API by a distance — a safe trait, no unsafe
+//! on our side — and is **GPL-2.0**, which cannot be combined with this
+//! project's AGPL-3.0-or-later. The copyright holder offered to change the
+//! project's licence to make it fit. Declined: AGPL's network clause is the one
+//! that matters for a system whose whole purpose is other people running nodes,
+//! and under GPL-2.0 somebody could run a modified node as a service and owe
+//! nothing. `projfs` (MIT) is thinner and costs only more code, which is the
+//! cheap side of that trade.
 //!
 //! # Linux
 //!
