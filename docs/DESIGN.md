@@ -946,19 +946,36 @@ get` fetches it back.
 
 The whole safety of that rests on one check. `Store::release` refuses unless
 every chunk it would actually delete — a chunk another kept file still
-references is not deleted and does not have to qualify — is held by another
-device that has been *heard from* within `CONFIRMED_FOR`. A record from a
-machine nobody has seen in a fortnight is a memory, not a copy, and acting on a
-memory is how the last copy of somebody's file disappears. When the check
-refuses, the device stays over its limit and says so, which is the correct
-outcome: an over-full device is a nuisance and a lost file is not.
+references is not deleted and does not have to qualify — is held by
+`SAFE_TO_RELEASE` other machines, each *heard from* within `CONFIRMED_FOR`. Two
+things are being insisted on there, and both were nearly got wrong:
+
+* **Two, not one.** Releasing is the only operation that reduces the number of
+  copies on purpose. One remaining copy is not a floor, it is the last one, and
+  this project's promise is at least two reconstitutable copies at all times.
+  Not `REPLICATION_TARGET`, which is three and counts *this* machine — the one
+  stepping out; asking for three elsewhere would mean a household of three could
+  never release anything, which is the size at which the setting is most needed.
+  Two leaves the chunk one short of target, visible to `under_replicated`, and
+  repair puts it back.
+* **Heard from, not recorded.** A record from a machine nobody has seen in a
+  fortnight is a memory, not a copy, and acting on a memory is how the last copy
+  of somebody's file disappears.
+
+When the check refuses, the device stays over its limit and says so, which is
+the correct outcome: an over-full device is a nuisance and a lost file is not.
+The consequence, stated rather than buried: **on an account with only one other
+machine, nothing is ever released.**
 
 Two consequences worth stating rather than discovering:
 
 * **On a device that mirrors a real folder, releasing removes the file from
   disk.** That is what "this device keeps two gigabytes" has to mean, it is what
-  every selective-sync product does, and it is safe only because of the refusal
-  above.
+  selective sync did everywhere before placeholder filesystems, and it is safe
+  only because of the refusal above. A file created locally is never released
+  before two other machines have it, and a local edit made since is never lost:
+  the folder's decision table resolves "edited here, absent from the store" as
+  an import, not a delete.
 * **`itsanas get` overrides the budget, and the next round may undo it.** An
   explicit request beats a background choice, so the fetch always works; but the
   choice has not changed, so a device short of room will let that content go

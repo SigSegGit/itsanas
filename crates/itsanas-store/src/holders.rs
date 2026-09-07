@@ -379,6 +379,33 @@ impl AtRisk {
 ///
 /// Long enough that a laptop taken on holiday does not raise an alarm; short
 /// enough that a machine which never comes back stops counting inside a month.
+/// How many *other* live machines must hold a chunk before this one may let it
+/// go.
+///
+/// # Why two and not one
+///
+/// Releasing is the one operation that reduces the number of copies on purpose.
+/// One remaining copy is not a floor, it is the last one: the machine holding it
+/// dies and the file is gone, and nobody notices the first failure until they
+/// need the second copy. Two is the number this project promises — "at least two
+/// complete, reconstitutable copies at all times" — so it is the number that
+/// must survive the release.
+///
+/// # Why not [`crate::REPLICATION_TARGET`]
+///
+/// Three counts *this* machine, and this machine is the one stepping out. Asking
+/// for three elsewhere would mean a household of three machines could never let
+/// anything go on any of them, which is the size at which the setting is most
+/// needed. Two elsewhere leaves the chunk one short of target, visible to
+/// `under_replicated`, and repair puts it back — a state the system already
+/// knows how to leave.
+///
+/// The consequence, stated rather than buried: on an account with only one other
+/// machine, nothing is ever released. A device short of room stays over its
+/// limit and says so, because the alternative is a limit that eats the second
+/// copy to make room.
+pub const SAFE_TO_RELEASE: usize = 2;
+
 pub const CONFIRMED_FOR: u64 = 14 * 24 * 60 * 60;
 
 #[cfg(test)]

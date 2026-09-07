@@ -513,12 +513,16 @@ fn report_keeping(peer: &str, keeping: &crate::keeping::KeepingReport) {
     }
     println!("{line}");
 
-    if keeping.only_copy_here > 0 {
+    if keeping.not_safe_yet > 0 {
         println!(
-            "  {} file(s) could not be let go of: no other machine is known to hold them.",
-            keeping.only_copy_here
+            concat!(
+                "  {} file(s) could not be let go of: fewer than {} other live ",
+                "machines are known to hold them."
+            ),
+            keeping.not_safe_yet,
+            itsanas_store::holders::SAFE_TO_RELEASE
         );
-        println!("  This device is over its limit until one does.");
+        println!("  This device stays over its limit until they do.");
     }
 }
 

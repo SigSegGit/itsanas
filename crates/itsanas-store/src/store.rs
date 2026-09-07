@@ -120,10 +120,15 @@ pub enum Release {
     Gone(ReleaseReport),
     /// This device was not holding it, so there was nothing to release.
     NotHere,
-    /// Refused: no other device that has been heard from recently is known to
-    /// hold this chunk, so letting go of it here would be letting go of it
-    /// entirely.
-    OnlyCopyHere(ChunkId),
+    /// Refused: fewer than [`SAFE_TO_RELEASE`](crate::holders::SAFE_TO_RELEASE) other live machines are
+    /// known to hold this chunk, so letting go of it here would take the number
+    /// of copies below the floor this project promises.
+    NotSafeYet {
+        /// The chunk that stopped it.
+        chunk: ChunkId,
+        /// How many other live machines are known to hold it.
+        holders: usize,
+    },
 }
 
 /// Coarse size and count statistics.
@@ -357,11 +362,14 @@ impl Store {
     /// This is the one operation in the store that destroys data if it is
     /// wrong, so it will not act on a memory. Every chunk that would actually
     /// be deleted -- a chunk another kept file still references is not deleted
-    /// and does not need to qualify -- must be held by another device that has
-    /// been *heard from* within [`CONFIRMED_FOR`](crate::holders::CONFIRMED_FOR). A record from a
-    /// machine nobody has seen in a fortnight is not a copy; it is a note about
-    /// one. If any chunk fails that test, nothing at all is released and the
-    /// caller is told which chunk stopped it.
+    /// and does not need to qualify -- must be held by
+    /// [`SAFE_TO_RELEASE`](crate::holders::SAFE_TO_RELEASE) other machines that
+    /// have each been *heard from* within
+    /// [`CONFIRMED_FOR`](crate::holders::CONFIRMED_FOR). A record from a machine
+    /// nobody has seen in a fortnight is not a copy; it is a note about one, and
+    /// one copy left standing is not a floor but the last one. If any chunk
+    /// fails that test, nothing at all is released and the caller is told which
+    /// chunk stopped it and how many machines have it.
     ///
     /// # What the rest of the system then sees
     ///
@@ -412,8 +420,12 @@ impl Store {
                 continue;
             }
 
-            if self.index.live_holder_count(address, now)? == 0 {
-                return Ok(Release::OnlyCopyHere(*address));
+            let holders = self.index.live_holder_count(address, now)?;
+            if holders < crate::holders::SAFE_TO_RELEASE {
+                return Ok(Release::NotSafeYet {
+                    chunk: *address,
+                    holders,
+                });
             }
         }
 

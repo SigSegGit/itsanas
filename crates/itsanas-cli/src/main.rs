@@ -1841,13 +1841,14 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
                         format_size(keeping.freed)
                     );
                 }
-                if keeping.only_copy_here > 0 {
+                if keeping.not_safe_yet > 0 {
                     println!(
                         concat!(
-                            "  {} file(s) stayed: no other machine is known to hold ",
-                            "them, so this device is over its limit until one does."
+                            "  {} file(s) stayed: fewer than {} other live machines ",
+                            "hold them, so this device is over its limit until they do."
                         ),
-                        keeping.only_copy_here
+                        keeping.not_safe_yet,
+                        itsanas_store::holders::SAFE_TO_RELEASE
                     );
                 }
             }

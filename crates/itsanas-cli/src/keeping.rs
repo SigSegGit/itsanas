@@ -54,13 +54,13 @@ pub struct KeepingReport {
     pub released: usize,
     /// Bytes reclaimed by those releases.
     pub freed: u64,
-    /// Files that should have been let go of and could not be, because no live
-    /// holder is known for some chunk of them.
+    /// Files that should have been let go of and could not be, because too few
+    /// other live machines hold some chunk of them.
     ///
-    /// Not a failure to hide: it means the budget is over its limit *and* this
-    /// device is the only place that content exists. The honest answer is to
+    /// Not a failure to hide: it means the budget is over its limit *and*
+    /// letting go would leave fewer than two copies. The honest answer is to
     /// keep it and say so.
-    pub only_copy_here: usize,
+    pub not_safe_yet: usize,
     /// Files left out because they are larger than the whole budget.
     pub too_large: usize,
     /// Files left where they are because the budget was already full.
@@ -75,7 +75,7 @@ impl KeepingReport {
     /// Whether anything happened worth a line of output.
     #[must_use]
     pub const fn worth_reporting(&self) -> bool {
-        self.fetched > 0 || self.released > 0 || self.only_copy_here > 0
+        self.fetched > 0 || self.released > 0 || self.not_safe_yet > 0
     }
 }
 
@@ -188,11 +188,11 @@ fn release_all(
                     freed.extend(chunks);
                 }
             }
-            // Refused because this device holds the only copy anybody knows
-            // of. The budget stays over its limit, which is the correct
-            // outcome: an over-full device is a nuisance, and deleting the last
-            // copy of somebody's file is not.
-            Release::OnlyCopyHere(_) => report.only_copy_here += 1,
+            // Refused because too few other live machines hold it. The budget
+            // stays over its limit, which is the correct outcome: an over-full
+            // device is a nuisance, and taking the number of copies below two
+            // is not.
+            Release::NotSafeYet { .. } => report.not_safe_yet += 1,
             Release::NotHere => {}
         }
     }
@@ -310,6 +310,29 @@ mod tests {
         })
     }
 
+    /// Record a second live holder for everything this device holds.
+    ///
+    /// Releasing needs `SAFE_TO_RELEASE` other live machines, and these tests
+    /// run against one server. A second peer would be a second `with_server`
+    /// and a second thread to prove the same thing about the *choice*; the
+    /// ledger is the input the decision reads, so it is written directly.
+    /// `content_is_not_released_until_two_other_machines_have_it` is where the
+    /// threshold itself is tested.
+    fn note_a_second_holder(machine: &Machine) {
+        let held: Vec<_> = machine
+            .store
+            .entries()
+            .expect("entries")
+            .into_iter()
+            .flat_map(|(_, entry)| entry.chunks)
+            .collect();
+        let elsewhere = DeviceKeys::from_seed(&SecretBytes::new([0xEE; 32])).device_id();
+        machine
+            .store
+            .record_holders(&held, &elsewhere)
+            .expect("record");
+    }
+
     fn tight() -> Keeping {
         // Smallest-first, and a budget that fits either the large file alone or
         // the small one, but not both. Ordering by size rather than by date
@@ -349,6 +372,7 @@ mod tests {
             small.store.read_file("big.bin").expect("read").is_some(),
             "the only file that fits was not taken"
         );
+        note_a_second_holder(&small);
 
         // A smaller file appears. It now outranks the large one, and there is
         // not room for both.
@@ -413,6 +437,7 @@ mod tests {
             .chunks;
 
         sync(&small, &big, &keeping);
+        note_a_second_holder(&small);
 
         // The holder's own ledger learns the small device has them, the way it
         // does in production: by pushing, and being told there is nothing

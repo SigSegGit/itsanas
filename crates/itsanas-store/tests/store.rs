@@ -961,15 +961,15 @@ fn a_non_default_chunker_still_round_trips() {
     assert_eq!(store.read_file("tuned.bin").unwrap().unwrap(), payload);
 }
 
-/// Releasing local content refuses when nothing else is known to hold it.
+/// Releasing local content refuses until two other live machines hold it.
 ///
 /// The one operation in the store that destroys data if it is wrong. A device
 /// with a storage budget has to be able to let go of files -- otherwise the
 /// budget fills once and the file edited this morning never arrives -- and the
-/// difference between that and deleting somebody's only copy is exactly this
-/// check.
+/// difference between that and eating the second copy to make room is exactly
+/// this check. One remaining copy is not a floor; it is the last one.
 #[test]
-fn content_is_not_released_while_this_is_the_only_machine_that_has_it() {
+fn content_is_not_released_until_two_other_machines_have_it() {
     let dir = tempfile::tempdir().expect("temp dir");
     let master = MasterSecret::generate().expect("master secret");
     let store = store_for(&master, dir.path());
@@ -989,7 +989,7 @@ fn content_is_not_released_while_this_is_the_only_machine_that_has_it() {
 
     // Nobody has acknowledged holding any of it.
     match store.release("report.pdf", now).expect("release") {
-        itsanas_store::Release::OnlyCopyHere(_) => {}
+        itsanas_store::Release::NotSafeYet { holders: 0, .. } => {}
         other => panic!("released the only copy in existence: {other:?}"),
     }
 
@@ -1004,19 +1004,28 @@ fn content_is_not_released_while_this_is_the_only_machine_that_has_it() {
         "a refused release still freed space"
     );
 
-    // Now a peer acknowledges every chunk, and is heard from.
-    let peer = DeviceKeys::generate().expect("device key").device_id();
     let chunks = store
         .stat("report.pdf")
         .expect("stat")
         .expect("the file is here")
         .chunks;
-    store.record_holders(&chunks, &peer).expect("record");
-    store.note_seen(&peer).expect("seen");
+
+    // One peer is not enough. Letting go here would leave a single copy, and a
+    // single copy is one disk failure from none.
+    let first = DeviceKeys::generate().expect("device key").device_id();
+    store.record_holders(&chunks, &first).expect("record");
+    match store.release("report.pdf", now).expect("release") {
+        itsanas_store::Release::NotSafeYet { holders: 1, .. } => {}
+        other => panic!("released with a single copy elsewhere: {other:?}"),
+    }
+
+    // Two are.
+    let second = DeviceKeys::generate().expect("device key").device_id();
+    store.record_holders(&chunks, &second).expect("record");
 
     let freed = match store.release("report.pdf", now).expect("release") {
         itsanas_store::Release::Gone(report) => report,
-        other => panic!("release refused after a live holder acknowledged it: {other:?}"),
+        other => panic!("release refused after two live holders acknowledged it: {other:?}"),
     };
 
     assert!(
@@ -1062,10 +1071,12 @@ fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
     let chunks = store.stat("notes.txt").expect("stat").expect("here").chunks;
 
     let peer = DeviceKeys::generate().expect("device key").device_id();
+    let other = DeviceKeys::generate().expect("device key").device_id();
     store.record_holders(&chunks, &peer).expect("record");
+    store.record_holders(&chunks, &other).expect("record");
     let recorded = store.last_seen(&peer).expect("last seen").expect("seen");
 
-    // One second before the record goes stale, it still counts.
+    // One second before the records go stale, they still count.
     let last_moment = recorded + itsanas_store::holders::CONFIRMED_FOR;
     match store.release("notes.txt", last_moment).expect("release") {
         itsanas_store::Release::Gone(_) => {}
@@ -1078,6 +1089,7 @@ fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
         .expect("rewrite");
     let chunks = store.stat("notes.txt").expect("stat").expect("here").chunks;
     store.record_holders(&chunks, &peer).expect("record");
+    store.record_holders(&chunks, &other).expect("record");
     let recorded = store.last_seen(&peer).expect("last seen").expect("seen");
 
     match store
@@ -1087,8 +1099,8 @@ fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
         )
         .expect("release")
     {
-        itsanas_store::Release::OnlyCopyHere(_) => {}
-        other => panic!("a device silent for a fortnight authorised a release: {other:?}"),
+        itsanas_store::Release::NotSafeYet { holders: 0, .. } => {}
+        other => panic!("devices silent for a fortnight authorised a release: {other:?}"),
     }
 }
 
@@ -1112,9 +1124,10 @@ fn releasing_one_file_leaves_a_chunk_another_file_still_uses() {
         .expect("stat")
         .expect("here")
         .chunks;
-    let peer = DeviceKeys::generate().expect("device key").device_id();
-    store.record_holders(&chunks, &peer).expect("record");
-    store.note_seen(&peer).expect("seen");
+    for _ in 0..itsanas_store::holders::SAFE_TO_RELEASE {
+        let peer = DeviceKeys::generate().expect("device key").device_id();
+        store.record_holders(&chunks, &peer).expect("record");
+    }
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

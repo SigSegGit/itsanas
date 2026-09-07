@@ -371,10 +371,14 @@ itsanas ls
 
 **The limit works in both directions.** When something better-ranked arrives,
 the device lets go of what the order puts last — the content leaves this
-machine, the file stays in the account, and it can be fetched again. It will
-*not* let go of anything no other live machine is known to hold; in that case it
-stays over its limit and says so, because an over-full device is a nuisance and
-a lost file is not.
+machine, the file stays in the account, and it can be fetched again. If the
+machine syncs a folder, the file leaves that folder too; that is what a limit
+smaller than the account means.
+
+It will *not* let go of anything unless **two other live machines** are known to
+hold it. One copy left standing is not a floor, it is the last one. Until two
+machines have it, the device stays over its limit and says so — which means that
+on an account with only one other machine, nothing is ever released.
 
 **`keep` bounds your own content, and nothing else.** `itsanas status` shows the
 three things a node's directory holds and the total:
