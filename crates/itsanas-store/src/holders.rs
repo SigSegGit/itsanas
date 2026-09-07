@@ -416,6 +416,35 @@ pub struct HolderEvidence {
 /// machine, nothing is ever released. A device short of room stays over its
 /// limit and says so, because the alternative is a limit that eats the second
 /// copy to make room.
+/// How stale a holder record may get before a round bothers to re-stamp it.
+///
+/// # Why this is not "every time"
+///
+/// A round confirms every chunk a peer holds and used to write the timestamp
+/// back for all of them, every five minutes, whether or not anything had
+/// changed. Measured on a real node with a nine-hundred-kilobyte account and
+/// two peers: **962 KB written per round with peers against 61 KB without** —
+/// sixteen times the cost, and close to the size of the whole account, to say
+/// that nothing had happened. Over a day that is three hundred megabytes; over
+/// a year, a hundred gigabytes to store nothing new. Unremarkable on an SSD,
+/// and not on the SD card this project has already destroyed one of.
+///
+/// The write is copy-on-write inside the storage engine, so re-stamping thirty
+/// scattered keys rewrites a good deal more than thirty timestamps.
+///
+/// # Why a quarter of the window
+///
+/// A record is worthless once it is older than [`CONFIRMED_FOR`], and
+/// `Store::release` destroys local data on the strength of it. Refreshing at a
+/// quarter of the window leaves three further chances to refresh before it goes
+/// stale, so a peer reachable one round in three still keeps its records alive
+/// — and a peer reachable less often than that has a liveness problem the
+/// ledger is *supposed* to notice.
+/// A record exactly this old is still fresh; one second more is due. The
+/// boundary is stated because a rule about ageing has one and somebody will
+/// eventually write a test against it.
+pub const REFRESH_AFTER: u64 = CONFIRMED_FOR / 4;
+
 pub const SAFE_TO_RELEASE: usize = 2;
 
 pub const CONFIRMED_FOR: u64 = 14 * 24 * 60 * 60;

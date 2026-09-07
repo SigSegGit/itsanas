@@ -1274,13 +1274,44 @@ impl Index {
         if chunks.is_empty() {
             return Ok(());
         }
+
+        // Read first, and write only what has actually aged.
+        //
+        // A round confirms every chunk a peer holds, so writing the timestamp
+        // back for all of them meant rewriting the ledger every five minutes to
+        // record that nothing had changed. Measured: 962 KB per round with
+        // peers against 61 KB without, on an account of nine hundred kilobytes.
+        // See `holders::REFRESH_AFTER` for why a quarter of the freshness
+        // window is the right interval and what it costs to be wrong about it.
+        //
+        // The read is a separate transaction on purpose: a stale answer here
+        // makes a round write a timestamp it did not have to, which is the
+        // harmless direction.
+        let stale_before = now.saturating_sub(holders::REFRESH_AFTER);
+        let due: Vec<ChunkId> = {
+            let txn = self.db.begin_read()?;
+            let holders_table = txn.open_table(HOLDERS)?;
+            let mut due = Vec::new();
+            for chunk in chunks {
+                let fresh = holders_table
+                    .get(holders::key(chunk, device).as_slice())?
+                    .is_some_and(|value| value.value() >= stale_before);
+                if !fresh {
+                    due.push(*chunk);
+                }
+            }
+            due
+        };
+
+        // Contact is always recorded: it is one row, and it is what every
+        // liveness question in this crate reads.
         let txn = self.db.begin_write()?;
         {
             txn.open_table(DEVICE_SEEN)?
                 .insert(device.as_bytes().as_slice(), now)?;
             let mut holders = txn.open_table(HOLDERS)?;
             let mut holdings = txn.open_table(HOLDINGS)?;
-            for chunk in chunks {
+            for chunk in &due {
                 let tag = holders::audit_tag(&self.audit_key, chunk);
                 holders.insert(holders::key(chunk, device).as_slice(), now)?;
                 holdings.insert(holders::by_device(device, &tag, chunk).as_slice(), now)?;
@@ -2502,7 +2533,24 @@ mod tests {
 
         let holders = index.remote_holders(&chunk(1)).unwrap();
         assert_eq!(holders.len(), 1);
-        assert_eq!(holders[0].confirmed_unix, 900);
+
+        // And the second acknowledgement, thirteen minutes later, wrote
+        // nothing: the record was nowhere near stale. That is the difference
+        // between 962 KB and 61 KB of disk written per round, measured on a
+        // real node. See `holders::REFRESH_AFTER`.
+        assert_eq!(
+            holders[0].confirmed_unix, 100,
+            "a record still fresh was rewritten, which is the whole cost"
+        );
+
+        // Once it has aged past a quarter of the freshness window it is
+        // rewritten, so it can never drift into being uncountable.
+        index
+            .record_holder(&chunk(1), &device(7), 100 + holders::REFRESH_AFTER + 1)
+            .unwrap();
+        let holders = index.remote_holders(&chunk(1)).unwrap();
+        assert_eq!(holders.len(), 1);
+        assert_eq!(holders[0].confirmed_unix, 100 + holders::REFRESH_AFTER + 1);
     }
 
     #[test]
