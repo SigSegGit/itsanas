@@ -353,7 +353,17 @@ impl PeerClient {
             return Ok(None);
         }
         match self.request(&Request::ChunkSummary { owner })? {
-            Response::ChunkSummary(digests) => Ok(Some(digests)),
+            // A summary of the wrong length is not a peer that holds different
+            // data; it is a peer that is not answering the question. Treating
+            // it as "everything differs" would let eight bytes of nonsense buy
+            // a full listing of the account, every round, for ever -- the best
+            // amplification ratio available in this protocol. It is a refusal.
+            Response::ChunkSummary(digests) if digests.len() == itsanas_store::summary::BUCKETS => {
+                Ok(Some(digests))
+            }
+            Response::ChunkSummary(_) => Err(NetError::UnexpectedResponse {
+                expected: "a chunk summary with one digest per bucket",
+            }),
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse {
                 expected: "chunk summary",

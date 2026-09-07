@@ -219,7 +219,27 @@ impl Vault {
     /// The answer to "have we both got the same set", in one hash. See
     /// [`crate::summary`].
     pub fn chunk_summary(&self, owner: UserId) -> Result<Vec<crate::summary::Digest>> {
-        Ok(crate::summary::buckets(self.chunks_for(owner)?))
+        // Streamed, for the same reason the owner's side is: a host holding a
+        // terabyte for somebody would otherwise build a `Vec` of sixteen
+        // million ids to answer one question about them.
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(CHUNKS)?;
+        let range =
+            table.range(chunk_range_start(owner).as_slice()..=chunk_range_end(owner).as_slice())?;
+
+        let mut failed: Option<StoreError> = None;
+        let digests = crate::summary::buckets(range.filter_map(|row| match row {
+            Ok((key, _)) => chunk_from_key(key.value()),
+            Err(error) => {
+                failed.get_or_insert(StoreError::from(error));
+                None
+            }
+        }));
+
+        match failed {
+            Some(error) => Err(error),
+            None => Ok(digests),
+        }
     }
 
     /// Populate the chunk index from the directories, once.

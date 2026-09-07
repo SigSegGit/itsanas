@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**702 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
+**703 test functions, 3 of them `#[ignore]`d into the slow job, and 31 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1226,6 +1226,40 @@ chunks awaiting collection, which preserves today's behaviour and does not fix
 the underlying thing: the replay wants the **last** operation per path when the
 earlier ones cannot be completed, and does not know it.
 
+### An idle node writes three hundred megabytes a day — the first fix bought 19%
+
+Measured over seven hours on three machines with an account of about a
+megabyte: **313 MB/day on the Pi, 296 on the VM**. Then a controlled experiment
+on a test node, two six-minute phases:
+
+| | written per round |
+| --- | --- |
+| daemon with no peer configured | 61 KB |
+| daemon with its two peers | 962 KB |
+
+**94% of it is the sync round**, not the daemon loop. The first suspect was the
+ledger: a round confirms every chunk a peer holds and wrote the timestamp back
+for all of them, every five minutes, to record that nothing had changed. That is
+now skipped unless the record has aged past `holders::REFRESH_AFTER`.
+
+**It went from 962 KB to 780 KB.** Nineteen per cent — worth having, and not the
+answer. Writing fewer rows was the wrong axis.
+
+What the numbers point at instead is the **number of transactions**, not their
+content: 61 KB for a round that commits once or twice, 780 KB for one that
+commits perhaps twenty times, which puts a commit at some tens of kilobytes
+whatever it contains. That is what a copy-on-write engine costs when a round
+opens a transaction for contact, then one per batch to withdraw, then one to
+record, then one per audit answer, then one for the applied markers.
+
+**Stated as a hypothesis, because it has not been measured.** The next
+measurement is a count of write transactions per round, and the likely fix is a
+round that opens one. Not started.
+
+This section was briefly deleted and replaced by a sentence inside a benchmark
+table in `docs/MVP.md`. That is how an open problem stops being one, so it is
+back, with its title.
+
 ### The have/missing sweep was O(account) per round, per peer — reconciled now
 
 `push_scoped` listed every chunk it held to ask a peer which were missing: 32
@@ -1263,9 +1297,23 @@ Three things it deliberately does not do:
   or on any unexpected answer, the round lists everything exactly as before. An
   optimisation that can break a sync is not one.
 
-What remains: computing a summary is a scan of the local index, which is cheap
-at the sizes measured and is O(account) in reads. Caching it against a change
-counter is the next step and is not built.
+**What a round still costs locally, stated because "one hash on the wire" hides
+it.** A quiet round performs two O(account) scans of the local index — one to
+compute the summary, one for `refresh_released` to page the ledger for this peer
+— and neither touches the network. At the sizes measured that is nothing; at a
+terabyte it is sixteen million rows read twice, every five minutes, on a machine
+with an SD card. Caching the summary against a change counter, and giving
+`refresh_released` the same periodic treatment the ledger walk now has, are the
+next two steps and are not built.
+
+**Two things a hostile peer can still do.** It can replay an old summary and be
+believed for up to `REFRESH_AFTER`, which makes the storage challenge the only
+thing checking it — sixteen chunks per round, and that was already the case for
+the self-reported have/missing answer it replaces. And a peer that simply never
+agrees forces a listing every round; the round now refuses a summary of the
+wrong length outright, so eight bytes of nonsense cannot buy it, but a peer
+willing to answer plausibly and wrongly can. Neither is counted or remembered.
+`chunks_asked_about` exists and no decision reads it.
 
 ### The audit is a deterrent, not a detector, above a few gigabytes
 

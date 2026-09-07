@@ -797,12 +797,33 @@ impl Index {
         let txn = self.db.begin_read()?;
         let refs = txn.open_table(CHUNK_REFS)?;
 
-        let mut chunks = Vec::new();
-        for row in refs.iter()? {
-            let (key, _) = row?;
-            chunks.push(ChunkId::from_slice(key.value())?);
+        // Streamed, not collected. Materialising every id first is a `Vec` of
+        // sixteen million entries at a terabyte -- 512 MB in one allocation, on
+        // machines whose measured peak is 17 MiB. That is the exact fault this
+        // work removed from the sweep, and it came back here in the commit that
+        // removed it; `summary::buckets` was already written to take an
+        // iterator.
+        let mut failed: Option<StoreError> = None;
+        let digests = crate::summary::buckets(refs.iter()?.filter_map(|row| {
+            let outcome = row
+                .map_err(StoreError::from)
+                .and_then(|(key, _)| ChunkId::from_slice(key.value()).map_err(StoreError::from));
+            match outcome {
+                Ok(chunk) => Some(chunk),
+                Err(error) => {
+                    failed.get_or_insert(error);
+                    None
+                }
+            }
+        }));
+
+        // A key the index cannot decode means the table is damaged. Reporting a
+        // summary computed from what could be read would tell a peer the two
+        // sides differ in a way no listing could then explain.
+        match failed {
+            Some(error) => Err(error),
+            None => Ok(digests),
         }
-        Ok(crate::summary::buckets(chunks))
     }
 
     /// One page of the chunks this device still has on disk, in chunk order.

@@ -2671,27 +2671,16 @@ fn a_round_that_has_nothing_to_say_says_it_in_one_hash() {
         );
         assert!(first.chunks_accepted > 0, "the host took nothing");
 
-        // The second round agrees on the summary and still walks, because the
-        // ledger has never been walked against this peer and its records would
-        // otherwise age out of countable in silence -- `release` destroys local
-        // data on the strength of them. That walk happens once every
-        // `REFRESH_AFTER`, not every round.
+        // Nothing has changed, and the first round was itself the full walk the
+        // ledger is owed. Saying "the same" now costs one hash rather than one
+        // identifier per chunk.
         let second = session::push(&author.store, &mut client).unwrap();
-        assert_eq!(second.chunks_offered, 0, "the host was sent data it had");
         assert_eq!(
-            second.chunks_asked_about, held,
-            "the first walk against a peer should still cover everything"
-        );
-
-        // And now nothing has changed and the ledger is fresh. Saying so costs
-        // one hash rather than one identifier per chunk.
-        let third = session::push(&author.store, &mut client).unwrap();
-        assert_eq!(
-            third.chunks_asked_about, 0,
+            second.chunks_asked_about, 0,
             "a round with nothing to say listed {} chunks",
-            third.chunks_asked_about
+            second.chunks_asked_about
         );
-        assert_eq!(third.chunks_offered, 0);
+        assert_eq!(second.chunks_offered, 0, "the host was sent data it had");
 
         // One new file. The summary locates the disagreement, so the round
         // lists a slice of the id space rather than the account.
@@ -2702,15 +2691,71 @@ fn a_round_that_has_nothing_to_say_says_it_in_one_hash() {
         author.store.flush_segment().unwrap();
         let after = author.store.stats().unwrap().live_chunks;
 
-        let fourth = session::push(&author.store, &mut client).unwrap();
+        let third = session::push(&author.store, &mut client).unwrap();
         assert!(
-            fourth.chunks_accepted > 0,
+            third.chunks_accepted > 0,
             "the new file never reached the host"
         );
         assert!(
-            fourth.chunks_asked_about < after,
+            third.chunks_asked_about < after,
             "a change listed the whole account again: {} of {after}",
-            fourth.chunks_asked_about
+            third.chunks_asked_about
         );
     });
+}
+
+#[test]
+fn a_peer_that_never_agrees_still_gets_its_ledger_walked() {
+    // The defect a review found in the first version of the reconciliation, and
+    // the one that would have reached a person as "ITSaNAS says my data is
+    // nowhere and refuses to free any space".
+    //
+    // The freshness guard was consulted only in the branch where the two sides
+    // *agree*. A peer whose storage budget is smaller than the account
+    // disagrees on every round, for ever, by design -- so against such a peer
+    // the walk was never due, never performed, never stamped, and the chunks in
+    // the agreeing buckets were re-stamped by nobody. Fourteen days later
+    // `coverage` reports no copies and `release` refuses, on an account where
+    // nothing has gone wrong and a host that is behaving perfectly.
+    //
+    // The question has to be asked before the verdict, not inside one arm of
+    // it.
+    let author = node(&alice(), 97);
+    let host = node(&MasterSecret::from_bytes([0xE4; 32]), 98);
+
+    for index in 0..6 {
+        let payload = itsanas_testkit::filler(&format!("rot-{index}"), 128 * 1024);
+        author
+            .store
+            .write_file(&format!("rot-{index}.bin"), &payload)
+            .unwrap();
+    }
+    author.store.flush_segment().unwrap();
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let peer_device = host.device.device_id();
+    assert!(
+        author.store.ledger_walk_due(&peer_device, now).unwrap(),
+        "a peer never spoken to should be owed a walk"
+    );
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).unwrap();
+
+        // The host holds nothing, so this round disagrees about every bucket.
+        let report = session::push(&author.store, &mut client).unwrap();
+        assert!(report.chunks_accepted > 0, "the host took nothing");
+    });
+
+    assert!(
+        !author.store.ledger_walk_due(&peer_device, now).unwrap(),
+        "a round that disagreed left the ledger owed a walk that would never \
+         come, because the debt is only ever read in the branch where the two \
+         sides agree"
+    );
 }

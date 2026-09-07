@@ -11,9 +11,28 @@
 //! A summary costs the same whether the account is a megabyte or a terabyte:
 //! one hash. If the two sides agree there is nothing more to say and the round
 //! is over. If they disagree, the disagreement is *located* — the buckets whose
-//! hashes differ — and only those are listed. The cost follows the difference
-//! instead of the size, which is the property that makes this affordable at a
-//! scale nobody has arbitrated yet.
+//! hashes differ — and only those are listed.
+//!
+//! # How far "the cost follows the difference" actually goes
+//!
+//! Not all the way, and the shape of it matters. Chunk ids are hashes, so they
+//! are uniform over the first byte: with *D* chunks of difference the number of
+//! buckets touched is `256·(1−(255/256)^D)`.
+//!
+//! | difference | buckets touched |
+//! | --- | --- |
+//! | 100 | 83 |
+//! | 500 | 220 |
+//! | 1 000 | 251 |
+//! | 2 000 | 256 |
+//!
+//! So beyond about a thousand chunks — sixty-four megabytes — the summary names
+//! every bucket and the round is the full listing again, plus the summary. The
+//! saving is real and it is on the case that dominates: a quiet account, or one
+//! that changed by a few files. A flat table of 256 buckets cannot do better;
+//! following the *logarithm* of the difference needs a tree, and that is not
+//! built. Written here because "the cost follows the difference" without this
+//! paragraph is the kind of sentence somebody plans against.
 //!
 //! # Detection is separated from judgement
 //!
@@ -115,10 +134,16 @@ pub fn differing(ours: &[Digest], theirs: &[Digest]) -> Vec<u8> {
         .collect()
 }
 
+/// Which bucket a chunk falls in.
+#[must_use]
+pub fn bucket_of(chunk: &ChunkId) -> u8 {
+    chunk.as_bytes()[0]
+}
+
 /// Whether a chunk falls in `bucket`.
 #[must_use]
 pub fn in_bucket(chunk: &ChunkId, bucket: u8) -> bool {
-    chunk.as_bytes()[0] == bucket
+    bucket_of(chunk) == bucket
 }
 
 #[cfg(test)]

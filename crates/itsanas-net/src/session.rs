@@ -225,6 +225,14 @@ fn sweep(
     let owner = store.owner();
     let peer = client.peer_device();
 
+    let wanted: Option<[bool; summary::BUCKETS]> = only.map(|buckets| {
+        let mut table = [false; summary::BUCKETS];
+        for bucket in buckets {
+            table[usize::from(*bucket)] = true;
+        }
+        table
+    });
+
     let mut cursor: Option<ChunkId> = None;
     loop {
         let (page, next) = store.live_chunks_page(cursor.as_ref(), MAX_HAVE_BATCH)?;
@@ -232,11 +240,14 @@ fn sweep(
             break;
         }
 
-        let filtered: Vec<ChunkId> = match &only {
-            Some(buckets) => page
+        let filtered: Vec<ChunkId> = match &wanted {
+            // A lookup rather than a scan of the bucket list per chunk: at a
+            // terabyte and a full disagreement that difference is four billion
+            // comparisons a round, on a Raspberry Pi.
+            Some(wanted) => page
                 .iter()
                 .copied()
-                .filter(|chunk| buckets.iter().any(|b| summary::in_bucket(chunk, *b)))
+                .filter(|chunk| wanted[usize::from(summary::bucket_of(chunk))])
                 .collect(),
             None => page.clone(),
         };
@@ -547,28 +558,40 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());
+    // Is the ledger due a full walk, whatever the summary says?
+    //
+    // This question has to come **before** the verdict, not inside the branch
+    // where the two sides agree. A peer whose storage budget is smaller than
+    // this account disagrees on every round, for ever, by design -- and the
+    // first version only consulted this in the `Identical` arm, so against such
+    // a peer the walk was never due, never performed, never stamped, and the
+    // chunks in the agreeing buckets were re-stamped by nobody. Fourteen days
+    // later `coverage` reports no copies and `release` refuses to free
+    // anything, on an account where nothing has gone wrong and against a host
+    // that is behaving perfectly. Silent, and it breaks the two things this is
+    // for: knowing where your data is, and being able to make room.
+    let due = store.ledger_walk_due(&peer, now)?;
+
     let only = match reconcile(store, client, owner)? {
-        // The two sides hold the same set, so there is nothing to send. The
-        // ledger still needs its records re-stamped now and then, or every one
-        // of them would age past `CONFIRMED_FOR` while the rounds went by in
-        // silence -- `release` would stop working and `coverage` would report
-        // no copies, on an account nothing had gone wrong with. So the walk
-        // still happens, once every `REFRESH_AFTER` rather than every round:
-        // one round in a few hundred instead of sixteen million reads in each.
-        Reconciled::Identical if !store.ledger_walk_due(&peer, now)? => {
+        // Nothing to send and nothing owed to the ledger: the round is over,
+        // and it cost one hash.
+        Reconciled::Identical if !due => {
             report.holders_recorded += refresh_released(store, client, &peer)?;
             return Ok(report);
         }
-        // A due walk and an unanswerable peer both mean the same thing here:
-        // list everything.
+        // A due walk covers everything, whatever the summary said about where
+        // the two sides differ.
+        _ if due => None,
+        // An unanswerable peer means nothing is known, so everything is listed.
         Reconciled::Identical | Reconciled::Unknown => None,
         Reconciled::Buckets(buckets) => Some(buckets),
     };
 
     sweep(store, client, &mut report, only.as_deref())?;
 
-    // A full walk happened, so the clock restarts. Only when it really was
-    // full: a round that listed a few buckets has said nothing about the rest.
+    // The clock restarts only after a walk that really was full: a round that
+    // listed a few buckets has said nothing about the rest, so claiming it had
+    // would be the same rot by a slower route.
     if only.is_none() {
         store.note_ledger_walk(&peer, now)?;
     }
