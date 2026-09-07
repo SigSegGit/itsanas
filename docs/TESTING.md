@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-07 — 691 test functions across 23 binaries, 3 of them
+**Last updated: 2026-09-07 — 695 test functions across 24 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
 
-**575 of the 691 tests have an entry of their own on this page** — an *entry*,
+**579 of the 695 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -153,6 +153,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
 | `itsanas-cli` unit | 25 |
 | `itsanas-android` unit | 2 |
+| `itsanas-drive` unit | 4 |
 | `itsanas-node` unit | 28 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
@@ -979,6 +980,21 @@ from a host over a real socket, and one of them opened.
 | --- | --- |
 | **`a_plan_is_reported_with_the_names_kotlin_reads`** | The field names are a contract with another language, and a rename here fails silently over there — the application would show an empty reason and no interval, and nothing would say why. |
 | **`asking_a_closed_node_says_so_rather_than_crashing`** | Every entry point can be called before an account is open, because Android restarts a process whenever it likes. It has to answer with a sentence a person can act on, not with a panic crossing into the JVM. |
+
+# `itsanas-drive` — the account as a folder (4)
+
+`src/lib.rs`. The projection: given everything the account knows and a
+directory somebody is looking at, what should appear. The binding to the
+operating system is not written — see the crate documentation for the two
+findings that decided that, one of them a licence — so what is tested is the
+part where the bugs live and which needs no filesystem driver.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_directory_is_a_prefix_several_files_share`** | An account stores paths, not a tree: nothing anywhere records that `Documents` exists, only that `Documents/report.pdf` does. A projection that does not invent the directory shows an account with sub-folders as an empty one. |
+| **`a_file_that_is_not_here_is_still_a_file_with_a_size`** | The whole point of a virtual drive. A placeholder with no size shows as zero bytes, and somebody concludes their file is damaged rather than absent. |
+| `a_name_that_merely_starts_the_same_is_not_inside_it` | `Photos-old` is not inside `Photos`. |
+| **`the_separators_the_operating_system_uses_are_not_the_accounts`** | Windows hands back backslashes and the account speaks in slashes. Getting it wrong does not fail: the listing comes back empty, which reads as "the account is empty" rather than as "the path did not match". |
 
 # `itsanas-placement` — unit tests (34)
 

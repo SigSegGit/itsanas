@@ -1,0 +1,18 @@
+[package]
+name = "itsanas-drive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The account as a folder: everything listed, downloaded when opened"
+
+[dependencies]
+itsanas-node = { version = "0.1.0", path = "../itsanas-node" }
+itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
+itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
+
+
+[lints]
+workspace = true

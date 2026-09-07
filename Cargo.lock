@@ -836,6 +836,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itsanas-drive"
+version = "0.1.0"
+dependencies = [
+ "itsanas-net",
+ "itsanas-node",
+ "itsanas-store",
+]
+
+[[package]]
 name = "itsanas-folder"
 version = "0.1.0"
 dependencies = [
