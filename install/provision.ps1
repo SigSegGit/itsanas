@@ -1,4 +1,4 @@
-# Take a Windows machine with nothing on it to a running ITSaNAS node.
+﻿# Take a Windows machine with nothing on it to a running ITSaNAS node.
 #
 #   $env:ITSANAS_PASSPHRASE = '...'
 #   powershell -ExecutionPolicy Bypass -File install\provision.ps1 -Username nicolas -Pledge 100G
@@ -411,7 +411,14 @@ if (-not $NoTask) {
         '    Move-Item -LiteralPath $log -Destination "$log.1" -Force',
         '}',
         '',
-        '& "$env:LOCALAPPDATA\Programs\itsanas\bin\itsanas.exe" daemon *>> $log'
+        '# Through Out-File rather than `*>> $log`, which writes UTF-16 on',
+        '# Windows PowerShell. The log was legible in Notepad and came back as',
+        '# spaced-out gibberish from grep, tail and every other tool anybody',
+        '# would actually use to read a daemon log -- including the one this',
+        '# script names in its own summary. A log nobody can read is a log',
+        '# nobody reads.',
+        '& "$env:LOCALAPPDATA\Programs\itsanas\bin\itsanas.exe" daemon *>&1 |',
+        '    Out-File -LiteralPath $log -Encoding utf8 -Append'
     ) | Set-Content -LiteralPath $wrapper -Encoding utf8
 
     $action = New-ScheduledTaskAction -Execute 'powershell.exe' `

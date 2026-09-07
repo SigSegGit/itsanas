@@ -294,7 +294,20 @@ pub fn absent_count(store: &Store, vault: &Vault) -> Result<usize> {
         .count())
 }
 
-/// The last word each path gets across every other device's log.
+/// The last word each path gets across every log this device can read.
+///
+/// # Including this device's own
+///
+/// The obvious version walked only *other* devices' chains, on the reasoning
+/// that the index is the authority for anything this machine wrote. That stopped
+/// being true the day a device could let go of content: a file this device
+/// created and then released has no index entry and no entry in anybody else's
+/// chain either, so it vanished from its own listing entirely and `itsanas get`
+/// answered "no such file" for a file two other machines were holding.
+///
+/// Found by running it, not by reading it: a 200 KiB file put on a Raspberry Pi
+/// with a 300 KiB limit, pushed to two hosts, released as designed, and then
+/// absent from `itsanas ls` on the machine that had made it.
 fn walk_vault(
     store: &Store,
     vault: &Vault,
@@ -316,20 +329,52 @@ fn walk_vault(
             complete = false;
         }
 
-        for envelope in segments {
-            let body = store.open_segment(&envelope)?;
-            for entry in body.entries {
-                let (path, file) = match &entry.operation {
-                    Operation::Upsert { path, entry } => (path.clone(), Some(entry.clone())),
-                    Operation::Remove { path, .. } => (path.clone(), None),
-                };
-                let version = entry.operation.version().clone();
-                record(&mut latest, path, version, file);
-            }
-        }
+        fold(store, segments, &mut latest)?;
+    }
+
+    // And this device's own chain, for the same reason and with the same bound.
+    let mine = store.segments()?;
+    let mine = if mine.len() > MAX_SEGMENTS_WALKED {
+        complete = false;
+        mine[mine.len() - MAX_SEGMENTS_WALKED..].to_vec()
+    } else {
+        mine
+    };
+    fold(store, mine, &mut latest)?;
+
+    // Including what this device has written and not yet announced. A file
+    // written and released before the next flush would otherwise be in no log
+    // this walk reads, which is the same disappearance by a narrower door.
+    for entry in store.unsealed_entries()? {
+        let (path, file) = match &entry.operation {
+            Operation::Upsert { path, entry } => (path.clone(), Some(entry.clone())),
+            Operation::Remove { path, .. } => (path.clone(), None),
+        };
+        let version = entry.operation.version().clone();
+        record(&mut latest, path, version, file);
     }
 
     Ok((latest, complete))
+}
+
+/// Apply a run of segments to the running answer.
+fn fold(
+    store: &Store,
+    segments: Vec<crate::SegmentEnvelope>,
+    latest: &mut BTreeMap<String, Latest>,
+) -> Result<()> {
+    for envelope in segments {
+        let body = store.open_segment(&envelope)?;
+        for entry in body.entries {
+            let (path, file) = match &entry.operation {
+                Operation::Upsert { path, entry } => (path.clone(), Some(entry.clone())),
+                Operation::Remove { path, .. } => (path.clone(), None),
+            };
+            let version = entry.operation.version().clone();
+            record(latest, path, version, file);
+        }
+    }
+    Ok(())
 }
 
 /// Keep the operation that should decide what a listing shows.

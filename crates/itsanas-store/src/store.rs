@@ -1055,6 +1055,18 @@ impl Store {
         })
     }
 
+    /// Operations this device has written and not yet sealed into a segment.
+    ///
+    /// Read by [`catalogue`](mod@crate::catalogue), which would otherwise lose sight
+    /// of a file written and released before the next flush.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn unsealed_entries(&self) -> Result<Vec<LogEntry>> {
+        self.index.pending_entries()
+    }
+
     /// The blob store, for the network layer to serve sealed bytes from.
     #[must_use]
     pub const fn blobs(&self) -> &BlobStore {
