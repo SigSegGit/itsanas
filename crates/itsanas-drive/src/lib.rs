@@ -65,8 +65,11 @@
 //! documented ways, unmaintained, with no patched version. CI caught it the day
 //! it landed. So the binding is written here instead, over `projfs-sys` alone,
 //! which is the generated header and has no dependencies to be unsound about.
-//! See [`projfs`](mod@crate::projfs) for what that cost and the three faults it
-//! fixed on the way.
+//! See `src/projfs.rs` for what that cost and the three faults it fixed on
+//! the way. Not an intra-doc link, and that is not laziness: the module is
+//! `#[cfg(windows)]`, so on the Linux runner it does not exist and a link to
+//! it is a broken one -- which `cargo doc` with `-D warnings` calls a build
+//! failure, on a platform where nobody was going to read the page anyway.
 //!
 //! # Linux
 //!
