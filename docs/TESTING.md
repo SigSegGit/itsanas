@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-08 — 708 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 31 are red-team tests.**
+**Last updated: 2026-09-09 — 713 test functions across 24 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 36 are red-team tests.**
 
-**592 of the 708 tests have an entry of their own on this page** — an *entry*,
+**597 of the 713 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -145,7 +145,7 @@ guarantee and is not one.
 | `itsanas-net` unit | 34 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 44 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 74 |
+| `itsanas-coord` unit | 76 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 23 |
@@ -153,8 +153,8 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
 | `itsanas-cli` unit | 25 |
 | `itsanas-android` unit | 2 |
-| `itsanas-drive` unit | 7 |
-| `itsanas-node` unit | 28 |
+| `itsanas-drive` unit | 9 |
+| `itsanas-node` unit | 29 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -932,7 +932,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (28)
+# `itsanas-node` — a node on disk (29)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -945,6 +945,7 @@ passphrase handling is one too many.
 | --- | --- |
 | **`the_phrase_is_not_written_anywhere_under_the_node_directory`** | Scans every file under the node's home for the phrase. A recovery phrase stored on the machine it protects is not a backup, it is an extra copy for an attacker to find. |
 | **`the_phrase_does_not_leak_through_debug`** | The single most likely way for a phrase to escape is a stray `dbg!` or a derived `Debug`. |
+| **`red_team_printing_a_node_does_not_print_the_master_secret`** | `Node` derived `Debug`, and `secrets` holds the plaintext encoding of the master secret and the device seed. `Zeroizing` protects the memory's lifetime, not its formatting: its own `Debug` forwards to `Vec<u8>`, which prints every byte. Nothing formatted a `Node`, so this was a loaded gun rather than a shot fired — one `tracing::debug!(?node)` from the whole account in a journal. Every other secret-bearing type here has a hand-written redacting `Debug` for exactly this reason; this was the one that derived, **directly above the comment naming "a struct derive that includes it" as the way this material escapes**. Asserts on any eight-byte run of the secret, not on a field name. |
 | **`a_published_test_phrase_is_refused_as_a_real_account`** | Restoring Alice's published phrase as a real account is refused, with an explanation. |
 | **`the_device_identity_also_survives_a_restart`** | If the device key changed on every start, every restart would look like a new device to the version vectors and history would fragment. |
 | **`creating_over_an_existing_node_is_refused`** | Overwriting would destroy the master secret and make every chunk stored under it permanently unreadable. |
@@ -998,7 +999,7 @@ from a host over a real socket, and one of them opened.
 | **`a_plan_is_reported_with_the_names_kotlin_reads`** | The field names are a contract with another language, and a rename here fails silently over there — the application would show an empty reason and no interval, and nothing would say why. |
 | **`asking_a_closed_node_says_so_rather_than_crashing`** | Every entry point can be called before an account is open, because Android restarts a process whenever it likes. It has to answer with a sentence a person can act on, not with a panic crossing into the JVM. |
 
-# `itsanas-drive` — the account as a folder (7)
+# `itsanas-drive` — the account as a folder (9)
 
 Two files, and they are tested for two different reasons.
 
@@ -1031,6 +1032,8 @@ an account several machines hold.
 | **`a_guid_survives_the_round_trip_that_keys_the_cursor_map`** | Enumeration cursors are keyed by the sixteen bytes of the id Windows hands back, because keying them on a `uuid` would mean a crate for it. If that conversion were not injective, two open enumerations would share a cursor and Explorer would show one directory's entries inside another — with nothing in any log, because both lookups succeed. |
 | **`a_directory_is_flagged_as_one_and_a_file_is_not`** | Windows decides whether to offer a folder or a file from one bit. Wrong, and a directory is unopenable rather than wrong-looking. |
 | **`every_string_handed_to_windows_ends_in_a_nul`** | Every call in the binding takes a `PCWSTR` and walks it until it finds a zero. A `Vec<u16>` without one is a read past the end of an allocation, and it would work by accident most of the time. |
+| **`red_team_a_file_shorter_than_windows_believes_is_refused_not_padded`** | The one a red-team sweep found, and the one the manual test could not. The placeholder's size is written once from the catalogue and nothing calls `PrjUpdateFileIfNeeded`, while the sync loop in the same process keeps adopting newer versions from peers — so a file that shrinks on another machine leaves Windows asking for the old length. `Source::read` returned `()`, so a short fill was invisible, and the whole buffer went to `PrjWriteFileData` regardless. The tail was **uninitialised heap**: most likely the plaintext of a file hydrated a moment earlier through the same allocator, arriving inside a different file. The buffer is zeroed now, `read` returns a count, and a short answer stops. **The `SAFETY:` comment above it said the tail was padding Windows discards** — the gate checks that a reason is written, not that it is true. |
+| **`red_team_a_read_past_the_end_serves_nothing_rather_than_zeros`** | The same fault at its extreme: an offset past the content fills nothing at all. Padding would hand back a block of zeros that reads as a legitimate hole in a sparse file. |
 
 # `itsanas-placement` — unit tests (34)
 
@@ -1314,7 +1317,7 @@ Six unit tests in `auth.rs`, five integration tests in `tests/handshake.rs`.
 
 ---
 
-# `itsanas-coord` — claims, directory, accounting (49)
+# `itsanas-coord` — claims, directory, accounting (51)
 
 Catalogued by property rather than test by test: the crate is a library with no
 server yet, and what matters is which rule each group of tests pins down.
@@ -1343,6 +1346,8 @@ because they hold a rule two other programs depend on:
 | --- | --- |
 | **`the_limit_and_the_price_quoted_for_exceeding_it_never_contradict`** | The worst kind of instruction: somebody is told "keeping 31 GiB needs 93 GiB pledged", pledges exactly 93, and meets the same sentence again. Two functions write that message between them and integer division truncates, so the property has to hold at every remainder rather than at multiples of three. Checked in both directions — what the limit allows is never priced above what was pledged, and the price quoted always buys what it was quoted for. |
 | **`the_quote_saturates_rather_than_wrapping_on_an_absurd_request`** | Where that stops being true. Above `u64::MAX / 3` the quote saturates and understates what would be needed. The refusal is still correct there and the free-space check refuses such a number anyway, so this is a boundary written down rather than a bug left open — but a multiplication that wrapped instead would turn an absurd request into a small one and let it through. |
+| **`red_team_a_second_username_cannot_renew_the_joining_allowance`** | `register_admitted` answered two questions from two tables: "has this key been here before?" from BY_ID, and "does this account exist?" from ACCOUNTS keyed by *name*. They agree until one key asks for a second name — then the key counts as returning, so no invitation is demanded, and the name is unknown, so the branch that preserves the account's registration date is skipped and a fresh account is minted with today's date. One signed message every thirty days turned a bounded 10 GiB joining allowance into a permanent free tier. **The two sibling tests covered (same key, same name) and (different key, same name); nobody wrote (same key, different name)**, and this page recorded the property as established. Same shape as the freshness guard that lived in one branch of three. |
+| **`red_team_one_admitted_key_cannot_mint_accounts_on_an_invite_only_coordinator`** | The same defect on its other axis. The invitation gate is skipped for a key that already has an account — right for somebody re-registering the name they hold, wrong for anything else. An admitted member could open unlimited accounts with no invitation, and usernames here are bound to a key for ever with no release path, so one member could squat every short name on the coordinator. |
 
 ---
 

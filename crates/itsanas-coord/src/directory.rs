@@ -271,7 +271,8 @@ impl Directory {
         signed.verify()?;
 
         let joiner = signed.registration.user.id;
-        let returning = self.account_of(joiner)?.is_some();
+        let held = self.account_of(joiner)?;
+        let returning = held.is_some();
 
         // The first member of an invite-only coordinator has nobody to invite
         // them. Requiring one anyway produces a coordinator that is running,
@@ -293,6 +294,37 @@ impl Directory {
         }
 
         let name = signed.registration.username.as_str();
+
+        // **One key, one account.** Without this, the two questions above are
+        // answered from two different tables and they disagree the moment a
+        // key asks for a second name: `returning` is decided by user id and
+        // `existing`, below, by username. A key that already has an account
+        // therefore skipped the invitation gate (it is "returning") and then
+        // fell into the branch that mints a *fresh* account -- new username,
+        // `registered_unix: now` -- and repointed BY_ID at it. The comment on
+        // that branch promises the joining allowance cannot be reset by
+        // re-registering, and it could: one signed message a month turned a
+        // thirty-day, 10 GiB allowance into a permanent free tier, and on an
+        // invite-only coordinator it also minted unlimited accounts from one
+        // admitted key.
+        //
+        // The test that was supposed to hold this varied the key and held the
+        // name fixed, and its sibling varied the name and held the key fixed.
+        // Neither could reach (same key, different name). That is the same
+        // shape as the freshness guard that lived in one branch of three.
+        //
+        // Refusing rather than carrying the date forward, because a username
+        // is bound to a key for ever with no release path: two names for one
+        // key would leave `account_of` picking one of them, which is the
+        // ambiguity that caused this.
+        if let Some(held) = &held
+            && held.username != name
+        {
+            return Err(CoordError::Rejected(
+                "this key already has an account under another name",
+            ));
+        }
+
         let txn = self.db.begin_write()?;
         let account;
 
@@ -1337,6 +1369,76 @@ mod tests {
         let account = directory.register(&later, NOW + 999_999).unwrap();
 
         assert_eq!(account.registered_unix, NOW);
+    }
+
+    #[test]
+    fn red_team_a_second_username_cannot_renew_the_joining_allowance() {
+        // The hole the test above could not reach, and it is the same shape as
+        // the freshness guard that lived in one branch of three.
+        //
+        // `register_admitted` answered two questions from two tables:
+        // "has this key been here before?" from BY_ID, and "does this account
+        // exist?" from ACCOUNTS keyed by *name*. They agree until one key asks
+        // for a second name. Then the key counts as returning -- so no
+        // invitation is demanded -- and the name is unknown, so the branch that
+        // preserves `registered_unix` is skipped and a fresh account is minted
+        // with today's date. BY_ID is then repointed at it, so `account_of`
+        // reports the new date from that moment.
+        //
+        // One signed message every thirty days turned a bounded joining
+        // allowance -- 10 GiB regardless of what you pledge -- into a permanent
+        // free tier. That is the "grand profiteur" the accounting exists to
+        // stop, and it cost an attacker one round trip a month.
+        //
+        // The two sibling tests covered (same key, same name) and (different
+        // key, same name). Nobody wrote (same key, different name), and the
+        // catalogue recorded the property as established.
+        let (_dir, directory) = directory();
+        let owner = user(9);
+        register(&directory, "alice", &owner);
+
+        let after = NOW + crate::accounting::JOINING_PERIOD_SECONDS + 1;
+        let second = Registration {
+            username: "alice2".to_owned(),
+            user: owner.public(),
+            issued_unix: after,
+        }
+        .sign(&owner);
+
+        let minted = directory.register(&second, after);
+        assert!(
+            minted.is_err(),
+            "one key took a second username, and with it a fresh joining date"
+        );
+
+        // The record of when this member joined is the input to the whole
+        // allowance, so assert on it directly rather than on the refusal alone.
+        let held = directory
+            .account_of(owner.user_id())
+            .expect("read")
+            .expect("the account is still there");
+        assert_eq!(held.username, "alice");
+        assert_eq!(held.registered_unix, NOW);
+    }
+
+    #[test]
+    fn red_team_one_admitted_key_cannot_mint_accounts_on_an_invite_only_coordinator() {
+        // The same defect on its other axis. `needs_invitation` is false for a
+        // key that already has an account, which is right for somebody
+        // re-registering the name they hold and wrong for anything else: an
+        // admitted member could open unlimited further accounts without ever
+        // presenting an invitation, and usernames here are bound to a key for
+        // ever with no release path. One member could squat every short name on
+        // the coordinator.
+        let (_dir, directory) = directory();
+        let founder = user(10);
+        found(&directory, &founder, "alice", NOW).expect("the founder");
+
+        let more = join(&directory, &founder, "alice-again", None, NOW + 10);
+        assert!(
+            more.is_err(),
+            "an admitted key opened a second account with no invitation"
+        );
     }
 
     #[test]

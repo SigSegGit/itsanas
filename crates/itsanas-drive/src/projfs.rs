@@ -101,14 +101,21 @@ pub trait Source: Sync {
     /// reporting it.
     fn stat(&self, path: &str) -> io::Result<Info>;
 
-    /// Fill `into` with the bytes of `path` starting at `offset`.
+    /// Fill `into` with the bytes of `path` starting at `offset`, and say how
+    /// many were written.
+    ///
+    /// **The count is the whole point of this signature.** It used to return
+    /// `io::Result<()>`, which made a short fill indistinguishable from a full
+    /// one -- and the caller then handed the entire buffer to Windows anyway.
+    /// The buffer was uninitialised heap, so the difference reached the user's
+    /// file. See the `Aligned` type in this module for the whole account.
     ///
     /// # Errors
     ///
     /// If the bytes cannot be produced -- not held here and no peer has them,
     /// or the fetch failed. The read fails in the application that asked, which
     /// is the honest outcome: a short read would be silent corruption.
-    fn read(&self, path: &str, offset: u64, into: &mut [u8]) -> io::Result<()>;
+    fn read(&self, path: &str, offset: u64, into: &mut [u8]) -> io::Result<usize>;
 }
 
 /// Where one open enumeration has got to.
@@ -424,7 +431,7 @@ impl<S: Source> Bind<S> {
             let wanted = usize::try_from(length).unwrap_or(usize::MAX);
             let mut buffer = Aligned::new(data.NamespaceVirtualizationContext, wanted)
                 .ok_or(io::ErrorKind::OutOfMemory)?;
-            state.source.read(&path, offset, buffer.as_mut())?;
+            fill(&state.source, &path, offset, buffer.as_mut())?;
 
             // SAFETY: `buffer` is a ProjFS-aligned allocation of `length` bytes
             // from this context, filled above, and still alive here.
@@ -446,7 +453,37 @@ impl<S: Source> Bind<S> {
     }
 }
 
-/// A buffer allocated the way `PrjWriteFileData` requires.
+/// A buffer allocated the way `PrjWriteFileData` requires, and **zeroed**.
+///
+/// # The zeroing is not belt-and-braces, it is the fix for a real defect
+///
+/// The first version of this file allocated the buffer, handed it to
+/// `Source::read` as `&mut [u8]`, and passed the whole thing to
+/// `PrjWriteFileData`. Two things were wrong with that, and the comment sitting
+/// on it argued the second one away:
+///
+/// 1. **`&mut [u8]` over uninitialised memory is undefined behaviour**, on its
+///    own, on every read, whether or not anybody looks at the bytes. `u8` has
+///    no invalid bit pattern but *uninitialised* is not a value, which is the
+///    entire reason `MaybeUninit` exists.
+/// 2. **The unwritten tail reached the user's file.** `Source::read` returned
+///    `io::Result<()>`, so a short fill was invisible, and `PrjWriteFileData`
+///    was given `length` bytes regardless. The tail was whatever the allocator
+///    handed back -- most likely the plaintext of a file hydrated a moment
+///    earlier through the same allocation.
+///
+/// It is reachable in the ordinary case this program exists for, not a corner:
+/// the placeholder's size is written once from the catalogue and nothing here
+/// calls `PrjUpdateFileIfNeeded`, while the sync loop in the same process keeps
+/// adopting newer versions from peers. A file that shrinks on another machine
+/// leaves Windows asking for the old length. The manual test that "proved" the
+/// binding used a 716,800-byte file -- 700 KiB exactly -- which is precisely the
+/// shape where the tail is fully written and the fault cannot appear.
+///
+/// So: zeroed at birth, which makes the reference sound and bounds the worst
+/// case to zeros rather than to process memory; and [`fill`] refuses a short
+/// read outright, so the worst case is an error the user sees rather than a
+/// file that quietly grew a tail.
 struct Aligned {
     raw: *mut c_void,
     len: usize,
@@ -460,6 +497,11 @@ impl Aligned {
         if raw.is_null() {
             return None;
         }
+        // SAFETY: `raw` is a live allocation of exactly `len` bytes, just
+        // returned by the allocator and not yet aliased by anything. Writing
+        // zeros over all of it is what makes every later `&mut [u8]` over it a
+        // reference to initialised memory.
+        unsafe { std::ptr::write_bytes(raw.cast::<u8>(), 0, len) };
         Some(Self { raw, len })
     }
 }
@@ -467,12 +509,37 @@ impl Aligned {
 impl AsMut<[u8]> for Aligned {
     fn as_mut(&mut self) -> &mut [u8] {
         // SAFETY: `raw` is a live allocation of `len` bytes owned by this
-        // value, and `&mut self` means nothing else is looking at it. The
-        // bytes are uninitialised, which is why this is only ever handed to a
-        // writer -- `Source::read` fills what it uses and the rest is padding
-        // Windows discards.
+        // value and zeroed by `new`, so every byte is initialised; `&mut self`
+        // means nothing else is looking at it.
         unsafe { std::slice::from_raw_parts_mut(self.raw.cast::<u8>(), self.len) }
     }
+}
+
+/// Ask the account for a range, and refuse to serve less than was asked for.
+///
+/// Separated from the callback so it can be tested without a filesystem
+/// driver: everything above it is `unsafe` and needs Windows, and this is where
+/// the decision lives.
+///
+/// Refusing rather than padding is deliberate. A short fill means Windows
+/// believes the file is longer than the account now says it is, and the two
+/// honest answers are "error" or "update the placeholder". Zeros are not an
+/// answer -- they are a file that opens, looks plausible, and is wrong.
+fn fill<S: Source + ?Sized>(
+    source: &S,
+    path: &str,
+    offset: u64,
+    into: &mut [u8],
+) -> Result<(), Fault> {
+    let wanted = into.len();
+    let filled = source.read(path, offset, into)?;
+    if filled == wanted {
+        return Ok(());
+    }
+    Err(Fault::from(io::Error::new(
+        io::ErrorKind::UnexpectedEof,
+        format!("{path}: asked for {wanted} bytes at {offset}, the account gave {filled}"),
+    )))
 }
 
 impl Drop for Aligned {
@@ -604,7 +671,78 @@ fn guid_bytes(guid: &sys::GUID) -> [u8; 16] {
 
 #[cfg(test)]
 mod tests {
-    use super::{Info, basic_info, guid_bytes, guid_from, wide};
+    use super::{Info, Source, basic_info, fill, guid_bytes, guid_from, wide};
+    use std::io;
+
+    /// An account that knows one file and will answer honestly about how much
+    /// of it there is.
+    struct Shrunk {
+        content: Vec<u8>,
+    }
+
+    impl Source for Shrunk {
+        fn list(&self, _directory: &str) -> io::Result<Vec<Info>> {
+            Ok(Vec::new())
+        }
+
+        fn stat(&self, _path: &str) -> io::Result<Info> {
+            Err(io::Error::from(io::ErrorKind::NotFound))
+        }
+
+        fn read(&self, _path: &str, offset: u64, into: &mut [u8]) -> io::Result<usize> {
+            let start = usize::try_from(offset)
+                .unwrap_or(usize::MAX)
+                .min(self.content.len());
+            let end = start.saturating_add(into.len()).min(self.content.len());
+            let slice = &self.content[start..end];
+            into[..slice.len()].copy_from_slice(slice);
+            Ok(slice.len())
+        }
+    }
+
+    #[test]
+    fn red_team_a_file_shorter_than_windows_believes_is_refused_not_padded() {
+        // The defect this replaced: Windows asks for the length in the
+        // placeholder, which was written once from the catalogue and is never
+        // updated, while the sync loop in the same process keeps adopting
+        // newer versions from peers. A file that shrinks elsewhere leaves
+        // Windows asking for the old length, `read` filling only part of the
+        // buffer, and -- before this -- the whole buffer being written to disk
+        // regardless. The tail was uninitialised heap: most likely the
+        // plaintext of a file hydrated a moment earlier through the same
+        // allocator, arriving inside a different file.
+        //
+        // A test with a stub rather than a driver, because the decision is
+        // here and ProjFS needs an administrator, a Windows feature and a
+        // reboot. What it pins is that a short answer stops.
+        let account = Shrunk {
+            content: b"only a hundred bytes, in spirit".to_vec(),
+        };
+
+        let mut asked_for = vec![0_u8; 4096];
+        let refused = fill(&account, "journal.txt", 0, &mut asked_for);
+        assert!(
+            refused.is_err(),
+            "a buffer the account could not fill was served anyway"
+        );
+
+        // And the case that is not an error: exactly what is there.
+        let mut exact = vec![0_u8; account.content.len()];
+        assert!(fill(&account, "journal.txt", 0, &mut exact).is_ok());
+        assert_eq!(exact, account.content);
+    }
+
+    #[test]
+    fn red_team_a_read_past_the_end_serves_nothing_rather_than_zeros() {
+        // The same fault at its extreme: an offset beyond the content fills no
+        // bytes at all. Padding would hand back a block of zeros that looks
+        // like a legitimate hole in a sparse file.
+        let account = Shrunk {
+            content: b"short".to_vec(),
+        };
+        let mut buffer = vec![0_u8; 512];
+        assert!(fill(&account, "gone.bin", 4096, &mut buffer).is_err());
+    }
 
     #[test]
     fn a_guid_survives_the_round_trip_that_keys_the_cursor_map() {

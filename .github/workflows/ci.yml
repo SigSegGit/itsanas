@@ -95,6 +95,29 @@ jobs:
       # always has one, so here it is a second opinion rather than a duplicate.
       - name: The cargo gates, through the script contributors run
         run: bash scripts/check-rust.sh
+      # The workspace forbids unsafe code and two places cannot: a JVM calls
+      # `extern "system"` symbols by name, and Windows calls back into this
+      # process with raw pointers. That exception is supposed to be those two
+      # files and nothing else, and the claim appears in PORTING.md, in the
+      # crate docs and in the README.
+      #
+      # This step is late to the file. The gate was written, sabotage-verified
+      # against three rules, documented twice, and left out of CI for two days
+      # -- so the sentence "the only unsafe in this project is in two named
+      # files" was being enforced on one laptop and on no push. The step below
+      # is what noticed.
+      - name: The unsafe exception is the size the documentation claims
+        run: python scripts/check-unsafe.py
+      # And the reason that could happen: the list of gates in this file is
+      # written by hand, while `scripts/check-all.sh` discovers them with a
+      # glob. Adding a file to `scripts/` was enough to be run locally and not
+      # enough to be run here, and both places looked complete.
+      #
+      # `check-installers.sh` carries the same warning about installers in its
+      # own header. This is that mistake one level up, in the file that decides
+      # what runs.
+      - name: Every gate in scripts/ is actually run here
+        run: python scripts/check-ci.py
       # An installer is the one program here that runs on a machine nobody has
       # configured, in a shell nobody chose, in front of somebody who has read
       # nothing — and it is the least exercised code in the project. A syntax

@@ -569,13 +569,60 @@ Two cheaper mechanisms do the actual work:
   without making dishonesty possible; a device that stays silent is caught by
   the audit exactly as before.
 
-**The have/missing sweep has its own ceiling, and it is nearer than it looks.**
-It lists every chunk this device holds, every round, to every peer: 32 bytes per
-64 KiB of account, or one two-thousandth of the account per round per peer. At
-10 GB that is 5 MB per round — 1.4 GB a day against one peer. At 1 TB it is
-half a gigabyte per round and plainly impossible. The fix is to ask only about
-chunks with no fresh record for that peer, which the ledger already knows; it is
-not built. See `docs/ROADMAP.md`.
+**What a round costs on the wire, against the budget it was given.** The
+number to hit was stated as an acceptance criterion and not as a wish: *under
+100 MB a day to verify under a terabyte*. Here is the arithmetic, and it does
+not pass everywhere.
+
+The sweep used to list every chunk this device holds, to every peer, every
+round: 32 bytes per 64 KiB of account, or one two-thousandth of the account per
+round per peer. At 10 GB that was 5 MB a round — 1.4 GB a day against a single
+peer — and at 1 TB half a gigabyte a round, which is not a cost, it is a
+refusal. **That is gone.** §6.7 replaced it with a 256-bucket set summary: two
+sides that agree spend one hash, whatever the account weighs, and an idle round
+now lists nothing at all.
+
+What is left is what a *change* costs, and at a terabyte it is still the
+binding constraint:
+
+| Chunks that differ | Buckets named | Listed, at 1 TB |
+| --- | --- | --- |
+| 1 | 1 | 2.1 MB |
+| ~50 (3 MB of files) | 48 | 100 MB |
+| 100 (6 MB) | 83 | 174 MB |
+| 1 000 (64 MB) | 251 | 527 MB |
+
+A bucket is a two-hundred-and-fifty-sixth of the id space, so at 16.8 million
+chunks it holds about 65,500 of them and costs 2.1 MB to list. Chunk ids are
+hashes and therefore uniform, so *D* differing chunks name
+`256·(1−(255/256)^D)` buckets — which reaches every bucket at about a thousand.
+
+**So, plainly: at 1 TB the budget buys roughly three megabytes of change a day
+against one peer.** An idle terabyte is free — a hash and sixteen challenges,
+about 600 KB a day, sixty times inside the budget. A terabyte where somebody
+saved a photograph is not. At 10 GB the same arithmetic gives 21 KB a bucket
+and the budget is never in danger; the constraint appears somewhere between
+those two, and where exactly depends on how much changes rather than on how
+much is stored.
+
+This is written here as a number rather than a reassurance because the figure
+that was sitting in `MVP.md` — **129 MB/day** — is a *disk-write* measurement on
+a Raspberry Pi, a different quantity in the same unit and the same order of
+magnitude, occupying the place where this answer should have been. It was there
+for a week and it reads as though the budget were met.
+
+**The fix is known and not built,** and it is the same one this section named
+before the summary existed: ask only about the chunks with no fresh ledger
+record for that peer, which the ledger already knows, instead of every chunk in
+a named bucket. The summary decides *where* to look; nothing yet narrows *what*
+is asked within it. See `docs/ROADMAP.md`.
+
+**And the local cost is not the wire cost.** `sweep` pages the whole live-chunk
+index and filters to the named buckets (`itsanas-net/src/session.rs`), so a
+single differing bucket still walks every row this device holds. The network
+saving is real and the disk read is not: at a terabyte on an SD card that is
+the number to watch next, and it has not been measured.
+
 
 ### 6.6 Why not sample random blocks inside a chunk
 
@@ -604,6 +651,48 @@ rule in `docs/ECONOMICS.md` §5 that the network never destroys data as a
 sanction.
 
 ---
+
+### 6.7 Asking "do we hold the same chunks?" in one hash
+
+A round used to ask its peer about every chunk it held, every time, and §6.5
+does the arithmetic on what that cost. It bought an exact answer to a question
+whose answer is almost always "nothing has changed", and it paid the full price
+for that answer every five minutes.
+
+The chunk id space is split into **256 buckets** — the first byte of the id, so
+the arithmetic is a lookup rather than a division — and each side hashes the ids
+in its own bucket, in ascending order. The ordering is free: both the owner's
+index and the host's vault are keyed by chunk id, so a range scan is already
+sorted. It is also the contract: hashing in any other order would make two
+honest machines disagree for ever, and the failure would look exactly like data
+loss.
+
+A round then sends one hash. If the two agree there is nothing more to say and
+**nothing is listed at all** — thirty-two bytes, whether the account is a
+megabyte or a terabyte. If they disagree, the disagreement is *located*, and the
+ordinary have/missing exchange runs over the named buckets only.
+
+**A differing hash is a question, not a verdict.** It says "somewhere in this
+two-hundred-and-fifty-sixth of the id space we do not agree" and nothing else.
+Nothing is withdrawn, sanctioned or repaired on the strength of a summary; what
+follows is the same exchange as before, over a slice, producing the same exact
+answer. An earlier design that condemned holders on an aggregate hash would have
+destroyed sixty healthy records for every real one, on nothing worse than a disk
+going soft.
+
+**What it does not fix.** The saving is on agreement, not on difference, and
+§6.5 has the table: past about a thousand differing chunks every bucket is
+named and the round is the full listing again, plus the summary. A flat table of
+256 buckets cannot do better — following the *logarithm* of the difference needs
+a tree, and that is not built. Nor does it help the disk: `sweep` still pages
+the whole live-chunk index and filters to the named buckets, so one differing
+bucket still walks every row this device holds.
+
+**A malformed summary is an error, not a shortcut.** A wrong-length answer was
+briefly treated as "compare what overlaps", which would have reported agreement
+about a part nobody looked at — eight bytes buying a clean bill of health over a
+whole account. It is `UnexpectedResponse` now, and every bucket is reported
+rather than a prefix silently compared.
 
 ## 7. Transport authentication
 

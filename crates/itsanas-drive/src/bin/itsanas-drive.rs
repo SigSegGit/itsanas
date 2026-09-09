@@ -198,7 +198,7 @@ mod windows {
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, wanted))
         }
 
-        fn read(&self, path: &str, offset: u64, into: &mut [u8]) -> io::Result<()> {
+        fn read(&self, path: &str, offset: u64, into: &mut [u8]) -> io::Result<usize> {
             let wanted = logical(path);
             let content = self.content(&wanted)?;
 
@@ -208,7 +208,10 @@ mod windows {
             let end = start.saturating_add(into.len()).min(content.len());
             let slice = &content[start..end];
             into[..slice.len()].copy_from_slice(slice);
-            Ok(())
+            // The count, not `()`. The caller cannot otherwise tell a full
+            // answer from a partial one, and the version that could not tell
+            // served the difference out of uninitialised memory.
+            Ok(slice.len())
         }
     }
 

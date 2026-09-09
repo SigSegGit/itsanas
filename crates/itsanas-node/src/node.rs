@@ -18,6 +18,7 @@
 //! already paid for the master secret — and removes an entire class of "the
 //! secret was readable because a permission bit did not survive" bugs.
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 /// What the daemon leaves behind so a running node can still be asked.
@@ -63,7 +64,8 @@ struct NodeSecrets {
 }
 
 /// An opened node: identity, own store, and vault.
-#[derive(Debug)]
+///
+/// `Debug` is hand-written below rather than derived. See the impl for why.
 pub struct Node {
     pub home: PathBuf,
     pub config: Config,
@@ -87,6 +89,47 @@ pub struct Node {
     /// Kept so that an escrow copy can be sealed under a different label
     /// without deriving anything a second time. Zeroized with the node.
     pub secrets: zeroize::Zeroizing<Vec<u8>>,
+}
+
+/// Everything but the secrets, and the secrets as a length.
+///
+/// # Why this is written out rather than derived
+///
+/// `Node` used to `#[derive(Debug)]`, and `secrets` is a
+/// `Zeroizing<Vec<u8>>` holding the *plaintext* encoding of the master secret
+/// and the device seed. `Zeroizing` protects the memory's lifetime, not its
+/// formatting: its own `Debug` forwards straight to `Vec<u8>`, which prints
+/// every byte in decimal.
+///
+/// Nothing formatted a `Node` — this was a loaded gun rather than a shot
+/// fired — but every other secret-bearing type in this workspace has a
+/// hand-written redacting `Debug` for exactly this reason: `SecretBytes`,
+/// `MasterSecret`, `UserKeys`, `DeviceKeys`, `Keystore`, and `Phrase` a
+/// hundred lines below. `Store` and `Vault` can derive theirs only because
+/// their key fields are those redacting types. `Node` was the one struct
+/// holding raw key bytes and the one that derived.
+///
+/// One `tracing::debug!(?node)`, one `dbg!(&node)`, or one error type that
+/// embeds a `Node` and derives, and the master secret — the value the
+/// twenty-four words encode, from which every chunk key descends — lands in a
+/// journal, a shipped log, or a support paste. That is the whole account: the
+/// signing key, every chunk key past and future, the oplog root.
+///
+/// The comment two hundred lines below this one already named "a stray `dbg!`
+/// or a struct derive that includes it" as the likeliest way this material
+/// escapes. The derive was sitting above it.
+impl fmt::Debug for Node {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Node")
+            .field("home", &self.home)
+            .field("config", &self.config)
+            .field("store", &self.store)
+            .field("vault", &self.vault)
+            .field("device", &self.device)
+            .field("user", &self.user)
+            .field("secrets_len", &self.secrets.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Node {
@@ -327,6 +370,65 @@ mod tests {
             }
         }
         false
+    }
+
+    #[test]
+    fn red_team_printing_a_node_does_not_print_the_master_secret() {
+        // `Node` derived `Debug`, and `secrets` is the plaintext encoding of
+        // the master secret and the device seed. `Zeroizing` protects the
+        // memory's lifetime, not its formatting -- its `Debug` forwards to
+        // `Vec<u8>`, which prints every byte in decimal.
+        //
+        // Nothing formatted a `Node`, so this was never a leak. It was one
+        // `tracing::debug!(?node)` away from being the whole account in a
+        // journal: the signing key, every chunk key past and future, the value
+        // the twenty-four words encode. Every other secret-bearing type in the
+        // workspace has a redacting `Debug` for this reason; this was the one
+        // that derived, and it derived directly above the comment naming "a
+        // struct derive that includes it" as the way this material escapes.
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        let (node, _phrase) = Node::create(&home, PASSPHRASE, "nicolas").unwrap();
+
+        assert!(
+            !node.secrets.is_empty(),
+            "the node holds no secrets to leak"
+        );
+        let printed = format!("{node:?}");
+
+        // A `Vec<u8>` prints as its bytes in decimal, comma-separated. Looking
+        // for a run of eight rather than for one byte: single small numbers
+        // occur in any output by accident, eight consecutive ones do not.
+        let run: String = node
+            .secrets
+            .iter()
+            .take(8)
+            .map(std::string::ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        assert!(
+            !printed.contains(&run),
+            "the encoded master secret is in the debug output: {printed}"
+        );
+
+        // Any window of eight, not only the first: a future field could carry
+        // the same bytes from a different offset under a different name.
+        for window in node.secrets.windows(8) {
+            let run: String = window
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            assert!(!printed.contains(&run), "secret bytes reached the output");
+        }
+
+        // And what it must still say, so a rewrite that redacts by deleting
+        // the whole impl has to be a deliberate act rather than a side effect.
+        assert!(printed.contains("secrets_len"), "got: {printed}");
+        assert!(
+            printed.contains("nicolas"),
+            "the useful part was redacted too: {printed}"
+        );
     }
 
     #[test]
