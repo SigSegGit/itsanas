@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**713 test functions, 3 of them `#[ignore]`d into the slow job, and 36 of
+**716 test functions, 3 of them `#[ignore]`d into the slow job, and 39 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1193,6 +1193,71 @@ files rather than being a new class of problem.
 Three limits that are fine at the size this runs at today and are not fine at
 the size it is aimed at. Written with the number where each one breaks, because
 a limit described in words gets rediscovered as a surprise.
+
+### What an adversarial sweep found and what is still open — 2026-09-09
+
+Eight attack surfaces, each read by an agent told that returning nothing was an
+acceptable answer, and told not to report anything the code already defends
+against or the docs already state as a limit. Five of the eight produced
+findings. **Four were fixed the same day and carry red-team tests**; what
+follows is what is *not* fixed, written down so the absence is a decision
+rather than a gap somebody discovers.
+
+The four that were fixed, for the record, are in the git log: uninitialised heap
+reaching a user's file through the ProjFS binding; one key minting accounts and
+renewing its joining allowance on a coordinator; forged holder records letting a
+stranger talk a node out of its only copy; and log segments escaping the pledge
+entirely. Plus two in the installers — `--clean` piped from the network ran
+`./clean.sh` from the current directory, which is arbitrary code execution in a
+script that removes a service and a passphrase file, and the unsafe-code gate
+was never in CI.
+
+**A refused request still costs the host a full walk of its vault.**
+`would_exceed_pledge` reads `Vault::stats()`, which iterates every owner, lists
+every blob address and stats each file — so a `StoreChunk` or `StoreSegment`
+that is going to be *refused* costs O(vault) first. The segment half of that is
+now a running total; the chunk half is not, though `vault_chunks` already stores
+each chunk's size and could be summed the same way. Nobody has measured what
+this costs on a full disk, and that measurement is the next honest step rather
+than a guess. Until then a peer can make a host work harder than it should, for
+free — bounded by connection throughput, destroying nothing.
+
+**One peer can hold the inbound listener open indefinitely.** The peer server
+handles connections one at a time and there is no per-connection request cap on
+the peer protocol (the coordinator has one). A peer that connects and then goes
+quiet shuts out every other inbound peer until it times out. It costs no data
+and the node's own outbound rounds are unaffected, which is why it is here
+rather than in a fix.
+
+**`itsanas pledge` does not re-check `keep`, and the Android bindings check
+neither.** `itsanas keep` refuses a figure the pledge has not earned, and
+`itsanas space --apply` refuses both; `pledge` on its own and `setKeep` /
+`setPledge` over JNI set the number without the ratio test. The consequence is a
+local config the coordinator would disagree with rather than any gain — the
+default is unbounded retention, which is strictly more parasitic and goes
+through the front door — so this is an inconsistency to tidy, not a hole. It is
+listed because three surfaces enforcing a rule and two not is exactly how a rule
+stops being one.
+
+**A chunk-size sequence is a fingerprint of the plaintext.** Content-defined
+chunking means the boundaries are a function of the bytes, so the sequence of
+sizes a host stores identifies a known file to anyone who has a copy of it —
+which is the confirmation attack blinded addressing exists to prevent, arriving
+by a different door. Padding chunks to a size class would close it and costs
+disk on every host. Not decided, and the honest position is that the current
+scheme protects *contents* against a host and does not protect *which file it
+is* against a host that already has a candidate.
+
+**The LAN beacon groups an account's machines.** The owner tag is a plain hash
+of a public key, so anyone on the same network can tell which machines belong to
+one account, and anyone who knows a user id can recognise it. On a home LAN that
+is close to no disclosure; on a shared or hostile network it is one. A rotating
+tag derived per epoch would fix it.
+
+**And the thing the sweep could not check.** Three of the eight surfaces —
+losing data through the store and garbage collector, secrets in the repository
+and its history, and the wire protocol — ran out of budget before finishing.
+They are unexamined, not clean.
 
 ### The have/missing sweep was going to kill the process before it cost bandwidth
 

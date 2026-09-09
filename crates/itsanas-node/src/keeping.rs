@@ -69,13 +69,17 @@ pub struct KeepingReport {
     pub filtered: usize,
     /// Whether the peer was told what this device released.
     pub told_the_peer: bool,
+    /// Storage challenges put to this peer before anything was released.
+    pub challenged: usize,
+    /// How many of them it failed.
+    pub challenges_failed: usize,
 }
 
 impl KeepingReport {
     /// Whether anything happened worth a line of output.
     #[must_use]
     pub const fn worth_reporting(&self) -> bool {
-        self.fetched > 0 || self.released > 0 || self.not_safe_yet > 0
+        self.fetched > 0 || self.released > 0 || self.not_safe_yet > 0 || self.challenges_failed > 0
     }
 }
 
@@ -150,6 +154,35 @@ pub fn round(
 
     let wanted = itsanas_store::chunks_for_all(store, vault, &wanted_paths)?;
     let pull = session::fetch_only(store, vault, client, &wanted)?;
+
+    // **Challenge before letting go, on the connection that is already open.**
+    //
+    // This is the only round that releases anything, and until now it was the
+    // only one that never audited. The daemon audits inside `sync_once`, which
+    // is a different function on a different path -- so a desktop asked its
+    // peers for proof and the phone, the device that actually runs with a
+    // budget and deletes its own copies, asked nobody, ever.
+    //
+    // That is what made forged holder records worth writing. `Request::Hosted`
+    // takes a claim from any device that completes a handshake; the answer to
+    // "so what stops a liar?" was "the storage challenges", and on this path
+    // there were none. `Store::release` now counts only holders that have
+    // answered one, which makes this call the thing that produces the evidence
+    // rather than a diagnostic.
+    //
+    // A failure here is not an error for the round: it withdraws that peer's
+    // records, which is exactly what should happen, and the release that
+    // follows then finds too few proved holders and declines.
+    match session::audit(store, client, session::CHALLENGES_PER_ROUND) {
+        Ok(audit) => {
+            report.challenged = audit.asked;
+            report.challenges_failed = audit.failed;
+        }
+        // A peer that will not answer challenges is a peer whose records stay
+        // unproved, and the release below will decline for that reason. Losing
+        // the round over it would also lose the fetch that already succeeded.
+        Err(_) => report.challenges_failed = 0,
+    }
 
     let freed = release_all(
         store,
@@ -331,6 +364,12 @@ mod tests {
             .store
             .record_holders(&held, &elsewhere)
             .expect("record");
+        // And it has answered a challenge, which is what makes the claim count.
+        // Without this line the helper fabricates exactly the forged record an
+        // attacker writes with `Request::Hosted`: a device that has been heard
+        // from and has never proved it stores anything. `Store::release` used
+        // to accept that, and these tests passed *because* it did.
+        machine.store.note_audit(&elsewhere, true).expect("audit");
     }
 
     fn tight() -> Keeping {

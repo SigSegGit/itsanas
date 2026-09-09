@@ -284,7 +284,16 @@ impl Request {
             // malformed -- the answer names the version both sides will speak,
             // and it is the caller's business to stay inside it.
             Self::Hello { protocol, .. } => *protocol >= MIN_PROTOCOL_VERSION,
-            Self::Dropped { chunks, .. } => !chunks.is_empty() && chunks.len() <= MAX_HAVE_BATCH,
+            // One arm, and it took a red-team sweep to get here. `Dropped`
+            // withdraws holder records and `Hosted` writes them; the first was
+            // bounded and the second fell through to `_ => true`, so one frame
+            // could add rows to a victim's index without limit -- permanent
+            // rows, in the table `Store::release` reads before deleting the
+            // last local copy. The asymmetry was the tell: somebody bounded the
+            // message that *removes* records and not the one that *adds* them.
+            Self::Dropped { chunks, .. } | Self::Hosted { chunks, .. } => {
+                !chunks.is_empty() && chunks.len() <= MAX_HAVE_BATCH
+            }
             Self::HaveChunks { addresses, .. } => {
                 !addresses.is_empty() && addresses.len() <= MAX_HAVE_BATCH
             }
@@ -551,6 +560,46 @@ mod tests {
                 protocol: MIN_PROTOCOL_VERSION - 1,
                 device: device(),
                 owner: user(),
+            }
+            .is_acceptable()
+        );
+    }
+
+    #[test]
+    fn red_team_a_claim_to_hold_things_is_bounded_like_the_claim_to_have_dropped_them() {
+        // `Dropped` withdraws holder records and `Hosted` writes them. The
+        // first was bounded and the second was not, so one frame could add
+        // rows to a victim's index without limit -- permanent rows, in the
+        // table `Store::release` reads to decide whether the last local copy
+        // may go. The asymmetry is the tell: somebody bounded the message that
+        // removes records and not the one that adds them.
+        let chunk = ChunkId::from_bytes([9; 32]);
+
+        assert!(
+            Request::Hosted {
+                chunks: vec![chunk; MAX_HAVE_BATCH],
+            }
+            .is_acceptable(),
+            "a full legitimate batch was refused"
+        );
+        assert!(
+            !Request::Hosted {
+                chunks: vec![chunk; MAX_HAVE_BATCH + 1],
+            }
+            .is_acceptable(),
+            "an unbounded claim was accepted"
+        );
+        assert!(
+            !Request::Hosted { chunks: Vec::new() }.is_acceptable(),
+            "an empty claim is a wasted round trip, not a message"
+        );
+
+        // The bound it was supposed to have all along, stated side by side so
+        // the next verb added here is compared against both.
+        assert!(
+            !Request::Dropped {
+                owner: user(),
+                chunks: vec![chunk; MAX_HAVE_BATCH + 1],
             }
             .is_acceptable()
         );

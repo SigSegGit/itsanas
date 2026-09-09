@@ -1536,6 +1536,7 @@ impl Index {
         let txn = self.db.begin_read()?;
         let seen = txn.open_table(DEVICE_SEEN)?;
         let holders_table = txn.open_table(HOLDERS)?;
+        let reliability = txn.open_table(RELIABILITY)?;
 
         let mut evidence = HolderEvidence::default();
         for row in holders_table
@@ -1558,6 +1559,20 @@ impl Index {
             // that peer confirms this chunk and was never read until now.
             if value.value() >= fresh_since {
                 evidence.fresh += 1;
+            }
+
+            // Has this device ever answered a challenge correctly? `passed` was
+            // written from the first audit and marked "diagnostics only"; it is
+            // the only thing in the ledger a liar cannot produce by talking.
+            // A device with no row at all -- which is every stranger that has
+            // only ever dialled in -- reads as zero.
+            let proved = reliability
+                .get(device.as_bytes().as_slice())?
+                .map(|value| postcard::from_bytes::<Reliability>(value.value()))
+                .transpose()?
+                .is_some_and(|record| record.passed > 0);
+            if proved {
+                evidence.proved += 1;
             }
         }
         Ok(evidence)

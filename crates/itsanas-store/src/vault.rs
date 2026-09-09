@@ -46,6 +46,28 @@ use crate::{
 const SEGMENTS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("vault_segments");
 /// `owner ‖ device` → how many segments are held for it.
 const CHAIN_LENGTHS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("vault_chain_lengths");
+
+/// Bytes of log segment held per chain, so the pledge can count them.
+///
+/// # Why this exists, and what it was worth
+///
+/// `would_exceed_pledge` reads `Vault::stats().bytes`, and `bytes` was the sum
+/// of the *chunk* blobs alone. Segments live in `vault_segments` and counted
+/// for nothing, so `held` stayed at zero however many arrived: every
+/// `StoreSegment` passed the quota on any host whose pledge exceeded one
+/// segment, for ever.
+///
+/// A stranger needed no account, no invitation and no coordinator -- a
+/// throwaway Ed25519 key completes the handshake, and a self-signed envelope
+/// with a random body is indistinguishable from a real one because nobody can
+/// decrypt either. Roughly 1,280 requests at just under the 8 MiB frame limit
+/// puts 10 GiB on the disk, and there is no upper bound and no segment-removal
+/// API. The bytes were also invisible in `itsanas status`, which reads the same
+/// field, so the operator watched a disk fill with no cause.
+///
+/// A running total rather than a walk, for the same reason the chunk index is
+/// one: this is read on the path of every stored object.
+const CHAIN_BYTES: TableDefinition<'_, &[u8], u64> = TableDefinition::new("vault_chain_bytes");
 /// `owner ‖ device` → the most recent segment id held.
 const HEADS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("vault_heads");
 
@@ -91,7 +113,14 @@ pub struct VaultStats {
     pub owners: usize,
     pub chunks: usize,
     pub segments: u64,
+    /// Every foreign byte on this disk: chunk blobs **and** log segments.
+    ///
+    /// This is what the pledge is measured against. Segments were missing from
+    /// it, which made the quota unenforceable for half the objects a peer can
+    /// send -- see `CHAIN_BYTES`.
     pub bytes: u64,
+    /// The segment half of [`Self::bytes`], so an operator can see it.
+    pub segment_bytes: u64,
 }
 
 /// `owner ‖ chunk`, so one owner's chunks are a contiguous, ordered range.
@@ -132,6 +161,7 @@ impl Vault {
         {
             let _ = txn.open_table(SEGMENTS)?;
             let _ = txn.open_table(CHAIN_LENGTHS)?;
+            let _ = txn.open_table(CHAIN_BYTES)?;
             let _ = txn.open_table(HEADS)?;
             let _ = txn.open_table(CHUNKS)?;
         }
@@ -139,6 +169,7 @@ impl Vault {
 
         let vault = Self { root, db };
         vault.backfill_chunks()?;
+        vault.backfill_segment_bytes()?;
         Ok(vault)
     }
 
@@ -274,6 +305,52 @@ impl Vault {
         Ok(())
     }
 
+    /// Total up the segments a vault already holds, once.
+    ///
+    /// Same reasoning as `backfill_chunks`, and the same cost: one walk on the
+    /// first start after an upgrade. Without it a vault that filled up before
+    /// segments counted would report zero for them for ever, which is the bug
+    /// this table exists to fix, preserved.
+    fn backfill_segment_bytes(&self) -> Result<()> {
+        let txn = self.db.begin_read()?;
+        let done = txn.open_table(CHAIN_BYTES)?.iter()?.next().is_some();
+        let empty = txn.open_table(SEGMENTS)?.iter()?.next().is_none();
+        drop(txn);
+        if done || empty {
+            return Ok(());
+        }
+
+        let mut totals: std::collections::BTreeMap<Vec<u8>, u64> =
+            std::collections::BTreeMap::new();
+        {
+            let txn = self.db.begin_read()?;
+            let segments = txn.open_table(SEGMENTS)?;
+            for row in segments.iter()? {
+                let (key, value) = row?;
+                let raw = key.value();
+                // The segment key is the chain key with the index appended, so
+                // the chain key is its prefix. Taken by length rather than by
+                // parsing, because the shape is fixed by `segment_key`.
+                if raw.len() < CHAIN_KEY_LEN {
+                    continue;
+                }
+                let chain = raw[..CHAIN_KEY_LEN].to_vec();
+                let bytes = value.value().len() as u64;
+                *totals.entry(chain).or_default() += bytes;
+            }
+        }
+
+        let txn = self.db.begin_write()?;
+        {
+            let mut table = txn.open_table(CHAIN_BYTES)?;
+            for (chain, bytes) in totals {
+                table.insert(chain.as_slice(), bytes)?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
     // -------------------------------------------------------------- segments
 
     /// Accept a segment for storage, after verifying its signature.
@@ -296,6 +373,7 @@ impl Vault {
         {
             let mut segments = txn.open_table(SEGMENTS)?;
             let mut lengths = txn.open_table(CHAIN_LENGTHS)?;
+            let mut chain_bytes = txn.open_table(CHAIN_BYTES)?;
             let mut heads = txn.open_table(HEADS)?;
 
             let length = lengths.get(key.as_slice())?.map_or(0, |v| v.value());
@@ -313,6 +391,8 @@ impl Vault {
                     encoded.as_slice(),
                 )?;
                 lengths.insert(key.as_slice(), length + 1)?;
+                let so_far = chain_bytes.get(key.as_slice())?.map_or(0, |v| v.value());
+                chain_bytes.insert(key.as_slice(), so_far.saturating_add(encoded.len() as u64))?;
                 heads.insert(key.as_slice(), envelope.segment_id.as_bytes().as_slice())?;
                 stored = true;
             } else {
@@ -482,11 +562,23 @@ impl Vault {
             }
         }
 
+        let chain_bytes = txn.open_table(CHAIN_BYTES)?;
+        let mut segment_bytes = 0u64;
+        for row in chain_bytes.iter()? {
+            let (key, value) = row?;
+            if key.value().starts_with(prefix) {
+                segment_bytes = segment_bytes.saturating_add(value.value());
+            }
+        }
+
         Ok(VaultStats {
             owners: 1,
             chunks: blobs.addresses()?.len(),
             segments,
-            bytes: blobs.total_bytes()?,
+            // Both halves, for the same reason as `stats`: this is what an
+            // operator reads to answer "how much of my disk is theirs".
+            bytes: blobs.total_bytes()?.saturating_add(segment_bytes),
+            segment_bytes,
         })
     }
 
@@ -509,6 +601,16 @@ impl Vault {
         for row in lengths.iter()? {
             let (_, value) = row?;
             stats.segments = stats.segments.saturating_add(value.value());
+        }
+
+        // Segments are foreign data on this disk exactly as chunks are, and
+        // `bytes` is what the pledge is measured against. Leaving them out made
+        // the quota unenforceable for half the objects a peer can send.
+        let chain_bytes = txn.open_table(CHAIN_BYTES)?;
+        for row in chain_bytes.iter()? {
+            let (_, value) = row?;
+            stats.segment_bytes = stats.segment_bytes.saturating_add(value.value());
+            stats.bytes = stats.bytes.saturating_add(value.value());
         }
 
         Ok(stats)
@@ -878,17 +980,23 @@ mod tests {
         let own = vault.stats_for(mine.user_id()).unwrap();
         assert_eq!(own.segments, 1);
         assert_eq!(
-            own.bytes, 0,
+            own.bytes - own.segment_bytes,
+            0,
             "no foreign chunks are held for my own account"
         );
+        // The segment relayed for my own account does weigh something, and it
+        // now says so. It used to report zero, which is how a disk filled with
+        // segments read as an empty vault.
+        assert!(own.segment_bytes > 0, "a relayed segment weighed nothing");
 
         let theirs = vault.stats_for(stranger.user_id()).unwrap();
         assert_eq!(theirs.bytes, 500);
+        assert_eq!(theirs.segment_bytes, 0);
         assert_eq!(theirs.segments, 0);
 
         let total = vault.stats().unwrap();
         assert_eq!(total.owners, 2);
-        assert_eq!(total.bytes, 500);
+        assert_eq!(total.bytes - total.segment_bytes, 500, "the chunk half");
         assert_eq!(total.segments, 1);
     }
 
@@ -912,7 +1020,54 @@ mod tests {
         assert_eq!(stats.owners, 2);
         assert_eq!(stats.chunks, 2);
         assert_eq!(stats.segments, 2);
-        assert_eq!(stats.bytes, 350);
+        // `bytes` is every foreign byte, chunks *and* segments. It used to be
+        // the chunk half alone, which is what let a stranger fill a host's disk
+        // with segments while the pledge check read zero for ever.
+        assert_eq!(stats.bytes - stats.segment_bytes, 350, "the chunk half");
+        assert!(stats.segment_bytes > 0, "two segments weighed nothing");
+    }
+
+    #[test]
+    fn red_team_segments_count_against_the_pledge_like_any_other_foreign_byte() {
+        // The hole: `would_exceed_pledge` reads `stats().bytes`, and `bytes`
+        // summed the chunk blobs alone. Segments live in their own table and
+        // counted for nothing, so `held` stayed at zero however many arrived --
+        // every `StoreSegment` passed the quota, for ever, on any host whose
+        // pledge exceeded one segment.
+        //
+        // It needed no account and no invitation: a throwaway device key
+        // completes the handshake, and a self-signed envelope full of random
+        // bytes is indistinguishable from a real one because nobody can decrypt
+        // either. There is no segment-removal API and redb does not shrink, so
+        // the space was not reclaimable even by an operator who noticed -- and
+        // they would not have, because `itsanas status` reads the same field.
+        let (_dir, vault) = vault();
+        let user = keys(31);
+        let dev = device(31);
+
+        let before = vault.stats().unwrap();
+        assert_eq!(before.segment_bytes, 0);
+
+        vault.put_segment(&segment(&user, &dev, None, 1)).unwrap();
+        let after = vault.stats().unwrap();
+        assert!(
+            after.segment_bytes > 0,
+            "a stored segment weighed nothing against the pledge"
+        );
+        assert_eq!(
+            after.bytes, after.segment_bytes,
+            "the vault holds no chunks, so every byte here is segment"
+        );
+
+        // And it accumulates rather than being overwritten by the next link.
+        let first = after.segment_bytes;
+        let head = vault.heads_for(user.user_id()).unwrap()[0].1;
+        let second = segment(&user, &dev, Some(head), 2);
+        vault.put_segment(&second).unwrap();
+        assert!(
+            vault.stats().unwrap().segment_bytes > first,
+            "a second segment did not add to the total"
+        );
     }
 
     #[test]

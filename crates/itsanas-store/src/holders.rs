@@ -389,6 +389,30 @@ pub struct HolderEvidence {
     pub live: usize,
     /// Holders whose record *for this chunk* was refreshed within the window.
     pub fresh: usize,
+    /// Holders that have ever answered a storage challenge correctly.
+    ///
+    /// # Why a third number, and why releasing counts this one
+    ///
+    /// A holder record is a **claim**. `Request::Hosted` writes one for any
+    /// device that authenticates, and authenticating costs an Ed25519 keypair
+    /// somebody generates in a millisecond. The comment beside it said the
+    /// claim is "recorded and then checked -- the owner's storage challenges
+    /// are what turn it into evidence", and that was true of every peer this
+    /// node *dials*. `session::audit` runs from `sync_once`, and `sync_once`
+    /// only ever runs against configured, coordinator-listed or LAN-announced
+    /// peers. **A device that only ever dials in is in none of those lists and
+    /// is never challenged once.**
+    ///
+    /// So: two throwaway keys, `WantHosted` to learn which chunks are short of
+    /// copies, `Hosted` to claim them, and the owner believed two live fresh
+    /// holders existed for content nobody held. A node over its keep budget
+    /// then released the only real copy. Free, remote, and permanent.
+    ///
+    /// `live` and `fresh` answer "is that machine about, and did it say so
+    /// recently" -- both of which a liar satisfies by talking. This one asks
+    /// whether it has ever *proved* it stores anything, which costs holding the
+    /// bytes. It is what [`SAFE_TO_RELEASE`] now counts.
+    pub proved: usize,
 }
 
 /// How many *other* live machines must hold a chunk before this one may let it

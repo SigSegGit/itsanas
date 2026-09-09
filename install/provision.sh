@@ -133,9 +133,24 @@ USAGE
 # second script to delete things with is not a thing this should do quietly. It
 # says where the script is instead.
 run_clean() {
-    here=$(dirname -- "$0" 2>/dev/null || echo .)
-    if [ -f "$here/clean.sh" ]; then
-        exec sh "$here/clean.sh" "$@"
+    # `[ -f "$0" ]` first, and it is the whole guard.
+    #
+    # Piped from the network -- which is the entry point the header of this file
+    # advertises -- `$0` is `sh` or `-`, `dirname` answers `.`, and the old
+    # version then ran `./clean.sh` from **whatever directory the person happened
+    # to be in**. Demonstrated: put a `clean.sh` saying `echo PWNED` in a
+    # directory, run the advertised one-liner with --clean from it, and it runs.
+    # A script that deletes a service and a passphrase file is a good one to be
+    # able to substitute.
+    #
+    # A `$0` that names a real file means this script was run from a path, so
+    # its directory is the checkout it came from. Anything else falls through to
+    # the message below.
+    if [ -f "$0" ]; then
+        here=$(dirname -- "$0")
+        if [ -f "$here/clean.sh" ]; then
+            exec sh "$here/clean.sh" "$@"
+        fi
     fi
     die "--clean needs the checkout" \
         "This was run without install/clean.sh beside it, which happens when" \

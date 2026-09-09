@@ -2441,16 +2441,23 @@ fn a_file_this_device_made_and_released_can_be_fetched_back_from_a_host() {
         let mut client =
             PeerClient::connect(address, &mine.device, mine.store.owner(), None).unwrap();
         session::push(&mine.store, &mut client).unwrap();
+        // And challenged, which is what turns the acknowledgement into a copy
+        // the release may count. A round does both; a test that did only the
+        // first was measuring a claim.
+        session::audit(&mine.store, &mut client, session::CHALLENGES_PER_ROUND).unwrap();
     });
 
-    // Two live holders, so the release is allowed. One is the host that just
-    // acknowledged; the second stands for the other machine a real account has,
-    // and is written straight into the ledger because this test is about the
-    // fetch, not about the threshold.
+    // Two proved holders, so the release is allowed. One is the host that just
+    // acknowledged and answered; the second stands for the other machine a real
+    // account has, and is written straight into the ledger -- with its audit
+    // stamped, because a recorded holder that has never answered a challenge is
+    // exactly the forged record `Request::Hosted` lets a stranger write, and
+    // this test is about the fetch, not about the threshold.
     let elsewhere =
         itsanas_crypto::DeviceKeys::from_seed(&itsanas_crypto::SecretBytes::new([0xEE; 32]))
             .device_id();
     mine.store.record_holders(&chunks, &elsewhere).unwrap();
+    mine.store.note_audit(&elsewhere, true).unwrap();
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2567,11 +2574,29 @@ fn a_release_rests_on_two_real_peers_and_notices_when_one_stops_holding() {
     author.store.flush_segment().unwrap();
     let chunks = author.store.stat("real.bin").unwrap().unwrap().chunks;
 
+    // Push, then **challenge on the same connection**, which is what a real
+    // round does and what the release now requires. A push produces a
+    // *recorded* holder; only an answered challenge produces a proved one, and
+    // proved is what `Store::release` counts. Adding the audit here is not
+    // making the test pass -- it is the test finally doing what the daemon and
+    // `itsanas_node::round` do, so that "a release rests on two real peers"
+    // means the peers were asked rather than believed.
     let push_to = |host: &Node| {
         with_server(host, Pledge::gigabytes(1), |address| {
             let mut client =
                 PeerClient::connect(address, &author.device, author.store.owner(), None).unwrap();
-            session::push(&author.store, &mut client).unwrap()
+            let report = session::push(&author.store, &mut client).unwrap();
+            // No assertion on how many were asked: this helper is used again
+            // further down, after the author has released the content, and
+            // there is nothing left locally to derive an expected answer from.
+            // A round asks what it can, and the release decides on the result.
+            let audit =
+                session::audit(&author.store, &mut client, session::CHALLENGES_PER_ROUND).unwrap();
+            assert_eq!(
+                audit.failed, 0,
+                "an honest host failed a challenge it should have answered"
+            );
+            report
         })
     };
 
@@ -2591,6 +2616,10 @@ fn a_release_rests_on_two_real_peers_and_notices_when_one_stops_holding() {
     assert_eq!(
         earned.fresh, 2,
         "the records were not fresh for this chunk, which is what a release needs"
+    );
+    assert_eq!(
+        earned.proved, 2,
+        "the hosts were believed rather than asked, which is the bar a release needs"
     );
 
     match author.store.release("real.bin", now).unwrap() {

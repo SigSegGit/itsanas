@@ -1014,6 +1014,7 @@ fn content_is_not_released_until_two_other_machines_have_it() {
     // single copy is one disk failure from none.
     let first = DeviceKeys::generate().expect("device key").device_id();
     store.record_holders(&chunks, &first).expect("record");
+    store.note_audit(&first, true).expect("audit");
     match store.release("report.pdf", now).expect("release") {
         itsanas_store::Release::NotSafeYet { evidence, .. } if evidence.live == 1 => {}
         other => panic!("released with a single copy elsewhere: {other:?}"),
@@ -1022,6 +1023,7 @@ fn content_is_not_released_until_two_other_machines_have_it() {
     // Two are.
     let second = DeviceKeys::generate().expect("device key").device_id();
     store.record_holders(&chunks, &second).expect("record");
+    store.note_audit(&second, true).expect("audit");
 
     let freed = match store.release("report.pdf", now).expect("release") {
         itsanas_store::Release::Gone(report) => report,
@@ -1060,6 +1062,97 @@ fn content_is_not_released_until_two_other_machines_have_it() {
 /// seen, because an acknowledgement *is* contact. The stale case is therefore
 /// only reachable by moving the clock, which is why `release` takes one.
 #[test]
+fn red_team_a_stranger_that_only_claims_to_hold_a_chunk_cannot_make_it_releasable() {
+    // The attack a red-team sweep found, and it needed no bug in the crypto,
+    // the transport or the accounting -- only two throwaway keypairs.
+    //
+    // `Request::Hosted` records a holder for any device that completes a
+    // handshake, and the answer to "so what stops a liar?" was: the owner's
+    // storage challenges. But `session::audit` ran from `sync_once`, which only
+    // ever runs against peers this node *dials* -- configured, coordinator
+    // listed, or LAN announced. **A device that only ever dials in appears in
+    // none of those lists and was never challenged once.** So:
+    //
+    //   1. mint two device keys, free, in a millisecond each;
+    //   2. connect and ask `WantHosted` for the chunks with fewest copies;
+    //   3. answer `Hosted` with those ids, holding nothing;
+    //   4. the owner now believes two live, fresh holders exist.
+    //
+    // A device over its keep budget then released its only copy. Free, remote,
+    // permanent, and invisible -- `coverage` and `status` both reported the
+    // account replicated.
+    //
+    // The bar is now `proved`: holders that have answered a storage challenge,
+    // which costs holding the bytes. This test is the ledger half -- the claim
+    // is recorded exactly as the wire path records it, and the release refuses.
+    // `a_release_rests_on_two_real_peers_and_notices_when_one_stops_holding` is
+    // the other half, over real sockets.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let master = MasterSecret::generate().expect("master secret");
+    let store = store_for(&master, dir.path());
+
+    store
+        .write_file("only-copy.txt", b"the last copy of something")
+        .expect("write");
+    let chunks = store
+        .stat("only-copy.txt")
+        .expect("stat")
+        .expect("here")
+        .chunks;
+
+    // Two strangers claim it. `record_holders` is exactly what the service does
+    // for `Request::Hosted`, with the device the connection proved.
+    let liar_one = DeviceKeys::generate().expect("device key").device_id();
+    let liar_two = DeviceKeys::generate().expect("device key").device_id();
+    store.record_holders(&chunks, &liar_one).expect("record");
+    store.record_holders(&chunks, &liar_two).expect("record");
+
+    let now = store
+        .last_seen(&liar_one)
+        .expect("last seen")
+        .expect("seen");
+    let evidence = store.holder_evidence(&chunks[0], now).expect("evidence");
+    assert_eq!(
+        evidence.live, 2,
+        "the claims were not recorded, so this test proves nothing"
+    );
+    assert_eq!(evidence.fresh, 2, "the records are not fresh, likewise");
+    assert_eq!(
+        evidence.proved, 0,
+        "a device that never answered a challenge counted as proof"
+    );
+
+    match store.release("only-copy.txt", now).expect("release") {
+        itsanas_store::Release::NotSafeYet { evidence, .. } => {
+            assert_eq!(evidence.proved, 0);
+        }
+        other => panic!("two strangers talked this node out of its only copy: {other:?}"),
+    }
+    assert!(
+        store.read_file("only-copy.txt").expect("read").is_some(),
+        "the content is gone, which is the whole damage"
+    );
+
+    // And the other side of the rule: one of them answers a challenge, so it
+    // becomes a copy -- but one proved holder is still one short of the floor,
+    // and the release stays refused. The bar moves with the evidence.
+    store.note_audit(&liar_one, true).expect("audit");
+    match store.release("only-copy.txt", now).expect("release") {
+        itsanas_store::Release::NotSafeYet { evidence, .. } => {
+            assert_eq!(evidence.proved, 1);
+        }
+        other => panic!("released on a single proved holder: {other:?}"),
+    }
+
+    // Both proved: this is a real pair of copies and letting go is correct.
+    store.note_audit(&liar_two, true).expect("audit");
+    match store.release("only-copy.txt", now).expect("release") {
+        itsanas_store::Release::Gone(_) => {}
+        other => panic!("two proved holders did not authorise a release: {other:?}"),
+    }
+}
+
+#[test]
 fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
     let dir = tempfile::tempdir().expect("temp dir");
     let master = MasterSecret::generate().expect("master secret");
@@ -1073,7 +1166,9 @@ fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
     let peer = DeviceKeys::generate().expect("device key").device_id();
     let other = DeviceKeys::generate().expect("device key").device_id();
     store.record_holders(&chunks, &peer).expect("record");
+    store.note_audit(&peer, true).expect("audit");
     store.record_holders(&chunks, &other).expect("record");
+    store.note_audit(&other, true).expect("audit");
     let recorded = store.last_seen(&peer).expect("last seen").expect("seen");
 
     // One second before the records go stale, they still count.
@@ -1089,7 +1184,9 @@ fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
         .expect("rewrite");
     let chunks = store.stat("notes.txt").expect("stat").expect("here").chunks;
     store.record_holders(&chunks, &peer).expect("record");
+    store.note_audit(&peer, true).expect("audit");
     store.record_holders(&chunks, &other).expect("record");
+    store.note_audit(&other, true).expect("audit");
     let recorded = store.last_seen(&peer).expect("last seen").expect("seen");
 
     match store
@@ -1127,6 +1224,7 @@ fn releasing_one_file_leaves_a_chunk_another_file_still_uses() {
     for _ in 0..itsanas_store::holders::SAFE_TO_RELEASE {
         let peer = DeviceKeys::generate().expect("device key").device_id();
         store.record_holders(&chunks, &peer).expect("record");
+        store.note_audit(&peer, true).expect("audit");
     }
 
     let now = std::time::SystemTime::now()
@@ -1177,6 +1275,7 @@ fn a_file_this_device_made_and_released_is_still_listed_and_still_fetchable() {
     for _ in 0..itsanas_store::holders::SAFE_TO_RELEASE {
         let host = DeviceKeys::generate().expect("device key").device_id();
         store.record_holders(&chunks, &host).expect("record");
+        store.note_audit(&host, true).expect("audit");
     }
 
     let now = std::time::SystemTime::now()
@@ -1265,6 +1364,7 @@ fn a_file_can_be_released_fetched_back_and_released_again() {
         .collect();
     for host in &hosts {
         store.record_holders(&chunks, host).expect("record");
+        store.note_audit(host, true).expect("audit");
     }
 
     let now = std::time::SystemTime::now()
@@ -1327,6 +1427,7 @@ fn a_reachable_machine_with_stale_records_does_not_authorise_a_release() {
         .collect();
     for host in &hosts {
         store.record_holders(&chunks, host).expect("record");
+        store.note_audit(host, true).expect("audit");
     }
     let recorded = store
         .last_seen(&hosts[0])

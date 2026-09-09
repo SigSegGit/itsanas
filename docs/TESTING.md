@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-09 — 713 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 36 are red-team tests.**
+**Last updated: 2026-09-09 — 716 test functions across 24 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 39 are red-team tests.**
 
-**597 of the 713 tests have an entry of their own on this page** — an *entry*,
+**600 of the 716 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -138,11 +138,11 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 149 |
-| `itsanas-store` integration (`tests/store.rs`) | 38 (1 `#[ignore]`d) |
+| `itsanas-store` unit | 150 |
+| `itsanas-store` integration (`tests/store.rs`) | 39 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
-| `itsanas-net` unit | 34 |
+| `itsanas-net` unit | 35 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 44 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 76 |
@@ -384,7 +384,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (135, plus the 14 vault tests below)
+# `itsanas-store` — unit tests (135, plus the 15 vault tests below)
 
 ## `reliability` — remembering that a peer failed (6)
 
@@ -550,7 +550,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (38)
+# `itsanas-store` — integration tests (39)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -638,6 +638,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 | **`version_vectors_order_sequential_writes_and_flag_concurrent_ones`** | The underlying primitive, checked at the level of real stores rather than in isolation. |
 | **`content_is_not_released_until_two_other_machines_have_it`** | The one store operation that destroys data if it is wrong. A device with a limit has to be able to let go of files, and the difference between that and eating the second copy to make room is this check — one remaining copy is not a floor, it is the last one. Asserts the refusal at zero holders *and* at one. Confirmed by sabotage: removing the guard turns this and the next test red. |
 | **`a_holder_nobody_has_heard_from_does_not_authorise_letting_go`** | An acknowledgement is evidence about the past. `coverage` already refuses to count a silent machine as a copy; letting go of local content on the strength of one is worse, because it acts on the belief rather than reporting it. Reachable only by moving the clock, because recording a holder *is* contact. |
+| **`red_team_a_stranger_that_only_claims_to_hold_a_chunk_cannot_make_it_releasable`** | The worst finding of the sweep, and it needed no bug in the crypto, the transport or the accounting — two throwaway keypairs. `Request::Hosted` records a holder for any device that completes a handshake; the answer to "what stops a liar?" was the owner's storage challenges, and `session::audit` ran only from `sync_once`, which only ever runs against peers this node **dials**. A device that only ever dials in appeared in no peer list and was never challenged once. So: mint two keys, ask `WantHosted` for the chunks with fewest copies, answer `Hosted` holding nothing, and the owner believed two live fresh holders existed. A device over its keep budget then deleted its only copy — free, remote, permanent, and invisible, because `coverage` and `status` both read the same ledger. Releasing now counts **proved** holders: ones that have answered a challenge, which costs holding the bytes. The test asserts all three steps of the ladder — nothing on two liars, still nothing on one proved, gone on two. |
 | **`releasing_one_file_leaves_a_chunk_another_file_still_uses`** | Deduplication means two paths can share a chunk. Freeing by path rather than by reference would empty half of a file the device was told to keep, and the damage would surface only the next time somebody opened it. |
 | **`a_file_this_device_made_and_released_is_still_listed_and_still_fetchable`** | Found on a Raspberry Pi, not in a test: a file put on a device with a 300 KiB limit, pushed to two hosts, released exactly as designed — and then gone from `itsanas ls` on the machine that made it, with `itsanas get` answering "no such file" for a file two other machines were holding. The catalogue walked only *other* devices' chains, on a rule that stopped being true the day content could be released. Fails when the walk over this device's own log is removed. |
 | **`a_deleted_file_is_not_resurrected_by_reading_this_devices_own_log`** | The other half. Reading one's own chain must not bring back everything one has ever deleted. |
@@ -647,7 +648,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (14 of the store's unit tests)
+# `itsanas-store` — the vault (15 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -659,6 +660,7 @@ about reading.
 | **`a_segment_that_does_not_continue_the_chain_is_refused`** | Otherwise a host can be induced to store a chain with a hole and then serve that hole to a peer as though it were complete. |
 | **`re_offering_the_current_tip_is_accepted_as_a_no_op`** | Peers re-offer freely — there is no acknowledgement telling them to stop — so this must neither error nor duplicate. |
 | **`an_owner_whose_chunks_are_held_but_whose_log_is_not_still_counts`** | Guards a real bug this suite caught: the owner list was derived from the segment table alone, so a host storing chunks but no segments reported zero bytes and its quota was blind to the bulk of what it held. |
+| **`red_team_segments_count_against_the_pledge_like_any_other_foreign_byte`** | `would_exceed_pledge` reads `stats().bytes`, and `bytes` summed the chunk blobs alone. Log segments live in their own table and counted for nothing, so `held` stayed at zero however many arrived: **every `StoreSegment` passed the quota, for ever**, on any host whose pledge exceeded one segment. No account and no invitation were needed — a throwaway device key completes the handshake, and a self-signed envelope of random bytes is indistinguishable from a real one because nobody can decrypt either. About 1,280 frames put 10 GiB on the disk; there is no segment-removal API and redb does not shrink, so it was not reclaimable, and `itsanas status` reads the same field so the operator watched a disk fill with no cause. A running byte total per chain now feeds the quota, backfilled once on open for vaults that predate it. |
 | **`two_owners_chunks_do_not_collide_even_at_the_same_address`** | Chunk ids are blinded per user so a collision should not happen, but correctness must not depend on that. |
 | **`one_owners_segments_are_never_served_under_another_owners_name`** | Owner scoping is real, not incidental. |
 | **`resuming_after_an_unknown_segment_returns_nothing_rather_than_everything`** | An unrecognised resume point must not cause the whole chain to be re-sent. |
@@ -672,7 +674,7 @@ about reading.
 
 ---
 
-# `itsanas-net` — unit tests (34)
+# `itsanas-net` — unit tests (35)
 
 ## `protocol` — messages and challenges (9)
 
@@ -680,6 +682,7 @@ about reading.
 | --- | --- |
 | **`a_proof_for_one_nonce_does_not_answer_another`** | Otherwise a host computes one proof, throws the chunk away, and answers every future challenge from cache. |
 | **`a_proof_requires_the_actual_bytes`** | A host that discarded the chunk fails. |
+| **`red_team_a_claim_to_hold_things_is_bounded_like_the_claim_to_have_dropped_them`** | `Dropped` withdraws holder records and `Hosted` writes them. The first was bounded at `MAX_HAVE_BATCH` and the second fell through to `_ => true`, so one frame could add rows to a victim's index without limit — permanent rows, in the table `Store::release` reads before deleting the last local copy. The asymmetry was the tell: somebody bounded the message that *removes* records and not the one that *adds* them. Both arms are now one arm, so the next verb added here is compared against both. |
 | **`a_single_bit_of_difference_fails_the_challenge`** | Corruption is caught, not just deletion. |
 | **`an_unbounded_segment_request_is_not_acceptable`** | One request cannot ask a peer to assemble everything it holds. |
 | **`a_maximum_size_chunk_fits_in_one_frame`** | The largest legitimate message fits the frame limit, so normal operation does not hit it. |

@@ -428,8 +428,15 @@ impl Store {
                 continue;
             }
 
+            // `proved`, not `live`. A live holder is one that has been heard
+            // from; a proved one has answered a storage challenge. Anybody can
+            // be heard from -- `Request::Hosted` takes a claim from any device
+            // that completes a handshake, and a device that only ever dials in
+            // is never audited, so its claim would have stayed unexamined for
+            // ever. Releasing is the one operation that reduces the number of
+            // copies on purpose, so it is the one that must not run on a claim.
             let evidence = self.index.holder_evidence(address, now)?;
-            if evidence.live < crate::holders::SAFE_TO_RELEASE || evidence.fresh == 0 {
+            if evidence.proved < crate::holders::SAFE_TO_RELEASE || evidence.fresh == 0 {
                 return Ok(Release::NotSafeYet {
                     chunk: *address,
                     evidence,
