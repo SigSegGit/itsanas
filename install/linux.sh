@@ -131,6 +131,7 @@ Options
 
 Environment
   ITSANAS_PREFIX   same as --prefix
+  ITSANAS_REF      tag or branch to build, e.g. v0.1.0 (default: the default branch)
   ITSANAS_REPO     git URL to clone when --source is not given
                    (default: https://github.com/SigSegGit/itsanas)
 
@@ -534,12 +535,28 @@ else
         # nobody has configured.
         REPO="${ITSANAS_REPO:-https://github.com/SigSegGit/itsanas.git}"
         BUILD_DIR="$HOME/.local/src/itsanas"
+        # ITSANAS_REF builds a release rather than whatever `main` is today.
+        # Without it the one-liner in a release's notes built the tip of the
+        # default branch -- a release that installs something other than
+        # itself.
+        REF="${ITSANAS_REF:-}"
         if [ -d "$BUILD_DIR/.git" ]; then
             info "updating $BUILD_DIR"
-            git -C "$BUILD_DIR" pull --ff-only || warn "could not update; building what is there"
+            if [ -n "$REF" ]; then
+                { git -C "$BUILD_DIR" fetch --depth 1 origin "$REF" &&
+                    git -C "$BUILD_DIR" checkout -q FETCH_HEAD; } ||
+                    die "could not fetch $REF from $REPO"
+            else
+                git -C "$BUILD_DIR" pull --ff-only || warn "could not update; building what is there"
+            fi
         else
             mkdir -p "$(dirname "$BUILD_DIR")" || die "could not create $(dirname "$BUILD_DIR")"
-            git clone --depth 1 "$REPO" "$BUILD_DIR" || die "could not clone $REPO"
+            if [ -n "$REF" ]; then
+                git clone --depth 1 --branch "$REF" "$REPO" "$BUILD_DIR" ||
+                    die "could not clone $REF from $REPO"
+            else
+                git clone --depth 1 "$REPO" "$BUILD_DIR" || die "could not clone $REPO"
+            fi
         fi
         ok "building from $BUILD_DIR"
     fi
