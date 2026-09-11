@@ -27,7 +27,21 @@ it says so. Where it is forced by arithmetic, the arithmetic is shown.
 
 ---
 
-## 1. The core exchange ✅ **built**
+## 1. The core exchange 🟨 **enforced locally only**
+
+> **Correction, 2026-09-11.** This section used to be marked ✅ built. What is
+> built is the *rule* and its *local* enforcement: `itsanas keep`, `itsanas
+> space --apply` and the provisioners refuse a figure the pledge has not earned.
+> What is not built is anything that makes a **modified client** obey it.
+> `accounting::assess()` — the function that turns a member's pledge, usage and
+> availability into a standing — is called only from its own tests; so are
+> `Directory::report_usage`, `set_over_since` and `tick`. A client that deletes
+> the local check keeps whatever it likes, and no host or coordinator notices.
+> The one live network-side limit is a host refusing to store beyond *its own*
+> pledge, which protects that host and says nothing about the balance of the
+> network. Found by an adversarial sweep that asked "what does a rebuilt client
+> get away with?"; the fix is the bilateral ledger in §3, which is specified and
+> not written.
 
 > **Pledge three times what you store.**
 
@@ -402,12 +416,12 @@ number is decided here and nothing consumes it.
 | `accounting::CONTRIBUTION_RATIO` | 3 | Forced: equals the replication factor | live |
 | `repair::DEFAULT_REPLICATION_FLOOR` | 3 | Judgement: smallest R where one loss is not an emergency | live |
 | `accounting::ANCHOR_AVAILABILITY_PER_MILLE` | 900 (0.90) | Judgement | live, but only to *label* an anchor — placement never reads it |
-| `accounting::AVAILABILITY_FLOOR_PER_MILLE` | 50 (0.05) | Judgement: stops a holiday becoming a default | live |
-| `accounting::GRACE_SECONDS` | 14 days | Judgement: longer than a holiday | live |
-| `accounting::DEFAULT_AFTER_SECONDS` | 60 days | Judgement: shorter than a forgotten machine | live |
-| `accounting::JOINING_ALLOWANCE` | 10 GiB | Judgement | live |
-| `accounting::JOINING_PERIOD_SECONDS` | 30 days | Judgement | live |
-| `directory::SMOOTHING_ALPHA_PER_MILLE` | 10 | Judgement: how fast measured availability moves | live |
+| `accounting::AVAILABILITY_FLOOR_PER_MILLE` | 50 (0.05) | Judgement: stops a holiday becoming a default | **read only by tests** — see §1 |
+| `accounting::GRACE_SECONDS` | 14 days | Judgement: longer than a holiday | **read only by tests** — see §1 |
+| `accounting::DEFAULT_AFTER_SECONDS` | 60 days | Judgement: shorter than a forgotten machine | **read only by tests** — see §1 |
+| `accounting::JOINING_ALLOWANCE` | 10 GiB | Judgement | local only: `keep`/`space` read it, nothing on the network does |
+| `accounting::JOINING_PERIOD_SECONDS` | 30 days | Judgement | **read only by tests** — see §1 |
+| `directory::SMOOTHING_ALPHA_PER_MILLE` | 10 | Judgement: how fast measured availability moves | **read only by tests** — see §1 |
 | `EVICTION_NOTICE` | 7 days | Judgement | **paper** — no such constant; no eviction exists |
 | `USAGE_SMOOTHING` | 7 days | Judgement: longer than a transient copy | **paper** — `Assessment` documents that its caller must smooth; no caller exists |
 

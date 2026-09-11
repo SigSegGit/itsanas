@@ -10,10 +10,13 @@ reboots — and your data stays available and stays in sync.
 
 > ## ⚠️ Under construction. Do not put data you care about in this.
 >
-> This is a working prototype being built in the open, not a product. It has
-> never run on the fleet it is designed for, no version has been released, and
+> This is a working prototype being built in the open, not a product. **v0.1.0
+> is tagged so it can be tested**, not because anything here is finished: it has
+> three machines and two accounts behind it, all belonging to one person, and
 > the on-disk format may change without a migration. **Treat anything you store
-> with it as already lost.**
+> with it as already lost**, and keep another copy.
+>
+> Start at [FIRST-STEPS.md](FIRST-STEPS.md).
 >
 > **What runs today.** Two machines keep a folder in sync over an encrypted,
 > mutually authenticated connection: drop a file in, it appears on the other;
@@ -143,6 +146,7 @@ nothing is lost.
 | [docs/MVP.md](docs/MVP.md) | **What has to be true before this is worth using**, as tests you run on your own machines |
 | [docs/ECONOMICS.md](docs/ECONOMICS.md) | **The bargain**: what a member gives, what they get, and what happens when they stop |
 | [docs/PORTING.md](docs/PORTING.md) | **Which machines this runs on**, what is verified on each, and what a phone would still need |
+| [FIRST-STEPS.md](FIRST-STEPS.md) | **Start here**: one command per kind of machine, then the five steps to two machines in step |
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | **Get two machines syncing** — every command shown has been run, with its real output |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Global architecture: layers, data model, placement, coordinator, transport |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | **Roadmap versus current state** — what is built, what is not, with exit criteria |
