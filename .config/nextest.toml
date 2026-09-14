@@ -99,9 +99,15 @@ fail-fast = false
 
 # What CI uses: the same budget, with output tuned for a log somebody reads
 # after the fact rather than a terminal somebody is watching.
+#
+# Slow tests are listed, not only failed ones. Until 2026-09-14 this profile
+# printed failures alone, so a test taking forty-five seconds of its sixty was
+# invisible until the run where it took sixty-one -- and three Windows runs in
+# one day timed out tests nobody could see approaching the limit.
 [profile.ci]
 slow-timeout = { period = "20s", terminate-after = 3 }
 retries = 0
 fail-fast = false
 failure-output = "immediate-final"
-status-level = "fail"
+status-level = "slow"
+final-status-level = "slow"

@@ -25,6 +25,23 @@ module_name_repetitions = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 
+# Dependencies are built optimised in debug and test builds. This workspace's
+# own crates are not, so debug assertions, overflow checks and debug info stay
+# on the code under test.
+#
+# Measured on 2026-09-14 on a Windows laptop, debug build, one test at a time:
+#   a_long_run_of_alternating_partitions_still_converges           10.4 s -> 1.2 s
+#   the_final_state_does_not_depend_on_the_order_devices_sync_in    1.2 s -> 0.26 s
+#   red_team_a_host_that_keeps_only_what_it_expects_to_be_asked...   6.7 s -> 5.7 s
+# The first two spent their time in unoptimised BLAKE3 and ChaCha20, not in
+# what they assert, and on a slow Windows runner the first crossed the
+# sixty-second budget. .config/nextest.toml says to fix that kind of slowness
+# at its cause instead of raising the budget. The third barely moves: its time
+# is in this workspace's own code and disk writes, and CI now reports it when
+# it is slow. The price is about 45 s more on a cold build.
+[profile.dev.package."*"]
+opt-level = 2
+
 [profile.release]
 opt-level = 3
 lto = "thin"

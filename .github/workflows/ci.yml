@@ -168,21 +168,14 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # On 2026-09-14 one Windows run timed out six tests at sixty seconds, in
-      # three crates -- a coordinator unit test, two two-node tests, three store
-      # tests -- that take seconds on a Windows laptop, alone or eight at once.
-      # What they share is writing many small files, and what a hosted Windows
-      # runner adds is real-time antivirus scanning of every one. The status is
-      # printed first so the next stall says whether this could have been it.
-      - name: Keep Defender out of the build and test directories
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          try { "real-time protection: " + (Get-MpComputerStatus).RealTimeProtectionEnabled } catch { "Defender status unavailable: $_" }
-          try {
-            Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP, "$env:USERPROFILE\.cargo"
-            "excluded: workspace, runner temp, temp, cargo home"
-          } catch { "could not add exclusions: $_" }
+      # Printed so a slow run can be compared with a fast one: hosted runners
+      # vary, and on 2026-09-14 a Windows test job took seven minutes where
+      # three to five is usual. An earlier step here excluded build directories
+      # from Defender on the theory that scanning caused those stalls; the
+      # runner reported real-time protection already off, so it was removed.
+      - name: How much machine this runner has
+        shell: bash
+        run: echo "cores $(nproc 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")"
       - uses: taiki-e/install-action@nextest
       # nextest, not `cargo test`, because it runs each test in its own process
       # and can therefore time it out. The budget is in .config/nextest.toml:
