@@ -1918,9 +1918,13 @@ fn red_team_a_host_that_keeps_only_what_it_expects_to_be_asked_is_caught() {
     let owner = node(&master, 1);
     let host = node(&master, 2);
 
+    // Four mebibytes: at the 64 KiB average chunk that is comfortably more than
+    // twice CHALLENGES, which is all the attack needs. It was eight, and on a
+    // hosted Windows runner this test took 39-42 s of its 60 s budget and once
+    // crossed it; the time is per-chunk work, 5.2 s -> 1.8 s on a laptop.
     let chunks = owner
         .store
-        .write_file("hostage.bin", &a_file_of_many_chunks(11, 8 << 20))
+        .write_file("hostage.bin", &a_file_of_many_chunks(11, 4 << 20))
         .expect("write")
         .chunks;
     owner.store.flush_segment().expect("flush");
