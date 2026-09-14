@@ -17,6 +17,15 @@ into the slow job), nine gates.
 **Check a clean tree:** `bash scripts/check-all.sh` (nine gates, discovered by
 glob) then `cargo nextest run --workspace`. Both must be green before a push.
 
+**Tests are run by CI, or by `bash scripts/receipt.sh` on the Raspberry Pi or
+the Freebox VM — never by AI agents.** The script runs the nine gates and every
+test and prints a ten-line receipt; Nicolas pastes the receipt. While editing,
+run only the crate being changed (`cargo nextest run -p <crate>`).
+
+**Keep conversations short.** One task per conversation; update §0 and §8
+before the context grows, then start a new one. Cost is measured, not guessed:
+one long conversation re-read its own context 1,885 times.
+
 **Traps that have cost real time:**
 - Git Bash heredocs eat backslashes and turn `\r` into a carriage return. Write
   edit scripts with the Write tool into the scratchpad, then `python script.py`.
@@ -240,10 +249,53 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
 ## 8. What is next, in order
 
-1. **Make the network enforce the bargain.** A rebuilt client can pledge nothing
-   and keep everything; `accounting::assess()` is called only from tests. The
-   specified answer is the bilateral ledger in ECONOMICS.md §3. This is the
-   blocker before anyone who is not Nicolas joins.
+1. **Enforce the space split. Asked for by Nicolas on 2026-09-14; the first
+   task of the next conversation.** Nothing enforces it today. Verified facts:
+
+   - The ratio is `itsanas-coord::accounting::CONTRIBUTION_RATIO = 3`: keep one
+     byte per three pledged, a **25/75** split. Nicolas asked for **30/70**. That
+     is a ratio of 7/3, below the replication factor of 3: three copies of every
+     byte with only 2.33 bytes of pledged room behind them, a network-wide
+     deficit of about 22 %. **Confirm the number with him before changing the
+     default.** Make it a value either way — he wants it to become a setting.
+   - It is read by `accounting.rs` (`room_earned`, `pledge_needed_for`), the CLI
+     `keep`, `space` and `pledge` (`crates/itsanas-cli/src/main.rs`, around lines
+     1770–2060), the Android JNI `setKeep`/`setPledge`
+     (`crates/itsanas-android/src/lib.rs`, around 551–622), the coordinator claim
+     (`crates/itsanas-cli/src/coordinator.rs:180`) and the daemon's `Pledge`
+     (`crates/itsanas-cli/src/daemon.rs`).
+   - **Writing never consults it.** `Store::write_stream` and `write_file`
+     (`crates/itsanas-store/src/store.rs`, ~246 and ~310) and the folder import
+     (`crates/itsanas-folder/src/lib.rs`, ~259) accept any amount: an account's
+     size is bounded by nothing.
+   - **Hosts bound themselves, not owners.** `would_exceed_pledge`
+     (`crates/itsanas-net/src/service.rs`) stops a host exceeding its own
+     pledge; nothing limits what one owner stores on a host, so a rebuilt client
+     that pledges nothing is served until every host is full.
+   - `accounting::assess()` and the coordinator's usage path run only in tests.
+
+   Build in this order, each step with a red-team test that is sabotage-verified:
+
+   a. **The split as a value.** A `Split { own, network }` type in
+      `accounting.rs` holding today's default, a config field that overrides it,
+      and every reader above going through it. No behaviour change; tests prove
+      the default equals today's numbers.
+   b. **Bound writes on the honest client.** `write_stream` and the folder
+      import refuse when account bytes plus the incoming file exceed the room the
+      pledge earns (the joining allowance for the first thirty days), and when
+      this machine's own store plus its pledge would exceed the disk. The error
+      names the numbers, in the wording `itsanas space` already uses.
+   c. **Bound owners on the host — the part a rebuilt client cannot delete.**
+      In `service.rs` `StoreChunk` and `StoreSegment`: a host stores for owner O
+      at most an allowance plus `k ×` the bytes of this host's own data that O's
+      devices have **proved** they hold (a passed storage challenge, as
+      `Store::release` already requires). Attribute a device to its owner through
+      the owner-signed `NodeClaim`, never the unauthenticated `Hello` field. Tests:
+      a peer hosting nothing is refused past the allowance; a peer that hosts and
+      passes audits keeps being served.
+   d. `ECONOMICS.md` §1 back to built when (c) lands, §8 constants, catalogue
+      rows, counts.
+
 2. **Finish the red team, one surface per session, by hand.** Three surfaces have
    never been examined — every multi-agent attempt died on usage limits:
    *integrity* (a hostile peer: forged or replayed segments, version vectors that
