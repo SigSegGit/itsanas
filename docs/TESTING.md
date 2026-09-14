@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-14 — 724 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 43 are red-team tests.**
+**Last updated: 2026-09-14 — 726 test functions across 24 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 45 are red-team tests.**
 
-**608 of the 724 tests have an entry of their own on this page** — an *entry*,
+**610 of the 726 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -142,7 +142,7 @@ guarantee and is not one.
 | `itsanas-store` integration (`tests/store.rs`) | 39 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
-| `itsanas-net` unit | 35 |
+| `itsanas-net` unit | 37 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 44 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 80 |
@@ -675,9 +675,9 @@ about reading.
 
 ---
 
-# `itsanas-net` — unit tests (35)
+# `itsanas-net` — unit tests (37)
 
-## `protocol` — messages and challenges (10)
+## `protocol` — messages and challenges (12)
 
 | Test | What it proves |
 | --- | --- |
@@ -690,6 +690,8 @@ about reading.
 | `every_request_variant_round_trips_through_the_wire` | A variant that fails to encode is a runtime failure on a live connection. |
 | `every_response_variant_round_trips_through_the_wire` | The same, for responses. |
 | `a_hello_is_accepted_from_the_floor_upwards_and_refused_below_it` | Version negotiation is a window, not a point: anything at or above the floor is answered with what both sides know. |
+| **`red_team_every_variant_keeps_its_number_on_the_wire`** | postcard writes a variant as its position. Version 4 inserted `Response::ChunkSummary` before `WantHosted` and `Refused`, so a version-2 peer's `WantHosted` decoded as a `ChunkSummary` — "Hit the end of buffer" on every round of the fleet for a week — and its `Refused` as a `WantHosted`. Round trips cannot see this, since both ends compile the same enum; this pins the deployed numbers. Append, never insert. |
+| **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 
 ## `service` — what a peer may obtain (18)

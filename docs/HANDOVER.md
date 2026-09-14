@@ -22,7 +22,7 @@ never for this file.
 
 **State (2026-09-14).** v0.1.0 is tagged and released with the Android APK.
 §8.1(a), the split as a value at 30/70, is merged as `f6cace7`
-([#1](https://github.com/SigSegGit/itsanas/pull/1)). 724 tests (43 red-team,
+([#1](https://github.com/SigSegGit/itsanas/pull/1)). 726 tests (45 red-team,
 3 `#[ignore]`d into the slow job), twelve gates.
 
 **The plan changed after that merge, on Nicolas's request for "a valid MVP".**
@@ -82,6 +82,12 @@ one long conversation re-read its own context 1,885 times.
   README, ROADMAP and TESTING — `check-counts.py` fails otherwise, and its
   uncatalogued ceiling (116) is a ratchet, not a target.
 - A new `scripts/check-*` file must get a step in `ci.yml` — `check-ci.py`.
+- **The wire numbers enum variants by position.** Inserting a variant in
+  the middle of `Request` or `Response` silently re-labels every later one
+  for deployed peers: version 4 did it to `Response`, and the fleet logged
+  `framing: encoding: Hit the end of buffer` every round for a week while
+  `MIN_PROTOCOL_VERSION` still claimed version 2 was compatible. The floor
+  is 4 now and a red-team test pins the numbers. Append, never insert.
 - A node that has pledged nothing refuses to relay even its own account's
   log, and `sync` reports that as `sent 0 B`. Every test node pledges.
 - `return` after a cleanup in bash hands back the cleanup's status: a check
@@ -167,8 +173,8 @@ python scripts/check-counts.py
 ```
 
 It counts `#[test]` and `#[tokio::test]` functions under `crates/` and checks
-every figure README, ROADMAP and TESTING state against them — today **724 test
-functions across 24 binaries** (3 of them `#[ignore]`d) **plus 2 doctests**, 43
+every figure README, ROADMAP and TESTING state against them — today **726 test
+functions across 24 binaries** (3 of them `#[ignore]`d) **plus 2 doctests**, 45
 of them red-team. This file is not among the ones it reads, so this sentence
 is corrected by hand. It counts the source rather than `cargo test -- --list`
 because that command's answer depends on the machine running it: one test is
