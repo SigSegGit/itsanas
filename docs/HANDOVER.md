@@ -100,6 +100,12 @@ one long conversation re-read its own context 1,885 times.
 - **A CI warning is a failure.** The `no-warnings` job fails a run on any
   annotation above notice level. If it fires, fix the cause; allow-list only
   what describes GitHub's machine, never this project, and say why beside it.
+- **The Windows CI timeouts were not Defender.** Its real-time protection is
+  already off on the hosted runner (a step printed it). The heaviest debug
+  tests spent their time in unoptimised dependencies, which are now built
+  optimised, and CI lists every test over twenty seconds so the margin is
+  read from the log, not guessed. Measuring on a 20-core laptop says nothing
+  about a loaded hosted runner.
 - **`cargo deny` runs in `check-all.sh` now; install it.** It failed CI twice in
   a week: a dependency pushed unvetted (2026-09-07), and an advisory published
   the same morning (2026-09-14, rustls, fixed by `cargo update -p rustls`).
