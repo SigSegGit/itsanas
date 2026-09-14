@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-14 — 727 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 46 are red-team tests.**
+**Last updated: 2026-09-15 — 735 test functions across 24 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 50 are red-team tests.**
 
-**611 of the 727 tests have an entry of their own on this page** — an *entry*,
+**619 of the 735 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -33,11 +33,18 @@ workspace).
 
 ## What is verified by hand, and why
 
-Two commands added on 2026-09-06 send requests to a coordinator, and neither has
-an automated test of the sending:
+One command sends requests to a coordinator with no automated test of the
+sending:
 
 - `itsanas peer find <username>` — `Lookup` then `Peers`
-- `itsanas device forget <id>` — a `Claim` with `revoked` set
+
+`itsanas device list`, `itsanas device forget`, `itsanas login --from` keeping
+its coordinator and `itsanas passphrase` were in the same position until
+2026-09-15. They are now driven through the real binaries by
+`scripts/acceptance-local.sh` (the `acceptance-local` CI job), which enrols a
+restored machine, finds it in the list, withdraws it by its short id, checks it
+leaves the list and cannot enrol again, and changes a passphrase and opens the
+node with the new one and not the old.
 
 The **protocol** behaviour both rely on is covered.
 `a_member_registers_enrols_a_device_and_is_then_findable_by_name` in
@@ -145,8 +152,8 @@ guarantee and is not one.
 | `itsanas-net` unit | 37 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 44 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 80 |
-| `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
+| `itsanas-coord` unit | 84 |
+| `itsanas-coord` integration (`tests/coordinator.rs`) | 14 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
@@ -154,7 +161,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 25 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 33 |
+| `itsanas-node` unit | 35 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -200,6 +207,10 @@ are the answer to that.
 | **`red_team_flooding_invented_names_cannot_reset_a_real_account_counter`** | The limiter is a table a stranger writes into. Evicting to make room would let an attacker clear their own counter. |
 | **`red_team_reconnecting_does_not_reset_the_escrow_attempt_budget`** | A per-connection budget is no budget: reconnecting costs a handshake and buys a fresh one. |
 | **`red_team_an_unenrolled_device_cannot_overwrite_someone_elses_escrow`** | Substituting a container whose passphrase you chose. |
+| **`red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back`** | Steal a laptop whose daemon reads its passphrase from a file. The owner withdraws it; the thief runs `itsanas register`, which signs a newer claim with the master secret every keystore holds. By timestamp that claim won and the device was enrolled again. |
+| **`red_team_a_withdrawal_signed_on_a_slow_clock_still_withdraws`** | The same ordering the other way: an enrolment dated by a laptop forty minutes fast outranked a withdrawal issued later from a Pi with the right time, and `device forget` printed "withdrew" over a device still enrolled. |
+| **`red_team_a_stranger_cannot_list_another_member_s_devices`** | A user id is public. The device list tells how much each machine pledges and how long each has been silent — which household's NAS has been off for a month — so only a live device of that account may ask. |
+| **`red_team_coordinator_messages_keep_their_wire_numbers`** | Insert a message mid-enum and every deployed client or coordinator reads the ones after it as other messages. The peer protocol lost a week to exactly that; this protocol had no pin until it grew its first new message. |
 | **`red_team_a_device_cannot_publish_an_address_for_a_device_it_does_not_own`** | Black-holing a member's machines through the address book. |
 | **`red_team_a_name_cannot_be_taken_over_by_a_different_key`** | Sending everyone who looks a member up to an impostor. |
 | **`red_team_an_oversized_username_is_refused_before_the_directory_sees_it`** | A megabyte where a name is expected. |
@@ -940,17 +951,19 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (33)
+# `itsanas-node` — a node on disk (35)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `node` — identity on disk (10)
+## `node` — identity on disk (12)
 
 | Test | What it proves |
 | --- | --- |
+| **`a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does`** | `itsanas passphrase` re-seals the keystore without regenerating anything — same account, same device id — the old passphrase stops working, and the pending file is renamed over the keystore rather than left beside it. |
+| `a_wrong_current_passphrase_changes_nothing` | Somebody at an unlocked terminal cannot choose a new passphrase for a machine without the current one; the keystore bytes are untouched. |
 | **`the_phrase_is_not_written_anywhere_under_the_node_directory`** | Scans every file under the node's home for the phrase. A recovery phrase stored on the machine it protects is not a backup, it is an extra copy for an attacker to find. |
 | **`the_phrase_does_not_leak_through_debug`** | The single most likely way for a phrase to escape is a stray `dbg!` or a derived `Debug`. |
 | **`red_team_printing_a_node_does_not_print_the_master_secret`** | `Node` derived `Debug`, and `secrets` holds the plaintext encoding of the master secret and the device seed. `Zeroizing` protects the memory's lifetime, not its formatting: its own `Debug` forwards to `Vec<u8>`, which prints every byte. Nothing formatted a `Node`, so this was a loaded gun rather than a shot fired — one `tracing::debug!(?node)` from the whole account in a journal. Every other secret-bearing type here has a hand-written redacting `Debug` for exactly this reason; this was the one that derived, **directly above the comment naming "a struct derive that includes it" as the way this material escapes**. Asserts on any eight-byte run of the secret, not on a field name. |
@@ -1243,9 +1256,9 @@ hostile *host*, and a hostile host is somebody who joined.
 | **`the_code_id_reveals_nothing_about_the_secret`** | The coordinator stores the hash, not the secret, so a stolen directory is a list of endorsements nobody can redeem. Two secrets differing in one bit must not produce related ids. |
 | `an_invitation_good_for_nothing_is_refused_rather_than_stored` | Zero uses, or an expiry before the issue date. Neither can admit anybody, so storing them fills the directory with rows that exist only to be rejected. |
 
-# `itsanas-coord` — the coordinator server (20)
+# `itsanas-coord` — the coordinator server (23)
 
-Twelve integration tests in `tests/coordinator.rs` and eight unit tests beside
+Fourteen integration tests in `tests/coordinator.rs` and nine unit tests beside
 the code. A real coordinator on a real socket: real directory, real TLS with
 device authentication, real signatures, real framing.
 
@@ -1256,6 +1269,9 @@ two numbers made `itsanas-coord` look eight short.
 
 | Test | What it proves |
 | --- | --- |
+| **`a_member_s_device_list_includes_a_machine_that_has_gone_quiet`** | `device list` was built on `Peers`, which drops a device silent for a week — the lost laptop the list is opened to find. Every live enrolment is listed, heard-from first; one that never announced reads as never heard from rather than fresh; a withdrawn one is absent. |
+| **`red_team_a_stranger_cannot_list_another_member_s_devices`** | Another member and an unenrolled keypair are both refused the list of pledges and silences. |
+| **`red_team_coordinator_messages_keep_their_wire_numbers`** | Every request and response is written under the number deployed coordinators and clients already read it by; an exhaustive match stops a new variant compiling until it is numbered. |
 | **`escrow_is_stored_by_an_enrolled_device_and_recovered_by_name_alone`** | MVP acceptance test D at the protocol layer. A machine with no device, no account and no key fetches the sealed container using only the username, and the passphrase is what opens it. |
 | **`red_team_reconnecting_does_not_reset_the_escrow_attempt_budget`** | The escrow blob is the one thing reachable without proving anything, so the rate limit is the whole defence. A per-connection counter would be no counter: an attacker reconnects, pays one handshake, and works through a word list. |
 | **`red_team_an_unenrolled_device_cannot_overwrite_someone_elses_escrow`** | Replacing a member's container with one whose passphrase you chose would either take their account or — quieter — destroy their ability to recover, discovered on the day they needed it. |
@@ -1329,7 +1345,7 @@ Six unit tests in `auth.rs`, five integration tests in `tests/handshake.rs`.
 
 ---
 
-# `itsanas-coord` — claims, directory, accounting (55)
+# `itsanas-coord` — claims, directory, accounting (58)
 
 Catalogued by property rather than test by test: the crate is a library with no
 server yet, and what matters is which rule each group of tests pins down.
@@ -1347,6 +1363,16 @@ coordinator that was itself offline for a year does not annihilate everyone's
 standing; escrow is off until asked for; the accounting floors entitlement
 against the member, clamps availability at both ends, and permits reclaiming
 only in the harshest state.
+
+Three of them are catalogued one by one, because they correct what the
+paragraph above used to promise — that a stolen laptop cannot un-revoke itself.
+It could, and "replaying an old enrolment" was the only case tested.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back`** | A claim dated after a withdrawal, signed with the master secret every keystore holds, is refused out loud and the device stays out of the live set. |
+| **`red_team_a_withdrawal_signed_on_a_slow_clock_still_withdraws`** | A withdrawal wins over a live claim whatever the two signing clocks say. |
+| **`a_later_enrolment_does_not_supersede_a_withdrawal`** | The same rule at `supersedes`, so the directory's refusal is not the only thing keeping a withdrawn device out. |
 
 **The two halves of the space bargain agree.** `itsanas space` and both
 provisioners refuse a `--keep` larger than the pledge earns, and the refusal

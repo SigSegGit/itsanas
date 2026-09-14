@@ -19,7 +19,7 @@
 //! Registrations, claims and presences are all signed by keys it does not hold,
 //! and the escrow blob is sealed under a passphrase it never sees.
 
-use itsanas_crypto::UserId;
+use itsanas_crypto::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
 
 use crate::claim::{Presence, SignedClaim, SignedPresence};
@@ -145,6 +145,41 @@ pub enum Request {
         /// The account name.
         username: String,
     },
+
+    /// Every device enrolled under this account, reachable or not.
+    ///
+    /// [`Request::Peers`] answers "where can I dial", so it leaves out a
+    /// machine that has not announced within `PRESENCE_TTL` -- which is exactly
+    /// the lost laptop somebody opens the device list to find and withdraw.
+    ///
+    /// Answered only for a caller that is itself a live device of `user`: the
+    /// list carries pledges and how long each machine has been silent, which
+    /// the address book never had to tell a stranger.
+    ///
+    /// Appended last. postcard numbers variants by position, and a coordinator
+    /// older than this closes the connection on it rather than misreading it
+    /// as something else.
+    Devices {
+        /// The account whose devices to list.
+        user: UserId,
+    },
+}
+
+/// One enrolled device, as [`Response::Devices`] lists it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EnrolledDevice {
+    /// The device.
+    pub device: DeviceId,
+    /// What its current claim pledges.
+    pub pledged_bytes: u64,
+    /// How long ago **this coordinator** last heard from it, by its own clock.
+    ///
+    /// Elapsed seconds rather than a date, so the reader's clock is never
+    /// compared with the coordinator's. `None` means never: enrolled and not
+    /// once announced.
+    pub silent_for: Option<u64>,
+    /// The address it last published, if it ever did.
+    pub address: Option<String>,
 }
 
 /// What a coordinator answers.
@@ -171,6 +206,10 @@ pub enum Response {
     /// reading a log needs the sentence, not a code to look up. Nothing branches
     /// on the contents.
     Refused(String),
+    /// Every enrolled device of an account, most recently heard from first.
+    ///
+    /// Appended last, for the reason given on [`Request::Devices`].
+    Devices(Vec<EnrolledDevice>),
 }
 
 impl Request {
@@ -202,6 +241,7 @@ impl Request {
             Self::Peers { .. } => "peers",
             Self::PutEscrow { .. } => "put-escrow",
             Self::GetEscrow { .. } => "get-escrow",
+            Self::Devices { .. } => "devices",
         }
     }
 }
@@ -248,6 +288,149 @@ mod tests {
             username: "\n\u{1b}[2Jroot: everything is fine".to_owned(),
         };
         assert_eq!(hostile.kind(), "lookup");
+    }
+
+    /// Every request and every response, each with its deployed number.
+    type Numbered = (Vec<(u8, Request)>, Vec<(u8, Response)>);
+
+    /// One of every message, with the number it is deployed under.
+    fn one_of_each_numbered() -> Numbered {
+        use crate::claim::{NodeClaim, Presence};
+        use crate::directory::Registration;
+        use crate::invitation::Invitation;
+        use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
+
+        let owner = UserKeys::derive(&MasterSecret::from_bytes([1; 32]));
+        let keys = DeviceKeys::from_seed(&SecretBytes::new([2; 32]));
+        let user = owner.user_id();
+        let registration = Registration {
+            username: "a".to_owned(),
+            user: owner.public(),
+            issued_unix: 0,
+        }
+        .sign(&owner);
+        let invitation = Invitation {
+            inviter: user,
+            code: [0; 32],
+            issued_unix: 0,
+            expires_unix: 0,
+            uses: 1,
+        }
+        .sign(&owner);
+        let claim = NodeClaim {
+            owner: user,
+            device: keys.device_id(),
+            pledged_bytes: 0,
+            issued_unix: 0,
+            revoked: false,
+        }
+        .sign(&owner);
+        let presence = Presence {
+            device: keys.device_id(),
+            address: "a:1".to_owned(),
+            at_unix: 0,
+        }
+        .sign(&keys);
+
+        let requests = vec![
+            (0, Request::Hello { version: 1 }),
+            (1, Request::Register(Box::new(registration.clone()))),
+            (
+                2,
+                Request::RegisterInvited {
+                    registration: Box::new(registration),
+                    secret: [0; crate::invitation::SECRET_LEN],
+                },
+            ),
+            (3, Request::Invite(Box::new(invitation))),
+            (
+                4,
+                Request::Lookup {
+                    username: "a".to_owned(),
+                },
+            ),
+            (5, Request::Claim(Box::new(claim))),
+            (6, Request::Announce(Box::new(presence.clone()))),
+            (7, Request::Peers { user }),
+            (8, Request::PutEscrow { blob: None }),
+            (
+                9,
+                Request::GetEscrow {
+                    username: "a".to_owned(),
+                },
+            ),
+            (10, Request::Devices { user }),
+        ];
+        let account = crate::directory::Account {
+            username: "a".to_owned(),
+            user: owner.public(),
+            registered_unix: 0,
+            escrow_enabled: false,
+        };
+        let responses = vec![
+            (0, Response::Welcome { version: 1 }),
+            (1, Response::Done),
+            (2, Response::Account(Box::new(account))),
+            (3, Response::Peers(vec![presence.presence])),
+            (4, Response::Escrow(Vec::new())),
+            (5, Response::Missing),
+            (6, Response::Refused(String::new())),
+            (7, Response::Devices(Vec::new())),
+        ];
+        (requests, responses)
+    }
+
+    #[test]
+    fn red_team_coordinator_messages_keep_their_wire_numbers() {
+        // postcard writes a variant as its position in the enum. The peer
+        // protocol learnt this on the fleet: version 4 inserted a response
+        // mid-enum and every deployed peer read the ones after it as other
+        // messages for a week. This protocol had no such pin, and this change
+        // is the first to add a variant since the coordinator was deployed on
+        // the Raspberry Pi. A round trip cannot see a renumbering, because both
+        // ends compile the same enum; the first byte can.
+        let (requests, responses) = one_of_each_numbered();
+        for (number, request) in &requests {
+            // An exhaustive match, so a new variant does not compile until it
+            // is given a number here.
+            match request {
+                Request::Hello { .. }
+                | Request::Register(_)
+                | Request::RegisterInvited { .. }
+                | Request::Invite(_)
+                | Request::Lookup { .. }
+                | Request::Claim(_)
+                | Request::Announce(_)
+                | Request::Peers { .. }
+                | Request::PutEscrow { .. }
+                | Request::GetEscrow { .. }
+                | Request::Devices { .. } => {}
+            }
+            assert_eq!(
+                postcard::to_stdvec(request).unwrap()[0],
+                *number,
+                "{} is written under a new number; a deployed coordinator reads it as a different request",
+                request.kind()
+            );
+        }
+
+        for (number, response) in &responses {
+            match response {
+                Response::Welcome { .. }
+                | Response::Done
+                | Response::Account(_)
+                | Response::Peers(_)
+                | Response::Escrow(_)
+                | Response::Missing
+                | Response::Refused(_)
+                | Response::Devices(_) => {}
+            }
+            assert_eq!(
+                postcard::to_stdvec(response).unwrap()[0],
+                *number,
+                "{response:?} is written under a new number; every deployed client reads it as a different answer"
+            );
+        }
     }
 
     #[test]

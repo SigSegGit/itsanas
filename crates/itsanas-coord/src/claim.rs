@@ -21,12 +21,44 @@
 //!
 //! # Revocation
 //!
-//! A claim is superseded by a later claim for the same device. Revoking is
-//! issuing a claim with `revoked` set. Because claims are signed by the *user's*
-//! key and not the device's, somebody holding a stolen laptop cannot issue one —
-//! they cannot un-revoke themselves, and they cannot move the device to a new
-//! address. That is the whole point of device keys sitting outside the master
-//! key's derivation tree.
+//! Revoking is issuing a claim with `revoked` set, and **a withdrawal is final
+//! for that device id**: nothing supersedes it, and a withdrawal supersedes any
+//! live claim whatever the two timestamps say. A machine that is used again
+//! logs in afresh and gets a new device id.
+//!
+//! Both halves were once decided by timestamp, and both were wrong:
+//!
+//! - **A later enrolment un-revoked a device.** This comment used to say that
+//!   somebody holding a stolen laptop cannot sign a claim because claims need
+//!   the user's key. Every node's keystore holds the master secret, which *is*
+//!   the user's key, so a thief who has the passphrase — or the file a daemon
+//!   reads it from — ran `itsanas register` and the device was back.
+//! - **A withdrawal signed on a slow clock was ignored.** Supersession by the
+//!   signer's clock let an enrolment made on a laptop running forty minutes
+//!   fast outrank a withdrawal issued ten minutes later from a Pi with the right
+//!   time, and the coordinator answered `Done` to both.
+//!
+//! **What finality costs, which is new.** Anybody holding the master secret —
+//! the same thief — can now withdraw the owner's *legitimate* devices for good.
+//! Under the timestamp rule the owner answered with a newer claim; now the first
+//! withdrawal wins, and every machine it hit has to remove its node directory
+//! and log in again, which downloads its share of the account afresh. That was
+//! judged the better failure: a withdrawn device that stays withdrawn is a loud,
+//! recoverable nuisance; a stolen device that re-enrols is a quiet one. It is a
+//! choice, not a free improvement.
+//!
+//! Also: "whatever the timestamps say" holds within `MAX_CLOCK_SKEW`. A
+//! withdrawal signed on a clock more than an hour *ahead* of the coordinator is
+//! refused as from the future — out loud, and it can be sent again.
+//!
+//! What this does **not** protect against, stated because the old wording
+//! claimed it did: a thief with the passphrase holds the master secret. They
+//! can read everything the account stores and enrol a *new* device under it.
+//! The only answer to that is a new account, and nothing rotates an identity
+//! today. Withdrawal also does not reach the peer protocol: a withdrawn machine
+//! on the same network is still found by discovery and synced with, because a
+//! node does not consult the coordinator's claims before serving its own
+//! account (`docs/HANDOVER.md` §8.1(c) is where that attribution is planned).
 
 use itsanas_crypto::{DeviceId, DeviceKeys, Signature, UserId, UserKeys, verify};
 use serde::{Deserialize, Serialize};
@@ -41,10 +73,12 @@ pub const PRESENCE_DOMAIN: &str = "itsanas v1 node presence";
 
 /// How far into the future a timestamp may be before it is refused.
 ///
-/// Supersession is by timestamp, so a device whose clock is wrong can otherwise
-/// issue a claim dated next year that nothing can ever replace — including the
-/// user's own attempt to revoke it. One hour is generous for honest clock drift
-/// and bounds the damage from a dishonest one to an hour of confusion.
+/// Live claims supersede each other by timestamp, so a device whose clock is
+/// wrong could otherwise issue a claim dated next year that no pledge change
+/// could ever replace. A withdrawal no longer depends on it — it wins whatever
+/// the dates — but a pledge update still does. One hour is generous for honest
+/// clock drift and bounds the damage from a dishonest one to an hour of
+/// confusion.
 pub const MAX_CLOCK_SKEW: u64 = 3600;
 
 /// A user's statement that a device is theirs.
@@ -116,19 +150,20 @@ impl SignedClaim {
 
     /// Whether this claim replaces `existing`.
     ///
-    /// Later wins. A tie keeps what is already held rather than churning, and
-    /// a revocation wins a tie outright — if two claims arrive with the same
-    /// timestamp and one withdraws the device, the safe reading is that the
-    /// device is withdrawn.
+    /// A withdrawal is final: nothing replaces it, and it replaces any live
+    /// claim regardless of the dates, because both dates are the signing
+    /// machines' opinions of the time. Between two live claims the later wins
+    /// and a tie keeps what is held rather than churning. See the module
+    /// documentation for the two attacks the old all-timestamp rule allowed.
     #[must_use]
     pub fn supersedes(&self, existing: &Self) -> bool {
         if self.claim.device != existing.claim.device {
             return false;
         }
-        match self.claim.issued_unix.cmp(&existing.claim.issued_unix) {
-            std::cmp::Ordering::Greater => true,
-            std::cmp::Ordering::Less => false,
-            std::cmp::Ordering::Equal => self.claim.revoked && !existing.claim.revoked,
+        match (existing.claim.revoked, self.claim.revoked) {
+            (true, _) => false,
+            (false, true) => true,
+            (false, false) => self.claim.issued_unix > existing.claim.issued_unix,
         }
     }
 }
@@ -342,6 +377,46 @@ mod tests {
 
         assert!(dead.supersedes(&alive));
         assert!(!alive.supersedes(&dead));
+    }
+
+    #[test]
+    fn red_team_a_withdrawal_signed_on_a_slow_clock_still_withdraws() {
+        // THE ATTACK, or the accident: the laptop enrolled itself with its
+        // clock forty minutes fast -- inside MAX_CLOCK_SKEW, so accepted -- and
+        // was stolen. The owner withdraws it ten minutes later from the Pi,
+        // whose clock is right. By timestamp the enrolment is newer, the
+        // coordinator keeps it, answers `Done`, and `device forget` prints
+        // "withdrew" over a device that is still enrolled.
+        let owner = user(16);
+        let dev = device(16);
+
+        let enrolled_on_a_fast_clock = claim(&owner, &dev, NOW + 40 * 60, false);
+        let withdrawn_later_on_a_right_clock = claim(&owner, &dev, NOW + 10 * 60, true);
+
+        assert!(
+            withdrawn_later_on_a_right_clock.supersedes(&enrolled_on_a_fast_clock),
+            "a withdrawal lost to an enrolment dated by a faster clock; the \
+             device stays enrolled while its owner is told it was withdrawn"
+        );
+    }
+
+    #[test]
+    fn a_later_enrolment_does_not_supersede_a_withdrawal() {
+        // Every node's keystore holds the master secret, so whoever has a
+        // stolen laptop and its passphrase can sign a claim dated after the
+        // withdrawal. Supersession must not let that claim through, or
+        // `itsanas register` on the stolen machine undoes `device forget`.
+        let owner = user(17);
+        let dev = device(17);
+
+        let withdrawn = claim(&owner, &dev, NOW, true);
+        let re_enrolled = claim(&owner, &dev, NOW + 3000, false);
+
+        assert!(
+            !re_enrolled.supersedes(&withdrawn),
+            "a later enrolment replaced a withdrawal: a stolen machine with \
+             its passphrase re-enrols itself"
+        );
     }
 
     #[test]

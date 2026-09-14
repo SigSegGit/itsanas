@@ -24,7 +24,9 @@ use itsanas_crypto::{DeviceId, UserId};
 use crate::claim::Presence;
 use crate::directory::{Admission, Directory};
 use crate::error::Result;
-use crate::protocol::{COORD_VERSION, MAX_PEERS_RETURNED, MAX_WIRE_USERNAME, Request, Response};
+use crate::protocol::{
+    COORD_VERSION, EnrolledDevice, MAX_PEERS_RETURNED, MAX_WIRE_USERNAME, Request, Response,
+};
 
 /// How many escrow fetches one username may provoke per window.
 ///
@@ -270,7 +272,56 @@ impl<'a> CoordService<'a> {
                     None => Response::Missing,
                 })
             }
+
+            Request::Devices { user } => self.devices_of(*user, caller, now_unix),
         }
+    }
+
+    /// Every live claim of `user`, for one of `user`'s own live devices.
+    ///
+    /// The caller is checked against a claim the coordinator cannot forge, not
+    /// against anything it sent: a free keypair authenticates a connection and
+    /// vouches for nothing.
+    fn devices_of(&self, user: UserId, caller: DeviceId, now: u64) -> Result<Response> {
+        let member = self.directory.claim_for(caller)?.is_some_and(|claim| {
+            claim.claim.owner == user && !claim.claim.revoked && claim.verify(now).is_ok()
+        });
+        if !member {
+            return Ok(Response::Refused(
+                "only an enrolled device of an account may list its devices; run `itsanas register` on this machine first".to_owned(),
+            ));
+        }
+
+        let mut out = Vec::new();
+        for claim in self.directory.live_claims()? {
+            if claim.claim.owner != user {
+                continue;
+            }
+            let device = claim.claim.device;
+            out.push(EnrolledDevice {
+                device,
+                pledged_bytes: claim.claim.pledged_bytes,
+                silent_for: self
+                    .directory
+                    .last_seen(device)?
+                    .map(|seen| now.saturating_sub(seen)),
+                address: self
+                    .directory
+                    .presence_of(device)?
+                    .map(|presence| presence.presence.address),
+            });
+        }
+
+        // Most recently heard from first, never-heard-from last, then by id so
+        // two askers see one order.
+        out.sort_by(|a, b| {
+            a.silent_for
+                .unwrap_or(u64::MAX)
+                .cmp(&b.silent_for.unwrap_or(u64::MAX))
+                .then(a.device.cmp(&b.device))
+        });
+        out.truncate(MAX_PEERS_RETURNED);
+        Ok(Response::Devices(out))
     }
 
     /// Live, reachable devices for `user`, most recently confirmed first.

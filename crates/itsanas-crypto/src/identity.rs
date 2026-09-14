@@ -431,9 +431,10 @@ impl fmt::Debug for UserKeys {
 
 /// A single machine's signing key.
 ///
-/// Generated locally and never derived from the master secret, so that revoking
-/// a lost laptop is a matter of dropping one certificate rather than rotating
-/// the user's entire identity.
+/// Generated locally and never derived from the master secret, so that
+/// withdrawing a lost laptop is one signed claim rather than rotating the
+/// user's entire identity. It does not make a stolen node harmless: the node's
+/// keystore holds the master secret beside this key.
 pub struct DeviceKeys {
     signing: SigningKey,
 }

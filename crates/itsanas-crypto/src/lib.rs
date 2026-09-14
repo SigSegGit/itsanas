@@ -45,8 +45,10 @@
 //! ```
 //!
 //! Device keys sit deliberately outside this tree: they are generated locally
-//! and certified by the master key, so a stolen laptop is revoked by dropping
-//! one certificate rather than by rotating the user's whole identity.
+//! and certified by the master key, so a lost laptop is withdrawn by one signed
+//! claim rather than by rotating the user's whole identity. A *stolen* one whose
+//! passphrase is known is another matter: a node's keystore holds the master
+//! secret too, and nothing rotates an identity.
 
 pub mod error;
 pub mod identity;

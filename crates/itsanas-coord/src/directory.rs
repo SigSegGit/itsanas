@@ -521,6 +521,15 @@ impl Directory {
                             "that device is already claimed by another account",
                         ));
                     }
+                    // Refused out loud rather than ignored. `supersedes` would
+                    // already keep the withdrawal, but an `Ok(false)` reaches
+                    // the client as `Done`, and `itsanas register` on a
+                    // withdrawn machine then printed "enrolled this device".
+                    if existing.claim.revoked && !signed.claim.revoked {
+                        return Err(CoordError::Rejected(
+                            "that device was withdrawn from this account, and a withdrawal is final; log in afresh on that machine, which gives it a new device id",
+                        ));
+                    }
                     signed.supersedes(existing)
                 }
             };
@@ -1546,6 +1555,54 @@ mod tests {
         assert!(directory.claim(&revoked, NOW + 100).unwrap());
 
         assert!(directory.live_claims().unwrap().is_empty());
+    }
+
+    #[test]
+    fn red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back() {
+        // THE ATTACK: a laptop is stolen with its passphrase -- on Windows the
+        // logon task reads it from a file beside the keystore. The owner runs
+        // `itsanas device forget` from another machine. The thief runs
+        // `itsanas register`, which signs a fresh claim with the master secret
+        // every keystore holds, dated after the withdrawal. By timestamp alone
+        // that claim won, the device was enrolled again, and the coordinator
+        // said `Done`.
+        let (_dir, directory) = directory();
+        let owner = user(12);
+        let stolen = device(12);
+        register(&directory, "nicolas", &owner);
+        enrol(&directory, &owner, &stolen, 1024);
+
+        let withdrawal = NodeClaim {
+            owner: owner.user_id(),
+            device: stolen.device_id(),
+            pledged_bytes: 0,
+            issued_unix: NOW + 100,
+            revoked: true,
+        }
+        .sign(&owner);
+        assert!(directory.claim(&withdrawal, NOW + 100).unwrap());
+
+        let re_enrolment = NodeClaim {
+            owner: owner.user_id(),
+            device: stolen.device_id(),
+            pledged_bytes: 1024,
+            issued_unix: NOW + 200,
+            revoked: false,
+        }
+        .sign(&owner);
+
+        assert!(
+            matches!(
+                directory.claim(&re_enrolment, NOW + 200),
+                Err(CoordError::Rejected(_))
+            ),
+            "a re-enrolment of a withdrawn device was not refused out loud, so \
+             `itsanas register` on the stolen machine reports success"
+        );
+        assert!(
+            directory.live_claims().unwrap().is_empty(),
+            "the withdrawn device is enrolled again"
+        );
     }
 
     #[test]

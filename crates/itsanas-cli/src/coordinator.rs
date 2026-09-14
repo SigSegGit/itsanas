@@ -17,7 +17,7 @@ use std::net::SocketAddr;
 use itsanas_coord::claim::{NodeClaim, Presence};
 use itsanas_coord::directory::Registration;
 use itsanas_coord::invitation::{Invitation, SECRET_LEN, Secret};
-use itsanas_coord::protocol::{Request, Response};
+use itsanas_coord::protocol::{EnrolledDevice, Request, Response};
 use itsanas_coord::server::CoordClient;
 use itsanas_crypto::{DeviceId, KdfParams, Keystore, UserId};
 
@@ -278,6 +278,30 @@ pub fn devices(node: &Node, user: UserId) -> Result<Vec<(DeviceId, String)>> {
             .collect()),
         Response::Refused(why) => Err(CliError::Usage(why)),
         other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+    }
+}
+
+/// Every device enrolled under this account, reachable or not.
+///
+/// `Ok(None)` means the coordinator did not answer the request at all, which
+/// is what one older than `Request::Devices` does: it cannot decode the
+/// message and closes the connection. A dropped connection looks the same, so
+/// the caller must say it is showing less rather than present the shorter list
+/// as the whole account.
+///
+/// # Errors
+///
+/// If the coordinator cannot be reached, refuses, or answers with something
+/// else.
+pub fn enrolled(node: &Node) -> Result<Option<Vec<EnrolledDevice>>> {
+    let mut client = dial(node)?;
+    match client.ask(&Request::Devices {
+        user: node.store.owner(),
+    }) {
+        Ok(Response::Devices(list)) => Ok(Some(list)),
+        Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
+        Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+        Err(_) => Ok(None),
     }
 }
 

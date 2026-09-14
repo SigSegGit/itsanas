@@ -74,6 +74,13 @@ expect_fail() {
     if out=$(bash "$KIT" "$@" 2>&1); then printf '  WRONG expected FAIL: %s\n' "$out"; failures=$((failures + 1))
     else printf '  ok    refused: %s\n' "$out"; fi
 }
+# A property of the bench itself rather than a phase of the kit.
+check() {
+    local what=$1
+    shift
+    if "$@" >"$WORK/check.log" 2>&1; then printf '  ok    %s\n' "$what"
+    else printf '  WRONG %s\n' "$what"; sed 's/^/        /' "$WORK/check.log"; failures=$((failures + 1)); fi
+}
 
 # Serve one node in the background for the length of one sync by another.
 serving() {
@@ -124,6 +131,10 @@ for m in m2 m3; do
     must node "$m" login --username acceptance --from "127.0.0.1:$CPORT" --device "$COORD_ID"
     must node "$m" folder "$WORK/folder-$m"
 done
+# A recovery that forgets the coordinator it recovered from restores an identity
+# and nothing else: `register` then has nowhere to go. It did, until 2026-09-15.
+check "login --from keeps the coordinator it recovered from" \
+    sh -c "ITSANAS_HOME='$WORK/m2' '$BIN' coordinator </dev/null | grep -q '127.0.0.1:$CPORT'"
 # Test A's procedure pledges on every machine, and a host refuses to store past
 # its pledge -- which is zero until somebody says otherwise.
 for m in m1 m2 m3; do must node "$m" pledge 1G; done
@@ -230,6 +241,30 @@ expect_pass J count "$WORK/folder-m3"
 j_count=$(printf '%s\n' "$LAST" | awk '{print $4}')
 ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" expect_pass J check "$WORK/folder-m3" "$j_count"
 ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" expect_fail J check "$WORK/folder-m3" "$((j_count + 1))"
+
+say "Accounts: a restored machine is enrolled, listed, withdrawn for good"
+# Last, because it withdraws machine 2 and changes machine 3's passphrase.
+must node m2 listen "127.0.0.1:$PORT2"
+must node m2 register
+# Machine 3 has no peer configured and has never been told an address. `sync`
+# used to read only configured peers and refuse; the account's machines are in
+# the coordinator, and a restored machine must find them there.
+check "sync with nothing configured reaches the account's machines through the coordinator" \
+    serving m2 "$PORT2" node m3 sync
+enrolled() { node m1 device list 2>&1 | grep -c ' pledges '; }
+check "the device list names both enrolled machines" test "$(enrolled)" -eq 2
+m2_id=$(node m2 device list 2>&1 | awk '/this machine/ {print $1}')
+check "machine 2 finds itself in the list" test -n "$m2_id"
+must node m1 device forget "${m2_id:0:12}"
+check "a withdrawn machine leaves the list" test "$(enrolled)" -eq 1
+check "a withdrawn machine cannot enrol itself again" \
+    sh -c "out=\$(ITSANAS_HOME='$WORK/m2' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' register </dev/null 2>&1) && { printf '%s\n' \"\$out\"; exit 1; }; printf '%s\n' \"\$out\" | grep -q 'withdrawn from this account'"
+NEW_PASSPHRASE=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
+must env ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" ITSANAS_NEW_PASSPHRASE="$NEW_PASSPHRASE" "$BIN" passphrase
+check "the new passphrase opens machine 3" \
+    env ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$NEW_PASSPHRASE" "$BIN" whoami
+check "the old passphrase no longer does" \
+    sh -c "! ITSANAS_HOME='$WORK/m3' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' whoami </dev/null"
 
 echo
 if [ "$failures" -eq 0 ]; then

@@ -72,6 +72,9 @@ use crate::{
 /// not a default.
 const PASSPHRASE_ENV: &str = "ITSANAS_PASSPHRASE";
 
+/// Where `itsanas passphrase` reads the new passphrase when nothing can prompt.
+const NEW_PASSPHRASE_ENV: &str = "ITSANAS_NEW_PASSPHRASE";
+
 /// How many machines should hold each chunk, this one included.
 ///
 
@@ -133,6 +136,14 @@ enum Command {
         #[arg(long, requires = "from")]
         device: Option<String>,
     },
+    /// Change the passphrase that protects this machine's keys.
+    ///
+    /// Only this machine's keystore. Whatever starts the daemon still supplies
+    /// the old one, and a recovery container lodged with a coordinator stays
+    /// sealed under the passphrase it was lodged with; the command says how to
+    /// update both. Reads the new passphrase from `ITSANAS_NEW_PASSPHRASE` when
+    /// there is no terminal to prompt on.
+    Passphrase,
     /// Show this node's identity, contents and hosting.
     Status,
     /// Show this account's public identity.
@@ -492,6 +503,7 @@ fn run() -> Result<()> {
             invite,
         } => register(&home, recovery, withdraw_recovery, invite.as_deref()),
         Command::Invite { uses, days } => invite(&home, uses, days),
+        Command::Passphrase => change_passphrase(&home),
         Command::Status => status(&home),
         Command::Whoami => whoami(&home),
         Command::Ls => list(&home),
@@ -637,6 +649,59 @@ fn init(home: &Path, username: &str) -> Result<()> {
     println!();
     println!("Next: `itsanas pledge 10G` to offer space, then `itsanas serve`.");
 
+    Ok(())
+}
+
+/// Re-seal this machine's keystore under a new passphrase.
+fn change_passphrase(home: &Path) -> Result<()> {
+    if !Node::exists(home) {
+        return Err(CliError::NoNode(home.to_path_buf()));
+    }
+
+    println!("Current passphrase for this machine's keystore.");
+    let current = passphrase(false)?;
+
+    let new = if let Ok(value) = std::env::var(NEW_PASSPHRASE_ENV) {
+        value
+    } else if std::io::stdin().is_terminal() {
+        let entered =
+            rpassword::prompt_password("New passphrase: ").map_err(|error| CliError::Io {
+                path: PathBuf::from("<terminal>"),
+                source: error,
+            })?;
+        let again = rpassword::prompt_password("Confirm new passphrase: ").map_err(|error| {
+            CliError::Io {
+                path: PathBuf::from("<terminal>"),
+                source: error,
+            }
+        })?;
+        if again != entered {
+            return Err(CliError::Usage("the passphrases did not match".to_owned()));
+        }
+        entered
+    } else {
+        return Err(CliError::Usage(format!(
+            "no terminal to prompt on. Set {NEW_PASSPHRASE_ENV} for non-interactive use."
+        )));
+    };
+    if new.is_empty() {
+        return Err(CliError::Usage(
+            "an empty passphrase protects nothing".to_owned(),
+        ));
+    }
+
+    Node::change_passphrase(home, &current, &new)?;
+
+    println!("passphrase changed for this machine's keystore.");
+    println!();
+    println!("Two things still have the old one, and neither is changed by this:");
+    println!("  - whatever starts the daemon without a terminal: on Windows");
+    println!("    %LOCALAPPDATA%\\itsanas\\passphrase.txt, on Linux ITSANAS_PASSPHRASE in");
+    println!("    ~/.config/itsanas/environment. Update it now, or the daemon will not");
+    println!("    start next time. A daemon already running keeps its unlocked keys.");
+    println!("  - a recovery container lodged with a coordinator, which stays sealed");
+    println!("    under the passphrase it was lodged with. `itsanas register --recovery`");
+    println!("    re-seals it under the new one.");
     Ok(())
 }
 
@@ -1223,21 +1288,34 @@ fn login_from_coordinator(
     let secret = passphrase(false)?;
 
     let secrets = coordinator::fetch_escrow(address, expect, username, &secret)?;
-    let node = Node::restore_from_secrets(home, &secret, username, &secrets)?;
+    let mut node = Node::restore_from_secrets(home, &secret, username, &secrets)?;
+
+    // The coordinator that just proved it holds this account is the one to
+    // keep. This used to be forgotten: the message below told the reader to
+    // run `itsanas register`, which then failed for want of a coordinator, and
+    // `sync` found only machines on the same network -- so a recovery on a
+    // network away from the others restored an identity and nothing else.
+    node.config.coordinator = Some(address.to_owned());
+    node.config.coordinator_device = device.map(str::to_owned);
+    node.save_config()?;
 
     println!();
     println!("Account restored.");
-    println!("  user id : {}", node.store.owner());
+    println!("  user id     : {}", node.store.owner());
     println!(
-        "  device  : {} (new for this machine)",
+        "  device      : {} (new for this machine)",
         node.store.device_id()
     );
+    println!("  coordinator : {address} (kept for this machine)");
     println!();
     println!("Your 24-word phrase is unchanged and still the ultimate backup:");
     println!("this recovered the same identity, it did not create a new one.");
     println!();
-    println!("Nothing has been downloaded yet. Run `itsanas sync` once a peer is");
-    println!("reachable, or `itsanas register` to publish this device's address.");
+    println!("Nothing has been downloaded yet. Next, on this machine:");
+    println!("  itsanas register           enrol it, so your other machines find it");
+    println!("  itsanas pledge <size>      a machine that pledges nothing relays nothing");
+    println!("  itsanas folder <directory>");
+    println!("  itsanas daemon");
 
     Ok(())
 }
@@ -1596,7 +1674,23 @@ fn folder(home: &Path, path: Option<&Path>) -> Result<()> {
 fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
     let node = open(home)?;
     let mine = node.store.device_id();
-    let listed = coordinator::devices(&node, node.store.owner())?;
+
+    // Every enrolled device where the coordinator can say so, and the
+    // reachable ones where it is too old to. The reachable list leaves out a
+    // machine silent for a week, which is the lost laptop somebody came here
+    // to find, so falling back is said out loud rather than done quietly.
+    let enrolled = coordinator::enrolled(&node)?;
+    let listed: Vec<(DeviceId, String)> = if let Some(list) = &enrolled {
+        list.iter()
+            .map(|entry| (entry.device, entry.address.clone().unwrap_or_default()))
+            .collect()
+    } else {
+        println!(
+            "this coordinator cannot list devices that have gone quiet (it is older than this \
+             client, or the connection dropped); showing only those seen in the last week."
+        );
+        coordinator::devices(&node, node.store.owner())?
+    };
 
     match what {
         DeviceCommand::List => {
@@ -1604,13 +1698,31 @@ fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
                 println!("the coordinator lists no devices for this account");
                 return Ok(());
             }
-            for (device, address) in &listed {
-                let here = if *device == mine {
-                    "  (this machine)"
-                } else {
-                    ""
-                };
-                println!("{device}  {address}{here}");
+            match &enrolled {
+                Some(list) => {
+                    for entry in list {
+                        println!("{}", describe_enrolled(entry, entry.device == mine));
+                    }
+                    // The coordinator stops at this many. Saying so is the
+                    // difference between "the machine is not enrolled" and
+                    // "the machine is past the end of the list".
+                    if list.len() >= itsanas_coord::protocol::MAX_PEERS_RETURNED {
+                        println!(
+                            "(the coordinator lists at most {} devices; there may be more, silent longest)",
+                            itsanas_coord::protocol::MAX_PEERS_RETURNED
+                        );
+                    }
+                }
+                None => {
+                    for (device, address) in &listed {
+                        let here = if *device == mine {
+                            "  (this machine)"
+                        } else {
+                            ""
+                        };
+                        println!("{device}  {address}{here}");
+                    }
+                }
             }
             Ok(())
         }
@@ -1626,11 +1738,33 @@ fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
 
             coordinator::forget_device(&node, wanted, itsanas_discover::now_unix())?;
             println!("withdrew {wanted}");
-            println!("  Nothing will dial it again. If that machine comes back, run");
-            println!("  `itsanas register` on it to enrol it afresh.");
+            println!("  Nothing will dial it through the coordinator again, and the");
+            println!("  withdrawal is final for that device id. To use that machine");
+            println!("  again, remove its node directory and `itsanas login` on it:");
+            println!("  it comes back as a new device.");
+            println!("  A thief who also has its passphrase holds the account's master");
+            println!("  key and can read what it stores; withdrawing cannot undo that.");
             Ok(())
         }
     }
+}
+
+/// One line of `itsanas device list`.
+///
+/// The silence is the coordinator's own measurement, so it is what decides
+/// whether a device is "lost"; this machine's clock never enters it.
+fn describe_enrolled(entry: &itsanas_coord::protocol::EnrolledDevice, here: bool) -> String {
+    let heard = match entry.silent_for {
+        Some(seconds) => format!("heard from {}", describe_age(seconds)),
+        None => "never announced".to_owned(),
+    };
+    let address = entry.address.as_deref().unwrap_or("no address");
+    let this = if here { "  (this machine)" } else { "" };
+    format!(
+        "{}  {address}  pledges {}  {heard}{this}",
+        entry.device,
+        config::format_size(entry.pledged_bytes)
+    )
 }
 
 /// Turn what somebody typed into a device on this account.
@@ -2072,27 +2206,57 @@ fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
 fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()> {
     let node = open(home)?;
 
-    let targets: Vec<String> = match address {
-        Some(address) => vec![address.to_owned()],
-        None => node.config.peers.clone(),
+    // Configured peers unpinned, as the daemon dials them; the account's other
+    // devices from the coordinator pinned, because the coordinator supplies
+    // addresses and is not trusted to say who lives at one.
+    //
+    // Without the second half, a machine just restored with `login --from` had
+    // nothing to sync with: `sync` read only `peer add` entries, so the command
+    // a person runs after recovering asked them to type an address -- which is
+    // what acceptance test A says must never be needed. Only the daemon asked
+    // the coordinator.
+    let mut targets: Vec<(String, Option<DeviceId>)> = match address {
+        Some(address) => vec![(address.to_owned(), None)],
+        None => node
+            .config
+            .peers
+            .iter()
+            .map(|peer| (peer.clone(), None))
+            .collect(),
     };
+    if address.is_none() && node.config.coordinator.is_some() {
+        match coordinator::peers(&node, node.store.owner()) {
+            Ok(found) => {
+                for (device, found_at) in found {
+                    if !targets.iter().any(|(known, _)| *known == found_at) {
+                        targets.push((found_at, Some(device)));
+                    }
+                }
+            }
+            // Not fatal: configured peers may still answer, and the error
+            // below names the whole situation if nothing does.
+            Err(error) => println!("coordinator: unreachable ({error})"),
+        }
+    }
 
     if targets.is_empty() {
         return Err(CliError::Usage(
-            "no peer given and none configured. Try `itsanas sync <host:port>` \
-             or `itsanas peer add <host:port>`."
+            "no peer given, none configured, and no other device of this account \
+             known to the coordinator. Try `itsanas sync <host:port>`, \
+             `itsanas peer add <host:port>`, or `itsanas daemon`, which also finds \
+             machines on this network."
                 .to_owned(),
         ));
     }
 
     let mut any_succeeded = false;
 
-    for target in &targets {
+    for (target, pinned) in &targets {
         print!("{target}: ");
         let _ = std::io::stdout().flush();
 
         let mut client =
-            match PeerClient::connect(target.as_str(), &node.device, node.store.owner(), None) {
+            match PeerClient::connect(target.as_str(), &node.device, node.store.owner(), *pinned) {
                 Ok(client) => client,
                 Err(error) => {
                     // One unreachable peer must not abort the others: the whole
