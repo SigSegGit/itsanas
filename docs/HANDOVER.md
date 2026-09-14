@@ -97,6 +97,9 @@ one long conversation re-read its own context 1,885 times.
   README, ROADMAP and TESTING — `check-counts.py` fails otherwise, and its
   uncatalogued ceiling (116) is a ratchet, not a target.
 - A new `scripts/check-*` file must get a step in `ci.yml` — `check-ci.py`.
+- **A CI warning is a failure.** The `no-warnings` job fails a run on any
+  annotation above notice level. If it fires, fix the cause; allow-list only
+  what describes GitHub's machine, never this project, and say why beside it.
 - **`cargo deny` runs in `check-all.sh` now; install it.** It failed CI twice in
   a week: a dependency pushed unvetted (2026-09-07), and an advisory published
   the same morning (2026-09-14, rustls, fixed by `cargo update -p rustls`).

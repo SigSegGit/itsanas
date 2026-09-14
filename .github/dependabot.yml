@@ -1,0 +1,30 @@
+# Updates offered as pull requests, so a deprecated action or a crate with a
+# fix is proposed before it turns a run red.
+#
+# Added on 2026-09-14, the day every CI run carried fourteen Node.js 20
+# deprecation warnings and an advisory against rustls arrived unannounced. Both
+# were routine updates that nobody was told about.
+#
+# Cargo is limited to patch updates: minor versions of 0.x crates are breaking,
+# and anything newer than the pinned MSRV fails the minimum-rust-version job,
+# which would make these pull requests noise instead of help.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    groups:
+      patches:
+        update-types: ["patch"]
