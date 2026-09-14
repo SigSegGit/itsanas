@@ -236,6 +236,25 @@ jobs:
           powershell -ExecutionPolicy Bypass -File install\windows.ps1
           -Yes -NoService -Prefix "$env:RUNNER_TEMP\itsanas-ci"
 
+  acceptance-local:
+    name: Acceptance phases between three local nodes
+    runs-on: ubuntu-latest
+    # `scripts/acceptance.sh` is what the MVP verdict is taken with, on four real
+    # machines, by a person, in a morning that is expensive to waste. This runs
+    # every phase here first between three nodes of one account and a throwaway
+    # coordinator -- once where it must pass and once where it must fail -- so a
+    # check that cannot pass, or cannot fail, is found on a push rather than on
+    # the fleet. Its first run found both: two checks printed FAIL and exited 0,
+    # and F "passed" on a file that had never arrived.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p itsanas-cli -p itsanas-coord --bins
+      - run: bash -n scripts/acceptance.sh && bash -n scripts/acceptance-local.sh
+      - name: Every phase passes where it must and fails where it must
+        run: bash scripts/acceptance-local.sh target/debug/itsanas target/debug/itsanas-coordinator
+
   cross-build:
     name: Builds and runs on ARM
     runs-on: ubuntu-latest

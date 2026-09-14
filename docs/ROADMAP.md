@@ -411,12 +411,13 @@ What is missing before this is a *network* rather than a personal sync tool:
 
 - Cargo workspace, Rust 2024 edition, MSRV pinned and enforced.
 - AGPL-3.0-or-later.
-- CI with nine jobs: lint (format, clippy at `-D warnings`, rustdoc, and the
+- CI with ten jobs: lint (format, clippy at `-D warnings`, rustdoc, and the
   five checking scripts), tests on Linux/Windows/macOS, expensive `#[ignore]`d
   tests, **the installers actually installing** on a machine of each kind, an
   aarch64 build that then runs the whole suite under emulation, an Android
   compile check, MSRV check, dependency advisories and licence audit
-  (`cargo-deny`), coverage.
+  (`cargo-deny`), coverage, and the MVP acceptance kit run between three local
+  nodes, where every check must pass once and fail once.
 - Weekly scheduled CI run so a new advisory surfaces without waiting for a push.
 
 **It had never run.** The workflow was written in the first week and the

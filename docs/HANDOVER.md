@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0a
-TITLE: An acceptance kit for the fleet
+NEXT: 8.0b
+TITLE: Say why a peer refused what was pushed
 WRITTEN-AT: 2026-09-14
-BASE: f6cace7
+BASE: 5894dac
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -34,7 +34,19 @@ item 0 — run the MVP on the fleet — now comes before §8.1's enforcement,
 which matters only once somebody other than Nicolas joins. What is left is
 mostly hands on machines; the next step makes that cheap and unambiguous.
 
-What that PR carries beyond the split, each defence sabotage-verified:
+**§8 item 0a is built.** `scripts/acceptance.sh` (one command per test phase,
+PASS or FAIL with the numbers, receipt in `~/.itsanas-receipts/acceptance.txt`)
+and `scripts/acceptance-local.sh`, the CI job `acceptance-local`, which runs
+B, D, E, F and G between three local nodes and points every check at a
+situation it must refuse. Its first runs found three things: two checks that
+printed FAIL and exited 0; F passing on a file that had never arrived; and a
+host with pledge 0 refusing its own account's segments **silently** — `sync`
+prints `sent 0 B, 0 segments`, as if there were nothing to send. That last one
+is §8 0b. **It does not block Nicolas**: MVP.md's command table states the
+pledge prerequisite, so the fleet runs (0c) can start now. The Rodin audit
+caught the earlier wording, which put an agent task ahead of the fleet again.
+
+What #1 carried beyond the split, each defence sabotage-verified:
 
 - `Config::split` may only be **stricter** than `Split::DEFAULT`. Until §8.1(c)
   lands, `itsanas keep` is the only live enforcement of the bargain, and a
@@ -70,6 +82,10 @@ one long conversation re-read its own context 1,885 times.
   README, ROADMAP and TESTING — `check-counts.py` fails otherwise, and its
   uncatalogued ceiling (116) is a ratchet, not a target.
 - A new `scripts/check-*` file must get a step in `ci.yml` — `check-ci.py`.
+- A node that has pledged nothing refuses to relay even its own account's
+  log, and `sync` reports that as `sent 0 B`. Every test node pledges.
+- `return` after a cleanup in bash hands back the cleanup's status: a check
+  that printed FAIL exited 0. Put the verdict last.
 - `format_size` is for reports. A figure somebody will type back is
   `size_argument`, or it floors below the price and does not parse.
 - Grepping for a changed number finds the number, not its restatements.
@@ -314,7 +330,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
      for a day. What it can do is make each of those a command that checks
      and prints a verdict, so a test costs Nicolas minutes and no judgement.
 
-   a. **An acceptance kit: `scripts/acceptance.sh <test> <phase> [args]`.**
+   a. ✅ **An acceptance kit: `scripts/acceptance.sh <test> <phase> [args]`.**
       Run on the machine the phase is about; prints `PASS`/`FAIL` with the
       numbers and appends the line to `~/.itsanas-receipts/acceptance.txt`,
       in `receipt.sh`'s format. It checks, it does not orchestrate — Nicolas
@@ -336,9 +352,41 @@ Detail and measurements are in ROADMAP.md; this is the map.
       phases between two homes on one runner, so a phase that cannot pass
       is found before Nicolas spends a morning on it. MVP.md §3 gets the
       command under each test.
-   b. **Nicolas runs A–J with the kit.** The next session pastes the receipts
+      **Built 2026-09-14**, as specified except: Linux and Git Bash only (no
+      `.ps1` — nothing in B–G needed it); H, I and J are exercised locally only
+      by their negative controls, since they need a day, a coordinator outage
+      and a reboot; and C has only its negative controls locally, because a
+      scan of the owner's own state finds the file name in `store/index.redb`
+      — correct on the owner's machine, and the reason C is run on a host of
+      another account, which the bench does not set up. MVP.md §3 has the
+      command table. After the Rodin audit: the canary is also the file name,
+      I's refusal says idle rounds are silent, and `D check` keeps the
+      passphrase prompt visible. Not fixed: E cannot prove two machines never
+      met, and F counts neighbours without comparing them to before.
+   b. **Say why a peer refused what was pushed.** Verified facts:
+      `StoreChunk` and `StoreSegment` (`crates/itsanas-net/src/service.rs`
+      ~138–153) answer `Refused("pledged capacity exhausted")` against a
+      host's pledge for every owner, its own account included, which DESIGN.md's
+      table ("your own log relayed between your devices | `pledge`") says is
+      intended. But the push side maps every refusal to `false` (the comment in
+      `session::push_scoped`, `crates/itsanas-net/src/session.rs` ~435 says so),
+      and `itsanas sync` (`crates/itsanas-cli/src/main.rs` ~2121) and the daemon
+      (`daemon.rs` ~904) then print `sent 0 B in 0 chunks, 0 segments` — the
+      line for "nothing to send". Count refusals in `PushReport` with the first
+      reason and print `refused N: <reason>`. Red-team test: a host with pledge 0
+      is pushed to, and the report names the refusal; sabotage by dropping the
+      count. Found by the acceptance bench, whose E, F and G failed until every
+      node pledged.
+   c. **Nicolas runs A–J with the kit.** The next session pastes the receipts
       into MVP.md §6 and applies the verdict rule of §4 as written.
-   c. **Whatever fails becomes the next item**, ahead of everything below.
+   d. **Whatever fails becomes the next item**, ahead of everything below.
+   e. **Measure H on the machine it is about.** `H sample` reads `/proc` and
+      `pgrep`, so it runs on the Pi and the VM, where nobody asked. The criterion
+      is the Windows laptop: battery, CPU at idle, memory, and whether it sleeps.
+      A sampler already exists outside the repository
+      (`%LOCALAPPDATA%\itsanas\sampler.ps1`, seen, not read) — bring its
+      measurement into `scripts/acceptance.ps1` with the same verdict line, plus
+      `powercfg /requests` for whether the daemon holds the machine awake.
 
 1. **Enforce the space split. Asked for by Nicolas on 2026-09-14.** Step (a) is
    built; (b), (c) and (d) are what is left, and **nothing on
