@@ -253,11 +253,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
    task of the next conversation.** Nothing enforces it today. Verified facts:
 
    - The ratio is `itsanas-coord::accounting::CONTRIBUTION_RATIO = 3`: keep one
-     byte per three pledged, a **25/75** split. Nicolas asked for **30/70**. That
-     is a ratio of 7/3, below the replication factor of 3: three copies of every
-     byte with only 2.33 bytes of pledged room behind them, a network-wide
-     deficit of about 22 %. **Confirm the number with him before changing the
-     default.** Make it a value either way — he wants it to become a setting.
+     byte per three pledged, a **25/75** split. **Decided with Nicolas on
+     2026-09-14: default 30/70, as a value he can change later.** The reasoning,
+     so nobody re-derives it: `REPLICATION_TARGET = 3` counts *machines*,
+     including the owner's own (`store/src/lib.rs`, `holders.rs`). For data the
+     owner keeps locally the network holds **two** copies, so the break-even
+     ratio is 2 (33/67) and 30/70 (7/3) leaves about 17 % slack for machines that
+     are asleep and for sealing and log overhead. 33/67 leaves none. For data a
+     device has *released* (a phone under `keep`), the network needs three
+     copies and only 25/75 breaks even — so the value may later need to depend on
+     how much of an account is kept locally. `ECONOMICS.md` §1 states capacity as
+     `R × S` with the owner's copy counted as network capacity; correct it in
+     step (d).
    - It is read by `accounting.rs` (`room_earned`, `pledge_needed_for`), the CLI
      `keep`, `space` and `pledge` (`crates/itsanas-cli/src/main.rs`, around lines
      1770–2060), the Android JNI `setKeep`/`setPledge`
