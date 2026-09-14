@@ -55,7 +55,17 @@ pub const PROTOCOL_VERSION: u16 = 4;
 /// version 2 refuses anything but 2, because that is what its own copy of this
 /// file says; the window only starts protecting upgrades once every node has a
 /// version of the code that has one.
-pub const MIN_PROTOCOL_VERSION: u16 = 2;
+///
+/// **Raised from 2 to 4 on 2026-09-14, because the window was not one.** The
+/// wire writes an enum variant as its position, and version 4 inserted
+/// `Response::ChunkSummary` in the middle of `Response`: `WantHosted` moved from
+/// 7 to 8 and `Refused` from 8 to 9. A version-2 peer's `WantHosted` decoded
+/// here as a `ChunkSummary` ("Hit the end of buffer") and its `Refused` as a
+/// `WantHosted`; the fleet logged that on every round for a week. Versions 2 and
+/// 3 share the old order, so refusing below 4 turns garbage into one line
+/// naming the two versions. The numbers are now pinned by
+/// `red_team_every_variant_keeps_its_number_on_the_wire`: append, never insert.
+pub const MIN_PROTOCOL_VERSION: u16 = 4;
 
 /// The version before `WantHosted` and `Hosted` existed.
 ///
@@ -563,6 +573,121 @@ mod tests {
             }
             .is_acceptable()
         );
+    }
+
+    /// The number each request is written under on the wire. Append, never
+    /// insert: a number that moves is a message every deployed peer reads as a
+    /// different one.
+    fn request_number(request: &Request) -> u8 {
+        match request {
+            Request::Hello { .. } => 0,
+            Request::Heads { .. } => 1,
+            Request::Segments { .. } => 2,
+            Request::Chunk { .. } => 3,
+            Request::HaveChunks { .. } => 4,
+            Request::StoreChunk { .. } => 5,
+            Request::StoreSegment { .. } => 6,
+            Request::Challenge { .. } => 7,
+            Request::WantHosted { .. } => 8,
+            Request::Hosted { .. } => 9,
+            Request::Dropped { .. } => 10,
+            Request::ChunkSummary { .. } => 11,
+        }
+    }
+
+    /// The same for responses.
+    fn response_number(response: &Response) -> u8 {
+        match response {
+            Response::Hello { .. } => 0,
+            Response::Heads(_) => 1,
+            Response::Segments(_) => 2,
+            Response::Chunk(_) => 3,
+            Response::Missing(_) => 4,
+            Response::Stored { .. } => 5,
+            Response::ChallengeProof(_) => 6,
+            Response::ChunkSummary(_) => 7,
+            Response::WantHosted { .. } => 8,
+            Response::Refused(_) => 9,
+        }
+    }
+
+    #[test]
+    fn red_team_every_variant_keeps_its_number_on_the_wire() {
+        // postcard writes a variant as its position in the enum. Version 4
+        // inserted `Response::ChunkSummary` before `WantHosted` and `Refused`,
+        // so a version-2 peer's `WantHosted` arrived as a `ChunkSummary` --
+        // "Hit the end of buffer", every round, on the whole fleet, for a week
+        // -- and its `Refused` as a `WantHosted`. The round-trip tests above
+        // could not see it: both ends of a round trip compile the same enum.
+        //
+        // What this catches: a variant inserted anywhere but the end, or two
+        // swapped. The numbers are the ones already deployed and do not move.
+        for request in one_of_each() {
+            let bytes = postcard::to_allocvec(&request).expect("encode");
+            assert_eq!(
+                bytes[0],
+                request_number(&request),
+                "{request:?} is written under a new number; every deployed peer \
+                 reads it as a different request"
+            );
+        }
+
+        let responses = [
+            Response::Hello {
+                protocol: PROTOCOL_VERSION,
+                device: device(),
+            },
+            Response::Heads(Vec::new()),
+            Response::Segments(Vec::new()),
+            Response::Chunk(None),
+            Response::Missing(Vec::new()),
+            Response::Stored { accepted: true },
+            Response::ChallengeProof([0; 32]),
+            Response::ChunkSummary(Vec::new()),
+            Response::WantHosted {
+                owner: user(),
+                chunks: Vec::new(),
+            },
+            Response::Refused(String::new()),
+        ];
+        let numbered: std::collections::BTreeSet<u8> =
+            responses.iter().map(response_number).collect();
+        assert_eq!(
+            numbered.len(),
+            responses.len(),
+            "a response variant is missing from this list, so its number is unchecked"
+        );
+        for response in responses {
+            let bytes = postcard::to_allocvec(&response).expect("encode");
+            assert_eq!(
+                bytes[0],
+                response_number(&response),
+                "{response:?} is written under a new number; every deployed peer \
+                 reads it as a different response"
+            );
+        }
+    }
+
+    #[test]
+    fn red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello() {
+        // Versions 2 and 3 predate the order `Response` has now, so every
+        // answer they give after the handshake decodes as another message.
+        // Refusing them at the hello turns a week of "Hit the end of buffer"
+        // into one line saying which versions disagree.
+        //
+        // What this catches: the floor lowered again without the wire being
+        // renumbered -- a window that admits peers it cannot understand.
+        for protocol in [2, 3] {
+            assert!(
+                !Request::Hello {
+                    protocol,
+                    device: device(),
+                    owner: user(),
+                }
+                .is_acceptable(),
+                "a version-{protocol} peer was admitted, and its replies decode as the wrong messages"
+            );
+        }
     }
 
     #[test]
