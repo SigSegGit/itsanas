@@ -6,16 +6,54 @@ contract.
 
 ---
 
+## 0. Resume here after `/clear`
+
+Read this section, then §8. Nothing else is needed to continue.
+
+**State (2026-09-14).** `main` is pushed and CI is green; **v0.1.0 is tagged and
+released** with the Android APK attached. 716 tests (39 red-team, 3 `#[ignore]`d
+into the slow job), nine gates.
+
+**Check a clean tree:** `bash scripts/check-all.sh` (nine gates, discovered by
+glob) then `cargo nextest run --workspace`. Both must be green before a push.
+
+**Traps that have cost real time:**
+- Git Bash heredocs eat backslashes and turn `\r` into a carriage return. Write
+  edit scripts with the Write tool into the scratchpad, then `python script.py`.
+- Every red-team fix is **sabotage-verified**: revert the fix, watch its test
+  fail, restore. A test that passes both ways is decorative and not accepted.
+- A new test needs a catalogue row in `docs/TESTING.md` and the counts updated in
+  README, ROADMAP and TESTING — `check-counts.py` fails otherwise, and its
+  uncatalogued ceiling (116) is a ratchet, not a target.
+- A new `scripts/check-*` file must get a step in `ci.yml` — `check-ci.py`.
+- Unsafe code is allowed only in `crates/itsanas-drive/src/projfs.rs` (and the
+  JNI export attribute), with a `SAFETY:` comment per block — `check-unsafe.py`.
+- A PreToolUse hook (`~/.claude/hooks/quiet.py`) condenses builds and test runs
+  to errors plus the summary and prints the full log path. Read that log rather
+  than re-running. `QUIET=0 cmd` bypasses it.
+
+**Where the truth is:** `docs/ROADMAP.md` "Known ceilings" and "What an
+adversarial sweep found" (open findings, with arithmetic); `docs/ECONOMICS.md`
+§1 (the 3:1 bargain is enforced locally only); `docs/DESIGN.md` §6.5–6.7
+(verification cost against the 100 MB/day budget).
+
+---
+
 ## 1. Where things are
 
 ```
-C:\Users\SigSeg\itsanas
-branch: overnight-m2-to-m5   (unmerged; main is at the initial commit)
-remote: none — nothing has ever been pushed
+D:\GitHub\itsanas
+remote: https://github.com/SigSegGit/itsanas   (public, AGPL-3.0-or-later)
+branch: main          tags: v0.1.0
+CI:     .github/workflows/ci.yml — Linux, Windows, macOS, ARM, Android core,
+        cargo deny, installers run on each OS
 ```
 
-Publishing is Nicolas's decision and has not been made. Do not create a GitHub
-repository without asking.
+The fleet: this Windows laptop (a scheduled task named `ITSaNAS` runs the
+daemon; its passphrase file is under `%LOCALAPPDATA%\itsanas`), a Raspberry Pi
+4B running the coordinator, and an aarch64 VM on a Freebox Delta. Accounts and
+addresses are in `install/README.md` and `docs/MVP.md`. **No secret belongs in
+this repository**, including test machines' passphrases.
 
 ## 2. The invariant that keeps this honest
 
@@ -180,102 +218,49 @@ Each of these has a test that fails if it is:
 
 ## 7. What is built and working
 
-- **Local store**: content-defined chunking, sealed content-addressed blobs,
-  transactional index, chained operation log, GC with grace, integrity check.
-- **Streaming**: `write_stream`/`read_stream` bound memory to ~½ MB regardless
-  of file size. The buffer variants are thin wrappers.
-- **Sync**: version vectors, full merge decision table, conflict siblings,
-  tombstones, deferred operations, deterministic 3-device simulation.
-- **Network**: TLS 1.3, device-authenticated, peer protocol with resume and
-  batched have/missing, vault for foreign data, storage challenges, relaying.
-- **Placement ledger**: which peers hold each chunk, recorded on every sync and
-  converging from what a peer says it already has. `itsanas status` reports
-  whether the data exists anywhere but this disk.
-- **Discovery**: machines on one network find each other with nothing
-  configured — signed 147-byte UDP announcements, a bounded table, own devices
-  dialled first, each pinned to the device that announced it. Verified against a
-  real broadcast, not only in tests.
-- **Folder**: import/export/delete, conflict handling, watcher with debounce,
-  periodic and deep rescans, atomic streamed export.
-- **Daemon**: serve + sync + reconcile in one process.
-- **Placement**: weighted rendezvous hashing, owner affinity, repair
-  *planning*. **No anchor rule and no availability input** — see
-  [ECONOMICS.md](ECONOMICS.md) §2.
-- **Coordinator library**: device claims and revocation, presence, measured
-  availability, accounting, account directory, escrow storage.
+Detail and measurements are in ROADMAP.md; this is the map.
 
-Verified by running it, not only by tests: two daemons, a file dropped in one
-folder appearing in the other, an edit propagating, a file created on the far
-side coming back, a deletion removing it from both, both folders byte-identical.
+- **Core**: content-defined chunking, sealed blinded chunks, transactional index,
+  signed chained log, version vectors and conflict siblings, GC with grace.
+- **Network**: TLS 1.3 with device-key channel binding; peer protocol with a
+  version window; storage challenges on a random sample; a per-(chunk, device)
+  holder ledger with freshness; **releasing local data requires two holders that
+  have answered a challenge**; 256-bucket set reconciliation so an idle round
+  sends one hash; repair from peers with every byte verified.
+- **Coordinator**: server and CLI, invite-only admission, one key one account,
+  escrow of a sealed recovery container. The accounting *rules* exist; nothing on
+  the network applies them (§8.1).
+- **Machines that hold less than the account**: `itsanas keep` budgets with an
+  ordering, selective fetch, `itsanas space` bounded by disk and pledge.
+- **Front ends**: folder daemon with watcher; Android app (Compose over JNI,
+  emulator only); Windows virtual drive over ProjFS (read-only).
+- **Installers** for Linux, Windows, macOS, Termux and the coordinator, each with
+  `--clean` delegating to one uninstaller. Run for real on the Pi, the VM and
+  Windows; macOS in CI.
 
 ## 8. What is next, in order
 
-1. ~~**Owner-recorded placement.**~~ **Done.** The `HOLDERS` table in the store,
-   filled by `session::push` from what the peer says it already has, plus
-   `under_replicated` and the `itsanas status` report. What is still missing is
-   a repair loop that *chooses* peers to fix a shortfall, rather than relying on
-   a node pushing to every peer it has.
-2. ~~**Coordinator server and client.**~~ **Done.** `protocol.rs`, `service.rs`,
-   `server.rs` and the `itsanas-coordinator` binary, plus CLI wiring:
-   `itsanas coordinator`, `itsanas register [--recovery]`,
-   `itsanas login --from`. The daemon announces its address each round and
-   dials whatever the coordinator reports, pinned.
-
-   What is left here: nothing blocking. The old note said the library was
-   complete and
-   tested; nothing serves it. Needs: a protocol enum, a `service.rs` handling
-   requests against `Directory`, and a TLS server reusing `itsanas-tls` and
-   `wire::Connection`. Then a `itsanas-coordinator` binary.
-3. **~~Signed node-set epochs~~ — cancelled.** This was going to be the
-   coordinator publishing a membership list everyone agreed on. Requiring every
-   peer to hold the same list *is* an agreement protocol, and ITSaNAS does not
-   need one: every chunk has exactly one owner who already keeps a log of it.
-   Superseded by owner-recorded placement above.
-3. **CLI wiring**: `itsanas register`, `itsanas coordinator <addr>`, peer
-   discovery by username, and pinning peer device ids when dialling (the
-   `expect` argument to `PeerClient::connect` is currently always `None`).
-4. **Escrow recovery**: `itsanas login --username X` fetching the blob from the
-   coordinator. `Keystore` already supports it; only the wiring is missing, and
-   it is the recovery story Nicolas originally asked for.
-5. **Repair.** Half done, and the half that was done is the half that matters
-   more.
-
-   `session::repair` fetches back chunks missing from **this** disk, from a peer
-   that still holds them, verifying every byte before writing it. That is the
-   failure the placement ledger was built to survive, and it is the one `push`
-   cannot touch: push offers a peer what the peer lacks and can put nothing back
-   here. Wired into the daemon, bounded both ways (a slice of the live chunks
-   scanned per round, a handful fetched), and covered by a red-team test for the
-   one attack it opens — a host answering a repair request with noise, which
-   unverified would turn a recoverable loss into a permanent one.
-
-   Still open: **choosing where to place data.** `placement::repair::plan` is
-   wired to nothing and is written against a `NodeSet` — a global membership
-   list this design deliberately abandoned (DESIGN.md §8). At a household size
-   the policy is "offer it to every peer this node reaches", which push already
-   does, so under-replication now means *there are not enough peers*, not *the
-   wrong peers were chosen*. Wiring the planner would be building for a scale
-   the network is nowhere near. What is worth doing before that is saying so out
-   loud: the daemon reports nothing when a chunk exists only on this disk.
-6. ~~**Scheduled storage challenges.**~~ **Done.** `session::audit` challenges
-   a **randomly drawn** sample of a peer's holdings each round and withdraws the
-   record when it cannot answer, which makes the chunk under-replicated and gets
-   it re-sent. Three consecutive failures pause new content to that peer —
-   `itsanas_store::reliability` — because detection without memory lets a host
-   drain an owner's uplink forever by accepting and discarding. A paused peer is
-   handed one chunk a round and audited on that chunk alone, so answering for it
-   lifts the sanction in the next round.
-
-   The randomness is not a detail. The first version asked about the least
-   recently confirmed records, which in practice was a fixed list of the sixteen
-   lowest chunk ids, asked every round for ever; a host could keep sixteen
-   chunks out of fourteen million and pass every audit it was ever given. If you
-   change how questions are chosen, the property to preserve is that the host
-   cannot predict them — not that every chunk is eventually covered.
-7. ~~**Benchmarks.**~~ **Done.** `itsanas bench` ships as a command and measures
-   throughput, save latency and the round trip. Still never run on a Pi.
-8. **Raspberry Pi bring-up.** Never run on ARM. Only `cargo check` for
-   aarch64 has been done, and blake3 needs a cross C compiler.
+1. **Make the network enforce the bargain.** A rebuilt client can pledge nothing
+   and keep everything; `accounting::assess()` is called only from tests. The
+   specified answer is the bilateral ledger in ECONOMICS.md §3. This is the
+   blocker before anyone who is not Nicolas joins.
+2. **Finish the red team, one surface per session, by hand.** Three surfaces have
+   never been examined — every multi-agent attempt died on usage limits:
+   *integrity* (a hostile peer: forged or replayed segments, version vectors that
+   win or resurrect deletions, chunks whose id does not match their bytes,
+   downgrade past a later defence), *confidentiality* (convergent ciphertext, what
+   two hosts learn by comparing notes), *identity* (many devices, claiming someone
+   else's device, LAN discovery eclipse). Git history was checked for secrets on
+   2026-09-14 and is clean.
+3. **The open findings** listed in ROADMAP.md: a refused request still walks the
+   whole vault; one peer can hold the single-threaded listener; `pledge` and the
+   JNI setters skip the ratio check; chunk-size sequences fingerprint files; the
+   LAN beacon groups an account's machines.
+4. **Verification at a terabyte.** Within a differing bucket, ask only about
+   chunks with no fresh record for that peer (DESIGN.md §6.5). Today the budget
+   buys about 3 MB of change a day at 1 TB.
+5. **A real phone**, and a release signing key for the APK that Nicolas holds
+   (v0.1.0 ships with the development key).
 
 ## 9. Known gaps, deliberately open
 
@@ -309,18 +294,12 @@ side coming back, a deletion removing it from both, both folders byte-identical.
 
 ## 10. Open, waiting on Nicolas
 
-Three things are deliberately not decided, and none of them should be decided
-unilaterally:
-
-1. **Publishing.** No remote exists. AGPL-3.0 is chosen and `deny.toml` allows
-   it, so the licence side is ready; whether and where to publish is not.
-2. **Merging to `main`.** The whole project after the initial commit lives on
-   `overnight-m2-to-m5`. Merging locally is trivial and reversible; it was left
-   undone because "push to main" was asked for in a context that assumed a
-   remote.
-3. **Installing on the Windows laptop.** `cargo install --path crates/itsanas-cli`
-   puts `itsanas.exe` on the PATH. Not done — it writes outside the repository.
-   [QUICKSTART.md](QUICKSTART.md) is the walkthrough once it is.
+1. **Who joins next.** The network has one person. Every economic and
+   adversarial property above is untested against someone else's machine.
+2. **An Android release key.** It must be generated and kept by Nicolas, never
+   committed; the APK cannot be upgraded in place across a key change.
+3. **How the bargain is enforced**: bilateral ledgers between hosts, or the
+   coordinator computing standings. ECONOMICS.md argues for the first.
 
 ## 11. Working style Nicolas expects
 

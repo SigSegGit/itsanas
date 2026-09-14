@@ -7,6 +7,9 @@ machine, run one command, then follow **After the install** at the bottom.
 > tested, not a product. The on-disk format may change without a migration.
 > **Keep another copy of anything you put in it.**
 
+From a clone, build the tag rather than `main`:
+`git clone --branch v0.1.0 https://github.com/SigSegGit/itsanas`.
+
 Everything here builds from source on the machine it runs on. There are no
 prebuilt binaries and that is deliberate: the fleet this is written for is a
 Windows laptop, a Raspberry Pi and an ARM virtual machine, and a build on each
@@ -18,7 +21,7 @@ ten to forty minutes, mostly compiling.
 ## Linux, Raspberry Pi, a VM
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/linux.sh | sh
+curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/v0.1.0/install/linux.sh | ITSANAS_REF=v0.1.0 sh
 ```
 
 Installs a toolchain if there is none, builds, installs to `~/.local/bin`,
