@@ -34,6 +34,7 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - run: echo "::warning::deliberate warning, to prove the no-warnings job fails on one"
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       # Broken intra-doc links are the quietest kind of rot: the documentation
