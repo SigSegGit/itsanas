@@ -5,10 +5,12 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Weekly, so a newly published advisory against a dependency surfaces even
-    # when nobody has pushed. A storage system people trust with their data
-    # cannot only learn about CVEs when someone happens to open a PR.
-    - cron: "17 4 * * 1"
+    # Daily, so a newly published advisory against a dependency surfaces the
+    # day it is published rather than on the next unrelated PR. It was weekly
+    # until 2026-09-14, when an advisory against rustls appeared that morning
+    # and was first seen as a red main after two merges. A storage system
+    # people trust with their data cannot learn about CVEs by accident.
+    - cron: "17 4 * * *"
 
 env:
   CARGO_TERM_COLOR: always
