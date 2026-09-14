@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0b
-TITLE: Say why a peer refused what was pushed
+NEXT: 8.0f
+TITLE: A tray icon for the Windows daemon
 WRITTEN-AT: 2026-09-14
-BASE: 5894dac
+BASE: 7e19df6
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -45,6 +45,21 @@ prints `sent 0 B, 0 segments`, as if there were nothing to send. That last one
 is §8 0b. **It does not block Nicolas**: MVP.md's command table states the
 pledge prerequisite, so the fleet runs (0c) can start now. The Rodin audit
 caught the earlier wording, which put an agent task ahead of the fleet again.
+
+**Later the same day the fleet itself was repaired** (#5, #6). The laptop's
+daemon had logged `could not take on hosting (... framing: encoding: Hit the
+end of buffer ...)` every round for a week: postcard numbers enum variants by
+position, version 4 inserted `Response::ChunkSummary` mid-enum, and the Pi and
+the VM ran week-old builds that `MIN_PROTOCOL_VERSION = 2` still admitted.
+The floor is 4 and the numbers are pinned by a red-team test. All three
+machines run `5156cd6` or later: the Pi and VM daemons, found running by hand
+outside systemd, now run under their user units; the old binaries are kept as
+`.bak-2026-09-0x`. The Windows logon task opened an untitled console that
+Nicolas closed as a stray, killing the daemon; `provision.ps1` now uses
+`conhost --headless` and restarts from the wrapper. **Still owed on the
+laptop:** the existing task was created elevated, so switching its action to
+conhost needs one admin command from Nicolas; the wrapper is already updated.
+**Nicolas reordered the queue:** a tray icon (0f) before 0b.
 
 What #1 carried beyond the split, each defence sabotage-verified:
 
@@ -88,6 +103,12 @@ one long conversation re-read its own context 1,885 times.
   `framing: encoding: Hit the end of buffer` every round for a week while
   `MIN_PROTOCOL_VERSION` still claimed version 2 was compatible. The floor
   is 4 now and a red-team test pins the numbers. Append, never insert.
+- Two nodes on one machine cannot both bind the discovery port (UDP 21037):
+  the second logs `local discovery is off (Address already in use)` and needs
+  its peers configured. Seen on the VM, where `voisin` and `mandarine` share it.
+- A daemon started by hand survives nothing and hides the unit's real state:
+  on the Pi and the VM `systemctl --user` said "inactive" for a week while
+  hand-started processes ran old binaries. Restart through the unit.
 - A node that has pledged nothing refuses to relay even its own account's
   log, and `sync` reports that as `sent 0 B`. Every test node pledges.
 - `return` after a cleanup in bash hands back the cleanup's status: a check
@@ -403,6 +424,24 @@ Detail and measurements are in ROADMAP.md; this is the map.
       (`%LOCALAPPDATA%\itsanas\sampler.ps1`, seen, not read) — bring its
       measurement into `scripts/acceptance.ps1` with the same verdict line, plus
       `powercfg /requests` for whether the daemon holds the machine awake.
+   f. **A tray icon for the Windows daemon.** Asked for by Nicolas on
+      2026-09-14 after the untitled console: "a minimum of polish", dark or
+      following the system theme. Verified facts: no desktop UI exists
+      (ROADMAP.md, the table of deferred work, "Tray / desktop GUI"); the
+      daemon already writes `status.snapshot`, which `itsanas status` prints
+      while the daemon holds the index (`crates/itsanas-cli/src/main.rs`
+      ~1180); the index lock means a second process cannot read the store
+      live (§9, "One process per node"). So the tray reads the snapshot and
+      nothing else: state and age of the last round, open the synced folder,
+      open the log, restart the task, quit. A new crate (`itsanas-tray`,
+      Windows first); candidate crates `tray-icon` with `tao` or `winit`,
+      **not yet checked against `cargo deny`** or the unsafe gate, which must
+      stay satisfied (dependencies may use unsafe; this workspace may not).
+      Red-team test expected: a snapshot older than two intervals is shown as
+      stale, never as healthy -- a green icon over a dead daemon is the failure
+      the tray exists to prevent. A file list, login and account switching are
+      later: switching is a different `ITSANAS_HOME` and works today; a live
+      file list needs the local control socket first.
 
 1. **Enforce the space split. Asked for by Nicolas on 2026-09-14.** Step (a) is
    built; (b), (c) and (d) are what is left, and **nothing on
