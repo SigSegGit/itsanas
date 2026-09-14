@@ -183,7 +183,7 @@ impl Node {
     ///
     /// The container carries the account identity; the device key is generated
     /// fresh, because this is a different machine and a device key identifies a
-    /// machine rather than a person. Losing the old laptop then revokes one
+    /// machine rather than a person. Losing the old laptop then withdraws one
     /// enrolment rather than rotating the whole identity.
     pub fn restore_from_secrets(
         home: &Path,
@@ -207,8 +207,10 @@ impl Node {
         master: &MasterSecret,
     ) -> Result<Self> {
         // A device key per machine, generated locally and never derived from the
-        // master secret, so losing this laptop revokes one certificate rather
-        // than forcing the user to rotate their whole identity.
+        // master secret, so losing this laptop withdraws one enrolment rather
+        // than forcing the user to rotate their whole identity. The keystore
+        // below holds the master secret as well, so a *stolen* node with its
+        // passphrase is the whole account; see `itsanas-coord`'s `claim.rs`.
         let device = DeviceKeys::generate()?;
 
         let secrets = NodeSecrets {
@@ -316,6 +318,58 @@ impl Node {
     /// Persist the configuration.
     pub fn save_config(&self) -> Result<()> {
         self.config.save(&Self::config_path(&self.home))
+    }
+
+    /// Re-seal this machine's keystore under a new passphrase.
+    ///
+    /// Reads the keystore file and nothing else, so it works while the daemon
+    /// holds the store: the daemon unlocked its keys at start and keeps them.
+    /// Its *next* start is the problem, because whatever supplies the passphrase
+    /// non-interactively still has the old one; the caller has to say so.
+    ///
+    /// The new container is written beside the old one and renamed over it, so
+    /// a crash leaves either the old keystore or the new one and never a
+    /// half-written file that opens with neither passphrase. The secrets are not
+    /// regenerated: same account, same device id.
+    pub fn change_passphrase(home: &Path, current: &str, new: &str) -> Result<()> {
+        let keystore_path = Self::keystore_path(home);
+        let bytes = match std::fs::read(&keystore_path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(NodeError::NoNode(home.to_owned()));
+            }
+            Err(error) => {
+                return Err(NodeError::Io {
+                    path: keystore_path,
+                    source: error,
+                });
+            }
+        };
+
+        let plaintext = zeroize::Zeroizing::new(
+            Keystore::from_bytes(&bytes)?
+                .unlock(current, KEYSTORE_LABEL)
+                .map_err(|_| NodeError::Unlock)?,
+        );
+        let sealed = Keystore::lock(new, KEYSTORE_LABEL, &plaintext, KdfParams::RECOMMENDED)?;
+
+        let pending = home.join("keystore.bin.new");
+        let io = |path: &Path| {
+            let path = path.to_owned();
+            move |error| NodeError::Io {
+                path: path.clone(),
+                source: error,
+            }
+        };
+        {
+            let mut file = std::fs::File::create(&pending).map_err(io(&pending))?;
+            std::io::Write::write_all(&mut file, &sealed.to_bytes()).map_err(io(&pending))?;
+            // Without this the rename can reach the disk before the bytes do,
+            // and a power cut leaves a keystore of zeroes under the real name.
+            file.sync_all().map_err(io(&pending))?;
+        }
+        std::fs::rename(&pending, &keystore_path).map_err(io(&keystore_path))?;
+        Ok(())
     }
 }
 
@@ -486,6 +540,63 @@ mod tests {
             Node::open(&home, "not the passphrase"),
             Err(NodeError::Unlock)
         ));
+    }
+
+    #[test]
+    fn a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does() {
+        // A passphrase that cannot be changed is one that stays in whatever
+        // file or shell history it was first typed into. Changing it must not
+        // regenerate anything: a new device id would look like a new machine
+        // to every version vector, and a new master secret would be a new
+        // account with nothing in it.
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        let (before, _phrase) = Node::create(&home, PASSPHRASE, "nicolas").unwrap();
+        let (user, device) = (before.store.owner(), before.store.device_id());
+        drop(before);
+
+        Node::change_passphrase(&home, PASSPHRASE, "a different long passphrase").unwrap();
+
+        let after = Node::open(&home, "a different long passphrase").unwrap();
+        assert_eq!(
+            after.store.owner(),
+            user,
+            "the account changed with the passphrase"
+        );
+        assert_eq!(
+            after.store.device_id(),
+            device,
+            "the device id changed with the passphrase"
+        );
+        drop(after);
+        assert!(
+            matches!(Node::open(&home, PASSPHRASE), Err(NodeError::Unlock)),
+            "the old passphrase still opens the keystore"
+        );
+        assert!(
+            !home.join("keystore.bin.new").exists(),
+            "the pending keystore was left behind"
+        );
+    }
+
+    #[test]
+    fn a_wrong_current_passphrase_changes_nothing() {
+        // Otherwise anybody at an unlocked terminal could lock the owner out of
+        // their own machine by choosing a passphrase for it.
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        Node::create(&home, PASSPHRASE, "nicolas").unwrap();
+        let before = std::fs::read(home.join("keystore.bin")).unwrap();
+
+        assert!(matches!(
+            Node::change_passphrase(&home, "not the passphrase", "chosen by somebody else"),
+            Err(NodeError::Unlock)
+        ));
+        assert_eq!(
+            std::fs::read(home.join("keystore.bin")).unwrap(),
+            before,
+            "a refused change still rewrote the keystore"
+        );
     }
 
     #[test]

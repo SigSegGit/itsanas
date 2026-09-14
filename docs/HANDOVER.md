@@ -9,16 +9,46 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0f
-TITLE: A tray icon for the Windows daemon
-WRITTEN-AT: 2026-09-14
-BASE: 7e19df6
+NEXT: 8.0h
+TITLE: Two accounts on one machine, and the full fleet protocol
+WRITTEN-AT: 2026-09-15
+BASE: a3c76f1
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-15, a detour Nicolas asked for: accounts and devices.** A hand
+red-team of the identity surface, then fixes, in one PR (branch
+`account-devices`). Found and fixed: a withdrawn device came back with
+`itsanas register`, because every keystore holds the master secret and claims
+were ordered by the signer's clock (the doc said the opposite); a withdrawal from
+a machine with a slower clock was dropped while the CLI printed "withdrew";
+`login --from` forgot its coordinator, so the `register` it suggested failed;
+`device list` could not show a machine silent for a week. Added: final
+withdrawals, `Request::Devices` (appended; an older coordinator makes the CLI
+fall back and say so), `itsanas passphrase`, a pin on the coordinator's wire
+numbers, and an accounts section in `acceptance-local.sh`, and `sync` with no address
+now dials the account's devices from the coordinator (the Rodin audit found
+that a restored machine otherwise had nothing to sync with). 735 tests (50
+red-team). The seven Rust defences were sabotage-verified; the bench's account
+checks were sabotaged against a broken binary separately (see the PR). The
+Rodin audit also found that final withdrawal is a weapon for whoever holds the
+master secret — written down in `claim.rs`, not fixed — and that
+`coordinator::enrolled` reads any transport error as "older coordinator". **The Pi's coordinator must be
+upgraded** for the full device list. Not fixed, written in ROADMAP "The
+identity surface": a stolen node with its passphrase is the whole account, and
+withdrawal does not reach the peer protocol. The manual fleet checklist in
+French is `docs/BRIEFING-MVP.md`. `NEXT` moved to §8 0h on Nicolas's
+answer: two accounts on one machine, then the full fleet protocol, ahead of
+the tray, so he can test on his three machines this week.
+
+Traps from this session: a nextest filter `test(=name)` matches nothing for a
+unit test (its name is `module::tests::name`) and a sabotage script reading
+"no tests to run" as a failure reports red for the wrong reason — use
+`test(~name)` and check the output names the test.
 
 **State (2026-09-14).** v0.1.0 is tagged and released with the Android APK.
 §8.1(a), the split as a value at 30/70, is merged as `f6cace7`
@@ -344,6 +374,8 @@ Each of these has a test that fails if it is:
 | The discovery table is bounded and confirmed peers are protected | Device ids are free keypairs, so a flood is cheap; without this it evicts the machines that matter | `a_flood_of_strangers_cannot_evict_a_known_peer`, `the_table_never_grows_past_its_capacity` |
 | The sender's clock decides nothing in discovery | A Pi 4 has no RTC and boots in 1970; superseding by sender clock strands it at a stale address | `a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address` |
 | The split is a value, and the one that grants entitlement is the coordinator's | It was `CONTRIBUTION_RATIO = 3`, and a constant cannot express 30/70 without becoming a fraction, which is where an `f64` wants to go. Two splits now exist and they are not the same thing: a node's configuration field decides only what that machine refuses its own owner, and the one `assess` is handed decides what the network grants. A `split` field on `DeviceContribution` would let a member widen their own entitlement by editing a text file. The node's field may only be stricter than `Split::DEFAULT`: `itsanas keep` is the one live enforcement, and a generous split would turn it off | `red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`; `red_team_a_node_cannot_grant_itself_a_more_generous_split`; `red_team_a_split_with_a_zero_part_is_refused_rather_than_dividing_by_zero` |
+| A withdrawal is final for its device id and wins whatever the signing clocks say | Every keystore holds the master secret, so a claim signed after a withdrawal proves nothing about who signed it; and a signer's clock is an opinion. Timestamp ordering let a stolen machine re-enrol and let a slow clock cancel a withdrawal. A reused machine logs in afresh and gets a new device id | `red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back`; `red_team_a_withdrawal_signed_on_a_slow_clock_still_withdraws`; `a_later_enrolment_does_not_supersede_a_withdrawal` |
+| Coordinator messages are appended, never inserted | postcard numbers variants by position; the peer protocol already lost a week to it | `red_team_coordinator_messages_keep_their_wire_numbers` |
 | Streaming boundaries match slice boundaries exactly | Otherwise one file stored via two paths dedups against nothing | `streaming_and_slicing_agree_on_every_boundary` |
 | Published test identities are refused by `Store::open` | Their phrases are in the docs | `the_published_test_identities_are_refused_...` |
 
@@ -463,6 +495,51 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the tray exists to prevent. A file list, login and account switching are
       later: switching is a different `ITSANAS_HOME` and works today; a live
       file list needs the local control socket first.
+
+   g. ✅ **Accounts and devices, red-teamed and repaired.** Asked for by
+      Nicolas on 2026-09-15 as a detour before 0f. See §0 and ROADMAP.md,
+      "The identity surface, examined 2026-09-15". Left open on purpose:
+      identity rotation (a stolen node with its passphrase is the account),
+      withdrawal reaching the peer protocol (belongs with 1(c)'s attribution
+      through `NodeClaim`), dropping the device seed from the escrow container,
+      and a per-device name in `device list` (a claim field would change a
+      signed payload; the list shows address, pledge and silence instead).
+      From the Rodin audit, also open: `COORD_VERSION` stayed 1, so the CLI
+      detects `Request::Devices` support by a closed connection and cannot tell
+      it from a timeout — a capability list in `Welcome` is the fix, and
+      appending a field there is itself a wire change to pin; after
+      `itsanas passphrase` nothing records that a lodged escrow container is
+      still under the old passphrase, so recovery can fail months later — a
+      line in `status` would say it; and several accounts on one machine
+      (needed by BRIEFING-MVP.md for B/E/F/G on a mixed fleet) still collide on
+      the discovery port.
+
+   h. **Two accounts on one machine, then the full fleet protocol.** Asked for
+      by Nicolas on 2026-09-15, ahead of 0f, to test on his three machines
+      the same week. Verified blockers: `Lan::bind` takes UDP 21037 with no
+      address reuse (`crates/itsanas-discover/src/lan.rs` ~114; a test near
+      line 349 asserts a second bind fails), so a second node on a machine has
+      no discovery; `provision.ps1` names one task `ITSaNAS` (~158) and one
+      passphrase file under `%LOCALAPPDATA%\itsanas`; `provision.sh` writes one
+      `itsanas.service` (~433); every node defaults to listen port 9797.
+      Build: discovery shared between instances (`SO_REUSEADDR`, and
+      `SO_REUSEPORT` where it exists, through a small dependency that must pass
+      `cargo deny` — broadcasts reach every bound socket; a unicast reply does
+      not, so check which the beacon uses); named instances in both
+      provisioners (`itsanas@<name>` unit, `ITSaNAS-<name>` task, passphrase
+      file per instance), a free listen port chosen at `init`/`login` when
+      9797 is taken; an acceptance-local scenario with two accounts on one
+      host that find each other by discovery and host each other blind.
+      Red-team expected: a second instance's beacons do not let it answer as
+      the first (device pinning already covers it; prove it with both bound).
+      Then rewrite `docs/BRIEFING-MVP.md` as the full protocol: A–J with the
+      verdict rule, 1a and 1b, the measurements that bear on scale (throughput,
+      idle writes, restore time, battery), and a section on what three machines
+      of one person cannot show — strangers, NAT, bandwidth, a terabyte, the
+      bargain enforced only locally — so a green run is not read as "viable
+      like Storj". Android: the only APK is v0.1.0 debug-signed and stale; a
+      phone test needs a fresh build (`scripts/build-apk.sh`). macOS: source
+      install only.
 
 1. **Enforce the space split. Asked for by Nicolas on 2026-09-14.** Step (a) is
    built; (b), (c) and (d) are what is left, and **nothing on

@@ -213,7 +213,9 @@ manual `doctor --repair`, no lost file.
 `scripts/acceptance.sh` turns each test into phases that end in `PASS` or `FAIL`
 with the numbers, and appends every verdict to
 `~/.itsanas-receipts/acceptance.txt` — paste that file, not an impression. It
-checks; moving power and cables stays with the person running it.
+checks; moving power and cables stays with the person running it. The order to
+run them in across the laptop, the Pi and the VM, with the preparation and the
+account checks, is [BRIEFING-MVP.md](BRIEFING-MVP.md) (in French).
 
 **Before anything: every machine pledges.** A host refuses to store past its
 pledge, its own account's log included (DESIGN.md, the table of what counts
@@ -227,7 +229,7 @@ bench failed E, F and G for that reason until it pledged.
 | A | every machine | no phase: the criterion is that nothing was typed but the three commands |
 | B | machine 1, then 2 and 3 | `B write ~/ITSaNAS` → name and sha256; then `B check ~/ITSaNAS <name> <sha256>` |
 | C | machine 1, then the host of **another** account | `C plant ~/ITSaNAS` → canary, which is the file's name as well as its content; then `C scan <canary> ~/.itsanas` (the control is built in). Only on another account's host: your own machine's index holds file names in the clear, correctly, and the scan will find the canary there |
-| D | the rebuilt machine | `itsanas login --username <name> --from <coordinator>`, one sync, then `D check <path> <sha256>` |
+| D | the rebuilt machine | `itsanas login --username <name> --from <coordinator>`, `itsanas register`, one `itsanas sync` with no address (it asks the coordinator for the account's other machines, so one of them must be up; the daemon also reaches hosts on the local network), then `D check <path> <sha256>` |
 | E | machine 1, then 3 | `E write ~/ITSaNAS`, machine 1 off; later `E check ~/ITSaNAS <name> <sha256>` on machine 3. The kit cannot tell whether 1 and 3 ever met — that part is the person's discipline, so switch machine 3 off *before* machine 1 writes |
 | F | machine 1, then 3 | `F delete ~/ITSaNAS <name>`; `F check ~/ITSaNAS <name>` on machine 3, and again after another round |
 | G | machines 1 and 3, both offline | `G edit ~/ITSaNAS <name> <tag>` on each; after reconnecting `G check ~/ITSaNAS <name>` on both — the digests must match |

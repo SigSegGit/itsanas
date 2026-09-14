@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**727 test functions, 3 of them `#[ignore]`d into the slow job, and 46 of
+**735 test functions, 3 of them `#[ignore]`d into the slow job, and 50 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -298,6 +298,17 @@ What is missing before this is a *network* rather than a personal sync tool:
   way at all, and the automatic version needs a decision about how long absent
   is gone.
 
+  **2026-09-15: the list could not show the device it existed to find.** It was
+  built on `Peers`, which drops anything silent for a week — the lost laptop
+  is exactly that. `Request::Devices` lists every live enrolment with its
+  pledge and how long the coordinator has not heard from it, and answers only a
+  live device of the same account
+  (`a_member_s_device_list_includes_a_machine_that_has_gone_quiet`,
+  `red_team_a_stranger_cannot_list_another_member_s_devices`). A coordinator
+  older than the client closes the connection on it; the CLI then says it is
+  showing only the reachable devices rather than passing the short list off as
+  the account.
+
 - **A username belongs to a key, and losing the key loses the name.** Same
   session, same cause: re-registering `sigseg42` from a fresh keystore is
   refused with `the username "sigseg42" is already registered to a different
@@ -535,7 +546,10 @@ Implemented:
   Domain-separated key schedule via BLAKE3 `derive_key`: Ed25519 signing,
   X25519 agreement, chunk root, blinding key, oplog root.
 - **Device keys.** Generated per machine, independent of the master secret, so a
-  lost laptop is revoked without rotating the user's identity.
+  lost laptop is withdrawn without rotating the user's identity. Not a stolen
+  one whose passphrase is known: every keystore also holds the master secret,
+  and nothing rotates an identity (DESIGN.md, "Device keys sit outside the
+  tree").
 - **Sealing.** XChaCha20-Poly1305 in two modes — deterministic (content-addressed
   chunks, enabling deduplication and remote audit) and randomised (log segments).
   Ciphertext bound to owner, purpose, address and format version.
@@ -1107,9 +1121,13 @@ Implemented:
   device into use every few minutes.
 
   Revocation falls out of it: claims are signed by the user's key, not the
-  device's, so whoever holds a stolen laptop cannot un-revoke it or move it. A
-  one-hour clock-skew ceiling stops a claim dated in the future being
-  unreplaceable — including by its owner trying to revoke it.
+  device's. **This paragraph said a stolen laptop could not un-revoke itself,
+  and until 2026-09-15 it could**: every keystore holds the master secret, so a
+  thief with the passphrase signed a newer claim and `itsanas register` put the
+  device back. A withdrawal is now final for its device id and wins whatever the
+  signing clocks say — a withdrawal from a machine whose clock ran behind the
+  enrolling one used to be dropped while the CLI printed "withdrew". The
+  one-hour clock-skew ceiling still bounds live claims (a pledge update).
 
 - **Accounting** (`accounting.rs`) — [ECONOMICS.md](ECONOMICS.md) made
   executable, in integers for the same reason placement is. A quarter-uptime
@@ -1261,6 +1279,52 @@ tag derived per epoch would fix it.
 losing data through the store and garbage collector, secrets in the repository
 and its history, and the wire protocol — ran out of budget before finishing.
 They are unexamined, not clean.
+
+### The identity surface, examined 2026-09-15
+
+By hand, one surface: accounts, enrolment, withdrawal, escrow recovery and a
+second machine joining. Four findings, all fixed in the same change.
+
+- **A withdrawn device came back with one command.** Every keystore holds the
+  master secret, so a stolen machine with its passphrase signed a claim dated
+  after the withdrawal and the directory, ordering by timestamp, took it. Now
+  final (`red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back`,
+  `a_later_enrolment_does_not_supersede_a_withdrawal`).
+- **A withdrawal lost to a faster clock.** Same ordering, other direction, and
+  the coordinator answered `Done` either way
+  (`red_team_a_withdrawal_signed_on_a_slow_clock_still_withdraws`).
+- **`itsanas login --from` forgot the coordinator it recovered from**, so the
+  `itsanas register` it told the reader to run had nowhere to go. The bench never
+  saw it because its restored machines sync by explicit address; it now checks
+  the setting and enrols, lists, withdraws and fails to re-enrol a machine.
+- **`device list` could not show a machine silent for a week.** See M6.
+
+Also added: `itsanas passphrase`, because a passphrase that cannot be changed
+stays wherever it was first typed; and a test pinning the coordinator's wire
+numbers (`red_team_coordinator_messages_keep_their_wire_numbers`), since this
+change is the first to add a message since the coordinator was deployed and
+the peer protocol has already lost a week to a renumbered enum.
+
+A fifth, found by the audit of the change rather than the sweep: **`itsanas sync`
+with no address read only configured peers**, so a freshly restored machine had
+nothing to sync with unless an address was typed — which test A forbids. It now
+also dials the account's devices the coordinator lists, pinned; the bench checks
+it from a machine with nothing configured.
+
+**What finality costs.** Whoever holds the master secret can now withdraw the
+owner's legitimate devices, and the owner cannot answer with a newer claim:
+each machine removes its node directory and logs in again, re-downloading its
+share. The trade is deliberate and written in `claim.rs`. "Whatever the clocks
+say" holds within the one-hour skew: a withdrawal signed on a clock more than an
+hour ahead is refused as from the future.
+
+**Still open, and not fixable by a patch:** a stolen node with its passphrase is
+the whole account, because the master secret lives in every keystore; the
+remedy is a new account and nothing rotates identities. Withdrawal does not
+reach the peer protocol, so a withdrawn machine on the same LAN still syncs.
+The escrow container carries the lodging machine's device seed beside the
+master secret — no extra exposure, since the master secret already outranks
+it, but the restore discards it and it need not be there.
 
 ### The have/missing sweep was going to kill the process before it cost bandwidth
 

@@ -545,6 +545,150 @@ fn a_connection_that_asks_too_much_is_told_why_rather_than_cut_off() {
     });
 }
 
+/// Register `name` and enrol `keys` under it over one connection.
+fn enrolled_member(
+    address: std::net::SocketAddr,
+    name: &str,
+    owner: &UserKeys,
+    keys: &DeviceKeys,
+) -> CoordClient {
+    let mut client = dial(address, keys, owner);
+    let registration = Registration {
+        username: name.to_owned(),
+        user: owner.public(),
+        issued_unix: NOW,
+    }
+    .sign(owner);
+    assert!(matches!(
+        client
+            .ask(&Request::Register(Box::new(registration)))
+            .unwrap(),
+        Response::Account(_)
+    ));
+    claim_device(&mut client, owner, keys, false, NOW);
+    client
+}
+
+fn claim_device(
+    client: &mut CoordClient,
+    owner: &UserKeys,
+    keys: &DeviceKeys,
+    revoked: bool,
+    at: u64,
+) {
+    let claim = NodeClaim {
+        owner: owner.user_id(),
+        device: keys.device_id(),
+        pledged_bytes: 3 << 30,
+        issued_unix: at,
+        revoked,
+    }
+    .sign(owner);
+    assert!(matches!(
+        client.ask(&Request::Claim(Box::new(claim))).unwrap(),
+        Response::Done
+    ));
+}
+
+#[test]
+fn a_member_s_device_list_includes_a_machine_that_has_gone_quiet() {
+    // `device list` was built on `Peers`, which answers "where can I dial" and
+    // so leaves out anything that has not announced within the presence
+    // window. The machine somebody opens the list to find -- the laptop lost a
+    // fortnight ago, still enrolled and still counted -- was the one it could
+    // not show. A device enrolled and never announced stands in for it here.
+    with_coordinator(|address, _| {
+        let nicolas = user(1);
+        let laptop = device(1);
+        let quiet = device(2);
+        let withdrawn = device(3);
+        let mut client = enrolled_member(address, "nicolas", &nicolas, &laptop);
+        claim_device(&mut client, &nicolas, &quiet, false, NOW);
+        claim_device(&mut client, &nicolas, &withdrawn, false, NOW);
+        claim_device(&mut client, &nicolas, &withdrawn, true, NOW + 1);
+
+        let presence = Presence {
+            device: laptop.device_id(),
+            address: "192.168.1.20:9797".to_owned(),
+            at_unix: NOW,
+        }
+        .sign(&laptop);
+        assert!(matches!(
+            client.ask(&Request::Announce(Box::new(presence))).unwrap(),
+            Response::Done
+        ));
+
+        let Response::Peers(reachable) = client
+            .ask(&Request::Peers {
+                user: nicolas.user_id(),
+            })
+            .unwrap()
+        else {
+            panic!("no peer list");
+        };
+        assert_eq!(reachable.len(), 1, "the quiet machine is not a dial target");
+
+        let Response::Devices(listed) = client
+            .ask(&Request::Devices {
+                user: nicolas.user_id(),
+            })
+            .unwrap()
+        else {
+            panic!("no device list");
+        };
+        let ids: Vec<_> = listed.iter().map(|entry| entry.device).collect();
+        assert_eq!(
+            ids,
+            vec![laptop.device_id(), quiet.device_id()],
+            "the list must hold every live enrolment, heard-from first, and no withdrawn one"
+        );
+        assert_eq!(listed[0].address.as_deref(), Some("192.168.1.20:9797"));
+        assert!(listed[0].silent_for.is_some());
+        assert_eq!(
+            (listed[1].silent_for, listed[1].address.as_deref()),
+            (None, None),
+            "a device that never announced must read as never heard from, not as fresh"
+        );
+        assert_eq!(listed[1].pledged_bytes, 3 << 30);
+    });
+}
+
+#[test]
+fn red_team_a_stranger_cannot_list_another_member_s_devices() {
+    // THE ATTACK: a user id is public -- `Lookup` hands it to anybody who knows
+    // a name. The device list says how much each machine pledges and how long
+    // each has been silent, which tells a burglar of a different kind which
+    // household's NAS has been off for a month. `Peers` never had to say that,
+    // so the new message must not become a way to ask it of anyone.
+    with_coordinator(|address, _| {
+        let nicolas = user(1);
+        let _victim = enrolled_member(address, "nicolas", &nicolas, &device(1));
+
+        let mallory = user(9);
+        let mut member = enrolled_member(address, "mallory", &mallory, &device(9));
+        let answer = member
+            .ask(&Request::Devices {
+                user: nicolas.user_id(),
+            })
+            .unwrap();
+        assert!(
+            matches!(answer, Response::Refused(_)),
+            "another member listed nicolas's devices: {answer:?}"
+        );
+
+        let mut stranger = dial(address, &device(0xEE), &user(0xEE));
+        let answer = stranger
+            .ask(&Request::Devices {
+                user: nicolas.user_id(),
+            })
+            .unwrap();
+        assert!(
+            matches!(answer, Response::Refused(_)),
+            "an unenrolled keypair listed nicolas's devices: {answer:?}"
+        );
+    });
+}
+
 #[test]
 fn the_peer_list_is_bounded_however_many_devices_a_user_enrols() {
     // A member with a thousand devices must not be a way to make the

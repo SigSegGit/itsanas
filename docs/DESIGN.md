@@ -39,9 +39,24 @@ Device keys are generated locally and certified by the master key, deliberately
 *not* derived from it.
 
 **Why:** revocation granularity. If a device key were derived from the master
-secret, a stolen laptop would compromise a key the user cannot change without
-rotating their whole identity — new user id, re-encrypt everything, re-register.
-With independent device keys, revoking a laptop is dropping one certificate.
+secret, a lost laptop would carry a key the user cannot change without rotating
+their whole identity — new user id, re-encrypt everything, re-register. With
+independent device keys, withdrawing a laptop is one signed claim, final for
+that device id (`red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back`).
+
+**What it does not buy, which this paragraph used to imply.** Every node's
+keystore holds the master secret as well as its device seed, because a node
+signs claims and derives every chunk key. A *stolen* laptop whose passphrase is
+also known — a daemon reads it from a file — is therefore the whole account:
+the thief reads everything and can enrol a new device. Withdrawal stops the
+coordinator handing the old machine out; it does not undo that. The answer is a
+new account, and identity rotation is not built.
+
+**And finality has a price.** The same thief can withdraw the owner's
+legitimate devices, and a withdrawal cannot be answered: each machine it hit
+removes its node directory, logs in again and re-downloads its share. Chosen
+because a device that stays out is a loud, recoverable failure and a stolen
+device that re-enrols is a silent one — a trade, not a pure gain.
 
 ### Recovery phrase: 24 words, not 12
 
@@ -739,6 +754,9 @@ the single test that would catch this being quietly weakened.
   travels as a keyed tag.
 - Device revocation is a coordinator concern (`NodeClaim.revoked`), not a
   certificate-expiry concern. Nothing has to be reissued when a device leaves.
+  A withdrawal is final for that device id and wins whatever the signing
+  clocks say; it is not consulted by the peer protocol, so a withdrawn machine
+  on the same network is still discovered and synced with.
 
 ### Dialling pins the expected device
 
