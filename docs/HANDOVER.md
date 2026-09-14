@@ -106,6 +106,10 @@ one long conversation re-read its own context 1,885 times.
   optimised, and CI lists every test over twenty seconds so the margin is
   read from the log, not guessed. Measuring on a 20-core laptop says nothing
   about a loaded hosted runner.
+- **Windows test temp files live on a RAM disk in CI** (Nicolas chose this on
+  2026-09-14 over relaxing durability in tests). What remained slow there was
+  synchronous writes: 400 redb commits take 0.76 s on a laptop and 21-37 s on
+  the runner. Tests keep the production write path; only the medium changed.
 - **`cargo deny` runs in `check-all.sh` now; install it.** It failed CI twice in
   a week: a dependency pushed unvetted (2026-09-07), and an advisory published
   the same morning (2026-09-14, rustls, fixed by `cargo update -p rustls`).
