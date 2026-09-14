@@ -1169,10 +1169,16 @@ fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
     store.note_audit(&peer, true).expect("audit");
     store.record_holders(&chunks, &other).expect("record");
     store.note_audit(&other, true).expect("audit");
-    let recorded = store.last_seen(&peer).expect("last seen").expect("seen");
+    // Two holders are heard from in two calls, and a second can tick between
+    // them. Measuring the window from one of them measured the clock instead:
+    // the test failed on Windows runners whenever the tick landed there, with
+    // the later holder still exactly inside its window. Reproduced every time
+    // by sleeping a second between the two calls.
+    let seen = |device| store.last_seen(device).expect("last seen").expect("seen");
+    let earliest = seen(&peer).min(seen(&other));
 
-    // One second before the records go stale, they still count.
-    let last_moment = recorded + itsanas_store::holders::CONFIRMED_FOR;
+    // One second before the records go stale, they still count -- for both.
+    let last_moment = earliest + itsanas_store::holders::CONFIRMED_FOR;
     match store.release("notes.txt", last_moment).expect("release") {
         itsanas_store::Release::Gone(_) => {}
         other => panic!("a record inside the window was refused: {other:?}"),
@@ -1187,12 +1193,13 @@ fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
     store.note_audit(&peer, true).expect("audit");
     store.record_holders(&chunks, &other).expect("record");
     store.note_audit(&other, true).expect("audit");
-    let recorded = store.last_seen(&peer).expect("last seen").expect("seen");
+    // Past the window for both, so measured from whichever was heard last.
+    let latest = seen(&peer).max(seen(&other));
 
     match store
         .release(
             "notes.txt",
-            recorded + itsanas_store::holders::CONFIRMED_FOR + 1,
+            latest + itsanas_store::holders::CONFIRMED_FOR + 1,
         )
         .expect("release")
     {
