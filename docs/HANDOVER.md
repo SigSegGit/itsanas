@@ -22,7 +22,7 @@ never for this file.
 
 **State (2026-09-14).** v0.1.0 is tagged and released with the Android APK.
 §8.1(a), the split as a value at 30/70, is merged as `f6cace7`
-([#1](https://github.com/SigSegGit/itsanas/pull/1)). 726 tests (45 red-team,
+([#1](https://github.com/SigSegGit/itsanas/pull/1)). 727 tests (46 red-team,
 3 `#[ignore]`d into the slow job), twelve gates.
 
 **The plan changed after that merge, on Nicolas's request for "a valid MVP".**
@@ -128,6 +128,10 @@ one long conversation re-read its own context 1,885 times.
 - Grepping for a changed number finds the number, not its restatements.
   Search the phrasing and the arithmetic (`÷ 3`, "earns 333", "three
   pledged") — or better, extend the gate that recomputes them.
+- **A crypto dependency is upgraded against a stored artefact, never against
+  itself.** `red_team_a_keystore_sealed_by_an_older_build_still_opens` holds a
+  keystore sealed by `argon2` 0.5.3; `argon2` 0.6.0 had to open it before it
+  was accepted. Seal-then-open in one build proves nothing about old files.
 - Unsafe code is allowed only in `crates/itsanas-drive/src/projfs.rs` (and the
   JNI export attribute), with a `SAFETY:` comment per block — `check-unsafe.py`.
 - A PreToolUse hook (`~/.claude/hooks/quiet.py`) condenses builds and test runs
@@ -194,8 +198,8 @@ python scripts/check-counts.py
 ```
 
 It counts `#[test]` and `#[tokio::test]` functions under `crates/` and checks
-every figure README, ROADMAP and TESTING state against them — today **726 test
-functions across 24 binaries** (3 of them `#[ignore]`d) **plus 2 doctests**, 45
+every figure README, ROADMAP and TESTING state against them — today **727 test
+functions across 24 binaries** (3 of them `#[ignore]`d) **plus 2 doctests**, 46
 of them red-team. This file is not among the ones it reads, so this sentence
 is corrected by hand. It counts the source rather than `cargo test -- --list`
 because that command's answer depends on the machine running it: one test is

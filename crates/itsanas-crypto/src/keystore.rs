@@ -281,6 +281,36 @@ mod tests {
     use crate::identity::MasterSecret;
 
     const TEST: KdfParams = KdfParams::INSECURE_FOR_TESTS;
+
+    /// A keystore sealed with the test cost parameters by `argon2` 0.5.3, on
+    /// 2026-09-14, byte for byte. It must open forever.
+    const KEYSTORE_SEALED_BY_ARGON2_0_5_3: &str = "01010800000001000000013dac1845931250ad5d1d2b8a7dfde4ea01a7b11a8e4659af7b5889370cba2984b611dcf4605bfcec3893949446ddfc3e3fd5b707fb12ec25b4ad40e4be257eb4e8bfae5451eda81a507c3d1202bffb5b733c6151acff2db64b31";
+
+    fn from_hex(hex: &str) -> Vec<u8> {
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("fixture is hex"))
+            .collect()
+    }
+
+    #[test]
+    fn red_team_a_keystore_sealed_by_an_older_build_still_opens() {
+        // Every local keystore and every escrow container on a coordinator is
+        // one Argon2id derivation away from its keys. A dependency update that
+        // changed one byte of that derivation would lock every existing member
+        // out of their own account -- and no test that seals and opens in the
+        // same build can see it, because both halves change together.
+        //
+        // What this catches: an argon2 upgrade that derives differently, a
+        // changed algorithm, version or parameter mapping in `KdfParams::derive`,
+        // or a changed header layout in `to_bytes` / `from_bytes`.
+        let stored = Keystore::from_bytes(&from_hex(KEYSTORE_SEALED_BY_ARGON2_0_5_3))
+            .expect("a container written by an older build no longer parses");
+        let payload = stored
+            .unlock("correct horse battery staple", "itsanas/keystore/fixture")
+            .expect("a keystore sealed by an older build no longer opens: every existing account would be locked out");
+        assert_eq!(payload, b"a keystore sealed by argon2 0.5.3");
+    }
     const LABEL: &str = "itsanas/keystore/local";
 
     #[test]
