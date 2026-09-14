@@ -15,43 +15,151 @@
 //!
 //! Truncation always rounds *against* the member: entitlement is floored. A
 //! member is never told they have more room than the arithmetic supports.
+//!
+//! # The split is data, not a constant
+//!
+//! How much of a machine's commitment stays its owner's is a [`Split`], a
+//! value carried into every calculation that needs it. It was a constant --
+//! `CONTRIBUTION_RATIO = 3` -- and a constant cannot express 30/70 without
+//! becoming a fraction, which is where an `f64` wants to go.
+//!
+//! Two splits exist and they are not the same thing. A node's configuration
+//! file carries one, and it decides only what that machine refuses to its own
+//! owner. [`assess`] takes one, and that is the *coordinator's*: it decides
+//! what the network grants. Nothing a device sends may reach the second, or
+//! widening an entitlement costs one line of a text file.
 
 use itsanas_crypto::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
 
-/// Bytes a member must pledge for each byte they store.
+/// How a machine's commitment divides between its owner and the network.
 ///
-/// Equal to the replication factor, and not by coincidence — see
-/// `docs/ECONOMICS.md` §1. With `R` replicas the network must physically hold
-/// `R × S` for every `S` a member stores, so a balanced network needs every
-/// member to offer `R × S`.
-pub const CONTRIBUTION_RATIO: u64 = 3;
-
-/// How much of their own data a member earns by pledging `pledged_bytes`.
-///
-/// The arithmetic behind [`CONTRIBUTION_RATIO`], written as a function because
-/// three places need it and one of them is an installer asking somebody how
-/// much room they want: offering ninety gigabytes earns thirty, and a person
-/// choosing those numbers should be told that before the node is running rather
-/// than by a coordinator a fortnight later.
-///
-/// Availability is not weighted in here. A machine that has never run has no
-/// availability to weight by, and guessing one would make the first number a
-/// member sees a number the network later disagrees with. See
-/// [`DeviceContribution::effective_bytes`] for what the coordinator actually
-/// counts once a node has a history.
-#[must_use]
-pub const fn room_earned(pledged_bytes: u64) -> u64 {
-    pledged_bytes / CONTRIBUTION_RATIO
+/// Two numbers rather than one ratio, because the two numbers are the sentence
+/// people actually say — "thirty of mine for every seventy I lend" — and the
+/// ratio is what you get by dividing them. The parts are proportions, not bytes
+/// and not percentages: only their relative size matters, so `30/70`, `3/7` and
+/// `300/700` are one split written three ways.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Split {
+    /// Parts of a machine's commitment that stay its owner's to fill.
+    pub own: u32,
+    /// Parts pledged to hold other members' data.
+    pub network: u32,
 }
 
-/// How much must be pledged to earn `keep_bytes` of one's own.
-///
-/// The same rule read the other way round, for the question people actually
-/// ask: "I want ten gigabytes — what does that cost me?"
-#[must_use]
-pub const fn pledge_needed_for(keep_bytes: u64) -> u64 {
-    keep_bytes.saturating_mul(CONTRIBUTION_RATIO)
+impl Split {
+    /// What a network grants when nobody has said otherwise: three parts in ten.
+    ///
+    /// Not the quarter that `REPLICATION_TARGET = 3` implies at a glance, and
+    /// not the 25/75 this was until 2026-09-14. The target counts *machines*,
+    /// the owner's own included, so for data an owner keeps locally the network
+    /// holds two copies rather than three: break-even is 33/67, and 30/70 leaves
+    /// about a sixth in slack for machines that are asleep and for sealing and
+    /// log overhead. 33/67 leaves none.
+    ///
+    /// A default rather than a constant because it is not right everywhere. Data
+    /// a device has *released* — a phone under `keep` — costs the network three
+    /// copies, and only 25/75 breaks even on that. A network of phones should
+    /// set a stricter one, which is what the configuration field is for; it may
+    /// tighten the split and never loosen it.
+    pub const DEFAULT: Self = Self {
+        own: 30,
+        network: 70,
+    };
+
+    /// A split, or `None` if it is not one.
+    ///
+    /// The refusal is the point rather than tidiness. `network = 0` divides by
+    /// zero in [`Self::pledge_needed_for`], which on the daemon is a panic at
+    /// whatever hour the file was last edited. `own = 0` is quieter and worse:
+    /// every pledge earns nothing, so every `itsanas keep` is refused and the
+    /// machine reads as broken rather than as misconfigured.
+    #[must_use]
+    pub const fn new(own: u32, network: u32) -> Option<Self> {
+        if own == 0 || network == 0 {
+            return None;
+        }
+        Some(Self { own, network })
+    }
+
+    /// Parse the `own/network` form, or `None` if it is not one.
+    ///
+    /// Here rather than in the configuration parser because the syntax and the
+    /// rule are one fact: a file saying `30/70` and a person saying "thirty
+    /// seventy" have to arrive at the same two integers, and a second parser is
+    /// a second answer.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let (own, network) = text.split_once('/')?;
+        Self::new(own.trim().parse().ok()?, network.trim().parse().ok()?)
+    }
+
+    /// How much of their own data a member earns by pledging `pledged_bytes`.
+    ///
+    /// Written as a function because several places need it and one of them is
+    /// an installer asking somebody how much room they want: offering seventy
+    /// gigabytes earns thirty, and a person choosing those numbers should be
+    /// told so before the node is running rather than by a coordinator a
+    /// fortnight later.
+    ///
+    /// Availability is not weighted in here. A machine that has never run has no
+    /// availability to weight by, and guessing one would make the first number a
+    /// member sees a number the network later disagrees with. See
+    /// [`DeviceContribution::effective_bytes`] for what the coordinator actually
+    /// counts once a node has a history.
+    #[must_use]
+    pub fn room_earned(self, pledged_bytes: u64) -> u64 {
+        // 128-bit intermediates because `pledged × own` leaves a u64 at around
+        // six hundred petabytes while the answer is still an ordinary number.
+        // The module comment objects to floating point, not to width: this is
+        // integer arithmetic and gives the same answer on every machine.
+        let earned = u128::from(pledged_bytes) * u128::from(self.own) / u128::from(self.network);
+        u64::try_from(earned).unwrap_or(u64::MAX)
+    }
+
+    /// How much must be pledged to earn `keep_bytes` of one's own.
+    ///
+    /// The same rule read the other way round, for the question people actually
+    /// ask: "I want ten gigabytes — what does that cost me?"
+    #[must_use]
+    pub fn pledge_needed_for(self, keep_bytes: u64) -> u64 {
+        let needed = u128::from(keep_bytes) * u128::from(self.network);
+        let own = u128::from(self.own);
+        // Rounded *up*, and the direction is what keeps the two functions from
+        // contradicting each other. Quoting the floor names a figure that earns
+        // one byte less than was asked for, so somebody who pledges exactly what
+        // they were told is refused a second time with the same sentence. This
+        // could not happen while the ratio was 3 and the quote was a
+        // multiplication; it can at every split that is not a whole number.
+        let quoted = needed / own + u128::from(needed % own != 0);
+        u64::try_from(quoted).unwrap_or(u64::MAX)
+    }
+
+    /// Whether this split keeps no larger a share for its owner than `other`.
+    ///
+    /// Cross-multiplied rather than divided, so `3/7` and `30/70` compare equal
+    /// and nothing rounds. A node's own split has to pass this against
+    /// [`Self::DEFAULT`]: until the network enforces anything, `itsanas keep` is
+    /// the one place the bargain is applied, and a split more generous than the
+    /// network's turns that into a line of a text file.
+    #[must_use]
+    pub fn grants_no_more_than(self, other: Self) -> bool {
+        u64::from(self.own) * u64::from(other.network)
+            <= u64::from(other.own) * u64::from(self.network)
+    }
+}
+
+impl Default for Split {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl std::fmt::Display for Split {
+    /// The form the configuration file uses, so the two never drift apart.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}/{}", self.own, self.network)
+    }
 }
 
 /// Availability at or above which a node counts as an *anchor*.
@@ -185,6 +293,14 @@ impl Standing {
 pub struct Assessment<'a> {
     pub user: UserId,
     pub devices: &'a [DeviceContribution],
+    /// The split entitlement is granted by.
+    ///
+    /// The *coordinator's*, never a member's. A node's configuration file has a
+    /// split of its own and it governs only what that machine refuses locally.
+    /// Nothing a device sends may reach this field: `DeviceContribution` is what
+    /// a device says about itself, and it carries no split for exactly this
+    /// reason.
+    pub split: Split,
     pub usage_bytes: u64,
     /// When the account was registered.
     pub registered_unix: u64,
@@ -208,7 +324,7 @@ pub fn assess(input: &Assessment<'_>) -> Standing {
         total.saturating_add(device.effective_bytes())
     });
 
-    let earned = effective_bytes / CONTRIBUTION_RATIO;
+    let earned = input.split.room_earned(effective_bytes);
 
     let joining = input.now_unix.saturating_sub(input.registered_unix) < JOINING_PERIOD_SECONDS;
 
@@ -261,6 +377,33 @@ mod tests {
     use super::*;
 
     const GB: u64 = 1024 * 1024 * 1024;
+
+    /// Splits the arithmetic has to survive, not splits anybody should set.
+    ///
+    /// The shipped default, the one it replaced, and then the awkward ones: a
+    /// whole-number ratio either way round, a split that earns more than it
+    /// lends, and the two extremes a fat-fingered configuration file produces.
+    const SPLITS: [Split; 7] = [
+        Split::DEFAULT,
+        Split {
+            own: 25,
+            network: 75,
+        },
+        Split { own: 1, network: 1 },
+        Split {
+            own: 33,
+            network: 67,
+        },
+        Split {
+            own: 1,
+            network: 1000,
+        },
+        Split {
+            own: 1000,
+            network: 1,
+        },
+        Split { own: 7, network: 3 },
+    ];
     const NOW: u64 = 1_800_000_000;
     /// Registered long enough ago that the joining allowance has expired.
     const ESTABLISHED: u64 = NOW - JOINING_PERIOD_SECONDS - 1;
@@ -277,6 +420,7 @@ mod tests {
         assess(&Assessment {
             user: UserId::from_bytes([1; 32]),
             devices,
+            split: Split::DEFAULT,
             usage_bytes: usage,
             registered_unix: ESTABLISHED,
             over_since_unix: None,
@@ -288,66 +432,188 @@ mod tests {
     fn the_limit_and_the_price_quoted_for_exceeding_it_never_contradict() {
         // `itsanas space` uses both: `room_earned` decides whether to refuse,
         // and `pledge_needed_for` writes the refusal — "keeping 31 GiB needs
-        // 93 GiB pledged; you are offering 90". If those two ever disagreed the
+        // 73G pledged; you are offering 70 GiB". If those two ever disagreed the
         // message would name a figure that is still refused when supplied, and
         // the person would raise their pledge to exactly what they were told
         // and be turned away again with the same sentence.
         //
         // Integer division truncates, so this is not free: the property has to
-        // hold at every remainder, not only at multiples of three.
-        for pledged in [
-            0_u64,
-            1,
-            2,
-            3,
-            4,
-            5,
-            100,
-            3 * GB - 1,
-            3 * GB,
-            3 * GB + 1,
-            90 * GB,
-        ] {
-            let allowed = room_earned(pledged);
-            assert!(
-                pledge_needed_for(allowed) <= pledged,
-                "pledging {pledged} earns {allowed}, which the quote then prices \
-                 at {} — above what was pledged",
-                pledge_needed_for(allowed)
-            );
-        }
+        // hold at every remainder. It was nearly free while the ratio was 3 and
+        // the quote was a multiplication by it, which could not round the wrong
+        // way. At 30/70 the quote is a division too, so both ends round, and
+        // quoting the floor rather than the ceiling breaks the second loop at
+        // almost every input. Checked across splits because the default is now
+        // a value somebody can change, and a rule that holds only at the
+        // shipped number is not a rule.
+        for split in SPLITS {
+            for pledged in [
+                0_u64,
+                1,
+                2,
+                3,
+                4,
+                5,
+                100,
+                3 * GB - 1,
+                3 * GB,
+                3 * GB + 1,
+                90 * GB,
+            ] {
+                let allowed = split.room_earned(pledged);
+                assert!(
+                    split.pledge_needed_for(allowed) <= pledged,
+                    "at {split}, pledging {pledged} earns {allowed}, which the \
+                     quote then prices at {} — above what was pledged",
+                    split.pledge_needed_for(allowed)
+                );
+            }
 
-        // And the other direction: the figure the message quotes must actually
-        // buy what it was quoted for. `pledge_needed_for(k)` has to earn at
-        // least `k`, or following the instruction lands in the same refusal.
-        for keep in [0_u64, 1, 2, 3, 4, 5, 100, GB - 1, GB, 31 * GB] {
-            let quoted = pledge_needed_for(keep);
-            assert!(
-                room_earned(quoted) >= keep,
-                "the message tells somebody wanting {keep} to pledge {quoted}, \
-                 which earns only {}",
-                room_earned(quoted)
-            );
+            // And the other direction: the figure the message quotes must
+            // actually buy what it was quoted for. `pledge_needed_for(k)` has to
+            // earn at least `k`, or following the instruction lands in the same
+            // refusal.
+            for keep in [0_u64, 1, 2, 3, 4, 5, 100, GB - 1, GB, 31 * GB] {
+                let quoted = split.pledge_needed_for(keep);
+                assert!(
+                    split.room_earned(quoted) >= keep,
+                    "at {split}, the message tells somebody wanting {keep} to \
+                     pledge {quoted}, which earns only {}",
+                    split.room_earned(quoted)
+                );
+            }
         }
     }
 
     #[test]
     fn the_quote_saturates_rather_than_wrapping_on_an_absurd_request() {
         // A `keep` typed as a very large number must not wrap round to a small
-        // pledge requirement and let it through. `u64::MAX / 3` is the largest
-        // request that has an honest answer; above it the only honest answer is
-        // "more than exists".
-        assert_eq!(pledge_needed_for(u64::MAX), u64::MAX);
-        assert!(room_earned(pledge_needed_for(u64::MAX)) < u64::MAX);
+        // pledge requirement and let it through. Above what the split can price,
+        // the only honest answer is "more than exists".
+        assert_eq!(Split::DEFAULT.pledge_needed_for(u64::MAX), u64::MAX);
+        assert!(Split::DEFAULT.room_earned(Split::DEFAULT.pledge_needed_for(u64::MAX)) < u64::MAX);
+
+        // And the end that did not exist while the ratio was a single number
+        // above one: a split may earn more than it is given, so the *earning*
+        // side leaves a u64 too, and must saturate rather than wrap.
+        let generous = Split::new(1000, 1).expect("both parts are above zero");
+        assert_eq!(generous.room_earned(u64::MAX), u64::MAX);
     }
 
     #[test]
-    fn an_always_on_node_earns_a_third_of_what_it_pledges() {
-        // The core of the bargain: pledge three times what you store.
-        let standing = assess_with(&[device(1, 300 * GB, 1000)], 0);
+    fn the_default_split_is_thirty_seventy() {
+        // Pinned, because it is the one number the rest of this file applies and
+        // because it has already moved once. What this catches: a "tidy-up" back
+        // to the 25/75 the old ratio encoded, which takes a sixth of everybody's
+        // entitlement away without touching a line of arithmetic.
+        assert_eq!(
+            Split::DEFAULT,
+            Split {
+                own: 30,
+                network: 70
+            }
+        );
+        assert_eq!(Split::default(), Split::DEFAULT);
 
-        assert_eq!(standing.effective_bytes, 300 * GB);
-        assert_eq!(standing.entitlement_bytes, 100 * GB);
+        // The same claim in bytes, so that a change to the arithmetic and not to
+        // the constant fails here too.
+        assert_eq!(Split::DEFAULT.room_earned(700 * GB), 300 * GB);
+        assert_eq!(Split::DEFAULT.pledge_needed_for(300 * GB), 700 * GB);
+    }
+
+    #[test]
+    fn red_team_a_split_with_a_zero_part_is_refused_rather_than_dividing_by_zero() {
+        // `network = 0` divides by zero in `pledge_needed_for`. That is a panic
+        // in whatever is holding the store's exclusive lock at the time, which
+        // on the Pi is the daemon, and the daemon restarts into the same file.
+        // `own = 0` is quieter and worse: every pledge earns nothing, so every
+        // `itsanas keep` is refused with a quote of "more than exists" and the
+        // machine reads as broken rather than as misconfigured.
+        //
+        // What this catches: either check dropped from `Split::new`, or a caller
+        // building the struct literally instead of going through it.
+        assert_eq!(Split::new(0, 70), None);
+        assert_eq!(Split::new(30, 0), None);
+        assert_eq!(Split::new(0, 0), None);
+        assert_eq!(Split::new(30, 70), Some(Split::DEFAULT));
+
+        // The written form is the other door into the same struct — the one a
+        // person actually opens — so it has to refuse the same things.
+        for refused in ["0/70", "30/0", "0/0", "30", "30/70/10", "-1/70", "", "/"] {
+            assert_eq!(
+                Split::parse(refused),
+                None,
+                "{refused:?} was accepted as a split"
+            );
+        }
+    }
+
+    #[test]
+    fn a_split_survives_the_form_it_is_written_in() {
+        // The configuration file writes what `Display` renders and reads it back
+        // with `parse`. If those two ever disagree, a node saves its own settings
+        // and then refuses to start on them — and the setting it breaks on is the
+        // one the whole bargain rests on.
+        for split in SPLITS {
+            assert_eq!(
+                Split::parse(&split.to_string()),
+                Some(split),
+                "{split} did not survive being written down"
+            );
+        }
+
+        assert_eq!(Split::DEFAULT.to_string(), "30/70");
+        // Spaces, because somebody editing the file by hand will leave them.
+        assert_eq!(Split::parse(" 30 / 70 "), Some(Split::DEFAULT));
+    }
+
+    #[test]
+    fn red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s() {
+        // Two splits exist. A node's configuration file carries one, and it
+        // decides only what that machine refuses to its own owner. This function
+        // takes the other, the coordinator's, and that one decides what the
+        // network grants.
+        //
+        // What this catches: a `split` field added to `DeviceContribution` — the
+        // struct a device fills in about itself — and read here. The devices
+        // below are identical; only the coordinator's split moves, and it is the
+        // only thing that may move the answer. If a member's number ever reaches
+        // this arithmetic, widening an entitlement costs one line of a text file
+        // and the bargain is decoration.
+        let devices = [device(1, 700 * GB, 1000)];
+
+        let at = |split| {
+            assess(&Assessment {
+                user: UserId::from_bytes([1; 32]),
+                devices: &devices,
+                split,
+                usage_bytes: 0,
+                registered_unix: ESTABLISHED,
+                over_since_unix: None,
+                now_unix: NOW,
+            })
+            .entitlement_bytes
+        };
+
+        assert_eq!(at(Split::DEFAULT), 300 * GB);
+        // 25/75 is the ratio of 3 this replaced, written the other way.
+        assert_eq!(
+            at(Split::new(25, 75).expect("both parts are above zero")),
+            700 * GB / 3
+        );
+        assert_eq!(
+            at(Split::new(1, 1).expect("both parts are above zero")),
+            700 * GB
+        );
+    }
+
+    #[test]
+    fn an_always_on_node_earns_exactly_the_share_the_split_promises() {
+        // The core of the bargain, in the numbers a person sees: offer seven
+        // hundred gigabytes and three hundred of them are yours.
+        let standing = assess_with(&[device(1, 700 * GB, 1000)], 0);
+
+        assert_eq!(standing.effective_bytes, 700 * GB);
+        assert_eq!(standing.entitlement_bytes, 300 * GB);
     }
 
     #[test]
@@ -363,9 +629,10 @@ mod tests {
         assert_eq!(server.effective_bytes, pledge);
         assert_eq!(laptop.effective_bytes, pledge / 4);
 
-        // Entitlement is the credit over the contribution ratio, floored. The
-        // two divisions can each lose a byte, so compare within that.
-        assert_eq!(server.entitlement_bytes, pledge / CONTRIBUTION_RATIO);
+        // Entitlement is the credit put through the split, floored. The two
+        // divisions can each lose a byte, so compare within that. What the
+        // split itself is belongs to `the_default_split_is_thirty_seventy`;
+        // restating it here would only check this file against itself.
         assert!(
             laptop
                 .entitlement_bytes
@@ -382,15 +649,15 @@ mod tests {
     fn contributions_from_several_devices_add_up() {
         let standing = assess_with(
             &[
-                device(1, 100 * GB, 1000), // an always-on Pi
-                device(2, 400 * GB, 250),  // a laptop
+                device(1, 300 * GB, 1000), // an always-on Pi
+                device(2, 1600 * GB, 250), // a laptop
             ],
             0,
         );
 
-        assert_eq!(standing.pledged_bytes, 500 * GB);
-        assert_eq!(standing.effective_bytes, 100 * GB + 100 * GB);
-        assert_eq!(standing.entitlement_bytes, 200 * GB / 3);
+        assert_eq!(standing.pledged_bytes, 1900 * GB);
+        assert_eq!(standing.effective_bytes, 300 * GB + 400 * GB);
+        assert_eq!(standing.entitlement_bytes, 300 * GB);
     }
 
     #[test]
@@ -432,6 +699,7 @@ mod tests {
         let standing = assess(&Assessment {
             user: UserId::from_bytes([1; 32]),
             devices: &[],
+            split: Split::DEFAULT,
             usage_bytes: 5 * GB,
             registered_unix: NOW - 3600,
             over_since_unix: None,
@@ -448,6 +716,7 @@ mod tests {
         let standing = assess(&Assessment {
             user: UserId::from_bytes([1; 32]),
             devices: &[],
+            split: Split::DEFAULT,
             usage_bytes: 5 * GB,
             registered_unix: NOW - JOINING_PERIOD_SECONDS - 1,
             over_since_unix: Some(NOW - 1),
@@ -464,26 +733,28 @@ mod tests {
         // earned rather than being capped at the allowance.
         let standing = assess(&Assessment {
             user: UserId::from_bytes([1; 32]),
-            devices: &[device(1, 3000 * GB, 1000)],
+            devices: &[device(1, 3500 * GB, 1000)],
+            split: Split::DEFAULT,
             usage_bytes: 0,
             registered_unix: NOW - 3600,
             over_since_unix: None,
             now_unix: NOW,
         });
 
-        assert_eq!(standing.entitlement_bytes, 1000 * GB);
+        assert_eq!(standing.entitlement_bytes, 1500 * GB);
         assert_eq!(standing.state, MemberState::Good);
     }
 
     #[test]
     fn going_over_escalates_on_a_schedule_and_not_before() {
-        let devices = [device(1, 300 * GB, 1000)]; // 100 GB entitlement
-        let over = 150 * GB;
+        let devices = [device(1, 700 * GB, 1000)]; // 300 GB entitlement
+        let over = 400 * GB;
 
         let at = |elapsed: u64| {
             assess(&Assessment {
                 user: UserId::from_bytes([1; 32]),
                 devices: &devices,
+                split: Split::DEFAULT,
                 usage_bytes: over,
                 registered_unix: ESTABLISHED,
                 over_since_unix: Some(NOW - elapsed),
@@ -507,6 +778,7 @@ mod tests {
         let standing = assess(&Assessment {
             user: UserId::from_bytes([1; 32]),
             devices: &[],
+            split: Split::DEFAULT,
             usage_bytes: 500 * GB,
             registered_unix: ESTABLISHED,
             over_since_unix: None,
@@ -545,13 +817,13 @@ mod tests {
 
     #[test]
     fn headroom_and_excess_never_underflow() {
-        let under = assess_with(&[device(1, 300 * GB, 1000)], 10 * GB);
-        assert_eq!(under.headroom_bytes(), 90 * GB);
+        let under = assess_with(&[device(1, 700 * GB, 1000)], 10 * GB);
+        assert_eq!(under.headroom_bytes(), 290 * GB);
         assert_eq!(under.excess_bytes(), 0);
 
-        let over = assess_with(&[device(1, 300 * GB, 1000)], 150 * GB);
+        let over = assess_with(&[device(1, 700 * GB, 1000)], 400 * GB);
         assert_eq!(over.headroom_bytes(), 0);
-        assert_eq!(over.excess_bytes(), 50 * GB);
+        assert_eq!(over.excess_bytes(), 100 * GB);
     }
 
     #[test]
@@ -565,9 +837,9 @@ mod tests {
 
     #[test]
     fn entitlement_is_floored_so_a_member_is_never_told_they_have_more_room() {
-        // 100 bytes effective over a ratio of 3 is 33, not 34.
+        // 100 bytes effective at 30/70 is 42 and six sevenths, which is 42.
         let standing = assess_with(&[device(1, 100, 1000)], 0);
-        assert_eq!(standing.entitlement_bytes, 33);
+        assert_eq!(standing.entitlement_bytes, 42);
     }
 
     #[test]

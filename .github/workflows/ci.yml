@@ -57,6 +57,22 @@ jobs:
       # difference. A number nobody reads back is not evidence.
       - name: Documented test counts match the source
         run: python scripts/check-counts.py
+      # The same failure for the one number the whole bargain rests on. When the
+      # split moved from 25/75 to 30/70 the code, its tests and ECONOMICS.md
+      # moved with it, and nine other files did not -- FIRST-STEPS.md, the page
+      # a new member reads first, among them. The grep that was supposed to find
+      # them searched for `25/75` while the files said "costs three pledged".
+      - name: Every document states the split the code ships
+        run: python scripts/check-bargain.py
+      # Each session starts cold and reads one block at the top of HANDOVER.md
+      # to learn which step is next. That block was prose until 2026-09-14, and
+      # the prose said "ten gates, all green" while an eleventh was red. This
+      # checks the pointer names a real, unfinished §8 step written on this
+      # history. It needs the history, hence the full fetch.
+      - name: The handover pointer names a real step
+        run: |
+          git fetch --no-tags --prune --unshallow origin 2>/dev/null || true
+          python scripts/check-handover.py
       # Two things nothing else in the toolchain looks at, both of which have
       # already shipped broken. `cargo fmt` removes a string literal's trailing
       # backslash and keeps the indentation as literal spaces — every

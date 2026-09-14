@@ -267,7 +267,7 @@ Write-Step 'Configuring this machine'
 
 # Both numbers go through `space --apply`, which is the one place the arithmetic
 # lives: it knows the free space on the disk this node actually sits on, and it
-# knows that keeping a byte of your own costs three pledged. Setting them
+# knows the 30/70 split that says what a pledge earns. Setting them
 # separately here would be a third copy of a rule that already has two homes,
 # and the failure mode of a third copy is a machine that accepts numbers the
 # coordinator refuses a fortnight later.

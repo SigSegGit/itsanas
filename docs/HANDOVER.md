@@ -8,17 +8,45 @@ contract.
 
 ## 0. Resume here after `/clear`
 
-Read this section, then §8. Nothing else is needed to continue.
+<!-- ITSANAS-STATE
+NEXT: 8.1b
+TITLE: Bound writes on the honest client
+WRITTEN-AT: 2026-09-14
+BASE: 7a8cbef
+-->
 
-**State (2026-09-14).** `main` is pushed and CI is green; **v0.1.0 is tagged and
-released** with the Android APK attached. 716 tests (39 red-team, 3 `#[ignore]`d
-into the slow job), nine gates.
+Read this section, then §8. Nothing else is needed to continue. The block
+above names the next step and `scripts/check-handover.py` keeps it honest;
+whether CI is green and whether a PR is open are facts for `git` and `gh`,
+never for this file.
 
-**Check a clean tree:** `bash scripts/check-all.sh` (nine gates, discovered by
+**State (2026-09-14).** v0.1.0 is tagged and released with the Android APK.
+§8.1(a), the split as a value at 30/70, is finished on branch
+`split-as-a-value` and its PR was left **open for Nicolas to merge**, because it
+adds a decision to §6 and an agent does not merge those alone. If `gh pr list`
+still shows it, it is merged or fixed before anything else starts. 724 tests
+(43 red-team, 3 `#[ignore]`d into the slow job), twelve gates.
+
+What that PR carries beyond the split, each defence sabotage-verified:
+
+- `Config::split` may only be **stricter** than `Split::DEFAULT`. Until §8.1(c)
+  lands, `itsanas keep` is the only live enforcement of the bargain, and a
+  generous split would have switched it off from a text editor. The session
+  that wrote the field missed this; the Rodin audit found it.
+- Refusals quote prices through `config::size_argument` (`73G`), rounded up.
+  `format_size` floors to a tenth, so at 30/70 the quoted pledge was below
+  the price, and the suggested `--pledge 93.0 GiB` had never parsed at all.
+- `check-bargain.py` recomputes worked examples, not just ratios: four files
+  stated 30/70 and still did 25/75 arithmetic beside it (90 GiB earns 30,
+  `÷ 3`, 333 GB).
+- `check-handover.py` checks the block above. The previous §0 said "ten gates,
+  all green" while an eleventh existed and was red.
+
+**Check a clean tree:** `bash scripts/check-all.sh` (twelve gates, discovered by
 glob) then `cargo nextest run --workspace`. Both must be green before a push.
 
 **Tests are run by CI, or by `bash scripts/receipt.sh` on the Raspberry Pi or
-the Freebox VM — never by AI agents.** The script runs the nine gates and every
+the Freebox VM — never by AI agents.** The script runs every gate and every
 test and prints a ten-line receipt; Nicolas pastes the receipt. While editing,
 run only the crate being changed (`cargo nextest run -p <crate>`).
 
@@ -35,6 +63,11 @@ one long conversation re-read its own context 1,885 times.
   README, ROADMAP and TESTING — `check-counts.py` fails otherwise, and its
   uncatalogued ceiling (116) is a ratchet, not a target.
 - A new `scripts/check-*` file must get a step in `ci.yml` — `check-ci.py`.
+- `format_size` is for reports. A figure somebody will type back is
+  `size_argument`, or it floors below the price and does not parse.
+- Grepping for a changed number finds the number, not its restatements.
+  Search the phrasing and the arithmetic (`÷ 3`, "earns 333", "three
+  pledged") — or better, extend the gate that recomputes them.
 - Unsafe code is allowed only in `crates/itsanas-drive/src/projfs.rs` (and the
   JNI export attribute), with a `SAFETY:` comment per block — `check-unsafe.py`.
 - A PreToolUse hook (`~/.claude/hooks/quiet.py`) condenses builds and test runs
@@ -43,7 +76,7 @@ one long conversation re-read its own context 1,885 times.
 
 **Where the truth is:** `docs/ROADMAP.md` "Known ceilings" and "What an
 adversarial sweep found" (open findings, with arithmetic); `docs/ECONOMICS.md`
-§1 (the 3:1 bargain is enforced locally only); `docs/DESIGN.md` §6.5–6.7
+§1 (the 30/70 bargain is enforced locally only); `docs/DESIGN.md` §6.5–6.7
 (verification cost against the 100 MB/day budget).
 
 ---
@@ -94,15 +127,22 @@ exist, which has happened. It does not check the reverse — some crates are
 catalogued by property rather than test by test — so a new test still has to be
 written up by hand.
 
-Test counts in TESTING.md are mechanical:
+Test counts in TESTING.md are mechanical, and the tool is the gate itself:
 
 ```bash
-cargo test --workspace --all-features -- --list
+python scripts/check-counts.py
 ```
 
-That prints 464: **462 test functions across 17 binaries** (2 of them
-`#[ignore]`d, which is the figure ROADMAP and TESTING both quote) **plus 2
-doctests**. Quote the 462 and say what it excludes, or the number drifts.
+It counts `#[test]` and `#[tokio::test]` functions under `crates/` and checks
+every figure README, ROADMAP and TESTING state against them — today **724 test
+functions across 24 binaries** (3 of them `#[ignore]`d) **plus 2 doctests**, 43
+of them red-team. This file is not among the ones it reads, so this sentence
+is corrected by hand. It counts the source rather than `cargo test -- --list`
+because that command's answer depends on the machine running it: one test is
+`#[cfg(unix)]` and the ProjFS ones are `#[cfg(windows)]`, so the same tree lists
+a different number on Linux and on Windows, and a count that moves with the
+reader is not a count. This paragraph quoted 464 across 17 binaries — the old
+command, on a tree that has since grown by half — and nothing read it.
 
 ## 3. Verify a clean tree in one go
 
@@ -222,6 +262,7 @@ Each of these has a test that fails if it is:
 | A discovery beacon's address comes from the UDP source, never from the packet | A self-declared address lets any node redirect traffic to a machine that is not it | `a_new_device_is_recorded_with_the_address_it_was_heard_from` |
 | The discovery table is bounded and confirmed peers are protected | Device ids are free keypairs, so a flood is cheap; without this it evicts the machines that matter | `a_flood_of_strangers_cannot_evict_a_known_peer`, `the_table_never_grows_past_its_capacity` |
 | The sender's clock decides nothing in discovery | A Pi 4 has no RTC and boots in 1970; superseding by sender clock strands it at a stale address | `a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address` |
+| The split is a value, and the one that grants entitlement is the coordinator's | It was `CONTRIBUTION_RATIO = 3`, and a constant cannot express 30/70 without becoming a fraction, which is where an `f64` wants to go. Two splits now exist and they are not the same thing: a node's configuration field decides only what that machine refuses its own owner, and the one `assess` is handed decides what the network grants. A `split` field on `DeviceContribution` would let a member widen their own entitlement by editing a text file. The node's field may only be stricter than `Split::DEFAULT`: `itsanas keep` is the one live enforcement, and a generous split would turn it off | `red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`; `red_team_a_node_cannot_grant_itself_a_more_generous_split`; `red_team_a_split_with_a_zero_part_is_refused_rather_than_dividing_by_zero` |
 | Streaming boundaries match slice boundaries exactly | Otherwise one file stored via two paths dedups against nothing | `streaming_and_slicing_agree_on_every_boundary` |
 | Published test identities are refused by `Store::open` | Their phrases are in the docs | `the_published_test_identities_are_refused_...` |
 
@@ -249,28 +290,36 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
 ## 8. What is next, in order
 
-1. **Enforce the space split. Asked for by Nicolas on 2026-09-14; the first
-   task of the next conversation.** Nothing enforces it today. Verified facts:
+1. **Enforce the space split. Asked for by Nicolas on 2026-09-14.** Step (a) is
+   built; (b), (c) and (d) are what is left, and **nothing on
+   the network enforces the split yet**. Verified facts:
 
-   - The ratio is `itsanas-coord::accounting::CONTRIBUTION_RATIO = 3`: keep one
-     byte per three pledged, a **25/75** split. **Decided with Nicolas on
-     2026-09-14: default 30/70, as a value he can change later.** The reasoning,
-     so nobody re-derives it: `REPLICATION_TARGET = 3` counts *machines*,
-     including the owner's own (`store/src/lib.rs`, `holders.rs`). For data the
-     owner keeps locally the network holds **two** copies, so the break-even
-     ratio is 2 (33/67) and 30/70 (7/3) leaves about 17 % slack for machines that
-     are asleep and for sealing and log overhead. 33/67 leaves none. For data a
-     device has *released* (a phone under `keep`), the network needs three
-     copies and only 25/75 breaks even — so the value may later need to depend on
-     how much of an account is kept locally. `ECONOMICS.md` §1 states capacity as
-     `R × S` with the owner's copy counted as network capacity; correct it in
-     step (d).
-   - It is read by `accounting.rs` (`room_earned`, `pledge_needed_for`), the CLI
-     `keep`, `space` and `pledge` (`crates/itsanas-cli/src/main.rs`, around lines
-     1770–2060), the Android JNI `setKeep`/`setPledge`
-     (`crates/itsanas-android/src/lib.rs`, around 551–622), the coordinator claim
-     (`crates/itsanas-cli/src/coordinator.rs:180`) and the daemon's `Pledge`
-     (`crates/itsanas-cli/src/daemon.rs`).
+   - The split is `itsanas-coord::accounting::Split`, and its default is
+     **30/70** — keep three parts of every ten a machine commits. It replaced
+     `CONTRIBUTION_RATIO = 3`, a **25/75** split, on 2026-09-14, on Nicolas's
+     decision. The reasoning, so nobody re-derives it: `REPLICATION_TARGET = 3`
+     counts *machines*, including the owner's own (`store/src/lib.rs`,
+     `holders.rs`). For data the owner keeps locally the network holds **two**
+     copies, so the break-even ratio is 2 (33/67) and 30/70 (7/3) leaves about
+     17 % slack for machines that are asleep and for sealing and log overhead.
+     33/67 leaves none. For data a device has *released* (a phone under `keep`),
+     the network needs three copies and only 25/75 breaks even — so the value may
+     later need to depend on how much of an account is kept locally. That
+     derivation is now in `ECONOMICS.md` §1, which used to state capacity as
+     `R × S` with the owner's copy wrongly counted as network capacity.
+   - **Two splits exist.** `Config::split` — a `split = 30/70` line in the node
+     file — governs what *this machine* refuses its own owner, and is read by the
+     CLI `keep` and `space`. It may only be *stricter* than `Split::DEFAULT`; a
+     more generous one is refused when the file is read. `Assessment::split` is the *coordinator's*, and is
+     what `assess` grants entitlement by. Nothing a device sends may reach the
+     second; `DeviceContribution` deliberately carries no split.
+   - `itsanas pledge` and the Android JNI `setKeep`/`setPledge`
+     (`crates/itsanas-android/src/lib.rs`, around 551–622) still skip the check
+     altogether — they set bytes without consulting any split. That is finding 3
+     in item 3 below and was already true; (a) did not touch it. The coordinator
+     claim (`crates/itsanas-cli/src/coordinator.rs:180`) and the daemon's
+     `Pledge` (`crates/itsanas-cli/src/daemon.rs`) carry `pledge_bytes` and never
+     read a split, which is correct.
    - **Writing never consults it.** `Store::write_stream` and `write_file`
      (`crates/itsanas-store/src/store.rs`, ~246 and ~310) and the folder import
      (`crates/itsanas-folder/src/lib.rs`, ~259) accept any amount: an account's
@@ -283,15 +332,60 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
    Build in this order, each step with a red-team test that is sabotage-verified:
 
-   a. **The split as a value.** A `Split { own, network }` type in
-      `accounting.rs` holding today's default, a config field that overrides it,
-      and every reader above going through it. No behaviour change; tests prove
-      the default equals today's numbers.
-   b. **Bound writes on the honest client.** `write_stream` and the folder
-      import refuse when account bytes plus the incoming file exceed the room the
-      pledge earns (the joining allowance for the first thirty days), and when
-      this machine's own store plus its pledge would exceed the disk. The error
-      names the numbers, in the wording `itsanas space` already uses.
+   a. ✅ **The split as a value.** Built 2026-09-14; see §0 for what the PR
+      carries beyond what follows.
+      `Split { own, network }` in `accounting.rs`: `DEFAULT` of 30/70,
+      `new`/`parse` refusing a zero part, `room_earned` and `pledge_needed_for`
+      as methods over `u128` intermediates (`pledge_needed_for` rounds **up**,
+      or the quote names a figure that is refused when supplied),
+      `Assessment::split`, a `split = 30/70` line in the node configuration
+      file, and `keep`/`space` reading it. Six new tests, three of them
+      red-team. `CONTRIBUTION_RATIO` is gone rather than deprecated, so a new
+      call site cannot bypass the config field.
+
+      This was **not** the inert refactor the old text of this step described.
+      That text said "no behaviour change; tests prove the default equals
+      today's numbers" while the bullet above it recorded a decision to default
+      to 30/70, and the two cannot both hold: at 30/70 an always-on node
+      pledging 300 GB earns 128 GB where it earned 100. Nicolas chose 30/70 on
+      2026-09-14 when the contradiction was put to him, so the fixtures in
+      `accounting.rs` moved to figures the split divides exactly (pledge 700,
+      earn 300) rather than being left to assert the old arithmetic.
+
+      **To sabotage-verify, one at a time:** drop `+ u128::from(needed % own != 0)`
+      from `pledge_needed_for` and
+      `the_limit_and_the_price_quoted_for_exceeding_it_never_contradict` must go
+      red; drop the `own == 0 || network == 0` guard from `Split::new` and
+      `red_team_a_split_with_a_zero_part_is_refused_rather_than_dividing_by_zero`
+      must go red; make `assess` read `Split::DEFAULT` instead of `input.split`
+      and `red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`
+      must go red. A test that passes both ways is decorative and not accepted.
+      All went red on 2026-09-14, as did the two tests the audit added
+      (`red_team_a_node_cannot_grant_itself_a_more_generous_split`,
+      `a_quoted_price_parses_back_to_no_less_than_the_price`).
+   b. **Bound writes on the honest client.** `Store::write_stream` and
+      `write_file` (`crates/itsanas-store/src/store.rs`, ~246 and ~310) and the
+      folder import (`crates/itsanas-folder/src/lib.rs`, ~259) refuse when the
+      account's bytes plus the incoming file exceed what the pledge earns —
+      `config.split.room_earned(pledge).max(JOINING_ALLOWANCE)`, exactly the
+      rule `keep` applies in `crates/itsanas-cli/src/main.rs` ~1773 — and when
+      this machine's own store plus its pledge would exceed the disk. The
+      error names the numbers in the wording `itsanas space` uses, with any
+      price through `size_argument`.
+
+      **Not verified yet; find these before writing:** where an account's
+      total bytes are already counted (if nowhere, that is the first piece of
+      work), and the crate dependency direction — the rule lives in
+      `itsanas-coord` and the split in `itsanas-node`'s `Config`, so the limit
+      most likely enters the store as a parameter rather than being read
+      there. `keep` ignores the thirty-day clock and applies the allowance
+      unconditionally; decide whether writes should do the same, and say so.
+
+      Red-team test expected: a write that would take the account past what
+      its pledge earns is refused **and leaves nothing behind** — no chunk,
+      no index entry, no log segment. Sabotage by removing the check; a
+      second test that a write inside the limit still succeeds keeps the
+      first from passing on a store that refuses everything.
    c. **Bound owners on the host — the part a rebuilt client cannot delete.**
       In `service.rs` `StoreChunk` and `StoreSegment`: a host stores for owner O
       at most an allowance plus `k ×` the bytes of this host's own data that O's
@@ -300,8 +394,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the owner-signed `NodeClaim`, never the unauthenticated `Hello` field. Tests:
       a peer hosting nothing is refused past the allowance; a peer that hosts and
       passes audits keeps being served.
-   d. `ECONOMICS.md` §1 back to built when (c) lands, §8 constants, catalogue
-      rows, counts.
+   d. `ECONOMICS.md` §1 back to ✅ built when (c) lands — it is 🟨 today and
+      correctly so. Its §8 constants row, the catalogue rows and the counts in
+      README, ROADMAP and TESTING were all done in (a).
 
 2. **Finish the red team, one surface per session, by hand.** Three surfaces have
    never been examined — every multi-agent attempt died on usage limits:

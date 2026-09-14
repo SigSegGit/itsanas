@@ -104,10 +104,11 @@ reissued. Write them down on paper now.
 ### 2. Decide how much space, and for whom
 
 Two numbers, bound to each other. What you **pledge** is room for other people's
-data; what you **keep** is room this machine may use for your own. Keeping a
-byte of your own costs three pledged — a network where everyone stores and
-nobody hosts has no storage in it — with a 10 GiB allowance for the first thirty
-days so a new member is useful before it has earned anything.
+data; what you **keep** is room this machine may use for your own. Keeping
+three bytes of your own costs seven pledged — a **30/70** split of everything
+this machine commits, because a network where everyone stores and nobody hosts
+has no storage in it — with a 10 GiB allowance for the first thirty days so a
+new member is useful before it has earned anything.
 
 Ask before committing to either:
 
@@ -204,7 +205,7 @@ Stated plainly, because a version number invites the opposite assumption:
 - **Not proven at a terabyte.** An idle account of that size costs about 600 KB
   a day to verify; one that changes costs roughly 2 MB per differing bucket, and
   the arithmetic is in `docs/DESIGN.md` §6.5 rather than in a reassurance.
-- **Not yet safe among strangers.** The 3-for-1 storage bargain is enforced by
+- **Not yet safe among strangers.** The 30/70 storage bargain is enforced by
   the honest client only; a rebuilt client can take more than it gives.
   `docs/ROADMAP.md` lists what an adversarial sweep found and did not fix.
 - **Not a backup.** Two copies on machines you know is not an archive, and

@@ -43,31 +43,48 @@ it says so. Where it is forced by arithmetic, the arithmetic is shown.
 > get away with?"; the fix is the bilateral ledger in §3, which is specified and
 > not written.
 
-> **Pledge three times what you store.**
+> **Lend seven parts to keep three.**
 
-A member who wants `S` bytes of their own data protected must offer `3 × S` bytes
-of their own disk to other members.
+A member who wants `S` bytes of their own data protected offers the network
+`7/3 × S` bytes of their own disk: a **30/70 split** of everything the machine
+commits. It is `accounting::Split::DEFAULT` and it is a *default*, not a
+constant — a configuration field may make it stricter, never more generous.
 
-### Why three, and not a number picked because it sounded generous
+### Why seven thirds, and not the three this section used to say
 
-It is not arbitrary. With a replication factor of `R`, the network as a whole
-must physically hold `R × S` bytes for every `S` bytes a member stores. If every
-member pledges `C × S`, the network holds `C × S` per member. So:
+It is not arbitrary, and the number it replaced was wrong in a way worth writing
+down rather than quietly correcting. The naive arithmetic: with a replication
+factor of `R` the network must physically hold `R × S` for every `S` a member
+stores, so every member should pledge `C × S` with `C = R`. Three replicas,
+pledge three times. That is where `C = 3` came from, and it is half again more
+than the network needs.
+
+`REPLICATION_TARGET = 3` counts **machines, the owner's own included** — see
+`store/src/lib.rs` and `holders.rs`, and the `a_target_counts_this_device_so_three_asks_for_two_elsewhere`
+test that pins it. For data the owner keeps locally, the copies *other people*
+hold are therefore `R − 1`:
 
 ```
-network capacity needed  =  R × S
-network capacity offered =  C × S
-balanced when            =>  C = R
+network capacity needed   =  (R − 1) × S  =  2S
+network capacity offered  =  C × S
+balanced when             =>  C = R − 1 = 2        (a 33/67 split)
 ```
 
-**The contribution ratio and the replication factor are the same number.** Three
-replicas means pledge three times. Choosing `C = 3` is choosing `R = 3`, and
-`R = 3` is the smallest number where losing one machine is not an emergency and
-losing two simultaneously is required to lose anything.
+So break-even is two, and `C = 7/3` — the 30/70 split — sits about a sixth above
+it. That sixth is the headroom for machines that are asleep, for sealing
+overhead and for the operation log; `C = 2` exactly would leave none, and
+anything below it is a network that has promised more than it can hold, which
+will discover this by losing files.
 
-Anything above `C = R` is headroom for churn, repair traffic and members who
-join before they contribute. Anything below is a network that has promised more
-than it can hold, which will discover this by losing files.
+**Where this stops being true, and why the split is a value.** Data a device has
+*released* — a phone under `keep`, holding nothing of its own locally — costs the
+network all three copies, and only `C = 3` breaks even on that. A network of
+phones should therefore set a stricter split, which is what the configuration
+field is for. Stricter only: until the network enforces the split, `itsanas
+keep` is the one place it is applied, and a field that could loosen it would
+switch that off from a text editor. The default assumes machines that keep their own data. If the
+membership ever stops looking like that, the value may have to depend on how
+much of an account is held locally rather than being one number per network.
 
 ### What this is not
 
@@ -178,11 +195,11 @@ than a known absence of it.
 
 ```
 effective contribution  =  pledged bytes × availability
-entitlement             =  effective contribution ÷ 3
+entitlement             =  effective contribution × 30 ÷ 70
 ```
 
-A 1 TB always-on Pi contributes 1 TB and earns 333 GB. A 1 TB laptop online a
-quarter of the time contributes 250 GB and earns 83 GB.
+A 1 TB always-on Pi contributes 1 TB and earns 428 GB. A 1 TB laptop online a
+quarter of the time contributes 250 GB and earns 107 GB.
 
 That is harsh, and it is correct. The alternative — counting laptop bytes at
 face value — means the network promises durability it cannot deliver, and the
@@ -203,8 +220,12 @@ survived twenty years on an openly hostile network.
 
 Two properties fall out of it that the global model had to be told explicitly:
 
-- **The 3x ratio appears on its own.** Wanting three replicas of 100 GB means
-  finding three counterparties and giving each of them 100 GB back.
+- **The split appears on its own.** Wanting three copies of 100 GB — one of them
+  the one already on your own disk — means finding **two** counterparties and
+  giving each of them 100 GB back. That is a ratio of two, which is the 33/67
+  break-even §1 derives; the 30/70 default is that plus slack. Note that the
+  bilateral model arrives at it without being told, and that it arrives at *two*
+  rather than the three the global model was wrongly told for months.
 - **Availability needs no third-party measurement.** A peer that is never
   reachable is worth nothing to you, and you can see that yourself. Each side
   measures the other directly, and nobody is in a position to lie to them about
@@ -413,7 +434,7 @@ number is decided here and nothing consumes it.
 
 | Identifier in the code | Value | Kind | Status |
 | --- | --- | --- | --- |
-| `accounting::CONTRIBUTION_RATIO` | 3 | Forced: equals the replication factor | live |
+| `accounting::Split::DEFAULT` | 30/70 (`C = 7/3`) | Judgement: break-even is 33/67; this leaves about a sixth in slack | live, and local only: `keep`/`space` read it, nothing on the network does |
 | `repair::DEFAULT_REPLICATION_FLOOR` | 3 | Judgement: smallest R where one loss is not an emergency | live |
 | `accounting::ANCHOR_AVAILABILITY_PER_MILLE` | 900 (0.90) | Judgement | live, but only to *label* an anchor — placement never reads it |
 | `accounting::AVAILABILITY_FLOOR_PER_MILLE` | 50 (0.05) | Judgement: stops a holiday becoming a default | **read only by tests** — see §1 |

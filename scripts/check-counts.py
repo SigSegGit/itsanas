@@ -33,6 +33,10 @@ What is checked
   binary that does not;
 * the section headings, which are a partition of each crate and have to add up
   to that crate's real count;
+* the sub-headings under them, each of which names a source module and states
+  how many tests that module has -- eight of them were wrong, two because a
+  session added tests to a module and moved the crate total without looking
+  down a level;
 * the totals in the `docs/TESTING.md` header, including how many doctests
   there are;
 * how many tests have an entry of their own, and a ceiling on how many do not,
@@ -62,6 +66,23 @@ TEST = re.compile(
 # heading carried two numbers ("12 integration, 8 unit"), which made its crate
 # look eight short until the split moved into the prose below it.
 SECTION = re.compile(r'^# `([a-z0-9-]+)` — .+? \((\d+)')
+
+# A sub-heading names one source module of the crate section it sits under, and
+# says how many tests that module has: "## `config` — settings (18)".
+#
+# These were checked by nobody, and eight of the forty were wrong -- `config`
+# said 14 against 18, `coordinator` 3 against 6. Two of those were made worse in
+# the same sitting that added the tests, because the crate total is what the
+# check above reads and a crate total can be corrected without anybody looking
+# one level down. That is the same shape as every other number on this page
+# before it was checked: right when written, quietly wrong a year later.
+#
+# Not every sub-heading can be checked. `plan` catalogues tests that live in
+# `lib.rs`, and `itsanas-store` splits one `index.rs` across two sub-headings by
+# theme. Those are skipped rather than forced into a naming rule that would make
+# the catalogue worse to read -- a check that would be satisfied by renaming a
+# section is not checking anything.
+SUBSECTION = re.compile(r'^## `([a-z0-9_]+)` — .+? \((\d+)\)\s*$')
 
 # How many tests have an entry of their own. `check-catalogue.sh` reads this
 # file the other way round -- every name cited must exist -- and nothing counted
@@ -186,6 +207,54 @@ def collect(root):
     return found, red_team, names
 
 
+def collect_modules(root):
+    """Return {(crate, module stem): test count} for `src/` modules only."""
+    found = {}
+    crates = os.path.join(root, 'crates')
+    for dirpath, dirnames, filenames in os.walk(crates):
+        dirnames[:] = [d for d in dirnames if d != 'target']
+        for name in sorted(filenames):
+            if not name.endswith('.rs'):
+                continue
+            path = os.path.join(dirpath, name)
+            parts = os.path.relpath(path, crates).replace(os.sep, '/').split('/')
+            if len(parts) < 3 or parts[1] != 'src':
+                continue
+            text = io.open(path, encoding='utf-8', errors='replace').read()
+            key = (parts[0], name[:-3])
+            if key in found:
+                # Two modules of one name in one crate. Skip rather than guess.
+                found[key] = None
+                continue
+            found[key] = len(TEST.findall(text))
+    return found
+
+
+def check_subsections(testing, modules, problems):
+    """Each `## `module` — ... (N)` states that module's real test count."""
+    seen = {}
+    crate = None
+    for line in testing.split('\n'):
+        heading = SECTION.match(line)
+        if heading:
+            crate = heading.group(1)
+            continue
+        sub = SUBSECTION.match(line)
+        if sub and crate:
+            seen.setdefault((crate, sub.group(1)), []).append(int(sub.group(2)))
+
+    for (crate, module), claims in sorted(seen.items()):
+        real = modules.get((crate, module))
+        if real is None or len(claims) != 1:
+            # No such module, or the crate splits it across sub-headings.
+            continue
+        if claims[0] != real:
+            problems.append(
+                'docs/TESTING.md says `%s` in `%s` has %d tests; it has %d'
+                % (module, crate, claims[0], real)
+            )
+
+
 def count_doctests(root):
     total = 0
     crates = os.path.join(root, 'crates')
@@ -300,6 +369,8 @@ def main():
             problems,
         )
 
+    check_subsections(testing, collect_modules(root), problems)
+
     # How many tests are catalogued individually.
     cited = catalogued(testing, test_names)
     claim = COVERAGE_CLAIM.search(' '.join(testing.split()))
@@ -395,7 +466,7 @@ def main():
     print(
         'counts: %d tests in %d binaries, %d ignored, %d doctests, %d '
         'red-team, %d catalogued individually; README, ROADMAP and TESTING '
-        'all agree, and every section heading adds up'
+        'all agree, and every section and module heading adds up'
         % (total, binaries, ignored, doctests, red_team, len(cited))
     )
     return 0

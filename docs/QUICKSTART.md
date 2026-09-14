@@ -94,15 +94,16 @@ stored 2.0 MiB as archive/big.bin (27 chunks)
 
 Two numbers, bound to each other. `pledge` is room you offer other members;
 `keep` (§"A machine that cannot hold everything") is room this machine may use
-for your own data. **Keeping a byte of your own costs three pledged** — a
-network where everyone stores and nobody hosts has no storage in it — with a
-10 GiB allowance for the first thirty days so a new member is useful before it
-has earned anything.
+for your own data. **Keeping three bytes of your own costs seven pledged** — a
+**30/70** split of everything this machine commits, because a network where
+everyone stores and nobody hosts has no storage in it — with a 10 GiB allowance
+for the first thirty days so a new member is useful before it has earned
+anything.
 
 Ask before you commit to either:
 
 ```bash
-itsanas space --pledge 90G --keep 30G
+itsanas space --pledge 70G --keep 30G
 ```
 
 ```text
@@ -113,8 +114,8 @@ this machine
   held for others 0 B
 
 the bargain
-  you offer       90.0 GiB
-  that earns you  30.0 GiB (3 pledged for each byte you keep)
+  you offer       70.0 GiB
+  that earns you  30.0 GiB (a 30/70 split: 30 of your own for every 70 you lend)
   first 30 days    at least 10.0 GiB, whatever you pledge
 
 keeping 30.0 GiB of your own here is within both limits
@@ -124,7 +125,7 @@ Ask for one gigabyte more and it says why, before anything is set:
 
 ```text
 that does not fit:
-  keeping 31.0 GiB needs 93.0 GiB pledged; you are offering 90.0 GiB
+  keeping 31.0 GiB needs 73G pledged; you are offering 70.0 GiB
 ```
 
 It changes nothing without `--apply`, and it refuses to apply what it has just
@@ -404,8 +405,8 @@ space` explains, enforced where the number is typed rather than a fortnight
 later by a coordinator:
 
 ```text
-itsanas: keeping 31.0 GiB needs 93.0 GiB pledged, and this node offers 90.0 GiB.
-`itsanas space --pledge 93.0 GiB --keep 31.0 GiB --apply` sets both, or ask for less.
+itsanas: keeping 31.0 GiB needs 73G pledged, and this node offers 70.0 GiB.
+`itsanas space --pledge 73G --keep 31G --apply` sets both, or ask for less.
 ```
 
 **What the rest of the account looks like on that machine.** Everything is
