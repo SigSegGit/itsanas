@@ -208,6 +208,38 @@ manual `doctor --repair`, no lost file.
 
 ---
 
+### Running them with the kit
+
+`scripts/acceptance.sh` turns each test into phases that end in `PASS` or `FAIL`
+with the numbers, and appends every verdict to
+`~/.itsanas-receipts/acceptance.txt` — paste that file, not an impression. It
+checks; moving power and cables stays with the person running it.
+
+**Before anything: every machine pledges.** A host refuses to store past its
+pledge, its own account's log included (DESIGN.md, the table of what counts
+against what), and the default pledge is zero. A machine that has pledged
+nothing relays nothing — and `itsanas sync` then says `sent 0 B in 0 chunks,
+0 segments`, exactly what it says when there is nothing to send. The kit's own
+bench failed E, F and G for that reason until it pledged.
+
+| Test | Where | Command |
+| --- | --- | --- |
+| A | every machine | no phase: the criterion is that nothing was typed but the three commands |
+| B | machine 1, then 2 and 3 | `B write ~/ITSaNAS` → name and sha256; then `B check ~/ITSaNAS <name> <sha256>` |
+| C | machine 1, then the host of **another** account | `C plant ~/ITSaNAS` → canary, which is the file's name as well as its content; then `C scan <canary> ~/.itsanas` (the control is built in). Only on another account's host: your own machine's index holds file names in the clear, correctly, and the scan will find the canary there |
+| D | the rebuilt machine | `itsanas login --username <name> --from <coordinator>`, one sync, then `D check <path> <sha256>` |
+| E | machine 1, then 3 | `E write ~/ITSaNAS`, machine 1 off; later `E check ~/ITSaNAS <name> <sha256>` on machine 3. The kit cannot tell whether 1 and 3 ever met — that part is the person's discipline, so switch machine 3 off *before* machine 1 writes |
+| F | machine 1, then 3 | `F delete ~/ITSaNAS <name>`; `F check ~/ITSaNAS <name>` on machine 3, and again after another round |
+| G | machines 1 and 3, both offline | `G edit ~/ITSaNAS <name> <tag>` on each; after reconnecting `G check ~/ITSaNAS <name>` on both — the digests must match |
+| H | **not covered where it matters** | `H sample` every five minutes for 24 hours, then `H report` — Linux only. The criterion is about the Windows laptop (battery, sleep), which the kit does not measure; that is HANDOVER §8 0e |
+| I | any member, coordinator off | daemon output to a file, and **write a file on another machine during the outage** — idle rounds print nothing; then `I check <that file>` |
+| J | every machine | `J count ~/ITSaNAS` before; reboot or cut power; daemon stopped, `J check ~/ITSaNAS <count>` |
+
+`D check` and `J check` open the node, so the daemon must not be running on that
+machine at that moment. `scripts/acceptance-local.sh` runs B, D, E, F and G and
+every negative control between three nodes on one machine on each push: it
+proves the kit and the mechanisms agree, and it is not a fleet result.
+
 ## 4. The verdict rule
 
 Set in advance so it cannot be softened afterwards.
@@ -286,9 +318,9 @@ Measured against §3, not against the roadmap.
 | **A device that chooses what to keep** | ✅ **on real machines** | *2026-09-07.* A node on the Raspberry Pi, `keep 300K --order smallest`, built itself **entirely from two hosts** — it could not reach another of its own devices at all — and kept `a.bin` (120 KiB) and `b.bin` (130 KiB) while listing `c.bin` (400 KiB) as `not here`. A 60 KiB file arrived: it fetched that and let go of `b.bin`, ending at 180 KiB. Then the safety rule, both ways: a 200 KiB file created *on that device* was refused release against one host — `fewer than 2 other live machines hold them` — and released against the second. `itsanas get` brought it back byte-identical (SHA-256 `6a6367dd…`) and the next round let it go again. **Three defects were found by running it and none by the test suite**: a released file vanished from its own device's listing; it could then not be opened, while two hosts held it; and releasing erased the holder ledger, so a device could let go of a file exactly once and then sat over its limit for ever, saying so every round |
 | **A limit that can still be checked afterwards** | ✅ **on real machines** | *2026-09-07, after a review found the hole.* Three lines together meant that once a device released a chunk, nothing could ever tell it the holders had lost that chunk: the have/missing sweep starts from the local blob store, the audit re-derives from a local copy, and liveness was asked of the machine rather than the record. A round now asks each peer about the chunks the ledger says it holds and this device does not — free on a machine that holds its whole account. On the Pi, `status` on the keep-limited node now reads **`could you get back what is ON THIS MACHINE`** and names the **12 chunks it cannot speak for**, where it used to print `2 copies` as though that covered the account. Quiet rounds also went silent across all three machines, the push having stopped re-offering the whole log every five minutes |
 | **The phone** | ✅ **an APK, and it runs** | *2026-09-07.* An Android 15 emulator, driven through the interface rather than a harness: an account **restored from its twenty-four words** typed into the phone, one machine added, and a sync that pulled **five files, `5 here · 0 not here · 910 KiB`** — exactly the sum of the file sizes, so the bytes are on the device and not merely listed. The machine it pulled from belongs to a *different account* and holds this one's data sealed in its vault. Opening a file writes it out and hands it to the system chooser; the foreground service runs with its notification. The APK is 19.5 MiB with three ABIs, built by `scripts/build-apk.sh`. **Not yet tested on a real handset, and there is no folder that syncs by itself** — the application holds files, it does not watch a directory |
-| E — never awake together | ✅ *in the laboratory* | `a_host_relays_one_device_to_another_that_it_never_met`; never done with real power cycles |
-| F — delete survives absence | ✅ *in the laboratory* | The local ledger and the 27-case decision matrix; never done across a real reboot |
-| G — two edits, no loss | ✅ *in the laboratory* | Conflict siblings, tested through a real socket |
+| E — never awake together | ✅ *in the laboratory* | `a_host_relays_one_device_to_another_that_it_never_met`; never done with real power cycles. Since 2026-09-14 also run through the kit between three local nodes on every push (the `acceptance-local` job) — still one machine and no power cycle |
+| F — delete survives absence | ✅ *in the laboratory* | The local ledger and the 27-case decision matrix; never done across a real reboot. Since 2026-09-14 the kit deletes through a relay between three local nodes on every push, and checks the file stays gone a round later |
+| G — two edits, no loss | ✅ *in the laboratory* | Conflict siblings, tested through a real socket. Since 2026-09-14 the kit edits apart on two local nodes, meets them through a third, and checks both keep two distinct versions with the same agreement digest |
 | H — cheap to run | 🟨 | Measured on both machines. **Saving a document is instant** — a 512 KiB Word document takes 29 ms on the laptop and **10 ms on the aarch64 VM**, a 4 MiB PDF 159 ms and 75 ms. The small machine wins because a save is dominated by writing one file per chunk, which NTFS charges for and ext4 does not; the laptop chunks 4.6× faster and still loses. Archive throughput is the weak number (27.2 MiB/s on the laptop, 54.1 on the VM, 14.7 million files per terabyte) and pack files are the decided fix — a first-fill problem, not a daily one, and a bigger win on Windows than anywhere else. **Seven hours of the twenty-four are in**, sampled every five minutes on all three machines with an account of about a megabyte and nothing happening:
 
 | | CPU, of one core | peak resident | written per day |

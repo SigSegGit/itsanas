@@ -227,6 +227,7 @@ Defined in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 | **minimum-rust-version** | `cargo check` on the pinned MSRV | Prevents accidentally requiring a newer toolchain than the documented minimum, which would break users on distro Rust. |
 | **supply-chain** | `cargo deny check` | Fails on any unpatched advisory, any yanked crate, and any licence not compatible with AGPL-3.0. For a system whose entire value is "your host cannot read your data", a vulnerable crypto dependency is a release blocker. |
 | **coverage** | `cargo llvm-cov` | Not a target to game — used to spot whole modules or error paths with no test at all. |
+| **acceptance-local** | `scripts/acceptance-local.sh`: B, D, E, F and G of `docs/MVP.md` (C, H, I and J by their negative controls only) between three nodes of one account and a throwaway coordinator, then every phase of `scripts/acceptance.sh` pointed at a situation it must refuse | The MVP verdict is taken with that kit on four real machines, in a morning that is expensive to waste, so a check that cannot pass — or cannot fail — has to show up on a push instead. Its first runs found two checks that printed FAIL and exited 0, and F "passing" on a file that had never arrived. It is still one machine with no power cycle: laboratory evidence, not a fleet result. |
 
 The five checking scripts in **lint**, each of which exists because the thing it
 checks had already gone wrong:
