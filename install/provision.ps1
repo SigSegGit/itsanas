@@ -474,12 +474,32 @@ if (-not $NoTask) {
         '# would actually use to read a daemon log -- including the one this',
         '# script names in its own summary. A log nobody can read is a log',
         '# nobody reads.',
-        '& "$env:LOCALAPPDATA\Programs\itsanas\bin\itsanas.exe" daemon *>&1 |',
-        '    Out-File -LiteralPath $log -Encoding utf8 -Append'
+        '#',
+        '# Restarts live here, not in the task: the task starts this script under',
+        '# conhost --headless, which hides the window and also reports exit code 0',
+        '# whatever happened, so the scheduler''s restart-on-failure never fires.',
+        '# A daemon that dies is started again after a pause growing to five',
+        '# minutes; a clean exit ends the loop.',
+        '$pause = 10',
+        'while ($true) {',
+        '    & "$env:LOCALAPPDATA\Programs\itsanas\bin\itsanas.exe" daemon *>&1 |',
+        '        Out-File -LiteralPath $log -Encoding utf8 -Append',
+        '    if ($LASTEXITCODE -eq 0) { break }',
+        '    "daemon exited with $LASTEXITCODE; restarting in $pause s" |',
+        '        Out-File -LiteralPath $log -Encoding utf8 -Append',
+        '    Start-Sleep -Seconds $pause',
+        '    $pause = [Math]::Min($pause * 2, 300)',
+        '}'
     ) | Set-Content -LiteralPath $wrapper -Encoding utf8
 
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-        -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$wrapper`""
+    # Through `conhost.exe --headless`, which gives the daemon a console that is
+    # never shown. `powershell.exe -WindowStyle Hidden` alone opened an untitled
+    # black window at every logon on Windows 11 -- the flag is applied after the
+    # console exists, and not at all when Windows Terminal is the default host.
+    # Somebody closed that window as a stray and, with it, stopped the daemon
+    # (exit 0xC000013A): the service looked like junk because it was visible.
+    $action = New-ScheduledTaskAction -Execute 'conhost.exe' `
+        -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$wrapper`""
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
