@@ -261,23 +261,26 @@ has to hold both.
 
 They are bound to each other and to the disk:
 
-- Keeping a byte of your own costs **three pledged**. That ratio is the whole
-  bargain — a network where everyone stores and nobody hosts has no storage in
-  it — and it is stated once, in `itsanas-coord::accounting`.
+- Keeping three bytes of your own costs **seven pledged**: a **30/70** split of
+  everything this machine commits. That split is the whole bargain — a network
+  where everyone stores and nobody hosts has no storage in it — and it is stated
+  once, as `itsanas-coord::accounting::Split::DEFAULT`. A node may tighten it
+  with a `split = own/network` line in its configuration file, and never loosen
+  it: a split keeping more than 30/70 for the owner is refused.
 - For the first thirty days a new member may keep **10 GiB** whatever they
   pledge, so a machine can be useful before it has earned anything.
 - Neither number may exceed what the disk the node sits on can actually give,
   counting what is already there.
 
-So offering 90 GiB earns 30 GiB, and asking for 31 GiB is refused:
+So offering 70 GiB earns 30 GiB, and asking for 31 GiB is refused:
 
 ```sh
-itsanas space --pledge 90G --keep 31G
+itsanas space --pledge 70G --keep 31G
 ```
 
 ```
 that does not fit:
-  keeping 31.0 GiB needs 93.0 GiB pledged; you are offering 90.0 GiB
+  keeping 31.0 GiB needs 73G pledged; you are offering 70.0 GiB
 ```
 
 `itsanas space` on its own reports the current bargain and changes nothing.
@@ -298,7 +301,7 @@ powershell -ExecutionPolicy Bypass -File install\provision.ps1 `
 
 Leaving `--keep` out means "keep everything here", which is the right answer for
 a laptop that is the only copy and the wrong one for a phone. It is bounded by
-the ratio all the same.
+the split all the same.
 
 ## Removing it
 

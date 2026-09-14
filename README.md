@@ -33,7 +33,7 @@ reboots — and your data stays available and stays in sync.
 > Joining is by invitation from an existing member, also tested between two
 > machines through a real coordinator.
 >
-> 716 tests, 39 of them red-team — a red-team test **passes when the attack
+> 724 tests, 43 of them red-team — a red-team test **passes when the attack
 > fails**. See [docs/TESTING.md](docs/TESTING.md), which lists every one of them
 > with the property it establishes.
 >
@@ -93,8 +93,8 @@ canary nor the file's name.
 - **Recoverable from nothing.** A 24-word recovery phrase reconstructs your
   entire identity on a brand-new machine, and your data is pulled back from
   whichever peers are up.
-- **Fair.** Pledge three times what you store, weighted by how reliably your
-  machines are actually reachable. The rules are in [docs/ECONOMICS.md](docs/ECONOMICS.md).
+- **Fair.** A **30/70** split — three parts yours for every seven you lend —
+  weighted by how reliably your machines are actually reachable. The rules are in [docs/ECONOMICS.md](docs/ECONOMICS.md).
 - **Small trusted surface.** Machines on one network need no server at all. A
   coordinator is optional, holds no data, no keys and no plaintext, and carries
   nothing that would be lost if it vanished — the reasoning is in

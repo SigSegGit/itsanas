@@ -1770,7 +1770,9 @@ fn keep(home: &Path, size: Option<&str>, order: Option<&str>, only: &[String]) -
             // then told it was never theirs to set -- with the data already on
             // the machine. Refused here, with the number that would make it
             // legal.
-            let allowed = itsanas_coord::accounting::room_earned(node.config.pledge_bytes)
+            let split = node.config.split;
+            let allowed = split
+                .room_earned(node.config.pledge_bytes)
                 .max(itsanas_coord::accounting::JOINING_ALLOWANCE);
             if bytes > allowed {
                 return Err(CliError::Usage(format!(
@@ -1780,10 +1782,10 @@ fn keep(home: &Path, size: Option<&str>, order: Option<&str>, only: &[String]) -
                         "or ask for less."
                     ),
                     format_size(bytes),
-                    format_size(itsanas_coord::accounting::pledge_needed_for(bytes)),
+                    itsanas_node::config::size_argument(split.pledge_needed_for(bytes)),
                     format_size(node.config.pledge_bytes),
-                    format_size(itsanas_coord::accounting::pledge_needed_for(bytes)),
-                    format_size(bytes),
+                    itsanas_node::config::size_argument(split.pledge_needed_for(bytes)),
+                    itsanas_node::config::size_argument(bytes),
                 )));
             }
 
@@ -1884,6 +1886,7 @@ fn report_keeping_settings(node: &Node) {
 /// of a rule is three answers to one question.
 fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> Result<()> {
     let mut node = open(home)?;
+    let split = node.config.split;
 
     let wanted_pledge = match pledge {
         Some(size) => parse_size(size)?,
@@ -1913,14 +1916,15 @@ fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> 
     println!("  your data here  {}", format_size(held));
     println!("  held for others {}", format_size(hosted));
 
-    let earned = itsanas_coord::accounting::room_earned(wanted_pledge);
+    let earned = split.room_earned(wanted_pledge);
     println!();
     println!("the bargain");
     println!("  you offer       {}", format_size(wanted_pledge));
     println!(
-        "  that earns you  {} ({} pledged for each byte you keep)",
+        "  that earns you  {} (a {split} split: {} of your own for every {} you lend)",
         format_size(earned),
-        itsanas_coord::accounting::CONTRIBUTION_RATIO
+        split.own,
+        split.network
     );
     println!(
         "  first {} days    at least {}, whatever you pledge",
@@ -1951,7 +1955,7 @@ fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> 
         refusals.push(format!(
             "keeping {} needs {} pledged; you are offering {}",
             format_size(keep),
-            format_size(itsanas_coord::accounting::pledge_needed_for(keep)),
+            itsanas_node::config::size_argument(split.pledge_needed_for(keep)),
             format_size(wanted_pledge)
         ));
     }

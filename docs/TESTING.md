@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-09 — 716 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 39 are red-team tests.**
+**Last updated: 2026-09-14 — 724 test functions across 24 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 43 are red-team tests.**
 
-**600 of the 716 tests have an entry of their own on this page** — an *entry*,
+**608 of the 724 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -145,7 +145,7 @@ guarantee and is not one.
 | `itsanas-net` unit | 35 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 44 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 76 |
+| `itsanas-coord` unit | 80 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 12 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 23 |
@@ -154,7 +154,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 25 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 29 |
+| `itsanas-node` unit | 33 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -386,7 +386,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 # `itsanas-store` — unit tests (135, plus the 15 vault tests below)
 
-## `reliability` — remembering that a peer failed (6)
+## `reliability` — remembering that a peer failed (9)
 
 | Test | What it proves |
 | --- | --- |
@@ -461,7 +461,7 @@ something nobody looked at, and disagreeing for a reason that is not data.
 | `an_empty_set_has_a_defined_answer_on_both_sides` | Two nodes holding nothing agree without a special case, and one holding nothing does not accidentally agree with one holding something. |
 | **`a_summary_of_a_different_length_is_all_disagreement`** | Comparing the overlap would report agreement about a part nobody looked at, which is the one answer a reconciliation must never give. |
 
-## `chunker` — content-defined chunking (13)
+## `chunker` — content-defined chunking (18)
 
 | Test | What it proves |
 | --- | --- |
@@ -676,7 +676,7 @@ about reading.
 
 # `itsanas-net` — unit tests (35)
 
-## `protocol` — messages and challenges (9)
+## `protocol` — messages and challenges (10)
 
 | Test | What it proves |
 | --- | --- |
@@ -845,7 +845,7 @@ a benchmark that measures a broken path produces a confident wrong number.
 | `the_neighbourhood_is_empty_until_something_is_heard` | No invented peers. |
 | `the_poll_is_short_enough_that_shutdown_feels_immediate` | A Ctrl-C must not wait out an announce interval. |
 
-## `daemon` — pacing (2)
+## `daemon` — pacing (3)
 
 | Test | What it proves |
 | --- | --- |
@@ -873,7 +873,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`an_age_never_reads_as_fresher_than_it_is`** | With the daemon running, `itsanas status` prints a snapshot rather than refusing, and the header says how old it is. That number decides whether the reader trusts what follows, so every boundary rounds *down* -- towards admitting the snapshot is older. The case that matters is the last one: a daemon that died three days ago must not leave something that reads as current. |
 | `the_message_std_prints_when_a_pipe_closes_is_recognised` | The message copied from the Pi, and its Windows spelling, are both matched — only on the prefix, because the tail belongs to the platform. |
 
-## `coordinator` — publishing an address (3)
+## `coordinator` — publishing an address (6)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -935,14 +935,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (29)
+# `itsanas-node` — a node on disk (33)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `node` — identity on disk (9)
+## `node` — identity on disk (10)
 
 | Test | What it proves |
 | --- | --- |
@@ -969,10 +969,13 @@ to the peer, each turns the matching test red.
 | **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
 | `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
 
-## `config` — settings (12)
+## `config` — settings (20)
 
 | Test | What it proves |
 | --- | --- |
+| **`a_split_in_the_config_file_overrides_the_default`** | The point of the field, and the reason the ratio stopped being a constant. Without it the network cannot be tuned to the machines actually in it — a pool of phones needs a different split from a pool of servers, because a phone under `keep` has released its data and costs the network three copies rather than two — and the argument for each number lives in a commit message instead of a file. Also checks the absent case: no line means the network's default, not nothing. |
+| **`red_team_an_impossible_split_in_the_config_file_is_refused_where_it_enters`** | `split = 30/0` divides by zero the first time somebody runs `itsanas keep`, and the daemon is usually what holds the store open when they do. Refused when the file is *read*, in the same breath as the listen address, because a value that cannot work must never reach the arithmetic that assumes it can. What it catches is a parser that takes the two numbers itself and leaves the check to `Split::new`'s callers, which is how a validated type ends up with an unvalidated door. The refusal has to show what a split looks like, or the person fixing it is guessing. |
+| **`red_team_a_node_cannot_grant_itself_a_more_generous_split`** | Nothing on the network enforces the bargain yet, so `itsanas keep` refusing an unearned limit is the only live check, and it reads this field. Accepting `split = 1000/1` would switch it off with a text editor where it used to take a rebuilt client. Found by an audit of the change that introduced the field. Checks `31/69` and `301/700`, one part in a hundred and one in a thousand over, so a comparison that divides and rounds is caught too; stricter (`25/75`) and equal (`3/7`) still load. |
 | **`an_unknown_setting_is_an_error_rather_than_being_ignored`** | A silently discarded typo is how a node ends up pledging nothing while its operator believes it pledged a terabyte. |
 | **`defaults_are_safe`** | Pledge defaults to zero and listen defaults to loopback. A node that has not said what it offers has not offered any. |
 | **`a_nonsense_size_is_refused_rather_than_read_as_zero`** | Reading "ten gigabytes" as 0 would silently disable hosting. |
@@ -980,6 +983,7 @@ to the peer, each turns the matching test red.
 | `an_overflowing_size_is_refused` | `999999999999T` does not wrap. |
 | `sizes_parse_the_way_people_write_them` | `500`, `1K`, `2MB`, `10G`, `1TiB`. |
 | `sizes_format_readably` / `formatting_never_panics_at_the_extremes` | Output is legible at every magnitude. |
+| **`a_quoted_price_parses_back_to_no_less_than_the_price`** | A refusal names the pledge that would make a request legal and the command that sets it. `format_size` floors to a tenth, so at 30/70 the price of 31 GiB (72.33 GiB) read "72.3 GiB" and pledging exactly that was refused again; and the suggested `--pledge 93.0 GiB` never parsed at all. The quote is now a whole unit rounded up, and this checks it reads back as no less at every remainder — and pins `73G`, the figure the documents use. |
 | `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
 | **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
 | `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |
@@ -1113,7 +1117,7 @@ destructive if wrong.
 | `round_tripping_a_path_through_the_filesystem_and_back_is_stable` | The mapping is a genuine round trip. |
 | Others | Flat scans, empty folders, missing folders, sizes and mtimes, paths outside the root. |
 
-## `watch` — noticing changes (4)
+## `watch` — noticing changes (5)
 
 | Test | What it proves |
 | --- | --- |
@@ -1320,7 +1324,7 @@ Six unit tests in `auth.rs`, five integration tests in `tests/handshake.rs`.
 
 ---
 
-# `itsanas-coord` — claims, directory, accounting (51)
+# `itsanas-coord` — claims, directory, accounting (55)
 
 Catalogued by property rather than test by test: the crate is a library with no
 server yet, and what matters is which rule each group of tests pins down.
@@ -1341,14 +1345,20 @@ only in the harshest state.
 
 **The two halves of the space bargain agree.** `itsanas space` and both
 provisioners refuse a `--keep` larger than the pledge earns, and the refusal
-quotes what would be needed instead — so `room_earned` decides and
-`pledge_needed_for` writes the sentence. These two are catalogued by name
-because they hold a rule two other programs depend on:
+quotes what would be needed instead — so `Split::room_earned` decides and
+`Split::pledge_needed_for` writes the sentence. Since 2026-09-14 the rule is a
+`Split` rather than a single `CONTRIBUTION_RATIO`, which means both ends of that
+sentence round and the default is a number somebody can change; these are
+catalogued by name because they hold a rule two other programs depend on:
 
 | Test | What it pins down |
 | --- | --- |
-| **`the_limit_and_the_price_quoted_for_exceeding_it_never_contradict`** | The worst kind of instruction: somebody is told "keeping 31 GiB needs 93 GiB pledged", pledges exactly 93, and meets the same sentence again. Two functions write that message between them and integer division truncates, so the property has to hold at every remainder rather than at multiples of three. Checked in both directions — what the limit allows is never priced above what was pledged, and the price quoted always buys what it was quoted for. |
-| **`the_quote_saturates_rather_than_wrapping_on_an_absurd_request`** | Where that stops being true. Above `u64::MAX / 3` the quote saturates and understates what would be needed. The refusal is still correct there and the free-space check refuses such a number anyway, so this is a boundary written down rather than a bug left open — but a multiplication that wrapped instead would turn an absurd request into a small one and let it through. |
+| **`the_limit_and_the_price_quoted_for_exceeding_it_never_contradict`** | The worst kind of instruction: somebody is told "keeping 31 GiB needs 93 GiB pledged", pledges exactly 93, and meets the same sentence again. Two functions write that message between them and integer division truncates, so the property has to hold at every remainder. It was nearly free while the ratio was 3, because the quote was a multiplication by it and could not round the wrong way; at 30/70 the quote divides too, and quoting the floor rather than the ceiling breaks it at almost every input. Checked in both directions and across seven splits, because a rule that holds only at the shipped number is not a rule. |
+| **`the_quote_saturates_rather_than_wrapping_on_an_absurd_request`** | Where that stops being true. Past what the split can price, the quote saturates and understates what would be needed. The refusal is still correct there and the free-space check refuses such a number anyway, so this is a boundary written down rather than a bug left open — but arithmetic that wrapped instead would turn an absurd request into a small one and let it through. Both ends are checked now: a split may earn *more* than it is given, so the earning side can leave a `u64` as well. |
+| **`the_default_split_is_thirty_seventy`** | The one number the rest of the file applies, pinned — and it has already moved once, from the 25/75 that `CONTRIBUTION_RATIO = 3` encoded. Stated twice, as the constant and as the bytes it produces, so that a change to the arithmetic and not to the constant fails here too. What it catches is a tidy-up back to 25/75, which takes a sixth of everybody's entitlement away without touching a line of arithmetic. |
+| **`red_team_a_split_with_a_zero_part_is_refused_rather_than_dividing_by_zero`** | `network = 0` divides by zero inside `pledge_needed_for`. That is a panic in whatever holds the store's exclusive lock, which on the Pi is the daemon, and the daemon restarts into the same configuration file. `own = 0` is quieter and worse: every pledge earns nothing, every `itsanas keep` is refused, and the machine reads as broken rather than as misconfigured. Both doors are checked — `Split::new` and the written `own/network` form — because a validated type with an unvalidated parser is not validated. |
+| **`a_split_survives_the_form_it_is_written_in`** | `Display` writes the configuration file and `parse` reads it back. If the two disagree, a node saves its own settings and then refuses to start on them, and the setting it breaks on is the one the whole bargain rests on. Includes the spaces a person editing the file by hand leaves behind. |
+| **`red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`** | Two splits exist and they are not the same thing: the one in a node's configuration file decides what that machine refuses to its own owner, and the one `assess` is given decides what the network grants. What this catches is a `split` field added to `DeviceContribution` — the struct a device fills in about itself — and read by `assess`. If a member's number ever reaches that arithmetic, widening an entitlement costs one line of a text file and the bargain is decoration. |
 | **`red_team_a_second_username_cannot_renew_the_joining_allowance`** | `register_admitted` answered two questions from two tables: "has this key been here before?" from BY_ID, and "does this account exist?" from ACCOUNTS keyed by *name*. They agree until one key asks for a second name — then the key counts as returning, so no invitation is demanded, and the name is unknown, so the branch that preserves the account's registration date is skipped and a fresh account is minted with today's date. One signed message every thirty days turned a bounded 10 GiB joining allowance into a permanent free tier. **The two sibling tests covered (same key, same name) and (different key, same name); nobody wrote (same key, different name)**, and this page recorded the property as established. Same shape as the freshness guard that lived in one branch of three. |
 | **`red_team_one_admitted_key_cannot_mint_accounts_on_an_invite_only_coordinator`** | The same defect on its other axis. The invitation gate is skipped for a key that already has an account — right for somebody re-registering the name they hold, wrong for anything else. An admitted member could open unlimited accounts with no invitation, and usernames here are bound to a key for ever with no release path, so one member could squat every short name on the coordinator. |
 

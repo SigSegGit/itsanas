@@ -16,6 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use itsanas_coord::accounting::Split;
 use itsanas_policy::keeping::{Keeping, Order};
 
 use crate::error::{NodeError, Result};
@@ -65,6 +66,15 @@ pub struct Config {
     pub username: String,
     /// How much space this node offers to other users, in bytes.
     pub pledge_bytes: u64,
+    /// How this machine's commitment divides between its owner and the network.
+    ///
+    /// Local, and only ever stricter than [`Split::DEFAULT`]. It decides what
+    /// this node refuses to its own owner -- `itsanas keep` and `itsanas space`
+    /// both ask it -- and nothing about what the network grants, which comes
+    /// from the split the coordinator assesses with. A more generous split is
+    /// refused when the file is read: `keep` is the only live enforcement of the
+    /// bargain today, and it must not be one edited line from off.
+    pub split: Split,
     /// Where to listen when serving.
     pub listen: String,
     /// Peers to sync with, as `host:port`.
@@ -120,6 +130,7 @@ impl Default for Config {
         Self {
             username: String::new(),
             pledge_bytes: DEFAULT_PLEDGE_BYTES,
+            split: Split::DEFAULT,
             listen: DEFAULT_LISTEN.to_owned(),
             peers: Vec::new(),
             coordinator: None,
@@ -157,6 +168,7 @@ impl Config {
 
         let _ = writeln!(out, "username = {}", self.username);
         let _ = writeln!(out, "pledge_bytes = {}", self.pledge_bytes);
+        let _ = writeln!(out, "split = {}", self.split);
         let _ = writeln!(out, "listen = {}", self.listen);
         if let Some(keep) = self.keep_bytes {
             let _ = writeln!(out, "keep_bytes = {keep}");
@@ -224,6 +236,29 @@ impl Config {
                         ))
                     })?;
                 }
+                "split" => {
+                    let split = Split::parse(value).ok_or_else(|| {
+                        NodeError::Config(format!(
+                            "line {}: split must be `own/network` with both above \
+                             zero, such as `30/70`, found {value:?}",
+                            number + 1
+                        ))
+                    })?;
+                    // Stricter than the network, never more generous. Until a
+                    // host bounds what an owner stores, `itsanas keep` is the
+                    // only thing applying the bargain, and a generous split here
+                    // would switch it off from a text editor.
+                    if !split.grants_no_more_than(Split::DEFAULT) {
+                        return Err(NodeError::Config(format!(
+                            "line {}: split {split} keeps more for this machine's owner \
+                             than the network's {}; a node may be stricter than that, \
+                             never more generous",
+                            number + 1,
+                            Split::DEFAULT
+                        )));
+                    }
+                    config.split = split;
+                }
                 "keep_order" => {
                     config.keep_order = parse_order(value).ok_or_else(|| {
                         NodeError::Config(format!(
@@ -254,7 +289,8 @@ impl Config {
                     return Err(NodeError::Config(format!(
                         concat!(
                             "line {}: unknown setting {:?}. Known settings: ",
-                            "username, pledge_bytes, keep_bytes, keep_order, keep_only, ",
+                            "username, pledge_bytes, split, keep_bytes, keep_order, ",
+                            "keep_only, ",
                             "listen, folder, peer, ",
                             "coordinator, coordinator_device"
                         ),
@@ -377,6 +413,36 @@ pub fn format_size(bytes: u64) -> String {
     format!("{bytes} B")
 }
 
+/// Render a byte count as an argument `parse_size` reads back as no less.
+///
+/// For prices, not reports. [`format_size`] floors to a tenth, so the pledge
+/// that buys 31 GiB at 30/70 -- 72.33 GiB -- reads "72.3 GiB", and somebody who
+/// pledges what the refusal said is refused again with the same sentence. It
+/// also writes a decimal and a space, which `parse_size` has never accepted, so
+/// the command a refusal suggested could not be typed as shown. Rounded up to a
+/// whole unit instead: "73G" costs at most a gigabyte more and always works.
+///
+/// Terabytes only when exact, because rounding a price up to the next terabyte
+/// overcharges by up to a terabyte. Counts within a gigabyte of `u64::MAX` round
+/// past what `parse_size` can hold; no pledge that size exists.
+#[must_use]
+pub fn size_argument(bytes: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * KIB;
+    const GIB: u64 = 1024 * MIB;
+    const TIB: u64 = 1024 * GIB;
+
+    if bytes >= TIB && bytes.is_multiple_of(TIB) {
+        return format!("{}T", bytes / TIB);
+    }
+    for (unit, suffix) in [(GIB, "G"), (MIB, "M"), (KIB, "K")] {
+        if bytes >= unit {
+            return format!("{}{suffix}", bytes.div_ceil(unit));
+        }
+    }
+    bytes.to_string()
+}
+
 /// Where a node keeps its state, if the user did not say.
 pub fn default_home() -> PathBuf {
     // Deliberately not the OS config directory: this holds bulk data as well as
@@ -409,6 +475,7 @@ mod tests {
         let config = Config {
             username: "nicolas".to_owned(),
             pledge_bytes: 10 * 1024 * 1024 * 1024,
+            split: Split::new(20, 80).expect("both parts are above zero"),
             listen: "127.0.0.1:9797".to_owned(),
             peers: vec!["pi.local:9797".to_owned(), "vm.local:9797".to_owned()],
             coordinator: None,
@@ -420,6 +487,83 @@ mod tests {
         };
 
         assert_eq!(Config::parse(&config.render()).unwrap(), config);
+    }
+
+    #[test]
+    fn a_split_in_the_config_file_overrides_the_default() {
+        // The point of the field. Without this the split is a constant wearing a
+        // struct, and the network cannot be tuned for the machines actually in
+        // it -- a pool of phones needs a different one from a pool of servers,
+        // and the argument for each number then lives in a commit message.
+        let config = Config::parse("split = 25/75").unwrap();
+
+        assert_eq!(config.split, Split::new(25, 75).unwrap());
+        assert_ne!(config.split, Split::DEFAULT);
+
+        // Absent, it is the network's default rather than nothing.
+        assert_eq!(
+            Config::parse("username = nicolas").unwrap().split,
+            Split::DEFAULT
+        );
+    }
+
+    #[test]
+    fn red_team_an_impossible_split_in_the_config_file_is_refused_where_it_enters() {
+        // `split = 30/0` divides by zero the first time somebody runs
+        // `itsanas keep`, and the daemon is what usually holds the store open
+        // when they do. Refused when the file is *read*, in the same breath as
+        // the listen address, because a value that cannot work must never reach
+        // the arithmetic that assumes it does.
+        //
+        // What this catches: the parser accepting the two numbers and leaving
+        // the check to `Split::new`'s caller, which is how a validated type ends
+        // up with an unvalidated door.
+        for line in [
+            "split = 30/0",
+            "split = 0/70",
+            "split = 30",
+            "split = thirty/seventy",
+        ] {
+            let error = Config::parse(line).expect_err(&format!("{line:?} was accepted"));
+            assert!(
+                error.to_string().contains("30/70"),
+                "the refusal of {line:?} does not show what a split looks like: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn red_team_a_node_cannot_grant_itself_a_more_generous_split() {
+        // Nothing on the network enforces the bargain yet: `assess` runs only in
+        // tests and a host bounds itself, not owners. The one live check is
+        // `itsanas keep` refusing a limit the pledge has not earned, and it reads
+        // this field. Accepting `split = 1000/1` would let a member switch that
+        // check off with a text editor, where before it took a rebuilt client.
+        //
+        // What this catches: the generosity check dropped from the parser, or
+        // the comparison written as a division that rounds 31/69 down to 30/70.
+        for line in [
+            "split = 1000/1",
+            "split = 1/1",
+            "split = 31/69",
+            "split = 301/700",
+        ] {
+            let error = Config::parse(line).expect_err(&format!("{line:?} was accepted"));
+            assert!(
+                error.to_string().contains("30/70"),
+                "the refusal of {line:?} does not name the network's split: {error}"
+            );
+        }
+
+        // Stricter is the case the field exists for, and equal is no change.
+        assert_eq!(
+            Config::parse("split = 25/75").unwrap().split,
+            Split::new(25, 75).unwrap()
+        );
+        assert_eq!(
+            Config::parse("split = 3/7").unwrap().split,
+            Split::new(3, 7).unwrap()
+        );
     }
 
     #[test]
@@ -571,5 +715,49 @@ listen = 0.0.0.0:9797
     fn formatting_never_panics_at_the_extremes() {
         assert!(!format_size(u64::MAX).is_empty());
         assert!(!format_size(1).is_empty());
+    }
+
+    #[test]
+    fn a_quoted_price_parses_back_to_no_less_than_the_price() {
+        // A refusal names a pledge and a command to set it. If the figure is
+        // floored, the person pledges exactly what they were told and is refused
+        // again with the same sentence; if it does not parse, the command they
+        // were handed fails before it reaches the bargain at all. Both happened:
+        // `keep` suggested `--pledge 93.0 GiB`, which `parse_size` rejects, and
+        // at 30/70 the floored figure is below the price at almost every size.
+        const GIB: u64 = 1024 * 1024 * 1024;
+        const TIB: u64 = 1024 * GIB;
+
+        // The worked example the documents use, pinned so they can be checked.
+        let price = Split::DEFAULT.pledge_needed_for(31 * GIB);
+        assert_eq!(size_argument(price), "73G");
+
+        for bytes in [
+            0,
+            1,
+            1023,
+            1024,
+            1025,
+            1536,
+            GIB - 1,
+            GIB,
+            GIB + 1,
+            price,
+            TIB,
+            TIB + 1,
+            3 * TIB + GIB / 2,
+        ] {
+            let written = size_argument(bytes);
+            let read = parse_size(&written)
+                .unwrap_or_else(|error| panic!("{bytes} was quoted as {written:?}: {error}"));
+            assert!(
+                read >= bytes,
+                "{bytes} was quoted as {written:?}, which pledges only {read}"
+            );
+        }
+
+        // Exact sizes stay exact rather than being rounded into a larger unit.
+        assert_eq!(size_argument(TIB), "1T");
+        assert_eq!(size_argument(31 * GIB), "31G");
     }
 }

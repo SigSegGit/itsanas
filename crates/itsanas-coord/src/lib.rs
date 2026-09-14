@@ -8,7 +8,7 @@ pub mod protocol;
 pub mod server;
 pub mod service;
 
-pub use accounting::{Assessment, DeviceContribution, MemberState, Standing, assess};
+pub use accounting::{Assessment, DeviceContribution, MemberState, Split, Standing, assess};
 pub use claim::{NodeClaim, Presence, SignedClaim, SignedPresence};
 pub use directory::{
     Account, Admission, Directory, LodgedInvitation, Registration, SignedRegistration,

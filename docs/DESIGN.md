@@ -821,7 +821,7 @@ owner knows — but it no longer requires the world to agree.
 > every peer, so at a household size the placement policy is "everyone", which
 > happens to be right. `under_replicated` feeds `itsanas status` and drives
 > nothing. At thirty peers, pushing to all of them means thirty copies of
-> everything and contradicts the 3x contribution ratio in
+> everything and contradicts the contribution split in
 > [ECONOMICS.md](ECONOMICS.md) §1 — so a real selection step is needed before
 > the network grows, not before it works.
 
@@ -842,8 +842,12 @@ tit-for-tat, which has held up on an openly hostile network for twenty years.
 
 Two things fall out of it that the global model had to be told:
 
-- **The 3x contribution ratio appears on its own.** Wanting three replicas of
-  100 GB means finding three counterparties and giving each 100 GB back.
+- **The contribution split appears on its own.** Wanting three copies of 100 GB
+  — one of them the copy already on your own disk — means finding **two**
+  counterparties and giving each 100 GB back. A ratio of two, which is the 33/67
+  break-even [ECONOMICS.md](ECONOMICS.md) §1 derives, and the 30/70 default is
+  that plus slack. The bilateral model reaches it unprompted; the global model
+  was told three, and was wrong for months.
 - **Availability needs no third-party measurement.** If a peer is never
   reachable, a member gets no value from it and reduces or ends that contract.
   Each side measures the other directly, and nobody can lie to them about it.
