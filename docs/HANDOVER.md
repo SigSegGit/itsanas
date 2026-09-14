@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.1b
-TITLE: Bound writes on the honest client
+NEXT: 8.0a
+TITLE: An acceptance kit for the fleet
 WRITTEN-AT: 2026-09-14
-BASE: 7a8cbef
+BASE: f6cace7
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -21,11 +21,18 @@ whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
 **State (2026-09-14).** v0.1.0 is tagged and released with the Android APK.
-§8.1(a), the split as a value at 30/70, is finished on branch
-`split-as-a-value` and its PR was left **open for Nicolas to merge**, because it
-adds a decision to §6 and an agent does not merge those alone. If `gh pr list`
-still shows it, it is merged or fixed before anything else starts. 724 tests
-(43 red-team, 3 `#[ignore]`d into the slow job), twelve gates.
+§8.1(a), the split as a value at 30/70, is merged as `f6cace7`
+([#1](https://github.com/SigSegGit/itsanas/pull/1)). 724 tests (43 red-team,
+3 `#[ignore]`d into the slow job), twelve gates.
+
+**The plan changed after that merge, on Nicolas's request for "a valid MVP".**
+Every acceptance test in `docs/MVP.md` §3 is built, and the verdict of §4 has
+never been taken: E, F, G and I have never left the laboratory, J lacks its
+power cut, H has seven hours of twenty-four, and D had only been done from the
+24 words, which its own criterion forbids (the table said ✅; corrected). So §8
+item 0 — run the MVP on the fleet — now comes before §8.1's enforcement,
+which matters only once somebody other than Nicolas joins. What is left is
+mostly hands on machines; the next step makes that cheap and unambiguous.
 
 What that PR carries beyond the split, each defence sabotage-verified:
 
@@ -289,6 +296,49 @@ Detail and measurements are in ROADMAP.md; this is the map.
   Windows; macOS in CI.
 
 ## 8. What is next, in order
+
+0. **Pass the MVP on the fleet, before any more enforcement.** Decided
+   2026-09-14, when Nicolas asked for a valid MVP. `docs/MVP.md` defines it as
+   tests A–J passing unassisted on the four machines, and §6 there shows every
+   one is built and most have never been run outside the laboratory. Verified
+   facts:
+
+   - Escrow recovery is built and unrun: `itsanas register --recovery` lodges
+     the sealed container (`crates/itsanas-cli/src/main.rs` ~1358),
+     `itsanas login --username <name> --from <coordinator>` restores from it
+     (`login_from_coordinator`, ~1205). That is the whole of test D.
+   - Nothing in §8.1 is on the MVP's path: the fleet is one person's
+     machines, and MVP.md §4 makes "open it to others" the question *after*
+     the verdict.
+   - What an agent cannot do: cut power, reboot the Pi, leave a laptop asleep
+     for a day. What it can do is make each of those a command that checks
+     and prints a verdict, so a test costs Nicolas minutes and no judgement.
+
+   a. **An acceptance kit: `scripts/acceptance.sh <test> <phase> [args]`.**
+      Run on the machine the phase is about; prints `PASS`/`FAIL` with the
+      numbers and appends the line to `~/.itsanas-receipts/acceptance.txt`,
+      in `receipt.sh`'s format. It checks, it does not orchestrate — Nicolas
+      moves power and cables. Phases, each a function:
+      `B write` (random bytes into the synced folder, SHA-256 printed) and
+      `B check <sha>`; `C plant` and `C scan <canary>`, with the planted-copy
+      control inside the scan so a grep that finds nothing is known to work;
+      `D lodge` and `D restore` (`register --recovery`, then `login --from`
+      on a fresh home, then a file compared by SHA-256); `E write`/`E check`;
+      `F delete <name>`/`F check <name>` (gone, and still gone after a
+      second round); `G edit <tag>`/`G check` (both versions, one named
+      `.conflict-`, same answer on both machines); `H sample` (CPU, RSS,
+      bytes written, meant for a five-minute timer) and `H report`;
+      `I status` (the degraded line names the coordinator); `J check`
+      (`doctor --deep` clean, file count unchanged). Linux first — the Pi
+      and the VM — with the laptop phases as a `.ps1` only if B/E/F/G need
+      it there. Tests: `bash -n` and shellcheck through
+      `check-installers.sh`'s pattern, and one CI job running B, F and G's
+      phases between two homes on one runner, so a phase that cannot pass
+      is found before Nicolas spends a morning on it. MVP.md §3 gets the
+      command under each test.
+   b. **Nicolas runs A–J with the kit.** The next session pastes the receipts
+      into MVP.md §6 and applies the verdict rule of §4 as written.
+   c. **Whatever fails becomes the next item**, ahead of everything below.
 
 1. **Enforce the space split. Asked for by Nicolas on 2026-09-14.** Step (a) is
    built; (b), (c) and (d) are what is left, and **nothing on
