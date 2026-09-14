@@ -97,6 +97,10 @@ one long conversation re-read its own context 1,885 times.
   README, ROADMAP and TESTING — `check-counts.py` fails otherwise, and its
   uncatalogued ceiling (116) is a ratchet, not a target.
 - A new `scripts/check-*` file must get a step in `ci.yml` — `check-ci.py`.
+- **`cargo deny` runs in `check-all.sh` now; install it.** It failed CI twice in
+  a week: a dependency pushed unvetted (2026-09-07), and an advisory published
+  the same morning (2026-09-14, rustls, fixed by `cargo update -p rustls`).
+  CI also checks daily.
 - **The wire numbers enum variants by position.** Inserting a variant in
   the middle of `Request` or `Response` silently re-labels every later one
   for deployed peers: version 4 did it to `Response`, and the fleet logged
