@@ -176,6 +176,29 @@ jobs:
       - name: How much machine this runner has
         shell: bash
         run: echo "cores $(nproc 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")"
+      # Test temporary files on a RAM disk, Windows only, so every test still
+      # takes the production path -- redb commits and per-chunk sync_all -- but
+      # the flush lands in memory. Chosen on 2026-09-14 over relaxing durability
+      # in tests, which would have stopped ordinary tests exercising real
+      # synchronous writes. The evidence: a coordinator test doing 400 redb
+      # commits takes 0.76 s on a laptop and 21-37 s on this runner, 30-50x,
+      # where a CPU-bound test is about 6x; on a stalled runner such tests
+      # crossed the 60 s budget. tempfile reads TMP/TEMP, so both point here.
+      - name: Test temporary files on a RAM disk
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install imdisk-toolkit --no-progress -y | Out-Null
+          imdisk -a -s 3G -m R: -p "/fs:ntfs /q /y"
+          New-Item -ItemType Directory -Force R:\tmp | Out-Null
+          "TMP=R:\tmp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TEMP=R:\tmp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $drive = Get-PSDrive R
+          "RAM disk R: free {0:N1} GiB" -f ($drive.Free / 1GB)
+      - name: Where tests will write their temporary files
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"temp path: " + [System.IO.Path]::GetTempPath()'
       - uses: taiki-e/install-action@nextest
       # nextest, not `cargo test`, because it runs each test in its own process
       # and can therefore time it out. The budget is in .config/nextest.toml:
