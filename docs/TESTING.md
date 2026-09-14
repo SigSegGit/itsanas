@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-14 — 726 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 45 are red-team tests.**
+**Last updated: 2026-09-14 — 727 test functions across 24 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 46 are red-team tests.**
 
-**610 of the 726 tests have an entry of their own on this page** — an *entry*,
+**611 of the 727 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -133,7 +133,7 @@ guarantee and is not one.
 
 | Binary | Tests |
 | --- | --- |
-| `itsanas-crypto` unit | 64 (1 `#[ignore]`d) |
+| `itsanas-crypto` unit | 65 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 6 |
@@ -245,7 +245,7 @@ against a dependency surfaces even when nobody has pushed for a month.
 
 ---
 
-# `itsanas-crypto` — unit tests (64)
+# `itsanas-crypto` — unit tests (65)
 
 ## `secret` — secret hygiene (4)
 
@@ -316,12 +316,13 @@ The security core. Most of these assert that an **attack fails**.
 | `empty_plaintext_is_a_valid_object` | A zero-byte file is a legitimate object, not an edge case that errors. |
 | `associated_data_encoding_is_unambiguous` | Length-prefixing makes `("ab","c")` and `("a","bc")` distinct contexts, so binding cannot be bypassed by shifting a field boundary. |
 
-## `keystore` — passphrase-protected storage (13)
+## `keystore` — passphrase-protected storage (14)
 
 | Test | What it proves |
 | --- | --- |
 | `round_trips_a_master_secret` | The primary use: a master secret sealed under a passphrase comes back intact. |
 | `survives_serialisation` | The on-disk encoding round trips and still opens. Catches a header layout bug that would brick every existing keystore. |
+| **`red_team_a_keystore_sealed_by_an_older_build_still_opens`** | A keystore sealed by `argon2` 0.5.3, stored as bytes in the test, must open in every later build. Every local keystore and escrow container is one Argon2id derivation from its keys, and a test that seals and opens in the same build cannot see a dependency that derives differently -- both halves change together. Written before moving to `argon2` 0.6.0, which it then passed; sabotaged by switching Argon2 to version 0x10. |
 | `a_wrong_passphrase_fails` | Wrong, empty, and trailing-whitespace passphrases all fail. |
 | **`downgrading_the_kdf_cost_is_detected`** | An attacker rewriting `memory_kib` from 64 MiB down to 8 KiB in a stolen container cannot then open it. Without binding the KDF parameters into the associated data, a stolen escrow blob could be made trivially brute-forceable. |
 | `an_escrow_blob_cannot_be_passed_off_as_a_local_keystore` | Container labels are bound, so a stolen escrow blob cannot be dropped in as a device keystore. |
