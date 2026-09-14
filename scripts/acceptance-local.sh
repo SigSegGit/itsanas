@@ -33,7 +33,7 @@ COORD=${2:-target/debug/itsanas-coordinator}
 # of the kit whose verdicts always pass, and this script must go red.
 KIT=${ACCEPTANCE_KIT:-scripts/acceptance.sh}
 [ -x "$BIN" ] || [ -x "$BIN.exe" ] || { echo "no itsanas binary at $BIN (cargo build -p itsanas-cli)"; exit 2; }
-[ -x "$COORD" ] || [ -x "$COORD.exe" ] || { echo "no coordinator binary at $COORD"; exit 2; }
+[ -x "$COORD" ] || [ -x "$COORD.exe" ] || { echo "no coordinator binary at $COORD (cargo build -p itsanas-coordinator)"; exit 2; }
 
 WORK=$(mktemp -d)
 export ITSANAS_RECEIPTS="$WORK/receipts"
