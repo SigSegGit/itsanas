@@ -478,8 +478,14 @@ if (-not $NoTask) {
         '    Out-File -LiteralPath $log -Encoding utf8 -Append'
     ) | Set-Content -LiteralPath $wrapper -Encoding utf8
 
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-        -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$wrapper`""
+    # Through `conhost.exe --headless`, which gives the daemon a console that is
+    # never shown. `powershell.exe -WindowStyle Hidden` alone opened an untitled
+    # black window at every logon on Windows 11 -- the flag is applied after the
+    # console exists, and not at all when Windows Terminal is the default host.
+    # Somebody closed that window as a stray and, with it, stopped the daemon
+    # (exit 0xC000013A): the service looked like junk because it was visible.
+    $action = New-ScheduledTaskAction -Execute 'conhost.exe' `
+        -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$wrapper`""
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
