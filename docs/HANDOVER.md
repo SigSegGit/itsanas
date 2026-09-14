@@ -86,6 +86,16 @@ one long conversation re-read its own context 1,885 times.
   log, and `sync` reports that as `sent 0 B`. Every test node pledges.
 - `return` after a cleanup in bash hands back the cleanup's status: a check
   that printed FAIL exited 0. Put the verdict last.
+- **Watch `main` after every merge, not only the PR.** `main` went red on
+  Windows after #1 and nobody looked for four hours; PR checks said green.
+- `cargo build -p itsanas-coord` builds the library. The server is the
+  `itsanas-coordinator` crate, and a stale `target/debug` binary hid that
+  for a whole session of local runs.
+- A test that records two things in two calls and measures a window from
+  one of them is measuring the clock. `a_holder_nobody_has_heard_from_...`
+  did, failed on Windows whenever a second ticked, and was fixed in #4 by
+  measuring from the earliest and latest; reproduce such a flake with a
+  sleep before believing a fix.
 - `format_size` is for reports. A figure somebody will type back is
   `size_argument`, or it floors below the price and does not parse.
 - Grepping for a changed number finds the number, not its restatements.
