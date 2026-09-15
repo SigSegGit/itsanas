@@ -340,6 +340,34 @@ One thing it cannot do: other members still count this machine as holding their
 data until their next audit withdraws it. It says so at the end. If this machine
 was a host for somebody, tell them.
 
+## Two accounts on one machine
+
+Each account is a named **instance**: its own node (`~/.itsanas-NAME`), its own
+passphrase file, its own service, and its own listen port, which `itsanas init`
+and `login` pick when another node on the machine is configured for 9797. The
+instances share the discovery port, so each finds the network on its own.
+
+```sh
+ITSANAS_PASSPHRASE='...' sh install/provision.sh --no-install --instance voisin \
+  --username voisin --pledge 5G --folder ~/ITSaNAS-voisin
+systemctl --user status itsanas@voisin
+sh install/clean.sh --instance voisin          # that instance only; --yes to do it
+```
+
+```powershell
+$env:ITSANAS_PASSPHRASE = '...'
+powershell -ExecutionPolicy Bypass -File install\provision.ps1 -NoInstall -Instance voisin `
+  -Username voisin -Pledge 5G -Folder "$env:USERPROFILE\ITSaNAS-voisin"
+powershell -ExecutionPolicy Bypass -File install\clean.ps1 -Instance voisin
+```
+
+On Linux the service is the template `itsanas@.service` that `linux.sh` writes
+beside `itsanas.service`; on Windows the task is `ITSaNAS-NAME`. Commands aimed
+at an instance by hand need `ITSANAS_HOME=~/.itsanas-NAME`. A clean-up without
+`--instance` removes the programs, every instance's service and passphrase, and
+keeps every node directory unless told otherwise. macOS has no named instances:
+its launch agent is one.
+
 ## After installing, on any of them
 
 ```sh
@@ -367,8 +395,9 @@ machine you own keeps dialling it. The short id from the log is enough:
 itsanas device forget 393f7d4acf72
 ```
 
-`listen` matters when something else already holds 9797 on the machine — a
-second node, or another program. Set it *before* `register`, because
+`listen` matters when something else already holds 9797 on the machine —
+another program, say. A second ITSaNAS node needs nothing: `init` and `login`
+give it the first free port no other node here is configured for. Set it *before* `register`, because
 registering is what publishes the address: change it afterwards and the
 coordinator keeps handing other members a port this node does not answer on.
 `itsanas listen` with no argument prints the current one.

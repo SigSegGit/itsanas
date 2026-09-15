@@ -71,6 +71,10 @@ param(
     # A peer to sync with directly. Repeatable.
     [string[]] $Peer = @(),
 
+    # A further node on this machine, usually for another account: its own home
+    # (~\.itsanas-NAME), scheduled task (ITSaNAS-NAME), passphrase file and log.
+    [string] $Instance = '',
+
     # Remove what a previous install put here, then stop. A dry run on its own;
     # add -Yes to do it, -PurgeAccount to take the node itself. It hands over to
     # clean.ps1, which is the only uninstaller.
@@ -101,7 +105,7 @@ if ($Clean) {
         exit 1
     }
     $LASTEXITCODE = 0
-    & $cleaner -Yes:$Yes -PurgeAccount:$PurgeAccount
+    & $cleaner -Yes:$Yes -PurgeAccount:$PurgeAccount -Instance $Instance
     exit $LASTEXITCODE
 }
 
@@ -155,9 +159,26 @@ if (-not $env:LOCALAPPDATA) {
 $binDir = Join-Path $env:LOCALAPPDATA 'Programs\itsanas\bin'
 $bin = Join-Path $binDir 'itsanas.exe'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$taskName = 'ITSaNAS'
+# A named instance gets its own name on everything that would collide. The
+# listen port is chosen by `itsanas init` and `login`, which look at the other
+# nodes beside this one.
+if ($Instance -and $Instance -cnotmatch '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$') {
+    Die '-Instance must be lowercase letters, digits and inner dashes' @(
+        'It names a scheduled task, a directory and a file, so nothing that needs quoting.'
+    )
+}
+$suffix = if ($Instance) { "-$Instance" } else { '' }
+$taskName = "ITSaNAS$suffix"
 $secretDir = Join-Path $env:LOCALAPPDATA 'itsanas'
-$secretFile = Join-Path $secretDir 'passphrase.txt'
+$secretFile = Join-Path $secretDir "passphrase$suffix.txt"
+$instanceHome = ''
+if ($Instance) {
+    $instanceHome = Join-Path $env:USERPROFILE ".itsanas-$Instance"
+    if ($env:ITSANAS_HOME -and $env:ITSANAS_HOME -ne $instanceHome) {
+        Die 'ITSANAS_HOME and -Instance disagree' @("-Instance $Instance keeps its node in $instanceHome.")
+    }
+    $env:ITSANAS_HOME = $instanceHome
+}
 
 # ------------------------------------------------------------ what was asked
 
@@ -225,7 +246,18 @@ if ($null -ne $task -and $task.State -eq 'Running') {
     Stop-ScheduledTask -TaskName $taskName
     Write-Ok "stopped the $taskName task so the store can be opened"
 }
+# Every itsanas process -- but only where this is the one node. The daemon's
+# command line does not say which home it serves, so with several instances
+# this used to stop the other accounts' daemons as well. There, only this
+# instance's task is stopped, above; a hand-started daemon holding this store
+# then shows as a refusal below rather than as somebody else's outage.
+$otherNodes = @(Get-ScheduledTask -TaskName 'ITSaNAS*' -ErrorAction SilentlyContinue |
+    Where-Object { $_.TaskName -ne $taskName })
 $running = Get-Process -Name 'itsanas' -ErrorAction SilentlyContinue
+if ($running -and ($Instance -or $otherNodes.Count -gt 0)) {
+    Write-Info "other ITSaNAS nodes may run on this machine; only the $taskName task was stopped"
+    $running = $null
+}
 if ($running) {
     $wasRunning = $true
     $running | Stop-Process -Force
@@ -441,11 +473,13 @@ if (-not $NoTask) {
         Write-Info 'then run this again.'
     }
 
-    $wrapper = Join-Path $secretDir 'run-daemon.ps1'
+    $wrapper = Join-Path $secretDir "run-daemon$suffix.ps1"
     @(
         '# Started by the ITSaNAS scheduled task at logon. A daemon cannot be',
         '# prompted, so the passphrase comes from a file only this account can read.',
-        '$env:ITSANAS_PASSPHRASE = Get-Content "$env:LOCALAPPDATA\itsanas\passphrase.txt" -Raw',
+        ('$instanceSuffix = ''{0}''' -f $suffix),
+        'if ($instanceSuffix) { $env:ITSANAS_HOME = "$env:USERPROFILE\.itsanas$instanceSuffix" }',
+        '$env:ITSANAS_PASSPHRASE = Get-Content "$env:LOCALAPPDATA\itsanas\passphrase$instanceSuffix.txt" -Raw',
         '',
         '# Everything the daemon says, into a file somebody can read.',
         '#',
@@ -459,7 +493,7 @@ if (-not $NoTask) {
         '#',
         '# In LOCALAPPDATA rather than TEMP, because TEMP is a directory Windows',
         '# and every cleaner on the machine feel free to empty.',
-        '$log = "$env:LOCALAPPDATA\itsanas\daemon.log"',
+        '$log = "$env:LOCALAPPDATA\itsanas\daemon$instanceSuffix.log"',
         '',
         '# One rotation, so a node left running for a year does not fill a disk',
         '# with its own chatter, and so the previous run is still readable after a',
@@ -511,7 +545,10 @@ if (-not $NoTask) {
             -Description 'ITSaNAS peer-to-peer storage daemon' | Out-Null
         Start-ScheduledTask -TaskName $taskName
         Start-Sleep -Seconds 3
-        $taskOk = $null -ne (Get-Process -Name 'itsanas' -ErrorAction SilentlyContinue)
+        # The task's own state as well as a process: with several nodes here, some
+        # itsanas process is running whether or not this one started.
+        $taskOk = ((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue).State -eq 'Running') -and
+            ($null -ne (Get-Process -Name 'itsanas' -ErrorAction SilentlyContinue))
         if ($taskOk) {
             $daemonIsTask = $true
             Write-Ok "the $taskName task is registered and the daemon is running"
@@ -577,7 +614,7 @@ try {
     }
 } finally {
     Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item Env:\ITSANAS_HOME -ErrorAction SilentlyContinue
+    if ($Instance) { $env:ITSANAS_HOME = $instanceHome } else { Remove-Item Env:\ITSANAS_HOME -ErrorAction SilentlyContinue }
     $env:ITSANAS_PASSPHRASE = $passphrase
 }
 

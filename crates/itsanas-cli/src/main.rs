@@ -620,7 +620,8 @@ fn init(home: &Path, username: &str) -> Result<()> {
          escrow copy a coordinator would hold. Choose a long one."
     );
 
-    let (node, phrase) = Node::create(home, &passphrase(true)?, username)?;
+    let (mut node, phrase) = Node::create(home, &passphrase(true)?, username)?;
+    settle_listen_port(&mut node)?;
 
     println!();
     println!("Account created.");
@@ -742,7 +743,8 @@ fn login(
     };
 
     println!("Choose a passphrase for this machine's keystore.");
-    let node = Node::restore(home, &passphrase(true)?, username, phrase.trim())?;
+    let mut node = Node::restore(home, &passphrase(true)?, username, phrase.trim())?;
+    settle_listen_port(&mut node)?;
 
     println!("Account restored.");
     println!("  user id : {}", node.store.owner());
@@ -1298,6 +1300,7 @@ fn login_from_coordinator(
     node.config.coordinator = Some(address.to_owned());
     node.config.coordinator_device = device.map(str::to_owned);
     node.save_config()?;
+    settle_listen_port(&mut node)?;
 
     println!();
     println!("Account restored.");
@@ -1795,6 +1798,86 @@ fn resolve_device(typed: &str, listed: &[(DeviceId, String)]) -> Result<DeviceId
             several.len()
         ))),
     }
+}
+
+/// The first port a new node may serve on: from 9797, and no further than this.
+const PORT_SEARCH: std::ops::Range<u16> = 9797..9897;
+
+/// Ports the other nodes on this machine are configured to serve on.
+///
+/// A sibling is any directory beside `home` holding a keystore, which is what
+/// "there is a node here" means everywhere else in this program. Asking the
+/// kernel alone is not enough: a node whose daemon is stopped holds no socket,
+/// so a second account created while the first is down would be handed the
+/// same port and the two daemons would fight over it at the next boot.
+fn sibling_ports(home: &Path) -> std::collections::BTreeSet<u16> {
+    let mut taken = std::collections::BTreeSet::new();
+    let Some(parent) = home.parent() else {
+        return taken;
+    };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return taken;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path == home || !path.join("keystore.bin").is_file() {
+            continue;
+        }
+        if let Ok(other) = config::Config::load(&Node::config_path(&path))
+            && let Ok(address) = crate::config::parse_listen(&other.listen)
+        {
+            taken.insert(address.port());
+        }
+    }
+    taken
+}
+
+/// The first port in [`PORT_SEARCH`] nobody claims and this machine can bind.
+fn first_free_port(
+    taken: &std::collections::BTreeSet<u16>,
+    bindable: impl Fn(u16) -> bool,
+) -> Option<u16> {
+    PORT_SEARCH
+        .clone()
+        .find(|port| !taken.contains(port) && bindable(*port))
+}
+
+/// Give a new node a port no other node on this machine serves on.
+///
+/// Two accounts on one machine are two daemons, and every node used to be
+/// created listening on 9797: the second daemon failed to bind, exited, and
+/// under systemd restarted every thirty seconds with the reason in a journal.
+/// Only the default is moved -- an address somebody chose with `itsanas listen`
+/// is left alone.
+fn settle_listen_port(node: &mut Node) -> Result<()> {
+    let Ok(current) = crate::config::parse_listen(&node.config.listen) else {
+        return Ok(());
+    };
+    if !current.ip().is_unspecified() {
+        return Ok(());
+    }
+    let taken = sibling_ports(&node.home);
+    let bindable = |port: u16| std::net::TcpListener::bind(("0.0.0.0", port)).is_ok();
+    if !taken.contains(&current.port()) && bindable(current.port()) {
+        return Ok(());
+    }
+    match first_free_port(&taken, bindable) {
+        Some(port) => {
+            let chosen = SocketAddr::new(current.ip(), port);
+            node.config.listen = chosen.to_string();
+            node.save_config()?;
+            println!(
+                "  listen   : {chosen} ({} is used by another node on this machine)",
+                current.port()
+            );
+        }
+        None => println!(
+            "warning: every port from {} to {} is taken here; choose one with `itsanas listen`",
+            PORT_SEARCH.start,
+            PORT_SEARCH.end - 1
+        ),
+    }
+    Ok(())
 }
 
 fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
@@ -2480,7 +2563,10 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DeviceId, describe_age, looks_like_a_closed_pipe, resolve_device};
+    use super::{
+        DeviceId, describe_age, first_free_port, looks_like_a_closed_pipe, resolve_device,
+        sibling_ports,
+    };
 
     #[test]
     fn a_panic_that_is_not_a_closed_pipe_is_never_swallowed() {
@@ -2499,6 +2585,55 @@ mod tests {
                 "a real panic would be reported as success: {message:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_port_another_node_on_this_machine_is_configured_for_is_not_chosen() {
+        // The case the kernel cannot see: the first account's daemon is
+        // stopped, so 9797 binds, and handing it to the second account puts
+        // two daemons on one port at the next boot.
+        let taken = std::collections::BTreeSet::from([9797]);
+        assert_eq!(first_free_port(&taken, |_| true), Some(9798));
+    }
+
+    #[test]
+    fn a_port_something_already_holds_is_skipped_and_exhaustion_says_so() {
+        let taken = std::collections::BTreeSet::new();
+        assert_eq!(first_free_port(&taken, |port| port > 9799), Some(9800));
+        assert_eq!(
+            first_free_port(&taken, |_| false),
+            None,
+            "a port nothing can bind was offered as free"
+        );
+    }
+
+    #[test]
+    fn the_ports_of_the_other_nodes_beside_this_one_are_found_and_its_own_is_not() {
+        // A sibling is a directory holding a keystore. A directory without one
+        // is not a node, and this node's own configuration must not count
+        // against it, or re-running `init` logic would move it off its port.
+        let dir = tempfile::tempdir().unwrap();
+        let write = |name: &str, listen: &str, keystore: bool| {
+            let home = dir.path().join(name);
+            std::fs::create_dir_all(&home).unwrap();
+            if keystore {
+                std::fs::write(home.join("keystore.bin"), b"sealed").unwrap();
+            }
+            let config = crate::config::Config {
+                listen: listen.to_owned(),
+                ..crate::config::Config::default()
+            };
+            config.save(&crate::node::Node::config_path(&home)).unwrap();
+            home
+        };
+        write(".itsanas", "0.0.0.0:9797", true);
+        write("not-a-node", "0.0.0.0:9799", false);
+        let this = write(".itsanas-bob", "0.0.0.0:9798", true);
+
+        assert_eq!(
+            sibling_ports(&this),
+            std::collections::BTreeSet::from([9797])
+        );
     }
 
     fn listed() -> Vec<(DeviceId, String)> {

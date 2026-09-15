@@ -6,6 +6,7 @@
 #   sh install/clean.sh --yes        # remove the programs and the service
 #   sh install/clean.sh --yes --purge-account   # and the account itself
 #   sudo sh install/clean.sh --yes --purge-coordinator  # a coordinator host
+#   sh install/clean.sh --yes --instance bob   # one named instance, nothing else
 #
 # Why this exists
 # ---------------
@@ -37,13 +38,15 @@ PURGE=0
 PURGE_COORD=0
 PREFIX="${ITSANAS_PREFIX:-$HOME/.local}"
 NODE_HOME="${ITSANAS_HOME:-$HOME/.itsanas}"
+INSTANCE=""
+ENV_DIR="$HOME/.config/itsanas"
 
 say()  { printf '%s\n' "$*"; }
 plan() { printf '  %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
 
 usage() {
-    sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,10p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
 }
 
@@ -56,14 +59,60 @@ while [ $# -gt 0 ]; do
         --prefix=*) PREFIX="${1#--prefix=}"; shift ;;
         --home) NODE_HOME="$2"; shift 2 ;;
         --home=*) NODE_HOME="${1#--home=}"; shift ;;
+        --instance) [ $# -ge 2 ] || { say "--instance needs a name"; exit 2; }; INSTANCE="$2"; shift 2 ;;
+        --instance=*) INSTANCE="${1#--instance=}"; shift ;;
         -h|--help) usage ;;
         *) say "unknown option: $1"; exit 2 ;;
     esac
 done
 
+# One named instance, and nothing that other nodes on this machine share: the
+# programs, the unit template and the other instances stay.
+if [ -n "$INSTANCE" ]; then
+    case "$INSTANCE" in
+        *[!a-z0-9-]*|-*|*-) say "--instance must be lowercase letters, digits and inner dashes"; exit 2 ;;
+    esac
+    NODE_HOME="$HOME/.itsanas-$INSTANCE"
+    SERVICE="itsanas@$INSTANCE"
+    SECRET="$ENV_DIR/$INSTANCE.environment"
+    say "ITSaNAS clean-up, instance $INSTANCE"
+    say ""
+    say "Only this instance. The programs, the unit template and every other node"
+    say "on this machine stay; run without --instance to remove the whole install."
+    say ""
+    plan "stop and disable $SERVICE"
+    [ -f "$SECRET" ] && plan "remove $SECRET"
+    if [ -d "$NODE_HOME" ]; then
+        if [ "$PURGE" -eq 1 ]; then
+            plan "REMOVE $NODE_HOME - the sealed master secret and every chunk of this instance"
+        else
+            plan "keep $NODE_HOME (pass --purge-account to remove it)"
+        fi
+    else
+        plan "no node at $NODE_HOME"
+    fi
+    if [ "$DO_IT" -eq 0 ]; then
+        say ""
+        say "Nothing was changed. Add --yes to do it."
+        exit 0
+    fi
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user disable --now "$SERVICE" >/dev/null 2>&1 || true
+    fi
+    rm -f "$SECRET"
+    if [ "$PURGE" -eq 1 ] && [ -d "$NODE_HOME" ]; then
+        rm -rf "$NODE_HOME"
+    fi
+    say "instance $INSTANCE removed"
+    exit 0
+fi
+
 UNIT="$HOME/.config/systemd/user/itsanas.service"
+TEMPLATE="$HOME/.config/systemd/user/itsanas@.service"
 COORD_UNIT="$HOME/.config/systemd/user/itsanas-coordinator.service"
-PLIST="$HOME/Library/LaunchAgents/fr.ngas.itsanas.plist"
+# The name install/macos.sh writes. This said fr.ngas.itsanas for months while
+# macos.sh wrote net.itsanas.daemon, so a clean-up on a Mac left the agent loaded.
+PLIST="$HOME/Library/LaunchAgents/net.itsanas.daemon.plist"
 
 say "ITSaNAS clean-up"
 say ""
@@ -74,13 +123,14 @@ RUNNING=0
 if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active itsanas >/dev/null 2>&1; then
     RUNNING=1
 fi
-if command -v launchctl >/dev/null 2>&1 && launchctl list 2>/dev/null | grep -q 'fr\.ngas\.itsanas'; then
+if command -v launchctl >/dev/null 2>&1 && launchctl list 2>/dev/null | grep -q 'net\.itsanas\.daemon'; then
     RUNNING=1
 fi
 
 say "the service"
 [ "$RUNNING" -eq 1 ] && plan "stop and disable it (it is running now)" || plan "not running"
 [ -f "$UNIT" ] && plan "remove $UNIT"
+[ -f "$TEMPLATE" ] && plan "remove $TEMPLATE, stopping every itsanas@ instance"
 [ -f "$COORD_UNIT" ] && plan "remove $COORD_UNIT"
 [ -f "$PLIST" ] && plan "remove $PLIST"
 
@@ -98,7 +148,7 @@ done
 say ""
 say "the passphrase"
 FOUND_SECRET=0
-for secret in "$HOME/.itsanas-passphrase" "$NODE_HOME/passphrase"; do
+for secret in "$HOME/.itsanas-passphrase" "$NODE_HOME/passphrase" "$ENV_DIR/environment" "$ENV_DIR"/*.environment; do
     if [ -f "$secret" ]; then
         plan "remove $secret"
         FOUND_SECRET=1
@@ -120,6 +170,9 @@ if [ -d "$NODE_HOME" ]; then
 else
     plan "no node at $NODE_HOME"
 fi
+for instance_home in "$HOME"/.itsanas-*; do
+    [ -d "$instance_home" ] && plan "keep $instance_home (an instance: clean.sh --instance NAME --purge-account)"
+done
 
 # --------------------------------------------------------------- the coordinator
 #
@@ -182,12 +235,15 @@ say ""
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user disable --now itsanas >/dev/null 2>&1 || true
     systemctl --user disable --now itsanas-coordinator >/dev/null 2>&1 || true
+    for running in $(systemctl --user list-units --all --plain --no-legend 'itsanas@*' 2>/dev/null | awk '{print $1}'); do
+        systemctl --user disable --now "$running" >/dev/null 2>&1 || true
+    done
 fi
 if command -v launchctl >/dev/null 2>&1 && [ -f "$PLIST" ]; then
     launchctl unload "$PLIST" >/dev/null 2>&1 || true
 fi
 
-rm -f "$UNIT" "$COORD_UNIT" "$PLIST"
+rm -f "$UNIT" "$TEMPLATE" "$COORD_UNIT" "$PLIST"
 if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload >/dev/null 2>&1 || true
 fi
@@ -198,7 +254,7 @@ for name in itsanas itsanas-coordinator itsanas-drive; do
 done
 say "programs removed from $PREFIX/bin"
 
-for secret in "$HOME/.itsanas-passphrase" "$NODE_HOME/passphrase"; do
+for secret in "$HOME/.itsanas-passphrase" "$NODE_HOME/passphrase" "$ENV_DIR/environment" "$ENV_DIR"/*.environment; do
     [ -f "$secret" ] && rm -f "$secret"
 done
 say "passphrase files removed"

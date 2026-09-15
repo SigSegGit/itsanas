@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**735 test functions, 3 of them `#[ignore]`d into the slow job, and 50 of
+**738 test functions, 3 of them `#[ignore]`d into the slow job, and 50 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -754,6 +754,18 @@ delivered to nobody, reported as five successful sends. Now
 **Not covered:** IPv6 multicast, and interface selection — IPv4 global broadcast
 leaves by the default route only, which is right for a house and wrong for a
 machine with several networks.
+
+**2026-09-15: the port is shared between nodes on one machine.** It used to
+refuse a second bind, on the reasoning that two nodes on a machine were a
+mistake; the second node then ran with discovery silently off. Two accounts on
+one machine is now supported (named instances in the provisioners), so every
+node binds 21037 with `SO_REUSEADDR` (and `SO_REUSEPORT` on macOS and the
+BSDs, which need it for a wildcard broadcast port) and each hears every broadcast
+(`two_nodes_on_one_machine_both_hear_the_discovery_port`). Sound only because
+nothing is sent unicast to the port. **A node on an older build still takes
+the port exclusively**, and on Windows a sharing bind beside it fails with
+"access denied" (error 10013): every node on a machine has to be upgraded
+before a second one can share.
 
 ---
 

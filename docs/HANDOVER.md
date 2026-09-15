@@ -9,8 +9,8 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0h
-TITLE: Two accounts on one machine, and the full fleet protocol
+NEXT: 8.0f
+TITLE: A tray icon for the Windows daemon, to Nicolas's specification
 WRITTEN-AT: 2026-09-15
 BASE: a3c76f1
 -->
@@ -41,9 +41,38 @@ master secret — written down in `claim.rs`, not fixed — and that
 upgraded** for the full device list. Not fixed, written in ROADMAP "The
 identity surface": a stolen node with its passphrase is the whole account, and
 withdrawal does not reach the peer protocol. The manual fleet checklist in
-French is `docs/BRIEFING-MVP.md`. `NEXT` moved to §8 0h on Nicolas's
-answer: two accounts on one machine, then the full fleet protocol, ahead of
-the tray, so he can test on his three machines this week.
+French is `docs/BRIEFING-MVP.md`. Merged as #17.
+
+**Then §8 0h, same day: two accounts on one machine** (branch
+`multi-instance`). Discovery shares UDP 21037 (`SO_REUSEADDR` through `socket2`;
+broadcast reaches every sharer, nothing is unicast); `init`/`login` give a node
+the first port from 9797 that no sibling node home is configured for and the
+kernel lets it bind; `provision.sh --instance NAME` / `provision.ps1 -Instance
+NAME` give an instance its home, passphrase file and `itsanas@NAME` unit or
+`ITSaNAS-NAME` task; `clean.sh`/`clean.ps1` take the same flag. Found on the
+way and fixed: `provision.ps1` killed every `itsanas` process, which with two
+nodes stops the other account; `clean.sh` never removed
+`~/.config/itsanas/environment`, the passphrase `provision.sh` writes, and
+looked for the macOS agent under a name `macos.sh` never used.
+`docs/BRIEFING-MVP.md` is now the full protocol Nicolas asked for (MVP, 1a,
+1b, scale measurements, what three machines cannot show against Storj).
+738 tests. **Nicolas then specified the tray** (§8 0f, rewritten), which is
+`NEXT`; its "decommission" needs a drain that does not exist.
+
+Traps from 0h: **a daemon on an older build holds 21037 exclusively**, and on
+Windows a sharing bind beside it fails with error 10013 ("access denied"), not
+"address in use" — the local bench's two-accounts check fails on any machine
+running such a daemon (it did on the laptop, PID of the ITSaNAS task). It
+had **not yet run on CI** when this was written; the PR's `acceptance-local`
+job is its first real run, so read that job before believing the scenario. Upgrade every node on a machine before adding an instance.
+Python run from a Git Bash heredoc still loses backslashes even with a quoted
+delimiter: write the script to the scratchpad. The Rodin audit of 0h found:
+E in the protocol passed through `nicolas` on the Pi, which reads the file, so
+it proved no blind relay (fixed: only `voisin` instances relay during E);
+macOS needs `SO_REUSEPORT` to share a wildcard broadcast port (added, **not
+run on a Mac**; the `macos-latest` test job is its only check); the protocol
+told Nicolas to "update" the coordinator with a script that does not build
+(fixed); nodes created before 0h keep whatever port they had.
 
 Traps from this session: a nextest filter `test(=name)` matches nothing for a
 unit test (its name is `module::tests::name`) and a sabotage script reading
@@ -150,9 +179,12 @@ one long conversation re-read its own context 1,885 times.
   `framing: encoding: Hit the end of buffer` every round for a week while
   `MIN_PROTOCOL_VERSION` still claimed version 2 was compatible. The floor
   is 4 now and a red-team test pins the numbers. Append, never insert.
-- Two nodes on one machine cannot both bind the discovery port (UDP 21037):
-  the second logs `local discovery is off (Address already in use)` and needs
-  its peers configured. Seen on the VM, where `voisin` and `mandarine` share it.
+- Two nodes on one machine could not both bind the discovery port (UDP 21037)
+  until §8 0h: the second logged `local discovery is off (Address already in
+  use)` and ran anyway. Seen on the VM, where `voisin` and `mandarine` share
+  it. The port is shared now; a machine still running an older build keeps the
+  old behaviour until upgraded. Nothing may ever reply unicast on it: a unicast
+  datagram to a shared port reaches one socket of several.
 - A daemon started by hand survives nothing and hides the unit's real state:
   on the Pi and the VM `systemctl --user` said "inactive" for a week while
   hand-started processes ran old binaries. Restart through the unit.
@@ -496,6 +528,42 @@ Detail and measurements are in ROADMAP.md; this is the map.
       later: switching is a different `ITSANAS_HOME` and works today; a live
       file list needs the local control socket first.
 
+      **Nicolas's specification, 2026-09-15, "like Google Drive":**
+      - *Left click* opens Explorer on the account's files: the synced folder
+        (`config.folder`) where one is set; otherwise the ProjFS drive
+        (`itsanas-drive`, read-only today) if it is mounted; otherwise say that
+        no folder is configured and offer `itsanas folder`. One icon per node
+        home, so two accounts on one machine (0h) show two icons, each named.
+      - *Right click*, every destructive entry behind a confirmation dialog
+        that states its consequences in plain words, with Confirm and Cancel:
+        1. **Pause / resume syncing** — nothing is lost; hosts keep your data;
+           you stop receiving changes and hosting until resumed.
+        2. **Disconnect** (sign out of this machine) — stops the daemon and
+           removes the passphrase file the task reads, so nothing starts at
+           logon; the keystore, store and hosted data stay, and signing back
+           in needs the passphrase. Say that others' data stays on this disk
+           and the machine stops being audited-healthy for them while off.
+        3. **Quit** — stops the daemon until the next logon or manual start.
+        4. **Decommission this machine** — frees the space. Consequences to
+           state: this device is withdrawn from the account for good (§8 0g:
+           final), its local copy of your files is deleted, and **other
+           people's data it hosts is released only after it is re-homed** —
+           deleting hosted chunks outright silently drops somebody's replica
+           count. (ECONOMICS.md §5 forbids deletion *as a sanction*; a member
+           leaving is not one, so the reason is the other members' durability,
+           not §5.) The Rodin audit's cheaper alternative, to decide with
+           Nicolas first: refuse to decommission while any hosted chunk has no
+           other confirmed holder, instead of building a drain.
+           Needs a drain that does not exist yet: refuse new hosting, push
+           or hand off every hosted chunk until each owner's ledger shows
+           another holder (or a stated timeout), then `device forget`, then
+           delete the home. The dialog shows the estimate (bytes hosted,
+           upload speed) and warns if this is the account's last machine
+           holding something no host has confirmed (`status` already knows).
+      Red-team expected on decommission: a machine that is the only confirmed
+      holder of a chunk refuses to finish, and says which owner is affected
+      by count, never by name.
+
    g. ✅ **Accounts and devices, red-teamed and repaired.** Asked for by
       Nicolas on 2026-09-15 as a detour before 0f. See §0 and ROADMAP.md,
       "The identity surface, examined 2026-09-15". Left open on purpose:
@@ -514,7 +582,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       (needed by BRIEFING-MVP.md for B/E/F/G on a mixed fleet) still collide on
       the discovery port.
 
-   h. **Two accounts on one machine, then the full fleet protocol.** Asked for
+   h. ✅ **Two accounts on one machine, then the full fleet protocol.** Built
+      2026-09-15 on branch `multi-instance`; see §0. Asked for
       by Nicolas on 2026-09-15, ahead of 0f, to test on his three machines
       the same week. Verified blockers: `Lan::bind` takes UDP 21037 with no
       address reuse (`crates/itsanas-discover/src/lan.rs` ~114; a test near

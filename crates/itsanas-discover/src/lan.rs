@@ -76,6 +76,35 @@ pub fn now_unix() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// A UDP socket on `address` that other nodes on this machine may bind too.
+///
+/// `SO_REUSEADDR` has to be set before `bind`, which `std::net::UdpSocket`
+/// cannot do, hence `socket2`; unsafe code is not an option in this crate.
+fn shared(address: SocketAddr) -> io::Result<UdpSocket> {
+    let socket = socket2::Socket::new(
+        socket2::Domain::for_address(address),
+        socket2::Type::DGRAM,
+        Some(socket2::Protocol::UDP),
+    )?;
+    socket.set_reuse_address(true)?;
+    // On the BSDs, macOS included, `SO_REUSEADDR` lets two sockets bind the same
+    // wildcard port only for multicast; a broadcast listener needs
+    // `SO_REUSEPORT` as well. Linux gets `SO_REUSEADDR` alone, because there
+    // `SO_REUSEPORT` also demands the same user for every sharer and two
+    // accounts on one machine may be two users.
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    ))]
+    socket.set_reuse_port(true)?;
+    socket.bind(&address.into())?;
+    Ok(socket.into())
+}
+
 /// A socket for announcing this node and hearing others.
 #[derive(Debug)]
 pub struct Lan {
@@ -86,10 +115,31 @@ pub struct Lan {
 impl Lan {
     /// Listen for announcements on `port`, and broadcast to the same port.
     ///
-    /// Binding fails if another process on this machine already holds the port,
-    /// which is the honest outcome: two ITSaNAS nodes on one machine is a
-    /// configuration mistake, and silently disabling discovery for the second
-    /// one would be much harder to diagnose than a refusal at start-up.
+    /// The port is **shared**: every node on this machine binds it with
+    /// `SO_REUSEADDR`, and each receives every broadcast. This used to refuse a
+    /// second bind, on the reasoning that two nodes on one machine was a
+    /// configuration mistake. It is not — two accounts on one machine is
+    /// something Nicolas asked for — and the refusal did not stop the second
+    /// node running, it only left it with discovery quietly off.
+    ///
+    /// Sharing is sound here and would not be for most protocols, because
+    /// nothing is ever sent *to* one socket: announcements go to the broadcast
+    /// address, which the kernel delivers to every socket bound to the port,
+    /// and nothing replies unicast. A unicast datagram to a shared port reaches
+    /// one socket only, and a design that relied on that would break.
+    ///
+    /// What sharing concedes, stated so it is not rediscovered: on Windows,
+    /// another local process can bind the same port and hear the beacons. It
+    /// hears exactly what every machine on the network already hears, and it
+    /// cannot stop this socket hearing them, since a broadcast goes to all.
+    /// `SO_REUSEADDR` everywhere, and `SO_REUSEPORT` only on the BSDs and
+    /// macOS, which need it to share a wildcard broadcast port. Not on Linux,
+    /// where it requires every sharer to run as the same user, and two
+    /// accounts may be two users.
+    ///
+    /// A node on an older build binds the port exclusively. Beside it a sharing
+    /// bind fails -- on Windows with error 10013, "access denied" -- and this
+    /// node runs with discovery off, which the daemon says once at start.
     pub fn bind(port: u16) -> Result<Self> {
         Self::open(port, port)
     }
@@ -111,7 +161,7 @@ impl Lan {
         if announce_to == 0 {
             return Err(DiscoverError::NoPort);
         }
-        let socket = UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), listen))?;
+        let socket = shared(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), listen))?;
         socket.set_broadcast(true)?;
         Ok(Self {
             socket,
@@ -218,10 +268,10 @@ mod tests {
 
     /// A listener on an ephemeral loopback port, and a sender aimed at it.
     ///
-    /// Deliberately not broadcast: two sockets on one machine cannot share a
-    /// port without `SO_REUSEADDR`, and taking a dependency purely to make a
-    /// test resemble production would be a poor trade. Everything below the
-    /// destination address is the production path.
+    /// Deliberately not broadcast, so these tests do not depend on the
+    /// machine's network letting a broadcast out and back. Everything below the
+    /// destination address is the production path. The one test that needs a
+    /// real broadcast on a shared port says so.
     fn pair() -> (Lan, Lan) {
         let listener = Lan::bind_to(loopback(0), Vec::new()).unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -341,12 +391,43 @@ mod tests {
     }
 
     #[test]
-    fn two_nodes_on_one_machine_refuse_to_share_a_port() {
-        // Better a refusal at start-up than a second node whose discovery
-        // quietly never works.
-        let first = Lan::bind_to(loopback(0), Vec::new()).unwrap();
+    fn two_nodes_on_one_machine_both_hear_the_discovery_port() {
+        // Two accounts on one machine are two daemons. The second used to fail
+        // to bind 21037 and run with discovery silently off -- it synced only
+        // with peers somebody typed in, which is exactly what discovery exists
+        // to spare. Both must bind the same port and both must hear one real
+        // broadcast. The port is whichever one the kernel gives the first
+        // sharing socket, so neither a daemon on this machine nor a port range
+        // Windows has reserved can make this fail for a reason that is not
+        // sharing. (It was `40000 + pid`, and this laptop reserves 50000-50059.)
+        let first = Lan::open(0, DEFAULT_PORT).expect("the first node binds a shared port");
         let port = first.local_addr().unwrap().port();
-        assert!(Lan::bind_to(loopback(port), Vec::new()).is_err());
+        let second = Lan::bind(port)
+            .expect("a second node on the same machine could not bind the discovery port");
+
+        let keys = DeviceKeys::generate().unwrap();
+        Lan::announcer(port)
+            .unwrap()
+            .announce(&keys, owner(), 9797)
+            .unwrap();
+
+        for (which, lan) in [("first", &first), ("second", &second)] {
+            let heard = loop {
+                match lan.receive(Duration::from_secs(5)) {
+                    Ok(Some((announcement, _))) if announcement.device == keys.device_id() => {
+                        break true;
+                    }
+                    // Somebody else's traffic on the port; keep listening.
+                    Ok(Some(_)) | Err(_) => {}
+                    Ok(None) => break false,
+                }
+            };
+            assert!(
+                heard,
+                "the {which} node on a shared port never heard the broadcast; one of \
+                 two accounts on this machine would find no neighbours"
+            );
+        }
     }
 
     #[test]

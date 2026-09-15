@@ -75,6 +75,7 @@ KEEP=""
 LISTEN=""
 FOLDER=""
 PEER=""
+INSTANCE=""
 DO_SERVICE=1
 SERVICE_OK=0
 DO_INSTALL=1
@@ -103,6 +104,10 @@ This machine
                          earns, and refused here rather than a fortnight later)
   --listen HOST:PORT     address this node serves on (default 0.0.0.0:9797)
   --folder PATH          the directory kept in step with the account
+  --instance NAME        a further node on this machine, for another account:
+                         its own home (~/.itsanas-NAME), passphrase file and
+                         service (itsanas@NAME). Lowercase letters, digits, -
+                         Remove one with: sh install/clean.sh --instance NAME
   --no-service           do not enable the systemd user unit
   --no-install           the binary is already here; only configure
   --clean                remove what a previous install put here, then stop
@@ -182,6 +187,8 @@ while [ $# -gt 0 ]; do
         --folder=*) FOLDER="${1#--folder=}"; shift ;;
         --peer) [ $# -ge 2 ] || die "--peer needs host:port"; PEER="$PEER $2"; shift 2 ;;
         --peer=*) PEER="$PEER ${1#--peer=}"; shift ;;
+        --instance) [ $# -ge 2 ] || die "--instance needs a name"; INSTANCE="$2"; shift 2 ;;
+        --instance=*) INSTANCE="${1#--instance=}"; shift ;;
         --no-service) DO_SERVICE=0; shift ;;
         --no-install) DO_INSTALL=0; shift ;;
         --help|-h) usage; exit 0 ;;
@@ -213,6 +220,32 @@ step "Checking what was asked for"
     "Use the same one you used on your other machines only if you want to; the" \
     "passphrase is per-machine and protects this machine's copy of the keys."
 ok "passphrase supplied"
+
+# A named instance is a second node on this machine, usually for a second
+# account. Everything that would collide gets the name: the home, the
+# passphrase file, the unit. The listen port is chosen by `itsanas init` and
+# `login`, which look at the other nodes beside this one.
+SERVICE=itsanas
+UNIT_FILE=itsanas.service
+ENV_NAME=environment
+if [ -n "$INSTANCE" ]; then
+    case "$INSTANCE" in
+        *[!a-z0-9-]*|-*|*-) die "--instance must be lowercase letters, digits and inner dashes" \
+            "It names a systemd unit, a directory and a file, so nothing that needs quoting." ;;
+    esac
+    [ "${#INSTANCE}" -le 32 ] || die "--instance is longer than 32 characters"
+    if [ -n "${ITSANAS_HOME:-}" ] && [ "$ITSANAS_HOME" != "$HOME/.itsanas-$INSTANCE" ]; then
+        die "ITSANAS_HOME and --instance disagree" \
+            "--instance $INSTANCE keeps its node in $HOME/.itsanas-$INSTANCE." \
+            "Unset ITSANAS_HOME, or leave --instance out."
+    fi
+    ITSANAS_HOME="$HOME/.itsanas-$INSTANCE"
+    export ITSANAS_HOME
+    SERVICE="itsanas@$INSTANCE"
+    UNIT_FILE="itsanas@.service"
+    ENV_NAME="$INSTANCE.environment"
+    ok "instance $INSTANCE: node in $ITSANAS_HOME, service $SERVICE"
+fi
 
 if [ -n "$PHRASE_FILE" ]; then
     [ -r "$PHRASE_FILE" ] || die "cannot read $PHRASE_FILE" \
@@ -272,10 +305,10 @@ step "A node that is already running"
 #
 # So: stop it, configure, and start it again in the service step below.
 WAS_ACTIVE=0
-if have systemctl && systemctl --user is-active itsanas >/dev/null 2>&1; then
+if have systemctl && systemctl --user is-active "$SERVICE" >/dev/null 2>&1; then
     WAS_ACTIVE=1
-    if systemctl --user stop itsanas 2>/dev/null; then
-        ok "stopped itsanas.service so the store can be opened"
+    if systemctl --user stop "$SERVICE" 2>/dev/null; then
+        ok "stopped $SERVICE so the store can be opened"
     else
         die "itsanas.service is running and could not be stopped"             "Only one process may hold the node's state. Stop it with:"             "  systemctl --user stop itsanas"
     fi
@@ -402,7 +435,7 @@ if [ "$DO_SERVICE" -eq 1 ]; then
         # 600 before the secret goes in, not after. Writing it first and
         # chmodding second leaves a window in which it is world-readable, and
         # the window is exactly as long as the machine is slow.
-        ENV_FILE="$ENV_DIR/environment"
+        ENV_FILE="$ENV_DIR/$ENV_NAME"
         : > "$ENV_FILE" || die "could not create $ENV_FILE"
         chmod 600 "$ENV_FILE" || die "could not restrict $ENV_FILE"
         printf 'ITSANAS_PASSPHRASE=%s\n' "$ITSANAS_PASSPHRASE" >> "$ENV_FILE"
@@ -430,7 +463,7 @@ if [ "$DO_SERVICE" -eq 1 ]; then
             ok "XDG_RUNTIME_DIR was unset; using $XDG_RUNTIME_DIR"
         fi
 
-        UNIT="$HOME/.config/systemd/user/itsanas.service"
+        UNIT="$HOME/.config/systemd/user/$UNIT_FILE"
         if [ -f "$UNIT" ]; then
             ok "the unit is already installed"
         else
@@ -441,12 +474,12 @@ if [ "$DO_SERVICE" -eq 1 ]; then
 
         if [ -f "$UNIT" ]; then
             systemctl --user daemon-reload 2>/dev/null
-            if systemctl --user enable --now itsanas 2>/dev/null; then
-                ok "itsanas.service is enabled and running"
+            if systemctl --user enable --now "$SERVICE" 2>/dev/null; then
+                ok "$SERVICE is enabled and running"
                 SERVICE_OK=1
             else
                 warn "could not enable the service"
-                info "Look at:  systemctl --user status itsanas"
+                info "Look at:  systemctl --user status $SERVICE"
             fi
 
             # Without lingering, a user service stops when the last session
@@ -476,7 +509,7 @@ for candidate in "$HERE/../scripts/smoke.sh" "$HOME/.local/src/itsanas/scripts/s
 done
 
 if [ -n "$SMOKE" ]; then
-    sh "$SMOKE" "$BIN" || die "it installed and it does not work" \
+    (unset ITSANAS_HOME; sh "$SMOKE" "$BIN") || die "it installed and it does not work" \
         "The output above says which step. This is the interesting kind of" \
         "failure and is worth reporting."
 else
@@ -496,11 +529,11 @@ step "Done"
 # If this script stopped the daemon and did not start one, it owes the machine
 # the state it found it in.
 if [ "$WAS_ACTIVE" -eq 1 ] && [ "$SERVICE_OK" -eq 0 ]; then
-    if systemctl --user start itsanas 2>/dev/null; then
+    if systemctl --user start "$SERVICE" 2>/dev/null; then
         SERVICE_OK=1
     else
-        warn "itsanas.service was running when this started and is now stopped"
-        info "  systemctl --user start itsanas"
+        warn "$SERVICE was running when this started and is now stopped"
+        info "  systemctl --user start $SERVICE"
     fi
 fi
 
@@ -511,12 +544,12 @@ fi
 if [ "$SERVICE_OK" -eq 1 ]; then
     cat <<NEXT
 
-       Watch it:      journalctl --user-unit itsanas -f
+       Watch it:      journalctl --user-unit $SERVICE -f
                       (--user-unit, not --user -u: the second asks for a
                        per-user journal, which Debian 13 does not keep,
                        and answers "No journal files were found" while
                        the service is running fine)
-       Stop it:       systemctl --user stop itsanas
+       Stop it:       systemctl --user stop $SERVICE
        Ask it:        itsanas status
 
        To rebuild this machine, keep the command you just ran. That is the
