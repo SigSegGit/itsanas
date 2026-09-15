@@ -123,6 +123,11 @@ const SETTLE_LIMIT: Duration = Duration::from_secs(10);
 /// there, which is exactly the state MVP acceptance test I describes as normal.
 const OUTAGE_QUIET: Duration = Duration::from_secs(30 * 60);
 
+/// [`OUTAGE_QUIET`] for tests outside this module, which cannot name a private
+/// constant.
+#[cfg(test)]
+pub(crate) const OUTAGE_QUIET_FOR_TESTS: Duration = OUTAGE_QUIET;
+
 /// What has already been said about the coordinator, so it is not said again.
 #[derive(Debug)]
 struct Outage {
@@ -244,7 +249,7 @@ pub fn run(
     discover: bool,
 ) -> Result<()> {
     let address = listen.unwrap_or(&node.config.listen);
-    let server = PeerServer::bind(address)?;
+    let server = bind_listener(node, address)?;
     let bound = server.local_addr()?;
 
     let service = PeerService::new(
@@ -899,21 +904,7 @@ fn sync_once(
         wire,
     ) {
         Ok((report, keeping)) => {
-            if report.changed_anything() {
-                println!(
-                    "{peer}: sent {} ({} chunks, {} segments), received {} files, {} conflicts{}",
-                    format_size(report.push.bytes_sent),
-                    report.push.chunks_accepted,
-                    report.push.segments_accepted,
-                    report.pull.adopted,
-                    report.pull.conflicted,
-                    if report.pull.deferred > 0 {
-                        format!(", {} deferred", report.pull.deferred)
-                    } else {
-                        String::new()
-                    }
-                );
-            }
+            report_round(peer, &report);
             report_keeping(peer, &keeping);
             // A quiet round is the common case. Saying so every five minutes
             // would fill a journal with nothing and train the operator to
@@ -932,6 +923,107 @@ fn sync_once(
         device: answered,
         earned_trust,
     })
+}
+
+/// Bind the peer listener, and say what to do when the port is taken.
+///
+/// Nodes created before `init` chose a free port all listen on 9797, so a
+/// second account on such a machine fails here -- and under systemd it
+/// restarts every thirty seconds with "address in use" in a journal. The error
+/// now names a port that is free and not claimed by another node here, and the
+/// two commands that move this node to it.
+fn bind_listener(node: &Node, address: &str) -> Result<PeerServer> {
+    match PeerServer::bind(address) {
+        Ok(server) => Ok(server),
+        Err(itsanas_net::NetError::Io(error))
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            let free = crate::first_free_port(&crate::sibling_ports(&node.home), |port| {
+                std::net::TcpListener::bind(("0.0.0.0", port)).is_ok()
+            });
+            Err(CliError::Usage(taken_port_message(address, &error, free)))
+        }
+        Err(other) => Err(other.into()),
+    }
+}
+
+/// The sentence for a listen address something else already holds.
+pub(crate) fn taken_port_message(
+    address: &str,
+    error: &dyn std::fmt::Display,
+    free: Option<u16>,
+) -> String {
+    match free {
+        Some(port) => format!(
+            "cannot serve on {address} ({error}): another node or program has it, or the \
+             system reserves it. \
+             Port {port} is free here: `itsanas listen 0.0.0.0:{port}`, then \
+             `itsanas register` if a coordinator is configured, then start again."
+        ),
+        None => format!(
+            "cannot serve on {address} ({error}), and no port from 9797 to 9896 is free \
+             here; choose one with `itsanas listen`."
+        ),
+    }
+}
+
+/// When each peer's refusals were last reported.
+///
+/// A host with pledge 0 refuses every round, and so does a stranger on the
+/// network that pledged nothing: printing it every round is a line every five
+/// minutes per peer for ever, which is the journal nobody reads that
+/// `OUTAGE_QUIET` exists to prevent for the coordinator.
+static REFUSALS_REPORTED: std::sync::Mutex<std::collections::BTreeMap<String, Instant>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Whether a refusal is worth a line, given when the last one was printed.
+///
+/// The first always is; after that, once per [`OUTAGE_QUIET`].
+pub(crate) fn refusal_due(previous: Option<Instant>, now: Instant) -> bool {
+    previous.is_none_or(|last| now.duration_since(last) >= OUTAGE_QUIET)
+}
+
+/// What a round with one peer moved, and what that peer refused.
+///
+/// A quiet round prints nothing, but a refusal is printed even when nothing
+/// moved: a round where everything was refused is the round that most needs
+/// saying, and it used to be silent because it changed nothing. Repeats are
+/// held back by [`refusal_due`]; a round without refusals resets it, so a peer
+/// that starts refusing again is reported at once.
+fn report_round(peer: &str, report: &session::RoundReport) {
+    if report.changed_anything() {
+        println!(
+            "{peer}: sent {} ({} chunks, {} segments), received {} files, {} conflicts{}",
+            format_size(report.push.bytes_sent),
+            report.push.chunks_accepted,
+            report.push.segments_accepted,
+            report.pull.adopted,
+            report.pull.conflicted,
+            if report.pull.deferred > 0 {
+                format!(", {} deferred", report.pull.deferred)
+            } else {
+                String::new()
+            }
+        );
+    }
+    let Ok(mut reported) = REFUSALS_REPORTED.lock() else {
+        return;
+    };
+    match crate::describe_refusal(&report.push) {
+        Some(refused) => {
+            let now = Instant::now();
+            if refusal_due(reported.get(peer).copied(), now) {
+                println!("{peer}: {refused}");
+                reported.insert(peer.to_owned(), now);
+            }
+        }
+        None => {
+            reported.remove(peer);
+        }
+    }
 }
 
 fn install_signal_handler() -> Result<()> {

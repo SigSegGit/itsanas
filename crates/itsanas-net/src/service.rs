@@ -28,6 +28,14 @@ use crate::{
     },
 };
 
+/// What a host answers when storing would take it past its pledge.
+///
+/// A constant because the offering side reads it back: `PeerClient` turns this
+/// exact refusal into [`crate::transport::Refusal::PledgeFull`], so an owner can
+/// say "that host has no room" rather than "that host said no". Changing the
+/// text makes every deployed client report a full host as a hostile one.
+pub const PLEDGE_EXHAUSTED: &str = "pledged capacity exhausted";
+
 /// How much foreign data this node has agreed to hold, in bytes.
 ///
 /// Enforced when accepting, not when serving: a node that has already taken
@@ -141,7 +149,7 @@ impl<'a> PeerService<'a> {
                 sealed,
             } => {
                 if self.would_exceed_pledge(sealed.len())? {
-                    return Ok(Response::Refused("pledged capacity exhausted".to_owned()));
+                    return Ok(Response::Refused(PLEDGE_EXHAUSTED.to_owned()));
                 }
                 self.vault.put_chunk(*owner, address, sealed)?;
                 Ok(Response::Stored { accepted: true })
@@ -149,7 +157,7 @@ impl<'a> PeerService<'a> {
 
             Request::StoreSegment { envelope } => {
                 if self.would_exceed_pledge(envelope.sealed_body.len())? {
-                    return Ok(Response::Refused("pledged capacity exhausted".to_owned()));
+                    return Ok(Response::Refused(PLEDGE_EXHAUSTED.to_owned()));
                 }
                 // A rejected segment is the peer's problem, not ours: refuse it
                 // and say why, rather than failing the connection.

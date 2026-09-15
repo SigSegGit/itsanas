@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-15 — 738 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 50 are red-team tests.**
+**Last updated: 2026-09-15 — 741 test functions across 24 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 51 are red-team tests.**
 
-**622 of the 738 tests have an entry of their own on this page** — an *entry*,
+**625 of the 741 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -150,7 +150,7 @@ guarantee and is not one.
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 37 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 44 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 45 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 84 |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 14 |
@@ -158,7 +158,7 @@ guarantee and is not one.
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 28 |
+| `itsanas-cli` unit | 30 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 35 |
@@ -198,6 +198,7 @@ are the answer to that.
 | **`red_team_dialling_strangers_is_rationed_so_a_flood_cannot_eat_the_interval`** | Three hundred minted identities announce themselves. Without a cap the daemon opens three hundred connections per round and spends the whole sync interval shaking hands with machines that store nothing. |
 | **`red_team_a_peer_that_only_answered_the_phone_has_earned_nothing`** | The rule underneath both of the above: completing a mutually authenticated handshake proves possession of a keypair generated a second earlier. It identifies a peer; it vouches for nothing. |
 | **`red_team_a_failed_round_earns_nothing`** | Offering data a peer never took is not the peer storing it. |
+| **`red_team_a_host_that_refuses_everything_is_not_reported_as_nothing_to_send`** | A host takes the connection, answers every question and refuses every byte — pledge 0, a full disk, or a leech. The owner's round printed `sent 0 B, 0 segments`, the line an idle round prints, so the owner believed nothing was pending. The report now counts refusals and keeps the first reason. |
 | **`red_team_a_host_that_keeps_discarding_stops_getting_free_uploads`** | The follow-up attack: keep doing it, and let the owner's own repair drain their uplink forever. |
 | **`red_team_a_host_that_keeps_discarding_stops_costing_bandwidth`** | The rule underneath it. |
 | **`red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder`** | Accept everything, delete it, keep claiming the space. Free, undetectable without audits, and fatal to the replication guarantee. |
@@ -753,7 +754,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (44)
+# `itsanas-net` — two-node tests (45)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -800,6 +801,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_storage_challenge_works_over_the_wire`** | Including that the owner re-derives the expected bytes rather than keeping a second copy — which is what makes remote audit possible at all. |
 | **`a_malformed_request_gets_a_refusal_rather_than_a_dropped_connection`** | A peer cannot kill a sync round by sending something silly. |
 | **`a_host_that_has_pledged_nothing_refuses_to_store_but_still_answers`** | Refusing to store does not make a node stop being a peer. |
+| **`red_team_a_host_that_refuses_everything_is_not_reported_as_nothing_to_send`** | Found by the acceptance bench, whose E, F and G failed on nodes that had pledged nothing while every round said there was nothing to send. The push report counts refusals apart from "already held" and names the reason — `PledgeFull` for the host's `PLEDGE_EXHAUSTED`, which both sides share as one constant. Fails when the count or the reason is dropped. |
 | `a_larger_file_survives_the_wire_byte_for_byte` | Multi-chunk fetch and reassembly. |
 | `a_peer_asking_about_an_unknown_user_gets_an_empty_answer` | No invented chains over the wire either. |
 
@@ -834,7 +836,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (28)
+# `itsanas-cli` — unit tests (30)
 
 ## `bench` — measuring this machine (4)
 
@@ -874,7 +876,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is, naming a device, choosing a port (8)
+## `main` — leaving quietly, saying how old an answer is, naming a device, choosing a port (10)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -890,6 +892,8 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`a_port_another_node_on_this_machine_is_configured_for_is_not_chosen`** | Two accounts on one machine are two daemons. Every node used to be created on 9797, so the second daemon could not bind. The case the kernel cannot see is the one tested: the first account's daemon is stopped, 9797 binds, and handing it out puts two daemons on one port at the next boot. |
 | `a_port_something_already_holds_is_skipped_and_exhaustion_says_so` | A port nothing can bind is never offered, and running out of the hundred-port range returns nothing rather than a port that fails later. |
 | **`the_ports_of_the_other_nodes_beside_this_one_are_found_and_its_own_is_not`** | A sibling node is a directory holding a keystore. A directory without one does not count, and a node's own configuration must not count against it. |
+| **`a_taken_listen_port_is_answered_with_a_free_one_and_the_commands_to_move`** | Nodes created before `init` chose ports all sit on 9797, and the second one's daemon exited with "address in use" — under systemd, every thirty seconds. The error now names a free port and `itsanas listen` / `register`, and offers no port when none is free. |
+| **`a_refusal_is_reported_once_and_then_only_after_a_quiet_period`** | A host with pledge 0 refuses every round. The line that ended the silent `sent 0 B` must not become one line every five minutes per peer, for ever: reported at once, then at most once per `OUTAGE_QUIET`, and again at once after a round with no refusal. The acceptance bench checks that `sync` against a pledge-0 host prints the reason. |
 | `the_message_std_prints_when_a_pipe_closes_is_recognised` | The message copied from the Pi, and its Windows spelling, are both matched — only on the prefix, because the tail belongs to the platform. |
 
 ## `coordinator` — publishing an address (6)

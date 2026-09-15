@@ -242,6 +242,16 @@ j_count=$(printf '%s\n' "$LAST" | awk '{print $4}')
 ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" expect_pass J check "$WORK/folder-m3" "$j_count"
 ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" expect_fail J check "$WORK/folder-m3" "$((j_count + 1))"
 
+say "A host that refuses everything says so"
+# The visible half of the fix, which the unit test cannot see: a host that has
+# pledged nothing refuses every byte, and the round used to print `sent 0 B`,
+# the line for "nothing to send". Every node above pledges, precisely because of
+# that, so this host is made on purpose and the round must say "refused".
+must node stingy init --username stingy-host
+stingy_out=$(serving stingy "$((CPORT + 9))" node m1 sync "127.0.0.1:$((CPORT + 9))" 2>&1)
+check "a round against a host with pledge 0 prints why nothing was stored" \
+    sh -c "printf '%s\n' \"\$1\" | grep -q 'refused [0-9]* offer(s): its pledge is full or zero'" _ "$stingy_out"
+
 say "Two accounts on one machine: separate ports, and both hear the local network"
 # A second account on this machine is a second node home and a second daemon.
 # Two things used to break it: every node was created listening on 9797, so the
@@ -298,6 +308,15 @@ check "the new passphrase opens machine 3" \
     env ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$NEW_PASSPHRASE" "$BIN" whoami
 check "the old passphrase no longer does" \
     sh -c "! ITSANAS_HOME='$WORK/m3' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' whoami </dev/null"
+# A passphrase change that leaves the recovery container under the old one is a
+# recovery that fails months later, with the passphrase the owner now uses.
+must env ITSANAS_HOME="$WORK/m1" ITSANAS_PASSPHRASE="$PASSPHRASE" ITSANAS_NEW_PASSPHRASE="$NEW_PASSPHRASE" \
+    "$BIN" passphrase --recovery
+check "after passphrase --recovery, a fresh machine recovers with the new passphrase" \
+    env ITSANAS_HOME="$WORK/fresh-new" ITSANAS_PASSPHRASE="$NEW_PASSPHRASE" \
+    "$BIN" login --username acceptance --from "127.0.0.1:$CPORT" --device "$COORD_ID"
+check "and no longer with the old one" \
+    sh -c "! ITSANAS_HOME='$WORK/fresh-old' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' login --username acceptance --from '127.0.0.1:$CPORT' --device '$COORD_ID' </dev/null"
 
 echo
 if [ "$failures" -eq 0 ]; then

@@ -143,7 +143,16 @@ enum Command {
     /// sealed under the passphrase it was lodged with; the command says how to
     /// update both. Reads the new passphrase from `ITSANAS_NEW_PASSPHRASE` when
     /// there is no terminal to prompt on.
-    Passphrase,
+    Passphrase {
+        /// Also re-seal the recovery container at the coordinator under the new
+        /// passphrase.
+        ///
+        /// Without it the container keeps the old passphrase, and a recovery
+        /// months later fails with the one this machine now uses. Needs the
+        /// daemon stopped, because re-sealing opens the node.
+        #[arg(long)]
+        recovery: bool,
+    },
     /// Show this node's identity, contents and hosting.
     Status,
     /// Show this account's public identity.
@@ -503,7 +512,7 @@ fn run() -> Result<()> {
             invite,
         } => register(&home, recovery, withdraw_recovery, invite.as_deref()),
         Command::Invite { uses, days } => invite(&home, uses, days),
-        Command::Passphrase => change_passphrase(&home),
+        Command::Passphrase { recovery } => change_passphrase(&home, recovery),
         Command::Status => status(&home),
         Command::Whoami => whoami(&home),
         Command::Ls => list(&home),
@@ -653,8 +662,9 @@ fn init(home: &Path, username: &str) -> Result<()> {
     Ok(())
 }
 
-/// Re-seal this machine's keystore under a new passphrase.
-fn change_passphrase(home: &Path) -> Result<()> {
+/// Re-seal this machine's keystore under a new passphrase, and optionally the
+/// recovery container too.
+fn change_passphrase(home: &Path, recovery: bool) -> Result<()> {
     if !Node::exists(home) {
         return Err(CliError::NoNode(home.to_path_buf()));
     }
@@ -691,18 +701,57 @@ fn change_passphrase(home: &Path) -> Result<()> {
         ));
     }
 
-    Node::change_passphrase(home, &current, &new)?;
+    // The recovery container first, the keystore second. The container is the
+    // step that fails -- a device not enrolled, a coordinator not answering --
+    // and the first version did it second, so either failure left the keystore
+    // under the new passphrase and the container under the old one, from a
+    // command whose comment promised nothing would change. The keystore is a
+    // local write-then-rename; if it fails after the container went through,
+    // the split is the recoverable one and the message says exactly what it is.
+    if recovery {
+        let node = match Node::open(home, &current) {
+            Err(CliError::Store(itsanas_store::StoreError::Locked(_))) => {
+                return Err(CliError::Usage(
+                    "the daemon holds this node, and re-sealing the recovery container opens it; \
+                     stop the daemon, run this again, then start it"
+                        .to_owned(),
+                ));
+            }
+            Err(other) => return Err(other),
+            Ok(node) if node.config.coordinator.is_none() => {
+                return Err(CliError::Usage(
+                    "no coordinator is configured, so there is no recovery container to re-seal"
+                        .to_owned(),
+                ));
+            }
+            Ok(node) => node,
+        };
+        coordinator::set_escrow(&node, Some(&new), &node.secrets)?;
+        println!("recovery container re-sealed under the new passphrase.");
+    }
 
+    if let Err(error) = Node::change_passphrase(home, &current, &new) {
+        if recovery {
+            eprintln!(
+                "the recovery container is already under the NEW passphrase, and this \
+                 machine's keystore is still under the old one. Run this again."
+            );
+        }
+        return Err(error);
+    }
     println!("passphrase changed for this machine's keystore.");
+
     println!();
-    println!("Two things still have the old one, and neither is changed by this:");
+    println!("Still under the old passphrase, and not changed by this:");
     println!("  - whatever starts the daemon without a terminal: on Windows");
     println!("    %LOCALAPPDATA%\\itsanas\\passphrase.txt, on Linux ITSANAS_PASSPHRASE in");
     println!("    ~/.config/itsanas/environment. Update it now, or the daemon will not");
     println!("    start next time. A daemon already running keeps its unlocked keys.");
-    println!("  - a recovery container lodged with a coordinator, which stays sealed");
-    println!("    under the passphrase it was lodged with. `itsanas register --recovery`");
-    println!("    re-seals it under the new one.");
+    if !recovery {
+        println!("  - a recovery container lodged with a coordinator, if there is one.");
+        println!("    `itsanas passphrase --recovery` does both; to re-seal it alone now,");
+        println!("    `itsanas register --recovery`.");
+    }
     Ok(())
 }
 
@@ -1880,6 +1929,25 @@ fn settle_listen_port(node: &mut Node) -> Result<()> {
     Ok(())
 }
 
+/// The line a round prints when a peer refused what it was offered, if it did.
+///
+/// Without it a host refusing everything produced the line an idle round
+/// produces, `sent 0 B`, and the owner believed nothing was pending.
+pub(crate) fn describe_refusal(push: &itsanas_net::PushReport) -> Option<String> {
+    let why = match push.refusal? {
+        itsanas_net::Refusal::PledgeFull => {
+            "its pledge is full or zero, so it hosts nothing more; on that machine, `itsanas pledge <size>`"
+        }
+        // Not "its log says why": a peer logs nothing about what it refuses,
+        // and the first version of this line sent people to read a journal
+        // that had nothing in it.
+        itsanas_net::Refusal::Rejected => {
+            "it rejected them: a segment that does not verify, or does not follow its chain"
+        }
+    };
+    Some(format!("refused {} offer(s): {why}", push.refused))
+}
+
 fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
     let mut node = open(home)?;
 
@@ -2377,6 +2445,9 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
                         String::new()
                     }
                 );
+                if let Some(refused) = describe_refusal(&report.push) {
+                    println!("  {refused}");
+                }
                 if keeping.released > 0 {
                     println!(
                         "  let go of {} file(s), freeing {}",
@@ -2633,6 +2704,41 @@ mod tests {
         assert_eq!(
             sibling_ports(&this),
             std::collections::BTreeSet::from([9797])
+        );
+    }
+
+    #[test]
+    fn a_taken_listen_port_is_answered_with_a_free_one_and_the_commands_to_move() {
+        // Nodes made before `init` chose ports all sit on 9797. The daemon of
+        // the second one used to exit with "address in use" -- under systemd,
+        // every thirty seconds -- and nothing said which port would work or
+        // how to move there.
+        let told = crate::daemon::taken_port_message("0.0.0.0:9797", &"address in use", Some(9798));
+        assert!(told.contains("itsanas listen 0.0.0.0:9798"), "{told}");
+        assert!(told.contains("itsanas register"), "{told}");
+        let none = crate::daemon::taken_port_message("0.0.0.0:9797", &"address in use", None);
+        assert!(
+            none.contains("itsanas listen") && !none.contains("0.0.0.0:9798"),
+            "a port was offered where none is free: {none}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_is_reported_once_and_then_only_after_a_quiet_period() {
+        // A pledge-0 host refuses every round. The line that fixed a silent
+        // round must not turn into one line every five minutes per peer.
+        let now = std::time::Instant::now();
+        assert!(
+            crate::daemon::refusal_due(None, now),
+            "the first refusal from a peer was not reported"
+        );
+        assert!(
+            !crate::daemon::refusal_due(Some(now), now + std::time::Duration::from_secs(300)),
+            "a refusal was repeated at the next round"
+        );
+        assert!(
+            crate::daemon::refusal_due(Some(now), now + crate::daemon::OUTAGE_QUIET_FOR_TESTS),
+            "a refusal that is still going on was never reported again"
         );
     }
 

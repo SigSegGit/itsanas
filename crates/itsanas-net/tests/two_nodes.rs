@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
 use itsanas_net::{
-    PeerClient, PeerServer, PeerService, Pledge,
+    Offer, PeerClient, PeerServer, PeerService, Pledge, Refusal,
     protocol::{Request, Response},
     session,
 };
@@ -956,7 +956,7 @@ fn a_peer_cannot_push_a_forged_segment_into_a_host() {
             PeerClient::connect(address, &owner.device, owner.store.owner(), None).unwrap();
 
         assert!(
-            !client.store_segment(&envelope).unwrap(),
+            !matches!(client.store_segment(&envelope).unwrap(), Offer::Taken),
             "a host accepted a segment whose signature does not verify"
         );
     });
@@ -991,6 +991,42 @@ fn a_host_that_has_pledged_nothing_refuses_to_store_but_still_answers() {
     });
 
     assert_eq!(host.vault.stats().unwrap().bytes, 0);
+}
+
+#[test]
+fn red_team_a_host_that_refuses_everything_is_not_reported_as_nothing_to_send() {
+    // THE ATTACK, or the misconfiguration that looks like one: a host takes the
+    // connection, answers every question, and refuses every byte -- pledge 0,
+    // a full disk, or a node that has decided to leech. The owner's round then
+    // printed `sent 0 B, 0 segments`, which is exactly what an idle round
+    // prints, so the owner believed its data was replicated and nothing was
+    // pending. The acceptance bench lost an afternoon to it on E, F and G.
+    let host = node(&MasterSecret::from_bytes([0xB6; 32]), 30);
+    let owner = node(&alice(), 31);
+
+    owner
+        .store
+        .write_file("pending.txt", b"data that has nowhere to go yet")
+        .unwrap();
+    owner.store.flush_segment().unwrap();
+
+    with_server(&host, Pledge::NONE, |address| {
+        let mut client =
+            PeerClient::connect(address, &owner.device, owner.store.owner(), None).unwrap();
+        let report = session::push(&owner.store, &mut client).unwrap();
+
+        assert_eq!(report.chunks_accepted + report.segments_accepted, 0);
+        assert!(
+            report.refused > 0,
+            "every offer was refused and the report counts no refusal, so the round \
+             reads as a round with nothing to send"
+        );
+        assert_eq!(
+            report.refusal,
+            Some(Refusal::PledgeFull),
+            "the reason is lost, so the owner cannot tell a full host from a hostile one"
+        );
+    });
 }
 
 #[test]

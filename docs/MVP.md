@@ -220,9 +220,10 @@ account checks, is [BRIEFING-MVP.md](BRIEFING-MVP.md) (in French).
 **Before anything: every machine pledges.** A host refuses to store past its
 pledge, its own account's log included (DESIGN.md, the table of what counts
 against what), and the default pledge is zero. A machine that has pledged
-nothing relays nothing — and `itsanas sync` then says `sent 0 B in 0 chunks,
-0 segments`, exactly what it says when there is nothing to send. The kit's own
-bench failed E, F and G for that reason until it pledged.
+nothing relays nothing. The kit's own bench failed E, F and G for that reason
+until it pledged, while every round said `sent 0 B in 0 chunks, 0 segments` —
+the line for "nothing to send". Since 2026-09-15 the round adds
+`refused N offer(s): its pledge is full or zero` instead of staying silent.
 
 | Test | Where | Command |
 | --- | --- | --- |
