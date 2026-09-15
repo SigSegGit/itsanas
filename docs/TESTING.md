@@ -1226,7 +1226,7 @@ hardware it will actually run on.
 | `a_quiet_network_times_out_rather_than_blocking_forever` | A daemon polls this in a loop; a silent network must leave it idle, not hung. |
 | `foreign_traffic_on_the_port_is_reported_as_foreign_not_as_a_failure` | A busy network must not flood the log and hide the failure that matters. |
 | `a_broadcasting_socket_asks_the_kernel_for_broadcast` | Without `SO_BROADCAST` nothing reaches 255.255.255.255 and every send still reports success. |
-| **`two_nodes_on_one_machine_both_hear_the_discovery_port`** | Replaces a test that asserted the opposite. Two accounts on one machine bind UDP 21037 together (`SO_REUSEADDR`) and both hear one real broadcast. The refusal it replaces did not stop the second node: it ran with discovery silently off. Sound only because discovery never sends unicast, which reaches one socket of several. |
+| **`two_nodes_on_one_machine_both_hear_the_discovery_port`** | Replaces a test that asserted the opposite. Two accounts on one machine bind UDP 21037 together (`SO_REUSEADDR`) and both hear one real broadcast. The refusal it replaces did not stop the second node: it ran with discovery silently off. Sound only because discovery never sends unicast, which reaches one socket of several. **On a machine that cannot send a broadcast at all** — the macOS CI runner answers "No route to host" — only the shared bind is checked, and the test says so on stderr; hearing is checked on Linux and Windows. |
 | `the_announce_interval_is_not_expensive_to_leave_running` | An acceptance criterion, not a preference: the first version that keeps a laptop awake gets uninstalled. Under half a megabyte a day, and one lost packet never forgets a peer. |
 
 ---

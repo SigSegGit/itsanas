@@ -70,7 +70,9 @@ delimiter: write the script to the scratchpad. The Rodin audit of 0h found:
 E in the protocol passed through `nicolas` on the Pi, which reads the file, so
 it proved no blind relay (fixed: only `voisin` instances relay during E);
 macOS needs `SO_REUSEPORT` to share a wildcard broadcast port (added, **not
-run on a Mac**; the `macos-latest` test job is its only check); the protocol
+run on a Mac** by hand; on the `macos-latest` runner the shared bind succeeds
+and the broadcast send fails with "No route to host", so on macOS two nodes
+sharing the port is verified and two nodes *hearing* each other is not); the protocol
 told Nicolas to "update" the coordinator with a script that does not build
 (fixed); nodes created before 0h keep whatever port they had.
 
