@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0f
-TITLE: A tray icon for the Windows daemon, to Nicolas's specification
+NEXT: 8.0e
+TITLE: Measure H on the Windows laptop, where the criterion is about
 WRITTEN-AT: 2026-09-15
-BASE: a3c76f1
+BASE: fb98fc2
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -37,7 +37,8 @@ red-team). The seven Rust defences were sabotage-verified; the bench's account
 checks were sabotaged against a broken binary separately (see the PR). The
 Rodin audit also found that final withdrawal is a weapon for whoever holds the
 master secret — written down in `claim.rs`, not fixed — and that
-`coordinator::enrolled` reads any transport error as "older coordinator". **The Pi's coordinator must be
+`coordinator::enrolled` read any transport error as "older coordinator" (fixed
+the same day, below). **The Pi's coordinator must be
 upgraded** for the full device list. Not fixed, written in ROADMAP "The
 identity surface": a stolen node with its passphrase is the whole account, and
 withdrawal does not reach the peer protocol. The manual fleet checklist in
@@ -76,6 +77,29 @@ sharing the port is verified and two nodes *hearing* each other is not); the pro
 told Nicolas to "update" the coordinator with a script that does not build
 (fixed); nodes created before 0h keep whatever port they had.
 
+**Then §8 0b and the audits' leftovers, on Nicolas's "fix what was raised and
+complete the MVP"** (branch `refusals`; #18 is merged as `fb98fc2`). A push
+counts refusals apart from "already held" and keeps the reason (`Offer`,
+`Refusal` in `itsanas-net`; `PLEDGE_EXHAUSTED` shared by host and client), and
+`sync` and the daemon print `refused N offer(s): …` even on a round that moved
+nothing. Also: `device list` retries with `Peers` before blaming the
+coordinator's version, so a dropped connection is reported as one; `itsanas
+passphrase --recovery` re-seals the escrow container (refused while the
+daemon holds the node, before anything changes); a daemon whose listen port is
+taken names a free one and the commands to move. 741 tests, 51 red-team.
+The Rodin audit of this step caught three things, fixed before the PR: the
+"rejected" line told people to read a peer's log, and a peer logs nothing
+about refusals; `passphrase --recovery` changed the keystore before trying the
+coordinator, so an unenrolled device or an unreachable coordinator left the two
+under different passphrases (the container is now re-sealed first); and the
+refusal line repeated every round for a pledge-0 peer (now once, then once per
+`OUTAGE_QUIET`). The bench now checks the printed line, not only the counter.
+**NEXT is 0e, then 0f**: H on Windows is an MVP criterion the kit does not
+measure; the tray is polish Nicolas asked for and waits on one decision of his
+(decommission: drain, or refuse while a hosted chunk has no other holder).
+Not tested by anything automated: the "older coordinator" branch of `device
+list` (no old coordinator exists to point it at).
+
 Traps from this session: a nextest filter `test(=name)` matches nothing for a
 unit test (its name is `module::tests::name`) and a sabotage script reading
 "no tests to run" as a failure reports red for the wrong reason — use
@@ -102,8 +126,8 @@ B, D, E, F and G between three local nodes and points every check at a
 situation it must refuse. Its first runs found three things: two checks that
 printed FAIL and exited 0; F passing on a file that had never arrived; and a
 host with pledge 0 refusing its own account's segments **silently** — `sync`
-prints `sent 0 B, 0 segments`, as if there were nothing to send. That last one
-is §8 0b. **It does not block Nicolas**: MVP.md's command table states the
+printed `sent 0 B, 0 segments`, as if there were nothing to send. That last one
+was §8 0b, fixed on 2026-09-15. **It does not block Nicolas**: MVP.md's command table states the
 pledge prerequisite, so the fleet runs (0c) can start now. The Rodin audit
 caught the earlier wording, which put an agent task ahead of the fleet again.
 
@@ -191,7 +215,8 @@ one long conversation re-read its own context 1,885 times.
   on the Pi and the VM `systemctl --user` said "inactive" for a week while
   hand-started processes ran old binaries. Restart through the unit.
 - A node that has pledged nothing refuses to relay even its own account's
-  log, and `sync` reports that as `sent 0 B`. Every test node pledges.
+  log. `sync` used to report that as `sent 0 B`; it now adds `refused N
+  offer(s): its pledge is full or zero`. Every test node still pledges.
 - `return` after a cleanup in bash hands back the cleanup's status: a check
   that printed FAIL exited 0. Put the verdict last.
 - **Watch `main` after every merge, not only the PR.** `main` went red on
@@ -487,7 +512,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
       I's refusal says idle rounds are silent, and `D check` keeps the
       passphrase prompt visible. Not fixed: E cannot prove two machines never
       met, and F counts neighbours without comparing them to before.
-   b. **Say why a peer refused what was pushed.** Verified facts:
+   b. ✅ **Say why a peer refused what was pushed.** Built 2026-09-15 as
+      specified, with the reason as a `Copy` enum rather than the peer's text
+      (`PushReport` is `Copy`, and a hostile peer's sentence has no business in
+      a log line). Verified facts, as found:
       `StoreChunk` and `StoreSegment` (`crates/itsanas-net/src/service.rs`
       ~138–153) answer `Refused("pledged capacity exhausted")` against a
       host's pledge for every owner, its own account included, which DESIGN.md's

@@ -117,8 +117,9 @@ perdue là en épargne une quand les trois machines attendent.
 ### 2.4 État de départ
 
 Sur chaque machine et chaque instance :
-- `itsanas pledge` au moins 5G (un nœud à pledge 0 ne relaie rien, et `sync`
-  affiche alors `sent 0 B` comme s'il n'y avait rien à envoyer) ;
+- `itsanas pledge` au moins 5G (un nœud à pledge 0 ne relaie rien ; le tour de
+  synchronisation affiche alors `refused N offer(s): its pledge is full or zero`
+  — si tu vois cette ligne pendant les tests, c'est ce prérequis qui manque) ;
 - `itsanas status` ;
 - `itsanas device list` (compte `nicolas`) : retire toute machine morte listée ;
 - sur une machine `nicolas` : `itsanas register --recovery`. C'est *cette*

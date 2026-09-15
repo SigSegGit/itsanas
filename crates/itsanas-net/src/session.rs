@@ -32,7 +32,7 @@ use crate::{
     error::{NetError, Result},
     protocol::{MAX_HAVE_BATCH, MAX_SEGMENTS_PER_REQUEST},
     service::Pledge,
-    transport::PeerClient,
+    transport::{Offer, PeerClient, Refusal},
 };
 
 /// What one push half did.
@@ -69,6 +69,31 @@ pub struct PushReport {
     /// so a test can hold it to zero, because an optimisation nothing measures
     /// is an optimisation nobody notices losing.
     pub chunks_asked_about: usize,
+    /// Offers the peer refused, chunks and segments together.
+    ///
+    /// Counted apart from "not accepted", which also covers a segment the peer
+    /// already had. A host with pledge 0 refuses everything, its own account's
+    /// log included, and the round used to print `sent 0 B, 0 segments` -- the
+    /// line for "there was nothing to send". The acceptance bench failed E, F
+    /// and G that way until every node pledged, and nothing said why.
+    pub refused: usize,
+    /// Why the first refusal happened, if there was one.
+    pub refusal: Option<Refusal>,
+}
+
+impl PushReport {
+    /// Count one offer's answer, and say whether the peer took it.
+    fn record(&mut self, offer: Offer) -> bool {
+        match offer {
+            Offer::Taken => true,
+            Offer::AlreadyHeld => false,
+            Offer::Refused(why) => {
+                self.refused += 1;
+                self.refusal.get_or_insert(why);
+                false
+            }
+        }
+    }
 }
 
 /// What a whole round did.
@@ -295,7 +320,7 @@ fn sweep(
 
             report.chunks_offered += 1;
             let len = sealed.len() as u64;
-            if client.store_chunk(owner, address, sealed)? {
+            if report.record(client.store_chunk(owner, address, sealed)?) {
                 report.chunks_accepted += 1;
                 report.bytes_sent = report.bytes_sent.saturating_add(len);
                 confirmed.push(address);
@@ -466,7 +491,7 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
 
     for envelope in &chain[after..] {
         report.segments_offered += 1;
-        if client.store_segment(envelope)? {
+        if report.record(client.store_segment(envelope)?) {
             report.segments_accepted += 1;
             report.bytes_sent = report
                 .bytes_sent
@@ -520,7 +545,7 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
 
         report.chunks_offered += 1;
         let len = sealed.len() as u64;
-        if client.store_chunk(owner, address, sealed)? {
+        if report.record(client.store_chunk(owner, address, sealed)?) {
             report.chunks_accepted += 1;
             report.bytes_sent = report.bytes_sent.saturating_add(len);
             report.holders_recorded += 1;

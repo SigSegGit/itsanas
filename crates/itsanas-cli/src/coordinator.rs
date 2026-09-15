@@ -283,11 +283,14 @@ pub fn devices(node: &Node, user: UserId) -> Result<Vec<(DeviceId, String)>> {
 
 /// Every device enrolled under this account, reachable or not.
 ///
-/// `Ok(None)` means the coordinator did not answer the request at all, which
-/// is what one older than `Request::Devices` does: it cannot decode the
-/// message and closes the connection. A dropped connection looks the same, so
-/// the caller must say it is showing less rather than present the shorter list
-/// as the whole account.
+/// `Ok(None)` means the coordinator is older than `Request::Devices`: it cannot
+/// decode the message and closes the connection. A dropped connection looks
+/// identical from here, and this used to read both as "too old" -- so a
+/// timeout on an up-to-date coordinator made `device list` quietly show the
+/// short list and blame the coordinator's version. Now a failed `Devices` is
+/// followed by `Peers`, which every coordinator has always answered: if that
+/// works, the coordinator really is older; if it fails too, the connection is
+/// the problem and is reported as one.
 ///
 /// # Errors
 ///
@@ -301,7 +304,12 @@ pub fn enrolled(node: &Node) -> Result<Option<Vec<EnrolledDevice>>> {
         Ok(Response::Devices(list)) => Ok(Some(list)),
         Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
         Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
-        Err(_) => Ok(None),
+        Err(failed) => match devices(node, node.store.owner()) {
+            Ok(_) => Ok(None),
+            Err(_) => Err(CliError::Usage(format!(
+                "the coordinator stopped answering ({failed}); it is not a version question"
+            ))),
+        },
     }
 }
 

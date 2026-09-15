@@ -164,6 +164,46 @@ impl PeerServer {
     }
 }
 
+/// What a peer did with something offered for storage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Offer {
+    /// It stored it.
+    Taken,
+    /// It already had it, which is ordinary: re-offering a log tip is.
+    AlreadyHeld,
+    /// It said no.
+    ///
+    /// Kept apart from `AlreadyHeld`, which it used to share a `false` with, so
+    /// a host refusing everything read exactly like a round with nothing to do.
+    Refused(Refusal),
+}
+
+/// Why a peer refused an offer.
+///
+/// Two cases rather than the peer's sentence, so a report stays `Copy` and a
+/// hostile peer's text never reaches a log line through this path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refusal {
+    /// It has no room left under its pledge, or pledged nothing.
+    PledgeFull,
+    /// Any other refusal: a segment that does not verify or does not chain.
+    Rejected,
+}
+
+impl Offer {
+    fn from_response(answer: Response) -> Result<Self> {
+        match answer {
+            Response::Stored { accepted: true } => Ok(Self::Taken),
+            Response::Stored { accepted: false } => Ok(Self::AlreadyHeld),
+            Response::Refused(reason) if reason == crate::service::PLEDGE_EXHAUSTED => {
+                Ok(Self::Refused(Refusal::PledgeFull))
+            }
+            Response::Refused(_) => Ok(Self::Refused(Refusal::Rejected)),
+            _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
+        }
+    }
+}
+
 /// A connection to a peer, from the asking side.
 pub struct PeerClient {
     connection: Connection<itsanas_tls::session::ClientStream<TcpStream>>,
@@ -405,33 +445,27 @@ impl PeerClient {
         }
     }
 
-    /// Offer a sealed chunk for storage. Returns whether the peer took it.
+    /// Offer a sealed chunk for storage, and say what the peer did with it.
     pub fn store_chunk(
         &mut self,
         owner: UserId,
         address: ChunkId,
         sealed: Vec<u8>,
-    ) -> Result<bool> {
-        match self.request(&Request::StoreChunk {
+    ) -> Result<Offer> {
+        let answer = self.request(&Request::StoreChunk {
             owner,
             address,
             sealed,
-        })? {
-            Response::Stored { accepted } => Ok(accepted),
-            Response::Refused(_) => Ok(false),
-            _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
-        }
+        })?;
+        Offer::from_response(answer)
     }
 
-    /// Offer a segment for storage. Returns whether the peer took it.
-    pub fn store_segment(&mut self, envelope: &SegmentEnvelope) -> Result<bool> {
-        match self.request(&Request::StoreSegment {
+    /// Offer a segment for storage, and say what the peer did with it.
+    pub fn store_segment(&mut self, envelope: &SegmentEnvelope) -> Result<Offer> {
+        let answer = self.request(&Request::StoreSegment {
             envelope: Box::new(envelope.clone()),
-        })? {
-            Response::Stored { accepted } => Ok(accepted),
-            Response::Refused(_) => Ok(false),
-            _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
-        }
+        })?;
+        Offer::from_response(answer)
     }
 
     /// Challenge the peer to prove it still holds a chunk.
