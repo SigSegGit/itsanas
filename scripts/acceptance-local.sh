@@ -242,6 +242,39 @@ j_count=$(printf '%s\n' "$LAST" | awk '{print $4}')
 ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" expect_pass J check "$WORK/folder-m3" "$j_count"
 ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" expect_fail J check "$WORK/folder-m3" "$((j_count + 1))"
 
+say "Two accounts on one machine: separate ports, and both hear the local network"
+# A second account on this machine is a second node home and a second daemon.
+# Two things used to break it: every node was created listening on 9797, so the
+# second daemon could not bind; and discovery refused to share UDP 21037, so the
+# second ran with discovery silently off. Machine 1 is already a node beside
+# this one, configured for 9797.
+must node other init --username second-account
+other_listen=$(node other listen 2>&1)
+check "a second account's node is not given the port machine 1 is configured for" \
+    sh -c "printf '%s\n' '$other_listen' | grep -Eq '^0\.0\.0\.0:[0-9]+$' && ! printf '%s\n' '$other_listen' | grep -q ':9797$'"
+ITSANAS_HOME="$WORK/m1" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" daemon --interval 5 --listen "0.0.0.0:$((CPORT + 7))" \
+    </dev/null >"$WORK/daemon-m1.log" 2>&1 &
+d1=$!
+pids+=("$d1")
+ITSANAS_HOME="$WORK/other" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" daemon --interval 5 \
+    </dev/null >"$WORK/daemon-other.log" 2>&1 &
+d2=$!
+pids+=("$d2")
+# Announcements go out every thirty seconds; three of them is generous.
+for _ in $(seq 90); do
+    grep -q "found another user's device" "$WORK/daemon-m1.log" &&
+        grep -q "found another user's device" "$WORK/daemon-other.log" && break
+    sleep 1
+done
+check "the first account's daemon hears the second on the shared discovery port" \
+    grep -q "found another user's device" "$WORK/daemon-m1.log"
+check "the second account's daemon hears the first" \
+    grep -q "found another user's device" "$WORK/daemon-other.log"
+check "neither daemon ran with local discovery off" \
+    sh -c "! grep -h 'local discovery is off' '$WORK/daemon-m1.log' '$WORK/daemon-other.log'"
+kill "$d1" "$d2" 2>/dev/null
+wait "$d1" "$d2" 2>/dev/null
+
 say "Accounts: a restored machine is enrolled, listed, withdrawn for good"
 # Last, because it withdraws machine 2 and changes machine 3's passphrase.
 must node m2 listen "127.0.0.1:$PORT2"

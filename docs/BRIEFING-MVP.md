@@ -1,108 +1,264 @@
-# Briefing : tester le MVP à la main (Windows, VM, Pi)
+# Protocole de test réel : le MVP, puis la question « est-ce que ça passe à l'échelle ? »
 
-Pour Nicolas. Ce que tu fais de tes mains pour que le verdict de
-[MVP.md](MVP.md) §4 soit pris sur la flotte réelle et non au labo. Chaque test
-renvoie `PASS` ou `FAIL` avec les chiffres via `scripts/acceptance.sh` et
-s'ajoute à `~/.itsanas-receipts/acceptance.txt`. **Tu colles ces fichiers, pas
-une impression.** Un test qui demande un contournement, un indice ou un second
-essai est un échec (MVP.md §3).
+Pour Nicolas, sur ses machines. Deux questions différentes, et ce protocole les
+garde séparées exprès :
 
-## 1. Comment ça marche, en cinq lignes
+1. **Le MVP est-il atteint ?** Une personne, ses machines, un réseau domestique.
+   Réponse par la règle de verdict écrite *avant* ([MVP.md](MVP.md) §4).
+2. **Est-ce que ça peut devenir un réseau à la Storj ?** Beaucoup d'inconnus,
+   Internet, des téraoctets. Trois machines ne peuvent pas y répondre ; elles
+   peuvent mesurer les chiffres qui disent si ça vaut la peine d'essayer. La
+   partie 6 dit précisément ce qui reste inconnu.
 
-- **Un compte = un secret maître** (les 24 mots). Chaque machine du compte en
-  garde une copie dans son keystore, scellée par la passphrase de *cette*
-  machine, plus sa propre clé d'appareil.
-- **Tes fichiers sont découpés, chiffrés et envoyés** à tes autres machines et
-  aux machines d'autres comptes qui ont promis de la place (`pledge`). Un hôte
-  stocke des blocs qu'il ne peut pas lire ; il est audité au hasard.
-- **Le coordinateur (sur le Pi, port 9898)** n'est qu'un annuaire et un casier :
-  qui est quelle machine, où la joindre, et le conteneur de récupération par
-  passphrase (s'il a été déposé). Il ne détient aucune clé. Sur un même réseau
-  les machines se trouvent sans lui (découverte UDP 21037).
-- **Ajouter une machine au compte** : `login` (24 mots, ou `--from` le
-  coordinateur avec la passphrase), puis `register`, `pledge`, `folder`,
-  `daemon`. Depuis cette PR, `login --from` garde le coordinateur, et
-  `register` marche donc directement après.
-- **Retirer une machine** : `itsanas device list` (toutes les machines inscrites,
-  même muettes depuis des semaines) puis `itsanas device forget <id court>`
-  depuis une *autre* machine du compte. Le retrait est **définitif** pour cet
-  identifiant ; pour réutiliser la machine, on supprime son dossier de nœud et on
-  refait `login`. **Limite honnête** : une machine volée *avec* sa passphrase
-  (fichier du daemon) donne tout le compte ; le retrait ne l'annule pas.
+Chaque test du kit renvoie `PASS` ou `FAIL` avec les chiffres via
+`scripts/acceptance.sh` et s'ajoute à `~/.itsanas-receipts/acceptance.txt`. **Tu
+colles ces fichiers, pas une impression.** Un test qui demande un contournement,
+un indice ou un second essai est un échec (MVP.md §3).
 
-## 2. Préparation (une fois, ~20 min)
+Compte ~2 jours calendaires : une matinée active (parties 2 à 4), puis des
+périodes où les machines tournent seules (H 24 h, I jusqu'à 48 h).
 
-1. **Mettre les trois machines sur `main` après la fusion de cette PR**, et
-   redémarrer par le service, jamais à la main (HANDOVER §0 : un daemon lancé à la
-   main a caché une vieille version pendant une semaine).
-   - Pi et VM : réinstaller depuis le checkout à jour, puis
-     `systemctl --user restart itsanas`.
-   - Pi, coordinateur : réinstaller, puis `sudo systemctl restart itsanas-coordinator`.
-     **Obligatoire** : sans ça, `device list` affiche seulement les machines vues
-     cette semaine et le dit.
-   - Windows : réinstaller, puis `Stop-ScheduledTask ITSaNAS; Start-ScheduledTask ITSaNAS`.
-   - Vérifier : `git -C <checkout> log -1 --oneline` identique sur les trois.
-2. **Toujours dû sur le laptop** (HANDOVER §0) : la tâche planifiée a été créée
-   en admin ; passer son action à `conhost --headless` demande ta commande admin.
-3. **Chaque machine promet de la place** : `itsanas pledge 10G` au minimum. Un
-   nœud à pledge 0 ne relaie rien et `sync` affiche alors `sent 0 B`, comme s'il
-   n'y avait rien à envoyer.
-4. **État de départ**, sur chaque machine : `itsanas status`, puis
-   `itsanas device list`. Retire (`device forget`) toute machine morte listée. Note
-   quel compte tourne où (laptop, Pi, VM : `nicolas`, `voisin`, `mandarine`,
-   `sigseg42`…), il en faut deux différents pour C.
-5. **Conteneur de récupération** : sur une machine du compte testé,
-   `itsanas register --recovery` (il demande la passphrase ; c'est *celle-là* qui
-   servira en D).
+---
 
-**Piège à vérifier avant B, E, F, G : ils demandent des machines du *même*
-compte.** Le dossier synchronisé ne reçoit que les fichiers de son propre compte ;
-un hôte d'un autre compte garde des blocs illisibles et rien dans `~/ITSaNAS`.
-D'après le handover, la flotte a eu `sigseg42` sur le laptop, `nicolas` sur le
-Pi et `voisin`/`mandarine` sur la VM. Si c'est encore le cas, ajoute sur P et V
-un nœud du compte du laptop (`ITSANAS_HOME=~/itsanas-w itsanas login --username
-<compte-du-laptop> --from <ip-du-pi>:9898 --device <id>`, puis `register`,
-`pledge`, `folder`, `daemon`) avant ces quatre tests, et fais tourner le kit
-avec ce `ITSANAS_HOME`. Garde les nœuds des autres comptes : ce sont eux qui
-servent C et le relais aveugle de E.
+## 1. Comment ça marche, en six lignes
 
-Sur Windows, le kit tourne sous **Git Bash** (`bash scripts/acceptance.sh …`).
-Sur la VM, deux nœuds se partagent le port de découverte : le second ne trouve
-ses pairs que via le coordinateur ou `itsanas peer add`.
+- **Un compte = un secret maître** (les 24 mots). Chaque machine du compte en garde
+  une copie dans son keystore, scellée par la passphrase de *cette* machine, plus
+  sa propre clé d'appareil.
+- **Tes fichiers sont découpés, chiffrés, envoyés** à tes autres machines et aux
+  machines d'autres comptes qui ont promis de la place (`pledge`). Un hôte stocke
+  des blocs qu'il ne peut pas lire, et il est audité au hasard.
+- **Le coordinateur (sur le Pi, port 9898)** est un annuaire et un casier : qui est
+  quelle machine, où la joindre, le conteneur de récupération par passphrase. Il ne
+  détient aucune clé. Sur un même réseau les machines se trouvent sans lui
+  (découverte UDP 21037).
+- **Plusieurs machines, un compte** : `login` (24 mots, ou `--from` le coordinateur
+  avec la passphrase), puis `register`, `pledge`, `folder`, `daemon`. `device list`
+  montre toutes les machines inscrites ; `device forget` en retire une, pour de bon.
+- **Plusieurs comptes, une machine** : chaque compte est une *instance* nommée,
+  avec son dossier (`~/.itsanas-NOM`), sa passphrase, son service
+  (`itsanas@NOM` / tâche `ITSaNAS-NOM`) et son port, choisi automatiquement. Les
+  instances partagent la découverte réseau.
+- **Limite honnête** : une machine volée *avec* sa passphrase (fichier du daemon)
+  donne tout le compte ; retirer l'appareil ne l'annule pas.
 
-## 3. Les tests, dans l'ordre qui coûte le moins
+---
 
-Notation : **W** = laptop Windows, **P** = Pi, **V** = VM Freebox. `~/ITSaNAS` =
-le dossier synchronisé de la machine.
+## 2. Préparation (~45 min)
+
+### 2.1 Les machines et les rôles
+
+| Machine | Compte `nicolas` (instance par défaut) | Compte `voisin` (instance nommée) | Rôle en plus |
+| --- | --- | --- | --- |
+| **W** laptop Windows | oui | facultatif (`-Instance voisin`) | la machine du quotidien : H se mesure ici |
+| **P** Raspberry Pi | oui | **oui** (`--instance voisin`) | coordinateur |
+| **V** VM Freebox | oui | **oui** (`--instance voisin`) | hôte toujours allumé, machine « détruite » en D |
+| Android | facultatif | — | voir 5.3 |
+| Mac | facultatif | — | voir 5.3 |
+
+Pourquoi deux comptes : B, E, F et G demandent des machines du **même** compte
+(`nicolas` sur les trois) ; C et le relais aveugle de E demandent un hôte d'un
+**autre** compte (`voisin`) ; et `voisin` à côté de `nicolas` sur P et V est
+exactement ton cas 1a. Adapte les noms à ce qui existe déjà sur la flotte
+(`sigseg42`, `mandarine`…), mais garde cette structure.
+
+### 2.2 Mettre tout le monde sur la même version
+
+Tout sur `main` après la fusion de la PR « two accounts on one machine ».
+Redémarrer par le service, jamais à la main (un daemon lancé à la main a caché
+une vieille version pendant une semaine).
+
+- P et V : `git -C <checkout> pull`, `sh install/linux.sh --source <checkout> --yes`,
+  puis `systemctl --user daemon-reload && systemctl --user restart itsanas`.
+- P, coordinateur : `coordinator.sh` **ne compile pas**, il installe un binaire.
+  Donc d'abord `cargo build --release -p itsanas-coordinator` dans le checkout,
+  puis `sudo sh install/coordinator.sh --binary target/release/itsanas-coordinator`
+  et `sudo systemctl restart itsanas-coordinator`. **Obligatoire** : sans ça,
+  `device list` retombe sur la liste partielle en disant que le coordinateur est
+  plus ancien que le client.
+- **Tous les nœuds d'une machine avant d'en ajouter un.** Un nœud d'une version
+  ancienne prend le port de découverte pour lui seul ; un nouveau à côté tourne
+  découverte coupée (sur Windows, erreur 10013 dans son journal).
+- W : `install\windows.ps1 -Yes` puis `Stop-ScheduledTask ITSaNAS; Start-ScheduledTask ITSaNAS`.
+  Toujours dû (HANDOVER §0) : la tâche a été créée en admin ; ta commande admin
+  pour passer à `conhost --headless`.
+- Vérifier : `git -C <checkout> log -1 --oneline` identique partout.
+
+### 2.3 Installer la seconde instance (cas 1a)
+
+Sur P puis V :
+
+```sh
+ITSANAS_PASSPHRASE='…' sh install/provision.sh --no-install --instance voisin \
+  --username voisin --pledge 5G --folder ~/ITSaNAS-voisin \
+  --coordinator <ip-du-pi>:9898 --coordinator-device <id>
+```
+
+(`--phrase-file` sur la seconde machine du compte, `--invite <code>` si le
+coordinateur admet sur invitation.) Sur Windows, même chose avec `provision.ps1
+-Instance voisin …`.
+
+**Les nœuds qui existent déjà ne bougent pas.** Le port libre n'est choisi qu'à
+la création (`init`/`login`). Si la VM a déjà deux nœuds sur 9797 (`voisin`,
+`mandarine`), ou un nœud hors de `~/.itsanas*` que la détection ne voit pas,
+donne-lui un port à la main : `ITSANAS_HOME=<son dossier> itsanas listen
+0.0.0.0:9798` puis `itsanas register`, ou recrée-le en instance.
+
+**Avant la matinée de test** : joue 2.2 et 2.3 à blanc sur la VM seule. Une heure
+perdue là en épargne une quand les trois machines attendent.
+
+**Vérifier, sur P et V** — tu notes le résultat en une ligne :
+
+- `ITSANAS_HOME=~/.itsanas-voisin itsanas listen` ≠ celui de `itsanas listen`.
+- `systemctl --user status itsanas itsanas@voisin` : les deux actifs.
+- `journalctl --user-unit itsanas@voisin | grep found` : « found another user's
+  device … » ; **jamais** « local discovery is off ».
+
+### 2.4 État de départ
+
+Sur chaque machine et chaque instance :
+- `itsanas pledge` au moins 5G (un nœud à pledge 0 ne relaie rien, et `sync`
+  affiche alors `sent 0 B` comme s'il n'y avait rien à envoyer) ;
+- `itsanas status` ;
+- `itsanas device list` (compte `nicolas`) : retire toute machine morte listée ;
+- sur une machine `nicolas` : `itsanas register --recovery`. C'est *cette*
+  passphrase qui servira en D.
+
+Le kit tourne sous **Git Bash** sur Windows (`bash scripts/acceptance.sh …`).
+Pour une instance nommée, préfixe `ITSANAS_HOME=~/.itsanas-voisin`.
+
+---
+
+## 3. Le MVP : tests A à J
+
+W = laptop, P = Pi, V = VM, `~/ITSaNAS` = dossier synchronisé du compte `nicolas`.
 
 | # | Où | Quoi faire | Réussi si |
 | --- | --- | --- | --- |
-| **B** | W puis P, V | W : `bash scripts/acceptance.sh B write ~/ITSaNAS` → nom + sha256. Sur P et V, dans la minute où tous sont éveillés : `B check ~/ITSaNAS <nom> <sha>` | PASS sur P et V |
-| **C** | W puis l'hôte d'un **autre** compte | W : `C plant ~/ITSaNAS` → canari. Attendre un tour (5 min). Sur la machine d'un autre compte qui héberge W : `C scan <canari> ~/.itsanas` | PASS (le contrôle interne prouve que la recherche marche). **Si C échoue, on arrête le projet.** |
-| **D** | V, dossier neuf | `ITSANAS_HOME=~/itsanas-d itsanas login --username <compte> --from <ip-du-pi>:9898 --device <id du coordinateur>` (passphrase seule, **pas les 24 mots**), puis `ITSANAS_HOME=~/itsanas-d itsanas register`, `… pledge 1G`, `… sync` (sans adresse : il interroge le coordinateur et ne joint que les machines **de ce compte** qui sont allumées — si aucune ne l'est, lance plutôt `… daemon` quelques minutes, qui trouve aussi les hôtes du réseau local, puis arrête-le), puis `ITSANAS_HOME=~/itsanas-d bash scripts/acceptance.sh D check <chemin> <sha>` d'un fichier connu | PASS, sans avoir tapé une adresse de pair |
-| **D′ comptes** | W et `~/itsanas-d` | Sur W : `itsanas device list` montre la machine D (« heard from … »). `itsanas device forget <12 premiers caractères>`. Sur V : `ITSANAS_HOME=~/itsanas-d itsanas register` doit **refuser** (« withdrawn from this account »). Puis `ITSANAS_HOME=~/itsanas-d itsanas passphrase` : la nouvelle ouvre (`whoami`), l'ancienne non. Enfin `rm -rf ~/itsanas-d` | les quatre constats, notés à la main |
-| **E** | V off, W, puis V | Éteindre V (ou `systemctl --user stop itsanas`). W : `E write ~/ITSaNAS`, attendre un tour complet avec P éveillé (sur W, `itsanas status` doit dire que les blocs sont ailleurs), **puis éteindre W**. Rallumer V : `E check ~/ITSaNAS <nom> <sha>` | PASS alors que W et V ne se sont jamais vus éveillés |
-| **F** | W, puis V | V éteinte. W : `F delete ~/ITSaNAS <nom>`, un tour, W éteinte. V rallumée : `F check ~/ITSaNAS <nom>`, puis **encore après un tour** | deux PASS ; rien d'autre n'a disparu |
-| **G** | W et V hors réseau | W : wifi coupé. V : daemon arrêté. Sur chacune : `G edit ~/ITSaNAS <nom> <tag-différent>`. Reconnecter les deux, attendre deux tours, puis `G check ~/ITSaNAS <nom>` sur **les deux** | PASS des deux côtés et **même empreinte** |
-| **I** | P coordinateur coupé | `sudo systemctl stop itsanas-coordinator` (48 h visées ; note la durée réelle). Pendant la coupure, écrire un fichier sur W. Sur V : `journalctl --user -u itsanas --since "<début>" > /tmp/daemon.log` puis `I check /tmp/daemon.log`. `itsanas status` doit dire ce qui est dégradé. Relancer le coordinateur | PASS, et le fichier est arrivé |
-| **J** | les trois | Sur chaque : `J count ~/ITSaNAS`. Redémarrer les trois dans n'importe quel ordre, **dont le Pi par coupure de courant pendant un gros `itsanas put`**. Daemon arrêté, `J check ~/ITSaNAS <nombre donné par J count>` | PASS partout, aucun `doctor --repair` |
-| **H** | W surtout | P et V : `H sample` toutes les 5 min pendant 24 h (cron/timer), puis `H report`. **W, que le kit ne mesure pas** : `powercfg /batteryreport` avant/après une journée normale, gestionnaire des tâches (CPU au repos, mémoire de `itsanas.exe`), `powercfg /requests` (le daemon ne doit pas empêcher la veille) | CPU au repos négligeable, < 200 Mo, batterie inchangée, la veille marche |
+| **A** | partout | aucune phase : les installations de la partie 2 se sont faites sans éditer un fichier ni taper une adresse de pair | vrai sur les trois |
+| **B** | W puis P, V | W : `B write ~/ITSaNAS` → nom + sha256. Sur P et V, dans la minute où tous sont éveillés : `B check ~/ITSaNAS <nom> <sha>` | PASS sur P et V |
+| **C** | W puis instance `voisin` de V | W : `C plant ~/ITSaNAS` → canari. Attendre deux tours. Sur V : `C scan <canari> ~/.itsanas-voisin` | PASS. **Si C échoue, on arrête le projet.** |
+| **D** | V, dossier neuf | `ITSANAS_HOME=~/itsanas-d itsanas login --username nicolas --from <ip-du-pi>:9898 --device <id>` (passphrase seule, **pas les 24 mots**), puis `… register`, `… pledge 1G`, `… sync` (sans adresse : il demande au coordinateur les machines du compte allumées ; si aucune ne l'est, `… daemon` quelques minutes), puis `ITSANAS_HOME=~/itsanas-d bash scripts/acceptance.sh D check <chemin> <sha>` | PASS sans avoir tapé d'adresse de pair |
+| **E** | W, puis V ; seules les instances `voisin` servent de relais | **Arrêter `itsanas` (compte `nicolas`) sur P *et* sur V** ; garder `itsanas@voisin` sur les deux : ce sont les seuls relais, et ils ne peuvent pas lire. Sinon V récupère le fichier chez `nicolas` sur P, qui le lit, et E passe sans avoir rien prouvé. W : `E write ~/ITSaNAS`, attendre deux tours (`itsanas status` sur W : les blocs sont ailleurs), **puis éteindre W**. Relancer `itsanas` sur V seulement : `E check ~/ITSaNAS <nom> <sha>`. Puis relancer `itsanas` sur P | PASS alors que V n'a pu joindre aucune machine de son compte |
+| **F** | W, puis V | `itsanas` de V arrêté. W : `F delete ~/ITSaNAS <nom>`, un tour, W éteinte. V relancé : `F check ~/ITSaNAS <nom>`, puis **encore après un tour** | deux PASS ; rien d'autre n'a disparu |
+| **G** | W et V hors réseau | W : wifi coupé. V : `itsanas` arrêté. Sur chacune : `G edit ~/ITSaNAS <nom> <tag-différent>`. Reconnecter, deux tours, `G check ~/ITSaNAS <nom>` sur **les deux** | PASS des deux côtés et **même empreinte** |
+| **H** | W surtout | P et V : `H sample` toutes les 5 min pendant 24 h, puis `H report`. **W, que le kit ne mesure pas** : `powercfg /batteryreport` avant/après une journée normale, gestionnaire des tâches (CPU au repos, mémoire de `itsanas.exe`), `powercfg /requests` | CPU au repos négligeable, < 200 Mo, batterie inchangée, la veille marche |
+| **I** | coordinateur coupé | `sudo systemctl stop itsanas-coordinator` (48 h visées ; note la durée réelle). Pendant la coupure, écrire un fichier sur W. Sur V : `journalctl --user-unit itsanas --since "<début>" > /tmp/daemon.log` puis `I check /tmp/daemon.log`. `itsanas status` doit dire ce qui est dégradé. Relancer | PASS, et le fichier est arrivé |
+| **J** | les trois | Sur chaque : `J count ~/ITSaNAS`. Redémarrer les trois dans n'importe quel ordre, **dont le Pi par coupure de courant pendant un gros `itsanas put`**. Daemon arrêté : `J check ~/ITSaNAS <nombre donné par J count>` | PASS partout, aucun `doctor --repair` |
 
-**A** n'a pas de phase : il est réussi si D′ et les installations se sont fait
-sans éditer un fichier ni taper une adresse de pair.
+**L'expérience à dix secondes**, pendant J sur le Pi : `itsanas put big.bin
+<quelques centaines de Mo>`, débrancher au milieu, redémarrer, `itsanas doctor
+--deep`. Deux fois. Un fichier qui ne vérifie pas → le flush sert ; seulement des
+blocs orphelins → il ne sert à rien et l'écriture peut aller deux fois plus vite.
 
-**L'expérience à dix secondes (MVP.md §5, fin)**, pendant J sur le Pi :
-`itsanas put big.bin <quelques centaines de Mo>`, débrancher au milieu,
-redémarrer, `itsanas doctor --deep`. Deux fois. Dis-moi s'il signale un fichier
-qui ne vérifie pas (le flush sert) ou seulement des blocs orphelins (il ne sert
-à rien et l'écriture peut aller deux fois plus vite).
+---
 
-## 4. Ce que tu me renvoies
+## 4. Plusieurs comptes sur une machine (1a)
 
-1. `~/.itsanas-receipts/acceptance.txt` des trois machines.
-2. Les constats de D′ et de H sur Windows, en une ligne chacun avec les chiffres.
-3. Pour chaque FAIL : la sortie complète de la commande et `itsanas status`.
+Sur P, avec `nicolas` et `voisin` qui tournent :
 
-Le verdict se prend avec la règle écrite *avant* (MVP.md §4) : C rouge → stop ;
-A, B, D, F ou J rouge → démo, pas MVP ; E, G ou I rouge → le design distribué
-est faux quelque part ; H rouge → on corrige avant tout le reste.
+| # | Quoi faire | Réussi si |
+| --- | --- | --- |
+| **1a-1** | 2.3 fait sans erreur | deux services actifs, deux ports différents |
+| **1a-2** | redémarrer P ; ne rien toucher | les deux instances reviennent seules |
+| **1a-3** | un fichier dans `~/ITSaNAS` (`nicolas`) et un autre dans `~/ITSaNAS-voisin` | chacun n'apparaît que dans son compte, sur toutes ses machines |
+| **1a-4** | `C scan <canari de nicolas> ~/.itsanas-voisin` sur P | PASS : deux comptes sur un même disque restent aveugles l'un à l'autre |
+| **1a-5** | `sh install/clean.sh --instance voisin` (dry run), puis `--yes` | seule l'instance disparaît ; `itsanas` (`nicolas`) tourne toujours |
+
+---
+
+## 5. Un compte, plusieurs machines (1b)
+
+### 5.1 Retirer une machine, changer une passphrase
+
+Avec la machine D (`~/itsanas-d` sur V), avant de la supprimer :
+
+1. Sur W : `itsanas device list` la montre (« heard from … »).
+2. `itsanas device forget <12 premiers caractères>`.
+3. Sur V : `ITSANAS_HOME=~/itsanas-d itsanas register` doit **refuser** (« withdrawn from
+   this account »).
+4. `ITSANAS_HOME=~/itsanas-d itsanas passphrase` : la nouvelle ouvre (`whoami`), l'ancienne non.
+5. `rm -rf ~/itsanas-d`.
+
+### 5.2 Une machine muette
+
+Éteindre V une semaine n'est pas raisonnable ; à la place, sur W :
+`itsanas device list` doit lister *aussi* les machines éteintes, avec depuis
+combien de temps elles se taisent. Note ce que tu vois pour chacune.
+
+### 5.3 Android et Mac (facultatif, et dit honnêtement)
+
+- **Android** : la seule APK publiée (v0.1.0, signature de debug) est vieille de
+  plusieurs semaines de corrections et n'a jamais tourné que sur émulateur. Il faut
+  en construire une neuve (`scripts/build-apk.sh`, SDK et NDK requis). Test :
+  restaurer `nicolas` avec les 24 mots, ajouter W comme machine, synchroniser,
+  ouvrir un fichier. **Pas de dossier qui se synchronise tout seul** : l'app tient
+  des fichiers, elle ne surveille pas un répertoire.
+- **Mac** : pas de binaire ; `sh install/macos.sh` depuis un checkout (compile, Apple
+  silicon validé en CI seulement), puis les mêmes commandes qu'un Linux. Une seule
+  instance (le service launchd n'a pas de variante nommée).
+
+---
+
+## 6. Les mesures qui parlent d'échelle
+
+Elles ne décident pas du MVP. Elles disent si la suite a un sens. Note chaque
+chiffre avec la machine.
+
+| Mesure | Comment | Pourquoi elle compte |
+| --- | --- | --- |
+| Débit local | `itsanas bench --size 1G` sur W, P, V | combien d'heures pour charger 1 To (connu : ~27 Mio/s laptop, ~54 VM) |
+| Débit réseau | un fichier de 1 Go dans `~/ITSaNAS` sur W, chronométrer jusqu'à `B check` PASS sur P puis sur V | le vrai goulot pour quiconque n'est pas sur ton réseau |
+| Temps de restauration | en D, chronométrer `sync` pour tout le compte, et noter sa taille (`itsanas status`) | « je perds mon laptop, combien de temps avant de retravailler » |
+| Écritures au repos | `H report` sur P et V | un SD de Pi qui meurt en un an disqualifie un nœud grand public |
+| Fichiers par Go | `find ~/.itsanas/store -type f \| wc -l` puis diviser par la taille | un fichier par bloc : 14,7 millions par To, mesuré ; au-delà, les pack files manquent |
+| Coût d'un hôte | sur l'instance `voisin` : `itsanas status` (ce qu'elle héberge), CPU/RAM pendant un tour | ce que ça coûte d'héberger les autres |
+
+---
+
+## 7. Ce que ce protocole ne peut PAS montrer
+
+Un vert partout dira « ça marche pour une personne ». Il ne dira pas « viable comme
+Storj ». Voici pourquoi, point par point, pour que personne ne lise un succès de
+travers.
+
+| Inconnu | Pourquoi tes machines ne le voient pas | État dans le code |
+| --- | --- | --- |
+| **Des inconnus hostiles, nombreux** | tous les nœuds sont à toi ; personne ne triche | audits aléatoires et red-team en labo ; jamais contre un vrai tricheur |
+| **NAT et Internet** | P et V sont chez toi ou à IP publique | **pas de traversée de NAT** ; une machine derrière un NAT se joint seulement en sortant |
+| **Bande passante** | réseau local rapide | aucune comptabilité de débit (HANDOVER §9) |
+| **Le téraoctet** | tes comptes pèsent des Go | un fichier par bloc ; pack files décidés, pas construits ; l'audit couvre 1 To en ~10 ans |
+| **L'économie** | tu ne peux pas te voler toi-même | le partage 30/70 n'est appliqué que localement ; un client modifié stocke sans donner (HANDOVER §8.1 b-c) |
+| **L'usage déclaré** | — | l'usage est auto-déclaré ; les hôtes ne le vérifient pas |
+| **Troncature de l'historique** | — | un hôte peut servir un préfixe cohérent du journal (non détecté) |
+| **Coût du stockage** | — | réplication ×3 ; Storj fait du codage à effacement (moins de surcoût pour la même durabilité) et paie ses opérateurs. Ici, troc sans paiement |
+| **Le coordinateur** | un seul, chez toi | point central pour trouver et récupérer ; un réseau ouvert en demande plusieurs, ou une DHT (DESIGN §8) |
+
+**Ce qui distingue vraiment le projet**, et que ce protocole peut confirmer : C et
+1a-4 (l'hôte est aveugle, vérifiable en une commande), E (relais aveugle entre
+machines qui ne se voient jamais), et l'absence de loyer. Si ces trois tiennent sur
+tes machines, la question devient : *quelqu'un d'autre voudrait-il héberger tes
+blocs contre les siens ?* — et elle se teste avec une deuxième personne, pas avec
+une quatrième machine.
+
+---
+
+## 8. Décider
+
+1. **Le MVP** : la règle de MVP.md §4, telle quelle. C rouge → stop. A, B, D, F ou J
+   rouge → démo, pas MVP. E, G ou I rouge → le design distribué est faux quelque
+   part. H rouge → on corrige avant tout le reste.
+2. **1a et 1b** : un rouge est un bug à corriger avant d'inviter qui que ce soit.
+3. **La suite « à la Storj »**, seulement si le MVP passe. Les chiffres de la
+   partie 6 qui justifieraient d'y aller : restauration de ton compte réel en
+   moins d'une nuit, écritures au repos compatibles avec une carte SD, CPU/batterie
+   invisibles sur W. Ensuite, dans l'ordre : une deuxième personne (appliquer le
+   partage chez l'hôte, HANDOVER §8.1 c), les pack files, la traversée de NAT.
+
+## 9. Ce que tu me renvoies
+
+1. `~/.itsanas-receipts/acceptance.txt` de chaque machine et de chaque instance.
+2. Une ligne par constat manuel (2.3, 1a, 5.1, 5.2, H Windows) avec les chiffres.
+3. Le tableau de la partie 6 rempli.
+4. Pour chaque FAIL : la sortie complète de la commande, `itsanas status`, et le
+   journal du daemon.

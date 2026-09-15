@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-15 — 735 test functions across 24 binaries, 3 of them
+**Last updated: 2026-09-15 — 738 test functions across 24 binaries, 3 of them
 `#[ignore]`d, plus 2 doctests. 50 are red-team tests.**
 
-**619 of the 735 tests have an entry of their own on this page** — an *entry*,
+**622 of the 738 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,7 +158,7 @@ guarantee and is not one.
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 25 |
+| `itsanas-cli` unit | 28 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 35 |
@@ -834,7 +834,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (25)
+# `itsanas-cli` — unit tests (28)
 
 ## `bench` — measuring this machine (4)
 
@@ -874,7 +874,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is, naming a device (5)
+## `main` — leaving quietly, saying how old an answer is, naming a device, choosing a port (8)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -887,6 +887,9 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`a_prefix_that_names_no_device_is_refused_rather_than_invented`** | `itsanas device forget` accepts the short device id the logs print. A revocation is a signed record the coordinator files and honours, so one written against an identifier nobody holds would be silent, permanent and impossible to notice. Five strings that name no device must all be refused. |
 | `the_short_form_the_logs_print_is_enough_to_name_a_device` | The other half: a unique prefix resolves, and one shared by two devices refuses rather than picking one. |
 | **`an_age_never_reads_as_fresher_than_it_is`** | With the daemon running, `itsanas status` prints a snapshot rather than refusing, and the header says how old it is. That number decides whether the reader trusts what follows, so every boundary rounds *down* -- towards admitting the snapshot is older. The case that matters is the last one: a daemon that died three days ago must not leave something that reads as current. |
+| **`a_port_another_node_on_this_machine_is_configured_for_is_not_chosen`** | Two accounts on one machine are two daemons. Every node used to be created on 9797, so the second daemon could not bind. The case the kernel cannot see is the one tested: the first account's daemon is stopped, 9797 binds, and handing it out puts two daemons on one port at the next boot. |
+| `a_port_something_already_holds_is_skipped_and_exhaustion_says_so` | A port nothing can bind is never offered, and running out of the hundred-port range returns nothing rather than a port that fails later. |
+| **`the_ports_of_the_other_nodes_beside_this_one_are_found_and_its_own_is_not`** | A sibling node is a directory holding a keystore. A directory without one does not count, and a node's own configuration must not count against it. |
 | `the_message_std_prints_when_a_pipe_closes_is_recognised` | The message copied from the Pi, and its Windows spelling, are both matched — only on the prefix, because the tail belongs to the platform. |
 
 ## `coordinator` — publishing an address (6)
@@ -1223,7 +1226,7 @@ hardware it will actually run on.
 | `a_quiet_network_times_out_rather_than_blocking_forever` | A daemon polls this in a loop; a silent network must leave it idle, not hung. |
 | `foreign_traffic_on_the_port_is_reported_as_foreign_not_as_a_failure` | A busy network must not flood the log and hide the failure that matters. |
 | `a_broadcasting_socket_asks_the_kernel_for_broadcast` | Without `SO_BROADCAST` nothing reaches 255.255.255.255 and every send still reports success. |
-| `two_nodes_on_one_machine_refuse_to_share_a_port` | Better a refusal at start-up than a second node whose discovery quietly never works. |
+| **`two_nodes_on_one_machine_both_hear_the_discovery_port`** | Replaces a test that asserted the opposite. Two accounts on one machine bind UDP 21037 together (`SO_REUSEADDR`) and both hear one real broadcast. The refusal it replaces did not stop the second node: it ran with discovery silently off. Sound only because discovery never sends unicast, which reaches one socket of several. **On a machine that cannot send a broadcast at all** — the macOS CI runner answers "No route to host" — only the shared bind is checked, and the test says so on stderr; hearing is checked on Linux and Windows. |
 | `the_announce_interval_is_not_expensive_to_leave_running` | An acceptance criterion, not a preference: the first version that keeps a laptop awake gets uninstalled. Under half a megabyte a day, and one lost packet never forgets a peer. |
 
 ---

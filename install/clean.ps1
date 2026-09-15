@@ -30,7 +30,10 @@
 param(
     [switch]$Yes,
     [switch]$PurgeAccount,
-    [string]$NodeHome = $(if ($env:ITSANAS_HOME) { $env:ITSANAS_HOME } else { "$env:USERPROFILE\.itsanas" })
+    # One named instance only: its task, passphrase file, wrapper, logs and, with
+    # -PurgeAccount, its node. The programs and the other nodes stay.
+    [string]$Instance = '',
+    [string]$NodeHome = $(if ($Instance) { "$env:USERPROFILE\.itsanas-$Instance" } elseif ($env:ITSANAS_HOME) { $env:ITSANAS_HOME } else { "$env:USERPROFILE\.itsanas" })
 )
 
 # Not `Stop`: several of the probes below are expected to fail on a machine that
@@ -44,6 +47,43 @@ $taskName = 'ITSaNAS'
 
 function Plan([string]$line) { Write-Host "  $line" }
 
+if ($Instance) {
+    if ($Instance -cnotmatch '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$') {
+        Write-Host "-Instance must be lowercase letters, digits and inner dashes"
+        exit 2
+    }
+    $taskName = "ITSaNAS-$Instance"
+    $files = @("$state\passphrase-$Instance.txt", "$state\run-daemon-$Instance.ps1",
+        "$state\daemon-$Instance.log", "$state\daemon-$Instance.log.1")
+    Write-Host "ITSaNAS clean-up, instance $Instance"
+    Write-Host ""
+    Write-Host "Only this instance. The programs and every other node on this machine"
+    Write-Host "stay; run without -Instance to remove the whole install."
+    Write-Host ""
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($task) { Plan "stop and remove the task '$taskName'" } else { Plan "no task named '$taskName'" }
+    foreach ($file in $files) { if (Test-Path $file) { Plan "remove $file" } }
+    if (Test-Path $NodeHome) {
+        if ($PurgeAccount) { Plan "REMOVE $NodeHome - the sealed master secret and every chunk of this instance" }
+        else { Plan "keep $NodeHome (pass -PurgeAccount to remove it)" }
+    } else { Plan "no node at $NodeHome" }
+    if (-not $Yes) {
+        Write-Host ""
+        Write-Host "Nothing was changed. Add -Yes to do it."
+        exit 0
+    }
+    if ($task) {
+        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+    }
+    foreach ($file in $files) { Remove-Item $file -Force -ErrorAction SilentlyContinue }
+    if ($PurgeAccount -and (Test-Path $NodeHome)) {
+        Remove-Item $NodeHome -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Write-Host "instance $Instance removed"
+    exit 0
+}
+
 Write-Host "ITSaNAS clean-up"
 Write-Host ""
 
@@ -54,6 +94,8 @@ if ($task) {
 } else {
     Plan "no task named '$taskName'"
 }
+$instanceTasks = @(Get-ScheduledTask -TaskName 'ITSaNAS-*' -ErrorAction SilentlyContinue)
+foreach ($other in $instanceTasks) { Plan "stop and remove the instance task '$($other.TaskName)'" }
 $running = @(Get-Process itsanas, itsanas-drive -ErrorAction SilentlyContinue)
 if ($running.Count -gt 0) { Plan "stop $($running.Count) running process(es)" }
 
@@ -80,6 +122,9 @@ if (Test-Path $NodeHome) {
 } else {
     Plan "no node at $NodeHome"
 }
+foreach ($instanceHome in @(Get-ChildItem -Directory -Force "$env:USERPROFILE\.itsanas-*" -ErrorAction SilentlyContinue)) {
+    Plan "keep $($instanceHome.FullName) (an instance: clean.ps1 -Instance NAME -PurgeAccount)"
+}
 
 if (-not $Yes) {
     Write-Host ""
@@ -94,6 +139,10 @@ Write-Host ""
 if ($task) {
     Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+}
+foreach ($other in $instanceTasks) {
+    Stop-ScheduledTask -TaskName $other.TaskName -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $other.TaskName -Confirm:$false -ErrorAction SilentlyContinue
 }
 Get-Process itsanas, itsanas-drive -ErrorAction SilentlyContinue |
     Stop-Process -Force -ErrorAction SilentlyContinue

@@ -627,9 +627,25 @@ if [ "$DO_SERVICE" -eq 1 ]; then
         # unlock the keystore and it writes into the user's home; running it as
         # root would put the keys somewhere the user cannot read and give a
         # storage daemon privileges it has no use for.
-        cat > "$UNIT_DIR/itsanas.service" <<UNIT
+        # One unit text, two files: the default node, and a template for named
+        # instances -- a second account on this machine is `itsanas@bob`,
+        # with its own home, passphrase file and journal. One heredoc rather
+        # than two copies, so the limits below cannot drift between them.
+        for UNIT_NAME in itsanas.service itsanas@.service; do
+            if [ "$UNIT_NAME" = itsanas.service ]; then
+                UNIT_DESC="ITSaNAS peer-to-peer storage"
+                UNIT_HOME_ENV=""
+                UNIT_ENV_FILE="%h/.config/itsanas/environment"
+                UNIT_STATE="%h/.itsanas"
+            else
+                UNIT_DESC="ITSaNAS peer-to-peer storage, instance %i"
+                UNIT_HOME_ENV="Environment=ITSANAS_HOME=%h/.itsanas-%i"
+                UNIT_ENV_FILE="%h/.config/itsanas/%i.environment"
+                UNIT_STATE="%h/.itsanas-%i"
+            fi
+        cat > "$UNIT_DIR/$UNIT_NAME" <<UNIT
 [Unit]
-Description=ITSaNAS peer-to-peer storage
+Description=$UNIT_DESC
 Documentation=https://github.com/SigSegGit/itsanas
 After=network-online.target
 Wants=network-online.target
@@ -637,6 +653,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=$BIN_DIR/itsanas daemon
+$UNIT_HOME_ENV
 Restart=on-failure
 RestartSec=30
 
@@ -672,7 +689,7 @@ IOWeight=50
 # world-readable; the installer creates it with 600 and refuses to continue if
 # it cannot. Leaving it out means the unit will not start, which is the honest
 # failure: a daemon cannot prompt.
-EnvironmentFile=-%h/.config/itsanas/environment
+EnvironmentFile=-$UNIT_ENV_FILE
 
 # What this does and does not buy, because the difference is not obvious.
 #
@@ -691,12 +708,13 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=false
 NoNewPrivileges=true
-ReadWritePaths=-%h/.itsanas -%h/.config/itsanas
+ReadWritePaths=-$UNIT_STATE -%h/.config/itsanas
 
 [Install]
 WantedBy=default.target
 UNIT
-        ok "$UNIT_DIR/itsanas.service"
+            ok "$UNIT_DIR/$UNIT_NAME"
+        done
 
         ENV_DIR="$HOME/.config/itsanas"
         mkdir -p "$ENV_DIR" && chmod 700 "$ENV_DIR" || die "could not create $ENV_DIR"

@@ -118,9 +118,22 @@ done
 if command -v systemd-analyze >/dev/null 2>&1; then
     units=$(mktemp -d)
 
-    sed -n '/^\[Unit\]/,/^WantedBy=default.target$/p' install/linux.sh \
-        | sed 's|\$BIN_DIR|/usr/local/bin|g' \
+    # linux.sh writes two units from one heredoc: the default node, and the
+    # template for named instances. Both flavours are verified as written; the
+    # template under an instance name, because systemd-analyze cannot verify a
+    # bare `name@.service`.
+    member_unit() {
+        sed -n '/^\[Unit\]/,/^WantedBy=default.target$/p' install/linux.sh |
+            sed 's|\$BIN_DIR|/usr/local/bin|g' |
+            sed "s|[\$]UNIT_DESC|$1|; s|[\$]UNIT_HOME_ENV|$2|; s|[\$]UNIT_ENV_FILE|$3|; s|[\$]UNIT_STATE|$4|"
+    }
+    member_unit "ITSaNAS peer-to-peer storage" "" "%h/.config/itsanas/environment" "%h/.itsanas" \
         > "$units/itsanas.service"
+    member_unit "ITSaNAS peer-to-peer storage, instance %i" "Environment=ITSANAS_HOME=%h/.itsanas-%i" \
+        "%h/.config/itsanas/%i.environment" "%h/.itsanas-%i" > "$units/itsanas@check.service"
+    if grep -q '[$]UNIT_' "$units/itsanas.service" "$units/itsanas@check.service"; then
+        bad "a unit variable in install/linux.sh is not substituted by this check"
+    fi
 
     sed -n '/^\[Unit\]/,/^WantedBy=multi-user.target$/p' install/coordinator.sh \
         | sed 's|\$SERVICE_USER|itsanas-coord|g' \
