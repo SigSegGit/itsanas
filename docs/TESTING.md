@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-16 — 746 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 53 are red-team tests.**
+**Last updated: 2026-09-16 — 748 test functions across 24 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 54 are red-team tests.**
 
-**630 of the 746 tests have an entry of their own on this page** — an *entry*,
+**632 of the 748 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -155,7 +155,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 150 |
+| `itsanas-store` unit | 151 |
 | `itsanas-store` integration (`tests/store.rs`) | 40 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
@@ -168,7 +168,7 @@ guarantee and is not one.
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 34 |
+| `itsanas-cli` unit | 35 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 35 |
@@ -409,7 +409,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (135, plus the 15 vault tests below)
+# `itsanas-store` — unit tests (136, plus the 15 vault tests below)
 
 ## `reliability` — remembering that a peer failed (9)
 
@@ -556,13 +556,14 @@ something nobody looked at, and disagreeing for a reason that is not data.
 | `a_segment_round_trips_for_its_owner` | The happy path works. |
 | `encoding_round_trips_through_the_wire_format` | Serialisation preserves everything, including verifiability. |
 
-## `path` — logical path validation (9)
+## `path` — logical path validation (10)
 
 Paths arrive from a peer's operation log, so they are attacker-controlled the
 moment the sync engine starts materialising files.
 
 | Test | What it proves |
 | --- | --- |
+| `the_two_unicode_spellings_of_one_name_are_two_paths_today` | Pins a contract rather than a defence. macOS returns decomposed filenames (NFD) where Linux and Windows use composed (NFC), and nothing here normalises, so one `Café.txt` is two logical paths. Reproduced on Windows without a Mac on 2026-09-16: two `put`s, two stored files, `scan` printing `out  Unicode/Café.txt` **twice** with `0 conflicts`. Nothing is lost; the person gets a duplicate they cannot tell apart. This test exists so that adding normalisation is a decision somebody takes on purpose, not a silent change that makes every existing accented path unreachable. |
 | **`traversal_is_rejected_in_every_position`** | `..` is refused leading, trailing and interior. Without this a peer writes `../../../.ssh/authorized_keys`. |
 | **`absolute_paths_are_rejected`** | Unix absolute paths and Windows drive-letter prefixes both refused. |
 | **`backslashes_are_rejected_rather_than_translated`** | Translating would make `a\b` and `a/b` name one file on Windows and two on Linux, so the devices would diverge. |
@@ -847,7 +848,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (34)
+# `itsanas-cli` — unit tests (35)
 
 ## `bench` — measuring this machine (4)
 
@@ -887,7 +888,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port (14)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port (15)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -903,6 +904,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`a_port_another_node_on_this_machine_is_configured_for_is_not_chosen`** | Two accounts on one machine are two daemons. Every node used to be created on 9797, so the second daemon could not bind. The case the kernel cannot see is the one tested: the first account's daemon is stopped, 9797 binds, and handing it out puts two daemons on one port at the next boot. |
 | `a_port_something_already_holds_is_skipped_and_exhaustion_says_so` | A port nothing can bind is never offered, and running out of the hundred-port range returns nothing rather than a port that fails later. |
 | **`the_ports_of_the_other_nodes_beside_this_one_are_found_and_its_own_is_not`** | A sibling node is a directory holding a keystore. A directory without one does not count, and a node's own configuration must not count against it. |
+| **`red_team_a_stopped_node_is_never_reported_as_a_running_one`** | `status` prints the snapshot in two different situations — the daemon is holding the store, or nothing is running and this is what a stopped node last said, possibly last week. One sentence for both would make "this node is running" a claim the command cannot support, and that sentence is what a reader uses to decide whether to trust the numbers under it. |
 | **`red_team_a_running_node_is_reported_with_its_age_and_no_passphrase`** | The other half of `an_age_never_reads_as_fresher_than_it_is`: that one checks the arithmetic, this one checks the arm is reachable at all. `snapshot_status` takes a path and nothing else, so it *cannot* prompt -- the guarantee is structural rather than a promise. A regression here is a node whose health is unreadable without the passphrase. |
 | `a_snapshot_without_a_stamp_is_printed_but_not_dated` | A snapshot written by an older version has no time on its first line. Printing it is right; inventing an age for it is not, because the age is the only thing telling a reader whether to trust the numbers under it. |
 | `a_node_that_has_never_synced_says_so_rather_than_printing_nothing` | A node whose daemon has not finished a round yet has no snapshot. Succeeding with empty output would read as a healthy node with nothing to report, which is the opposite of the truth. |

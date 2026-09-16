@@ -271,6 +271,39 @@ Absence of code is weak evidence about behaviour. This project's own tense
 discipline says a present indicative needs a test behind it, and three of them
 did not have one.
 
+**Then the four things the audit had listed and nobody had fixed.**
+
+* **The Mac bug was reproduced without a Mac**, which I had said was
+  impossible. Storing both normalisation forms directly -- `Caf\u{e9}.txt` and
+  `Cafe\u{301}.txt` -- gives two stored files, `scan` writes both to NTFS, and
+  the round prints `out  Unicode/Café.txt` **twice** with `0 conflicts`. So
+  the Unicode gap is now a **result**, not a prediction: a duplicate nobody can
+  tell apart, no data lost, and a Mac joining the account would re-upload every
+  accented file it received from Linux. Pinned by
+  `the_two_unicode_spellings_of_one_name_are_two_paths_today`, which documents
+  the current contract so that adding normalisation is a deliberate decision
+  rather than a silent change that strands every existing accented path.
+* **`status` now answers in every state.** The earlier fix only covered a
+  *running* daemon. A stopped node with no terminal still got a lecture about
+  environment variables -- which is the whole window between installing and
+  starting the daemon, exactly when somebody asks whether it works. It now
+  prints the last snapshot with `nothing is running this node`, and a node that
+  has never finished a round says so and names `itsanas daemon`.
+  `red_team_a_stopped_node_is_never_reported_as_a_running_one` keeps the two
+  sentences apart; sabotage-verified.
+* **The flaky security test is fixed, and it was genuinely flaky.**
+  `the_phrase_is_not_written_anywhere_under_the_node_directory` searched for the
+  phrase's **first word plus a space** -- as little as four ASCII bytes hunted
+  through redb pages, which collides by chance. Proof: it failed in CI's
+  coverage job and **passed on a re-run of the identical commit**, while 125
+  local runs never reproduced it. It now uses three words (~33 bits) and plants
+  a control first, the way `C scan` does. Sabotage-verified by making
+  `Node::create` write the phrase to disk.
+* **Still not done, and it is small:** `acceptance.ps1` does not record the
+  size of the account it measured, so H's "with a large folder" stays
+  unverifiable. Now cheap, because `itsanas status` answers without a
+  passphrase while the daemon runs -- the sampler can just ask it.
+
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
 empty on a pure host, and checking the wrong one made a real host holding

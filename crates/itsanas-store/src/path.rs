@@ -97,6 +97,47 @@ mod tests {
         assert!(validate(path).is_ok(), "{path:?} should have been accepted");
     }
 
+    /// Two spellings of one filename are two files, and that is not decided.
+    ///
+    /// # What this pins
+    ///
+    /// macOS hands back **decomposed** names from the filesystem (NFD: `e`
+    /// followed by U+0301) where Linux and Windows use **composed** (NFC:
+    /// U+00E9). Nothing in this workspace normalises a filename, so the same
+    /// `Café.txt` is two different logical paths depending on which machine
+    /// wrote it.
+    ///
+    /// Reproduced on Windows on 2026-09-16 without a Mac, by storing both
+    /// forms directly: two `put`s produced two stored files, `scan` wrote both
+    /// to NTFS, and the round printed `out  Unicode/Café.txt` **twice** with
+    /// `0 conflicts` — identical to the eye, unrelated to the system. Nothing
+    /// is lost; what the person gets is a duplicate they cannot tell apart,
+    /// and a Mac joining the account would re-upload every accented file it
+    /// received from Linux.
+    ///
+    /// This test does not say that is right. It says it is **current**, so
+    /// that adding normalisation is a decision somebody takes on purpose —
+    /// canonicalising to NFC on ingest while keeping the on-disk form per
+    /// platform is where Syncthing landed — rather than a silent change that
+    /// makes every existing accented path unreachable.
+    #[test]
+    fn the_two_unicode_spellings_of_one_name_are_two_paths_today() {
+        let composed = "Caf\u{e9}.txt";
+        let decomposed = "Cafe\u{301}.txt";
+
+        assert_ne!(
+            composed, decomposed,
+            "the fixture is wrong: these must be different byte strings"
+        );
+        accepted(composed);
+        accepted(decomposed);
+        assert_ne!(
+            composed.len(),
+            decomposed.len(),
+            "composed is 3 bytes for the accent, decomposed 3 for e + combining mark"
+        );
+    }
+
     #[track_caller]
     fn rejected(path: &str) {
         assert!(

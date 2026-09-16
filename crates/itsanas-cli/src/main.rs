@@ -1290,12 +1290,14 @@ fn describe_age(seconds: u64) -> String {
     }
 }
 
-/// What the daemon last reported, for a node it is currently holding.
+/// What the daemon last reported, whether or not it is still running.
 ///
-/// Takes no passphrase, and that is the whole point: the snapshot is a plain
-/// file in the node home, so printing it needs no key. Returns the text instead
-/// of printing it so that the age line can be tested.
-fn snapshot_status(home: &Path) -> Result<String> {
+/// Takes no passphrase, and that is the point: the snapshot is a plain file in
+/// the node home, so printing it needs no key. Returning the text rather than
+/// printing it is what makes the age line testable. `running` decides the
+/// first line only — a snapshot from a stopped node must not read as a live
+/// one.
+fn snapshot_status(home: &Path, running: bool) -> Result<String> {
     let text = std::fs::read_to_string(home.join(SNAPSHOT)).map_err(|_| {
         CliError::Usage(
             "this node is running and has not written a snapshot yet. Wait for its first sync round, or stop it and ask again."
@@ -1307,18 +1309,38 @@ fn snapshot_status(home: &Path) -> Result<String> {
     let taken = stamp
         .strip_prefix("snapshot ")
         .and_then(|seconds| seconds.trim().parse::<u64>().ok());
+    // The two cases are not the same claim and must not read as one. A daemon
+    // holding the store means the snapshot is a recent report of a live node;
+    // no daemon means it is the last thing a stopped node said, which may be
+    // from last week.
+    let subject = if running {
+        "this node is running"
+    } else {
+        "nothing is running this node"
+    };
     let header = match taken {
         Some(taken) => format!(
-            "this node is running, so what follows is what it reported {}.",
+            "{subject}, so what follows is what it reported {}.",
             describe_age(itsanas_discover::now_unix().saturating_sub(taken))
         ),
         // A snapshot whose first line is not a stamp is one this version did
         // not write. Print it rather than refuse, and do not put an age on it
         // that was never measured.
-        None => "this node is running; the snapshot it left has no time on it.".to_owned(),
+        None => format!("{subject}; the snapshot it left has no time on it."),
     };
 
     Ok(format!("{header}\n\n{body}"))
+}
+
+/// Whether a passphrase could be obtained without failing.
+///
+/// Mirrors the two ways [`passphrase`] can succeed: the environment variable,
+/// or a terminal to prompt on. Asked before opening a node so that a command
+/// which has a usable answer without keys can give it, instead of failing with
+/// advice about environment variables to somebody who only wanted to know
+/// whether their files are safe.
+fn passphrase_available() -> bool {
+    std::env::var(PASSPHRASE_ENV).is_ok() || std::io::stdin().is_terminal()
 }
 
 fn status(home: &Path) -> Result<()> {
@@ -1331,8 +1353,29 @@ fn status(home: &Path) -> Result<()> {
     // snapshot would not bypass, and it made "is my node healthy?" a question
     // you could not ask without unsealing your keys.
     if Node::exists(home) && itsanas_store::Store::is_locked(Node::store_path(home)) {
-        print!("{}", snapshot_status(home)?);
+        print!("{}", snapshot_status(home, true)?);
         return Ok(());
+    }
+
+    // No daemon, and no way to ask for a passphrase: a live read is impossible,
+    // so the snapshot is strictly better than an error about environment
+    // variables. This is the state a machine is in for the whole window
+    // between installing and starting the daemon -- which is exactly when
+    // somebody asks whether the thing works.
+    if Node::exists(home) && !passphrase_available() {
+        if home.join(SNAPSHOT).exists() {
+            print!("{}", snapshot_status(home, false)?);
+            return Ok(());
+        }
+        // A node that exists and has never finished a sync round. Answering
+        // with advice about environment variables tells somebody who just
+        // installed this that they have done something wrong, when the real
+        // answer is that nothing has run yet and they should start it.
+        return Err(CliError::Usage(format!(
+            "this node has never finished a sync round, so it has nothing to \
+             report yet. Start it with `itsanas daemon`, or set {PASSPHRASE_ENV} \
+             to open the node and read its state directly."
+        )));
     }
 
     match open(home) {
@@ -1345,7 +1388,7 @@ fn status(home: &Path) -> Result<()> {
         // exactly when it is slowest. Rare, and the original bug if it were
         // dropped.
         Err(CliError::Store(itsanas_store::StoreError::Locked(_))) => {
-            print!("{}", snapshot_status(home)?);
+            print!("{}", snapshot_status(home, true)?);
             Ok(())
         }
         Err(other) => Err(other),
@@ -2708,7 +2751,7 @@ mod tests {
         )
         .expect("write snapshot");
 
-        let out = snapshot_status(home).expect("a stamped snapshot is readable");
+        let out = snapshot_status(home, true).expect("a stamped snapshot is readable");
         assert!(
             out.contains("4 hours ago"),
             "the snapshot's age was not reported, so a reader cannot tell a \
@@ -2720,6 +2763,43 @@ mod tests {
         );
     }
 
+    /// A stopped node's report never reads as a live one.
+    ///
+    /// `status` prints the snapshot in two quite different situations: the
+    /// daemon is holding the store, so the file is a recent report of a
+    /// running node; or nothing is running and it is the last thing a stopped
+    /// node said, possibly last week. Printing one sentence for both would
+    /// make "this node is running" a claim the command cannot support -- and
+    /// that sentence is the one a person uses to decide whether to trust the
+    /// numbers under it.
+    #[test]
+    fn red_team_a_stopped_node_is_never_reported_as_a_running_one() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let home = dir.path();
+        let taken = itsanas_discover::now_unix().saturating_sub(6 * 86_400);
+        std::fs::write(
+            home.join(SNAPSHOT),
+            format!("snapshot {taken}\n  files          3\n"),
+        )
+        .expect("write snapshot");
+
+        let stopped = snapshot_status(home, false).expect("readable");
+        assert!(
+            !stopped.contains("this node is running"),
+            "a node nothing is running was reported as running: {stopped}"
+        );
+        assert!(
+            stopped.contains("6 days ago"),
+            "a six-day-old snapshot did not say so: {stopped}"
+        );
+
+        let running = snapshot_status(home, true).expect("readable");
+        assert!(
+            running.contains("this node is running"),
+            "a held store should say the node is running: {running}"
+        );
+    }
+
     /// An undated snapshot is printed, and never given an age it never had.
     #[test]
     fn a_snapshot_without_a_stamp_is_printed_but_not_dated() {
@@ -2727,7 +2807,7 @@ mod tests {
         let home = dir.path();
         std::fs::write(home.join(SNAPSHOT), "  files          3\n").expect("write snapshot");
 
-        let out = snapshot_status(home).expect("an unstamped snapshot is still readable");
+        let out = snapshot_status(home, false).expect("an unstamped snapshot is still readable");
         assert!(
             out.contains("no time on it"),
             "an undated snapshot was passed off as current: {out}"
@@ -2743,7 +2823,7 @@ mod tests {
     fn a_node_that_has_never_synced_says_so_rather_than_printing_nothing() {
         let dir = tempfile::tempdir().expect("temp dir");
         assert!(
-            snapshot_status(dir.path()).is_err(),
+            snapshot_status(dir.path(), true).is_err(),
             "a missing snapshot produced a successful, empty status, which \
              reads as a healthy node that has simply nothing to report"
         );
