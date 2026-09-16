@@ -319,6 +319,22 @@ for that half**, because the phase looks for sync rounds *completing* after the
 outage and a node that can reach nobody completes none -- it would report FAIL
 for a machine behaving correctly.
 
+**A second randomised security test was found flaking, the same way.**
+`a_corrupted_recovery_phrase_is_rejected_not_silently_accepted` generated a
+random phrase, swapped two words and asserted the checksum rejected it. A
+24-word BIP-39 phrase carries 256 bits of entropy and an **8-bit** checksum, so
+a transposition still validates roughly **1 time in 256** — and with five test
+jobs a push that surfaces regularly, announcing that corrupted phrases are
+silently accepted, which is the most alarming possible way to report a coin
+landing tails. Caught on macOS during a pull request that changed **one
+markdown file**. Now five checked-in seeds, so the test is identical on every
+platform and every run.
+
+That is two randomised security tests in one day. **If a security test draws
+random input, work out its false-failure rate before trusting it**, because the
+failure mode is not a wasted run — it is teaching everybody that the alarm is
+noise.
+
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
 empty on a pure host, and checking the wrong one made a real host holding

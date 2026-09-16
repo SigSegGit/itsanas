@@ -514,22 +514,39 @@ mod tests {
         );
     }
 
+    /// A transposed phrase is caught, and the seeds are fixed on purpose.
+    ///
+    /// # Why this must not use a random phrase
+    ///
+    /// It did, and it failed on the macOS runner on 2026-09-16 during a pull
+    /// request that changed one markdown file. A 24-word BIP-39 phrase carries
+    /// 256 bits of entropy and an **8-bit** checksum, so swapping two words
+    /// leaves a phrase that still checksums roughly **1 time in 256**. With
+    /// five test jobs a push, that surfaces regularly — and it surfaces as a
+    /// *security* test announcing that corrupted phrases are silently
+    /// accepted, which is the most alarming possible way to report a coin
+    /// landing tails.
+    ///
+    /// The property is real and worth testing; the dice are not. These seeds
+    /// are checked in, so the test is the same every run on every platform. If
+    /// one ever starts failing, the checksum genuinely stopped working, and
+    /// that is exactly the signal a random phrase was drowning.
     #[test]
     fn a_corrupted_recovery_phrase_is_rejected_not_silently_accepted() {
-        let phrase = MasterSecret::generate()
-            .unwrap()
-            .to_recovery_phrase()
-            .unwrap();
-        let mut words: Vec<&str> = phrase.split_whitespace().collect();
-
-        // Swap two words: still all-valid vocabulary, but the checksum must fail.
-        words.swap(0, 1);
-        let swapped = words.join(" ");
-        if swapped != *phrase {
+        for seed in [1u8, 7, 23, 99, 200] {
+            let phrase = master(seed).to_recovery_phrase().unwrap();
+            let mut words: Vec<&str> = phrase.split_whitespace().collect();
+            words.swap(0, 1);
+            let swapped = words.join(" ");
+            assert_ne!(
+                swapped, *phrase,
+                "seed {seed} produced a phrase whose first two words are equal, \
+                 so the transposition tested nothing"
+            );
             assert!(
                 MasterSecret::from_recovery_phrase(&swapped).is_err(),
-                "a transposed recovery phrase decoded successfully, so a user \
-                 typo would silently restore the wrong identity"
+                "a transposed recovery phrase decoded successfully for seed \
+                 {seed}, so a user typo would silently restore the wrong identity"
             );
         }
 
