@@ -130,9 +130,41 @@ Pour une instance nommée, préfixe `ITSANAS_HOME=~/.itsanas-voisin`.
 
 ---
 
-## 3. Le MVP : tests A à J
+## 3. Le MVP : tests A à M
 
 W = laptop, P = Pi, V = VM, `~/ITSaNAS` = dossier synchronisé du compte `nicolas`.
+
+### 3.0 Le fil : une histoire, pas une liste
+
+Les lettres sont des propriétés à vérifier, pas un ordre de travail. Suis
+l'histoire ci-dessous du haut vers le bas ; chaque étape dit quelles lettres
+elle valide. Utilise des données **reconnaissables à l'œil** — une photo dont tu
+te souviens, un document dont tu connais la première ligne — parce que tu vas
+passer la journée à te demander « est-ce que c'est bien celui-là ».
+
+| # | Sur | Ce que tu fais | Lettres |
+| --- | --- | --- | --- |
+| 1 | P | Compte `nicolas`. Tu déposes **une photo et trois PDF** dans `~/ITSaNAS` | — |
+| 2 | V | Même compte. Tu dois **retrouver les quatre fichiers** | **B**, et **D** si tu es parti d'un dossier neuf |
+| 3 | V | Tu **supprimes un PDF** et tu **ajoutes une deuxième photo** | — |
+| 4 | P | La suppression et la nouvelle photo **sont arrivées** | **F** |
+| 5 | P et V | Hors réseau des deux côtés, tu édites **le même fichier** différemment, puis tu reconnectes | **G** |
+| 6 | W | Tu écris un fichier, tu attends deux tours, **tu éteins W**, puis V le récupère | **E** |
+| 7 | W | Deuxième compte `voisin`. Il héberge les blocs de `nicolas` **sans pouvoir les lire** | **C** — *si C échoue, on arrête le projet* |
+| 8 | P ou V | `itsanas status` : **où sont les copies**, combien sont confirmées | **L** |
+| 9 | W | Tu **effaces le vault** de `voisin` à la main. P doit s'en apercevoir et replacer ailleurs | **K** |
+| 10 | V | Deuxième instance pour `voisin` : elle récupère ses données, et **les deux instances ne se voient pas** | **M** |
+| 11 | W | Une journée normale, daemon lancé | **H** |
+| 12 | coord. | Coordinateur coupé, **deux fois** : tout à la maison, puis W en partage de connexion | **I** |
+| 13 | les trois | Redémarrages, dont le Pi par coupure de courant | **J** |
+
+**Ne commence pas par 10 Go de vidéos.** Les chiffres sont dans `MVP.md` §6 :
+27,2 Mio/s d'archivage sur le laptop et **14,7 millions de fichiers par
+téraoctet**, soit ~150 000 fichiers pour 10 Go, à pousser ensuite vers deux
+autres machines — dont la carte SD du Pi, et ce projet en a déjà tué une. Les
+*pack files* sont le correctif décidé et **ne sont pas construits**. Quelques
+centaines de Mo suffisent pour tout ce qui est ci-dessus. Les 10 Go sont un test
+de débit, à faire exprès, en sachant que c'est le débit qu'on mesure.
 
 | # | Où | Quoi faire | Réussi si |
 | --- | --- | --- | --- |
@@ -146,6 +178,9 @@ W = laptop, P = Pi, V = VM, `~/ITSaNAS` = dossier synchronisé du compte `nicola
 | **H** | W surtout | **W** : `powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1 H schedule`, une journée normale, puis `… H report` (CPU, mémoire, écritures, et un rapport batterie `powercfg` à lire à côté), puis `… H sleep` **dans un PowerShell administrateur** (le daemon empêche-t-il la veille, a-t-il réveillé la machine) ; `… H unschedule` pour arrêter. **P et V** : `H sample` toutes les 5 min pendant 24 h, puis `H report` | **`H report` et `H sleep` PASS, et le rapport batterie lu par toi** — `H report` seul ne couvre que CPU et mémoire. Laisse le laptop se mettre en veille au moins une fois pendant la journée, daemon lancé : sans veille, `H sleep` refuse de conclure |
 | **I** | coordinateur coupé | `sudo systemctl stop itsanas-coordinator` (48 h visées ; note la durée réelle). Pendant la coupure, écrire un fichier sur W. Sur V : `journalctl --user-unit itsanas --since "<début>" > /tmp/daemon.log` puis `I check /tmp/daemon.log`. `itsanas status` doit dire ce qui est dégradé. Relancer | PASS, et le fichier est arrivé |
 | **J** | les trois | Sur chaque : `J count ~/ITSaNAS`. Redémarrer les trois dans n'importe quel ordre, **dont le Pi par coupure de courant pendant un gros `itsanas put`**. Daemon arrêté : `J check ~/ITSaNAS <nombre donné par J count>` | PASS partout, aucun `doctor --repair` |
+| **K** | W (hôte), puis P | Pas de phase du kit. Sur W, **efface le vault de `voisin` à la main**. Sur P, laisse passer quelques tours puis `itsanas status` | P cesse de compter W comme détenteur, annonce les blocs sous leur cible, **replace ailleurs**, et **rien n'est perdu**. Trois échecs consécutifs et W ne reçoit plus de contenu neuf. *Le vault est un dossier ordinaire : l'effacer ne demande aucun privilège et rien ne prévient — c'est connu, ce n'est pas le résultat du test* |
+| **L** | n'importe laquelle | Ne tape aucune commande. Regarde ce que le logiciel te dit de lui-même | **Échoue aujourd'hui, c'est attendu.** `itsanas status` sait déjà tout dire (`the promise`, `spreading off`, `headroom`, `unconfirmed`) mais il faut le demander, **et il faut la passphrase**. Aucune alerte n'existe : `ARCHITECTURE.md` §7 est une spec vide. Note ce que tu aurais voulu voir et où |
+| **M** | V, deux instances | Suis la partie 4. Sur chaque instance : `itsanas status` et le contenu du dossier | Chacune ne montre **que** son compte ; celle qui héberge l'autre ne peut pas lire ; arrêter l'une laisse l'autre synchroniser |
 
 **L'expérience à dix secondes**, pendant J sur le Pi : `itsanas put big.bin
 <quelques centaines de Mo>`, débrancher au milieu, redémarrer, `itsanas doctor

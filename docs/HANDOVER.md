@@ -9,9 +9,9 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0f
-TITLE: A tray icon for the Windows daemon, to Nicolas's specification
-WRITTEN-AT: 2026-09-15
+NEXT: 8.0i
+TITLE: Install and configure two accounts per machine, in one command each
+WRITTEN-AT: 2026-09-16
 BASE: b5cd2ff
 -->
 
@@ -116,9 +116,67 @@ line and MVP.md now say so); two daemons were measured as one at random (a
 sample now refuses); and samples record the binary's version. **NEXT is the tray, 0f**, and it waits on
 one decision of Nicolas's: decommission by draining, or by refusing while a
 hosted chunk has no other confirmed holder. With 0b, 0e and the audit fixes
-merged, nothing in §8 item 0 is left for an agent before Nicolas runs A–J.
+merged, nothing in §8 item 0 was left for an agent before Nicolas ran the
+fleet tests. That changed on 2026-09-16: see the session below, and (i), (j)
+and (k), which now come first.
 
-Traps from this session: a nextest filter `test(=name)` matches nothing for a
+**2026-09-16, the session that changed the plan.** Nicolas said the thing this
+file had been failing to hear: *"a chaque passe red-team il reste des soucis et
+le MVP n'est toujours pas complet"*. Interrogating that produced four findings
+and one decision, and they matter more than the step that was merged.
+
+*The audit loop has no fixed point.* A red-team pass on ten thousand lines of
+technical prose always finds something, so "no findings" cannot be the
+condition for starting the fleet tests -- it is a condition that can never be
+met. Worse, a measurable share of what each pass finds is **prose the previous
+pass wrote**: this session's own findings included a stale `NEXT` line, a
+200 MB/MiB drift, and a failure message naming neither limit. None is a product
+defect. Twelve gates, a pointer with its own gate, counters in three files and a
+tense discipline were each a sound answer to a real failure, and together they
+mean every change costs N document edits, each of which is new surface for the
+next pass. **The stopping rule is now written in §11 and it is A-M, not
+quiescence.**
+
+*Audits and use find different bugs.* The console window that Nicolas closed --
+killing the daemon for a week -- was found by a person using the software, not
+by six audit passes. Red-team finds stolen nodes, clock skew, lying peers. Use
+finds unnotarised binaries, unreadable status, and windows people shut. The two
+sets barely intersect, so more auditing does not buy down the risk of a real
+test. `docs/MVP.md` now has **K, L and M** because of this.
+
+*Test I was passing on the easy path.* `MVP.md` §2 says machine 4 is the only
+publicly reachable component, and NAT traversal is not built. So 1, 2 and 3
+reach each other **only on the LAN** -- and test I, run with everything at
+home, proves that three machines on one LAN sync without a coordinator, which
+is not the claim it makes. The fleet table now has a **dialable** column and I
+is run twice, once with the laptop off the LAN. Found in five minutes of
+discussing how to run the tests, by nobody auditing any code.
+
+*What Nicolas asked for next, and it reorders §8.* Install and configuration
+have to be genuinely simple for **two or more accounts per machine**, first for
+him, then for a second person who will run the same tests on a Mac and an
+Android phone. He also wants a **v0.2.0** to mark "concrete enough to test,
+nowhere near v1.0.0". Both are in §8 item 0 as (i), (j) and (k), and the
+running order is now **i, j, f, then c** -- nobody runs A-M until installing is
+one command per account.
+
+*A correction to `itsanas status`, specified in (j).* `status` calls
+`open(home)`, which resolves the passphrase **before** the store lock is
+reached, so the snapshot fallback -- the whole point of which is to answer
+while the daemon holds the index -- is unreachable exactly when it applies. On
+this laptop, `itsanas status` cannot say whether the node is healthy without
+the passphrase. The snapshot is a plaintext file in the node home, so the
+prompt protects nothing a `cat` would not bypass; this is an ordering bug, not
+a security boundary.
+
+Traps from this session: `git commit`/`gh` work fine on this machine, but the
+**squash merge is refused by a local policy guard** ("Merge Without Review"),
+so an agent can open and green a PR and cannot land it. Say so and stop rather
+than looking for another route. A Git Bash heredoc also swallowed a whole
+Python script this time, not merely its backslashes: write editing scripts to
+the scratchpad with a file tool, never with `cat <<EOF`.
+
+Traps from the previous session: a nextest filter `test(=name)` matches nothing for a
 unit test (its name is `module::tests::name`) and a sabotage script reading
 "no tests to run" as a failure reports red for the wrong reason — use
 `test(~name)` and check the output names the test.
@@ -482,7 +540,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
 0. **Pass the MVP on the fleet, before any more enforcement.** Decided
    2026-09-14, when Nicolas asked for a valid MVP. `docs/MVP.md` defines it as
-   tests A–J passing unassisted on the four machines, and §6 there shows every
+   tests A–M passing unassisted on the four machines, and §6 there shows every
    one is built and most have never been run outside the laboratory. Verified
    facts:
 
@@ -547,7 +605,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       is pushed to, and the report names the refusal; sabotage by dropping the
       count. Found by the acceptance bench, whose E, F and G failed until every
       node pledged.
-   c. **Nicolas runs A–J with the kit.** The next session pastes the receipts
+   c. **Nicolas runs A–M with the kit.** Gated on (i) and (j) since
+      2026-09-16. The next session pastes the receipts
       into MVP.md §6 and applies the verdict rule of §4 as written.
    d. **Whatever fails becomes the next item**, ahead of everything below.
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
@@ -563,6 +622,80 @@ Detail and measurements are in ROADMAP.md; this is the map.
       (`%LOCALAPPDATA%\itsanas\sampler.ps1`, seen, not read) — bring its
       measurement into `scripts/acceptance.ps1` with the same verdict line, plus
       `powercfg /requests` for whether the daemon holds the machine awake.
+   i. **Install and configure two accounts per machine, in one command
+      each.** Asked for by Nicolas on 2026-09-16, and it now gates (c): he
+      will not spend a day running A-M until this is true. The target, in his
+      words, is that setting a machine up with two distinct accounts is "as
+      simple as it should be" -- for him on Windows, the Pi and the VM, and
+      later for a second person on a Mac and an Android phone.
+
+      Verified facts, so nobody re-derives them: `install/provision.sh
+      --instance NAME` and `install/provision.ps1 -Instance NAME` already give
+      an instance its own home, passphrase file and `itsanas@NAME` unit or
+      `ITSaNAS-NAME` task (#18); `clean.sh`/`clean.ps1` take the same flag;
+      `init`/`login` already pick the first free port from 9797; discovery
+      already shares UDP 21037. So the mechanism exists and **what is missing
+      is that nobody has run it cold, twice, on three operating systems, and
+      written down where it stops being obvious.**
+
+      Do it in that order: run it, keep a verbatim log of every place a person
+      has to think, then fix those places. Expect the findings to be about
+      wording, prompts and defaults rather than about code. `install/macos.sh`
+      has **never been run by a human** -- only on a CI runner -- and that is
+      the riskiest square in the table.
+
+      Red-team test expected: two instances provisioned on one machine, the
+      second `--clean`ed, and the first still syncing. `clean.sh` removing a
+      sibling's unit or passphrase file is the failure this guards, and it has
+      happened once already (#18 fixed `provision.ps1` killing every `itsanas`
+      process).
+
+   j. **The node's state without the passphrase.** Blocks test L, the tray
+      (f), and every "is it working" question a person asks.
+
+      The bug, verified on the laptop 2026-09-16: `status()` in
+      `crates/itsanas-cli/src/main.rs` (~1280) handles
+      `StoreError::Locked` by printing the daemon's snapshot -- but it reaches
+      that arm through `open(home)` (~610), which is
+      `Node::open(home, &passphrase(false)?)`. The passphrase is resolved
+      **first**, so on a machine whose daemon is running -- the normal state --
+      `itsanas status` demands the passphrase and then would have printed a
+      file it could have read without one. `redb` reports the lock as
+      `DatabaseError::DatabaseAlreadyOpen` (`index.rs:229`).
+
+      Fix: ask whether the index is locked **before** resolving a passphrase,
+      and print the snapshot if it is. The snapshot is already a plaintext file
+      in the node home, so this exposes nothing new -- anyone who can read it
+      through this command can `cat` it -- and that is the answer to Nicolas's
+      question of 2026-09-16 about unauthenticated state.
+
+      Bound what an unlocked read may show, because that question is fair:
+      daemon alive, age of the last successful round, peers reachable,
+      replication state. **No file names, no sizes, no account name, no device
+      ids**, and never over a socket -- a local file with owner-only
+      permissions, which is the same boundary that already protects the
+      keystore.
+
+      Red-team test expected: with the index locked and no passphrase
+      available, `status` prints the snapshot **and its age**; with a snapshot
+      older than two sync intervals it says stale rather than healthy. A green
+      reading over a dead daemon is the failure both this and the tray exist to
+      prevent.
+
+   k. **v0.2.0, the marker release.** Asked for by Nicolas on 2026-09-16: a
+      version that says "concrete enough to test, and nowhere near v1.0.0".
+      Cut it **after** (i) and (j) land, never before -- the point of the tag
+      is that somebody can install the same feature set on any platform, so it
+      is worth nothing until installing is the thing that was fixed.
+
+      What it needs: the workspace version bumped, `FIRST-STEPS.md` re-pinned
+      (it is pinned to v0.1.0), a changelog saying plainly what is testable and
+      what is not, and a **freshly built APK** -- the only one that exists is
+      v0.1.0, debug-signed and stale. The Android release key is Nicolas's to
+      generate and hold (§10.2), so an agent cannot finish the phone half.
+      Do not tag from an agent session without saying so: a tag is the one
+      thing here that other people's machines will pin to.
+
    f. **A tray icon for the Windows daemon.** Asked for by Nicolas on
       2026-09-14 after the untitled console: "a minimum of polish", dark or
       following the system theme. Verified facts: no desktop UI exists
@@ -655,7 +788,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       host that find each other by discovery and host each other blind.
       Red-team expected: a second instance's beacons do not let it answer as
       the first (device pinning already covers it; prove it with both bound).
-      Then rewrite `docs/BRIEFING-MVP.md` as the full protocol: A–J with the
+      Then rewrite `docs/BRIEFING-MVP.md` as the full protocol: A–M with the
       verdict rule, 1a and 1b, the measurements that bear on scale (throughput,
       idle writes, restore time, battery), and a section on what three machines
       of one person cannot show — strangers, NAT, bandwidth, a terabyte, the
@@ -828,6 +961,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
    committed; the APK cannot be upgraded in place across a key change.
 3. **How the bargain is enforced**: bilateral ledgers between hosts, or the
    coordinator computing standings. ECONOMICS.md argues for the first.
+4. **Merging.** A local policy guard on Nicolas's machine refuses
+   `gh pr merge` from an agent session ("Merge Without Review"), so an agent
+   can open a PR and drive its CI green and cannot land it. Either Nicolas
+   merges, or he allows the action; until then every finished step ends as an
+   open, green PR and the next session must check `gh pr list` before assuming
+   `main` carries the work.
+5. **Whether `install/macos.sh` works.** It has run on a CI runner and never on
+   a Mac. The second person's machine is a Mac, so this is on the critical path
+   of the pilot rather than a nicety.
 
 ## 11. Working style Nicolas expects
 
@@ -842,5 +984,31 @@ Detail and measurements are in ROADMAP.md; this is the map.
   assumption that any machine is up.
 
 An adversarial audit persona (`anthropic-skills:rodin`, French, blunt) has been
-used twice on this project and found real gaps both times. Worth repeating after
-each substantial milestone.
+used on this project repeatedly and found real gaps every time. It is still
+worth running after a substantial milestone -- **and it has a stopping rule,
+because it did not and that cost months.**
+
+### The stopping rule
+
+**"The last pass found nothing" is not a condition for starting the fleet
+tests, and must never be used as one.** An adversarial pass over a corpus this
+size always finds something; the rate is a function of how hard somebody looks,
+not of how good the software is. A share of each pass's findings is prose the
+previous pass wrote, so the loop partly feeds itself.
+
+Therefore:
+
+1. **The exit criterion is `docs/MVP.md` A-M and the verdict rule of §4.**
+   Nothing else. Not "stable", not "no open findings".
+2. **While §8 item 0 is open, do not open a new audit pass on code that the
+   fleet tests have never exercised.** Audit what a step changed, as §5 of the
+   working loop requires, and stop there.
+3. **A finding that is not a product defect is not a finding.** A stale
+   sentence, a drifted unit, a message that could be clearer: fix it silently
+   in the step that touches it and do not report it as a gap.
+4. **Findings about code the tests have not reached go to `ROADMAP.md` "Known
+   ceilings", not into the current step.** They are real; they are not now.
+
+The cost of getting this wrong is not wasted effort, it is the appearance of
+regression: every pass ends with a list, so the project looks like it is going
+backwards while it is going forwards.
