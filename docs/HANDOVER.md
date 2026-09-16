@@ -1197,10 +1197,24 @@ Detail and measurements are in ROADMAP.md; this is the map.
    this repository has gone through CI because somebody chose to, not because
    anything made them.
 
-   Nicolas's to enable, because it is a repository setting rather than code:
-   require the `CI` check and disallow direct pushes. Until then an agent
-   working unattended can land red code on `main`, and the discipline that has
-   held so far is the only thing that has held.
+   ✅ **Enabled 2026-09-16**, on Nicolas's instruction. `main` now requires
+   *Format and lint*, *Test (ubuntu-latest)*, *Test (windows-latest)*,
+   *Test (macos-latest)* and *Acceptance phases between three local nodes*;
+   `enforce_admins` is on, so the rule binds Nicolas and any agent equally;
+   force pushes and deletion are off. No review is required, because a solo
+   owner cannot approve their own pull request and requiring one would
+   deadlock the repository.
+
+   Verified rather than assumed, by pushing an empty commit at it:
+
+       ! [remote rejected] main -> main (protected branch hook declined)
+       remote: - 5 of 5 required status checks are expected.
+
+   Deliberately **not** required: *No warnings anywhere in this run*, which
+   reports `skipping` on some runs — a required check that can skip blocks
+   every merge. Add more contexts with
+   `gh api -X PUT repos/SigSegGit/itsanas/branches/main/protection`; remove the
+   lot with `gh api -X DELETE` on the same path if CI ever wedges.
 
 ## 11. Working style Nicolas expects
 
