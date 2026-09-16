@@ -358,12 +358,19 @@ behind at `5156cd6`; both now build `b9c497e` and run it — 4 m 36 s on the Pi,
 5 m 10 s on the VM, natively, no cross-compiling. Old binaries kept as
 `itsanas.bak-2026-09-16`. Every user unit came back active.
 
-*What was deliberately not done.* The **coordinators are untouched**: they are
-system units owned by root and `sudo` wants a password, so an agent cannot
-restart them. A freshly built binary is staged at `~/itsanas-coordinator.new`
-on both machines. Nicolas installs it:
-`sudo systemctl stop itsanas-coordinator && sudo cp ~/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator && sudo systemctl start itsanas-coordinator`.
-Until then the full `device list` still needs it (§0, 2026-09-15).
+*The coordinators, done by Nicolas the same evening.* An agent cannot restart
+them — system units owned by root, and `sudo` wants a password — so a freshly
+built binary was staged at `~/itsanas-coordinator.new` and he installed it.
+**Confirmed 2026-09-16 21:14 on both machines**: the running
+`/usr/local/bin/itsanas-coordinator` is byte-identical to the staged build,
+both units `active` with `NRestarts: 0`. That closes the "the Pi's coordinator
+must be upgraded" note of 2026-09-15.
+
+*The whole fleet verified after both upgrades.* Both member nodes wrote their
+status snapshot **within a second** of being asked, so rounds are running, and
+`itsanas status` answers on every machine with no passphrase. A quiet round
+prints nothing, so an idle journal is health rather than silence — the VM
+logged nothing for four hours while syncing perfectly.
 
 *Do not use `~/upgrade.sh` on the VM.* It is stale: it bounces only
 `itsanas-mandarine` and points at a source path that is not the one being
