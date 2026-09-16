@@ -235,10 +235,18 @@ impl Index {
     /// asking for a key.
     ///
     /// Opening and immediately dropping takes the same lock `open` would and
-    /// releases it, so the answer costs a file handle and changes nothing on
-    /// disk. A missing file, or one redb cannot read at all, answers "not
-    /// locked": the caller's ordinary open then produces the real error with
-    /// the real advice, rather than this guessing on its behalf.
+    /// releases it. It is **not** free of side effects, and an earlier version
+    /// of this comment claimed it was: redb repairs a database that was not
+    /// closed cleanly, so probing a store left behind by a crash runs that
+    /// repair. That is safe here for a reason worth stating rather than
+    /// assuming — the probe only reaches the repair when the database is *not*
+    /// locked, which is exactly when the caller is about to open it for real
+    /// one line later and trigger the identical repair. The probe moves the
+    /// work earlier; it does not add any.
+    ///
+    /// A missing file, or one redb cannot read at all, answers "not locked":
+    /// the caller's ordinary open then produces the real error with the real
+    /// advice, rather than this guessing on its behalf.
     #[must_use]
     pub fn is_locked(path: impl AsRef<Path>) -> bool {
         matches!(
