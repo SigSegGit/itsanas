@@ -9,6 +9,7 @@ authors.workspace = true
 description = "A node on disk: keystore, configuration, and one sync round"
 
 [dependencies]
+getrandom = "0.4.3"
 itsanas-coord = { version = "0.1.0", path = "../itsanas-coord" }
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
 itsanas-discover = { version = "0.1.0", path = "../itsanas-discover" }

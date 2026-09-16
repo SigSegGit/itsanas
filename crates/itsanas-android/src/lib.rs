@@ -623,6 +623,117 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_setPledge(
     })
 }
 
+/// Point this node at a coordinator, so it can be reached from off the network.
+///
+/// # Why the phone needed this
+///
+/// Until 2026-09-16 this crate had no coordinator calls at all, so an Android
+/// device could reach the network only through [`Java_fr_ngas_itsanas_Native_addPeer`]
+/// — an address typed in by hand — and an account created on a phone was
+/// enrolled nowhere. Joining is the one thing a new member has to do, and it
+/// was the one thing the phone could not do.
+///
+/// `device` may be empty, which means "trust whatever answers at that
+/// address". It is parsed here rather than at first use so that a mistyped id
+/// fails while the person who typed it is still looking at it.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_setCoordinator(
+    mut env: JNIEnv,
+    _class: JClass,
+    address: JString,
+    device: JString,
+) -> jstring {
+    let address = text(&mut env, &address, "the coordinator address");
+    let device = text(&mut env, &device, "the coordinator device id");
+
+    answer(&mut env, move || {
+        let address = address?;
+        let device = device?;
+        let device = device.trim().to_owned();
+        if !device.is_empty() {
+            itsanas_node::coordinator::parse_device(&device)?;
+        }
+
+        let mut guard = NODE
+            .lock()
+            .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
+        let node = guard.as_mut().ok_or(Failure::Closed)?;
+
+        node.config.coordinator = Some(address.clone());
+        node.config.coordinator_device = if device.is_empty() {
+            None
+        } else {
+            Some(device)
+        };
+        node.save_config()?;
+
+        Ok(serde_json::json!({
+            "coordinator": node.config.coordinator,
+            "pinnedTo": node.config.coordinator_device,
+        })
+        .to_string())
+    })
+}
+
+/// Enrol this account and device with the configured coordinator.
+///
+/// `invite` may be empty. A coordinator running `--invite-only` — which is
+/// what this project's own does — refuses an account with no code the first
+/// time, and accepts a member re-registering without one for ever after, which
+/// is how a device refreshes its keys without costing an invitation.
+///
+/// Publishing an address is part of registering rather than a separate step: a
+/// device nobody can reach has not really joined anything. A failure to
+/// announce is reported and does not undo the enrolment, exactly as on the
+/// command line.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_register(
+    mut env: JNIEnv,
+    _class: JClass,
+    invite: JString,
+) -> jstring {
+    let invite = text(&mut env, &invite, "the invitation code");
+
+    answer(&mut env, move || {
+        let invite = invite?;
+        let invite = invite.trim().to_owned();
+
+        let mut guard = NODE
+            .lock()
+            .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
+        let node = guard.as_mut().ok_or(Failure::Closed)?;
+
+        if node.config.coordinator.is_none() {
+            return Err(Failure::Usage(
+                "no coordinator is configured. Set one first, with the address \
+                 whoever invited you gave you."
+                    .to_owned(),
+            ));
+        }
+
+        let now = itsanas_discover::now_unix();
+        let secret = if invite.is_empty() {
+            None
+        } else {
+            Some(itsanas_node::coordinator::decode_secret(&invite)?)
+        };
+        itsanas_node::coordinator::register_with(node, secret.as_ref(), now)?;
+
+        let listen = node.config.listen.clone();
+        // An address that could not be published does not undo the enrolment,
+        // exactly as on the command line: the device is a member, it is simply
+        // not reachable yet, and saying so is more useful than failing.
+        let announced = itsanas_node::coordinator::announce(node, &listen, now).ok();
+
+        Ok(serde_json::json!({
+            "username": node.config.username,
+            "coordinator": node.config.coordinator,
+            "announced": announced,
+        })
+        .to_string())
+    })
+}
+
 /// Add a machine to sync with.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_ngas_itsanas_Native_addPeer(

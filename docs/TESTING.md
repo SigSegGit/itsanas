@@ -168,10 +168,10 @@ guarantee and is not one.
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 35 |
+| `itsanas-cli` unit | 29 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 35 |
+| `itsanas-node` unit | 41 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -848,7 +848,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (35)
+# `itsanas-cli` — unit tests (29)
 
 ## `bench` — measuring this machine (4)
 
@@ -913,23 +913,6 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`a_refusal_is_reported_once_and_then_only_after_a_quiet_period`** | A host with pledge 0 refuses every round. The line that ended the silent `sent 0 B` must not become one line every five minutes per peer, for ever: reported at once, then at most once per `OUTAGE_QUIET`, and again at once after a round with no refusal. The acceptance bench checks that `sync` against a pledge-0 host prints the reason. |
 | `the_message_std_prints_when_a_pipe_closes_is_recognised` | The message copied from the Pi, and its Windows spelling, are both matched — only on the prefix, because the tail belongs to the platform. |
 
-## `coordinator` — publishing an address (6)
-
-Found on a real coordinator, on the Freebox VM, the first time a member
-registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
-is the default listen address and the right default — accept from every
-interface — but it is not somewhere a peer can dial, and nothing checked. The
-comment above the call says a device nobody can reach has not really joined
-anything.
-
-| Test | What it proves |
-| --- | --- |
-| **`an_unspecified_listen_address_is_not_what_gets_published`** | The address published is the local end of the connection that just reached the coordinator, not `0.0.0.0`. Of this machine's addresses it is the one demonstrably able to talk to the coordinator. Still wrong behind NAT, where only the coordinator can see the address a peer needs; that is a protocol change and is written down in `coordinator.rs`. |
-| **`the_published_port_is_the_listening_one_not_the_one_dialled_from`** | The local end carries an *ephemeral* source port. Taking the port along with the address would publish somewhere nothing listens — a failure that arrives later, elsewhere, and looks like a network fault. |
-| `an_address_somebody_chose_is_left_alone` | Substitution happens only where the configuration said "anywhere". A specific address or a hostname is a decision, and overruling it would break the setups that were configured deliberately. |
-
----
-
 # `itsanas-policy` — when to sync, and how much (23)
 
 `src/lib.rs`. A decision table with an argument attached to every row, and no
@@ -975,12 +958,29 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (35)
+# `itsanas-node` — a node on disk (41)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
+
+## `coordinator` — publishing an address (6)
+
+Found on a real coordinator, on the Freebox VM, the first time a member
+registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
+is the default listen address and the right default — accept from every
+interface — but it is not somewhere a peer can dial, and nothing checked. The
+comment above the call says a device nobody can reach has not really joined
+anything.
+
+| Test | What it proves |
+| --- | --- |
+| **`an_unspecified_listen_address_is_not_what_gets_published`** | The address published is the local end of the connection that just reached the coordinator, not `0.0.0.0`. Of this machine's addresses it is the one demonstrably able to talk to the coordinator. Still wrong behind NAT, where only the coordinator can see the address a peer needs; that is a protocol change and is written down in `coordinator.rs`. |
+| **`the_published_port_is_the_listening_one_not_the_one_dialled_from`** | The local end carries an *ephemeral* source port. Taking the port along with the address would publish somewhere nothing listens — a failure that arrives later, elsewhere, and looks like a network fault. |
+| `an_address_somebody_chose_is_left_alone` | Substitution happens only where the configuration said "anywhere". A specific address or a hostname is a decision, and overruling it would break the setups that were configured deliberately. |
+
+---
 
 ## `node` — identity on disk (12)
 

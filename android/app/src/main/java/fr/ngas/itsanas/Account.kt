@@ -117,6 +117,17 @@ object Account {
         Unit
     }
 
+    suspend fun setCoordinator(address: String, device: String) =
+        withContext(Dispatchers.IO) {
+            Native.setCoordinator(address.trim(), device.trim())
+            Unit
+        }
+
+    suspend fun register(invite: String) = withContext(Dispatchers.IO) {
+        Native.register(invite.trim())
+        Unit
+    }
+
     suspend fun addPeer(address: String) = withContext(Dispatchers.IO) {
         Native.addPeer(address.trim())
         Unit

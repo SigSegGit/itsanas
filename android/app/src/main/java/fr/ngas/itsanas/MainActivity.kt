@@ -582,6 +582,9 @@ private fun Settings(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var peer by remember { mutableStateOf("") }
+    var coordinatorAddress by remember { mutableStateOf("") }
+    var coordinatorDevice by remember { mutableStateOf("") }
+    var inviteCode by remember { mutableStateOf("") }
     var keepGiB by remember {
         mutableStateOf(status?.keepBytes?.let { (it / (1024 * 1024 * 1024)).toString() } ?: "")
     }
@@ -615,6 +618,56 @@ private fun Settings(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+
+                Text("Join a network", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "A coordinator is how machines that are not on this wifi find " +
+                        "each other. Whoever invited you gives you its address and a " +
+                        "code. The code is needed once; after that this phone " +
+                        "re-registers on its own.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = coordinatorAddress,
+                    onValueChange = { coordinatorAddress = it },
+                    label = { Text("coordinator host:port") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = coordinatorDevice,
+                    onValueChange = { coordinatorDevice = it },
+                    label = { Text("its device id (optional, 64 hex)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = inviteCode,
+                    onValueChange = { inviteCode = it },
+                    label = { Text("invitation code (first time only)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton({
+                    val address = coordinatorAddress
+                    val device = coordinatorDevice
+                    val invite = inviteCode
+                    scope.launch {
+                        try {
+                            // Setting the coordinator and enrolling are one action
+                            // for the person doing it: a coordinator configured but
+                            // never registered with looks like joining and is not.
+                            if (address.isNotBlank()) {
+                                Account.setCoordinator(address, device)
+                            }
+                            Account.register(invite)
+                            inviteCode = ""
+                            onChanged()
+                        } catch (error: Throwable) {
+                            complain(error.message ?: "could not join")
+                        }
+                    }
+                }) { Text("Join") }
 
                 Text("Machines to sync with", style = MaterialTheme.typography.titleSmall)
                 status?.peers?.forEach { address ->

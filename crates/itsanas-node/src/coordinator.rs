@@ -21,8 +21,8 @@ use itsanas_coord::protocol::{EnrolledDevice, Request, Response};
 use itsanas_coord::server::CoordClient;
 use itsanas_crypto::{DeviceId, KdfParams, Keystore, UserId};
 
-use crate::error::{CliError, Result};
 use crate::node::{ESCROW_LABEL, Node};
+use crate::{NodeError as CliError, Result};
 
 /// Open a connection to the node's configured coordinator.
 ///
