@@ -335,6 +335,48 @@ random input, work out its false-failure rate before trusting it**, because the
 failure mode is not a wasted run — it is teaching everybody that the alarm is
 noise.
 
+**The fleet was upgraded from this session, over SSH.** Nicolas opened access
+on 2026-09-16 and asked for as much as possible to be taken off his hands.
+
+*How to reach it, because working it out again wastes a session:*
+`ssh -i ~/.ssh/itsanas_session itsomeone@ngas.fr -p 22010` is the **Pi**
+(`NGASRPI4B`, member node **and** the coordinator) and `-p 22011` is the
+**Freebox VM** (`itsworkstation`). A bare `ssh` without `-i` is refused; the
+project key is the one that works. Non-login shells have no `itsanas` on
+`PATH` — it lives at `~/.local/bin/itsanas` — and `systemctl --user` needs
+`XDG_RUNTIME_DIR=/run/user/$(id -u)` or it cannot find the bus.
+
+*What runs where.* Pi: `itsanas.service` (user) plus `itsanas-coordinator.service`
+(**system**, running as `itsanas-coord` from `/usr/local/bin`). VM:
+`itsanas.service` *and* `itsanas-mandarine.service`, two accounts on one
+machine — the multi-instance work of #18, already live. Accounts seen:
+`nicolas` on the Pi, `voisin` on the VM's default home, `sigseg42` on the
+laptop.
+
+*What was done.* Both machines' source at `~/.local/src/itsanas` was 30 commits
+behind at `5156cd6`; both now build `b9c497e` and run it — 4 m 36 s on the Pi,
+5 m 10 s on the VM, natively, no cross-compiling. Old binaries kept as
+`itsanas.bak-2026-09-16`. Every user unit came back active.
+
+*What was deliberately not done.* The **coordinators are untouched**: they are
+system units owned by root and `sudo` wants a password, so an agent cannot
+restart them. A freshly built binary is staged at `~/itsanas-coordinator.new`
+on both machines. Nicolas installs it:
+`sudo systemctl stop itsanas-coordinator && sudo cp ~/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator && sudo systemctl start itsanas-coordinator`.
+Until then the full `device list` still needs it (§0, 2026-09-15).
+
+*Do not use `~/upgrade.sh` on the VM.* It is stale: it bounces only
+`itsanas-mandarine` and points at a source path that is not the one being
+built. `scripts/` in this repo is the authority.
+
+*Fleet health, read without a single passphrase* — which is the change that
+made it possible. Both member nodes report `3 copies — every chunk is on at
+least 3 other machines`; the Pi has 45 placements and hosts for 4 peers, the VM
+21 and 5. Both also say `concentrated: one machine holds all 7 of your chunks`,
+which is honest and expected at this size. The Linux H sampler was run on the
+Pi and recorded `account holds 1 file(s)`, so the account-size column works on
+real hardware and not only on the laptop.
+
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
 empty on a pure host, and checking the wrong one made a real host holding
