@@ -417,6 +417,38 @@ through `addPeer("ip:port")` typed by hand, and an account created on a phone
 is enrolled nowhere. `docs/BRIEFING-MVP.md` §3.9 is the platform table to read
 before inviting anybody.
 
+**The phone can join now.** Nicolas asked for the Android app to be made to
+work, and the blocker was one missing capability rather than a missing app.
+
+The coordinator client was `crates/itsanas-cli/src/coordinator.rs` -- 557 lines
+inside a **binary** crate, so nothing but the CLI could reach it. It moved to
+`itsanas-node` as `pub mod coordinator`, which is where the CLI already
+re-exports `config`, `error`, `keeping` and `node` from, so `main.rs` needed
+one line and no call site changed. `itsanas-node` already depended on
+`itsanas-coord` and `itsanas-coord` does not depend on it, so there is no
+cycle.
+
+On top of that, two JNI entry points -- `setCoordinator(address, device)` and
+`register(invite)` -- and the Kotlin to match: `Native.kt`, a suspending
+wrapper each in `Account.kt`, and a "Join a network" section in
+`MainActivity.kt` that sets the coordinator and enrols in one tap, because a
+coordinator configured but never registered with looks like joining and is not.
+18 JNI calls now, and both sides still agree name for name.
+
+A release APK builds: `bash scripts/build-apk.sh release`, 3 m 13 s, 21 MB.
+
+**Not verified, and it matters:** nobody has installed this APK on a phone. The
+join logic underneath is the same code the CLI runs and the bench now covers
+end to end, but the Kotlin glue and the JNI marshalling are exercised by
+nothing. Also still absent: **local discovery on Android**, so two phones on
+one wifi do not find each other -- they go through the coordinator or through
+`addPeer`.
+
+**The APK is debug-signed** (`signingConfig = signingConfigs.getByName("debug")`
+in `android/app/build.gradle.kts`). That is fine for sideloading and impossible
+for Play, which rejects debug keys; it also means an upgrade across a key
+change needs an uninstall. The release key stays §10.2, Nicolas's to hold.
+
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
 empty on a pure host, and checking the wrong one made a real host holding

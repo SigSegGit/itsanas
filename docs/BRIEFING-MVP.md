@@ -199,7 +199,7 @@ est qu'il n'y ait aucune mauvaise surprise avec un invité dans la pièce.
 | --- | --- | --- | --- | --- |
 | **Windows / Linux** | ✅ `coordinator` + `register --invite` | ✅ | ✅ | tourne sur la flotte |
 | **Mac** | ✅ même CLI | 🟨 `SO_REUSEPORT` ajouté, **jamais lancé sur un vrai Mac** | ✅ en théorie | **binaire jamais exécuté par un humain** |
-| **Android** | ❌ **impossible** | ❌ **absente** | ✅ mais seulement vers une adresse tapée à la main | l'appli existe et tourne |
+| **Android** | ✅ **depuis le 2026-09-16** : adresse du coordinateur + code d'invitation dans l'écran « Join a network » | ❌ **absente** — un téléphone sur le même wifi ne trouve personne tout seul | ✅ | APK **signée en debug** : installation manuelle, sources inconnues à autoriser |
 
 **Le Mac peut devenir un vrai membre** : il a le CLI complet, donc `itsanas
 coordinator <ip-du-pi>:9898` puis `register --invite <code>`. Comme il passe
@@ -208,17 +208,26 @@ rend son cas raisonnable même si la découverte n'a jamais été testée sur un
 Mac. Le risque restant est Gatekeeper : un binaire téléchargé est mis en
 quarantaine, il faudra l'autoriser à la main.
 
-**L'Android ne peut pas rejoindre le compte.** `crates/itsanas-android`
-n'expose ni coordinateur ni `register`, et ne fait aucune découverte. Les 16
-appels JNI sont : create, login, open, close, status, list, get, put, remove,
-sync, setKeep, setPledge, addPeer, removePeer, exists, plan. Donc un téléphone
-peut, au mieux : `login` avec **les 24 mots** d'un compte de test, puis
-`addPeer("192.168.1.x:9797")` tapé à la main, puis `sync`. C'est testable
-demain, mais ce n'est pas « le téléphone rejoint le réseau », et un compte créé
-sur le téléphone ne sera enrôlé nulle part.
+**L'Android peut rejoindre depuis le 2026-09-16.** L'appli n'exposait ni
+coordinateur ni `register` ; les deux ont été ajoutés (`setCoordinator`,
+`register`), ce qui a demandé de sortir le client coordinateur du **binaire**
+CLI vers `itsanas-node`. Dans l'appli : écran de configuration, section « Join
+a network », on colle l'adresse du coordinateur, éventuellement son device id,
+le code d'invitation, et on tape « Join ».
 
-**Donc pour une session avec un invité :** le Mac en membre complet, les
-téléphones en pair manuel sur le LAN, et on ne promet pas mieux.
+Ce qu'un téléphone ne sait **toujours** pas faire : se découvrir sur le réseau
+local. Il n'y a aucune découverte dans `itsanas-android`, donc deux téléphones
+sur le même wifi ne se trouveront pas seuls — ils passent par le coordinateur,
+ou par `addPeer` à la main.
+
+**Ce qui n'a pas été vérifié, et il faut le dire :** l'APK compile, les 18
+appels JNI correspondent des deux côtés, et la logique de jonction dessous est
+la même que celle du CLI, testée de bout en bout par le banc. Mais **personne
+n'a encore installé cette APK sur un téléphone**. Compte une marge pour ça.
+
+**Pour une session avec un invité :** le Mac en membre complet, les téléphones
+en membres via le coordinateur — nouveau et non essayé — et `addPeer` comme
+solution de repli si la jonction échoue.
 
 ## 4. Plusieurs comptes sur une machine (1a)
 

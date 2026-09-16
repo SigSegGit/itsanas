@@ -849,6 +849,7 @@ name = "itsanas-node"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "getrandom 0.4.3",
  "itsanas-coord",
  "itsanas-crypto",
  "itsanas-discover",

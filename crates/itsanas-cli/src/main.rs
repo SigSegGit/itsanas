@@ -12,7 +12,6 @@
 //! rather than glossed over.
 
 mod bench;
-mod coordinator;
 mod daemon;
 mod discovery;
 
@@ -23,6 +22,9 @@ mod discovery;
 // still resolve and say where the code went.
 mod config {
     pub use itsanas_node::config::*;
+}
+mod coordinator {
+    pub use itsanas_node::coordinator::*;
 }
 mod error {
     pub use itsanas_node::NodeError as CliError;
