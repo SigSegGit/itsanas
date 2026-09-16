@@ -94,16 +94,30 @@ function Sample {
         $built = (Get-Item -LiteralPath $daemon.ExecutablePath).LastWriteTimeUtc.ToString('yyyy-MM-ddTHH:mmZ')
         $version = "$version built $built"
     } catch { }
+    # The criterion is "memory under 200 MiB **with a large folder**", and
+    # until 2026-09-16 no kit recorded the folder -- so a PASS on an empty
+    # account was indistinguishable from a PASS on a full one, and MVP.md's
+    # own figures came from about a megabyte. `itsanas status` answers without
+    # a passphrase while the daemon holds the node, so the sampler can simply
+    # ask. Unknown rather than absent when it cannot: a blank column would be
+    # read as zero.
+    $files = 'unknown'
+    try {
+        $state = & $daemon.ExecutablePath status 2>&1
+        $line = $state | Select-String -Pattern '^\s*files\s+(\d+)' | Select-Object -First 1
+        if ($line) { $files = $line.Matches[0].Groups[1].Value }
+    } catch { }
+
     $unix = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $cpu = [math]::Round($process.TotalProcessorTime.TotalSeconds, 2).ToString([Globalization.CultureInfo]::InvariantCulture)
     $rss = [int64]($process.WorkingSet64 / 1KB)
     $written = [int64]$daemon.WriteTransferCount
     New-Item -ItemType Directory -Force -Path $receipts | Out-Null
     if (-not (Test-Path -LiteralPath $samples)) {
-        "unix`tpid`tcpu_s`trss_kib`twritten_b`tversion" | Set-Content -LiteralPath $samples -Encoding utf8
+        "unix`tpid`tcpu_s`trss_kib`twritten_b`tfiles`tversion" | Set-Content -LiteralPath $samples -Encoding utf8
     }
-    "$unix`t$($daemon.ProcessId)`t$cpu`t$rss`t$written`t$version" | Add-Content -LiteralPath $samples -Encoding utf8
-    Write-Output "sampled pid $($daemon.ProcessId) ($version): cpu ${cpu}s total, rss ${rss} KiB, written ${written} B"
+    "$unix`t$($daemon.ProcessId)`t$cpu`t$rss`t$written`t$files`t$version" | Add-Content -LiteralPath $samples -Encoding utf8
+    Write-Output "sampled pid $($daemon.ProcessId) ($version): cpu ${cpu}s total, rss ${rss} KiB, written ${written} B, account holds $files file(s)"
 }
 
 function Report {
@@ -137,6 +151,19 @@ function Report {
     $versions = @($rows | ForEach-Object { $_.version } | Where-Object { $_ } | Select-Object -Unique)
     $versionText = if ($versions.Count -eq 0) { 'version not recorded' } else { $versions -join ' then ' }
 
+    # Reported, never judged: the criterion says "a large folder" without
+    # saying how large, so a threshold here would be invented. What the receipt
+    # must carry is what was actually measured, so that a PASS taken on an
+    # empty account cannot later be read as evidence for a full one.
+    $counts = @($rows | ForEach-Object { $_.files } | Where-Object { $_ -and $_ -ne 'unknown' } | ForEach-Object { [int]$_ })
+    $filesText = if ($counts.Count -eq 0) {
+        'account size NOT recorded, so this says nothing about "with a large folder"'
+    } elseif (($counts | Measure-Object -Minimum).Minimum -eq ($counts | Measure-Object -Maximum).Maximum) {
+        "on an account of $($counts[0]) file(s)"
+    } else {
+        "on an account of $(($counts | Measure-Object -Minimum).Minimum)-$(($counts | Measure-Object -Maximum).Maximum) file(s)"
+    }
+
     $battery = Join-Path $receipts 'battery-report.html'
     powercfg /batteryreport /output $battery 2>&1 | Out-Null
 
@@ -144,8 +171,8 @@ function Report {
     # from the laptop would then disagree with one from the Pi in the one thing
     # both are compared on.
     $detail = [string]::Format($inv,
-        'CPU and memory half of H: {0} samples over {1:0.0} h, {2:0.0} h awake measured ({3} gap(s) left out as sleep or missed samples): cpu {4:0.00}% of a core while awake, peak {5:0.0} MiB, {6:0.0} MiB/day written counting network (not comparable with the Linux kit), {7} restart(s), {8}; battery report {9}; sleep is H sleep',
-        $rows.Count, $span, $awakeHours, $gaps, $avg, $peakMiB, $perDay, $restarts, $versionText, $battery)
+        'CPU and memory half of H: {0} samples over {1:0.0} h, {2:0.0} h awake measured ({3} gap(s) left out as sleep or missed samples): cpu {4:0.00}% of a core while awake, peak {5:0.0} MiB {10}, {6:0.0} MiB/day written counting network (not comparable with the Linux kit), {7} restart(s), {8}; battery report {9}; sleep is H sleep',
+        $rows.Count, $span, $awakeHours, $gaps, $avg, $peakMiB, $perDay, $restarts, $versionText, $battery, $filesText)
     if ($span -lt 24) { Verdict 'FAIL' 'report' "$detail -- a window shorter than the 24 hours the test asks for" }
     if ($awakeHours -lt 4) { Verdict 'FAIL' 'report' "$detail -- fewer than 4 hours awake, too little to average" }
     # Named separately: "over 200 MiB or 5% of a core" made the reader work out

@@ -299,10 +299,15 @@ did not have one.
   local runs never reproduced it. It now uses three words (~33 bits) and plants
   a control first, the way `C scan` does. Sabotage-verified by making
   `Node::create` write the phrase to disk.
-* **Still not done, and it is small:** `acceptance.ps1` does not record the
-  size of the account it measured, so H's "with a large folder" stays
-  unverifiable. Now cheap, because `itsanas status` answers without a
-  passphrase while the daemon runs -- the sampler can just ask it.
+* **And then it was done.** Both kits now ask `itsanas status` for the account's
+  file count on every sample and carry it in the verdict line -- `on an account
+  of 4210 file(s)`, or `account size NOT recorded, so this says nothing about
+  "with a large folder"`. Reported, never judged: the criterion says "large"
+  without saying how large, and a number invented here would be the same
+  substitution the CPU threshold already is. **It needs a binary from
+  2026-09-16 or later**; every machine on the fleet ran a 2026-09-14 build when
+  this was written, and those record `unknown`. Upgrade before starting the 24
+  hours.
 
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
