@@ -235,12 +235,41 @@ grows `peers that have failed a storage challenge` naming the machine.
 `MVP.md` and `BRIEFING-MVP.md` now say the daemon must be running, because
 Nicolas would have lost a morning to this.
 
-**Open, and deliberately not smoothed over:** the `placements` count did not
-move (81 -> 81) while the challenge plainly failed. Either a withdrawn holder
-record is still counted there, or the daemon's "those chunks now count as
-unreplicated" is looser than it sounds. Not chased down -- the named peer is
-the observable either way -- but it is the next thing to pull on if K ever
-looks wrong on the fleet.
+**Closed the same day, and the way it closed is the lesson.** The `placements`
+count had not moved (81 -> 81) while the challenge plainly failed, and that was
+written up as "the sanction may not work", with K's pass condition quietly
+lowered from *the data is re-placed on another machine* to *the owner names the
+peer*. `MVP.md` §4 says a criterion is set in advance **so it cannot be
+softened afterwards**, and softening it is exactly what happened.
+
+A Rodin pass caught it. The bench had **one host**, so there was nowhere to
+re-place to; the flat count was the bench's fault, not the product's. With a
+spare host pledging, `placements` goes **83 -> 125** -- it rises, because the
+withdrawn copies are rewritten elsewhere -- and K passes on both halves. The
+criterion is restored, and `acceptance-local.sh` now runs three hosts.
+
+**The rule this earns:** when a measurement disagrees with a criterion,
+suspect the measurement before editing the criterion.
+
+**Test N was written from `grep` and two thirds of it was wrong.** Three
+"this will bite" claims went into `MVP.md` and `ROADMAP.md` inferred from the
+*absence of code*. Running them on the laptop refuted two:
+
+* **Case-only pairs are handled well.** `Camera/IMG.JPG` and `Camera/img.jpg`
+  both written to NTFS: the collision is caught, **both survive**
+  (`img.local-<id>.jpg`), it is named in the output, and three further scans
+  report `0 in, 0 out, 0 conflicts` -- it settles, and the conflict copy is not
+  re-ingested. The mechanism written for two machines editing one file covers
+  two names one filesystem cannot hold apart.
+* **Long paths are fine.** 305 characters logical, over 400 absolute, written
+  to NTFS without complaint.
+* **Unicode normalisation is the one real gap, and is still untested** -- there
+  is no Mac here. Marked as a prediction, not a result, and the likely outcome
+  is a duplicate rather than a loss.
+
+Absence of code is weak evidence about behaviour. This project's own tense
+discipline says a present indicative needs a test behind it, and three of them
+did not have one.
 
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is

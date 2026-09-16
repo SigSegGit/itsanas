@@ -262,21 +262,30 @@ reports nothing at all, which reads as "the sanction does not work" and is
 really "the sanction was never asked to run". This was found by automating the
 test, not by reading the code.
 
-**Pass:** the owner's daemon prints `FAILED n of m storage challenges — it is
-not holding what it said`, and `itsanas status` on the owner grows a section:
+**Pass, both halves:** the owner's daemon prints `FAILED n of m storage
+challenges — it is not holding what it said`, `itsanas status` on the owner
+grows a section naming the machine —
 
     peers that have failed a storage challenge
-      80fa10db925d answered 0 and failed 1, and is answering now
+      419c86f7b294 answered 0 and failed 1, and is answering now
 
-Nothing of the owner's is lost, and after three consecutive failures the host
-stops being offered new content.
+— **and the data is re-placed on another machine.** Nothing of the owner's is
+lost, and after three consecutive failures the host stops being offered new
+content.
 
-**What to look at, and what not to.** The named peer is the observable. The
-`placements` count is *not*: in the automated run it did not move (81 → 81)
-while the challenge plainly failed, so either a withdrawn record is still
-counted there or the daemon's "those chunks now count as unreplicated" is
-looser than it sounds. Unresolved, and written down rather than smoothed
-over -- do not read a flat `placements` as the sanction having failed.
+**Both halves were run on 2026-09-16** in `scripts/acceptance-local.sh`, and
+the second half is the one that matters: a system that detects a cheating host
+and re-places nothing has lost its redundancy quietly, which is worse than not
+detecting. With a spare host present the owner's `placements` count went
+**83 → 125** — it *rose*, because the withdrawn copies were rewritten
+elsewhere.
+
+**One trap, because it nearly cost this criterion.** An earlier version of the
+bench had only one host, so there was nowhere to re-place to; `placements`
+stayed flat at 81 → 81 and that was briefly written up as "the sanction may not
+work", with this criterion softened to match. It was the bench that was wrong.
+**Run K with at least two hosts pledging**, or the half that matters cannot
+happen and a flat count will look like a defect.
 
 **Why:** every economic claim in this project rests on a sanction nobody has
 ever watched fire. The mechanism is built -- storage challenges, `Reliability`,
@@ -347,25 +356,34 @@ ignores `.DS_Store`, `Thumbs.db`, `desktop.ini`, `ehthumbs.db`, the `~$` and
 `.crdownload` and `.part` suffixes of a download in flight. That is the same
 list Syncthing and Drive arrived at, and it is already here.
 
-**What will bite, and it is 1, 2 and 3.** These are known before the test is
-run, and the point of writing them down is that a day on the fleet must not be
-spent rediscovering them:
+**Run on the laptop against NTFS on 2026-09-16, which refuted two of three
+guesses this row first carried.** They had been written from the absence of
+code rather than from a run, and the absence of code was the wrong evidence:
 
-* **Accented names (1) are not normalised anywhere.** macOS hands back
-  decomposed Unicode (NFD: `e` followed by a combining accent) where Linux and
-  Windows use composed (NFC). Nothing in this workspace normalises a filename
-  -- the only normalisation in the tree is of a BIP39 phrase. So the same file
-  created on Linux and seen on a Mac is two different byte strings, and the
-  Mac will treat it as a second file, for ever. This is the bug Syncthing spent
-  years on. **The second person's machine is a Mac**, so this is on the pilot's
-  critical path, not a curiosity.
-* **Case-only pairs (2) are accepted.** `Photo.JPG` and `photo.jpg` are two
-  valid, distinct logical paths here. They coexist on the Pi and collide on
-  Windows and macOS, where one will overwrite the other or the write will fail
-  every round. Cameras produce exactly this.
-* **Long paths (3).** `MAX_PATH_LEN` is 1024, and Windows' default limit is
-  260. A path of 300 characters is accepted by the store and may be unwriteable
-  on the laptop unless long paths are enabled.
+* **Case-only pairs (2) are handled, and handled well.** `Camera/IMG.JPG` and
+  `Camera/img.jpg` are two distinct logical paths in the store. Written out to
+  NTFS, which folds case, the second collides with the first — and the conflict
+  machinery catches it, keeps **both**, and says so by name:
+
+      !!   Camera/img.jpg conflicted — your version kept as Camera/img.local-0e7c2b5917b1.jpg
+
+  `img.jpg` held `lower-content` and the conflict copy held `UPPER-content`:
+  **nothing was lost.** Three further scans reported `0 in, 0 out, 0 conflicts`
+  and the file count stayed at two, so it settles rather than oscillating, and
+  the conflict copy is not re-ingested as a new file.
+* **Long paths (3) are fine.** A 305-character logical path — over 400
+  characters absolute once the folder prefix is added, well past Windows'
+  traditional 260 — was stored and written to NTFS without complaint.
+* **Accented names (1) remain the open one, and it is still untested.**
+  Nothing in the workspace normalises a filename; the only normalisation in the
+  tree is of a BIP39 phrase, in `itsanas-crypto`. macOS returns decomposed
+  Unicode (NFD) where Linux and Windows use composed (NFC), so the same name
+  is two different byte strings on the two platforms. `Café décembre.txt`
+  round-tripped correctly **on Windows**, which says nothing about a Mac, and
+  there is no Mac here to try. Given how (2) behaved, the likely outcome is a
+  **duplicate rather than a loss** — which is what Syncthing saw — but that is
+  a prediction, not a result, and it stays marked as one until somebody runs it
+  on the Mac.
 
 **Why this is an acceptance test and not a nicety:** a sync tool that quietly
 makes a second copy of your accented filenames is one that people stop
@@ -423,11 +441,11 @@ Set in advance so it cannot be softened afterwards.
 - **L fails** → the product is not fit to put in front of a person, however
   correct it is underneath. Nothing goes to anybody else until it passes.
 - **M fails** → the multi-instance work of #18 is not finished.
-- **N fails on 1, 2 or 3** → expected, and it is a design decision rather than
-  a bug fix: which normalisation to canonicalise to, and what to do with a pair
-  that cannot coexist on the target filesystem. It does not block the verdict
-  on A-M; it blocks putting the folder in front of somebody who has a Mac and
-  accented filenames, which is everybody here.
+- **N fails on the accented names** → a design decision rather than a bug fix
+  (which normalisation to canonicalise to), and the one part of N still
+  untested, because it needs a Mac. It does not block the verdict on A-M; it
+  blocks putting the folder in front of somebody who has a Mac and accented
+  filenames. The case and long-path halves were run on 2026-09-16 and pass.
 - **All pass** → the project has earned the day of reading, and the question
   becomes whether to open it to people beyond Nicolas.
 

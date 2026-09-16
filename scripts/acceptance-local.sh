@@ -294,7 +294,16 @@ say "K: a host that throws the data away stops counting as a holder"
 # sit still -- which reads as "the sanction does not work" and is really "the
 # sanction was never asked to run". Test K needs the daemon up on the owner's
 # side, and `docs/MVP.md` and `docs/BRIEFING-MVP.md` say so because of this.
+# A second host, because the half of K that matters is not "the owner
+# complains" but "the data ends up somewhere else". With one host there is
+# nowhere else, so that half was structurally untestable -- and the first
+# version of this phase quietly lowered the criterion to match what a
+# one-host bench could see. MVP.md §4 forbids exactly that.
+HOST3PORT=$((CPORT + 13))
+must node host3 init --username spare-host
+must node host3 pledge 1G
 must node m1 peer add "127.0.0.1:$HOSTPORT"
+must node m1 peer add "127.0.0.1:$HOST3PORT"
 before=$(node m1 status 2>&1 | grep -oE 'placements +[0-9]+' | awk '{print $2}')
 rm -rf "$WORK/host2/vault"
 ITSANAS_HOME="$WORK/host2" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" serve --listen "127.0.0.1:$HOSTPORT" \
@@ -302,6 +311,11 @@ ITSANAS_HOME="$WORK/host2" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" serve --liste
 hsrv=$!
 pids+=("$hsrv")
 wait_port "$HOSTPORT" || { cat "$WORK/host2-serve.log"; echo "host2 did not serve"; exit 1; }
+ITSANAS_HOME="$WORK/host3" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" serve --listen "127.0.0.1:$HOST3PORT" \
+    </dev/null >>"$WORK/host3-serve.log" 2>&1 &
+h3srv=$!
+pids+=("$h3srv")
+wait_port "$HOST3PORT" || { cat "$WORK/host3-serve.log"; echo "host3 did not serve"; exit 1; }
 ITSANAS_HOME="$WORK/m1" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" daemon --interval 2 \
     --listen "0.0.0.0:$((CPORT + 12))" </dev/null >"$WORK/daemon-audit.log" 2>&1 &
 daudit=$!
@@ -312,18 +326,24 @@ for _ in $(seq 60); do
     grep -q 'storage challenges' "$WORK/daemon-audit.log" && break
     sleep 1
 done
-kill "$daudit" "$hsrv" 2>/dev/null
-wait "$daudit" "$hsrv" 2>/dev/null
-for _ in $(seq 50); do (exec 3<>"/dev/tcp/127.0.0.1/$HOSTPORT") 2>/dev/null || break; sleep 0.1; done
+kill "$daudit" "$hsrv" "$h3srv" 2>/dev/null
+wait "$daudit" "$hsrv" "$h3srv" 2>/dev/null
+for port in "$HOSTPORT" "$HOST3PORT"; do
+    for _ in $(seq 50); do (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null || break; sleep 0.1; done
+done
+spare=$(find "$WORK/host3/vault" -type f 2>/dev/null | wc -l)
+check "the data reached a second host, so a disqualified one can be replaced" \
+    test "$spare" -gt 0
 check "the daemon says the host failed its storage challenges" \
     grep -q 'storage challenges' "$WORK/daemon-audit.log"
 m1_status=$(node m1 status 2>&1)
 after=$(printf '%s\n' "$m1_status" | grep -oE 'placements +[0-9]+' | awk '{print $2}')
 printf '        placements %s -> %s\n' "${before:-?}" "${after:-?}"
 printf '%s\n' "$m1_status" | sed -n '/failed a storage challenge/,+2p' | sed 's/^/        /'
-# The observable is the named peer, not the placement count: a withdrawn record
-# is one of many, and on a fleet of three the count barely moves. What the owner
-# must be able to see is *which machine* stopped holding what it claimed.
+# Two observables, and the second is the one that matters: the owner must name
+# the machine that cheated, and the data must end up somewhere else. With only
+# one host the second could not happen at all, and a flat placement count was
+# briefly mistaken for a broken sanction. With a spare host it rises.
 check "the owner names the host that discarded the data" \
     sh -c 'printf "%s\n" "$1" | grep -q "failed a storage challenge"' _ "$m1_status"
 
