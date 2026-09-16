@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0e
-TITLE: Measure H on the Windows laptop, where the criterion is about
+NEXT: 8.0f
+TITLE: A tray icon for the Windows daemon, to Nicolas's specification
 WRITTEN-AT: 2026-09-15
-BASE: fb98fc2
+BASE: b5cd2ff
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -94,11 +94,29 @@ coordinator, so an unenrolled device or an unreachable coordinator left the two
 under different passphrases (the container is now re-sealed first); and the
 refusal line repeated every round for a pledge-0 peer (now once, then once per
 `OUTAGE_QUIET`). The bench now checks the printed line, not only the counter.
-**NEXT is 0e, then 0f**: H on Windows is an MVP criterion the kit does not
-measure; the tray is polish Nicolas asked for and waits on one decision of his
-(decommission: drain, or refuse while a hosted chunk has no other holder).
+That left 0e then 0f: H on Windows was an MVP criterion the kit did not
+measure, and the tray is polish Nicolas asked for that waits on one decision
+of his (decommission: drain, or refuse while a hosted chunk has no other
+holder). 0e is done, below; the tray is what `NEXT` names.
 Not tested by anything automated: the "older coordinator" branch of `device
 list` (no old coordinator exists to point it at).
+
+**Then §8 0e: H on Windows** (`scripts/acceptance.ps1`). Run against the
+laptop's own daemon before committing, which found two faults no parse
+would: a one-row sample file reads back with no count in Windows PowerShell,
+and a French locale writes `0,0 h`. The Rodin audit then found the
+measurement did not answer the criterion as written, all fixed before the
+PR: CPU was averaged over wall time including sleep, so on a laptop awake a
+quarter of the day a daemon using 15% of a core read 4% and passed (gaps
+longer than three sampling periods are now left out and awake hours
+reported); `H sleep` passed on a machine that never slept (it now needs
+Kernel-Power sleep entries, 42 or Modern Standby 506, in the window); a
+`PASS  H report` read as H passed while it covers CPU and memory only (the
+line and MVP.md now say so); two daemons were measured as one at random (a
+sample now refuses); and samples record the binary's version. **NEXT is the tray, 0f**, and it waits on
+one decision of Nicolas's: decommission by draining, or by refusing while a
+hosted chunk has no other confirmed holder. With 0b, 0e and the audit fixes
+merged, nothing in §8 item 0 is left for an agent before Nicolas runs A–J.
 
 Traps from this session: a nextest filter `test(=name)` matches nothing for a
 unit test (its name is `module::tests::name`) and a sabotage script reading
@@ -532,7 +550,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
    c. **Nicolas runs A–J with the kit.** The next session pastes the receipts
       into MVP.md §6 and applies the verdict rule of §4 as written.
    d. **Whatever fails becomes the next item**, ahead of everything below.
-   e. **Measure H on the machine it is about.** `H sample` reads `/proc` and
+   e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
+      `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
+      Battery is reported (`powercfg /batteryreport`) and not judged; bytes
+      written include network I/O, which the process counter does not
+      separate; `H sleep` needs an administrator PowerShell for
+      `powercfg /requests` and refuses a verdict without it. The existing
+      sampler outside the repository was read and superseded. As specified: `H sample` reads `/proc` and
       `pgrep`, so it runs on the Pi and the VM, where nobody asked. The criterion
       is the Windows laptop: battery, CPU at idle, memory, and whether it sleeps.
       A sampler already exists outside the repository

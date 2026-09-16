@@ -33,6 +33,16 @@ workspace).
 
 ## What is verified by hand, and why
 
+`scripts/acceptance.ps1`, test H on Windows, is verified by running it, not by
+a test: it reads a live daemon's CPU time, memory and I/O, the system power
+log and `powercfg`, none of which a CI runner has in a meaningful state.
+`check-installers.sh` parses it. It was run against the laptop's daemon before
+it was committed: a real sample, `H report` refusing a window shorter than a
+day with the numbers, and `H sleep` refusing a verdict without elevation.
+That run found two faults: one sample read back as no count at all (Windows
+PowerShell returns a single object, not a list, for a one-row file), and the
+numbers written with decimal commas on a French system.
+
 One command sends requests to a coordinator with no automated test of the
 sending:
 

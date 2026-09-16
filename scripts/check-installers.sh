@@ -115,6 +115,29 @@ done
 # file the user has never seen. systemd will say so now instead, when it is here
 # to ask: it is on the CI runner and on any Linux this installs to, and absent
 # on a Mac or on Windows, where skipping is correct rather than lax.
+# The acceptance kit's Windows half is not an installer -- no --clean, no
+# README row -- but a PowerShell script nobody parses is the same risk: it
+# is run once, on the morning it matters, by the person it is for.
+shopt -s nullglob
+KIT_PS=(scripts/*.ps1)
+shopt -u nullglob
+for script in "${KIT_PS[@]}"; do
+    if command -v pwsh >/dev/null 2>&1; then
+        if pwsh -NoProfile -Command "
+            \$errors = \$null
+            \$null = [System.Management.Automation.Language.Parser]::ParseFile(
+                (Resolve-Path '$script'), [ref]\$null, [ref]\$errors)
+            if (\$errors) { \$errors | ForEach-Object { \$_.Message }; exit 1 }
+        "; then
+            say "$script parses"
+        else
+            bad "$script does not parse"
+        fi
+    else
+        say "pwsh is not installed here; $script was not parsed"
+    fi
+done
+
 if command -v systemd-analyze >/dev/null 2>&1; then
     units=$(mktemp -d)
 
