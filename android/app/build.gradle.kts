@@ -1,8 +1,25 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// The release key, if this machine has one.
+//
+// `android/keystore.properties` is git-ignored and names a keystore that is
+// also git-ignored. Nicolas generates and holds both; nothing in this
+// repository, and no agent, ever sees them. Losing that file means losing the
+// ability to update the application on Play for ever -- Google will not
+// re-key a listing -- so it is backed up like the 24 words are.
+val releaseKey = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+val hasReleaseKey = releaseKey.getProperty("storeFile") != null
 
 android {
     namespace = "fr.ngas.itsanas"
@@ -29,6 +46,17 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = rootProject.file(releaseKey.getProperty("storeFile"))
+                storePassword = releaseKey.getProperty("storePassword")
+                keyAlias = releaseKey.getProperty("keyAlias")
+                keyPassword = releaseKey.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             // Not shrunk. The Kotlin here is a few hundred lines and the weight
@@ -37,7 +65,18 @@ android {
             // point, which is exactly the sort of list that goes stale silently
             // and fails at runtime on somebody's phone.
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+
+            // Debug-signed when there is no release key, because a build that
+            // fails on a developer machine for want of a secret is a build
+            // nobody runs. The trade is that "release" then means two
+            // different things, so the build says which one out loud rather
+            // than leaving somebody to discover it when Play rejects the
+            // upload.
+            signingConfig = if (hasReleaseKey) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
