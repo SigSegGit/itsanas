@@ -1242,30 +1242,34 @@ prefixes, control characters and `..`.
 LibreOffice leave beside an open document, and the `.tmp`, `.crdownload` and
 `.part` suffixes of a download in flight.
 
-**Three that are open, and the third person to read this should not have to
-re-derive them:**
+**This entry first listed three open problems. Two of them were wrong, and
+running them on the laptop is what showed it** — they had been inferred from
+the absence of code, which turned out to be the wrong evidence. Kept here in
+corrected form, because the correction is more useful than the claim was.
 
-* **Unicode normalisation is nowhere.** macOS returns decomposed names (NFD:
-  `e` plus a combining accent); Linux and Windows use composed (NFC). Nothing
-  in the workspace normalises a filename — the only normalisation in the tree
-  is of a BIP39 phrase, in `itsanas-crypto`. So `Café.txt` written on Linux is
-  a different byte string on a Mac, and the Mac makes a second file of it, for
-  ever. **Breaks at: the first accented filename on the first Mac**, which in a
-  French household is the first hour. Fixing it is a decision, not a patch:
-  canonicalise to NFC on ingest and keep the on-disk form per platform, which
-  is where Syncthing landed after years.
-* **Case-only pairs are accepted.** `Photo.JPG` and `photo.jpg` are two valid
-  distinct logical paths. They coexist on the Pi and collide on Windows and
-  macOS. **Breaks at: two files whose names differ only in case**, which
-  cameras and downloads produce without anybody trying. The policy question is
-  what the receiving machine should do — refuse and say so, or make a conflict
-  copy — and neither is written down yet.
-* **`MAX_PATH_LEN` is 1024; Windows' default is 260.** A path the store accepts
-  can be unwriteable on the laptop unless long paths are enabled. **Breaks at:
-  roughly 260 characters of nested folders.**
+* **Case-only pairs: handled, and handled well.** `Camera/IMG.JPG` and
+  `Camera/img.jpg` are two distinct logical paths. Written out to NTFS, which
+  folds case, the second collides with the first and the conflict machinery
+  keeps **both**, naming the copy in the output
+  (`Camera/img.local-<id>.jpg`). Nothing was lost; three further scans
+  reported `0 in, 0 out, 0 conflicts`, so it settles rather than oscillating,
+  and the conflict copy is not re-ingested. The mechanism written for two
+  machines editing one file turns out to cover two names one filesystem cannot
+  hold apart, which is a better outcome than the design aimed at.
+* **Long paths: fine.** A 305-character logical path — over 400 absolute — was
+  stored and written to NTFS without complaint, well past the traditional 260.
+* **Unicode normalisation is genuinely nowhere, and genuinely untested.**
+  Nothing in the workspace normalises a filename; the only normalisation in the
+  tree is of a BIP39 phrase. macOS returns decomposed names (NFD) where Linux
+  and Windows use composed (NFC), so the same name is two byte strings across
+  the two. `Café décembre.txt` round-trips on Windows, which says nothing about
+  a Mac, and there is no Mac here. **Breaks at: the first accented filename on
+  the first Mac** — *predicted*, not observed. Given how the case collision
+  behaved, the likely outcome is a **duplicate rather than a loss**. Fixing it
+  is a decision, not a patch: canonicalise to NFC on ingest and keep the
+  on-disk form per platform, which is where Syncthing landed after years.
 
-None of these is a security hole and none blocks the A–M verdict. All three
-block handing the folder to somebody with a Mac and accented filenames.
+None of this is a security hole and none blocks the A–M verdict.
 
 ### What an adversarial sweep found and what is still open — 2026-09-09
 
