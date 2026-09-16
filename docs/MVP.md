@@ -324,6 +324,54 @@ stopping or withdrawing one instance leaves the other syncing.
 cheapest way to have two accounts without a second person, which is what makes
 C and K runnable alone.
 
+### N. The filenames real people actually have
+
+Put these in the synced folder on the **Linux** machine, let them reach the
+Windows laptop and (when there is one) the Mac, and look at all three:
+
+1. `Café décembre.txt` -- an accented name, which is most French filenames.
+2. `Photo.JPG` **and** `photo.jpg`, both with different contents.
+3. A folder tree about 300 characters deep.
+4. `rapport final .txt` and `notes.` -- a trailing space and a trailing dot.
+5. `CON.txt`, and a `~$rapport.docx` beside an open Word document.
+
+**Pass:** every machine ends with the same set of files and the same contents,
+and anything the system refuses it refuses *out loud*, naming the file.
+
+**What is already right, so it is not re-discovered:** 4 and 5 are handled.
+`crates/itsanas-store/src/path.rs` rejects trailing spaces and dots (Windows
+strips them, so `evil.txt ` and `evil.txt` would be one file on one machine and
+two on another) and Windows reserved device names; `crates/itsanas-folder/src/scan.rs`
+ignores `.DS_Store`, `Thumbs.db`, `desktop.ini`, `ehthumbs.db`, the `~$` and
+`.~lock.` prefixes Office and LibreOffice leave behind, and the `.tmp`,
+`.crdownload` and `.part` suffixes of a download in flight. That is the same
+list Syncthing and Drive arrived at, and it is already here.
+
+**What will bite, and it is 1, 2 and 3.** These are known before the test is
+run, and the point of writing them down is that a day on the fleet must not be
+spent rediscovering them:
+
+* **Accented names (1) are not normalised anywhere.** macOS hands back
+  decomposed Unicode (NFD: `e` followed by a combining accent) where Linux and
+  Windows use composed (NFC). Nothing in this workspace normalises a filename
+  -- the only normalisation in the tree is of a BIP39 phrase. So the same file
+  created on Linux and seen on a Mac is two different byte strings, and the
+  Mac will treat it as a second file, for ever. This is the bug Syncthing spent
+  years on. **The second person's machine is a Mac**, so this is on the pilot's
+  critical path, not a curiosity.
+* **Case-only pairs (2) are accepted.** `Photo.JPG` and `photo.jpg` are two
+  valid, distinct logical paths here. They coexist on the Pi and collide on
+  Windows and macOS, where one will overwrite the other or the write will fail
+  every round. Cameras produce exactly this.
+* **Long paths (3).** `MAX_PATH_LEN` is 1024, and Windows' default limit is
+  260. A path of 300 characters is accepted by the store and may be unwriteable
+  on the laptop unless long paths are enabled.
+
+**Why this is an acceptance test and not a nicety:** a sync tool that quietly
+makes a second copy of your accented filenames is one that people stop
+trusting, and none of the ten original tests would have caught it -- every one
+of them uses names a program chose.
+
 ---
 
 ### Running them with the kit
@@ -375,6 +423,11 @@ Set in advance so it cannot be softened afterwards.
 - **L fails** → the product is not fit to put in front of a person, however
   correct it is underneath. Nothing goes to anybody else until it passes.
 - **M fails** → the multi-instance work of #18 is not finished.
+- **N fails on 1, 2 or 3** → expected, and it is a design decision rather than
+  a bug fix: which normalisation to canonicalise to, and what to do with a pair
+  that cannot coexist on the target filesystem. It does not block the verdict
+  on A-M; it blocks putting the folder in front of somebody who has a Mac and
+  accented filenames, which is everybody here.
 - **All pass** → the project has earned the day of reading, and the question
   becomes whether to open it to people beyond Nicolas.
 
@@ -461,8 +514,9 @@ Memory is an order of magnitude inside the 200 MiB the criterion asks for. **The
 
 **The critical path is now the fleet itself.** Everything the acceptance tests
 need is built; none of it has been run on four real machines, and three of the
-thirteen tests have never been attempted at all -- K, L and M were written
-on 2026-09-16 and none of them has ever been run. Checked again on 2026-09-14, when
+fourteen tests have never been attempted at all -- K, L, M and N were written
+on 2026-09-16 and none of them has ever been run on the fleet, though C, K and
+M now run automatically in `scripts/acceptance-local.sh`. Checked again on 2026-09-14, when
 the question was "is anything functional": B, C and a words-only D run on real
 hardware, and the verdict of §4 has still not been taken because E, F, G, I and
 the power-cut half of J have never left the laboratory. The plan puts running

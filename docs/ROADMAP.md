@@ -1227,6 +1227,46 @@ Three limits that are fine at the size this runs at today and are not fine at
 the size it is aimed at. Written with the number where each one breaks, because
 a limit described in words gets rediscovered as a surprise.
 
+### Filenames across three operating systems — 2026-09-16
+
+Found by asking what a real person's folder contains rather than what a test
+writes into one. `docs/MVP.md` test N is the fleet version of this.
+
+**Already handled, and it is the same list Syncthing and Drive arrived at.**
+`crates/itsanas-store/src/path.rs` rejects trailing spaces and dots — Windows
+strips them, so `evil.txt ` and `evil.txt` would be one file on one machine and
+two on another — plus Windows reserved device names, backslashes, drive-letter
+prefixes, control characters and `..`.
+`crates/itsanas-folder/src/scan.rs` ignores `.DS_Store`, `Thumbs.db`,
+`desktop.ini`, `ehthumbs.db`, the `~$` and `.~lock.` prefixes Office and
+LibreOffice leave beside an open document, and the `.tmp`, `.crdownload` and
+`.part` suffixes of a download in flight.
+
+**Three that are open, and the third person to read this should not have to
+re-derive them:**
+
+* **Unicode normalisation is nowhere.** macOS returns decomposed names (NFD:
+  `e` plus a combining accent); Linux and Windows use composed (NFC). Nothing
+  in the workspace normalises a filename — the only normalisation in the tree
+  is of a BIP39 phrase, in `itsanas-crypto`. So `Café.txt` written on Linux is
+  a different byte string on a Mac, and the Mac makes a second file of it, for
+  ever. **Breaks at: the first accented filename on the first Mac**, which in a
+  French household is the first hour. Fixing it is a decision, not a patch:
+  canonicalise to NFC on ingest and keep the on-disk form per platform, which
+  is where Syncthing landed after years.
+* **Case-only pairs are accepted.** `Photo.JPG` and `photo.jpg` are two valid
+  distinct logical paths. They coexist on the Pi and collide on Windows and
+  macOS. **Breaks at: two files whose names differ only in case**, which
+  cameras and downloads produce without anybody trying. The policy question is
+  what the receiving machine should do — refuse and say so, or make a conflict
+  copy — and neither is written down yet.
+* **`MAX_PATH_LEN` is 1024; Windows' default is 260.** A path the store accepts
+  can be unwriteable on the laptop unless long paths are enabled. **Breaks at:
+  roughly 260 characters of nested folders.**
+
+None of these is a security hole and none blocks the A–M verdict. All three
+block handing the folder to somebody with a Mac and accented filenames.
+
 ### What an adversarial sweep found and what is still open — 2026-09-09
 
 Eight attack surfaces, each read by an agent told that returning nothing was an
