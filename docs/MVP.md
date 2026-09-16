@@ -74,8 +74,13 @@ Rust, built in 5m37s, **the whole suite passing and none failing** (640 tests on
 that saves a 512 KiB document in 10 ms against the laptop's 29 ms. CI also runs
 the suite for that target under emulation on every push.
 
-What is left for the *Pi* rather than the VM: 1 GB of RAM against 11, and an SD
-card against a virtual disk.
+What is left for the *Pi* rather than the VM: an SD card against a virtual
+disk. **Not memory** — that line said "1 GB of RAM against 11" until
+2026-09-16, when logging into the machine showed **3.8 GB and 2 GB of swap**,
+on four cores against the VM's two. It is a Pi 4B 4 GB, not the 1 GB model the
+document assumed, and the difference matters: "bounded memory, the Pi is the
+target" in §5 was being argued against a budget four times smaller than the
+real one, and a release build was avoided there for no reason.
 
 ---
 
