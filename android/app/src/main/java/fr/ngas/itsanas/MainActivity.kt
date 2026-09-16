@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 /**
  * The whole application.
@@ -585,6 +586,7 @@ private fun Settings(
     var coordinatorAddress by remember { mutableStateOf("") }
     var coordinatorDevice by remember { mutableStateOf("") }
     var inviteCode by remember { mutableStateOf("") }
+    var joined by remember { mutableStateOf<String?>(null) }
     var keepGiB by remember {
         mutableStateOf(status?.keepBytes?.let { (it / (1024 * 1024 * 1024)).toString() } ?: "")
     }
@@ -660,14 +662,30 @@ private fun Settings(
                             if (address.isNotBlank()) {
                                 Account.setCoordinator(address, device)
                             }
-                            Account.register(invite)
+                            val answer = JSONObject(Account.register(invite))
+                            val where = answer.optString("coordinator", address)
+                            // `announced` is null when the address could not be
+                            // published. The device is still a member, so this
+                            // says so rather than reporting a failure -- but it
+                            // does not claim to be reachable either.
+                            joined = if (answer.isNull("announced")) {
+                                "Joined $where. No address could be published yet, " +
+                                    "so other machines cannot dial this phone."
+                            } else {
+                                "Joined $where, announced as " +
+                                    answer.optString("announced") + "."
+                            }
                             inviteCode = ""
                             onChanged()
                         } catch (error: Throwable) {
+                            joined = null
                             complain(error.message ?: "could not join")
                         }
                     }
                 }) { Text("Join") }
+                joined?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall)
+                }
 
                 Text("Machines to sync with", style = MaterialTheme.typography.titleSmall)
                 status?.peers?.forEach { address ->

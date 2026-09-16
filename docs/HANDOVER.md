@@ -473,6 +473,39 @@ Two open items there that no amount of agent work removes: **there is no
 privacy policy**, and Play will not take a listing without a URL for one; and
 `versionCode` is still `1` and must rise before every upload.
 
+**The Android application was run, and it joins.** Nicolas asked whether
+anything was left before the manual test, and suggested another Rodin or
+red-team pass. The stopping rule written this morning says an open-ended audit
+is the thing that feeds itself -- so instead the untested thing was tested. The
+`x86_64` ABI exists for exactly this and the comment in
+`android/app/build.gradle.kts` says so: "the emulator, which is how this gets
+tested without a phone in the room".
+
+On the `itsanas-test` AVD (android-35), the application installs, starts,
+**loads the native library** -- no `UnsatisfiedLinkError`, which is the failure
+that matters and that no amount of Kotlin review would catch -- opens a real
+node, and lists its files. The join was then driven through the UI against a
+coordinator running `--invite-only --admit-first` on the host at `10.0.2.2`.
+
+**The proof it worked is indirect and solid:** afterwards a fresh account
+registering from the command line was *refused* for want of an invitation, so
+the phone had consumed `--admit-first`. Nothing else could have shown that.
+
+It also found a defect no review had. The join succeeded and **nothing on the
+phone changed** -- no message, no state -- which is indistinguishable from a
+button that does not work, and somebody would tap it again. The screen now
+reports what happened, including the honest case where the device is a member
+but no address could be published, so it does not claim to be reachable when it
+is not.
+
+The procedure is in `docs/ANDROID-RELEASE.md` §5b, with the Git Bash trap:
+`MSYS_NO_PATHCONV=1`, or the shell rewrites `/sdcard/ui.xml` into a Windows
+path and `adb` fails on a file name it invented.
+
+What an emulator still cannot show, and it is worth saying before tomorrow: a
+real radio, a real battery, Doze, and a manufacturer's idea of what a
+background service may do.
+
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
 empty on a pure host, and checking the wrong one made a real host holding

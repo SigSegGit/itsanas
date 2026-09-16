@@ -136,12 +136,51 @@ truthful.
 
 ---
 
+## 5b. Testing it without a phone, which is how the join was proved
+
+The `x86_64` ABI in `android/app/build.gradle.kts` exists for this. There is an
+AVD called `itsanas-test` on an `android-35` image.
+
+```
+D:/Android/Sdk/emulator/emulator.exe -avd itsanas-test -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+```
+
+Then, with `D:/Android/Sdk/platform-tools` on `PATH`:
+
+```
+adb install -r android/app/build/outputs/apk/release/app-release.apk
+adb shell am start -n fr.ngas.itsanas/.MainActivity
+adb logcat -d | grep -iE 'FATAL|UnsatisfiedLink'
+```
+
+An `UnsatisfiedLinkError` is the failure that matters: it means the native
+library did not load, which no amount of Kotlin review would have caught.
+
+To drive the screen without looking at it, `adb shell uiautomator dump
+/sdcard/ui.xml` and read the `text=` attributes. **From Git Bash, set
+`MSYS_NO_PATHCONV=1` first**, or the shell rewrites `/sdcard/ui.xml` into a
+Windows path and `adb pull` fails on a file name it invented.
+
+**What this proved on 2026-09-16**, which nothing else could have: the
+application installs, starts, loads the native library, opens a real node, and
+**joins a coordinator**. The join was driven through the UI against a
+coordinator running `--invite-only --admit-first` on the host at `10.0.2.2`,
+and the proof it worked is indirect and solid — afterwards a fresh account
+registering from the command line was **refused** for want of an invitation,
+so the phone had consumed `--admit-first`.
+
+It also found a defect no review had: the join succeeded and **nothing on the
+phone changed**, which is indistinguishable from a button that does not work.
+Somebody would tap it again. The screen now reports what happened.
+
 ## 6. What is not ready, said plainly
 
-- **Nobody has installed the current application on a phone.** It builds, its
-  eighteen JNI calls match the Kotlin, and the join logic beneath them is the
-  same code the command line runs and the bench covers end to end. The Kotlin
-  glue and the JNI marshalling are exercised by nothing.
+- **Nobody has installed the current application on a real phone.** It has run
+  on the emulator, where it installs, starts, loads the native library, opens a
+  node and joins a coordinator (§5b) — so the Kotlin glue and the JNI
+  marshalling are no longer untested, which they were until 2026-09-16. What an
+  emulator cannot show: a real radio, a real battery, Doze, and a manufacturer's
+  idea of what a background service is allowed to do.
 - **There is no local discovery on Android.** Two phones on one wifi do not
   find each other. They join through a coordinator, or through `addPeer` with
   an address typed in.

@@ -123,9 +123,16 @@ object Account {
             Unit
         }
 
-    suspend fun register(invite: String) = withContext(Dispatchers.IO) {
+    /**
+     * Enrol with the configured coordinator, and hand back what happened.
+     *
+     * The answer is returned rather than discarded because the screen has to
+     * say something: run on an emulator against a real coordinator, the join
+     * succeeded and nothing on the phone changed, which is indistinguishable
+     * from the button not working. Somebody would tap it again.
+     */
+    suspend fun register(invite: String): String = withContext(Dispatchers.IO) {
         Native.register(invite.trim())
-        Unit
     }
 
     suspend fun addPeer(address: String) = withContext(Dispatchers.IO) {
