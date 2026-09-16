@@ -449,6 +449,30 @@ in `android/app/build.gradle.kts`). That is fine for sideloading and impossible
 for Play, which rejects debug keys; it also means an upgrade across a key
 change needs an uninstall. The release key stays §10.2, Nicolas's to hold.
 
+**The repository is ready to publish; the account and the key are not, and
+cannot be.** Nicolas asked for the Play internal testing track so that nobody
+has to sideload. What an agent can do is done: `android/app/build.gradle.kts`
+reads a release key from `android/keystore.properties` when one exists and
+falls back to the debug key when it does not, saying which out loud on every
+build -- because "release" otherwise means two different things and the
+difference surfaces as a rejected upload. `.gitignore` refuses `*.jks` and that
+properties file. `scripts/build-apk.sh bundle` produces the **`.aab`** Play
+requires (verified: 1 m 7 s, 16 MB) and the APK path still produces the
+installable thing.
+
+What an agent must **not** do, and these are not obstacles to route around: a
+Play developer account needs an account created, $25 paid and Google's terms
+accepted; and the release key is the application's identity for ever -- Google
+will not re-key a listing -- so it is generated and held by Nicolas and never
+passes through a session. `docs/ANDROID-RELEASE.md` carries the `keytool`
+command, the personal-versus-ITSomething comparison, and the console answers
+(data safety, `dataSync` justification, export compliance) written down in
+advance rather than from memory at eleven at night.
+
+Two open items there that no amount of agent work removes: **there is no
+privacy policy**, and Play will not take a listing without a URL for one; and
+`versionCode` is still `1` and must rise before every upload.
+
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
 empty on a pure host, and checking the wrong one made a real host holding

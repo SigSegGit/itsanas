@@ -9,6 +9,12 @@
 keystore.bin
 *.redb
 *.itsanas-key
+# The Android release key and the file naming it. Whoever holds these controls
+# every future update of the published application, and Google will not re-key
+# a listing, so they are Nicolas's to generate, hold and back up -- never the
+# repository's and never an agent's.
+*.jks
+android/keystore.properties
 /testdata/
 /.itsanas/
 
