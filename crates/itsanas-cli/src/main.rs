@@ -657,7 +657,20 @@ fn init(home: &Path, username: &str) -> Result<()> {
     println!();
     println!("This phrase is shown once and is not stored anywhere on this machine.");
     println!();
-    println!("Next: `itsanas pledge 10G` to offer space, then `itsanas serve`.");
+    // `serve` serves peers and never syncs, so an account set up by following
+    // this line hosted other people's data and never moved its own -- and the
+    // first thing `itsanas status` then says is "synced folder none". The
+    // order below is the one a person actually needs, and `daemon` is the
+    // process they want.
+    println!("Next, in order:");
+    println!("  itsanas folder <path>     the directory kept in step with this account");
+    println!("  itsanas pledge 10G        space offered to others, which is what earns yours");
+    println!("  itsanas daemon            serve peers and sync on a timer");
+    println!();
+    println!(
+        "To join a coordinator that already exists, before the daemon:\n  \
+         itsanas coordinator <host:port>\n  itsanas register"
+    );
 
     Ok(())
 }
@@ -1903,6 +1916,28 @@ fn sibling_ports(home: &Path) -> std::collections::BTreeSet<u16> {
 }
 
 /// The first port in [`PORT_SEARCH`] nobody claims and this machine can bind.
+/// Why this node did not get the port it asked for.
+///
+/// The second account on a machine skipped 9797 *and* 9798 and was told only
+/// that "9797 is used by another node", which reads as one sibling when there
+/// are two. Somebody counting their instances from this line counts wrong, and
+/// the line exists precisely because ports here are allocated behind the
+/// person's back.
+fn ports_skipped(chosen: u16) -> String {
+    match chosen.saturating_sub(PORT_SEARCH.start) {
+        0 => "chosen for this node".to_owned(),
+        1 => format!(
+            "{} is used by another node on this machine",
+            PORT_SEARCH.start
+        ),
+        _ => format!(
+            "{}-{} are used by other nodes on this machine",
+            PORT_SEARCH.start,
+            chosen - 1
+        ),
+    }
+}
+
 fn first_free_port(
     taken: &std::collections::BTreeSet<u16>,
     bindable: impl Fn(u16) -> bool,
@@ -1936,10 +1971,7 @@ fn settle_listen_port(node: &mut Node) -> Result<()> {
             let chosen = SocketAddr::new(current.ip(), port);
             node.config.listen = chosen.to_string();
             node.save_config()?;
-            println!(
-                "  listen   : {chosen} ({} is used by another node on this machine)",
-                current.port()
-            );
+            println!("  listen   : {chosen} ({})", ports_skipped(port));
         }
         None => println!(
             "warning: every port from {} to {} is taken here; choose one with `itsanas listen`",
@@ -2743,6 +2775,26 @@ mod tests {
         // two daemons on one port at the next boot.
         let taken = std::collections::BTreeSet::from([9797]);
         assert_eq!(first_free_port(&taken, |_| true), Some(9798));
+    }
+
+    /// The line says how many siblings there are, because that is what it is for.
+    ///
+    /// The second account on this machine skipped 9797 and 9798 and was told
+    /// "9797 is used by another node on this machine" -- singular, and naming
+    /// one of the two. Ports here are handed out without asking, so this line
+    /// is the only place the person learns what happened.
+    #[test]
+    fn the_ports_a_node_had_to_skip_are_all_named_not_just_the_first() {
+        assert!(
+            super::ports_skipped(9798).contains("9797 is used"),
+            "one skipped port should be named in the singular"
+        );
+        let two = super::ports_skipped(9799);
+        assert!(
+            two.contains("9797-9798") && two.contains("are used"),
+            "two skipped ports were reported as one, which undercounts the \
+             instances on this machine: {two}"
+        );
     }
 
     #[test]

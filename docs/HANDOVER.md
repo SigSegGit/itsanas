@@ -187,6 +187,32 @@ and the age dropped from the header fails the CLI one. **`NEXT` stays (i)** —
 (j) was done first because it is small and it is what makes "is my node
 healthy?" answerable at all, which is half of what (i) is for.
 
+**Then (i), first pass: three accounts created cold on this laptop**, in
+throwaway homes, without touching the live node's scheduled task. The
+machinery works -- the second and third accounts took 9798 and 9799 without
+being asked anything -- and two things it *said* were wrong:
+
+* **`init` told a new account to run `itsanas serve`.** `serve` serves peers
+  and never syncs, so an account set up by following the printed advice hosts
+  other people's data and never moves its own -- and the first thing `status`
+  then says is `synced folder none`. It now prints the order somebody actually
+  needs: `folder`, `pledge`, `daemon`, with `coordinator` + `register` before
+  the daemon for joining an existing one.
+* **The port line named one sibling when there were two.** The third account
+  skipped 9797 *and* 9798 and was told "9797 is used by another node on this
+  machine". Ports are handed out here without asking, so that line is the only
+  place a person learns what happened, and counting instances from it counted
+  wrong. It now says `9797-9799 are used by other nodes on this machine`.
+
+**(i) is not finished** and `NEXT` stays on it. What was exercised is the CLI
+path (`init` twice more on a machine that already had a node). What was **not**
+exercised, deliberately, is `install/provision.ps1 -Instance` and
+`provision.sh --instance`: they register scheduled tasks and systemd units and
+kill processes, and the live daemon on this laptop holds real data -- #18 fixed
+`provision.ps1` killing every `itsanas` process, which is exactly the failure a
+careless run reproduces. Those want a scratch machine or Nicolas at the
+keyboard, and `install/macos.sh` has still never been run by a human at all.
+
 Traps from this session: `git commit`/`gh` work fine on this machine, but the
 **squash merge is refused by a local policy guard** ("Merge Without Review"),
 so an agent can open and green a PR and cannot land it. Say so and stop rather
@@ -640,8 +666,17 @@ Detail and measurements are in ROADMAP.md; this is the map.
       (`%LOCALAPPDATA%\itsanas\sampler.ps1`, seen, not read) — bring its
       measurement into `scripts/acceptance.ps1` with the same verdict line, plus
       `powercfg /requests` for whether the daemon holds the machine awake.
-   i. **Install and configure two accounts per machine, in one command
-      each.** Asked for by Nicolas on 2026-09-16, and it now gates (c): he
+   i. 🟨 **Install and configure two accounts per machine, in one command
+      each.** First pass done 2026-09-16: `init` no longer sends a new account
+      to `serve` (which never syncs) and the listen-port line names every port
+      it skipped rather than only the first. Three accounts were created cold
+      on the laptop to find those. **Still open, and why `NEXT` is still here:**
+      `provision.ps1 -Instance` / `provision.sh --instance` have not been run
+      -- they touch scheduled tasks, systemd units and running processes, and
+      the laptop's daemon holds real data -- and `install/macos.sh` has never
+      run on a Mac. Both want a scratch machine or Nicolas at the keyboard.
+
+      Asked for by Nicolas on 2026-09-16, and it gates (c): he
       will not spend a day running A-M until this is true. The target, in his
       words, is that setting a machine up with two distinct accounts is "as
       simple as it should be" -- for him on Windows, the Pi and the VM, and
