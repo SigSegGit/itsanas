@@ -309,6 +309,16 @@ did not have one.
   this was written, and those record `unknown`. Upgrade before starting the 24
   hours.
 
+**Test I's off-LAN verdict was checked rather than assumed.** I had written a
+pass condition for the second run -- "machine 1 says it is cut off and loses
+nothing" -- without ever seeing the software meet it, in a test whose protocol
+asks Nicolas to wait **48 hours**. Run against a node whose coordinator and
+only peer were both unreachable, it does meet it, and the exact lines are now
+in `MVP.md`. One correction fell out: **`I check` must not be run on machine 1
+for that half**, because the phase looks for sync rounds *completing* after the
+outage and a node that can reach nobody completes none -- it would report FAIL
+for a machine behaving correctly.
+
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
 empty on a pure host, and checking the wrong one made a real host holding
