@@ -238,13 +238,23 @@ h_sample() {
     pid=$(pgrep -f "itsanas.* daemon" | head -1)
     [ -n "$pid" ] || { verdict FAIL H sample "no itsanas daemon is running"; return; }
     [ -r "/proc/$pid/io" ] || { verdict FAIL H sample "/proc/$pid/io is unreadable; Linux only"; return; }
-    local cpu rss written
+    local cpu rss written files
     cpu=$(ps -o %cpu= -p "$pid" | tr -d ' ')
     rss=$(ps -o rss= -p "$pid" | tr -d ' ')
     written=$(awk '/^write_bytes/ {print $2}' "/proc/$pid/io")
+    # The criterion is "memory under 200 MiB **with a large folder**", and until
+    # 2026-09-16 no kit recorded the folder -- so a PASS on an empty account was
+    # indistinguishable from a PASS on a full one, and MVP.md's own figures came
+    # from about a megabyte. `itsanas status` answers without a passphrase while
+    # the daemon holds the node, so ask it. `unknown` rather than blank when it
+    # cannot, because a blank column reads as zero. An older binary that still
+    # demands a passphrase gives `unknown`, which is the honest answer.
+    files=$("${ITSANAS_BIN:-itsanas}" status 2>/dev/null |
+        awk '/^[[:space:]]*files[[:space:]]+[0-9]+/ {print $2; exit}')
+    [ -n "$files" ] || files=unknown
     mkdir -p "$RECEIPTS"
-    printf '%s\t%s\t%s\t%s\n' "$(date +%s)" "$cpu" "$rss" "$written" >>"$RECEIPTS/h-samples.tsv"
-    echo "sampled pid $pid: cpu ${cpu}% rss ${rss} KiB written ${written} B"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$cpu" "$rss" "$written" "$files" >>"$RECEIPTS/h-samples.tsv"
+    echo "sampled pid $pid: cpu ${cpu}% rss ${rss} KiB written ${written} B, account holds $files file(s)"
 }
 
 h_report() {
@@ -254,16 +264,39 @@ h_report() {
     # thresholds below are the kit's reading of it, stated so it can be argued
     # with: under 200 MiB resident, under 5% of a core on average, and the
     # write rate reported rather than judged, since the criterion names none.
+    # Field 5 is the account's file count, added 2026-09-16. It is reported and
+    # never judged -- the criterion says "a large folder" without saying how
+    # large, so a threshold here would be invented. What the receipt must carry
+    # is what was actually measured, so a PASS taken on an empty account cannot
+    # later be read as evidence for a full one. Samples written before that
+    # field existed, or by a binary whose `status` still wants a passphrase,
+    # have no count and say so.
     awk -F'\t' '
         NR == 1 { t0 = $1; w0 = $4 }
-        { n++; cpu += $2; if ($3 > peak) peak = $3; t1 = $1; w1 = $4 }
+        {
+            n++; cpu += $2; if ($3 > peak) peak = $3; t1 = $1; w1 = $4
+            if ($5 != "" && $5 != "unknown") {
+                seen++
+                if (seen == 1 || $5 < lo) lo = $5
+                if (seen == 1 || $5 > hi) hi = $5
+            }
+        }
         END {
             hours = (t1 - t0) / 3600
             perday = (t1 > t0) ? (w1 - w0) * 86400 / (t1 - t0) / 1048576 : 0
-            printf "%d %.2f %.1f %.1f %.1f\n", n, cpu / n, peak / 1024, hours, perday
+            if (seen == 0) files = "none"
+            else if (lo == hi) files = lo
+            else files = lo "-" hi
+            printf "%d %.2f %.1f %.1f %.1f %s\n", n, cpu / n, peak / 1024, hours, perday, files
         }' "$file" | {
-        read -r n avg peak hours perday
-        local detail="$n samples over ${hours} h: cpu ${avg}% avg, peak ${peak} MiB, ${perday} MiB written/day"
+        read -r n avg peak hours perday files
+        local size
+        if [ "$files" = none ]; then
+            size='account size NOT recorded, so this says nothing about "with a large folder"'
+        else
+            size="on an account of $files file(s)"
+        fi
+        local detail="$n samples over ${hours} h: cpu ${avg}% avg, peak ${peak} MiB $size, ${perday} MiB written/day"
         if awk "BEGIN { exit !($hours < 24) }"; then
             verdict FAIL H report "$detail -- fewer than the 24 hours the test asks for"
         elif awk "BEGIN { exit !($peak < 200 && $avg < 5) }"; then

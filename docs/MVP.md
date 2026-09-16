@@ -208,11 +208,30 @@ readings were fixed before any result:
 * **"200 MiB"** is what both kits have always compared against. The sentence
   said "200 MB" until 2026-09-16, a 4.9 % difference nobody was applying.
 
-**"with a large folder" is not tested at all.** Neither kit records the size of
-the account it measured, and the figures in §6 were taken on an account of about
-a megabyte. A memory result on an empty account is not evidence for this
-criterion; run H against the folder the narrative in
-[BRIEFING-MVP.md](BRIEFING-MVP.md) builds, not on a fresh node.
+**"with a large folder" is now recorded, and still never judged.** Until
+2026-09-16 neither kit recorded the size of the account it measured, so a PASS
+on an empty account was indistinguishable from a PASS on a full one — and the
+figures in §6 were taken on an account of about a megabyte. Both kits now ask
+`itsanas status` for the file count on every sample and put it in the verdict
+line:
+
+    peak 11.7 MiB on an account of 4210 file(s)
+
+or, when it could not be read:
+
+    peak 11.7 MiB account size NOT recorded, so this says nothing about "with a large folder"
+
+No threshold is applied, because the criterion says "large" without saying how
+large and a number invented here would be exactly the kind of substitution the
+CPU reading above already is. The receipt simply carries what was measured.
+
+**It needs a binary from 2026-09-16 or later**, because reading the count
+without a passphrase is what made this cheap. An older daemon — and every
+machine on the fleet ran a 2026-09-14 build when this was written — records
+`unknown`, which is the honest answer rather than a blank column that would
+read as zero. Upgrade the machine before starting the 24 hours, and run H
+against the folder the narrative in [BRIEFING-MVP.md](BRIEFING-MVP.md) builds,
+not on a fresh node.
 
 **Why this is an acceptance test and not a nicety:** the first version of this
 that makes the laptop hot gets uninstalled, and the project ends there.
