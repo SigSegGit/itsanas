@@ -251,14 +251,32 @@ manual `doctor --repair`, no lost file.
 ### K. A host that throws away what it holds
 
 On the machine hosting another account's data, delete the vault by hand, as the
-person who owns that machine. There is no kit phase: remove the node's vault
-directory.
+person who owns that machine. There is no kit phase: remove the node's `vault`
+directory -- **not** `store/blobs`, which holds that node's *own* chunks and is
+empty on a pure host.
 
-**Pass:** within a few rounds the owner's node stops counting that host as a
-holder, `itsanas status` on the owner says the chunks are short of their target,
-the data is re-placed on another machine, and **nothing is lost**. The host's
-reliability record shows the failures, and after three consecutive ones it stops
-being offered new content.
+**The owner's daemon must be running.** `itsanas sync` pushes and pulls and
+**never audits**: `session::audit` is called from the daemon loop and nowhere
+else. A one-shot round against a host whose vault has been emptied therefore
+reports nothing at all, which reads as "the sanction does not work" and is
+really "the sanction was never asked to run". This was found by automating the
+test, not by reading the code.
+
+**Pass:** the owner's daemon prints `FAILED n of m storage challenges — it is
+not holding what it said`, and `itsanas status` on the owner grows a section:
+
+    peers that have failed a storage challenge
+      80fa10db925d answered 0 and failed 1, and is answering now
+
+Nothing of the owner's is lost, and after three consecutive failures the host
+stops being offered new content.
+
+**What to look at, and what not to.** The named peer is the observable. The
+`placements` count is *not*: in the automated run it did not move (81 → 81)
+while the challenge plainly failed, so either a withdrawn record is still
+counted there or the daemon's "those chunks now count as unreplicated" is
+looser than it sounds. Unresolved, and written down rather than smoothed
+over -- do not read a flat `placements` as the sanction having failed.
 
 **Why:** every economic claim in this project rests on a sanction nobody has
 ever watched fire. The mechanism is built -- storage challenges, `Reliability`,

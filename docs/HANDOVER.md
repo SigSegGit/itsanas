@@ -214,8 +214,41 @@ careless run reproduces. Those want a scratch machine or Nicolas at the
 keyboard, and `install/macos.sh` has still never been run by a human at all.
 
 **All four landed**: #20 (H on Windows), #24 (the protocol, replacing #21),
-#22 (status without a passphrase), #23 (onboarding). `main` is at the `BASE`
-above and no PR is open.
+#22 (status without a passphrase), #23 (onboarding). Then the bench grew the
+tests it could not run.
+
+**C, K and M are now automated.** `scripts/acceptance-local.sh` set up a
+second account that *really hosts*: it pledges, takes 2.6 MiB of the first
+account's chunks over a socket, and is then scanned for the canary. That is
+test C as written -- the bench's own comment used to say it could only manage
+the negative control, and C is the test whose failure stops the project. It
+passes. M passes with it: the host's `ls` names none of the owner's files.
+
+**K found something, and it was the protocol that was wrong.**
+`itsanas sync` **never audits**: `session::audit` is called from the daemon
+loop (`crates/itsanas-cli/src/daemon.rs` ~848) and nowhere else. The first
+version of the K phase deleted the host's vault and ran three `sync` rounds,
+and nothing happened -- which reads as "the sanction is broken" and is really
+"the sanction was never asked to run". With the owner's daemon up it fires:
+the daemon prints `FAILED n of m storage challenges` and `itsanas status`
+grows `peers that have failed a storage challenge` naming the machine.
+`MVP.md` and `BRIEFING-MVP.md` now say the daemon must be running, because
+Nicolas would have lost a morning to this.
+
+**Open, and deliberately not smoothed over:** the `placements` count did not
+move (81 -> 81) while the challenge plainly failed. Either a withdrawn holder
+record is still counted there, or the daemon's "those chunks now count as
+unreplicated" is looser than it sounds. Not chased down -- the named peer is
+the observable either way -- but it is the next thing to pull on if K ever
+looks wrong on the fleet.
+
+Two things a next session should not re-derive. The host's vault is
+`<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
+empty on a pure host, and checking the wrong one made a real host holding
+2.6 MiB read as holding nothing. And on this Windows laptop the bench's three
+**discovery** checks fail for environmental reasons -- they fail identically on
+an unmodified tree, and pass on CI's ubuntu -- so run the bench for its
+verdicts, not its exit code, when working from Windows.
 
 Traps from this session, in the order they cost time. **A squash merge is
 sometimes refused by a local policy guard** ("Merge Without Review") and
@@ -608,6 +641,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
    - What an agent cannot do: cut power, reboot the Pi, leave a laptop asleep
      for a day. What it can do is make each of those a command that checks
      and prints a verdict, so a test costs Nicolas minutes and no judgement.
+
+   a2. ✅ **C, K and M automated in `acceptance-local.sh`** (2026-09-16), with
+      a second account that pledges and really hosts. C -- the test whose
+      failure stops the project -- had never run anywhere but by hand. See §0
+      for what K found about `sync` not auditing, and for the open question
+      about `placements`.
 
    a. ✅ **An acceptance kit: `scripts/acceptance.sh <test> <phase> [args]`.**
       Run on the machine the phase is about; prints `PASS`/`FAIL` with the

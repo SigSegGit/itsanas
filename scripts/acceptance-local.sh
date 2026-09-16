@@ -13,8 +13,11 @@
 #
 # * **the scenario**: B, D, E, F and G between three homes of one account and a
 #   local coordinator, over real sockets, with no credential that exists
-#   anywhere else. This is the laboratory version of the fleet runs. It proves
-#   the kit and the mechanisms agree; it does not replace the fleet.
+#   anywhere else, plus C, K and M against a **second account that really
+#   hosts** -- the host takes 2.6 MiB of the first account's chunks, is scanned
+#   for the canary, lists none of them, and then has its vault deleted under it.
+#   This is the laboratory version of the fleet runs. It proves the kit and the
+#   mechanisms agree; it does not replace the fleet.
 # * **the negative controls**: each check pointed at a situation that must be
 #   refused -- a wrong hash, a canary sitting in the host's store, a deleted
 #   file that is still there, an edit with no conflict copy, a count that
@@ -251,6 +254,78 @@ must node stingy init --username stingy-host
 stingy_out=$(serving stingy "$((CPORT + 9))" node m1 sync "127.0.0.1:$((CPORT + 9))" 2>&1)
 check "a round against a host with pledge 0 prints why nothing was stored" \
     sh -c "printf '%s\n' \"\$1\" | grep -q 'refused [0-9]* offer(s): its pledge is full or zero'" _ "$stingy_out"
+
+say "C as written: a host of another account holds the data and cannot read it"
+# The C section above has only its negative control. The test is about a host of
+# *another account*, and scanning the owner's own home finds the canary --
+# correctly, because an owner's index holds names in the clear. That needs a
+# second account which actually pledges and actually accepts chunks, which is
+# what this builds. Until it existed, the one test whose failure stops the
+# project was the one the bench could not run.
+HOSTPORT=$((CPORT + 11))
+must node host2 init --username neighbour-host
+must node host2 pledge 1G
+host_out=$(serving host2 "$HOSTPORT" node m1 sync "127.0.0.1:$HOSTPORT" 2>&1)
+printf '        %s\n' "$(printf '%s\n' "$host_out" | grep -E 'sent|received' | tail -1)"
+# Without this the scan below passes on a host that was sent nothing at all,
+# which is the failure mode the F phase already had once.
+check "a host of another account accepted chunks" \
+    sh -c "printf '%s\n' \"\$1\" | grep -Eq 'sent [1-9]'" _ "$host_out"
+# Hosted data lives in the node's vault, not in its own store: `store/blobs`
+# is this account's own chunks and is empty on a pure host. Checking the wrong
+# directory made this read zero while the host held 2.6 MiB.
+sealed=$(find "$WORK/host2/vault" -type f 2>/dev/null | wc -l)
+check "the host has sealed data in its vault to search" test "$sealed" -gt 0
+expect_pass C scan "$canary" "$WORK/host2"
+
+say "M: the host lists none of the account it is storing for"
+check "the host's own listing does not name the owner's file" \
+    sh -c "! ITSANAS_HOME='$WORK/host2' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' ls </dev/null 2>&1 | grep -q '$canary'"
+
+say "K: a host that throws the data away stops counting as a holder"
+# The sanction every economic claim rests on, exercised end to end for the first
+# time: challenges, Reliability, FAILURES_BEFORE_PAUSE. Deleting the blobs and
+# leaving the ledger is exactly the attack -- keep claiming the space, hold
+# nothing -- and it is what test K asks Nicolas to do by hand.
+# **`itsanas sync` does not audit.** `session::audit` is called from the daemon
+# loop and nowhere else, so a one-shot round pushes and pulls and never
+# challenges anybody. The first version of this phase ran three `sync` rounds
+# against a host whose vault had been deleted and watched the placement count
+# sit still -- which reads as "the sanction does not work" and is really "the
+# sanction was never asked to run". Test K needs the daemon up on the owner's
+# side, and `docs/MVP.md` and `docs/BRIEFING-MVP.md` say so because of this.
+must node m1 peer add "127.0.0.1:$HOSTPORT"
+before=$(node m1 status 2>&1 | grep -oE 'placements +[0-9]+' | awk '{print $2}')
+rm -rf "$WORK/host2/vault"
+ITSANAS_HOME="$WORK/host2" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" serve --listen "127.0.0.1:$HOSTPORT" \
+    </dev/null >>"$WORK/host2-serve.log" 2>&1 &
+hsrv=$!
+pids+=("$hsrv")
+wait_port "$HOSTPORT" || { cat "$WORK/host2-serve.log"; echo "host2 did not serve"; exit 1; }
+ITSANAS_HOME="$WORK/m1" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" daemon --interval 2 \
+    --listen "0.0.0.0:$((CPORT + 12))" </dev/null >"$WORK/daemon-audit.log" 2>&1 &
+daudit=$!
+pids+=("$daudit")
+# Challenges are drawn at random, so one round may miss; wait for the line the
+# daemon prints when a host fails, and give up after a bounded time either way.
+for _ in $(seq 60); do
+    grep -q 'storage challenges' "$WORK/daemon-audit.log" && break
+    sleep 1
+done
+kill "$daudit" "$hsrv" 2>/dev/null
+wait "$daudit" "$hsrv" 2>/dev/null
+for _ in $(seq 50); do (exec 3<>"/dev/tcp/127.0.0.1/$HOSTPORT") 2>/dev/null || break; sleep 0.1; done
+check "the daemon says the host failed its storage challenges" \
+    grep -q 'storage challenges' "$WORK/daemon-audit.log"
+m1_status=$(node m1 status 2>&1)
+after=$(printf '%s\n' "$m1_status" | grep -oE 'placements +[0-9]+' | awk '{print $2}')
+printf '        placements %s -> %s\n' "${before:-?}" "${after:-?}"
+printf '%s\n' "$m1_status" | sed -n '/failed a storage challenge/,+2p' | sed 's/^/        /'
+# The observable is the named peer, not the placement count: a withdrawn record
+# is one of many, and on a fleet of three the count barely moves. What the owner
+# must be able to see is *which machine* stopped holding what it claimed.
+check "the owner names the host that discarded the data" \
+    sh -c 'printf "%s\n" "$1" | grep -q "failed a storage challenge"' _ "$m1_status"
 
 say "Two accounts on one machine: separate ports, and both hear the local network"
 # A second account on this machine is a second node home and a second daemon.
