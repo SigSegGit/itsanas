@@ -190,6 +190,36 @@ blocs orphelins → il ne sert à rien et l'écriture peut aller deux fois plus 
 
 ---
 
+## 3.9 Ce que chaque plateforme sait faire — à lire AVANT d'inviter quelqu'un
+
+Vérifié le 2026-09-16, en lisant le code et en faisant tourner le banc. Le but
+est qu'il n'y ait aucune mauvaise surprise avec un invité dans la pièce.
+
+| | Rejoindre via coordinateur | Découverte locale | Sync | État |
+| --- | --- | --- | --- | --- |
+| **Windows / Linux** | ✅ `coordinator` + `register --invite` | ✅ | ✅ | tourne sur la flotte |
+| **Mac** | ✅ même CLI | 🟨 `SO_REUSEPORT` ajouté, **jamais lancé sur un vrai Mac** | ✅ en théorie | **binaire jamais exécuté par un humain** |
+| **Android** | ❌ **impossible** | ❌ **absente** | ✅ mais seulement vers une adresse tapée à la main | l'appli existe et tourne |
+
+**Le Mac peut devenir un vrai membre** : il a le CLI complet, donc `itsanas
+coordinator <ip-du-pi>:9898` puis `register --invite <code>`. Comme il passe
+par le coordinateur, il n'a pas besoin de la découverte locale — c'est ce qui
+rend son cas raisonnable même si la découverte n'a jamais été testée sur un
+Mac. Le risque restant est Gatekeeper : un binaire téléchargé est mis en
+quarantaine, il faudra l'autoriser à la main.
+
+**L'Android ne peut pas rejoindre le compte.** `crates/itsanas-android`
+n'expose ni coordinateur ni `register`, et ne fait aucune découverte. Les 16
+appels JNI sont : create, login, open, close, status, list, get, put, remove,
+sync, setKeep, setPledge, addPeer, removePeer, exists, plan. Donc un téléphone
+peut, au mieux : `login` avec **les 24 mots** d'un compte de test, puis
+`addPeer("192.168.1.x:9797")` tapé à la main, puis `sync`. C'est testable
+demain, mais ce n'est pas « le téléphone rejoint le réseau », et un compte créé
+sur le téléphone ne sera enrôlé nulle part.
+
+**Donc pour une session avec un invité :** le Mac en membre complet, les
+téléphones en pair manuel sur le LAN, et on ne promet pas mieux.
+
 ## 4. Plusieurs comptes sur une machine (1a)
 
 Sur P, avec `nicolas` et `voisin` qui tournent :

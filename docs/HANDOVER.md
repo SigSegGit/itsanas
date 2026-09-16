@@ -395,6 +395,28 @@ which is honest and expected at this size. The Linux H sampler was run on the
 Pi and recorded `account holds 1 file(s)`, so the account-size column works on
 real hardware and not only on the laptop.
 
+**The bench had been testing a coordinator the fleet does not run.** It started
+an *open* one; the Pi runs `--invite-only --admit-first`. So every acceptance
+run to date exercised a configuration that does not exist here, and the one
+path a new member actually walks -- being invited -- was covered only by unit
+tests in `itsanas-coord::directory`. The bench now matches production and
+drives the whole flow over a socket: an uninvited stranger is refused, a member
+mints a code, the newcomer is admitted, that member re-registers **without** a
+fresh code, and a single-use code cannot admit a second stranger. All five
+pass. Found while asking what could go wrong with a visitor in the room, which
+is a better question than "what shall I audit next".
+
+**`itsanas` on Android cannot join, and M12 said the opposite of the truth.**
+The ROADMAP row read "shell not written"; there is a 1354-line Kotlin app
+committed 2026-09-07, and I repeated the stale row to Nicolas as fact. What is
+actually missing is worse and more specific: `crates/itsanas-android` exposes
+16 JNI calls that match `Native.kt` exactly, and **none of them is a
+coordinator or a `register`**, and nothing there does local discovery. `login`
+takes the 24 words, not a coordinator. So a phone reaches the network only
+through `addPeer("ip:port")` typed by hand, and an account created on a phone
+is enrolled nowhere. `docs/BRIEFING-MVP.md` §3.9 is the platform table to read
+before inviting anybody.
+
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
 empty on a pure host, and checking the wrong one made a real host holding
