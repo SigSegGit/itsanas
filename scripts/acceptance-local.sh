@@ -119,7 +119,12 @@ listing() { printf '        %s holds: %s\n' "$1" "$(node "$1" ls 2>&1 | awk '{pr
 say "setup: a coordinator and three machines of one account"
 must "$COORD" --state "$WORK/coord" --identity
 COORD_ID=$("$COORD" --state "$WORK/coord" --identity 2>&1 | grep -oE '[0-9a-f]{64}' | head -1)
-"$COORD" --state "$WORK/coord" --listen "127.0.0.1:$CPORT" >"$WORK/coord.log" 2>&1 &
+# `--invite-only --admit-first`, because that is what the Pi runs. Until
+# 2026-09-16 this bench started an *open* coordinator, so every acceptance run
+# exercised a configuration the fleet does not use, and the one path a new
+# person actually needs -- being invited -- was covered only by unit tests in
+# `itsanas-coord::directory`.
+"$COORD" --state "$WORK/coord" --listen "127.0.0.1:$CPORT" --invite-only --admit-first >"$WORK/coord.log" 2>&1 &
 pids+=($!)
 wait_port "$CPORT" || { cat "$WORK/coord.log"; exit 1; }
 
@@ -346,6 +351,36 @@ printf '%s\n' "$m1_status" | sed -n '/failed a storage challenge/,+2p' | sed 's/
 # briefly mistaken for a broken sanction. With a spare host it rises.
 check "the owner names the host that discarded the data" \
     sh -c 'printf "%s\n" "$1" | grep -q "failed a storage challenge"' _ "$m1_status"
+
+say "A second person joins an invite-only coordinator, and cannot without a code"
+# The path the next real member walks, end to end over a socket for the first
+# time. `--admit-first` let machine 1 in; everybody after needs a code, and the
+# refusal is half the test: a coordinator that admits strangers is the whole
+# threat model.
+must node newcomer init --username newcomer
+must node newcomer coordinator "127.0.0.1:$CPORT" --device "$COORD_ID"
+check "an uninvited stranger is refused by an invite-only coordinator" \
+    sh -c "! ITSANAS_HOME='$WORK/newcomer' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' register </dev/null 2>&1"
+invite_out=$(node m1 invite 2>&1)
+# 64 hexadecimal characters, and nothing else. A looser pattern picked an
+# 8-character fragment out of the surrounding prose, and `register` then
+# refused it for the wrong reason -- which read as the invite path failing.
+code=$(printf '%s\n' "$invite_out" | grep -oE '[0-9a-f]{64}' | head -1)
+check "an existing member can mint an invitation" test -n "$code"
+if [ -n "$code" ]; then
+    check "the invited newcomer is admitted" \
+        env ITSANAS_HOME="$WORK/newcomer" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" register --invite "$code"
+    # Re-registering is how a member refreshes keys; it must not need a
+    # second code, or every key rotation would cost an invitation.
+    check "a member re-registers without a fresh code" \
+        env ITSANAS_HOME="$WORK/newcomer" ITSANAS_PASSPHRASE="$PASSPHRASE" "$BIN" register
+    # A single-use code is spent. If it were not, one leaked code would admit
+    # the internet to this coordinator.
+    must node stranger2 init --username stranger2
+    must node stranger2 coordinator "127.0.0.1:$CPORT" --device "$COORD_ID"
+    check "a single-use code cannot admit a second stranger" \
+        sh -c "! ITSANAS_HOME='$WORK/stranger2' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' register --invite '$code' </dev/null 2>&1"
+fi
 
 say "Two accounts on one machine: separate ports, and both hear the local network"
 # A second account on this machine is a second node home and a second daemon.
