@@ -319,6 +319,22 @@ for that half**, because the phase looks for sync rounds *completing* after the
 outage and a node that can reach nobody completes none -- it would report FAIL
 for a machine behaving correctly.
 
+**A second randomised security test was found flaking, the same way.**
+`a_corrupted_recovery_phrase_is_rejected_not_silently_accepted` generated a
+random phrase, swapped two words and asserted the checksum rejected it. A
+24-word BIP-39 phrase carries 256 bits of entropy and an **8-bit** checksum, so
+a transposition still validates roughly **1 time in 256** — and with five test
+jobs a push that surfaces regularly, announcing that corrupted phrases are
+silently accepted, which is the most alarming possible way to report a coin
+landing tails. Caught on macOS during a pull request that changed **one
+markdown file**. Now five checked-in seeds, so the test is identical on every
+platform and every run.
+
+That is two randomised security tests in one day. **If a security test draws
+random input, work out its false-failure rate before trusting it**, because the
+failure mode is not a wasted run — it is teaching everybody that the alarm is
+noise.
+
 Two things a next session should not re-derive. The host's vault is
 `<home>/vault`; `<home>/store/blobs` is that node's **own** chunks and is
 empty on a pure host, and checking the wrong one made a real host holding
@@ -1167,6 +1183,24 @@ Detail and measurements are in ROADMAP.md; this is the map.
 5. **Whether `install/macos.sh` works.** It has run on a CI runner and never on
    a Mac. The second person's machine is a Mac, so this is on the critical path
    of the pilot rather than a nicety.
+6. **`main` is not protected, and the working rules say it is.** Checked on
+   2026-09-16: `gh api repos/SigSegGit/itsanas/branches/main/protection` returns
+   **404 Branch not protected**. There is no required check and no required
+   review, so anything at all can be pushed straight to `main`, skipping CI
+   entirely — which is precisely what every gate in this repository exists to
+   prevent.
+
+   Found by pushing a one-line change there by mistake and expecting to be
+   refused. That is the only reason it is written down, and it is worth saying
+   plainly: for months the rule "never commit directly to main, it is protected
+   by CODEOWNERS and required CI" has been a belief, not a setting. Every PR in
+   this repository has gone through CI because somebody chose to, not because
+   anything made them.
+
+   Nicolas's to enable, because it is a repository setting rather than code:
+   require the `CI` check and disallow direct pushes. Until then an agent
+   working unattended can land red code on `main`, and the discipline that has
+   held so far is the only thing that has held.
 
 ## 11. Working style Nicolas expects
 
