@@ -252,10 +252,28 @@ pretending everything is fine.
 
 **The two runs are expected to differ, and that difference is the result.** On
 the LAN run this should pass outright. On the off-LAN run, machine 1 can be
-reached by nobody and can dial only machine 4, which is switched off -- so the
-honest pass is that machine 1 **says** it is cut off and loses nothing, while 2
-and 3 carry on without it. If instead it goes quiet and looks healthy, that is a
-failure of the same kind as L.
+reached by nobody and can dial only machine 4, which is switched off.
+
+**What machine 1 should print, verified on 2026-09-16** against a node whose
+coordinator and only peer were both unreachable — this wording was checked
+because a pass condition nobody has seen the software meet is a day of waiting
+for a verdict that may not exist:
+
+    coordinator: unreachable (<address>: ...)
+      Peers already known keep syncing. New machines cannot be found.
+    1 machine(s) known, none reachable this round.
+    folder: 1 in, 0 out, 0 deleted locally, 0 deleted remotely, 0 conflicts
+
+That is the honest pass for machine 1: it **says** it is cut off, names what is
+degraded rather than only reporting an error, and the file written during the
+outage is still ingested and still there afterwards. If instead it goes quiet
+and looks healthy, that is a failure of the same kind as L.
+
+**Do not run `I check` on machine 1 for the off-LAN run.** The phase looks for
+sync rounds *completing* after the outage begins, and a machine that can reach
+nobody completes none — it would report FAIL for a node behaving exactly as it
+should. Run `I check` on machines 2 and 3, which are on the LAN together, and
+read machine 1's log by eye against the four lines above.
 
 **Why:** if the answer is "everything stops", ITSaNAS is Dropbox with a worse
 Dropbox in the middle, and the entire premise is gone.
