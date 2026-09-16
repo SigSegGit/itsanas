@@ -263,9 +263,20 @@ suspect the measurement before editing the criterion.
   two names one filesystem cannot hold apart.
 * **Long paths are fine.** 305 characters logical, over 400 absolute, written
   to NTFS without complaint.
-* **Unicode normalisation is the one real gap, and is still untested** -- there
-  is no Mac here. Marked as a prediction, not a result, and the likely outcome
-  is a duplicate rather than a loss.
+* **Unicode normalisation: answered on a real Mac the same evening, and the
+  prediction was wrong.** An M4 MacBook Air (APFS) was sent the two spellings
+  and reported `FILES: 1` -- one file, holding the second write, under the
+  first spelling's bytes. **APFS is normalisation-insensitive and
+  normalisation-preserving**, so a Mac matches an existing accented name
+  whatever its form and does *not* re-upload what it received from Linux,
+  which was the whole basis of the warning. What is left is the case-collision
+  case, already handled by the conflict machinery.
+
+  That makes **three predictions written from the absence of code and three
+  refuted by running them** -- case pairs, long paths, and now Unicode. The
+  rule is cheaper to write down than to keep relearning: *absence of code is
+  evidence about code, not about behaviour.* `itsanas` itself has still never
+  run on a Mac; the filesystem question, which was the crux, is closed.
 
 Absence of code is weak evidence about behaviour. This project's own tense
 discipline says a present indicative needs a test behind it, and three of them

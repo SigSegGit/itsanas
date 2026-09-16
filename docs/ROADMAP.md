@@ -1258,16 +1258,28 @@ corrected form, because the correction is more useful than the claim was.
   hold apart, which is a better outcome than the design aimed at.
 * **Long paths: fine.** A 305-character logical path — over 400 absolute — was
   stored and written to NTFS without complaint, well past the traditional 260.
-* **Unicode normalisation is genuinely nowhere, and genuinely untested.**
-  Nothing in the workspace normalises a filename; the only normalisation in the
-  tree is of a BIP39 phrase. macOS returns decomposed names (NFD) where Linux
-  and Windows use composed (NFC), so the same name is two byte strings across
-  the two. `Café décembre.txt` round-trips on Windows, which says nothing about
-  a Mac, and there is no Mac here. **Breaks at: the first accented filename on
-  the first Mac** — *predicted*, not observed. Given how the case collision
-  behaved, the likely outcome is a **duplicate rather than a loss**. Fixing it
-  is a decision, not a patch: canonicalise to NFC on ingest and keep the
-  on-disk form per platform, which is where Syncthing landed after years.
+* **Unicode normalisation: the third prediction, and it was wrong too.** This
+  entry said a Mac would duplicate every accented filename. Run on an M4
+  MacBook Air (APFS) on 2026-09-16 — write the decomposed spelling, then the
+  composed one:
+
+      FILES: 1
+      CONTENT Café.txt -> B-was-NFC
+
+  One file, holding the second write, under the first spelling's bytes. **APFS
+  is normalisation-insensitive and normalisation-preserving.** A Mac therefore
+  matches an existing accented name whatever its form, and does not re-upload
+  what it received from Linux — which was the whole basis of the warning.
+
+  Nothing here still normalises, so the store can hold both spellings as two
+  logical paths, and on a Mac those collide into one file. That is the **case
+  collision above**, not a new failure, and the conflict machinery keeps both.
+  Canonicalising to NFC on ingest is still the tidier design; it is no longer
+  urgent, and it was never the emergency this entry claimed.
+
+  Three predictions made from the absence of code, three refuted by running
+  them. The lesson is cheaper to write than to keep relearning: **absence of
+  code is evidence about code, not about behaviour.**
 
 None of this is a security hole and none blocks the A–M verdict.
 
