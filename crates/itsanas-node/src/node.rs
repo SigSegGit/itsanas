@@ -696,21 +696,47 @@ mod tests {
         master.to_recovery_phrase().unwrap().as_str().to_owned()
     }
 
+    /// A recovery phrase stored on the machine it protects is not a backup,
+    /// and is an extra copy for an attacker to find.
+    ///
+    /// # Why the needle is three words and not one
+    ///
+    /// It used to search for the phrase's **first word followed by a space**.
+    /// A BIP39 word can be three letters, so the needle could be four ASCII
+    /// bytes, hunted through hundreds of kilobytes of keystore and redb pages:
+    /// it collides by chance. On 2026-09-16 this test failed in CI's coverage
+    /// job and **passed on a re-run of the identical commit**, which is the
+    /// proof — 125 local runs never reproduced it, so the rate is low and the
+    /// test still fires often enough to be noticed.
+    ///
+    /// That is the worst failure mode a security test has. It does not merely
+    /// waste a run: it teaches everybody that this particular alarm is noise,
+    /// so the day it catches a real leak nobody believes it.
+    ///
+    /// Three words is ~33 bits of BIP39 entropy, which does not collide, and
+    /// it is the form a leak would take anyway — `RecoveryPhrase::as_str` is
+    /// space-joined and is the only spelling this code ever produces.
     #[test]
     fn the_phrase_is_not_written_anywhere_under_the_node_directory() {
-        // A recovery phrase stored on the machine it protects is not a backup,
-        // and is an extra copy for an attacker to find.
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("node");
         let (_node, phrase) = Node::create(&home, PASSPHRASE, "nicolas").unwrap();
 
-        let first_word = phrase
-            .as_str()
-            .split_whitespace()
-            .next()
-            .unwrap()
-            .to_owned();
-        let needle = format!("{first_word} ");
+        let words: Vec<&str> = phrase.as_str().split_whitespace().take(3).collect();
+        assert_eq!(words.len(), 3, "a recovery phrase should have 24 words");
+        let needle = words.join(" ");
+
+        // The control first, because "nothing found" is also what a broken
+        // search prints. `C scan` in the acceptance kit does the same, for the
+        // same reason, and found a wrong path that way.
+        let planted = home.join("control.bin");
+        std::fs::write(&planted, format!("x{needle}x")).unwrap();
+        assert!(
+            scan(&home, &needle),
+            "the control could not find a planted phrase, so this test proves \
+             nothing about the real one"
+        );
+        std::fs::remove_file(&planted).unwrap();
 
         assert!(
             !scan(&home, &needle),
