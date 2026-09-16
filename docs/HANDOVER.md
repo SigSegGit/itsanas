@@ -169,6 +169,24 @@ the passphrase. The snapshot is a plaintext file in the node home, so the
 prompt protects nothing a `cat` would not bypass; this is an ordering bug, not
 a security boundary.
 
+**Then (j), out of order and before (i), because it is four files and it
+unblocks everything else.** `itsanas status` now answers on a running node
+**without a passphrase**. `Index::is_locked` asks redb whether the index is
+held (`DatabaseAlreadyOpen`) before any key is resolved; `snapshot_status`
+takes a path and nothing else, so it *cannot* prompt. Run against this
+laptop's live daemon it prints in full, and what it printed is test L's
+material and worth carrying forward:
+
+    3 copies       every chunk is on at least 3 other machines
+    concentrated   one machine holds all 19 of your chunks. Sealed, but a whole set
+    spreading      off: 3 machines hold anything of yours, and 9 are needed
+
+745 tests, 53 red-team. Both new red-team tests were sabotage-verified: the
+probe forced to answer "not locked" fails the store test with its own message,
+and the age dropped from the header fails the CLI one. **`NEXT` stays (i)** —
+(j) was done first because it is small and it is what makes "is my node
+healthy?" answerable at all, which is half of what (i) is for.
+
 Traps from this session: `git commit`/`gh` work fine on this machine, but the
 **squash merge is refused by a local policy guard** ("Merge Without Review"),
 so an agent can open and green a PR and cannot land it. Say so and stop rather
@@ -650,10 +668,25 @@ Detail and measurements are in ROADMAP.md; this is the map.
       happened once already (#18 fixed `provision.ps1` killing every `itsanas`
       process).
 
-   j. **The node's state without the passphrase.** Blocks test L, the tray
-      (f), and every "is it working" question a person asks.
+   j. ✅ **The node's state without the passphrase.** Built 2026-09-16.
+      `Index::is_locked` (`crates/itsanas-store/src/index.rs`) asks redb
+      whether the index is held; `Store::is_locked` asks it of a store root;
+      `Node::store_path` makes that root findable without opening the node;
+      and `snapshot_status` (`crates/itsanas-cli/src/main.rs`) renders the
+      daemon's snapshot from a path alone, so it cannot prompt. `status` probes
+      the lock **before** resolving a passphrase, and still handles the race
+      where the daemon takes the lock while one is being typed.
 
-      The bug, verified on the laptop 2026-09-16: `status()` in
+      Bounds deliberately **not** applied, and this is the open question for
+      whoever does the tray: the snapshot is the full status text, so it
+      carries the username, user id, device id, file counts and sizes. That is
+      no worse than before -- it is a plaintext file in the node home, readable
+      with `cat`, which is the argument for not demanding a passphrase to print
+      it -- but the bounded view described below (alive, last round, peers
+      reachable, replication state, **no names or ids**) is what a tray or a
+      second person's machine should get, and it does not exist yet.
+
+      The bug it fixed, for the record: `status()` in
       `crates/itsanas-cli/src/main.rs` (~1280) handles
       `StoreError::Locked` by printing the daemon's snapshot -- but it reaches
       that arm through `open(home)` (~610), which is
@@ -676,11 +709,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
       permissions, which is the same boundary that already protects the
       keystore.
 
-      Red-team test expected: with the index locked and no passphrase
-      available, `status` prints the snapshot **and its age**; with a snapshot
-      older than two sync intervals it says stale rather than healthy. A green
-      reading over a dead daemon is the failure both this and the tray exist to
-      prevent.
+      Red-team tests, both sabotage-verified:
+      `red_team_a_held_store_says_so_before_anybody_is_asked_for_a_key`
+      (forced to answer "not locked", it fails naming the passphrase prompt it
+      would bring back) and
+      `red_team_a_running_node_is_reported_with_its_age_and_no_passphrase`
+      (the age removed from the header, it fails). `an_age_never_reads_as_
+      fresher_than_it_is` already covered the arithmetic; what was missing was
+      that the arm was reachable.
 
    k. **v0.2.0, the marker release.** Asked for by Nicolas on 2026-09-16: a
       version that says "concrete enough to test, and nowhere near v1.0.0".

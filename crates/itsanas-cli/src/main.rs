@@ -1277,42 +1277,63 @@ fn describe_age(seconds: u64) -> String {
     }
 }
 
+/// What the daemon last reported, for a node it is currently holding.
+///
+/// Takes no passphrase, and that is the whole point: the snapshot is a plain
+/// file in the node home, so printing it needs no key. Returns the text instead
+/// of printing it so that the age line can be tested.
+fn snapshot_status(home: &Path) -> Result<String> {
+    let text = std::fs::read_to_string(home.join(SNAPSHOT)).map_err(|_| {
+        CliError::Usage(
+            "this node is running and has not written a snapshot yet. Wait for its first sync round, or stop it and ask again."
+                .to_owned(),
+        )
+    })?;
+
+    let (stamp, body) = text.split_once('\n').unwrap_or(("", text.as_str()));
+    let taken = stamp
+        .strip_prefix("snapshot ")
+        .and_then(|seconds| seconds.trim().parse::<u64>().ok());
+    let header = match taken {
+        Some(taken) => format!(
+            "this node is running, so what follows is what it reported {}.",
+            describe_age(itsanas_discover::now_unix().saturating_sub(taken))
+        ),
+        // A snapshot whose first line is not a stamp is one this version did
+        // not write. Print it rather than refuse, and do not put an age on it
+        // that was never measured.
+        None => "this node is running; the snapshot it left has no time on it.".to_owned(),
+    };
+
+    Ok(format!("{header}\n\n{body}"))
+}
+
 fn status(home: &Path) -> Result<()> {
+    // Ask whether the daemon holds the store *before* asking anybody for a
+    // passphrase. `open` resolves the passphrase first, so this path -- whose
+    // entire purpose is to answer while the daemon is running, which is the
+    // normal state of a working machine -- was unreachable exactly when it
+    // applied: the command demanded the keystore secret and would then have
+    // printed a plaintext file. The prompt guarded nothing a `cat` of the
+    // snapshot would not bypass, and it made "is my node healthy?" a question
+    // you could not ask without unsealing your keys.
+    if Node::exists(home) && itsanas_store::Store::is_locked(Node::store_path(home)) {
+        print!("{}", snapshot_status(home)?);
+        return Ok(());
+    }
+
     match open(home) {
         Ok(node) => {
             print!("{}", render_status(&node)?);
             Ok(())
         }
-        // The node is running. That is the normal state of a machine doing its
-        // job, and it used to be the state in which this command refused to
-        // answer at all. The daemon leaves a snapshot after every round: read
-        // that, and let it say plainly how old it is rather than passing it off
-        // as live.
+        // Still handled, because the daemon can take the lock between the probe
+        // above and this open -- while the passphrase is being typed, which is
+        // exactly when it is slowest. Rare, and the original bug if it were
+        // dropped.
         Err(CliError::Store(itsanas_store::StoreError::Locked(_))) => {
-            match std::fs::read_to_string(home.join(SNAPSHOT)) {
-                Ok(text) => {
-                    let (stamp, body) = text.split_once('\n').unwrap_or(("", &text));
-                    let taken = stamp
-                        .strip_prefix("snapshot ")
-                        .and_then(|seconds| seconds.trim().parse::<u64>().ok());
-                    match taken {
-                        Some(taken) => println!(
-                            "this node is running, so what follows is what it reported {}.",
-                            describe_age(itsanas_discover::now_unix().saturating_sub(taken))
-                        ),
-                        // A snapshot whose first line is not a stamp is one this
-                        // version did not write. Print it rather than refuse,
-                        // and do not put an age on it that was never measured.
-                        None => println!("this node is running; the snapshot it left has no time on it."),
-                    }
-                    println!();
-                    print!("{body}");
-                    Ok(())
-                }
-                Err(_) => Err(CliError::Usage(
-                    "this node is running and has not written a snapshot yet. Wait for its first sync round, or stop it and ask again.".to_owned(),
-                )),
-            }
+            print!("{}", snapshot_status(home)?);
+            Ok(())
         }
         Err(other) => Err(other),
     }
@@ -2635,9 +2656,66 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceId, describe_age, first_free_port, looks_like_a_closed_pipe, resolve_device,
-        sibling_ports,
+        DeviceId, SNAPSHOT, describe_age, first_free_port, looks_like_a_closed_pipe,
+        resolve_device, sibling_ports, snapshot_status,
     };
+
+    /// The snapshot is read and dated without a passphrase anywhere near it.
+    ///
+    /// The function takes a path and nothing else, which is the guarantee: it
+    /// cannot prompt, so `status` cannot be made to ask for a key on the path
+    /// whose purpose is to answer while the daemon holds the store.
+    #[test]
+    fn red_team_a_running_node_is_reported_with_its_age_and_no_passphrase() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let home = dir.path();
+        let taken = itsanas_discover::now_unix().saturating_sub(4 * 3600);
+        std::fs::write(
+            home.join(SNAPSHOT),
+            format!("snapshot {taken}\n  files          3\n"),
+        )
+        .expect("write snapshot");
+
+        let out = snapshot_status(home).expect("a stamped snapshot is readable");
+        assert!(
+            out.contains("4 hours ago"),
+            "the snapshot's age was not reported, so a reader cannot tell a \
+             live answer from one left by a daemon that died last week: {out}"
+        );
+        assert!(
+            out.contains("files          3"),
+            "the snapshot body was dropped: {out}"
+        );
+    }
+
+    /// An undated snapshot is printed, and never given an age it never had.
+    #[test]
+    fn a_snapshot_without_a_stamp_is_printed_but_not_dated() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let home = dir.path();
+        std::fs::write(home.join(SNAPSHOT), "  files          3\n").expect("write snapshot");
+
+        let out = snapshot_status(home).expect("an unstamped snapshot is still readable");
+        assert!(
+            out.contains("no time on it"),
+            "an undated snapshot was passed off as current: {out}"
+        );
+        assert!(
+            !out.contains(" ago"),
+            "an age was invented for a snapshot that carried no stamp: {out}"
+        );
+    }
+
+    /// A node with no snapshot yet says so, rather than reporting nothing.
+    #[test]
+    fn a_node_that_has_never_synced_says_so_rather_than_printing_nothing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        assert!(
+            snapshot_status(dir.path()).is_err(),
+            "a missing snapshot produced a successful, empty status, which \
+             reads as a healthy node that has simply nothing to report"
+        );
+    }
 
     #[test]
     fn a_panic_that_is_not_a_closed_pipe_is_never_swallowed() {

@@ -213,7 +213,40 @@ pub struct Index {
     audit_key: SymmetricKey,
 }
 
+/// The index's filename inside a store root.
+///
+/// Named once because two callers need it: [`Index::open`]'s caller, which
+/// opens it, and [`Index::is_locked`], which asks whether somebody else already
+/// has. A literal in both places is a rename away from a probe that silently
+/// always answers "not locked".
+pub const INDEX_FILE: &str = "index.redb";
+
 impl Index {
+    /// Whether another process already holds this index.
+    ///
+    /// # Why this exists
+    ///
+    /// `itsanas status` answers from the daemon's snapshot when the store is
+    /// locked -- which is the normal state of a machine doing its job. It
+    /// reached that arm through an open that resolves the passphrase *first*,
+    /// so the fallback was unreachable exactly when it applied: the command
+    /// demanded the keystore secret and would then have printed a plaintext
+    /// file sitting in the node home. Asking about the lock has to come before
+    /// asking for a key.
+    ///
+    /// Opening and immediately dropping takes the same lock `open` would and
+    /// releases it, so the answer costs a file handle and changes nothing on
+    /// disk. A missing file, or one redb cannot read at all, answers "not
+    /// locked": the caller's ordinary open then produces the real error with
+    /// the real advice, rather than this guessing on its behalf.
+    #[must_use]
+    pub fn is_locked(path: impl AsRef<Path>) -> bool {
+        matches!(
+            Database::open(path.as_ref()),
+            Err(redb::DatabaseError::DatabaseAlreadyOpen)
+        )
+    }
+
     /// Open or create the index at `path`.
     ///
     /// `audit_key` orders each peer's holdings for the audit. It is a parameter

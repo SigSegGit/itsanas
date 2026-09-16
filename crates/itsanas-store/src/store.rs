@@ -154,6 +154,15 @@ impl Store {
     /// printed in `docs/TEST-USERS.md`, so anyone at all can derive their keys;
     /// a store holding real data under one of them offers no protection
     /// whatsoever.
+    /// Whether another process holds this store's index.
+    ///
+    /// See [`Index::is_locked`]: this is the question a command asks before it
+    /// asks somebody for a passphrase.
+    #[must_use]
+    pub fn is_locked(root: impl AsRef<Path>) -> bool {
+        Index::is_locked(root.as_ref().join(crate::index::INDEX_FILE))
+    }
+
     pub fn open(root: impl AsRef<Path>, user: UserKeys, device: DeviceKeys) -> Result<Self> {
         Self::open_inner(root, user, device, ChunkerConfig::default(), false)
     }
@@ -201,7 +210,10 @@ impl Store {
         // the only moment we can be sure no write is in flight.
         blobs.sweep_staging()?;
 
-        let index = Index::open(root.join("index.redb"), user.audit_order_key().clone())?;
+        let index = Index::open(
+            root.join(crate::index::INDEX_FILE),
+            user.audit_order_key().clone(),
+        )?;
 
         Ok(Self {
             root,
