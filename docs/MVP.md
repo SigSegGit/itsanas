@@ -416,16 +416,30 @@ code rather than from a run, and the absence of code was the wrong evidence:
 * **Long paths (3) are fine.** A 305-character logical path — over 400
   characters absolute once the folder prefix is added, well past Windows'
   traditional 260 — was stored and written to NTFS without complaint.
-* **Accented names (1) remain the open one, and it is still untested.**
-  Nothing in the workspace normalises a filename; the only normalisation in the
-  tree is of a BIP39 phrase, in `itsanas-crypto`. macOS returns decomposed
-  Unicode (NFD) where Linux and Windows use composed (NFC), so the same name
-  is two different byte strings on the two platforms. `Café décembre.txt`
-  round-tripped correctly **on Windows**, which says nothing about a Mac, and
-  there is no Mac here to try. Given how (2) behaved, the likely outcome is a
-  **duplicate rather than a loss** — which is what Syncthing saw — but that is
-  a prediction, not a result, and it stays marked as one until somebody runs it
-  on the Mac.
+* **Accented names (1): answered on a real Mac, 2026-09-16, and the prediction
+  was wrong.** This row said a Mac would make a second file of every accented
+  name, for ever. It does not. Run on an M4 MacBook Air (APFS), writing the
+  decomposed spelling and then the composed one:
+
+      FILES: 1
+      0000000    C   a   f   e   ́    .   t   x   t
+      CONTENT Café.txt -> B-was-NFC
+
+  **APFS is normalisation-insensitive and normalisation-preserving**: the two
+  spellings are the *same file*, and the name keeps the bytes of whichever was
+  created first. So a Mac joining the account does **not** re-upload the
+  accented files it received from Linux — it matches the existing name whatever
+  its spelling.
+
+  What remains, and it is the mirror of (2) rather than a new problem: nothing
+  in this workspace normalises a filename, so the store can hold both spellings
+  as **two distinct logical paths**. Materialised onto a Mac they collide into
+  one file — exactly the case-collision above, handled by the same conflict
+  machinery, which keeps both and names the copy. Not a duplication risk and
+  not a loss risk; a conflict-copy risk, already tested.
+
+  Still untested, and smaller than it looked: `itsanas` itself has never run on
+  a Mac. The filesystem question — which was the crux — is closed.
 
 **Why this is an acceptance test and not a nicety:** a sync tool that quietly
 makes a second copy of your accented filenames is one that people stop
@@ -483,11 +497,12 @@ Set in advance so it cannot be softened afterwards.
 - **L fails** → the product is not fit to put in front of a person, however
   correct it is underneath. Nothing goes to anybody else until it passes.
 - **M fails** → the multi-instance work of #18 is not finished.
-- **N fails on the accented names** → a design decision rather than a bug fix
-  (which normalisation to canonicalise to), and the one part of N still
-  untested, because it needs a Mac. It does not block the verdict on A-M; it
-  blocks putting the folder in front of somebody who has a Mac and accented
-  filenames. The case and long-path halves were run on 2026-09-16 and pass.
+- **N** → all three halves were run on 2026-09-16 and none of them fails the
+  way this row first predicted. Case pairs and long paths pass on Windows; the
+  accented-name question was answered on a real Mac and APFS folds the two
+  spellings rather than duplicating them. What is left is a conflict-copy case
+  the existing machinery already handles. N does not block the verdict on A-M,
+  and no longer blocks the pilot either.
 - **All pass** → the project has earned the day of reading, and the question
   becomes whether to open it to people beyond Nicolas.
 
