@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-15 — 741 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 51 are red-team tests.**
+**Last updated: 2026-09-16 — 745 test functions across 24 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 53 are red-team tests.**
 
-**625 of the 741 tests have an entry of their own on this page** — an *entry*,
+**629 of the 745 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -156,7 +156,7 @@ guarantee and is not one.
 | `itsanas-tls` unit | 6 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 150 |
-| `itsanas-store` integration (`tests/store.rs`) | 39 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 40 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 37 |
@@ -168,7 +168,7 @@ guarantee and is not one.
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
-| `itsanas-cli` unit | 30 |
+| `itsanas-cli` unit | 33 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 35 |
@@ -575,7 +575,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (39)
+# `itsanas-store` — integration tests (40)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -587,6 +587,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 | **`two_users_storing_the_same_document_produce_unrelated_chunk_ids`** | Two users storing byte-identical content get disjoint addresses. If addresses were plain content hashes a host could correlate users and confirm guessed files. |
 | **`one_users_store_cannot_be_opened_with_another_users_keys`** | Sealing is bound to the owner, not merely to the directory. |
 | **`the_published_test_identities_are_refused_by_the_normal_constructor`** | The claim README.md and SECURITY.md both make. Before this test the ban-list function was defined, exported, and called by nothing. |
+| **`red_team_a_held_store_says_so_before_anybody_is_asked_for_a_key`** | `itsanas status` prints the daemon's snapshot when the store is locked -- the normal state of a working machine. It used to reach that arm through an open that resolves the passphrase *first*, so on the laptop the command answered "no terminal to prompt on": it demanded the keystore secret in order to print a plaintext file lying beside it. If the probe regresses, the owner of a running node cannot ask whether their data is safe without unsealing their keys, and `MVP.md` test L cannot pass. |
 | **`a_chunk_served_under_the_wrong_address_does_not_decrypt`** | The substitution attack, with two genuine chunks from the same user. |
 | **`a_corrupted_blob_is_detected_and_never_returned_as_content`** | A flipped bit in stored ciphertext surfaces as an error, not as data. |
 | **`a_deleted_blob_is_reported_rather_than_silently_returning_short_data`** | A missing chunk fails the read instead of returning a truncated file. |
@@ -846,7 +847,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (30)
+# `itsanas-cli` — unit tests (33)
 
 ## `bench` — measuring this machine (4)
 
@@ -886,7 +887,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is, naming a device, choosing a port (10)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port (13)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -902,6 +903,9 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`a_port_another_node_on_this_machine_is_configured_for_is_not_chosen`** | Two accounts on one machine are two daemons. Every node used to be created on 9797, so the second daemon could not bind. The case the kernel cannot see is the one tested: the first account's daemon is stopped, 9797 binds, and handing it out puts two daemons on one port at the next boot. |
 | `a_port_something_already_holds_is_skipped_and_exhaustion_says_so` | A port nothing can bind is never offered, and running out of the hundred-port range returns nothing rather than a port that fails later. |
 | **`the_ports_of_the_other_nodes_beside_this_one_are_found_and_its_own_is_not`** | A sibling node is a directory holding a keystore. A directory without one does not count, and a node's own configuration must not count against it. |
+| **`red_team_a_running_node_is_reported_with_its_age_and_no_passphrase`** | The other half of `an_age_never_reads_as_fresher_than_it_is`: that one checks the arithmetic, this one checks the arm is reachable at all. `snapshot_status` takes a path and nothing else, so it *cannot* prompt -- the guarantee is structural rather than a promise. A regression here is a node whose health is unreadable without the passphrase. |
+| `a_snapshot_without_a_stamp_is_printed_but_not_dated` | A snapshot written by an older version has no time on its first line. Printing it is right; inventing an age for it is not, because the age is the only thing telling a reader whether to trust the numbers under it. |
+| `a_node_that_has_never_synced_says_so_rather_than_printing_nothing` | A node whose daemon has not finished a round yet has no snapshot. Succeeding with empty output would read as a healthy node with nothing to report, which is the opposite of the truth. |
 | **`a_taken_listen_port_is_answered_with_a_free_one_and_the_commands_to_move`** | Nodes created before `init` chose ports all sit on 9797, and the second one's daemon exited with "address in use" — under systemd, every thirty seconds. The error now names a free port and `itsanas listen` / `register`, and offers no port when none is free. |
 | **`a_refusal_is_reported_once_and_then_only_after_a_quiet_period`** | A host with pledge 0 refuses every round. The line that ended the silent `sent 0 B` must not become one line every five minutes per peer, for ever: reported at once, then at most once per `OUTAGE_QUIET`, and again at once after a round with no refusal. The acceptance bench checks that `sync` against a pledge-0 host prints the reason. |
 | `the_message_std_prints_when_a_pipe_closes_is_recognised` | The message copied from the Pi, and its Windows spelling, are both matched — only on the prefix, because the tail belongs to the platform. |

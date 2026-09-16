@@ -142,6 +142,16 @@ impl Node {
         home.join("config")
     }
 
+    /// Where this node keeps its store.
+    ///
+    /// Public because a caller that wants to know whether the daemon holds the
+    /// store must find it *without* opening the node, which is the step that
+    /// needs the passphrase.
+    #[must_use]
+    pub fn store_path(home: &Path) -> PathBuf {
+        home.join("store")
+    }
+
     /// Whether a node already exists at `home`.
     #[must_use]
     pub fn exists(home: &Path) -> bool {
@@ -298,7 +308,7 @@ impl Node {
         }
 
         let store = Store::open(
-            home.join("store"),
+            Self::store_path(home),
             user,
             DeviceKeys::from_seed(&device.seed()),
         )?;
