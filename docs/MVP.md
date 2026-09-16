@@ -40,12 +40,25 @@ ITSaNAS is a worse Dropbox with extra steps.
 
 ## 2. The fleet the MVP is judged on
 
-| # | Machine | Role | Realistic uptime |
-| --- | --- | --- | --- |
-| 1 | Windows laptop (Dell) | member, own data | ~25 % of the day, changing networks |
-| 2 | Raspberry Pi 4B+, 1 TB RAID1 | member, large host | high, home connection |
-| 3 | VMware VM on external SSD | member, and the throwaway used for recovery tests | on demand |
-| 4 | **Freebox Delta VM, public IP** | **coordinator, and an availability anchor** | always on |
+| # | Machine | Role | Realistic uptime | Dialable from outside |
+| --- | --- | --- | --- | --- |
+| 1 | Windows laptop (Dell) | member, own data | ~25 % of the day, changing networks | **no**, and its network changes |
+| 2 | Raspberry Pi 4B+, 1 TB RAID1 | member, large host | high, home connection | only if a port is forwarded to it -- **record which** |
+| 3 | VMware VM on external SSD | member, and the throwaway used for recovery tests | on demand | no |
+| 4 | **Freebox Delta VM, public IP** | **coordinator, and an availability anchor** | always on | **yes** |
+
+**The last column is not bookkeeping; it decides whether a result means
+anything.** NAT traversal is not built: a node behind NAT can push but cannot be
+dialled, and work flows in both directions as long as *one* side of a pair can
+([ARCHITECTURE.md](ARCHITECTURE.md) §6). So machines 1, 2 and 3 reach each other
+directly **only while they are on the same LAN**, where local discovery finds
+them. The moment machine 1 is elsewhere -- and its row says it usually is --
+machine 4 is the only component either side can dial.
+
+Two consequences, both of which change how the tests below are read. A test run
+with everything sitting at home exercises the LAN path and says nothing about
+the other one. And for any node away from home, the coordinator is a single
+point of failure *in practice*, whatever test I concludes on a kitchen table.
 
 Machine 4 is new and it changes the design: it is the only publicly reachable
 component of the system, so hostile traffic is its normal condition. It is also,
@@ -181,8 +194,25 @@ and both machines agree on which is which.
 Leave the daemon on the laptop for 24 hours of ordinary use.
 
 **Pass, all four:** no perceptible effect on battery life; CPU at idle indistinguishable
-from the daemon being stopped; memory under 200 MB with a large folder; the
+from the daemon being stopped; memory under 200 MiB with a large folder; the
 machine sleeps normally and does not wake up for the daemon.
+
+Two of those four are read more precisely than the sentence above, and the
+readings were fixed before any result:
+
+* **"indistinguishable from the daemon being stopped"** is tested as *under 5 %
+  of one core, averaged over the hours the machine was awake*. That is a
+  substitution and worth naming as one: the criterion is a **comparison** with
+  the machine at rest, and neither kit takes a baseline with the daemon stopped.
+  Until one does, a daemon at 4.9 % passes a test whose words it does not meet.
+* **"200 MiB"** is what both kits have always compared against. The sentence
+  said "200 MB" until 2026-09-16, a 4.9 % difference nobody was applying.
+
+**"with a large folder" is not tested at all.** Neither kit records the size of
+the account it measured, and the figures in §6 were taken on an account of about
+a megabyte. A memory result on an empty account is not evidence for this
+criterion; run H against the folder the narrative in
+[BRIEFING-MVP.md](BRIEFING-MVP.md) builds, not on a fresh node.
 
 **Why this is an acceptance test and not a nicety:** the first version of this
 that makes the laptop hot gets uninstalled, and the project ends there.
@@ -191,10 +221,22 @@ that makes the laptop hot gets uninstalled, and the project ends there.
 
 Switch machine 4 off for 48 hours.
 
+**Run it twice**, because the fleet table's last column makes them two different
+tests: **once with machines 1, 2 and 3 at home**, where they can dial each other
+over the LAN, and **once with machine 1 off the LAN** -- a phone hotspot is
+enough. The second run is the one that matches how machine 1 actually lives.
+
 **Pass:** machines 1, 2 and 3 keep syncing with each other using the node set they
 already pinned. What stops is joining, address changes, and new-machine recovery —
 nothing is lost, and `itsanas status` says clearly what is degraded rather than
 pretending everything is fine.
+
+**The two runs are expected to differ, and that difference is the result.** On
+the LAN run this should pass outright. On the off-LAN run, machine 1 can be
+reached by nobody and can dial only machine 4, which is switched off -- so the
+honest pass is that machine 1 **says** it is cut off and loses nothing, while 2
+and 3 carry on without it. If instead it goes quiet and looks healthy, that is a
+failure of the same kind as L.
 
 **Why:** if the answer is "everything stops", ITSaNAS is Dropbox with a worse
 Dropbox in the middle, and the entire premise is gone.
@@ -205,6 +247,64 @@ Reboot all four machines, in any order, including power-cutting one mid-sync.
 
 **Pass:** they come back and reconverge with no intervention. No corrupt index, no
 manual `doctor --repair`, no lost file.
+
+### K. A host that throws away what it holds
+
+On the machine hosting another account's data, delete the vault by hand, as the
+person who owns that machine. There is no kit phase: remove the node's vault
+directory.
+
+**Pass:** within a few rounds the owner's node stops counting that host as a
+holder, `itsanas status` on the owner says the chunks are short of their target,
+the data is re-placed on another machine, and **nothing is lost**. The host's
+reliability record shows the failures, and after three consecutive ones it stops
+being offered new content.
+
+**Why:** every economic claim in this project rests on a sanction nobody has
+ever watched fire. The mechanism is built -- storage challenges, `Reliability`,
+`FAILURES_BEFORE_PAUSE = 3`, a pass decrementing the counter rather than zeroing
+it -- and has only ever been exercised by its own unit tests, against a peer
+that was polite enough to answer.
+
+**Known before running it, so it is not recorded as a finding:** the vault is
+ordinary files owned by the local user, so deleting it takes no privilege and
+nothing tells that person they have just broken a promise. Whether it should be
+harder is a ROADMAP question, not a result of this test.
+
+### L. The person is told when their data is not safe yet
+
+On a fleet that has not reached the replication target -- which is every fleet
+this project has ever had -- look at what the software says without being asked.
+
+**Pass:** the person learns that copies are missing **without running a
+command**, and learns it before they trust the folder with anything.
+
+**Failing today by construction, and written down so it stops being invisible.**
+`itsanas status` already reports this well: `spreading off: N machines hold
+anything of yours`, `the promise — 2 complete copies is what this is for; you
+have 1`, `headroom — N chunks are on fewer than 3 machines`, and `unconfirmed —
+the ledger remembers N copies; M holder records have gone quiet`. But it is a
+report somebody has to ask for, and asking for it needs the passphrase. There is
+no alert at all: [ARCHITECTURE.md](ARCHITECTURE.md) §7 is a table of conditions
+that must eventually warn, with **nothing implemented**, and its first row is
+this one.
+
+**Why this is an acceptance test and not a nicety:** a system that is quietly
+one disk away from losing your files, and looks identical to one that is safe,
+has the failure mode of a backup that was never running.
+
+### M. Two accounts on one machine cannot see each other
+
+Run two instances on one machine, one per account, as
+[BRIEFING-MVP.md](BRIEFING-MVP.md) §4 sets out.
+
+**Pass:** each instance's folder and `itsanas status` show only its own
+account's files; the account hosting the other's chunks cannot read them; and
+stopping or withdrawing one instance leaves the other syncing.
+
+**Why:** this shipped in #18 and entered no acceptance test. It is also the
+cheapest way to have two accounts without a second person, which is what makes
+C and K runnable alone.
 
 ---
 
@@ -252,6 +352,11 @@ Set in advance so it cannot be softened afterwards.
 - **E, G or I fails** → the distributed design is wrong somewhere; that is a
   redesign, not a bug fix, and worth knowing before more code is written.
 - **H fails** → fixable, but nothing else gets built until it is.
+- **K fails** → the sanction the whole bargain rests on does not fire. That is
+  the economic model rather than a bug: treat it as C.
+- **L fails** → the product is not fit to put in front of a person, however
+  correct it is underneath. Nothing goes to anybody else until it passes.
+- **M fails** → the multi-instance work of #18 is not finished.
 - **All pass** → the project has earned the day of reading, and the question
   becomes whether to open it to people beyond Nicolas.
 
@@ -338,7 +443,8 @@ Memory is an order of magnitude inside the 200 MiB the criterion asks for. **The
 
 **The critical path is now the fleet itself.** Everything the acceptance tests
 need is built; none of it has been run on four real machines, and three of the
-ten tests have never been attempted at all. Checked again on 2026-09-14, when
+thirteen tests have never been attempted at all -- K, L and M were written
+on 2026-09-16 and none of them has ever been run. Checked again on 2026-09-14, when
 the question was "is anything functional": B, C and a words-only D run on real
 hardware, and the verdict of §4 has still not been taken because E, F, G, I and
 the power-cut half of J have never left the laboratory. The plan puts running
