@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0i
 TITLE: Install and configure two accounts per machine, in one command each
 WRITTEN-AT: 2026-09-16
-BASE: d15c570
+BASE: c7801f2
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
