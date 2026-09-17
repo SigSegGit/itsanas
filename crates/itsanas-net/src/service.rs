@@ -72,6 +72,14 @@ pub struct PeerService<'a> {
     store: &'a Store,
     vault: &'a Vault,
     pledge: Pledge,
+    /// Held across "is there room" and "store it".
+    ///
+    /// The listener serves connections concurrently, and the pledge check is a
+    /// read followed by a write. Without this, every connection could see the
+    /// same free space and all of them fill it, so a host would take on its
+    /// pledge plus one object per open connection -- up to 32 times the
+    /// frame limit past what it promised its own disk.
+    storing: std::sync::Mutex<()>,
 }
 
 impl<'a> PeerService<'a> {
@@ -81,6 +89,7 @@ impl<'a> PeerService<'a> {
             store,
             vault,
             pledge,
+            storing: std::sync::Mutex::new(()),
         }
     }
 
@@ -148,6 +157,7 @@ impl<'a> PeerService<'a> {
                 address,
                 sealed,
             } => {
+                let _storing = self.storing_lock();
                 if self.would_exceed_pledge(sealed.len())? {
                     return Ok(Response::Refused(PLEDGE_EXHAUSTED.to_owned()));
                 }
@@ -156,6 +166,7 @@ impl<'a> PeerService<'a> {
             }
 
             Request::StoreSegment { envelope } => {
+                let _storing = self.storing_lock();
                 if self.would_exceed_pledge(envelope.sealed_body.len())? {
                     return Ok(Response::Refused(PLEDGE_EXHAUSTED.to_owned()));
                 }
@@ -324,6 +335,18 @@ impl<'a> PeerService<'a> {
         }
 
         Ok(self.vault.get_chunk(owner, address)?)
+    }
+
+    /// The storing lock, recovered if a panic poisoned it.
+    ///
+    /// Poisoning here means one request panicked between a check and a write.
+    /// Refusing every later store would turn one bug into a host that never
+    /// accepts anything again; the check that follows re-reads the vault, so
+    /// carrying on is safe.
+    fn storing_lock(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.storing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn would_exceed_pledge(&self, incoming: usize) -> Result<bool> {
@@ -695,6 +718,49 @@ mod tests {
                 Response::Refused(_)
             ),
             "the node accepted more than it pledged and will fill its disk"
+        );
+    }
+
+    /// THE ATTACK: many connections offer a chunk at the same instant. The
+    /// listener serves connections concurrently, and "is there room" is a read
+    /// that happens before "store it". Every connection sees the same free
+    /// space, every one is accepted, and the host has taken on its pledge many
+    /// times over -- its owner's disk fills with a stranger's data.
+    #[test]
+    fn red_team_concurrent_stores_cannot_take_a_host_past_its_pledge() {
+        const CALLERS: usize = 16;
+        let host = node(&alice(), 11);
+        let guest = UserKeys::derive(&MasterSecret::from_bytes([0xC4; 32]));
+        let offers: Vec<_> = (0..CALLERS)
+            .map(|n| guest.seal_chunk(&n.to_le_bytes().repeat(50)).unwrap())
+            .collect();
+        let room = offers[0].1.len() as u64 * 4;
+        let service = PeerService::new(&host.store, &host.vault, Pledge::bytes(room));
+        let start = std::sync::Barrier::new(CALLERS);
+        let owner = guest.user_id();
+
+        std::thread::scope(|scope| {
+            for (address, sealed) in &offers {
+                let (service, start) = (&service, &start);
+                scope.spawn(move || {
+                    start.wait();
+                    service
+                        .handle_from_test(&Request::StoreChunk {
+                            owner,
+                            address: *address,
+                            sealed: sealed.clone(),
+                        })
+                        .unwrap();
+                });
+            }
+        });
+
+        let held = host.vault.stats().unwrap().bytes;
+        assert!(
+            held <= room,
+            "{CALLERS} simultaneous offers left the host holding {held} bytes \
+             against a pledge of {room}; concurrent connections can fill a \
+             disk its owner never offered"
         );
     }
 

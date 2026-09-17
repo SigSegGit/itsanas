@@ -322,6 +322,14 @@ Dialling pins the expected device id wherever one is known, so an address that
 resolves to the wrong machine is refused rather than trusted — the coordinator
 hands out addresses and is not trusted to say who lives at one.
 
+**A listener anybody can reach.** A node's port is meant to be forwardable, so
+the listener assumes strangers: a thread per connection, at most 32 at once, 8
+from one IP address (an IPv6 /64) and 4 for one proven device key, and 15 seconds in total to
+finish the handshake — a per-read timeout alone let a caller trickle bytes and
+hold a slot for ever. Storing is the one thing still done one request at a
+time, so that concurrent offers cannot overfill a pledge. The coordinator's
+listener has the same deadline and a per-address cap.
+
 **NAT traversal is not built.** A node behind NAT can push but cannot be dialled.
 That is less limiting than it sounds: `session::drain_vault` means a node that
 only ever accepts connections still learns what was pushed to it, so work flows

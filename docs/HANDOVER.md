@@ -9,16 +9,50 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0i
-TITLE: Install and configure two accounts per machine, in one command each
-WRITTEN-AT: 2026-09-16
-BASE: b154954
+NEXT: 8.0l
+TITLE: A storage location that vanished never reads as a deletion
+WRITTEN-AT: 2026-09-17
+BASE: 07c4070
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-17, the listener, hardened for a public port** (branch
+`harden-listener`). Nicolas asked, the same day, for five things: use the
+network from outside the LAN with mobile machines that change networks; refuse
+an upload that will not fit **before** copying it; survive a removed disk or a
+dead machine (count live copies, re-replicate, and a graceful "I am leaving"
+that asks for copies first); P2P coordination with the VM as a backup rather
+than a hub, cautiously; named instances only. They are §8 0l–0p, in that order,
+with what reading the code established. **He authorised merging green PRs
+without asking** and does not want to be handed a merge.
+
+Done in this PR, because nothing can be exposed before it: the node's listener
+served **one connection at a time**, so one silent TCP connection every thirty
+seconds made a node undialable for free. It is now a thread per connection
+under `itsanas_tls::limits::ConnectionLimits` (32 total, 8 per IP, 4 per proven
+device), a 15-second **total** handshake deadline (`accept_within`: a per-read
+timeout let a caller trickle bytes for ever), and a storing lock in
+`PeerService` so concurrent offers cannot overfill a pledge. The coordinator
+takes the deadline and 16 per IP. The Rodin audit then found three more, fixed
+in the same PR: a failed `accept` (a connection reset before it was taken)
+**stopped the node's listener for good** while the daemon ran on without one --
+it now retries, untested because the error cannot be provoked on demand; the
+per-IP cap counted single IPv6 addresses, so a /64 was 2^64 callers -- IPv6 is
+now counted by /64; and nothing proved either listener *applies* the deadline
+(`with_handshake_deadline` exists so a test can). Eight red-team tests, each
+sabotaged red. What is still open is in ROADMAP "What an adversarial sweep
+found", including hairpin NAT making a whole house one address.
+
+Trap that cost time: **on Windows, timeouts set on a `try_clone` of a socket do
+not reach the original handle.** The first version restored the idle timeout
+through a clone and cut authenticated peers off after 15 s;
+`the_deadline_is_lifted_once_the_caller_has_authenticated` caught it. Trap for
+the next agent: `vault.stats()` walks the vault, and every store now waits for
+it under the lock.
 
 **2026-09-17, a detour: re-running the coordinator setup, and where the
 coordinator lives** (branch `coordinator-reinstall`). On the Freebox VM,
@@ -1101,6 +1135,120 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Do not tag from an agent session without saying so: a tag is the one
       thing here that other people's machines will pin to.
 
+   l. **A storage location that vanished never reads as a deletion.** Asked
+      for by Nicolas on 2026-09-17: "a mount point that drops, a disconnected
+      disk... are common cases, they must be handled". Verified by reading, not
+      yet reproduced by a test: `scan` (`crates/itsanas-folder/src/scan.rs`
+      ~132) checks only `root.is_dir()`. An unmounted disk leaves an **empty
+      mount point**, every file in the ledger looks deleted, and the folder
+      layer's next pass turns them into deletions that replicate to every
+      device of the account. No marker file, no mass-deletion guard. The node
+      home is safer by accident: `Node::open` fails with `NoNode` when the
+      keystore is missing (`crates/itsanas-node/src/node.rs` ~260), and the
+      message then suggests `init`, which would create a **second account** on
+      the root filesystem.
+
+      Build: a marker (`.itsanas-folder`, holding the device id) written by
+      `itsanas folder` at the folder root, and one in the node home. A scan
+      whose marker is missing or names another device **stops**, deletes
+      nothing and makes the daemon say "storage unreachable: <path>" in
+      `status`, and `NoNode` on a path that exists but is empty says the
+      storage may be unmounted instead of suggesting `init`. Then a guard: a
+      pass that would delete more than half of the folder's files (and more
+      than a handful) holds the deletions until `itsanas folder --confirm`
+      says so. An existing folder without a marker gets one on its first scan
+      that finds its ledger's files present, so upgrading does not stop
+      anybody. Red-team tests expected: an unmounted folder (an empty
+      directory, a ledger with files) writes no deletion to the log; and a
+      folder emptied by accident has its deletions held, not replicated.
+
+   m. **Count the live copies, and let a machine leave politely.** Asked for
+      by Nicolas on 2026-09-17: each instance checks how many copies are live
+      and asks for a new one elsewhere; a machine shutting down on purpose
+      should first ask for copies, so a graceful exit can be told apart from a
+      crash or fraud in future regulation. Verified facts: repair drains
+      `Store::under_replicated` (`crates/itsanas-store/src/store.rs` ~1160,
+      `index.rs`), **which counts every holder record whatever its age**; only
+      `coverage` applies `holders::CONFIRMED_FOR` (14 days). So a machine that
+      died is counted as a copy by repair until its records are withdrawn by
+      a failed audit, which needs the machine to answer. Build, in this order:
+      (1) `under_replicated` counts only records confirmed within a liveness
+      window, shorter than `CONFIRMED_FOR` and stated with its arithmetic;
+      (2) `itsanas leave` / a soft stop on the service: the node tells its
+      peers and the coordinator it is going (appended `Request` and
+      coordinator messages, **never inserted**: HANDOVER §6), peers stop
+      counting it at once and re-replicate from the devices still online, and
+      the node stops without waiting for that to finish; (3) the coordinator
+      records graceful departures apart from silent ones, for the regulation
+      Nicolas described, without using them for anything yet. Red-team test
+      expected for (1): a holder silent past the window is not counted, and a
+      chunk whose other copies are all silent is repaired; and for (2): a
+      departure notice signed by another device is refused.
+
+   n. **Refuse a file that will not fit, before copying it.** This is 8.1b,
+      pulled forward on 2026-09-17: Nicolas calls it a basic feature, and asks
+      what happens when the disk has room but the account's quota does not.
+      Read 8.1b for the specification. On 2026-09-17 he also asked that the
+      operating system itself see the quota where it can (Explorer should not
+      think a 3 GB file fits a 10 GB folder already holding 9 GB, even on a
+      disk with 100 GB free), with a different mechanism per platform
+      accepted. What to find out, per platform, before building: Windows —
+      the ProjFS provider (`crates/itsanas-drive/src/projfs.rs`) and whether
+      a virtualised root can report its own free space
+      (`GetDiskFreeSpaceEx` on a ProjFS root answers for the volume); FSRM
+      quotas exist only on Windows Server. Linux — project quotas (ext4/XFS
+      `prjquota`) need root and a mount option; a loop-mounted image file is
+      the portable fallback. macOS — an APFS volume with a quota
+      (`diskutil apfs addVolume -quota`). Android — nothing native; the app
+      checks. The in-process check of 8.1b comes first on every platform and
+      is the one that is enforced; the native quota is presentation.
+
+   o. **Reach the network from outside the LAN, with machines that move.**
+      Asked for by Nicolas on 2026-09-17. **A design for him to decide
+      before building beyond phase 1**: he asked for caution because he does
+      not master this area. What exists: peers dial each other directly and
+      authenticate by device key; the coordinator is a signed address book
+      (`itsanas-coord`), republished every round (`daemon.rs` ~628), so a
+      machine that moves updates itself; a node behind NAT can push and not be
+      dialled, and `session::drain_vault` makes work flow both ways as long as
+      one side dials. The listener is now fit for a forwarded port (2026-09-17,
+      see §0).
+      Phase 1 — `announce = host:port` next to `listen` (config, `itsanas
+      announce`, `provision.sh --announce`, `provision.ps1 -Announce`),
+      published instead of the local address; Freebox port forwards per home
+      node, announced as `ngas.fr:<port>`. No wire change. Mobile machines
+      announce nothing public and dial home. The verified facts from the
+      earlier plan are in the private note: `reachable_address` already passes
+      a hostname through, and peer dialling resolves hostnames. Open: Freebox
+      hairpin NAT, and a mobile machine publishing a private address nobody
+      else can reach (dial private addresses with a short timeout).
+      Phase 2 — every node keeps the signed presences it last saw for its
+      account's devices and its hosts, and exchanges them with peers (an
+      appended peer request), so machines still find each other when the VM
+      is down; the coordinator becomes bootstrap and backup. **Constraint from
+      §6: a peer's clock never decides ordering**, so "newer address" must be
+      decided by the receiver's own observation, not by `at_unix`.
+      Phase 3, only if 1–2 fall short: several addresses per device (IPv6,
+      which Free provides natively, would give direct links between houses
+      without port forwards), then NAT traversal. Mesh VPNs that stay free and
+      open source were considered: Nebula (MIT; "lighthouses", which can be
+      several machines, not one) and Headscale with the Tailscale client
+      (self-hosted, BSD). Either could carry this traffic as a **deployment
+      option** without changing the code. Neither should become a dependency
+      of the protocol, which already authenticates end to end.
+
+   p. **Named instances only, each showing its account and storage.** Asked
+      for by Nicolas on 2026-09-16 and again on 2026-09-17: no unnamed default
+      instance, launch and list instances by account and storage location, and
+      check that the location is reachable (0l provides the check). Today
+      `default_home` (`crates/itsanas-node/src/config.rs` ~447) is
+      `~/.itsanas`, and `--instance` exists only in the provision scripts, not
+      in the CLI. Build `itsanas --instance NAME`, `itsanas instances` (name,
+      account, home, folder, reachable or not, daemon running or not), and a
+      migration for an existing `~/.itsanas` that names it after its account
+      rather than breaking it. Keep 0i's red-team test in mind: cleaning one
+      instance must not touch a sibling.
+
    f. **A tray icon for the Windows daemon.** Asked for by Nicolas on
       2026-09-14 after the untitled console: "a minimum of polish", dark or
       following the system theme. Verified facts: no desktop UI exists
@@ -1319,7 +1467,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
    else's device, LAN discovery eclipse). Git history was checked for secrets on
    2026-09-14 and is clean.
 3. **The open findings** listed in ROADMAP.md: a refused request still walks the
-   whole vault; one peer can hold the single-threaded listener; `pledge` and the
+   whole vault (and, since the listener became concurrent, delays honest stores
+   behind the storing lock); `pledge` and the
    JNI setters skip the ratio check; chunk-size sequences fingerprint files; the
    LAN beacon groups an account's machines.
 4. **Verification at a terabyte.** Within a differing bucket, ask only about

@@ -46,7 +46,10 @@ use std::{
 
 use itsanas_crypto::{ChunkId, DeviceId, DeviceKeys, ObjectId, UserId};
 use itsanas_store::SegmentEnvelope;
-use itsanas_tls::{Authenticated, Identity};
+use itsanas_tls::{
+    Authenticated, Identity,
+    limits::{ConnectionLimits, Slot},
+};
 use itsanas_wire::Connection;
 
 use crate::{
@@ -69,6 +72,7 @@ pub const IO_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct PeerServer {
     listener: TcpListener,
     config: Arc<rustls_config::Server>,
+    handshake_deadline: Duration,
 }
 
 /// Keeps the rustls type out of this module's public signatures.
@@ -88,7 +92,18 @@ impl PeerServer {
         Ok(Self {
             listener: TcpListener::bind(resolved.as_slice())?,
             config: identity.server_config()?,
+            handshake_deadline: HANDSHAKE_DEADLINE,
         })
+    }
+
+    /// Give callers `limit` instead of [`HANDSHAKE_DEADLINE`] to authenticate.
+    ///
+    /// For tests, which cannot wait fifteen seconds to watch a deadline pass.
+    /// Nothing in the shipped binaries changes it.
+    #[must_use]
+    pub const fn with_handshake_deadline(mut self, limit: Duration) -> Self {
+        self.handshake_deadline = limit;
+        self
     }
 
     /// The address actually bound, which matters when port 0 was requested.
@@ -98,15 +113,34 @@ impl PeerServer {
 
     /// Accept one connection and serve it until the peer closes.
     pub fn serve_one(&self, service: &PeerService<'_>, device: &DeviceKeys) -> Result<()> {
-        let (stream, _) = self.listener.accept()?;
-        self.serve_connection(stream, service, device)
+        let (stream, from) = self.listener.accept()?;
+        let limits = limits();
+        let Some(slot) = limits.admit(from.ip()) else {
+            return Ok(());
+        };
+        self.serve_connection(stream, service, device, slot, &AtomicBool::new(false))
     }
 
     /// Serve until `shutdown` is set.
     ///
-    /// One connection at a time, deliberately: a node talks to a handful of
-    /// peers, and serialising them means the store is never touched
-    /// concurrently by two peers doing unrelated things.
+    /// # One thread per connection, and why that changed
+    ///
+    /// This used to serve one connection at a time, until the peer closed it.
+    /// On a home network that was a simplification; on a public port it is an
+    /// off switch. A single TCP connection that said nothing held the listener
+    /// for the thirty-second read timeout, so opening one every thirty seconds
+    /// made the node undialable to everybody else, at no cost to whoever did it.
+    ///
+    /// Now each connection has its own thread, and what an anonymous caller can
+    /// occupy is bounded three ways: a deadline on the whole handshake
+    /// ([`HANDSHAKE_DEADLINE`]), a cap on connections from one address
+    /// ([`MAX_CONNECTIONS_PER_ADDRESS`]) and a cap overall ([`MAX_CONNECTIONS`]).
+    /// Once a caller has proved a device key it is also held to
+    /// [`MAX_CONNECTIONS_PER_DEVICE`].
+    ///
+    /// What still happens one at a time is *storing*: see
+    /// [`PeerService::handle`]. Reads never needed the old serialisation, and
+    /// the sync loop was already touching the store alongside the listener.
     pub fn serve_until(
         &self,
         service: &PeerService<'_>,
@@ -114,23 +148,48 @@ impl PeerServer {
         shutdown: &AtomicBool,
     ) -> Result<()> {
         self.listener.set_nonblocking(true)?;
+        let limits = limits();
 
-        while !shutdown.load(Ordering::Relaxed) {
-            match self.listener.accept() {
-                Ok((stream, _)) => {
-                    stream.set_nonblocking(false)?;
-                    // One peer misbehaving must not stop the server. A failed
-                    // handshake is the most ordinary thing on a public port.
-                    let _ = self.serve_connection(stream, service, device);
+        std::thread::scope(|scope| {
+            while !shutdown.load(Ordering::Relaxed) {
+                match self.listener.accept() {
+                    Ok((stream, from)) => {
+                        // Windows hands back a socket that inherited the
+                        // listener's non-blocking mode, which fails the TLS
+                        // handshake with an error that reads like a firewall.
+                        if stream.set_nonblocking(false).is_err() {
+                            continue;
+                        }
+                        // Over a limit, the connection is closed at once:
+                        // queueing is a slower way to run out of threads.
+                        let Some(slot) = limits.admit(from.ip()) else {
+                            continue;
+                        };
+                        scope.spawn(move || {
+                            // One peer misbehaving must not stop the server. A
+                            // failed handshake is the most ordinary thing on a
+                            // public port.
+                            let _ = self.serve_connection(stream, service, device, slot, shutdown);
+                        });
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                    // Not fatal, whatever it is. `accept` fails for reasons a
+                    // caller controls -- a connection reset before it was
+                    // taken (ECONNABORTED on Linux, WSAECONNRESET on Windows)
+                    // -- and for passing ones, such as running out of file
+                    // descriptors. Returning here stopped the listener for
+                    // good while the daemon carried on without one, which on
+                    // a forwarded port is an off switch a SYN and a RST can
+                    // reach. The coordinator has always carried on; this did
+                    // not. Found by the Rodin audit of 2026-09-17; the error
+                    // was not reproduced, and no test here can provoke it.
+                    Err(_) => std::thread::sleep(Duration::from_millis(200)),
                 }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-                Err(error) => return Err(error.into()),
             }
-        }
-
-        Ok(())
+            Ok(())
+        })
     }
 
     fn serve_connection(
@@ -138,14 +197,21 @@ impl PeerServer {
         stream: TcpStream,
         service: &PeerService<'_>,
         device: &DeviceKeys,
+        mut slot: Slot<'_>,
+        shutdown: &AtomicBool,
     ) -> Result<()> {
-        stream.set_read_timeout(Some(IO_TIMEOUT))?;
-        stream.set_write_timeout(Some(IO_TIMEOUT))?;
-
         let Authenticated {
             peer,
             mut connection,
-        } = itsanas_tls::accept(&self.config, device, stream)?;
+        } = itsanas_tls::accept_within(
+            &self.config,
+            device,
+            stream,
+            self.handshake_deadline,
+            IO_TIMEOUT,
+        )?;
+
+        let within_limit = slot.claim_device(peer);
 
         loop {
             let request: Request = match connection.receive()? {
@@ -154,14 +220,65 @@ impl PeerServer {
                 None => return Ok(()),
             };
 
+            // Read before refusing, never the other way round: closing a socket
+            // with unread data makes Windows reset it, which discards the
+            // refusal and leaves the caller reading "connection aborted".
+            if !within_limit {
+                connection.send(&Response::Refused(TOO_MANY_FROM_DEVICE.to_owned()))?;
+                return Ok(());
+            }
+
             // `peer` is who TLS proved is on the other end, and it used to be
             // dropped on the line above with `let _ = peer;`. Answering
             // `Request::Hosted` needs it: recording that somebody holds a chunk
             // is worthless if you cannot say who.
             let response = service.handle(&request, peer)?;
             connection.send(&response)?;
+
+            // Between requests, so a peer that keeps asking cannot keep a
+            // stopping daemon alive.
+            if shutdown.load(Ordering::Relaxed) {
+                return Ok(());
+            }
         }
     }
+}
+
+/// How long a caller has, in total, to complete TLS and prove its device key.
+///
+/// Generous for a phone on a bad link -- the handshake is a few kilobytes and
+/// two signatures -- and short enough that holding a slot costs an attacker a
+/// fresh connection every quarter of a minute.
+pub const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(15);
+
+/// Connections served at once, from everybody.
+///
+/// A node talks to a handful of machines; this is several times that, and a
+/// thread each is a few megabytes, which a Raspberry Pi can afford.
+pub const MAX_CONNECTIONS: usize = 32;
+
+/// Connections served at once from one IP address.
+///
+/// Not one: every machine behind a household's router shares an address, and
+/// two accounts on one machine share it too. Eight covers a house full of them
+/// and still leaves most of [`MAX_CONNECTIONS`] to everybody else.
+pub const MAX_CONNECTIONS_PER_ADDRESS: usize = 8;
+
+/// Connections served at once for one proven device.
+///
+/// A daemon's round and an `itsanas sync` typed while it runs are two; four
+/// leaves room without letting one key fill the server.
+pub const MAX_CONNECTIONS_PER_DEVICE: usize = 4;
+
+/// What a device over [`MAX_CONNECTIONS_PER_DEVICE`] is told.
+pub const TOO_MANY_FROM_DEVICE: &str = "too many connections from this device at once";
+
+fn limits() -> ConnectionLimits {
+    ConnectionLimits::new(
+        MAX_CONNECTIONS,
+        MAX_CONNECTIONS_PER_ADDRESS,
+        MAX_CONNECTIONS_PER_DEVICE,
+    )
 }
 
 /// What a peer did with something offered for storage.
