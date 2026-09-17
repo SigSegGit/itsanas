@@ -60,10 +60,36 @@ die() {
 }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# Copy the binary into place, unless it is already there.
+#
+# Re-running this script against the binary it installed last time is the
+# normal way to change a flag, and `install` refuses to copy a file onto itself:
+# "'/usr/local/bin/itsanas-coordinator' and '/usr/local/bin/itsanas-coordinator'
+# are the same file". Found on the Freebox VM on 2026-09-17, after the service
+# had been stopped for the re-run, so the coordinator stayed down.
+#
+# `-ef` compares device and inode after following links, so a symlink into
+# /usr/local/bin is caught too. It is not in POSIX `test`, but dash, bash and
+# busybox ash all have it; a shell without it errors, reads as "different", and
+# falls back to the copy -- the old behaviour, not a new failure.
+#
+# scripts/check-installers.sh extracts this function by its first and last
+# lines and runs it; keep both shapes.
+place_binary() {
+    # shellcheck disable=SC3013
+    if [ "$1" -ef "$2" ]; then
+        ok "$2 is already this binary; left as it is"
+        return 0
+    fi
+    install -m 0755 "$1" "$2" || die "could not install the binary into $(dirname -- "$2")"
+    ok "$2"
+}
+
 PORT="${ITSANAS_COORD_PORT:-9898}"
 SERVICE_USER="itsanas-coord"
 STATE_DIR="/var/lib/itsanas-coordinator"
 BIN_SRC=""
+BIN_DST="/usr/local/bin/itsanas-coordinator"
 OPEN_DOOR=0
 DO_INSTALL=1
 # Whether --check found everything the real run needs, and whether any address
@@ -249,9 +275,15 @@ if [ -n "$BIN_SRC" ]; then
     fi
 else
     HERE=$(CDPATH='' cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd)
+    # The installed binary comes last, and by path rather than through PATH.
+    # Re-running this to change a flag is routine -- the help above says to run
+    # it again without --admit-first -- and under sudo the PATH is secure_path,
+    # which may not hold /usr/local/bin and never holds ~/.local/bin, where
+    # linux.sh puts its build. A fresh build in this checkout still wins.
     for candidate in \
         "$HERE/target/release/itsanas-coordinator" \
-        "$(command -v itsanas-coordinator 2>/dev/null)"
+        "$(command -v itsanas-coordinator 2>/dev/null)" \
+        "$BIN_DST"
     do
         [ -n "$candidate" ] && [ -x "$candidate" ] && BIN_SRC="$candidate" && break
     done
@@ -265,8 +297,8 @@ else
         die "no itsanas-coordinator binary found" \
             "Build it first:" \
             "  sh install/linux.sh --no-service" \
-            "or point at one you already have:" \
-            "  sudo sh install/coordinator.sh --binary /path/to/itsanas-coordinator"
+            "or point at one you already have (sudo does not search ~/.local/bin):" \
+            "  sudo sh install/coordinator.sh --binary ~/.local/bin/itsanas-coordinator"
     fi
 fi
 
@@ -308,9 +340,7 @@ chown "$SERVICE_USER":"$SERVICE_USER" "$STATE_DIR" || die "could not chown $STAT
 chmod 700 "$STATE_DIR" || die "could not chmod $STATE_DIR"
 ok "$STATE_DIR"
 
-install -m 0755 "$BIN_SRC" /usr/local/bin/itsanas-coordinator \
-    || die "could not install the binary into /usr/local/bin"
-ok "/usr/local/bin/itsanas-coordinator"
+place_binary "$BIN_SRC" "$BIN_DST"
 
 # --------------------------------------------------------------- identity
 

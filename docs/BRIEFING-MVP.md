@@ -28,7 +28,7 @@ périodes où les machines tournent seules (H 24 h, I jusqu'à 48 h).
 - **Tes fichiers sont découpés, chiffrés, envoyés** à tes autres machines et aux
   machines d'autres comptes qui ont promis de la place (`pledge`). Un hôte stocke
   des blocs qu'il ne peut pas lire, et il est audité au hasard.
-- **Le coordinateur (sur le Pi, port 9898)** est un annuaire et un casier : qui est
+- **Le coordinateur (sur la VM Freebox, port 9898)** est un annuaire et un casier : qui est
   quelle machine, où la joindre, le conteneur de récupération par passphrase. Il ne
   détient aucune clé. Sur un même réseau les machines se trouvent sans lui
   (découverte UDP 21037).
@@ -51,10 +51,26 @@ périodes où les machines tournent seules (H 24 h, I jusqu'à 48 h).
 | Machine | Compte `nicolas` (instance par défaut) | Compte `voisin` (instance nommée) | Rôle en plus |
 | --- | --- | --- | --- |
 | **W** laptop Windows | oui | facultatif (`-Instance voisin`) | la machine du quotidien : H se mesure ici |
-| **P** Raspberry Pi | oui | **oui** (`--instance voisin`) | coordinateur |
-| **V** VM Freebox | oui | **oui** (`--instance voisin`) | hôte toujours allumé, machine « détruite » en D |
+| **P** Raspberry Pi | oui | **oui** (`--instance voisin`) | gros hôte |
+| **V** VM Freebox | oui | **oui** (`--instance voisin`) | **coordinateur**, hôte toujours allumé, machine « détruite » en D |
 | Android | facultatif | — | voir 5.3 |
 | Mac | facultatif | — | voir 5.3 |
+
+**Le coordinateur est sur V**, décidé par toi le 2026-09-17, comme le dit
+[MVP.md](MVP.md) §2 (ligne 4) : V est la seule machine avec une adresse
+publique, et la traversée de NAT n'existe pas, donc un coordinateur sur P n'est
+joignable que depuis ton réseau. Ce document le mettait sur P jusqu'à cette
+date.
+
+**Ce qui n'a pas encore suivi :** les comptes `nicolas`, `voisin` et `sigseg42`
+sont inscrits sur le coordinateur **de P**, pas sur celui de V (conteneurs de
+récupération compris : D les cherche là où `register --recovery` les a
+déposés). Tant qu'ils ne sont pas migrés, un nœud pointé sur V n'y trouve pas
+son compte. La migration n'est ni écrite ni jamais jouée : c'est à faire, et à
+vérifier (`itsanas device list` depuis chaque machine), avant les tests qui
+passent par le coordinateur (D, I, et tout ce qui rejoint depuis l'extérieur).
+Ensuite seulement, arrêter celui de P : `sudo systemctl disable --now
+itsanas-coordinator`.
 
 Pourquoi deux comptes : B, E, F et G demandent des machines du **même** compte
 (`nicolas` sur les trois) ; C et le relais aveugle de E demandent un hôte d'un
@@ -70,12 +86,14 @@ une vieille version pendant une semaine).
 
 - P et V : `git -C <checkout> pull`, `sh install/linux.sh --source <checkout> --yes`,
   puis `systemctl --user daemon-reload && systemctl --user restart itsanas`.
-- P, coordinateur : `coordinator.sh` **ne compile pas**, il installe un binaire.
+- V, coordinateur : `coordinator.sh` **ne compile pas**, il installe un binaire.
   Donc d'abord `cargo build --release -p itsanas-coordinator` dans le checkout,
   puis `sudo sh install/coordinator.sh --binary target/release/itsanas-coordinator`
   et `sudo systemctl restart itsanas-coordinator`. **Obligatoire** : sans ça,
   `device list` retombe sur la liste partielle en disant que le coordinateur est
-  plus ancien que le client.
+  plus ancien que le client. Relancer le script sur le binaire déjà installé
+  (pour ajouter ou retirer `--admit-first`) marche depuis le 2026-09-17 ; avant,
+  il mourait sur « are the same file » après que tu avais arrêté le service.
 - **Tous les nœuds d'une machine avant d'en ajouter un.** Un nœud d'une version
   ancienne prend le port de découverte pour lui seul ; un nouveau à côté tourne
   découverte coupée (sur Windows, erreur 10013 dans son journal).
@@ -91,7 +109,7 @@ Sur P puis V :
 ```sh
 ITSANAS_PASSPHRASE='…' sh install/provision.sh --no-install --instance voisin \
   --username voisin --pledge 5G --folder ~/ITSaNAS-voisin \
-  --coordinator <ip-du-pi>:9898 --coordinator-device <id>
+  --coordinator <adresse-de-V>:9898 --coordinator-device <id>
 ```
 
 (`--phrase-file` sur la seconde machine du compte, `--invite <code>` si le
@@ -171,12 +189,12 @@ de débit, à faire exprès, en sachant que c'est le débit qu'on mesure.
 | **A** | partout | aucune phase : les installations de la partie 2 se sont faites sans éditer un fichier ni taper une adresse de pair | vrai sur les trois |
 | **B** | W puis P, V | W : `B write ~/ITSaNAS` → nom + sha256. Sur P et V, dans la minute où tous sont éveillés : `B check ~/ITSaNAS <nom> <sha>` | PASS sur P et V |
 | **C** | W puis instance `voisin` de V | W : `C plant ~/ITSaNAS` → canari. Attendre deux tours. Sur V : `C scan <canari> ~/.itsanas-voisin` | PASS. **Si C échoue, on arrête le projet.** |
-| **D** | V, dossier neuf | `ITSANAS_HOME=~/itsanas-d itsanas login --username nicolas --from <ip-du-pi>:9898 --device <id>` (passphrase seule, **pas les 24 mots**), puis `… register`, `… pledge 1G`, `… sync` (sans adresse : il demande au coordinateur les machines du compte allumées ; si aucune ne l'est, `… daemon` quelques minutes), puis `ITSANAS_HOME=~/itsanas-d bash scripts/acceptance.sh D check <chemin> <sha>` | PASS sans avoir tapé d'adresse de pair |
+| **D** | V, dossier neuf | `ITSANAS_HOME=~/itsanas-d itsanas login --username nicolas --from <adresse-de-V>:9898 --device <id>` (passphrase seule, **pas les 24 mots**), puis `… register`, `… pledge 1G`, `… sync` (sans adresse : il demande au coordinateur les machines du compte allumées ; si aucune ne l'est, `… daemon` quelques minutes), puis `ITSANAS_HOME=~/itsanas-d bash scripts/acceptance.sh D check <chemin> <sha>` | PASS sans avoir tapé d'adresse de pair |
 | **E** | W, puis V ; seules les instances `voisin` servent de relais | **Arrêter `itsanas` (compte `nicolas`) sur P *et* sur V** ; garder `itsanas@voisin` sur les deux : ce sont les seuls relais, et ils ne peuvent pas lire. Sinon V récupère le fichier chez `nicolas` sur P, qui le lit, et E passe sans avoir rien prouvé. W : `E write ~/ITSaNAS`, attendre deux tours (`itsanas status` sur W : les blocs sont ailleurs), **puis éteindre W**. Relancer `itsanas` sur V seulement : `E check ~/ITSaNAS <nom> <sha>`. Puis relancer `itsanas` sur P | PASS alors que V n'a pu joindre aucune machine de son compte |
 | **F** | W, puis V | `itsanas` de V arrêté. W : `F delete ~/ITSaNAS <nom>`, un tour, W éteinte. V relancé : `F check ~/ITSaNAS <nom>`, puis **encore après un tour** | deux PASS ; rien d'autre n'a disparu |
 | **G** | W et V hors réseau | W : wifi coupé. V : `itsanas` arrêté. Sur chacune : `G edit ~/ITSaNAS <nom> <tag-différent>`. Reconnecter, deux tours, `G check ~/ITSaNAS <nom>` sur **les deux** | PASS des deux côtés et **même empreinte** |
 | **H** | W surtout | **W** : `powershell -ExecutionPolicy Bypass -File scripts\acceptance.ps1 H schedule`, une journée normale, puis `… H report` (CPU, mémoire, écritures, et un rapport batterie `powercfg` à lire à côté), puis `… H sleep` **dans un PowerShell administrateur** (le daemon empêche-t-il la veille, a-t-il réveillé la machine) ; `… H unschedule` pour arrêter. **P et V** : `H sample` toutes les 5 min pendant 24 h, puis `H report` | **`H report` et `H sleep` PASS, et le rapport batterie lu par toi** — `H report` seul ne couvre que CPU et mémoire. Laisse le laptop se mettre en veille au moins une fois pendant la journée, daemon lancé : sans veille, `H sleep` refuse de conclure |
-| **I** | coordinateur coupé | `sudo systemctl stop itsanas-coordinator` (48 h visées ; note la durée réelle). Pendant la coupure, écrire un fichier sur W. Sur V : `journalctl --user-unit itsanas --since "<début>" > /tmp/daemon.log` puis `I check /tmp/daemon.log`. **`--user-unit`, pas `--user -u`** : les deux se ressemblent et ne lisent pas le même journal. `--user -u` interroge le journal *de l'utilisateur*, qui sur le Pi répond « No journal files were found » et te donnerait un fichier vide — donc un `I check` qui échoue en accusant le daemon de n'avoir rien écrit. Vérifié le 2026-09-16, en me trompant de commande d'abord. `itsanas status` doit dire ce qui est dégradé. Relancer | PASS, et le fichier est arrivé |
+| **I** | coordinateur coupé, sur V | `sudo systemctl stop itsanas-coordinator` (48 h visées ; note la durée réelle). Pendant la coupure, écrire un fichier sur W. Sur V : `journalctl --user-unit itsanas --since "<début>" > /tmp/daemon.log` puis `I check /tmp/daemon.log`. **`--user-unit`, pas `--user -u`** : les deux se ressemblent et ne lisent pas le même journal. `--user -u` interroge le journal *de l'utilisateur*, qui sur le Pi répond « No journal files were found » et te donnerait un fichier vide — donc un `I check` qui échoue en accusant le daemon de n'avoir rien écrit. Vérifié le 2026-09-16, en me trompant de commande d'abord. `itsanas status` doit dire ce qui est dégradé. Relancer | PASS, et le fichier est arrivé |
 | **J** | les trois | Sur chaque : `J count ~/ITSaNAS`. Redémarrer les trois dans n'importe quel ordre, **dont le Pi par coupure de courant pendant un gros `itsanas put`**. Daemon arrêté : `J check ~/ITSaNAS <nombre donné par J count>` | PASS partout, aucun `doctor --repair` |
 | **K** | W (hôte), puis P | Pas de phase du kit. Sur W, **efface le dossier `vault` de `voisin`** (pas `store/blobs` : ça, ce sont ses propres blocs). **Le daemon de P doit tourner** — `itsanas sync` ne fait *jamais* d'audit, seule la boucle du daemon lance les défis ; un `sync` à la main ne montrera rien et tu conclurais à tort que la sanction ne marche pas. Puis `itsanas status` sur P | Le daemon de P affiche `FAILED n of m storage challenges`, `itsanas status` gagne une section `peers that have failed a storage challenge` qui **nomme la machine**, **et les données repartent sur une autre machine**. Rien n'est perdu ; trois échecs consécutifs et W ne reçoit plus rien de neuf. *Les deux moitiés ont tourné en automatique le 2026-09-16 : avec un hôte de secours disponible, le compteur `placements` **monte** (83 → 125), parce que les copies retirées sont réécrites ailleurs. **Il faut au moins deux hôtes qui pledgent** : avec un seul, il n'y a nulle part où replacer, le compteur reste plat, et ça ressemble à tort à une panne.* *Le vault est un dossier ordinaire : l'effacer ne demande aucun privilège et rien ne prévient — c'est connu, ce n'est pas le résultat du test* |
 | **L** | n'importe laquelle | Ne tape aucune commande. Regarde ce que le logiciel te dit de lui-même | **Échoue aujourd'hui, c'est attendu.** `itsanas status` sait déjà tout dire (`the promise`, `spreading off`, `headroom`, `unconfirmed`) mais il faut le demander, **et il faut la passphrase**. Aucune alerte n'existe : `ARCHITECTURE.md` §7 est une spec vide. Note ce que tu aurais voulu voir et où |
@@ -202,7 +220,7 @@ est qu'il n'y ait aucune mauvaise surprise avec un invité dans la pièce.
 | **Android** | ✅ **depuis le 2026-09-16** : adresse du coordinateur + code d'invitation dans l'écran « Join a network » | ❌ **absente** — un téléphone sur le même wifi ne trouve personne tout seul | ✅ | APK **signée en debug** : installation manuelle, sources inconnues à autoriser |
 
 **Le Mac peut devenir un vrai membre** : il a le CLI complet, donc `itsanas
-coordinator <ip-du-pi>:9898` puis `register --invite <code>`. Comme il passe
+coordinator <adresse-de-V>:9898` puis `register --invite <code>`. Comme il passe
 par le coordinateur, il n'a pas besoin de la découverte locale — c'est ce qui
 rend son cas raisonnable même si la découverte n'a jamais été testée sur un
 Mac. Le risque restant est Gatekeeper : un binaire téléchargé est mis en

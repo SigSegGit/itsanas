@@ -20,6 +20,23 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-09-17, a detour: re-running the coordinator setup, and where the
+coordinator lives** (branch `coordinator-reinstall`). On the Freebox VM,
+`sudo sh install/coordinator.sh --binary /usr/local/bin/itsanas-coordinator
+--admit-first` died with `install: … are the same file` after Nicolas had
+stopped the service, so the coordinator stayed down — and re-running it to
+change a flag is what its own help says to do. The copy is now
+`place_binary`, which leaves a binary that is already the destination (`-ef`)
+alone and says so; with no `--binary`, the lookup ends at
+`/usr/local/bin/itsanas-coordinator`, because sudo's PATH may lack it and never
+has `~/.local/bin`. `check-installers.sh` cuts the function out and runs it
+both ways; sabotaged both ways (guard removed: the exact VM error; guard always
+true: "does not replace an installed binary"). **Not run on the VM**, and the
+`-ef` path was checked under dash and bash only. Same PR:
+`docs/BRIEFING-MVP.md` put the coordinator on the Pi, against `MVP.md` §2;
+Nicolas chose the VM, the briefing and §1 now say so, and both say the three
+accounts are still on the Pi's coordinator until migrated.
+
 **2026-09-15, a detour Nicolas asked for: accounts and devices.** A hand
 red-team of the identity surface, then fixes, in one PR (branch
 `account-devices`). Found and fixed: a withdrawn device came back with
@@ -690,8 +707,12 @@ CI:     .github/workflows/ci.yml — Linux, Windows, macOS, ARM, Android core,
 
 The fleet: this Windows laptop (a scheduled task named `ITSaNAS` runs the
 daemon; its passphrase file is under `%LOCALAPPDATA%\itsanas`), a Raspberry Pi
-4B running the coordinator, and an aarch64 VM on a Freebox Delta. Accounts and
-addresses are in `install/README.md` and `docs/MVP.md`. **No secret belongs in
+4B, and an aarch64 VM on a Freebox Delta. **The coordinator belongs on the VM**
+(Nicolas, 2026-09-17; `docs/MVP.md` §2 row 4): it is the only machine with a
+public address, and NAT traversal is not built. Both machines run one today,
+and the accounts `nicolas`, `voisin` and `sigseg42` are still registered on
+the **Pi's**, until they are migrated — a procedure nobody has written or run.
+Accounts and addresses are in `install/README.md` and `docs/MVP.md`. **No secret belongs in
 this repository**, including test machines' passphrases.
 
 ## 2. The invariant that keeps this honest
