@@ -964,6 +964,90 @@ fn a_peer_cannot_push_a_forged_segment_into_a_host() {
     assert_eq!(host.vault.stats().unwrap().segments, 0);
 }
 
+/// Connect and feed the handshake a byte every 100 ms for four seconds.
+///
+/// Returns how long the server let that go on: the moment a write failed, or
+/// the whole four seconds if none did. A per-read timeout never ends this,
+/// because no single read waits more than a tenth of a second.
+fn trickle_until_cut_off(address: std::net::SocketAddr) -> std::time::Duration {
+    use std::io::Write;
+    let started = std::time::Instant::now();
+    let mut stream = std::net::TcpStream::connect(address).unwrap();
+    // A TLS record header promising a full-sized record, so the server keeps
+    // waiting for the rest instead of rejecting it on sight.
+    if stream.write_all(&[0x16, 0x03, 0x01, 0x40, 0x00]).is_err() {
+        return started.elapsed();
+    }
+    for _ in 0..40 {
+        if stream.write_all(&[0]).is_err() {
+            return started.elapsed();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    started.elapsed()
+}
+
+/// THE ATTACK: hold a slot on a node's listener by trickling the handshake.
+/// The deadline lives in `itsanas-tls` and is unit-tested there; this proves
+/// the node's listener actually applies it, which nothing else checks -- going
+/// back to plain `accept` would leave every other test green.
+#[test]
+fn red_team_a_trickled_handshake_is_cut_off_by_the_node_listener() {
+    let host = node(&alice(), 74);
+    let server = PeerServer::bind("127.0.0.1:0")
+        .expect("bind loopback")
+        .with_handshake_deadline(std::time::Duration::from_millis(300));
+    let address = server.local_addr().expect("local address");
+    let shutdown = AtomicBool::new(false);
+    let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1));
+
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let _ = server.serve_until(&service, &host.device, &shutdown);
+        });
+        let _stop = StopOnDrop(&shutdown, address);
+
+        let held = trickle_until_cut_off(address);
+        assert!(
+            held < std::time::Duration::from_secs(2),
+            "a caller trickling its handshake held a node's connection for \
+             {held:?} against a 300 ms deadline; enough of them fill the listener"
+        );
+    });
+}
+
+/// THE ATTACK: connect to a node and say nothing. The listener used to serve
+/// one connection at a time, so a silent connection held it for the whole read
+/// timeout; opening one every thirty seconds made the node undialable to every
+/// honest peer, and cost nothing. On a home network nobody does that. On a
+/// forwarded port somebody will.
+#[test]
+fn red_team_connections_that_say_nothing_do_not_stop_a_node_serving_others() {
+    let host = node(&alice(), 72);
+    let owner = node(&alice(), 73);
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let silent: Vec<std::net::TcpStream> = (0..3)
+            .map(|_| std::net::TcpStream::connect(address).unwrap())
+            .collect();
+        // Long enough for the accept loop to have taken all three.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        let started = std::time::Instant::now();
+        let answered = PeerClient::connect(address, &owner.device, owner.store.owner(), None)
+            .and_then(|mut client| client.heads(owner.store.owner()));
+        let took = started.elapsed();
+
+        assert!(
+            answered.is_ok() && took < std::time::Duration::from_secs(5),
+            "with three silent connections open, an honest peer got {answered:?} \
+             after {took:?}; anybody who can reach the port can take this node \
+             off the network"
+        );
+        drop(silent);
+    });
+}
+
 #[test]
 fn a_host_that_has_pledged_nothing_refuses_to_store_but_still_answers() {
     let host = node(&MasterSecret::from_bytes([0xB4; 32]), 16);

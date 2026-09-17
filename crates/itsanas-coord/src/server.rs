@@ -12,8 +12,13 @@
 //!
 //! - a cap on concurrent connections, past which new ones are closed rather
 //!   than queued, because a queue is just a slower way to run out of memory;
-//! - a read timeout, so a connection that opens and says nothing costs one slot
-//!   for a few seconds instead of forever;
+//! - a cap on connections from one address, so one machine cannot hold every
+//!   slot and leave the coordinator up and serving nobody else;
+//! - a deadline on the whole handshake ([`HANDSHAKE_DEADLINE`]). A read
+//!   timeout alone is not one: it bounds a single read, so a caller trickling a
+//!   byte a little faster than the timeout held a slot for as long as it liked;
+//! - a read timeout once authenticated, so a member who goes quiet gives the
+//!   slot back;
 //! - a cap on requests per connection, so the expensive part — the handshake —
 //!   has to be paid again for more work;
 //! - and the framing limits `itsanas-wire` already enforces.
@@ -23,12 +28,12 @@
 
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use itsanas_crypto::{DeviceId, DeviceKeys};
-use itsanas_tls::{Authenticated, Identity, accept, connect};
+use itsanas_tls::{Authenticated, Identity, accept_within, connect, limits::ConnectionLimits};
 use itsanas_wire::Connection;
 use rustls::{ClientConfig, ServerConfig};
 
@@ -51,6 +56,16 @@ pub const IO_TIMEOUT: Duration = Duration::from_secs(30);
 /// a legitimate caller and a cheap one for the machine.
 pub const MAX_CONNECTIONS: usize = 64;
 
+/// Most connections served at once from one IP address.
+///
+/// A household's machines share one public address, and a machine with two
+/// accounts dials twice. Sixteen covers that with room to spare, and leaves
+/// three quarters of [`MAX_CONNECTIONS`] to everybody else.
+pub const MAX_CONNECTIONS_PER_ADDRESS: usize = 16;
+
+/// How long a caller has, in total, to finish TLS and prove its device key.
+pub const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(15);
+
 /// Seconds since the Unix epoch.
 fn now_unix() -> u64 {
     SystemTime::now()
@@ -63,6 +78,7 @@ fn now_unix() -> u64 {
 pub struct CoordServer {
     listener: TcpListener,
     config: Arc<ServerConfig>,
+    handshake_deadline: Duration,
 }
 
 impl CoordServer {
@@ -80,7 +96,20 @@ impl CoordServer {
             .server_config()
             .map_err(|error| CoordError::Transport(format!("no TLS config: {error}")))?;
 
-        Ok(Self { listener, config })
+        Ok(Self {
+            listener,
+            config,
+            handshake_deadline: HANDSHAKE_DEADLINE,
+        })
+    }
+
+    /// Give callers `limit` instead of [`HANDSHAKE_DEADLINE`] to authenticate.
+    ///
+    /// For tests, which cannot wait fifteen seconds to watch a deadline pass.
+    #[must_use]
+    pub const fn with_handshake_deadline(mut self, limit: Duration) -> Self {
+        self.handshake_deadline = limit;
+        self
     }
 
     /// The address actually bound, after a port of zero.
@@ -122,7 +151,10 @@ impl CoordServer {
             .set_nonblocking(true)
             .map_err(CoordError::from)?;
 
-        let live = AtomicUsize::new(0);
+        // No per-device cap here: members make one short connection per
+        // request batch, and the per-address cap already bounds a flood.
+        let limits =
+            ConnectionLimits::new(MAX_CONNECTIONS, MAX_CONNECTIONS_PER_ADDRESS, usize::MAX);
         let service = CoordService::admitting(directory, admission);
 
         // One limiter for the whole server, not one per connection. A
@@ -145,24 +177,25 @@ impl CoordServer {
                             continue;
                         }
 
-                        if live.load(Ordering::Relaxed) >= MAX_CONNECTIONS {
+                        let Some(slot) = limits.admit(from.ip()) else {
                             // Closing beats queueing: a queue is a slower way
                             // to run out of memory, and the caller finds out
                             // now rather than after a timeout.
                             drop(stream);
                             on_event("at the connection limit; refused one");
                             continue;
-                        }
+                        };
 
-                        live.fetch_add(1, Ordering::Relaxed);
                         let config = Arc::clone(&self.config);
-                        let live = &live;
+                        let deadline = self.handshake_deadline;
                         let service = &service;
                         let limiter = &limiter;
                         scope.spawn(move || {
-                            let outcome = serve_one(stream, &config, device, service, limiter);
-                            live.fetch_sub(1, Ordering::Relaxed);
-                            let _ = (outcome, from);
+                            let outcome =
+                                serve_one(stream, &config, deadline, device, service, limiter);
+                            // Given back however the connection ended.
+                            drop(slot);
+                            let _ = outcome;
                         });
                     }
                     Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -184,21 +217,15 @@ impl CoordServer {
 fn serve_one(
     stream: TcpStream,
     config: &Arc<ServerConfig>,
+    deadline: Duration,
     device: &DeviceKeys,
     service: &CoordService<'_>,
     limiter: &Mutex<EscrowLimiter>,
 ) -> Result<()> {
-    stream
-        .set_read_timeout(Some(IO_TIMEOUT))
-        .map_err(CoordError::from)?;
-    stream
-        .set_write_timeout(Some(IO_TIMEOUT))
-        .map_err(CoordError::from)?;
-
     let Authenticated {
         peer: caller,
         mut connection,
-    } = accept(config, device, stream)
+    } = accept_within(config, device, stream, deadline, IO_TIMEOUT)
         .map_err(|error| CoordError::Transport(format!("handshake failed: {error}")))?;
 
     for served in 0..=MAX_REQUESTS_PER_CONNECTION {

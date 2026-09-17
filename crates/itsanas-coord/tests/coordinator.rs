@@ -56,6 +56,60 @@ fn with_coordinator<T>(body: impl FnOnce(std::net::SocketAddr, &Directory) -> T)
     })
 }
 
+/// Connect and feed the handshake a byte every 100 ms for four seconds.
+///
+/// Returns how long the server let that go on: the moment a write failed, or
+/// the whole four seconds if none did. A per-read timeout never ends this,
+/// because no single read waits more than a tenth of a second.
+fn trickle_until_cut_off(address: std::net::SocketAddr) -> std::time::Duration {
+    use std::io::Write;
+    let started = std::time::Instant::now();
+    let mut stream = std::net::TcpStream::connect(address).unwrap();
+    // A TLS record header promising a full-sized record, so the server keeps
+    // waiting for the rest instead of rejecting it on sight.
+    if stream.write_all(&[0x16, 0x03, 0x01, 0x40, 0x00]).is_err() {
+        return started.elapsed();
+    }
+    for _ in 0..40 {
+        if stream.write_all(&[0]).is_err() {
+            return started.elapsed();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    started.elapsed()
+}
+
+/// THE ATTACK: a coordinator is the one address every member dials, so a slot
+/// held by a caller trickling its handshake is a slot no member gets. The
+/// deadline is unit-tested in `itsanas-tls`; this proves the coordinator
+/// applies it -- going back to plain `accept` leaves every other test green.
+#[test]
+fn red_team_a_trickled_handshake_is_cut_off_by_the_coordinator() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let directory = Directory::open(dir.path().join("directory.redb")).expect("directory");
+    let server = CoordServer::bind("127.0.0.1:0")
+        .expect("bind")
+        .with_handshake_deadline(std::time::Duration::from_millis(300));
+    let address = server.local_addr().expect("address");
+    let shutdown = AtomicBool::new(false);
+    let coordinator = device(0xC1);
+
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let _ = server.serve_until(&directory, &coordinator, &shutdown, |_| {});
+        });
+        let _stop = StopOnDrop(&shutdown, address);
+
+        let held = trickle_until_cut_off(address);
+        assert!(
+            held < std::time::Duration::from_secs(2),
+            "a caller trickling its handshake held a coordinator connection \
+             for {held:?} against a 300 ms deadline; sixty-four of them lock \
+             every member out"
+        );
+    });
+}
+
 fn dial(address: std::net::SocketAddr, keys: &DeviceKeys, _owner: &UserKeys) -> CoordClient {
     CoordClient::connect(address, keys, None).expect("dial the coordinator")
 }

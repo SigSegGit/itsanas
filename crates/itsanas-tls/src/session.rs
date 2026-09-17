@@ -21,7 +21,12 @@
 
 use std::{
     io::{Read, Write},
-    sync::Arc,
+    net::TcpStream,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
 use itsanas_crypto::{DeviceId, DeviceKeys};
@@ -201,6 +206,101 @@ pub fn accept<S: Read + Write>(
     Ok(Authenticated { peer, connection })
 }
 
+/// A socket whose opening exchange has to finish by a fixed moment.
+///
+/// A read timeout alone bounds how long one read may stall, not how long the
+/// handshake may take: a caller trickling a byte every twenty-nine seconds
+/// never trips a thirty-second timeout and holds the connection for as long as
+/// it likes. On a public port that is a free way to occupy every slot a server
+/// has. So until [`accept_within`] disarms it, every read and write is given
+/// only what is left of the deadline, and nothing at all once it has passed.
+#[derive(Debug)]
+pub struct Bounded {
+    stream: TcpStream,
+    until: Instant,
+    armed: Arc<AtomicBool>,
+    /// The per-read timeout for after the handshake, put back by the first
+    /// read or write once the deadline is lifted.
+    ///
+    /// Restored through this handle rather than a clone of the socket: on
+    /// Windows a duplicated socket handle does not share its timeouts, so
+    /// setting them on a clone left the handshake's last few hundred
+    /// milliseconds in force and cut off the authenticated peer. Found by
+    /// `the_deadline_is_lifted_once_the_caller_has_authenticated`.
+    idle: Option<Duration>,
+}
+
+impl Bounded {
+    fn remaining(&mut self) -> std::io::Result<Option<Duration>> {
+        if !self.armed.load(Ordering::Relaxed) {
+            if let Some(idle) = self.idle.take() {
+                self.stream.set_read_timeout(Some(idle))?;
+                self.stream.set_write_timeout(Some(idle))?;
+            }
+            return Ok(None);
+        }
+        let left = self.until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "the caller did not finish proving who it is in time",
+            ));
+        }
+        Ok(Some(left))
+    }
+}
+
+impl Read for Bounded {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(left) = self.remaining()? {
+            self.stream.set_read_timeout(Some(left))?;
+        }
+        self.stream.read(buf)
+    }
+}
+
+impl Write for Bounded {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Some(left) = self.remaining()? {
+            self.stream.set_write_timeout(Some(left))?;
+        }
+        self.stream.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.stream.flush()
+    }
+}
+
+/// [`accept`], but the caller has `limit` to finish authenticating, in total.
+///
+/// Afterwards the socket goes back to `idle`, the per-read timeout the rest of
+/// the conversation runs under. Only the part before the caller has proved
+/// anything is bounded this way: an authenticated peer pushing a large chunk
+/// over a slow link is doing what it is for.
+pub fn accept_within(
+    config: &Arc<ServerConfig>,
+    device: &DeviceKeys,
+    stream: TcpStream,
+    limit: Duration,
+    idle: Duration,
+) -> Result<Authenticated<ServerStream<Bounded>>> {
+    let armed = Arc::new(AtomicBool::new(true));
+    let bounded = Bounded {
+        stream,
+        until: Instant::now() + limit,
+        armed: Arc::clone(&armed),
+        idle: Some(idle),
+    };
+
+    let authenticated = accept(config, device, bounded)?;
+
+    // The wrapper now belongs to rustls, so it cannot be reached to change;
+    // lowering the flag tells it to put the idle timeout back itself.
+    armed.store(false, Ordering::Relaxed);
+    Ok(authenticated)
+}
+
 /// Dial a peer and prove who each of you is.
 ///
 /// `expected` pins the answer. Pass it whenever the identity is already known —
@@ -237,4 +337,95 @@ fn exporter_of<T>(session: &rustls::ConnectionCommon<T>) -> Result<[u8; EXPORTER
     session
         .export_keying_material([0u8; EXPORTER_LEN], EXPORTER_LABEL, None)
         .map_err(|error| TlsError::NoExporter(error.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use itsanas_crypto::SecretBytes;
+    use std::net::TcpListener;
+
+    /// THE ATTACK: open a connection and feed the handshake one byte at a time,
+    /// each a little inside the read timeout. No single read ever stalls long
+    /// enough to trip it, so a per-read timeout never fires and the caller
+    /// holds a server slot for as long as it keeps trickling. On a public port
+    /// that is a way to fill every slot with nothing.
+    #[test]
+    fn red_team_a_handshake_trickled_a_byte_at_a_time_is_cut_off_at_the_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let config = Identity::generate().unwrap().server_config().unwrap();
+        let device = DeviceKeys::from_seed(&SecretBytes::new([3; 32]));
+
+        let trickler = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            // A TLS record header promising a full-sized record, so the server
+            // keeps waiting for the rest rather than rejecting it on sight.
+            let _ = stream.write_all(&[0x16, 0x03, 0x01, 0x40, 0x00]);
+            for _ in 0..40 {
+                if stream.write_all(&[0]).is_err() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+
+        let (stream, _) = listener.accept().unwrap();
+        let started = Instant::now();
+        let outcome = accept_within(
+            &config,
+            &device,
+            stream,
+            Duration::from_millis(500),
+            Duration::from_secs(30),
+        );
+        let took = started.elapsed();
+
+        assert!(outcome.is_err(), "a trickled handshake was accepted");
+        assert!(
+            took < Duration::from_secs(2),
+            "a caller trickling bytes held the handshake for {took:?} against a \
+             500 ms deadline; every slot on a public listener can be held this way"
+        );
+        let _ = trickler.join();
+    }
+
+    /// The deadline is for proving who you are, not for the conversation after.
+    /// Left armed, it would cut off an honest peer pushing a large chunk over
+    /// a slow link fifteen seconds into its session.
+    #[test]
+    fn the_deadline_is_lifted_once_the_caller_has_authenticated() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_config = Identity::generate().unwrap().server_config().unwrap();
+        let client_config = Identity::generate().unwrap().client_config().unwrap();
+        let server_device = DeviceKeys::from_seed(&SecretBytes::new([4; 32]));
+        let client_device = DeviceKeys::from_seed(&SecretBytes::new([5; 32]));
+
+        let client = std::thread::spawn(move || {
+            let stream = TcpStream::connect(address).unwrap();
+            let Authenticated { mut connection, .. } =
+                connect(&client_config, &client_device, stream, None).unwrap();
+            // Longer than the deadline, after authenticating.
+            std::thread::sleep(Duration::from_millis(800));
+            connection.send(&7u32).unwrap();
+        });
+
+        let (stream, _) = listener.accept().unwrap();
+        let Authenticated { mut connection, .. } = accept_within(
+            &server_config,
+            &server_device,
+            stream,
+            Duration::from_millis(400),
+            Duration::from_secs(30),
+        )
+        .unwrap();
+        let received: Option<u32> = connection.receive().unwrap_or(None);
+        assert_eq!(
+            received,
+            Some(7),
+            "an authenticated peer was cut off by the handshake deadline"
+        );
+        client.join().unwrap();
+    }
 }

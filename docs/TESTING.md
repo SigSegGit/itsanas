@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-16 — 748 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 54 are red-team tests.**
+**Last updated: 2026-09-17 — 760 test functions across 24 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 62 are red-team tests.**
 
-**632 of the 748 tests have an entry of their own on this page** — an *entry*,
+**644 of the 760 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -153,17 +153,17 @@ guarantee and is not one.
 | `itsanas-crypto` unit | 65 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-wire` unit | 17 |
-| `itsanas-tls` unit | 6 |
+| `itsanas-tls` unit | 14 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 151 |
 | `itsanas-store` integration (`tests/store.rs`) | 40 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
-| `itsanas-net` unit | 37 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 45 |
+| `itsanas-net` unit | 38 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 47 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 84 |
-| `itsanas-coord` integration (`tests/coordinator.rs`) | 14 |
+| `itsanas-coord` integration (`tests/coordinator.rs`) | 15 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
@@ -701,7 +701,7 @@ about reading.
 
 ---
 
-# `itsanas-net` — unit tests (37)
+# `itsanas-net` — unit tests (38)
 
 ## `protocol` — messages and challenges (12)
 
@@ -720,7 +720,7 @@ about reading.
 | **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 
-## `service` — what a peer may obtain (18)
+## `service` — what a peer may obtain (19)
 
 | Test | What it proves |
 | --- | --- |
@@ -728,6 +728,7 @@ about reading.
 | **`a_node_stores_and_serves_a_strangers_chunk_without_reading_it`** | The mutual-storage bargain in one test: the host serves back exactly what it took, cannot open it, and the guest can. |
 | **`a_host_that_discarded_a_chunk_cannot_fake_the_proof`** | Deleting to save space is detected. |
 | **`storing_beyond_the_pledge_is_refused`** | Otherwise "pledge 10 GB" is meaningless and the disk fills. |
+| **`red_team_concurrent_stores_cannot_take_a_host_past_its_pledge`** | The listener serves connections concurrently since 2026-09-17, and the pledge check is a read before a write. Sixteen offers released at the same instant all saw the same free space and all were stored: a host took on four times its pledge. The check and the write now happen under one lock. Fails when the lock is removed. |
 | **`a_bad_request_never_becomes_a_local_error`** | A peer must not be able to decide when this node reports a fault. |
 | **`a_forged_segment_is_refused_rather_than_stored`** | Signature checking is wired into the service, not merely available. |
 | **`an_unknown_chunk_is_none_rather_than_an_error`** | "I do not have it" is ordinary. |
@@ -766,7 +767,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (45)
+# `itsanas-net` — two-node tests (47)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -795,6 +796,8 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_file_deleted_elsewhere_is_never_offered_for_download`** | A client that listed a file deleted last week, and fetched it when tapped, would have resurrected it. |
 | `a_metadata_round_offers_the_log_but_sends_no_chunks` | The upload direction: a photo taken on mobile data does not upload itself, and the peer still learns it happened. |
 | **`two_nodes_sync_a_file_over_a_real_socket`** | The M4 exit criterion. |
+| **`red_team_a_trickled_handshake_is_cut_off_by_the_node_listener`** | The deadline is unit-tested in `itsanas-tls`; this proves the node's listener applies it. Going back to plain `accept` left every other test green, which is how the Rodin audit of 2026-09-17 found the gap. Fails when the listener ignores its deadline. |
+| **`red_team_connections_that_say_nothing_do_not_stop_a_node_serving_others`** | The listener served one connection at a time, so one silent TCP connection held it for the thirty-second read timeout, and one every thirty seconds made the node undialable for everybody, for free. Harmless on a home network, an off switch on a forwarded port. With three silent connections open, an honest peer must authenticate and get an answer within five seconds. Fails, after thirty seconds, when the listener is made serial again. |
 | **`a_device_takes_the_files_it_asked_for_and_none_of_the_others`** | The ordinary case for a phone, not an edge case: a few gigabytes free against an account of hundreds. The device names what it wants and the source declines everything else, so the merge engine treats the rest as it treats a sleeping peer — deferred, nothing half-written, still listed for a client to fetch on demand. This was a byte budget inside the pull, which stopped when the allowance ran out and therefore kept whatever the log replayed first; deciding *which* files is now `itsanas_policy::keeping`, and this is the network half. |
 | **`a_second_push_offers_nothing_and_says_so`** | Found by reading three machines' daemon logs after an upgrade: "sent 400 B (0 chunks, 1 segments)" every five minutes on a fleet where nothing was happening. A push offered the whole chain every round whatever the peer held, the vault refused each already-held segment with a chain-break, and `store_segment` maps every refusal to `false` — so the waste was invisible from the pushing side and grows without bound as the chain does. Fails when the resume is removed. |
 | **`a_round_that_has_nothing_to_say_says_it_in_one_hash`** | The cost that made a terabyte impossible: a round asked its peer about every chunk it held, every time — a two-thousandth of the account per round, a hundred and forty gigabytes a day at a terabyte, to learn what is almost always "nothing has changed". Asserts the idle round lists **zero** chunks, that a change lists a slice rather than the account, and that the periodic ledger walk still happens — because a round that never touches the ledger lets every record age out of countable in silence, and `release` destroys local data on the strength of them. Fails when the reconciliation is bypassed. |
@@ -1280,9 +1283,9 @@ hostile *host*, and a hostile host is somebody who joined.
 | **`the_code_id_reveals_nothing_about_the_secret`** | The coordinator stores the hash, not the secret, so a stolen directory is a list of endorsements nobody can redeem. Two secrets differing in one bit must not produce related ids. |
 | `an_invitation_good_for_nothing_is_refused_rather_than_stored` | Zero uses, or an expiry before the issue date. Neither can admit anybody, so storing them fills the directory with rows that exist only to be rejected. |
 
-# `itsanas-coord` — the coordinator server (23)
+# `itsanas-coord` — the coordinator server (24)
 
-Fourteen integration tests in `tests/coordinator.rs` and nine unit tests beside
+Fifteen integration tests in `tests/coordinator.rs` and nine unit tests beside
 the code. A real coordinator on a real socket: real directory, real TLS with
 device authentication, real signatures, real framing.
 
@@ -1293,6 +1296,7 @@ two numbers made `itsanas-coord` look eight short.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_trickled_handshake_is_cut_off_by_the_coordinator`** | Every member dials this one address, so a slot held by a caller trickling its handshake is a slot no member gets. The deadline is unit-tested in `itsanas-tls`; this proves the coordinator applies it. Fails when the coordinator ignores its deadline. |
 | **`a_member_s_device_list_includes_a_machine_that_has_gone_quiet`** | `device list` was built on `Peers`, which drops a device silent for a week — the lost laptop the list is opened to find. Every live enrolment is listed, heard-from first; one that never announced reads as never heard from rather than fresh; a withdrawn one is absent. |
 | **`red_team_a_stranger_cannot_list_another_member_s_devices`** | Another member and an unenrolled keypair are both refused the list of pledges and silences. |
 | **`red_team_coordinator_messages_keep_their_wire_numbers`** | Every request and response is written under the number deployed coordinators and clients already read it by; an exhaustive match stops a new variant compiling until it is numbered. |
@@ -1352,9 +1356,10 @@ The five remaining tests cover `Connection`, the generic `Read + Write` wrapper:
 
 ---
 
-# `itsanas-tls` — device authentication (11)
+# `itsanas-tls` — device authentication and listener limits (19)
 
-Six unit tests in `auth.rs`, five integration tests in `tests/handshake.rs`.
+Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, five
+integration tests in `tests/handshake.rs`.
 
 | Test | What it proves |
 | --- | --- |
@@ -1366,6 +1371,14 @@ Six unit tests in `auth.rs`, five integration tests in `tests/handshake.rs`.
 | `a_server_learns_who_called_without_being_told_in_advance` | A node can serve a device it has never met, which is what lets anyone offer storage. |
 | `every_process_presents_a_different_certificate` | Certificates are anonymous and disposable, so an observer cannot correlate two connections by them. |
 | `two_devices_authenticate_each_other_and_exchange_a_message` | End to end over a real socket. |
+| **`red_team_a_handshake_trickled_a_byte_at_a_time_is_cut_off_at_the_deadline`** | A read timeout bounds one read, not a handshake: a caller sending a byte a little inside it holds a server slot for ever. `accept_within` gives every read and write only what is left of a total deadline. Fails when the deadline is ignored. |
+| **`the_deadline_is_lifted_once_the_caller_has_authenticated`** | The deadline is for proving who you are. The first version restored the idle timeout through a clone of the socket, and on Windows a duplicated socket handle does not share its timeouts, so an authenticated peer was cut off a few hundred milliseconds in. This test found it. |
+| **`red_team_one_address_cannot_take_every_slot`** | One machine opening connections until the global cap is reached leaves the listener up and serving nobody else. At most `per_address` from one IP address. |
+| **`red_team_one_device_key_cannot_hold_more_than_its_share`** | The same, for a proven device key dialling from several addresses. |
+| **`red_team_one_ipv6_subnet_cannot_take_every_slot_by_changing_address`** | A household on IPv6 owns a /64 and can give every connection its own source address, so counting single addresses stops nobody. IPv6 is counted by its /64. |
+| `an_ipv4_caller_is_one_caller_however_it_arrives` | A dual-stack listener sees IPv4 callers as `::ffff:a.b.c.d`; they are counted as the IPv4 address, not as a second caller. |
+| `the_overall_cap_holds_across_addresses` | The global cap is a cap. |
+| **`a_closed_connection_gives_its_slot_back_even_after_a_panic`** | A slot that is never returned is a limit that shrinks, one crash at a time, until the listener serves nobody. |
 
 ---
 

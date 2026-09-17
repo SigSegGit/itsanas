@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**748 test functions, 3 of them `#[ignore]`d into the slow job, and 54 of
+**760 test functions, 3 of them `#[ignore]`d into the slow job, and 62 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1311,12 +1311,39 @@ this costs on a full disk, and that measurement is the next honest step rather
 than a guess. Until then a peer can make a host work harder than it should, for
 free — bounded by connection throughput, destroying nothing.
 
-**One peer can hold the inbound listener open indefinitely.** The peer server
-handles connections one at a time and there is no per-connection request cap on
-the peer protocol (the coordinator has one). A peer that connects and then goes
-quiet shuts out every other inbound peer until it times out. It costs no data
-and the node's own outbound rounds are unaffected, which is why it is here
-rather than in a fix.
+**One peer could hold the inbound listener — fixed 2026-09-17, with what is
+left.** The peer server handled one connection at a time, so a single silent
+TCP connection shut out every other inbound peer for the thirty-second read
+timeout, renewable for free. It was tolerable while every node sat behind a
+home router and became the first thing to fix once Nicolas asked to reach the
+network from outside. The listener now runs a thread per connection, capped at
+32 overall, 8 per IP address and 4 per proven device key
+(`itsanas_tls::limits`, IPv6 counted by its /64), and a caller has 15 seconds *in total* to finish TLS
+and prove its key (`accept_within`); a per-read timeout alone let a caller
+trickle bytes for ever. The coordinator takes the same deadline and a cap of 16
+per address. Storing is serialised under one lock so concurrent offers cannot
+overfill a pledge. Red-team tests: `red_team_connections_that_say_nothing_do_not_stop_a_node_serving_others`,
+`red_team_a_handshake_trickled_a_byte_at_a_time_is_cut_off_at_the_deadline`,
+`red_team_one_address_cannot_take_every_slot`,
+`red_team_one_device_key_cannot_hold_more_than_its_share`,
+`red_team_concurrent_stores_cannot_take_a_host_past_its_pledge`.
+
+Still open, and why: **an attacker with many addresses** fills the 32 slots with
+handshakes renewed every 15 seconds — per-address caps do nothing against a
+botnet, and nothing at this size will. (IPv6 is counted by its /64, so one
+household cannot pose as many addresses.) **A household behind hairpin NAT is
+one address**: machines at home dialling the house's public name may all arrive
+from the router's address, and then share the 8 (node) or 16 (coordinator)
+slots. Not measured on the Freebox. **An `accept` that fails** -- a connection
+reset before it was taken -- used to stop the node's listener for good while the
+daemon carried on without one; it now waits 200 ms and carries on, as the
+coordinator always did. That error was not reproduced and has no test. **An authenticated stranger** (a free
+keypair) can keep a session busy with valid requests; there is still no
+per-connection request cap on the peer protocol, and a round pushing a large
+account legitimately needs many requests on one connection. **Refused stores
+now queue**: every `StoreChunk` takes the storing lock and then walks the vault
+(the finding above), so a peer spamming offers it knows will be refused delays
+honest stores by as much. The running total for chunks would make both cheap.
 
 **`itsanas pledge` does not re-check `keep`, and the Android bindings check
 neither.** `itsanas keep` refuses a figure the pledge has not earned, and
