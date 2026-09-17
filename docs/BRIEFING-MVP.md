@@ -94,6 +94,17 @@ une vieille version pendant une semaine).
   plus ancien que le client. Relancer le script sur le binaire déjà installé
   (pour ajouter ou retirer `--admit-first`) marche depuis le 2026-09-17 ; avant,
   il mourait sur « are the same file » après que tu avais arrêté le service.
+  Pour une simple mise à jour du binaire, sans changer de drapeau, pas besoin
+  du script ni de mot de passe depuis le 2026-09-17 (règle
+  `install/sudoers-itsanas`, posée sur P et V) : `cp
+  target/release/itsanas-coordinator ~/itsanas-coordinator.new`, puis
+  `sudo -n /usr/bin/systemctl stop itsanas-coordinator`,
+  `sudo -n /usr/bin/cp --no-dereference --remove-destination
+  /home/itsomeone/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator`,
+  `sudo -n /usr/bin/systemctl start itsanas-coordinator`. Les commandes doivent
+  être tapées **exactement** ainsi, chemins complets compris, sinon sudo demande
+  le mot de passe (`install/README.md`, « Operating the coordinator without a
+  password »). Relancer le script reste manuel, avec mot de passe.
 - **Tous les nœuds d'une machine avant d'en ajouter un.** Un nœud d'une version
   ancienne prend le port de découverte pour lui seul ; un nouveau à côté tourne
   découverte coupée (sur Windows, erreur 10013 dans son journal).

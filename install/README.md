@@ -214,6 +214,63 @@ is in is the usual one. It finds the binary it installed last time at
 `/usr/local/bin/itsanas-coordinator` and leaves it where it is; pass `--binary`
 to install a newer build over it.
 
+### Operating the coordinator without a password
+
+Upgrading and restarting a coordinator needs root, and an agent working on the
+fleet over SSH must never be given a password to type. `install/sudoers-itsanas`
+is the rule that removes the need: it lets the fleet's user run **nine fixed
+commands** as root and nothing else. Installed on the Pi and the VM on
+2026-09-17. On a new machine, once, with a password (change `itsomeone` in the
+file first if the user differs):
+
+```sh
+sudo install -m 0440 -o root -g root install/sudoers-itsanas /etc/sudoers.d/itsanas
+sudo visudo -cf /etc/sudoers.d/itsanas     # must print "parsed OK"
+sudo -n /usr/bin/systemctl --no-pager status itsanas-coordinator
+```
+
+If `visudo` does not say `parsed OK`, remove the file at once: a broken
+sudoers file can lock you out of `sudo` entirely.
+
+Upgrading a coordinator is then, without a password:
+
+```sh
+cp target/release/itsanas-coordinator ~/itsanas-coordinator.new
+sudo -n /usr/bin/systemctl stop itsanas-coordinator
+sudo -n /usr/bin/cp --no-dereference --remove-destination /home/itsomeone/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator
+sudo -n /usr/bin/systemctl start itsanas-coordinator
+sudo -n /usr/bin/journalctl --no-pager -u itsanas-coordinator -n 200
+```
+
+Sudo matches the arguments exactly, so every command has to be typed as it
+appears in the file -- `sudo -n systemctl status itsanas-coordinator` without
+`--no-pager` asks for a password. Why each line is shaped as it is:
+
+- **`--no-pager` is fixed on `status` and `journalctl`.** Without it they open
+  `less` as root, and `!sh` inside `less` is a root shell.
+- **`cp --no-dereference`, not `install`.** The source is in the user's home,
+  so the user can make it a symlink. `install` follows it: pointed at
+  `/etc/shadow`, it would copy the password hashes to `/usr/local/bin` with mode
+  0755. `cp --no-dereference` copies a symlink as a symlink, which discloses
+  nothing. Hard links to root's files are refused by `fs.protected_hardlinks = 1`,
+  the default on Debian, Ubuntu and Raspberry Pi OS (checked on both machines).
+- **What it does give away, stated:** whoever can write to the user's home can
+  install any binary as the coordinator. It runs as `itsanas-coord`, not root
+  (`User=` in the unit), and so it reaches the coordinator's state -- accounts
+  and sealed escrow blobs -- and nothing else. That is the cost of upgrading
+  without a password.
+
+Still done by hand, with a password, because each needs arbitrary root commands
+and allowing them would be allowing root: running `coordinator.sh` itself
+(creating the service user, **rewriting the unit** -- which is how
+`--admit-first` is dropped), and archiving or removing
+`/var/lib/itsanas-coordinator`.
+
+On the Pi, `sudo -n` may also succeed for other commands for a few minutes
+after somebody has typed the password: its sudoers sets
+`timestamp_type=global`, so a cached credential is shared across terminals. That
+is not this rule.
+
 ## Android
 
 There are two things here and they are not the same thing.
