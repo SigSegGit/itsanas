@@ -1,0 +1,18 @@
+# ITSaNAS: exactly what may run as root without a password. Nothing else.
+# Arguments are fixed: sudo refuses any other form of these commands.
+#
+# Installed on the Pi and the Freebox VM on 2026-09-17. How to install it,
+# and why each line is shaped the way it is: install/README.md, "Operating the
+# coordinator without a password". The user name is the fleet's; change it for
+# another machine.
+Cmnd_Alias ITSANAS_COORD = \
+    /usr/bin/systemctl start itsanas-coordinator, \
+    /usr/bin/systemctl stop itsanas-coordinator, \
+    /usr/bin/systemctl restart itsanas-coordinator, \
+    /usr/bin/systemctl enable --now itsanas-coordinator, \
+    /usr/bin/systemctl disable --now itsanas-coordinator, \
+    /usr/bin/systemctl daemon-reload, \
+    /usr/bin/systemctl --no-pager status itsanas-coordinator, \
+    /usr/bin/journalctl --no-pager -u itsanas-coordinator -n 200, \
+    /usr/bin/cp --no-dereference --remove-destination /home/itsomeone/itsanas-coordinator.new /usr/local/bin/itsanas-coordinator
+itsomeone ALL=(root) NOPASSWD: ITSANAS_COORD

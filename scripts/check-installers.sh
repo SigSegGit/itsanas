@@ -618,6 +618,46 @@ done
 say "install/linux.sh accepts aarch64, arm64 and x86_64"
 [ -n "$fake" ] && rm -rf "$fake"
 
+# ------------------------------------------------- the passwordless sudo rule
+#
+# sudo matches arguments exactly. A command written in install/README.md in any
+# form other than the one install/sudoers-itsanas allows asks for a password,
+# which on an agent's SSH session means a hung command or a refusal -- and the
+# README is where an agent copies the command from. So every `sudo -n` line in
+# the README must be a command the rule lists, word for word; and the rule must
+# name the service and the binary path coordinator.sh actually installs, or it
+# permits operating something that does not exist.
+
+rule=install/sudoers-itsanas
+if [ ! -f "$rule" ]; then
+    bad "$rule is missing; install/README.md tells people to install it"
+else
+    allowed=$(sed -n 's/^[[:space:]]*\(\/usr\/bin\/[^,\\]*[^,\\[:space:]]\).*$/\1/p' "$rule")
+    if [ -z "$allowed" ]; then
+        bad "$rule lists no commands this check can read"
+    fi
+    readme_cmds=$(sed -n 's/^sudo -n \(\/usr\/bin\/.*[^[:space:]]\)[[:space:]]*$/\1/p' install/README.md)
+    if [ -z "$readme_cmds" ]; then
+        bad "install/README.md shows no sudo -n command; the rule has no documented use"
+    fi
+    while IFS= read -r cmd; do
+        [ -z "$cmd" ] && continue
+        if printf '%s\n' "$allowed" | grep -qxF -- "$cmd"; then
+            say "sudoers-itsanas allows: sudo -n ${cmd%% itsanas-coordinator*}..."
+        else
+            bad "install/README.md runs 'sudo -n $cmd', which $rule does not allow"
+            say "  sudo compares arguments exactly; this would ask for a password."
+        fi
+    done <<< "$readme_cmds"
+    if ! grep -q 'BIN_DST="/usr/local/bin/itsanas-coordinator"' install/coordinator.sh \
+        || ! printf '%s\n' "$allowed" | grep -q ' /usr/local/bin/itsanas-coordinator$'; then
+        bad "$rule and install/coordinator.sh disagree about where the binary lives"
+    fi
+    if ! grep -q 'itsanas-coordinator.service' install/coordinator.sh; then
+        bad "install/coordinator.sh no longer installs itsanas-coordinator.service, which $rule operates"
+    fi
+fi
+
 if [ "$failed" -ne 0 ]; then
     echo
     echo "An installer is the one program here that runs on a machine nobody has"
@@ -626,4 +666,4 @@ if [ "$failed" -ne 0 ]; then
     exit 1
 fi
 
-echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs"
+echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs, sudo rule matches"

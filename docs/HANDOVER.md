@@ -746,6 +746,20 @@ daemon; its passphrase file is under `%LOCALAPPDATA%\itsanas`), a Raspberry Pi
 public address, and NAT traversal is not built. Both machines run one today,
 and the accounts `nicolas`, `voisin` and `sigseg42` are still registered on
 the **Pi's**, until they are migrated — a procedure nobody has written or run.
+
+**Reaching the fleet from an agent session:** `ssh -i ~/.ssh/itsanas_session -p
+22010 itsomeone@ngas.fr` is the Pi and `-p 22011` the VM (the LAN addresses
+refuse SSH from the laptop; the public name works from inside, so the Freebox
+does hairpin NAT for SSH). Checkouts are in `~/src-itsanas`; the member daemons
+run as user services. Since 2026-09-17 both machines carry
+`install/sudoers-itsanas` in `/etc/sudoers.d/itsanas`: the coordinator can be
+stopped, upgraded, started and read **without a password**, in exactly the
+forms that file lists (`install/README.md`, "Operating the coordinator without a
+password"). Nothing else runs as root from an agent: re-running
+`coordinator.sh`, dropping `--admit-first` and touching
+`/var/lib/itsanas-coordinator` are Nicolas's. An agent never types a password,
+even one given in chat. State on 2026-09-17: the Pi's coordinator active with
+`--admit-first`; the VM's installed, enabled and stopped.
 Accounts and addresses are in `install/README.md` and `docs/MVP.md`. **No secret belongs in
 this repository**, including test machines' passphrases.
 
@@ -1515,11 +1529,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
    committed; the APK cannot be upgraded in place across a key change.
 3. **How the bargain is enforced**: bilateral ledgers between hosts, or the
    coordinator computing standings. ECONOMICS.md argues for the first.
-4. **Merging.** A local policy guard on Nicolas's machine refuses
-   `gh pr merge` from an agent session ("Merge Without Review"), so an agent
-   can open a PR and drive its CI green and cannot land it. Either Nicolas
-   merges, or he allows the action; until then every finished step ends as an
-   open, green PR and the next session must check `gh pr list` before assuming
+4. ✅ **Merging.** Nicolas said on 2026-09-17 that he does not want to be
+   handed merges an agent can do: once CI is entirely green, and unless the PR
+   touches a decision in §6, the agent merges (`gh pr merge --squash
+   --delete-branch`). #53 and #54 were merged that way. A local policy guard
+   refused the first attempt ("Merge Without Review") before he said so in the
+   session; if it refuses again, say which permission rule would allow it
+   rather than handing him the command, and check `gh pr list` before assuming
    `main` carries the work.
 5. **Whether `install/macos.sh` works.** It has run on a CI runner and never on
    a Mac. The second person's machine is a Mac, so this is on the critical path
