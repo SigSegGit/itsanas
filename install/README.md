@@ -209,6 +209,11 @@ That looks at whether the port is free and whether any of this machine's
 addresses is routable, and says what to forward if not — on a Freebox that is
 Paramètres > Gestion des ports.
 
+Run it again to change a flag — dropping `--admit-first` once the first member
+is in is the usual one. It finds the binary it installed last time at
+`/usr/local/bin/itsanas-coordinator` and leaves it where it is; pass `--binary`
+to install a newer build over it.
+
 ## Android
 
 There are two things here and they are not the same thing.

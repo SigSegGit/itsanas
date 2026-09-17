@@ -284,6 +284,54 @@ for script in "${SH_SCRIPTS[@]}"; do
 done
 say "every installer offers --clean, and says so in its help"
 
+# ------------------------------------- re-running the coordinator setup in place
+#
+# install/coordinator.sh tells its reader to run it a second time, without
+# --admit-first. The binary it finds on that run is the one it installed on the
+# first, and `install` refuses to copy a file onto itself, so the documented
+# second step died on the Freebox VM with the service already stopped.
+#
+# The script as a whole needs root and systemd, so the copy step is run alone:
+# the function is cut out of the installer as written and called with a
+# temporary directory standing in for /usr/local/bin. Both directions are asked,
+# because a guard that skipped every copy would pass the first half.
+
+place=$(sed -n '/^place_binary() {$/,/^}$/p' install/coordinator.sh)
+if [ -z "$place" ]; then
+    bad "install/coordinator.sh has no place_binary() for this check to run"
+    say "  The copy step was renamed or reshaped; update the extraction here."
+else
+    bin=$(mktemp -d)
+    printf '#!/bin/sh\necho old\n' > "$bin/installed"
+    printf '#!/bin/sh\necho new\n' > "$bin/fresh"
+    chmod 755 "$bin/installed" "$bin/fresh"
+    harness='ok() { printf "ok %s\n" "$*"; }; die() { printf "error %s\n" "$1"; exit 1; }'
+
+    out=$(sh -c "$harness
+$place
+place_binary \"\$1\" \"\$1\"" place "$bin/installed" 2>&1)
+    status=$?
+    if [ "$status" -ne 0 ] || printf '%s' "$out" | grep -q '^error'; then
+        bad "install/coordinator.sh cannot be re-run over the binary it installed"
+        printf '%s\n' "$out" | sed 's/^/       /'
+        say "  Changing a flag means re-running it; the service is down by then."
+    else
+        say "install/coordinator.sh re-runs over its own installed binary"
+    fi
+
+    out=$(sh -c "$harness
+$place
+place_binary \"\$1\" \"\$2\"" place "$bin/fresh" "$bin/installed" 2>&1)
+    status=$?
+    if [ "$status" -ne 0 ] || ! grep -q new "$bin/installed"; then
+        bad "install/coordinator.sh does not replace an installed binary with a new one"
+        printf '%s\n' "$out" | sed 's/^/       /'
+    else
+        say "install/coordinator.sh still replaces an older installed binary"
+    fi
+    rm -rf "$bin"
+fi
+
 # ---------------------------------------------------------- the Rust version
 
 msrv=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)
@@ -578,4 +626,4 @@ if [ "$failed" -ne 0 ]; then
     exit 1
 fi
 
-echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused"
+echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs"
