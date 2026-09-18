@@ -2839,9 +2839,9 @@ fn network_report(node: &Node) {
     }
 
     match coordinator::check_me(node) {
-        Ok(Some(found)) if found.reachable => println!("  in     {}", found.detail),
-        Ok(Some(found)) => {
-            println!("  in     NOTHING can reach this machine: {}", found.detail);
+        Ok(Some(coordinator::Reachability::Reachable(detail))) => println!("  in     {detail}"),
+        Ok(Some(coordinator::Reachability::Unreachable(detail))) => {
+            println!("  in     NOTHING can reach this machine: {detail}");
             if let Some(announce) = node.config.announce.as_deref() {
                 println!("         This machine announces {announce}, so something was meant");
                 println!("         to reach it there: check the forward, and that it points at");
@@ -2853,10 +2853,15 @@ fn network_report(node: &Node) {
                 println!("         or an IPv6 route really does reach this machine.");
             }
         }
-        Ok(None) => {
-            println!("  in     unknown: this coordinator is too old to try reaching back");
+        // Nothing was tried, so nothing is known. Printing this as a verdict is
+        // what sends somebody to rewire a router that works.
+        Ok(Some(coordinator::Reachability::Unknown(why))) => {
+            println!("  in     not checked this time: {why}");
         }
-        Err(error) => println!("  in     unknown: {error}"),
+        Ok(None) => {
+            println!("  in     not checked: this coordinator is too old to try reaching back");
+        }
+        Err(error) => println!("  in     not checked: {error}"),
     }
 }
 

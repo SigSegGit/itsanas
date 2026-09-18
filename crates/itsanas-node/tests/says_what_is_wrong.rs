@@ -92,7 +92,7 @@ fn a_member_who_publishes_an_address_only_their_lan_can_dial_is_told_why() {
             // asserts is that the refusal *says so*, rather than reporting the
             // member as broken.
             assert!(
-                !answer.reachable && answer.detail.contains("private"),
+                matches!(answer, coordinator::Reachability::Unknown(ref why) if why.contains("private")),
                 concat!(
                     "a private announced address must be explained rather than ",
                     "reported as a failure of the member; got {:?}"
@@ -125,9 +125,12 @@ fn a_member_whose_address_reaches_the_wrong_machine_is_told_which_way_it_is_wron
             .expect("the coordinator answers")
             .expect("this coordinator is new enough to try");
 
-        assert!(!answer.reachable, "an unresolvable name is not reachable");
         assert!(
-            answer.detail.contains("does not resolve"),
+            matches!(answer, coordinator::Reachability::Unknown(_)),
+            "a name that does not resolve is something the coordinator could not check, not a machine that cannot be reached; got {answer:?}"
+        );
+        assert!(
+            answer.detail().contains("does not resolve"),
             concat!(
                 "DNS and a closed port are different problems and a person ",
                 "fixes them in different places; got {:?}"
@@ -154,13 +157,13 @@ fn red_team_asking_twice_in_a_row_does_not_cost_the_coordinator_twice() {
         let first = coordinator::check_me(&node)
             .expect("answered")
             .expect("new enough");
-        assert!(first.detail.contains("does not resolve"));
+        assert!(first.detail().contains("does not resolve"));
 
         let second = coordinator::check_me(&node)
             .expect("answered")
             .expect("new enough");
         assert!(
-            second.detail.contains("within the hour"),
+            second.detail().contains("within the hour"),
             concat!(
                 "a second probe inside the window spent another outbound ",
                 "connection; got {:?}"
@@ -186,13 +189,13 @@ fn changing_the_announced_address_is_worth_asking_about_again() {
         let first = coordinator::check_me(&node)
             .expect("answered")
             .expect("new enough");
-        assert!(first.detail.contains("first.invalid"));
+        assert!(first.detail().contains("first.invalid"));
 
         // The same question again is a repeat, and is refused.
         let repeat = coordinator::check_me(&node)
             .expect("answered")
             .expect("new enough");
-        assert!(repeat.detail.contains("within the hour"));
+        assert!(repeat.detail().contains("within the hour"));
 
         // A different address is a different question.
         node.config.announce = Some("second.invalid:9802".to_owned());
@@ -203,7 +206,7 @@ fn changing_the_announced_address_is_worth_asking_about_again() {
             .expect("answered")
             .expect("new enough");
         assert!(
-            after.detail.contains("second.invalid"),
+            after.detail().contains("second.invalid"),
             concat!(
                 "a node that just changed its address could not find out ",
                 "whether the new one works; it said {:?}"

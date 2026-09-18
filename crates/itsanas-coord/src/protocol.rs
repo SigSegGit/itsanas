@@ -244,6 +244,23 @@ pub enum Response {
         /// The address probed, and what came back.
         detail: String,
     },
+
+    /// The coordinator did not find out, and says so rather than guessing.
+    ///
+    /// **`Reachable { reachable: false }` is a verdict**: something was tried
+    /// and it did not work. This is the absence of one -- the budget for this
+    /// address has already been spent within the hour, or the address is
+    /// private and no coordinator anywhere could tell you anything about it.
+    ///
+    /// They were the same message for half a day, and using it caught the
+    /// difference: `itsanas doctor` on a machine that was perfectly reachable
+    /// printed "NOTHING can reach this machine" and then, on the next line, the
+    /// reason -- which was that it had been asked twice. Somebody reading the
+    /// first line goes and rewires a router that works, which is the failure
+    /// this whole feature exists to prevent.
+    ///
+    /// Appended last.
+    Unknown(String),
 }
 
 impl Request {
@@ -419,6 +436,7 @@ mod tests {
                     detail: String::new(),
                 },
             ),
+            (9, Response::Unknown(String::new())),
         ];
         (requests, responses)
     }
@@ -468,7 +486,8 @@ mod tests {
                 | Response::Missing
                 | Response::Refused(_)
                 | Response::Devices(_)
-                | Response::Reachable { .. } => {}
+                | Response::Reachable { .. }
+                | Response::Unknown(_) => {}
             }
             assert_eq!(
                 postcard::to_stdvec(response).unwrap()[0],
