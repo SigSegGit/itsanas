@@ -50,6 +50,44 @@ pub const MAX_USERNAME_LEN: usize = 64;
 const ACCOUNTS: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("accounts");
 const BY_ID: TableDefinition<'_, &[u8], &str> = TableDefinition::new("accounts_by_id");
 const CLAIMS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("claims");
+
+/// The same claims, keyed by the account that made them.
+///
+/// `owner` then `device`, so one account's devices are a contiguous range.
+/// The value is empty: the claim itself lives once, in [`CLAIMS`], and storing
+/// it twice would be two copies to disagree with each other. This table answers
+/// *which* devices, and the other answers *what* each claim says.
+///
+/// **Why it exists.** Every "where are this account's machines" went through
+/// `live_claims`, which deserialises the whole table and then filters. The cost
+/// of one member's lookup was therefore O(devices in the entire network), so the
+/// coordinator's total work grew with the square of the fleet. Measured on
+/// 2026-09-18 before this table existed: 5.2 us with an empty directory, 575 us
+/// at 500 devices, 2.58 ms at 3000.
+///
+/// An account keeps its devices for the life of the account and a device can
+/// never change owner -- `claim` refuses that outright -- so an entry here is
+/// written once and never moves. That is what makes a denormalised second copy
+/// defensible: it has no update path to get wrong.
+///
+/// **Its safety rests on three refusals that live in other functions**, which is
+/// worth knowing before any of them is relaxed:
+///
+/// * `claim` refuses a second account claiming a device, so the key never moves.
+/// * `claim` refuses un-revoking a withdrawal, so a row never has to be removed.
+/// * `register` refuses re-using a username under a different key, so an
+///   account's id -- the leading half of every key here -- is stable for life.
+///
+/// Loosen any of those and this table needs a delete path it does not have.
+const CLAIMS_BY_OWNER: TableDefinition<'_, &[u8], ()> = TableDefinition::new("claims_by_owner");
+
+/// The key of a row in [`CLAIMS_BY_OWNER`].
+fn owner_device_key(owner: UserId, device: DeviceId) -> [u8; 64] {
+    let mut key = [0u8; 64];
+    key[..32].copy_from_slice(&owner.to_bytes());
+    key[32..].copy_from_slice(&device.to_bytes());
+    key
+}
 const PRESENCE: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("presence");
 const ESCROW: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("escrow");
 const USAGE: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("usage");
@@ -233,6 +271,7 @@ impl Directory {
             let _ = txn.open_table(ACCOUNTS)?;
             let _ = txn.open_table(BY_ID)?;
             let _ = txn.open_table(CLAIMS)?;
+            let _ = txn.open_table(CLAIMS_BY_OWNER)?;
             let _ = txn.open_table(PRESENCE)?;
             let _ = txn.open_table(ESCROW)?;
             let _ = txn.open_table(USAGE)?;
@@ -240,7 +279,9 @@ impl Directory {
         }
         txn.commit()?;
 
-        Ok(Self { db })
+        let directory = Self { db };
+        directory.rebuild_owner_index_if_missing()?;
+        Ok(directory)
     }
 
     // ------------------------------------------------------------- accounts
@@ -539,8 +580,128 @@ impl Directory {
             }
         }
 
+        if changed {
+            // In the same transaction as the claim itself. Two writes that can
+            // land separately are two tables that can disagree, and the one
+            // somebody would notice is the index: a member whose device is in
+            // `CLAIMS` and not in the index is a member whose machines have
+            // vanished from the address book.
+            let mut index = txn.open_table(CLAIMS_BY_OWNER)?;
+            index.insert(
+                owner_device_key(signed.claim.owner, signed.claim.device).as_slice(),
+                (),
+            )?;
+        }
+
         txn.commit()?;
         Ok(changed)
+    }
+
+    /// Fill [`CLAIMS_BY_OWNER`] from [`CLAIMS`] whenever the two disagree.
+    ///
+    /// A coordinator that has been running since before this table existed has
+    /// claims and no index. Reading that as "this account has no devices" would
+    /// be silent and total: every member told their machines are gone, the
+    /// address book answering nothing, and the only clue being that it started
+    /// at an upgrade. So the file is repaired on open -- the same rule, and for
+    /// the same reason, as the holder ledger's second ordering in
+    /// `itsanas-store`.
+    ///
+    /// **The condition is "the two tables hold a different number of rows", not
+    /// "the index is empty", and the difference is a real operation on a real
+    /// machine.** Downgrading the coordinator binary is a supported manoeuvre --
+    /// `install/coordinator.sh` exists to re-run it, and the handover documents
+    /// the `cp` and `systemctl` dance. An older binary enrols devices by writing
+    /// `CLAIMS` and knowing nothing of this table. Coming back up, "the index is
+    /// not empty" would skip the repair, and every machine enrolled during the
+    /// downgrade would be **permanently invisible**: `claim_for` knows it, it
+    /// can announce, and `peers_of` never returns it. Found by the Rodin audit
+    /// of 2026-09-18.
+    ///
+    /// Row counts are the right comparison because both tables hold the same
+    /// devices, revoked ones included: `claim` writes the index on every change,
+    /// a withdrawal included, and a device can never change owner.
+    fn rebuild_owner_index_if_missing(&self) -> Result<()> {
+        {
+            let txn = self.db.begin_read()?;
+            let claims = txn.open_table(CLAIMS)?;
+            let index = txn.open_table(CLAIMS_BY_OWNER)?;
+            if claims.len()? == index.len()? {
+                return Ok(());
+            }
+        }
+
+        let txn = self.db.begin_write()?;
+        {
+            let claims = txn.open_table(CLAIMS)?;
+            let mut index = txn.open_table(CLAIMS_BY_OWNER)?;
+            for row in claims.iter()? {
+                let (_, value) = row?;
+                let signed: SignedClaim = postcard::from_bytes(value.value())?;
+                index.insert(
+                    owner_device_key(signed.claim.owner, signed.claim.device).as_slice(),
+                    (),
+                )?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// How many devices are enrolled, and how many the index knows of.
+    ///
+    /// The same number twice, always: both tables hold every device, revoked
+    /// ones included. Printed by the coordinator at every start so that the
+    /// invariant is something its operator can see rather than something a
+    /// comment asserts -- and so that a file repaired on open says so by the
+    /// numbers agreeing afterwards.
+    ///
+    /// # Errors
+    ///
+    /// If the database cannot be read.
+    pub fn enrolled_counts(&self) -> Result<(u64, u64)> {
+        let txn = self.db.begin_read()?;
+        Ok((
+            txn.open_table(CLAIMS)?.len()?,
+            txn.open_table(CLAIMS_BY_OWNER)?.len()?,
+        ))
+    }
+
+    /// Every live claim of one account, without reading anybody else's.
+    ///
+    /// What [`Self::live_claims`] gives for the whole network, for one member
+    /// and at the cost of their own devices rather than of the fleet. One range
+    /// scan over the index, then one point lookup per device.
+    ///
+    /// Revoked claims are left out, exactly as `live_claims` leaves them out: a
+    /// withdrawn machine is not a device of the account any more, and the index
+    /// keeps its row so that a withdrawal stays final rather than becoming a
+    /// gap somebody can write into.
+    pub fn live_claims_of(&self, user: UserId) -> Result<Vec<SignedClaim>> {
+        let txn = self.db.begin_read()?;
+        let index = txn.open_table(CLAIMS_BY_OWNER)?;
+        let claims = txn.open_table(CLAIMS)?;
+
+        let first = owner_device_key(user, DeviceId::from_bytes([0x00; 32]));
+        let last = owner_device_key(user, DeviceId::from_bytes([0xff; 32]));
+
+        let mut out = Vec::new();
+        for row in index.range(first.as_slice()..=last.as_slice())? {
+            let (key, _) = row?;
+            let device = &key.value()[32..];
+            let Some(value) = claims.get(device)? else {
+                // The index names a device the claims table does not hold. That
+                // cannot happen through `claim`, which writes both in one
+                // transaction; skipping rather than failing keeps a damaged
+                // file readable, and `live_claims` would skip it too.
+                continue;
+            };
+            let signed: SignedClaim = postcard::from_bytes(value.value())?;
+            if !signed.claim.revoked {
+                out.push(signed);
+            }
+        }
+        Ok(out)
     }
 
     /// The current claim for a device.
@@ -716,11 +877,7 @@ impl Directory {
         let availability = txn.open_table(AVAILABILITY)?;
 
         let mut out = Vec::new();
-        for signed in self.live_claims()? {
-            if signed.claim.owner != user {
-                continue;
-            }
-
+        for signed in self.live_claims_of(user)? {
             let key = signed.claim.device.to_bytes();
             let per_mille = match availability.get(key.as_slice())? {
                 Some(value) => postcard::from_bytes::<AvailabilityRecord>(value.value())?.per_mille,
@@ -919,6 +1076,270 @@ fn redeem_in(
 
 #[cfg(test)]
 mod tests {
+
+    /// THE LEAK THIS SHAPE INVITES: one account's devices are now a *range*
+    /// rather than a filtered scan, so the filter is the key layout. Get the
+    /// boundary wrong and a member's lookup returns the neighbouring account's
+    /// machines -- which is both a privacy failure and an address book that
+    /// tells people to dial strangers.
+    ///
+    /// Tested on the property that makes the range safe, with adjacent account
+    /// ids constructed on purpose: every key of account *n* sorts below every
+    /// key of account *n+1*, whatever devices either of them holds.
+    #[test]
+    fn red_team_one_accounts_range_cannot_reach_into_the_next_accounts_devices() {
+        let mut lower = [0x42u8; 32];
+        lower[31] = 0xfe;
+        let mut upper = lower;
+        upper[31] = 0xff;
+
+        let lower = UserId::from_bytes(lower);
+        let upper = UserId::from_bytes(upper);
+
+        let highest_of_lower = owner_device_key(lower, DeviceId::from_bytes([0xff; 32]));
+        let lowest_of_upper = owner_device_key(upper, DeviceId::from_bytes([0x00; 32]));
+
+        assert!(
+            highest_of_lower < lowest_of_upper,
+            "the last device of one account sorts at or above the first device \
+             of the next, so a range scan spills between accounts"
+        );
+        assert_eq!(
+            &highest_of_lower[..32],
+            &lower.to_bytes(),
+            "the account must be the leading part of the key, or the range is \
+             not a range over one account at all"
+        );
+    }
+
+    /// The two tables answer the same question and must never disagree, however
+    /// a claim got there: a first enrolment, a superseding claim, a withdrawal.
+    /// The one this catches is a write path that updates one and not the other,
+    /// which reads as a member's machines vanishing from the address book.
+    #[test]
+    fn the_index_and_the_claims_never_disagree_whatever_is_done_to_them() {
+        let (_dir, directory) = directory();
+        let alice = user(1);
+        let bob = user(2);
+        register(&directory, "alice", &alice);
+        register(&directory, "bob", &bob);
+
+        let laptop = DeviceKeys::from_seed(&SecretBytes::new([11; 32]));
+        let pi = DeviceKeys::from_seed(&SecretBytes::new([12; 32]));
+        let bobs = DeviceKeys::from_seed(&SecretBytes::new([13; 32]));
+
+        let claim_it = |owner: &UserKeys, device: &DeviceKeys, pledged, revoked, at| {
+            directory.claim(
+                &NodeClaim {
+                    owner: owner.user_id(),
+                    device: device.device_id(),
+                    pledged_bytes: pledged,
+                    issued_unix: at,
+                    revoked,
+                }
+                .sign(owner),
+                at,
+            )
+        };
+
+        claim_it(&alice, &laptop, 1 << 30, false, NOW).expect("enrol the laptop");
+        claim_it(&alice, &pi, 2 << 30, false, NOW).expect("enrol the pi");
+        claim_it(&bob, &bobs, 1 << 30, false, NOW).expect("enrol bob's machine");
+
+        // A superseding claim: same device, new pledge.
+        claim_it(&alice, &pi, 4 << 30, false, NOW + 1).expect("re-pledge the pi");
+
+        let mine: Vec<_> = directory
+            .live_claims_of(alice.user_id())
+            .expect("alice's devices")
+            .into_iter()
+            .map(|claim| claim.claim.device)
+            .collect();
+        assert_eq!(mine.len(), 2, "alice has two live machines, got {mine:?}");
+        assert!(mine.contains(&laptop.device_id()) && mine.contains(&pi.device_id()));
+        assert!(
+            !mine.contains(&bobs.device_id()),
+            "another account's machine appeared in this account's list"
+        );
+
+        // The whole-table walk and the indexed lookup must agree, always.
+        let by_scan: Vec<_> = directory
+            .live_claims()
+            .expect("every claim")
+            .into_iter()
+            .filter(|claim| claim.claim.owner == alice.user_id())
+            .map(|claim| claim.claim.device)
+            .collect();
+        assert_eq!(
+            sorted(by_scan),
+            sorted(mine),
+            "the index and the table disagree about who owns what"
+        );
+
+        // A withdrawal, which keeps its row and must stop being live.
+        claim_it(&alice, &laptop, 1 << 30, true, NOW + 2).expect("withdraw the laptop");
+        let after: Vec<_> = directory
+            .live_claims_of(alice.user_id())
+            .expect("alice's devices")
+            .into_iter()
+            .map(|claim| claim.claim.device)
+            .collect();
+        assert_eq!(
+            after,
+            vec![pi.device_id()],
+            "a withdrawn machine is still listed as live through the index"
+        );
+    }
+
+    /// THE OPERATION THAT BREAKS IT, and it is one Nicolas has performed:
+    /// downgrading the coordinator binary. An older build enrols devices by
+    /// writing `CLAIMS` and knowing nothing of the index. Coming back up, a
+    /// repair conditioned on "the index is empty" would skip -- the index is not
+    /// empty, it is *stale* -- and every machine enrolled during the downgrade
+    /// would be permanently invisible: `claim_for` knows it, it can announce,
+    /// and `peers_of` never returns it. Silent, permanent, and it looks to the
+    /// member like their machine never joined.
+    #[test]
+    fn a_device_enrolled_by_an_older_binary_is_found_again_at_the_next_start() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("directory.redb");
+
+        let alice = user(5);
+        let first = DeviceKeys::from_seed(&SecretBytes::new([21; 32]));
+        let during_downgrade = DeviceKeys::from_seed(&SecretBytes::new([22; 32]));
+
+        let enrol = |directory: &Directory, device: &DeviceKeys, at: u64| {
+            directory
+                .claim(
+                    &NodeClaim {
+                        owner: alice.user_id(),
+                        device: device.device_id(),
+                        pledged_bytes: 1 << 30,
+                        issued_unix: at,
+                        revoked: false,
+                    }
+                    .sign(&alice),
+                    at,
+                )
+                .expect("enrol");
+        };
+
+        {
+            let directory = Directory::open(&path).expect("directory");
+            register(&directory, "alice", &alice);
+            enrol(&directory, &first, NOW);
+
+            // What the older binary does: a claim written to `CLAIMS` alone.
+            // The index keeps the row it already had, so it is stale rather
+            // than empty -- which is the whole point of this test.
+            let txn = directory.db.begin_write().expect("write");
+            {
+                let mut claims = txn.open_table(CLAIMS).expect("claims");
+                let signed = NodeClaim {
+                    owner: alice.user_id(),
+                    device: during_downgrade.device_id(),
+                    pledged_bytes: 1 << 30,
+                    issued_unix: NOW + 1,
+                    revoked: false,
+                }
+                .sign(&alice);
+                claims
+                    .insert(
+                        during_downgrade.device_id().to_bytes().as_slice(),
+                        postcard::to_stdvec(&signed).expect("encode").as_slice(),
+                    )
+                    .expect("insert");
+            }
+            txn.commit().expect("commit");
+
+            let found = directory.live_claims_of(alice.user_id()).expect("devices");
+            assert_eq!(
+                found.len(),
+                1,
+                "the fixture is wrong: the older binary's claim was already indexed"
+            );
+        }
+
+        let directory = Directory::open(&path).expect("reopen");
+        let found: Vec<_> = directory
+            .live_claims_of(alice.user_id())
+            .expect("devices")
+            .into_iter()
+            .map(|claim| claim.claim.device)
+            .collect();
+
+        assert_eq!(
+            found.len(),
+            2,
+            "a machine enrolled while the coordinator ran an older binary stayed \
+             invisible after the upgrade; it announces and nobody is ever told"
+        );
+        assert!(found.contains(&during_downgrade.device_id()));
+    }
+
+    /// THE UPGRADE: a coordinator that has been running since before this table
+    /// existed holds claims and no index. Reading that as "this account has no
+    /// devices" would be silent and total -- every member told their machines
+    /// are gone, the address book answering nothing, and the only clue being
+    /// that it started at an upgrade.
+    #[test]
+    fn a_directory_written_before_the_index_existed_is_repaired_on_open() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("directory.redb");
+
+        let alice = user(3);
+        let laptop = DeviceKeys::from_seed(&SecretBytes::new([14; 32]));
+        {
+            let directory = Directory::open(&path).expect("directory");
+            register(&directory, "alice", &alice);
+            directory
+                .claim(
+                    &NodeClaim {
+                        owner: alice.user_id(),
+                        device: laptop.device_id(),
+                        pledged_bytes: 1 << 30,
+                        issued_unix: NOW,
+                        revoked: false,
+                    }
+                    .sign(&alice),
+                    NOW,
+                )
+                .expect("enrol");
+
+            // Make it look like a file written by the older code: the claims
+            // are there and the index is not.
+            let txn = directory.db.begin_write().expect("write");
+            {
+                let mut index = txn.open_table(CLAIMS_BY_OWNER).expect("index");
+                index.retain(|_, ()| false).expect("empty the index");
+            }
+            txn.commit().expect("commit");
+            assert!(
+                directory
+                    .live_claims_of(alice.user_id())
+                    .unwrap()
+                    .is_empty(),
+                "the fixture is wrong: the index was not emptied"
+            );
+        }
+
+        let directory = Directory::open(&path).expect("reopen");
+        let found = directory
+            .live_claims_of(alice.user_id())
+            .expect("alice's devices");
+        assert_eq!(
+            found.len(),
+            1,
+            "an upgrade lost every machine of every account"
+        );
+        assert_eq!(found[0].claim.device, laptop.device_id());
+    }
+
+    fn sorted(mut ids: Vec<DeviceId>) -> Vec<DeviceId> {
+        ids.sort_unstable();
+        ids
+    }
+
     use super::*;
     use crate::invitation::SECRET_LEN;
 

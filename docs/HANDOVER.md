@@ -20,6 +20,65 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-09-18, later the same day: the lookup stopped costing the whole
+network** (branch `claims-by-account`). Nicolas asked whether anything else was
+worth doing today. The answer was the ceiling measured a few hours earlier and
+written into ROADMAP: `peers_of`, `devices_of` and `contributions` all walked
+`live_claims()`, which deserialises **every claim in the directory** and then
+filters by account, so one member's "where are my machines" cost O(devices in
+the entire network) and the coordinator's work grew with the square of the
+fleet.
+
+Claims are now kept in a **second table keyed by account then device**
+(`CLAIMS_BY_OWNER`), written in the same transaction as the claim, and a lookup
+is one range scan over that account's own rows plus one point lookup each.
+Measured on the laptop, before and after: 575 us -> 7.6 us at 500 devices,
+**2.58 ms -> ~8 us at 3000**, and the curve went from linear in the size of the
+whole network to flat. One of four runs reported 23 us, which is machine noise
+and is recorded in ROADMAP rather than dropped.
+
+Three things make a denormalised second copy defensible here, and each has a
+test: **a device can never change owner** (`claim` refuses it outright), so an
+index row is written once and never moves; both tables are written in **one
+transaction**, so they cannot drift at runtime; and a file written before the
+table existed is **repaired on open**, because reading it as "this account has
+no devices" would tell every member their machines were gone and the only clue
+would be that it started at an upgrade. §6 has the row.
+
+**The Rodin audit found the one operation that breaks it, and it is one
+Nicolas performs.** The repair was conditioned on "the index is empty", which is
+right for an upgrade and wrong for a **downgrade**: an older binary enrols
+devices by writing `CLAIMS` and knowing nothing of the index, so coming back up
+the index is *stale* rather than empty, the repair skips, and every machine
+enrolled during the downgrade is permanently invisible -- `claim_for` knows it,
+it announces, and `peers_of` never returns it. The condition is now the two
+tables holding a different number of rows, which covers empty and stale alike,
+and `a_device_enrolled_by_an_older_binary_is_found_again_at_the_next_start`
+fails against the old condition. The coordinator also prints the two counts at
+every start, so the invariant is something its operator can see rather than
+something a comment asserts.
+
+Also from that audit, and written into the table's own doc comment: **this
+index is safe because of three refusals that live in other functions** -- `claim`
+refusing a second account, `claim` refusing to un-revoke a withdrawal, and
+`register` refusing a username under a new key. Loosen any of them and this
+table needs a delete path it does not have.
+
+**The trap that cost the most time in this session was my own method.** The
+sabotage verification restored each defence by replacing text, and sabotaging
+one block made another anchor ambiguous; the half-restored file then looked like
+a working one and three unrelated tests failed for a reason that was not in the
+code. `directory.rs` had to be taken back from `main` and the work reapplied.
+**Sabotage by copying the file back, never by editing it back** -- the script
+that does it is `scratchpad/sab6.py`'s shape: keep a pristine copy, break one
+thing, run, restore the copy, repeat. Each of the three defences was then
+verified in isolation, and each turned exactly the test written for it red.
+
+What is **not** fixed: the *number* of requests is still O(nodes x rounds),
+because a round still dials the coordinator once. Removing that on a healthy
+round is what phase 2 is for, and it still needs the availability decision
+Nicolas has not made.
+
 **2026-09-18, the client says what is wrong, and the centre is asked less**
 (branch `says-what-is-wrong`). Nicolas asked for two things in one breath:
 automate the connectivity question -- *"si sur une machine on ne peut pas sortir
@@ -1042,6 +1101,7 @@ Each of these has a test that fails if it is:
 | Completing a handshake earns a peer nothing | Device keys are free keypairs, so authenticating identifies a peer and vouches for nothing. Treating it as trust turns the anti-flood measure into the flood's best tool | `red_team_a_flood_of_authenticating_strangers_cannot_take_over_the_table`, `red_team_a_peer_that_only_answered_the_phone_has_earned_nothing` |
 | The user id is never broadcast, only a keyed tag of it | A user id is a public key; announcing it every 30 seconds on a café network tells the room whose machine this is | `red_team_the_user_id_never_appears_on_the_wire` |
 | A replay of the vault happens only when a marker says work is outstanding | Unconditional replay turned the daemon's per-round cost from "the new segments" into "the whole chain, times the peers"; never replaying means deferred work is silently never retried | `a_round_that_deferred_nothing_does_not_replay_the_chain_next_time` |
+| Claims are kept in both key orders, written in one transaction, and an older file is repaired on open | A lookup by account used to walk every claim in the directory, so one member's question cost O(devices in the whole network) and the coordinator's work grew with the square of the fleet -- 2.58 ms per lookup at 3000 devices, against ~8 µs now. Denormalised, and only defensible because a device can never change owner, so an index row is written once and never moves. Reading a pre-index file as "this account has no devices" would tell every member their machines were gone | `the_index_and_the_claims_never_disagree_whatever_is_done_to_them`; `a_directory_written_before_the_index_existed_is_repaired_on_open`; `red_team_one_accounts_range_cannot_reach_into_the_next_accounts_devices` |
 | The holder ledger is kept in both key orders, written in one transaction | The two questions asked of it are range scans under opposite prefixes; one ordering makes the other a full table walk. Denormalised, and only defensible because every write and every removal touches both | `the_two_orderings_never_disagree_whatever_is_done_to_the_ledger` |
 | Nothing walks a log chain without a bound | `segments_for` returns a `Vec`; an unlimited walk materialises a whole history in RAM. Found once already in `blobs().addresses()` | `catalogue::MAX_SEGMENTS_WALKED`, and `Catalogue::complete` says when a listing was truncated |
 | An audit's questions are drawn at random, never ordered | Ordered selection is guessable, and one particular ordering — least recently confirmed first — degenerated into a *constant*, because a push round re-stamps a whole batch from one clock reading and the sort fell through to its tie-break. A host could keep the sixteen lowest chunk ids out of fourteen million and hold a spotless record | `red_team_the_same_question_is_not_asked_twice_every_round`; `red_team_a_host_that_keeps_only_what_it_expects_to_be_asked_is_caught` |
@@ -1467,12 +1527,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       who pinged a server. The second is the better system and the larger
       change. Do not start phase 2 without choosing.
 
-            **Phase 2 also carries the index**, because the measurement of
-      2026-09-18 says the lookup phase 2 makes rarer is also the expensive one:
-      claims get a second table keyed by account, written in the same
-      transaction as the first, with an older file repaired on open rather than
-      read as empty -- the shape §6 already uses for the holder ledger. Inside
-      phase 2 rather than after it, so there is one migration and not two.
+            **The index is built** (2026-09-18, after the measurement that found it):
+      claims are kept in a second table keyed by account, so the lookup phase 2
+      makes rarer is no longer also the expensive one. What phase 2 still has to
+      do is make a healthy round ask for it at all -- the *number* of requests is
+      still O(nodes x rounds), which is the part gossip removes.
 
       **Phase 3, only if 1 and 2 fall short: several addresses per device**,
       which is the wire change phase 2 will already have opened the door to

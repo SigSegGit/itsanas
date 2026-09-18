@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**788 test functions, 4 of them `#[ignore]`d into the slow job, and 69 of
+**792 test functions, 4 of them `#[ignore]`d into the slow job, and 70 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -709,37 +709,35 @@ device and reaching a different one is refused.
   exercised against every truncation and every single-bit corruption of a valid
   frame, and against arbitrary garbage — a hand-written adversarial suite, which
   covers the inputs somebody thought of.
-- **An address lookup costs the coordinator a full table scan, and it is
-  measured rather than feared.** `CoordService::peers_of` and `devices_of` walk
-  `Directory::live_claims()`, which deserialises **every claim in the
-  directory** and then filters by account: the cost of one member asking "where
-  are my machines" is O(devices in the whole network), so the total work grows
-  with the square of the fleet.
+- ~~**An address lookup costs the coordinator a full table scan.**~~ **Fixed
+  2026-09-18, the same day it was measured.** `peers_of`, `devices_of` and
+  `contributions` walked `live_claims()`, which deserialises every claim in the
+  directory and then filters by account: one member's lookup cost O(devices in
+  the whole network), so the coordinator's work grew with the square of the
+  fleet. Claims are now kept in a second table keyed by **account then device**
+  (`CLAIMS_BY_OWNER`), written in the same transaction as the claim itself, and
+  a lookup is one range scan over that account's own rows.
 
-  Measured on 2026-09-18 on the laptop, with
-  `cargo test -p itsanas-coord -- --ignored --nocapture`
-  (`measure_what_one_lookup_costs_across_a_fleet`):
+  Measured with `cargo test -p itsanas-coord -- --ignored --nocapture`
+  (`measure_what_one_lookup_costs_across_a_fleet`), on the laptop:
 
-  | devices in the directory | per lookup | lookups/s |
+  | devices in the directory | before | after |
   | --- | --- | --- |
-  | 0 | 5.2 µs | 193 000 |
-  | 500 | 575 µs | 1 700 |
-  | 1500 | 1.51 ms | 664 |
-  | 3000 | 2.58 ms | 388 |
+  | 0 | 5.2 µs | 6.4 µs |
+  | 500 | 575 µs | 7.6 µs |
+  | 1500 | 1.51 ms | 6.8 µs |
+  | 3000 | **2.58 ms** | **~8 µs** |
 
-  **What that means, stated against what was guessed.** The Rodin audit that
-  found this called it the wall at three thousand machines. The numbers say it
-  is not, yet: a fleet of 3000 machines on the default 300-second round asks
-  about **10 lookups a second**, which is 2.6 % of one core on this laptop and
-  perhaps a quarter of one on the Freebox VM's slower ARM core. Uncomfortable,
-  visible in a graph, not a failure. What the shape says is that the failure is
-  *later* and arrives quickly once it does, because both factors grow together.
+  The curve was linear in the size of the whole network and is now flat. A fleet
+  of 3000 machines on the default 300-second round asks about 10 lookups a
+  second, which went from 2.6 % of a core to about a ten-thousandth of one. The
+  after column is the median of four runs; one run reported 23 µs, which is
+  machine noise rather than a number to plan against, and it is recorded here
+  rather than dropped.
 
-  The fix is the one this repository has used before for exactly this shape: a
-  second table keyed by account, written in the same transaction as the first,
-  with the older-file case repaired on open rather than read as empty (§6, "the
-  holder ledger is kept in both key orders"). It is not built. Until it is, the
-  honest claim is "this holds to a few thousand machines", not "this scales".
+  What this does **not** fix: the round still dials the coordinator once, so the
+  *number of requests* is still O(nodes × rounds). Making a healthy round ask
+  nothing at all is §8 0o phase 2.
 
 - **NAT traversal.** A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts
