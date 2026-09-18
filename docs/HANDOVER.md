@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0o
 TITLE: Phase 2 of 0o -- peers exchange presences, and claims get an index by account
 WRITTEN-AT: 2026-09-18
-BASE: e16a0c0
+BASE: b74032c
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
