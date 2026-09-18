@@ -858,6 +858,7 @@ dependencies = [
  "itsanas-policy",
  "itsanas-store",
  "itsanas-sync",
+ "itsanas-tls",
  "postcard",
  "serde",
  "tempfile",

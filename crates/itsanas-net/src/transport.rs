@@ -36,10 +36,10 @@
 //! of an executor in every signature.
 
 use std::{
-    net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
+    net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -68,12 +68,57 @@ use crate::{
 /// holds a thread forever, and enough of them exhaust the node.
 pub const IO_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// What has actually reached this listener, and from where.
+///
+/// The cheapest reachability evidence there is, because it costs nothing: a
+/// connection that arrives from a public address **is** proof that this machine
+/// can be reached from outside its own network, and it arrived whether or not
+/// anybody was counting. A node that has announced a public address and has
+/// never seen one of these has a forward that does not work, and can say so
+/// without asking anybody anything.
+///
+/// The counts are of *accepted connections*, before any handshake: a scanner on
+/// a public port counts, and should -- the question here is whether packets
+/// arrive, not whether friends do. Nothing here is a security decision.
+#[derive(Debug, Default)]
+pub struct Witness {
+    /// Connections from an address outside any private range.
+    from_outside: AtomicU64,
+    /// Connections from a private, loopback or link-local address.
+    from_inside: AtomicU64,
+}
+
+impl Witness {
+    /// Count one accepted connection from `from`.
+    fn saw(&self, from: IpAddr) {
+        let counter = if itsanas_tls::reach::is_private_ip(from) {
+            &self.from_inside
+        } else {
+            &self.from_outside
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// How many connections have arrived from outside this network.
+    #[must_use]
+    pub fn from_outside(&self) -> u64 {
+        self.from_outside.load(Ordering::Relaxed)
+    }
+
+    /// How many have arrived from this network, or from this machine.
+    #[must_use]
+    pub fn from_inside(&self) -> u64 {
+        self.from_inside.load(Ordering::Relaxed)
+    }
+}
+
 /// Accepts peer connections and answers them from a [`PeerService`].
 #[derive(Debug)]
 pub struct PeerServer {
     listener: TcpListener,
     config: Arc<rustls_config::Server>,
     handshake_deadline: Duration,
+    witness: Arc<Witness>,
 }
 
 /// Keeps the rustls type out of this module's public signatures.
@@ -94,6 +139,7 @@ impl PeerServer {
             listener: listen_on(&resolved)?,
             config: identity.server_config()?,
             handshake_deadline: HANDSHAKE_DEADLINE,
+            witness: Arc::new(Witness::default()),
         })
     }
 
@@ -105,6 +151,15 @@ impl PeerServer {
     pub const fn with_handshake_deadline(mut self, limit: Duration) -> Self {
         self.handshake_deadline = limit;
         self
+    }
+
+    /// What has reached this listener, shared with whoever wants to report it.
+    ///
+    /// Cloned rather than borrowed because the serving thread owns the server
+    /// for its lifetime, and the thread that reports is the one that does not.
+    #[must_use]
+    pub fn witness(&self) -> Arc<Witness> {
+        Arc::clone(&self.witness)
     }
 
     /// The address actually bound, which matters when port 0 was requested.
@@ -155,6 +210,10 @@ impl PeerServer {
             while !shutdown.load(Ordering::Relaxed) {
                 match self.listener.accept() {
                     Ok((stream, from)) => {
+                        // Counted before anything can refuse it: what this
+                        // answers is "do packets from outside arrive here",
+                        // and a connection dropped at the limit arrived.
+                        self.witness.saw(from.ip());
                         // Windows hands back a socket that inherited the
                         // listener's non-blocking mode, which fails the TLS
                         // handshake with an error that reads like a firewall.

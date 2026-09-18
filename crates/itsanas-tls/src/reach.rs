@@ -13,7 +13,7 @@
 
 use std::{
     io,
-    net::{SocketAddr, TcpListener, TcpStream},
+    net::{IpAddr, SocketAddr, TcpListener, TcpStream},
     time::Duration,
 };
 
@@ -27,6 +27,71 @@ use std::{
 /// it has left, and at thirty seconds each those dead dials ate two minutes of
 /// a five-minute round before anything that could answer had been tried.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Whether an address is one that only its own network can dial.
+///
+/// Two callers, which is why it lives here rather than beside either of them: a
+/// node orders the addresses it was handed so the ones that can answer are
+/// tried first, and a coordinator refuses to *probe* one, because probing an
+/// address a caller named is a scanner and probing a private one is a scanner
+/// pointed at somebody's own network.
+///
+/// A name is never private: it is the thing somebody set up precisely so others
+/// could reach them, and what it resolves to is a question for the resolver.
+///
+/// **Where this is deliberately wrong:** an overlay network -- Tailscale,
+/// Nebula, any `WireGuard` mesh -- hands out addresses in `100.64.0.0/10`, and
+/// inside such a network they are reachable from anywhere. Counted private
+/// here, because the same range is what a mobile carrier hands a phone behind
+/// CGNAT, where it is reachable from nothing. Anybody running this over an
+/// overlay gives the node a **name** for that address, which is what names are
+/// for and what this function trusts.
+#[must_use]
+pub fn is_private_address(address: &str) -> bool {
+    let Ok(parsed) = address.parse::<SocketAddr>() else {
+        return false;
+    };
+    is_private_ip(parsed.ip())
+}
+
+/// The same question about an address that is already parsed.
+///
+/// What the listener asks of every caller: a connection from a public address
+/// is proof that this machine is reachable from outside its own network, and
+/// that proof is free -- it arrived anyway.
+#[must_use]
+pub fn is_private_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                // 100.64.0.0/10, carrier-grade NAT: what a mobile network and
+                // an overlay hand out. `Ipv4Addr::is_shared` says this and is
+                // still unstable.
+                || (a == 100 && (64..128).contains(&b))
+        }
+        IpAddr::V6(v6) => {
+            // An IPv4 caller arriving on a dual-stack socket is that IPv4
+            // address, and asking the question of `::ffff:192.168.1.10` as an
+            // IPv6 address answers "public", which is the opposite of the
+            // truth.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_private_ip(IpAddr::V4(v4));
+            }
+            let [a, b, ..] = v6.octets();
+            v6.is_loopback()
+                || v6.is_unspecified()
+                // fc00::/7 unique local, and fe80::/10 link local. Both are
+                // `Ipv6Addr` methods that are still unstable.
+                || (a & 0xfe) == 0xfc
+                || (a == 0xfe && (b & 0xc0) == 0x80)
+        }
+    }
+}
 
 /// How many connections a listener may have waiting to be accepted.
 ///
@@ -125,10 +190,20 @@ fn bind_dual_stack(address: SocketAddr) -> io::Result<TcpListener> {
 /// The error returned is the last one, because the last address tried is the
 /// one that had no alternative left.
 pub fn connect_to_one_of(addresses: &[SocketAddr]) -> io::Result<TcpStream> {
+    connect_within(addresses, CONNECT_TIMEOUT)
+}
+
+/// The same, with the caller choosing how long to wait.
+///
+/// For a diagnostic probe, which wants an answer rather than a connection: "it
+/// did not answer within three seconds" and "it did not answer" read the same
+/// to the person whose router is misconfigured, and the coordinator running the
+/// probe has members waiting.
+pub fn connect_within(addresses: &[SocketAddr], timeout: Duration) -> io::Result<TcpStream> {
     let mut last: Option<io::Error> = None;
 
     for address in addresses {
-        match TcpStream::connect_timeout(address, CONNECT_TIMEOUT) {
+        match TcpStream::connect_timeout(address, timeout) {
             Ok(stream) => return Ok(stream),
             Err(error) => last = Some(error),
         }

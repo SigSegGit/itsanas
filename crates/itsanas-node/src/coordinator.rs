@@ -20,6 +20,10 @@ use itsanas_coord::invitation::{Invitation, SECRET_LEN, Secret};
 use itsanas_coord::protocol::{EnrolledDevice, Request, Response};
 use itsanas_coord::server::CoordClient;
 use itsanas_crypto::{DeviceId, KdfParams, Keystore, UserId};
+// One classifier, in the crate both callers already depend on: a node uses
+// it to order what it dials, a coordinator to refuse probing what it must
+// not. Two copies would drift the day one of them learned a range.
+pub use itsanas_tls::reach::is_private_address;
 
 use crate::node::{ESCROW_LABEL, Node};
 use crate::{NodeError as CliError, Result};
@@ -313,47 +317,6 @@ pub fn reachable_first_addresses(addresses: &mut [String]) {
     addresses.sort_by_key(|address| u8::from(is_private_address(address)));
 }
 
-/// Whether an address is one that only its own network can dial.
-///
-/// A name is never private: it is the thing somebody set up precisely so that
-/// others could reach them, and what it resolves to is a question for the
-/// resolver, not for this.
-///
-/// **Where this is deliberately wrong:** an overlay network -- Tailscale,
-/// Nebula, any `WireGuard` mesh -- hands out addresses in `100.64.0.0/10`, and
-/// inside such a network they are reachable from anywhere. Counted here as
-/// private, so they sort last. That is the right default, because the same
-/// range is what a mobile carrier hands a phone behind CGNAT and that address
-/// is reachable from nothing; and it costs only an ordering. Anybody running
-/// this over an overlay should give the node a **name** for that address, which
-/// is what names are for and what this function trusts.
-#[must_use]
-pub fn is_private_address(address: &str) -> bool {
-    let Ok(parsed) = address.parse::<SocketAddr>() else {
-        return false;
-    };
-    match parsed.ip() {
-        std::net::IpAddr::V4(v4) => {
-            let [a, b, ..] = v4.octets();
-            v4.is_private()
-                || v4.is_loopback()
-                || v4.is_link_local()
-                // 100.64.0.0/10, carrier-grade NAT: what a mobile network and
-                // an overlay such as Tailscale hand out. `Ipv4Addr::is_shared`
-                // says this and is still unstable.
-                || (a == 100 && (64..128).contains(&b))
-        }
-        std::net::IpAddr::V6(v6) => {
-            let [a, b, ..] = v6.octets();
-            v6.is_loopback()
-                // fc00::/7 unique local, and fe80::/10 link local. Both are
-                // `Ipv6Addr` methods that are still unstable.
-                || (a & 0xfe) == 0xfc
-                || (a == 0xfe && (b & 0xc0) == 0x80)
-        }
-    }
-}
-
 /// Every device the coordinator lists for an account, this one included.
 ///
 /// `peers` drops this machine, because dialling yourself is not useful. Listing
@@ -400,6 +363,109 @@ pub fn enrolled(node: &Node) -> Result<Option<Vec<EnrolledDevice>>> {
         Ok(Response::Devices(list)) => Ok(Some(list)),
         Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
         Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+        Err(failed) => match devices(node, node.store.owner()) {
+            Ok(_) => Ok(None),
+            Err(_) => Err(CliError::Usage(format!(
+                "the coordinator stopped answering ({failed}); it is not a version question"
+            ))),
+        },
+    }
+}
+
+/// What the coordinator found when it tried to reach this machine.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reachability {
+    /// Whether it completed a handshake with this device at the published
+    /// address.
+    pub reachable: bool,
+    /// The sentence to show a person: which address was tried, and what
+    /// happened.
+    pub detail: String,
+}
+
+/// Publish this device's address and list the account's machines, in one call.
+///
+/// One connection rather than two. `announce` and `peers` each dialled the
+/// coordinator, so a round cost two TCP connections and two TLS handshakes to
+/// ask one question and answer another -- 576 a day per node at the default
+/// interval, from machines that are usually sitting on the same LAN and have
+/// already found each other. Halving that is the cheapest part of making the
+/// centre something a thousand members could share.
+///
+/// # Errors
+///
+/// If the coordinator cannot be reached, refuses, or answers with something
+/// else. Both halves share one failure, deliberately: they share one
+/// connection, and reporting them separately doubled the noise for one cause.
+pub fn announce_and_peers(
+    node: &Node,
+    address: &str,
+    now: u64,
+) -> Result<(String, Vec<(DeviceId, String)>)> {
+    let mut client = dial(node)?;
+    let address = published_address(&node.config, address, client.local_addr());
+
+    let presence = Presence {
+        device: node.store.device_id(),
+        address: address.clone(),
+        at_unix: now,
+    }
+    .sign(&node.device);
+
+    match client.ask(&Request::Announce(Box::new(presence)))? {
+        Response::Done => {}
+        Response::Refused(why) => return Err(CliError::Usage(why)),
+        other => return Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+    }
+
+    let mut found = match client.ask(&Request::Peers {
+        user: node.store.owner(),
+    })? {
+        Response::Peers(list) => list
+            .into_iter()
+            .filter(|presence| presence.device != node.store.device_id())
+            .map(|presence| (presence.device, presence.address))
+            .collect::<Vec<_>>(),
+        Response::Refused(why) => return Err(CliError::Usage(why)),
+        other => return Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+    };
+    reachable_first(&mut found);
+
+    Ok((address, found))
+}
+
+/// Ask the coordinator whether anybody outside can reach this machine.
+///
+/// The one question a node cannot answer about itself. It knows it can reach
+/// the coordinator, because it just did; nothing tells it whether the router in
+/// front of it forwards anything, and a member whose forward is wrong is
+/// indistinguishable -- to every other member -- from a member who is switched
+/// off.
+///
+/// Asked when the answer can have *changed*: the published address is new, or a
+/// person ran `itsanas doctor`. Not on a schedule, because the coordinator
+/// spends a real connection on each one.
+///
+/// `Ok(None)` means the coordinator is too old to answer. That is not an error
+/// and must not read as "unreachable": a member told their forward is broken
+/// because their coordinator is out of date would go and rewire a router that
+/// was working.
+///
+/// # Errors
+///
+/// If the coordinator cannot be reached at all, or answers with something else.
+pub fn check_me(node: &Node) -> Result<Option<Reachability>> {
+    let mut client = dial(node)?;
+    match client.ask(&Request::CheckMe) {
+        Ok(Response::Reachable { reachable, detail }) => {
+            Ok(Some(Reachability { reachable, detail }))
+        }
+        Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
+        Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+        // A coordinator that does not know this request closes the connection
+        // rather than answering, which is indistinguishable from an outage
+        // until something that *is* known succeeds. `Devices` learnt this
+        // first; the shape is the same.
         Err(failed) => match devices(node, node.store.owner()) {
             Ok(_) => Ok(None),
             Err(_) => Err(CliError::Usage(format!(

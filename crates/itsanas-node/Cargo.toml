@@ -11,6 +11,9 @@ description = "A node on disk: keystore, configuration, and one sync round"
 [dependencies]
 getrandom = "0.4.3"
 itsanas-coord = { version = "0.1.0", path = "../itsanas-coord" }
+# For the one address classifier the node and the coordinator share, and
+# for the dial and listen policy in `itsanas_tls::reach`.
+itsanas-tls = { version = "0.1.0", path = "../itsanas-tls" }
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
 itsanas-discover = { version = "0.1.0", path = "../itsanas-discover" }
 itsanas-folder = { version = "0.1.0", path = "../itsanas-folder" }

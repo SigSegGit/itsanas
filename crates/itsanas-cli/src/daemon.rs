@@ -321,6 +321,9 @@ pub fn run(
     println!("Ctrl-C to stop.");
     println!();
 
+    // Shared with the serving thread, which owns the server for its lifetime.
+    let witness = server.witness();
+
     std::thread::scope(|scope| {
         // If the sync loop panics, the scope joins the listener thread, the
         // listener waits on a shutdown flag the panic skipped, and the process
@@ -355,14 +358,105 @@ pub fn run(
             });
         }
 
-        sync_loop(node, interval, plan.scope, shutdown, &neighbourhood, bound);
+        sync_loop(
+            node,
+            interval,
+            plan.scope,
+            shutdown,
+            &neighbourhood,
+            bound,
+            Some(&witness),
+        );
     });
 
     println!("stopped.");
     Ok(())
 }
 
+/// What this daemon knows about being reachable, and what it has already said.
+///
+/// Three facts, none of which a node can work out alone, and the rule for when
+/// it is worth asking again. A machine that cannot be reached is not broken --
+/// a laptop never can be -- so none of this is an error; it is the difference
+/// between a member who knows their forward is wrong and one who thinks the
+/// network is quiet.
+struct Reach {
+    /// The address published on the last round that reached the coordinator.
+    published: Option<String>,
+    /// Whether the coordinator has said it could reach us here.
+    verdict: Option<bool>,
+    /// Connections from outside at the last check, so a first one is news.
+    seen_from_outside: u64,
+}
+
+impl Reach {
+    const fn new() -> Self {
+        Self {
+            published: None,
+            verdict: None,
+            seen_from_outside: 0,
+        }
+    }
+
+    /// Whether the coordinator should be asked to try reaching us.
+    ///
+    /// Only when the answer can have changed: the address is new, or it is the
+    /// first round of this daemon and nobody has ever said. A probe costs the
+    /// coordinator an outbound connection, and a fleet that asked every round
+    /// would turn a diagnostic into the load it is meant to prevent.
+    fn should_ask(&self, published: &str) -> bool {
+        self.verdict.is_none() || self.published.as_deref() != Some(published)
+    }
+}
+
+/// Ask the coordinator to try reaching this machine, and say what it found.
+///
+/// Said once per answer, not once per round: the line matters the first time
+/// and is noise the twentieth.
+fn check_reachable(node: &Node, published: &str, reach: &mut Reach) {
+    if !reach.should_ask(published) {
+        return;
+    }
+    reach.published = Some(published.to_owned());
+
+    match coordinator::check_me(node) {
+        Ok(Some(found)) => {
+            if reach.verdict != Some(found.reachable) {
+                if found.reachable {
+                    println!("reachable: {}", found.detail);
+                } else {
+                    println!("NOT reachable from outside: {}", found.detail);
+                    println!("  Other members cannot dial this machine. It can still take");
+                    println!("  part by dialling them, and one reachable side per pair is");
+                    println!("  enough -- but if a forward was meant to work, it does not.");
+                }
+            }
+            reach.verdict = Some(found.reachable);
+        }
+        // Too old to answer. Not a verdict, and saying nothing is right: the
+        // alternative is telling a member their forward is broken when what is
+        // out of date is the coordinator.
+        Ok(None) => reach.verdict = None,
+        Err(error) => eprintln!("itsanas: could not ask whether we are reachable: {error}"),
+    }
+}
+
+/// Say the first time something from outside this network arrives.
+///
+/// The free half of the same question. A connection from a public address is
+/// proof the forward works, and it costs nothing to notice -- where the probe
+/// costs the coordinator a connection. A node with an `announce` set and none
+/// of these has something wrong between it and the internet.
+fn note_inbound(witness: &itsanas_net::transport::Witness, reach: &mut Reach) {
+    let outside = witness.from_outside();
+    if outside > reach.seen_from_outside && reach.seen_from_outside == 0 {
+        println!("something from outside this network reached us: the way in works");
+    }
+    reach.seen_from_outside = outside;
+}
+
 /// Reconcile the folder, sync with peers, and wait for whichever comes first.
+#[allow(clippy::too_many_arguments)]
 fn sync_loop(
     node: &Node,
     interval: Duration,
@@ -370,6 +464,7 @@ fn sync_loop(
     shutdown: &AtomicBool,
     neighbourhood: &Neighbourhood,
     bound: std::net::SocketAddr,
+    witness: Option<&itsanas_net::transport::Witness>,
 ) {
     let folder = match open_folder(node) {
         Ok(folder) => folder,
@@ -387,6 +482,7 @@ fn sync_loop(
     let mut next_deep = Instant::now();
     let mut warned_alone = false;
     let mut outage = Outage::new();
+    let mut reach = Reach::new();
 
     while !shutdown.load(Ordering::Relaxed) {
         let deep = Instant::now() >= next_deep;
@@ -417,8 +513,19 @@ fn sync_loop(
         }
 
         if Instant::now() >= next_sync && scope.connects() {
-            let reached = one_round(node, shutdown, neighbourhood, bound, &mut outage, scope);
+            let (reached, announced) =
+                one_round(node, shutdown, neighbourhood, bound, &mut outage, scope);
             next_sync = Instant::now() + interval;
+
+            // Free evidence first, then the paid kind: if something from
+            // outside has already reached this machine, the way in works and
+            // nothing needs to be asked of anybody.
+            if let Some(witness) = witness {
+                note_inbound(witness, &mut reach);
+            }
+            if let Some(published) = &announced {
+                check_reachable(node, published, &mut reach);
+            }
 
             // Say it once, rather than leaving someone watching a silent
             // terminal wondering whether anything is happening. Silence is the
@@ -595,12 +702,16 @@ fn one_round(
     bound: std::net::SocketAddr,
     outage: &mut Outage,
     scope: PolicyScope,
-) -> BTreeSet<DeviceId> {
+) -> (BTreeSet<DeviceId>, Option<String>) {
     // Configured peers first: somebody typed those in, so they are
     // wanted even if they are also on the local network — and being in
     // the configuration is itself the evidence that they are real, so
     // they are confirmed on contact without having to earn it.
     let mut reached: BTreeSet<DeviceId> = BTreeSet::new();
+    // What the coordinator was told, this round, if it was reached at all.
+    // Returned rather than printed: whether it is worth asking to be probed is
+    // the caller's question, and it is the answer to it.
+    let mut announced: Option<String> = None;
     // In the same order as everything else this round dials: the ones that can
     // answer from where this machine stands, first. A configured peer is
     // usually a LAN address somebody typed at home, and a round that starts
@@ -631,15 +742,17 @@ fn one_round(
         let listen = bound.to_string();
         // Announcing and listing are one outage, not two. Reporting them
         // separately doubled the noise for a single cause.
-        let published = coordinator::announce(node, &listen, now);
-        let discovered = coordinator::peers(node, node.store.owner());
-
-        match (published, discovered) {
-            (Ok(_), Ok(found)) => {
+        // One connection for both halves. They were two, which cost a TCP
+        // connection and a TLS handshake each, twice a round, from every node
+        // for ever -- including three machines on one LAN that had already
+        // found each other by broadcast.
+        match coordinator::announce_and_peers(node, &listen, now) {
+            Ok((published, found)) => {
                 outage.succeeded();
                 from_coordinator = found;
+                announced = Some(published);
             }
-            (Err(error), _) | (_, Err(error)) => outage.failed(&error.to_string()),
+            Err(error) => outage.failed(&error.to_string()),
         }
     }
 
@@ -701,7 +814,7 @@ fn one_round(
         }
     }
 
-    reached
+    (reached, announced)
 }
 
 /// Block until the folder changes, the next sync is due, or shutdown.

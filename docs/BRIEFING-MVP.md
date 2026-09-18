@@ -203,6 +203,29 @@ le dépôt, et rien dans le code ne peut les vérifier à ta place.
    et un seul côté joignable par paire suffit. `itsanas status` affiche
    maintenant la ligne `announced`, qui dit ce qui est publié.
 
+**Vérifie avant de te déplacer.** Depuis le 2026-09-18, `itsanas doctor`
+répond aux trois questions dans l'ordre utile, sur n'importe quelle machine :
+
+```
+itsanas doctor
+
+network
+  out    the coordinator at ngas.fr:9898 answered
+  peers  2 other machine(s) of this account have published an address
+  in     ngas.fr:9801 answered, and it is this device
+```
+
+`out` en échec, c'est le point 1 ou 2 ci-dessus, et la ligne dit lequel : un nom
+qui ne résout pas c'est le DNS, une connexion refusée c'est un port, un timeout
+c'est presque toujours un pare-feu. `in` en échec sur une machine qui annonce
+quelque chose, c'est le point 3 — la redirection existe mais ne mène nulle part,
+ou mène à la mauvaise machine, et la ligne dit laquelle des deux. `in` en échec
+sur W ou sur le Mac de mandarine, c'est **normal** et c'est écrit : une machine
+qui bouge participe en appelant.
+
+Ce contrôle coûte une connexion sortante au coordinateur, une par machine et par
+heure au maximum : c'est une commande que tu lances, jamais une minuterie.
+
 Puis le test lui-même, sur W depuis un réseau qui n'est pas chez toi — le
 partage de connexion du téléphone suffit et évite de sortir :
 

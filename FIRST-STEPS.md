@@ -188,6 +188,13 @@ itsanas status
 itsanas doctor
 ```
 
+`doctor` checks the stored data and then the network, in the order that makes
+the next line worth reading: whether this machine can reach the coordinator,
+whether anything can reach *it* -- which only somebody outside can answer, so it
+asks the coordinator to try -- and whether the addresses it was given are ones it
+could dial from where it is standing. If nothing is syncing, that is the command
+that says whose problem it is.
+
 ---
 
 ## Removing it
