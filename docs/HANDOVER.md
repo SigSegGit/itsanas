@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0o
 TITLE: Phase 2 of 0o -- peers exchange the presences they saw, so the coordinator is a backup
 WRITTEN-AT: 2026-09-18
-BASE: 1dbb8f4
+BASE: 5712623
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
