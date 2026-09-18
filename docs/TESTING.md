@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-18 — 773 test functions across 25 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 63 are red-team tests.**
+**Last updated: 2026-09-18 — 788 test functions across 26 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 69 are red-team tests.**
 
-**657 of the 773 tests have an entry of their own on this page** — an *entry*,
+**672 of the 788 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -162,7 +162,7 @@ guarantee and is not one.
 | `itsanas-net` unit | 38 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 47 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 84 |
+| `itsanas-coord` unit | 96 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 15 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 23 |
@@ -173,6 +173,7 @@ guarantee and is not one.
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 48 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 1 |
+| `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 3 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -962,7 +963,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (49)
+# `itsanas-node` — a node on disk (52)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1277,6 +1278,21 @@ test is about.
 | --- | --- |
 | **`a_member_elsewhere_is_given_the_address_that_can_answer_first`** | The unit tests prove the ordering function orders; this proves the lookup *applies* it, and that what a member is handed is the announced address with its announced port. Deleting the call in `coordinator::peers` leaves every unit test green — the shape of a defence that is tested and not wired — and this fails, naming the order it got. |
 
+---
+
+# `itsanas-node` telling a member what is wrong (`tests/says_what_is_wrong.rs`) — end to end (3)
+
+A real coordinator and a real node on real sockets. The unit tests prove the
+decision refuses what it must and that a probe can tell one machine from
+another; these prove the two halves are joined, and that what comes back is a
+sentence somebody can act on.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_asking_twice_in_a_row_does_not_cost_the_coordinator_twice`** | The budget, through the whole stack rather than in the limiter alone: the second ask inside the hour is answered from what is known, without another outbound connection. This is what makes the design affordable at three thousand machines. |
+| **`a_member_whose_address_reaches_the_wrong_machine_is_told_which_way_it_is_wrong`** | The answer distinguishes "nothing resolves" from "nothing answers" from "something answered and it was not you", because those are three different evenings of work. |
+| `a_member_who_publishes_an_address_only_their_lan_can_dial_is_told_why` | A private announced address is explained rather than reported as the member being unreachable — the coordinator cannot say anything about it, and saying "you are broken" would send somebody to rewire a working router. |
+
 # `itsanas-coord` — admission (17 of the coordinator's unit tests)
 
 `src/invitation.rs` and the invitation half of `src/directory.rs`. The front
@@ -1302,6 +1318,35 @@ hostile *host*, and a hostile host is somebody who joined.
 | `an_invitation_signed_by_a_member_verifies` / `the_secret_opens_its_own_invitation_and_no_other` | The primitives. |
 | **`the_code_id_reveals_nothing_about_the_secret`** | The coordinator stores the hash, not the secret, so a stolen directory is a list of endorsements nobody can redeem. Two secrets differing in one bit must not produce related ids. |
 | `an_invitation_good_for_nothing_is_refused_rather_than_stored` | Zero uses, or an expiry before the issue date. Neither can admit anybody, so storing them fills the directory with rows that exist only to be rejected. |
+
+---
+
+# `itsanas-coord` — asking whether a member can be reached (12)
+
+The one question a machine cannot answer about itself: a node knows it reached
+the coordinator, because it just did, and nothing tells it whether anything can
+come back. A member whose port forward is wrong looks, to every other member,
+exactly like a member who is switched off — so until this existed the failure
+was invisible on both sides.
+
+It is also the only request that makes a coordinator *act* on the internet
+rather than answer about it, which is why half of these tests are about what it
+refuses to do.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_probe_cannot_be_aimed_at_the_coordinators_own_network`** | A coordinator that dials what a caller names is a port scanner with somebody else's address on it. It dials only what the caller **announced**, which carries that device's own signature, and never a private, loopback, link-local or CGNAT address — which would be a scan of the coordinator's own LAN, the one network a member has no business reaching. Checks six ranges a home actually uses, and the three public shapes the feature exists for. |
+| **`red_team_a_device_with_no_account_cannot_make_the_coordinator_dial_anything`** | Device keys are free keypairs, so completing a handshake identifies a caller and vouches for nothing. The refusal has to name *enrolment*: an unenrolled device also has no presence, so "there is nothing to probe" refuses it by accident today and would stop doing so the day anything else writes a presence. |
+| **`a_withdrawn_device_stops_being_probed_for`** | Withdrawal is the account saying a machine no longer speaks for it. A stolen laptop keeps its key, and must stop buying the coordinator's outbound connections with it. |
+| **`a_device_that_never_announced_is_told_so_rather_than_probed`** | There is nothing to probe, and the alternative — letting the caller supply an address — is the scanner above. |
+| **`red_team_asking_to_be_probed_again_and_again_buys_one_probe_an_hour`** | Without a budget, a member's daemon turns every round into an outbound connection the coordinator pays for, which is the load this design exists to keep off it. Also checks that the window *reopens*: a machine that really did move must be able to find out it is reachable again. |
+| **`red_team_a_probe_that_reaches_a_different_machine_is_not_a_success`** | The reason the probe is a device-authenticated handshake and not a connection. A forward pointing at the wrong host — the other Pi, a printer, a neighbour on the same public address — is an open port, and reporting it as success tells a member their setup works while every peer that dials them is refused by the device pinning. |
+| **`a_probe_slot_is_given_back_however_the_probe_ends`** | A slot not returned is a limit that shrinks to zero, and every probe of an unreachable member is a failure path. **It found a real one**: the guard was built with `then_some`, which evaluates its argument eagerly, so a refused slot was constructed and immediately dropped — the counter underflowed to `usize::MAX` and the next probe panicked on the increment. |
+| `a_probe_that_reaches_the_device_says_so` | The happy path, against a real TLS listener: reachable means *this device answered here*. |
+| `a_probe_of_an_address_where_nothing_listens_says_nothing_answered` | The answer names what a person should go and look at — a forward, a firewall — rather than reporting a number. |
+| `a_probe_of_a_name_that_does_not_resolve_says_that_rather_than_timing_out` | DNS and a closed port are different problems, fixed in different places, and must read differently. |
+| **`red_team_a_name_that_resolves_into_a_private_network_is_not_dialled`** | The bypass, and it was live for an afternoon: the guard on the announced string treats a *name* as public — correctly, since what it resolves to is the resolver's business — and the dial then resolves it. `nas.example.org` pointing at `192.168.1.10` walked through a guard written to stop exactly that. The check that counts is on the resolved address, before any socket. The sabotage run that proved the hole reached the real daemon on the machine the test ran on. |
+| `measure_what_one_lookup_costs_across_a_fleet` | `#[ignore]`d, and a measurement rather than an assertion: what one address lookup costs with 0, 500, 1500 and 3000 devices in the directory. The numbers are in ROADMAP "Known ceilings"; they exist so the decision to index claims by account is made against a number rather than an intuition. |
 
 # `itsanas-coord` — the coordinator server (24)
 

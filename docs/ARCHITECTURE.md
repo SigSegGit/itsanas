@@ -360,6 +360,37 @@ work from anywhere before the ones only their own LAN can dial. That judgement
 is the *receiver's*, never a claim in the presence -- the same rule as the one
 that keeps a peer's clock out of ordering.
 
+**Whether anybody can reach *you* is a question you cannot answer yourself**, and
+since 2026-09-18 the system answers it rather than leaving a member to guess. A
+node knows it reached the coordinator, because it just did; nothing tells it
+whether the router in front of it forwards anything, and a member whose forward
+is wrong looks exactly like one who is switched off.
+
+Two sources, in order of cost. The **free** one is what already arrived: the
+listener counts connections by whether their source address is private or
+public, so a connection from outside is proof the way in works and costs nothing
+to notice. The **paid** one is `Request::CheckMe`, which makes the coordinator
+dial the address this device *announced* — never one the caller names — and
+complete a device-authenticated handshake, because an open port proves something
+is there and a handshake proves it is you. A forward pointing at the wrong
+machine on the LAN is an open port.
+
+It is asked when the answer can have changed — a new published address, or
+`itsanas doctor` — and never on a timer. The coordinator allows one per device
+per hour, four at once, three seconds each. `itsanas doctor` prints the whole
+picture in the order that makes the next line worth reading: can I get out, can
+anybody get in, and would the addresses I was given be dialable from where I am
+standing.
+
+**What a round costs the centre**, because that is the number that decides
+whether this design survives a thousand members: a round used to dial the
+coordinator **twice**, once to announce and once to list — 576 connections per
+node per day at the default interval, from machines usually sitting on one LAN
+that had already found each other by broadcast. It is now one. Making it *zero*
+on a healthy round needs peers to exchange the addresses they know, which is
+[HANDOVER.md](HANDOVER.md) §8 0o phase 2 and is not built.
+
+
 ## 7. Operational behaviour
 
 The daemon is meant to be invisible: a folder that syncs. Invisible systems fail

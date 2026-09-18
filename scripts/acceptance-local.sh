@@ -125,7 +125,8 @@ COORD_ID=$("$COORD" --state "$WORK/coord" --identity 2>&1 | grep -oE '[0-9a-f]{6
 # person actually needs -- being invited -- was covered only by unit tests in
 # `itsanas-coord::directory`.
 "$COORD" --state "$WORK/coord" --listen "127.0.0.1:$CPORT" --invite-only --admit-first >"$WORK/coord.log" 2>&1 &
-pids+=($!)
+COORD_PID=$!
+pids+=($COORD_PID)
 wait_port "$CPORT" || { cat "$WORK/coord.log"; exit 1; }
 
 for m in m1 m2 m3; do mkdir -p "$WORK/folder-$m"; done
@@ -474,6 +475,30 @@ check "after passphrase --recovery, a fresh machine recovers with the new passph
     "$BIN" login --username acceptance --from "127.0.0.1:$CPORT" --device "$COORD_ID"
 check "and no longer with the old one" \
     sh -c "! ITSANAS_HOME='$WORK/fresh-old' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' login --username acceptance --from '127.0.0.1:$CPORT' --device '$COORD_ID' </dev/null"
+
+say "The client says what is wrong with its connectivity"
+# `$NEW_PASSPHRASE`, not `$PASSPHRASE`: machine 1's passphrase was changed a
+# few checks above, and this section runs last because its final check stops
+# the coordinator on purpose.
+# `doctor` is what somebody runs when nothing is syncing, and until this existed
+# it answered about the disk and said nothing about the network -- which is the
+# thing that is usually wrong when nothing is syncing.
+check "doctor reports the network and reaches the coordinator" \
+    sh -c "ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$NEW_PASSPHRASE' '$BIN' doctor </dev/null | grep -q 'the coordinator at 127.0.0.1:$CPORT answered'"
+
+# The half a machine cannot answer about itself. Everything on this bench is on
+# loopback, which is exactly the address a coordinator must refuse to probe --
+# so what this checks is that the refusal is *explained* rather than reported as
+# the member being broken, which would send somebody to rewire a working router.
+check "and explains a loopback address rather than calling the member broken" \
+    sh -c "ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$NEW_PASSPHRASE' '$BIN' doctor </dev/null | grep -q private"
+
+# With the coordinator down, the same command must name what is unreachable
+# instead of going quiet. This is the last check in the file: it stops the
+# coordinator on purpose and nothing after it would have one.
+check "with the coordinator stopped, doctor names it rather than saying nothing" \
+    sh -c "kill $COORD_PID 2>/dev/null; sleep 1; ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$NEW_PASSPHRASE' '$BIN' doctor </dev/null | grep -q 'could NOT be reached'"
+
 
 echo
 if [ "$failures" -eq 0 ]; then

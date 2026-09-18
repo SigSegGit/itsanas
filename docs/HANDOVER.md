@@ -10,15 +10,78 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0o
-TITLE: Phase 2 of 0o -- peers exchange the presences they saw, so the coordinator is a backup
+TITLE: Phase 2 of 0o -- peers exchange presences, and claims get an index by account
 WRITTEN-AT: 2026-09-18
-BASE: 5712623
+BASE: e16a0c0
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-18, the client says what is wrong, and the centre is asked less**
+(branch `says-what-is-wrong`). Nicolas asked for two things in one breath:
+automate the connectivity question -- *"si sur une machine on ne peut pas sortir
+vers la VM ou vice-versa, le client devrait le dire !"* -- and keep the
+centralisation light enough that a thousand members and three thousand machines
+never saturate it. His VM stays the fixed point, `ngas.fr` is durable, the Pi is
+the backup.
+
+Built:
+
+- **`Request::CheckMe`**, appended (wire number 11; `Response::Reachable` is 8).
+  The coordinator dials the address this device **announced** -- never one the
+  caller names, which would be a port scanner with somebody else's address on
+  it -- and completes a **device-authenticated handshake**, because an open port
+  proves something is there and a handshake proves it is *you*. A forward
+  pointing at the other Pi is an open port. Refused for an unenrolled or
+  withdrawn device, a device that never announced, and any address that is not
+  out on the internet. One probe per device per hour, four in flight at once,
+  three seconds each.
+- **The free half.** `itsanas_net::transport::Witness` counts accepted
+  connections by whether the source address was public or private. A connection
+  from outside *is* proof the way in works, and it arrived anyway.
+- **`itsanas doctor` answers out / peers / in**, and names what to look at: a
+  name that does not resolve is DNS, a refused connection is a port, a timeout
+  is usually a firewall.
+- **One coordinator connection per round instead of two**
+  (`coordinator::announce_and_peers`): 576 per node per day became 288.
+- **`DESIGN.md` §8 gains a sixth central job**, with the argument for why it is
+  central and a row in the decision table.
+
+**Three things this session got wrong and fixed. Read these before the next
+change, because two of them were written the same afternoon they were found:**
+
+1. **The concurrency guard underflowed.** The in-flight counter was taken with
+   `then_some`, which evaluates its argument eagerly, so the guard was built and
+   dropped even when no slot was taken; the counter went below zero and the next
+   probe panicked on the increment. Caught by the test written for the opposite
+   leak.
+2. **The anti-scanner guard did not guard.** It checked the announced *string*,
+   where a name is never private -- correct for ordering, useless here. The
+   probe then resolved the name and dialled it, so `nas.example.org` pointing at
+   `192.168.1.10` walked straight through. Found by the Rodin audit; the
+   sabotage run that proved it **reached the real ITSaNAS daemon on this
+   laptop**. The check now happens on the resolved addresses, in
+   `resolve_probe_target`, before any socket exists.
+3. **The load claim was aimed at the wrong number.** Halving connections per
+   round is true and nearly irrelevant. `peers_of` walks `live_claims()`, which
+   deserialises every claim in the directory: one lookup is O(devices in the
+   whole network), so total work grows with the square of the fleet. Measured
+   rather than argued (`measure_what_one_lookup_costs_across_a_fleet`,
+   `#[ignore]`d): 5.2 us at 0 devices, 575 us at 500, 1.51 ms at 1500, **2.58 ms
+   at 3000** on this laptop. A 3000-machine fleet asks about 10 lookups a
+   second -- 2.6 % of a core here, perhaps a quarter of one on the VM's slower
+   ARM core. **The audit called it the wall; the measurement says it is not,
+   yet.** The numbers and the fix are in ROADMAP "Known ceilings".
+
+Verified: every gate in `check-all.sh`, `cargo test --workspace`, and each new
+defence sabotage-verified separately -- the private-address guard, the enrolment
+check, the handshake pinning, the in-flight bound, and the resolved-address
+guard. **Nothing has met a real network**: loopback and CI only. The three
+`acceptance-local.sh` failures on this laptop are the documented UDP 21037 /
+error 10013 trap.
 
 **2026-09-18, reaching the account from outside the house** (branch
 `outside-the-lan`). Nicolas asked, in this order: where do we stand on outbound
@@ -1404,7 +1467,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
       who pinged a server. The second is the better system and the larger
       change. Do not start phase 2 without choosing.
 
-            **Phase 3, only if 1 and 2 fall short: several addresses per device**,
+            **Phase 2 also carries the index**, because the measurement of
+      2026-09-18 says the lookup phase 2 makes rarer is also the expensive one:
+      claims get a second table keyed by account, written in the same
+      transaction as the first, with an older file repaired on open rather than
+      read as empty -- the shape §6 already uses for the holder ledger. Inside
+      phase 2 rather than after it, so there is one migration and not two.
+
+      **Phase 3, only if 1 and 2 fall short: several addresses per device**,
       which is the wire change phase 2 will already have opened the door to
       (`Presence.address` is one string, signed; several means a signed list),
       and then hole punching with the coordinator as a rendezvous rather than a

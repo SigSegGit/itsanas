@@ -485,6 +485,24 @@ networks.
    republish. Without this the away machine can be *told about* its own account
    and reach none of it.
 
+**Check the preparation before spending a journey on it.** Since 2026-09-18
+`itsanas doctor` answers the three questions in the order that matters, on any
+machine:
+
+    itsanas doctor
+
+    network
+      out    the coordinator at ngas.fr:9898 answered
+      peers  2 other machine(s) of this account have published an address
+      in     ngas.fr:9801 answered, and it is this device
+
+`out` failing is step 1 or 2 above, and the line names which: a name that does
+not resolve is DNS, a refused connection is a port, a timeout is usually a
+firewall. `in` failing on a machine that announces something is step 3 -- the
+forward exists but reaches nothing, or reaches the wrong machine, and the line
+says which of those it is. `in` failing on a machine that announces nothing is
+correct and says so: a laptop takes part by dialling out.
+
 **The test.** On the mobile machine, on a network that is not home -- a friend's
 wifi, or a phone tether, which is the cheap way to run this without leaving the
 building:
@@ -543,7 +561,7 @@ the line for "nothing to send". Since 2026-09-15 the round adds
 | H | the Windows laptop, and the Linux machines | **Windows:** `scripts\acceptance.ps1 H schedule` (samples every five minutes as a scheduled task), after 24 hours `H report` (CPU, peak memory, bytes written, and a `powercfg` battery report beside the verdict), then `H sleep` from an **administrator** PowerShell (whether the daemon holds the machine awake, and whether it woke it in the last day); `H unschedule` to stop. **Linux:** `H sample` every five minutes for 24 hours, then `H report`. Battery is reported, not judged: one day of one laptop measures the day as much as the daemon. **H passes only when `H report` and `H sleep` both pass and the battery report has been read**; `H report` alone is CPU and memory. The kit reads "CPU at idle indistinguishable from the daemon being stopped" as under 5% of a core averaged over the hours awake (at least 4 of them), decided before any result |
 | I | any member, coordinator off | daemon output to a file, and **write a file on another machine during the outage** — idle rounds print nothing; then `I check <that file>` |
 | J | every machine | `J count ~/ITSaNAS` before; reboot or cut power; daemon stopped, `J check ~/ITSaNAS <count>` |
-| O | machine 1 or 5, on a network that is not home, then a machine that stayed | `O away ~/ITSaNAS` there -- it prints what it published and a name and sha256 -- then `O check ~/ITSaNAS <name> <sha256>` at home. Needs the preparation in §3 O: the coordinator reachable from outside, and at least one machine at home with `itsanas announce` set |
+| O | machine 1 or 5, on a network that is not home, then a machine that stayed | `itsanas doctor` first, on a machine at home and on the one going away: it says whether the preparation in §3 O is done, and which part is not. Then `O away ~/ITSaNAS` there -- it prints what it published and a name and sha256 -- then `O check ~/ITSaNAS <name> <sha256>` at home |
 
 `D check` and `J check` open the node, so the daemon must not be running on that
 machine at that moment. `scripts/acceptance-local.sh` runs B, D, E, F and G and

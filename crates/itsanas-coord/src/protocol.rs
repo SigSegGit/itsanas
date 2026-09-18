@@ -163,6 +163,28 @@ pub enum Request {
         /// The account whose devices to list.
         user: UserId,
     },
+
+    /// Can anybody outside reach me where I said I could be reached?
+    ///
+    /// The one question a machine cannot answer about itself. A node knows it
+    /// can reach the coordinator, because it just did; it has no way to know
+    /// whether the router in front of it forwards anything, and a member whose
+    /// forward is wrong looks exactly like a member who is switched off.
+    ///
+    /// **Takes no address on purpose.** The coordinator probes the address this
+    /// device most recently *announced*, which is signed by the device. A
+    /// caller-supplied address would turn the coordinator into a port scanner
+    /// anybody could aim.
+    ///
+    /// The probe is a device-authenticated handshake, not a bare connection:
+    /// answering proves the address leads to **this device**, where an open
+    /// port proves only that something is there. It is rate-limited, bounded in
+    /// how many may run at once, and refused for any address that is not
+    /// public -- see `CoordService::probe_target`.
+    ///
+    /// Appended last. postcard numbers variants by position, and a coordinator
+    /// older than this closes the connection rather than misreading it.
+    CheckMe,
 }
 
 /// One enrolled device, as [`Response::Devices`] lists it.
@@ -210,6 +232,18 @@ pub enum Response {
     ///
     /// Appended last, for the reason given on [`Request::Devices`].
     Devices(Vec<EnrolledDevice>),
+
+    /// What a probe of the caller's announced address found.
+    ///
+    /// `detail` is for a person to read and act on -- which address was tried
+    /// and what happened -- and nothing branches on it. Appended last.
+    Reachable {
+        /// Whether the coordinator completed a handshake with this device
+        /// at the address it published.
+        reachable: bool,
+        /// The address probed, and what came back.
+        detail: String,
+    },
 }
 
 impl Request {
@@ -242,6 +276,7 @@ impl Request {
             Self::PutEscrow { .. } => "put-escrow",
             Self::GetEscrow { .. } => "get-escrow",
             Self::Devices { .. } => "devices",
+            Self::CheckMe => "check-me",
         }
     }
 }
@@ -360,6 +395,7 @@ mod tests {
                 },
             ),
             (10, Request::Devices { user }),
+            (11, Request::CheckMe),
         ];
         let account = crate::directory::Account {
             username: "a".to_owned(),
@@ -376,6 +412,13 @@ mod tests {
             (5, Response::Missing),
             (6, Response::Refused(String::new())),
             (7, Response::Devices(Vec::new())),
+            (
+                8,
+                Response::Reachable {
+                    reachable: false,
+                    detail: String::new(),
+                },
+            ),
         ];
         (requests, responses)
     }
@@ -404,7 +447,8 @@ mod tests {
                 | Request::Peers { .. }
                 | Request::PutEscrow { .. }
                 | Request::GetEscrow { .. }
-                | Request::Devices { .. } => {}
+                | Request::Devices { .. }
+                | Request::CheckMe => {}
             }
             assert_eq!(
                 postcard::to_stdvec(request).unwrap()[0],
@@ -423,7 +467,8 @@ mod tests {
                 | Response::Escrow(_)
                 | Response::Missing
                 | Response::Refused(_)
-                | Response::Devices(_) => {}
+                | Response::Devices(_)
+                | Response::Reachable { .. } => {}
             }
             assert_eq!(
                 postcard::to_stdvec(response).unwrap()[0],

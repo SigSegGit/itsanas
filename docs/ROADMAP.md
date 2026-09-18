@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**773 test functions, 3 of them `#[ignore]`d into the slow job, and 63 of
+**788 test functions, 4 of them `#[ignore]`d into the slow job, and 69 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -709,11 +709,56 @@ device and reaching a different one is refused.
   exercised against every truncation and every single-bit corruption of a valid
   frame, and against arbitrary garbage — a hand-written adversarial suite, which
   covers the inputs somebody thought of.
+- **An address lookup costs the coordinator a full table scan, and it is
+  measured rather than feared.** `CoordService::peers_of` and `devices_of` walk
+  `Directory::live_claims()`, which deserialises **every claim in the
+  directory** and then filters by account: the cost of one member asking "where
+  are my machines" is O(devices in the whole network), so the total work grows
+  with the square of the fleet.
+
+  Measured on 2026-09-18 on the laptop, with
+  `cargo test -p itsanas-coord -- --ignored --nocapture`
+  (`measure_what_one_lookup_costs_across_a_fleet`):
+
+  | devices in the directory | per lookup | lookups/s |
+  | --- | --- | --- |
+  | 0 | 5.2 µs | 193 000 |
+  | 500 | 575 µs | 1 700 |
+  | 1500 | 1.51 ms | 664 |
+  | 3000 | 2.58 ms | 388 |
+
+  **What that means, stated against what was guessed.** The Rodin audit that
+  found this called it the wall at three thousand machines. The numbers say it
+  is not, yet: a fleet of 3000 machines on the default 300-second round asks
+  about **10 lookups a second**, which is 2.6 % of one core on this laptop and
+  perhaps a quarter of one on the Freebox VM's slower ARM core. Uncomfortable,
+  visible in a graph, not a failure. What the shape says is that the failure is
+  *later* and arrives quickly once it does, because both factors grow together.
+
+  The fix is the one this repository has used before for exactly this shape: a
+  second table keyed by account, written in the same transaction as the first,
+  with the older-file case repaired on open rather than read as empty (§6, "the
+  holder ledger is kept in both key orders"). It is not built. Until it is, the
+  honest claim is "this holds to a few thousand machines", not "this scales".
+
 - **NAT traversal.** A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts
   connections still learns what was pushed to it. Hole punching and relay
   fallback would want QUIC, which is now an optimisation rather than a
   prerequisite for security.
+
+  **2026-09-18, second half of the same day: the client now says what is
+  wrong.** A node cannot tell whether anything can reach it, and a member whose
+  forward is broken looked exactly like a member who was switched off. The
+  listener now counts connections by whether they came from a public address --
+  free evidence, because they arrived anyway -- and `Request::CheckMe` makes the
+  coordinator dial the address this device *announced* and complete a
+  device-authenticated handshake, so "an open port" is not mistaken for "you are
+  reachable". `itsanas doctor` prints out, in, and what it would dial. Asked on
+  change rather than on a timer, one per device per hour, four at once, three
+  seconds each. A round also stopped dialling the coordinator twice: 576
+  connections per node per day became 288. Making it zero on a healthy round is
+  §8 0o phase 2 and is not built.
 
   **2026-09-18 narrowed the gap without closing it.** A machine that *can* be
   reached now says so and is reached: `itsanas announce <host:port>` publishes

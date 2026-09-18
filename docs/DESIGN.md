@@ -903,6 +903,48 @@ fetch it and grind it at leisure, with no rate limit and no trace.
 Centralisation offers exactly one thing here that decentralisation cannot, and it
 is the thing that matters: **somewhere to enforce a rate limit.**
 
+#### 6. Saying whether a member can be reached — central, and it has to be
+
+Added 2026-09-18, after the question "does this work from a friend's house" took
+an evening to answer by hand. It is a sixth job, and unlike four of the five
+above it cannot be given to the member.
+
+**A machine cannot answer it about itself.** A node knows it reached the
+coordinator, because it just did. Nothing tells it whether anything can come the
+other way — and a member whose port forward is wrong is, to every other member,
+indistinguishable from a member who is switched off. Both look like silence.
+
+Three sources of an answer, and the design uses all three in order of what they
+cost:
+
+1. **Free: what already arrived.** A connection accepted from a public address
+   *is* proof that this machine is reachable from outside its own network. The
+   listener counts those (`itsanas_net::transport::Witness`); a node with an
+   announced address and none of them has something wrong between it and the
+   internet, and it knows this without asking anybody.
+2. **Cheap: the coordinator tries.** `Request::CheckMe` makes it dial the
+   address this device **announced** — never one the caller names, which would
+   be a port scanner with somebody else's address on it — and complete a
+   *device-authenticated handshake*, because an open port proves something is
+   there while a handshake proves it is **you**. A forward pointing at the other
+   Pi is an open port.
+3. **Not built: a peer tries.** Cheaper still, and decentralised, and it is a
+   reflection primitive that needs its own thinking. Noted rather than built.
+
+**Why this does not become the load.** A probe is asked for when the answer can
+have *changed* — the published address is new, or a person ran `itsanas
+doctor` — never on a timer; one per device per hour is enforced on the
+coordinator; at most four run at once; each is given three seconds. A fleet of
+three thousand machines all changing address at once costs under one probe a
+second, and a fleet that is sitting still costs none.
+
+**What it can be abused for, stated rather than argued away.** An enrolled
+member can make the coordinator open one connection an hour to a public address
+they published. That is a slow, attributable port scanner. It is bounded by
+enrolment — the thing that can be withdrawn — and by the refusal to dial any
+private, loopback, link-local or carrier-grade-NAT address, which is what keeps
+it from being pointed at the coordinator's own network.
+
 ### The decision
 
 Not "with or without a server". **A server that carries nothing vital.**
@@ -915,6 +957,7 @@ Not "with or without a server". **A server that carries nothing vital.**
 | Accounting | **Bilateral**, per counterparty | No trusted bookkeeper, and self-enforcing |
 | Identity | **The public key.** The name is a label | No naming authority to trust or to attack |
 | Escrow | Coordinator | Only for the rate limit, with the trade written down |
+| Saying whether *you* are reachable | **Free evidence first** (what already arrived), then the coordinator, on change only | Nobody can answer it about themselves, and the free half needs no server at all |
 
 What this buys: the coordinator degrades to an address book and a meeting point
 for first contact — precisely the role a DHT would take over later, which is what

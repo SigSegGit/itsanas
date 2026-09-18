@@ -2728,6 +2728,87 @@ fn peer(home: &Path, action: PeerAction) -> Result<()> {
     Ok(())
 }
 
+/// Say, in order, everything this machine can find out about its connectivity.
+///
+/// The question a member actually has when nothing is syncing is "whose fault
+/// is this", and until this existed the answer was a log line saying the
+/// coordinator was unreachable, or -- worse -- silence, because a node with a
+/// broken forward looks exactly like a node whose peers are all switched off.
+///
+/// Three questions, in the order that makes the next one worth asking:
+///
+/// 1. **Can I get out?** Dial the coordinator. The failure carries the reason,
+///    and the reasons are different problems: a name that does not resolve is
+///    DNS, a refused connection is a port, a timeout is usually a firewall.
+/// 2. **Can anybody get in?** Only somebody outside can answer, so ask the
+///    coordinator to try. Costs it one connection, which is why this is a
+///    command a person runs rather than something on a timer.
+/// 3. **What would I dial?** The account's other machines, and whether their
+///    addresses are ones this machine could use from where it is standing.
+fn network_report(node: &Node) {
+    println!();
+    println!("network");
+
+    let Some(address) = node.config.coordinator.as_deref() else {
+        println!("  no coordinator configured, so this machine can only meet peers on");
+        println!("  its own network, or ones added by hand with `itsanas peer add`.");
+        return;
+    };
+
+    match coordinator::devices(node, node.store.owner()) {
+        Ok(found) => {
+            println!("  out    the coordinator at {address} answered");
+            let elsewhere = found
+                .iter()
+                .filter(|(device, _)| *device != node.store.device_id())
+                .count();
+            let dialable = found
+                .iter()
+                .filter(|(device, candidate)| {
+                    *device != node.store.device_id() && !coordinator::is_private_address(candidate)
+                })
+                .count();
+            println!(
+                "  peers  {elsewhere} other machine(s) of this account have published an address"
+            );
+            if elsewhere > 0 && dialable == 0 {
+                println!("         none of them is an address this machine could dial from");
+                println!("         another network. On one LAN that is right and costs nothing;");
+                println!("         from anywhere else nothing of this account can be reached.");
+            }
+        }
+        Err(error) => {
+            println!("  out    the coordinator at {address} could NOT be reached");
+            println!("         {error}");
+            println!("         A name that does not resolve is DNS; a refused connection is a");
+            println!("         port that is closed or forwarded nowhere; a timeout is usually a");
+            println!("         firewall. Syncing continues with peers already known.");
+            return;
+        }
+    }
+
+    match coordinator::check_me(node) {
+        Ok(Some(found)) if found.reachable => println!("  in     {}", found.detail),
+        Ok(Some(found)) => {
+            println!("  in     NOTHING can reach this machine: {}", found.detail);
+            if let Some(announce) = node.config.announce.as_deref() {
+                println!("         This machine announces {announce}, so something was meant");
+                println!("         to reach it there: check the forward, and that it points at");
+                println!("         this machine's listening port.");
+            } else {
+                println!("         This machine announces nothing, so this is expected: it");
+                println!("         takes part by dialling out, and one reachable side per");
+                println!("         pair is enough. Set `itsanas announce` only if a forward");
+                println!("         or an IPv6 route really does reach this machine.");
+            }
+        }
+        Ok(None) => {
+            println!("  in     unknown: this coordinator is too old to try reaching back");
+        }
+        Err(error) => println!("  in     unknown: {error}"),
+    }
+}
+
 fn doctor(home: &Path, deep: bool) -> Result<()> {
     let node = open(home)?;
     let report = node.store.verify_integrity(deep)?;
@@ -2739,7 +2820,11 @@ fn doctor(home: &Path, deep: bool) -> Result<()> {
     );
 
     if report.is_healthy() && report.orphan_blobs.is_empty() {
-        println!("everything checks out.");
+        println!("the stored data checks out.");
+        // Asked here and not in `status`: it costs the coordinator a real
+        // connection to another machine, and `status` is run in loops by
+        // scripts. `doctor` is what somebody runs because something is wrong.
+        network_report(&node);
         return Ok(());
     }
 
@@ -2790,8 +2875,14 @@ fn doctor(home: &Path, deep: bool) -> Result<()> {
     if report.is_healthy() {
         println!();
         println!("nothing is damaged. Those chunks are waiting for `itsanas gc`.");
+        network_report(&node);
         return Ok(());
     }
+
+    // The network section prints even when the store is damaged: the two
+    // failures are unrelated, and somebody whose disk is hurt still wants to
+    // know whether the machines that could repair it can be reached.
+    network_report(&node);
 
     // A report is information, not a crash. Exit non-zero so a monitoring
     // system notices, but say everything first.
