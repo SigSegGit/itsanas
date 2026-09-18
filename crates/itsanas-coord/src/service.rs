@@ -347,10 +347,7 @@ impl<'a> CoordService<'a> {
         }
 
         let mut out = Vec::new();
-        for claim in self.directory.live_claims()? {
-            if claim.claim.owner != user {
-                continue;
-            }
+        for claim in self.directory.live_claims_of(user)? {
             let device = claim.claim.device;
             out.push(EnrolledDevice {
                 device,
@@ -389,10 +386,7 @@ impl<'a> CoordService<'a> {
     /// here.
     fn peers_of(&self, user: UserId, now: u64) -> Result<Vec<Presence>> {
         let mut out = Vec::new();
-        for claim in self.directory.live_claims()? {
-            if claim.claim.owner != user {
-                continue;
-            }
+        for claim in self.directory.live_claims_of(user)? {
             let device = claim.claim.device;
             let Some(presence) = self.directory.presence_of(device)? else {
                 continue;

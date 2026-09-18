@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-18 — 788 test functions across 26 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 69 are red-team tests.**
+**Last updated: 2026-09-18 — 792 test functions across 26 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 70 are red-team tests.**
 
-**672 of the 788 tests have an entry of their own on this page** — an *entry*,
+**676 of the 792 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -162,7 +162,7 @@ guarantee and is not one.
 | `itsanas-net` unit | 38 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 47 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 96 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 100 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 15 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 23 |
@@ -1320,6 +1320,25 @@ hostile *host*, and a hostile host is somebody who joined.
 | `an_invitation_good_for_nothing_is_refused_rather_than_stored` | Zero uses, or an expiry before the issue date. Neither can admit anybody, so storing them fills the directory with rows that exist only to be rejected. |
 
 ---
+
+# `itsanas-coord` — claims kept in two orders (4)
+
+Every "where are this account's machines" walked the whole claims table and
+filtered, so one member's lookup cost O(devices in the entire network) and the
+coordinator's work grew with the square of the fleet: 2.58 ms per lookup at 3000
+devices, against about 10 lookups a second for a fleet that size. A second table
+keyed by **account then device** makes it one range scan, ~8 µs, flat. The
+numbers are in ROADMAP "Known ceilings".
+
+Denormalised data is only defensible when every way it can disagree with itself
+is pinned down, which is what these three do.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_one_accounts_range_cannot_reach_into_the_next_accounts_devices`** | One account's devices are now a *range* rather than a filtered scan, so the filter **is** the key layout. Get the boundary wrong and a member's lookup returns the neighbouring account's machines — a privacy failure and an address book that tells people to dial strangers. Tested on the property that makes the range safe, with adjacent account ids built on purpose: every key of account *n* sorts below every key of account *n+1*, whatever devices either holds. |
+| **`the_index_and_the_claims_never_disagree_whatever_is_done_to_them`** | Two tables answering one question must never drift: a first enrolment, a superseding claim, a withdrawal, and a second account's machine that must not appear. Compares the indexed lookup against the whole-table walk it replaced. Catches a write path that updates one table and not the other, which reads to a member as their machines vanishing from the address book. |
+| **`a_device_enrolled_by_an_older_binary_is_found_again_at_the_next_start`** | The operation that breaks a repair conditioned on "the index is empty", and it is one that has been performed on the Pi: **downgrading the coordinator binary**. An older build enrols devices by writing the claims table and knowing nothing of the index, so coming back up the index is *stale* rather than empty and the repair would skip. Those machines would be permanently invisible — `claim_for` knows them, they announce, and `peers_of` never returns them. The condition is row counts disagreeing, which covers empty and stale alike. Found by the Rodin audit of 2026-09-18. |
+| **`a_directory_written_before_the_index_existed_is_repaired_on_open`** | The upgrade. A coordinator running since before this table has claims and no index; reading that as "this account has no devices" would be silent and total — every member told their machines are gone, and the only clue being that it started at an upgrade. The file is repaired on open instead, the same rule as the holder ledger's second ordering. |
 
 # `itsanas-coord` — asking whether a member can be reached (12)
 

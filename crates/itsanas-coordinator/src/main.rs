@@ -146,6 +146,23 @@ fn run() -> Result<(), String> {
     println!("  listening {bound}");
     println!("  device    {}", device.device_id());
     println!("  state     {}", cli.state.display());
+    // Two numbers that must be equal: the claims, and the index that makes a
+    // per-account lookup cheap. They are printed rather than merely asserted
+    // because an index that has fallen behind makes machines invisible without
+    // any other symptom -- they announce, and nobody is ever told about them.
+    match directory.enrolled_counts() {
+        Ok((claims, indexed)) if claims == indexed => {
+            println!("  devices   {claims} enrolled, and the index agrees");
+        }
+        Ok((claims, indexed)) => {
+            println!("  devices   {claims} enrolled but {indexed} indexed -- THEY DISAGREE");
+            println!("            Machines in the first and not the second announce and are");
+            println!("            never handed out. Stop this, take a copy of the state");
+            println!("            directory, and report it: the repair on open should have");
+            println!("            made these equal.");
+        }
+        Err(error) => println!("  devices   could not be counted: {error}"),
+    }
     println!(
         "  admits    {}",
         if cli.invite_only {
