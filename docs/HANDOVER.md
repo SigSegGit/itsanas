@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0m
 TITLE: 0m -- count the live copies, and let a machine leave politely
 WRITTEN-AT: 2026-09-18
-BASE: 743f0dd
+BASE: 5e52d3a
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
