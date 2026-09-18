@@ -262,7 +262,12 @@ fn answer_check_me(
         let Ok(mut probes) = probes.lock() else {
             return Response::Refused("this coordinator is not answering probes".to_owned());
         };
-        if !probes.allow(&caller.to_hex(), Instant::now()) {
+        // Keyed by device **and address**: the budget exists to stop a daemon
+        // asking every round, and a *new* address is precisely the case where
+        // the answer can have changed. Found by using it -- repointing a node
+        // during a fleet migration, the second question was refused as a
+        // repeat of the first, which is the moment somebody most needs it.
+        if !probes.allow(&format!("{}@{target}", caller.to_hex()), Instant::now()) {
             return Response::Reachable {
                 reachable: false,
                 detail:

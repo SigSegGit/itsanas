@@ -169,3 +169,46 @@ fn red_team_asking_twice_in_a_row_does_not_cost_the_coordinator_twice() {
         );
     });
 }
+
+/// FOUND BY USING IT, during the fleet migration of 2026-09-18: a node was
+/// repointed at a new coordinator and given a new announced address, and the
+/// probe that would have confirmed the new address was refused as a repeat of
+/// the one before it. The budget exists to stop a daemon asking every round --
+/// not to stop somebody who just changed the thing being asked about.
+#[test]
+fn changing_the_announced_address_is_worth_asking_about_again() {
+    with_coordinator(|coordinator_address| {
+        let homes = tempfile::tempdir().expect("temp dir");
+        let node_home = homes.path().join("pi");
+        let mut node = member(&node_home, coordinator_address, Some("first.invalid:9801"));
+
+        coordinator::announce(&node, &node.config.listen.clone(), NOW).expect("announce");
+        let first = coordinator::check_me(&node)
+            .expect("answered")
+            .expect("new enough");
+        assert!(first.detail.contains("first.invalid"));
+
+        // The same question again is a repeat, and is refused.
+        let repeat = coordinator::check_me(&node)
+            .expect("answered")
+            .expect("new enough");
+        assert!(repeat.detail.contains("within the hour"));
+
+        // A different address is a different question.
+        node.config.announce = Some("second.invalid:9802".to_owned());
+        node.save_config().expect("save");
+        coordinator::announce(&node, &node.config.listen.clone(), NOW + 1).expect("announce");
+
+        let after = coordinator::check_me(&node)
+            .expect("answered")
+            .expect("new enough");
+        assert!(
+            after.detail.contains("second.invalid"),
+            concat!(
+                "a node that just changed its address could not find out ",
+                "whether the new one works; it said {:?}"
+            ),
+            after
+        );
+    });
+}

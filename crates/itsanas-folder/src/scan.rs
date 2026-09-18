@@ -53,6 +53,12 @@ pub struct DiskFile {
 /// Whether a file name should be ignored entirely.
 #[must_use]
 pub fn is_ignored(name: &str) -> bool {
+    // The marker is this system's own bookkeeping. Syncing it would send one
+    // machine's device id to every other machine, where it would then name the
+    // wrong device and make every folder look foreign.
+    if name == MARKER {
+        return true;
+    }
     if IGNORED_NAMES.iter().any(|ignored| ignored == &name) {
         return true;
     }
@@ -64,6 +70,21 @@ pub fn is_ignored(name: &str) -> bool {
     }
     IGNORED_SUFFIXES.iter().any(|suffix| name.ends_with(suffix))
 }
+
+/// The file that says "this directory really is the synced folder".
+///
+/// Holds the device id of the node that owns it. It exists to answer one
+/// question that the filesystem cannot: **is this directory empty because the
+/// files are gone, or because the disk is not there?** An unmounted disk leaves
+/// its mount point behind as an empty directory, and every file in the ledger
+/// then looks deleted -- which replicates, to every machine of the account,
+/// as a deletion of everything.
+///
+/// A marker on the disk that vanished goes with it. A marker that is present
+/// and names another device says this directory belongs to a different node,
+/// which is the other way somebody loses a folder: pointing two nodes at one
+/// directory.
+pub const MARKER: &str = ".itsanas-folder";
 
 /// Turn a logical path into a real one, refusing anything that escapes.
 pub fn to_filesystem(root: &Path, logical: &str) -> Result<PathBuf> {

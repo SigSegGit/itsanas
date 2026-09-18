@@ -44,6 +44,22 @@ pub enum NodeError {
     )]
     NoNode(PathBuf),
 
+    /// The node's own home is where the storage question bites hardest.
+    ///
+    /// A node home on a disk that is not mounted is an empty directory, and the
+    /// ordinary message then suggests `itsanas init` -- which would create a
+    /// **second account** on the root filesystem, leaving the real one on a disk
+    /// nobody is looking at any more. The distinction is cheap to make: the
+    /// directory exists and holds nothing, rather than not existing at all.
+    #[error(
+        "no node at {0}, and that directory is empty.\n\
+         If it is a mount point, the disk or share is probably not mounted: \
+         mount it and try again.\n\
+         Do NOT run `itsanas init` here until you are sure -- it would create a \
+         second account beside the one on the storage that is missing."
+    )]
+    NodeHomeEmpty(PathBuf),
+
     #[error(
         "a node already exists at {0}.\n\
          Refusing to overwrite it: doing so would destroy the master secret and \
