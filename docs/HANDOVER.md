@@ -9,8 +9,8 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0o
-TITLE: Phase 2 of 0o -- peers exchange the presences they saw, so a healthy round asks the VM nothing
+NEXT: 8.0m
+TITLE: 0m -- count the live copies, and let a machine leave politely
 WRITTEN-AT: 2026-09-18
 BASE: 743f0dd
 -->
@@ -19,6 +19,58 @@ Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-18, the fleet, and a folder that cannot lose your files**
+(branch `storage-that-vanished`). Two things in one session, because Nicolas
+asked for both: deploy everything, and finish the data-safety items.
+
+**The fleet is deployed and the coordinator has moved.** The VM now runs it,
+which MVP §2 has said since #53 and which had never been done. The state was
+archived from the Pi and restored on the VM, so the **device id survived**
+(`b92d7802...`) and not one node had to be re-pinned; the directory, the
+accounts and the escrow came with it. `--admit-first`, which the Pi's unit had
+carried since the day it was installed, is gone: a door that opens by itself
+was harmless on a private port and is not on a public one. All three machines
+run the day's build. Nicolas opened two forwards, `9898` to the VM and `9797`
+to the Pi, and **`ngas.fr:9898` answers from outside** -- the directory is
+reachable from any network for the first time.
+
+Three things the deployment proved that no test could:
+
+- The coordinator's first line on the VM was `devices 6 enrolled, and the index
+  agrees`. That file was written before `CLAIMS_BY_OWNER` existed, so **the
+  repair on open ran in production** and the counter said so.
+- The listener reports `*:9797` and `[::]:9898`: the dual-stack socket, on real
+  Linux.
+- `doctor` on the Pi, against a coordinator still running the older binary,
+  said `in unknown: this coordinator is too old to try reaching back` -- the
+  compatibility path, across two genuinely different versions.
+
+**A defect the deployment found, which no test had.** The probe budget was keyed
+by device alone, so a node that had just been **repointed and given a new
+announced address** could not ask whether the new one worked: the second
+question read as a repeat of the first. That is the moment somebody most needs
+the answer. The key is now device *and* address, and
+`changing_the_announced_address_is_worth_asking_about_again` fails against the
+old one.
+
+**Then §8 0l, which is the one that protects data.** An unmounted disk leaves an
+empty mount point; the scan found nothing, every file in the ledger looked
+deleted, and those deletions replicated to every machine of the account. Built:
+a `.itsanas-folder` marker carrying the device id, which vanishes with the
+storage it sits on and is never synced; a pass that stops rather than deleting
+when the marker is gone and the ledger's files are all absent; a refusal when
+the marker names *another* device, which is how two nodes pointed at one
+directory delete each other's files; a guard that **holds** deletions when a
+pass would remove most of the folder, with `itsanas folder --confirm` as the
+only way to apply them; and a node home that is an empty directory now says the
+storage is probably not mounted instead of suggesting `itsanas init`, which
+would have created a second account beside the real one.
+
+Traps: a folder that predates markers is adopted, not refused, or an upgrade
+would stop every existing member. The guard has a floor as well as a
+proportion -- holding three deletions out of seven would teach its owner to
+type `--confirm` out of habit, which is how a guard becomes a formality.
 
 **2026-09-18, later the same day: the lookup stopped costing the whole
 network** (branch `claims-by-account`). Nicolas asked whether anything else was
@@ -1352,7 +1404,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Do not tag from an agent session without saying so: a tag is the one
       thing here that other people's machines will pin to.
 
-   l. **A storage location that vanished never reads as a deletion.** Asked
+   l. ✅ **A storage location that vanished never reads as a deletion.** Built 2026-09-18. Asked
       for by Nicolas on 2026-09-17: "a mount point that drops, a disconnected
       disk... are common cases, they must be handled". Verified by reading, not
       yet reproduced by a test: `scan` (`crates/itsanas-folder/src/scan.rs`

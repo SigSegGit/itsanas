@@ -132,6 +132,25 @@ impl fmt::Debug for Node {
     }
 }
 
+/// Which "no node here" this is.
+///
+/// A node home on a disk that is not mounted is an **empty directory**, and the
+/// ordinary message suggests `itsanas init` -- which would create a second
+/// account on the root filesystem while the real one sits on a disk nobody is
+/// looking at any more. The next backup then captures the empty one.
+///
+/// The distinction costs one `read_dir`: a home that exists and holds nothing
+/// is a mount point far more often than it is a fresh start, because a fresh
+/// start usually has no directory at all.
+fn missing_node(home: &Path) -> NodeError {
+    let empty = std::fs::read_dir(home).is_ok_and(|mut entries| entries.next().is_none());
+    if empty {
+        NodeError::NodeHomeEmpty(home.to_owned())
+    } else {
+        NodeError::NoNode(home.to_owned())
+    }
+}
+
 impl Node {
     fn keystore_path(home: &Path) -> PathBuf {
         home.join("keystore.bin")
@@ -262,7 +281,7 @@ impl Node {
         let bytes = match std::fs::read(&keystore_path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(NodeError::NoNode(home.to_owned()));
+                return Err(missing_node(home));
             }
             Err(error) => {
                 return Err(NodeError::Io {
@@ -346,7 +365,7 @@ impl Node {
         let bytes = match std::fs::read(&keystore_path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(NodeError::NoNode(home.to_owned()));
+                return Err(missing_node(home));
             }
             Err(error) => {
                 return Err(NodeError::Io {
@@ -410,6 +429,41 @@ pub mod zeroize_phrase {
 
 #[cfg(test)]
 mod tests {
+
+    /// THE SECOND ACCOUNT: a node home on a disk that is not mounted is an
+    /// empty directory, and "no node found, run `itsanas init`" is then advice
+    /// to create a **second** account on the root filesystem -- while the real
+    /// one sits on a disk nobody is looking at any more, and the next backup
+    /// captures the empty one. The two cases must not read the same.
+    #[test]
+    fn an_empty_node_home_reads_as_unmounted_storage_rather_than_a_fresh_start() {
+        let dir = tempfile::tempdir().expect("temp dir");
+
+        let mount_point = dir.path().join("mounted-nowhere");
+        std::fs::create_dir(&mount_point).expect("create");
+        let said = Node::open(&mount_point, "whatever")
+            .expect_err("an empty home has no node")
+            .to_string();
+        assert!(
+            said.contains("not mounted"),
+            "an empty directory must be read as storage that is missing; it said {said:?}"
+        );
+        assert!(
+            !said.contains("Run `itsanas init`"),
+            "it suggested creating a second account beside the missing one"
+        );
+
+        // A path that does not exist at all is an ordinary fresh start.
+        let nowhere = dir.path().join("never-existed");
+        let said = Node::open(&nowhere, "whatever")
+            .expect_err("no node there either")
+            .to_string();
+        assert!(
+            said.contains("itsanas init"),
+            "a directory that does not exist is where somebody starts; it said {said:?}"
+        );
+    }
+
     use super::*;
 
     const PASSPHRASE: &str = "a genuinely long passphrase for the tests";

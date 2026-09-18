@@ -873,6 +873,12 @@ fn open_folder(node: &Node) -> Result<Option<(Folder, Option<Watcher>)>> {
 }
 
 /// One folder pass. Never propagates an error.
+///
+/// Two outcomes here are not failures of this daemon and must not read as
+/// noise: a storage that is not mounted, and a pass that held deletions. Both
+/// mean somebody has to do something, and both are said loudly, because the
+/// alternative -- a line in a log nobody reads -- is how a disk stays unmounted
+/// for a week.
 fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
     match folder.reconcile(&node.store, deep) {
         Ok(report) => {
@@ -881,6 +887,16 @@ fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
                 for (original, sibling) in &report.kept_both {
                     println!("  conflict: {original} — your version kept as {sibling}");
                 }
+            }
+            if report.held_anything() {
+                println!(
+                    "folder: HELD {} deletion(s): that is most of this folder, and a \
+                     folder somebody emptied looks exactly like a disk that is not \
+                     mounted",
+                    report.held_deletions
+                );
+                println!("  Nothing was removed from the account, here or anywhere else.");
+                println!("  If they really are meant to go: `itsanas folder --confirm`.");
             }
             for (path, why) in &report.failed {
                 eprintln!("itsanas: {path}: {why}");

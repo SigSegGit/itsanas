@@ -25,6 +25,14 @@ pub enum FolderError {
     #[error("the synced folder {0} does not exist")]
     NoFolder(PathBuf),
 
+    #[error(
+        "storage unreachable: {root} is there but {why}. Nothing was deleted. \
+         If a disk or a network share is not mounted, mount it and run this \
+         again; if the folder really is empty on purpose, \
+         `itsanas folder --confirm` says so."
+    )]
+    StorageUnreachable { root: PathBuf, why: String },
+
     #[error("file watcher: {0}")]
     Watch(#[from] notify::Error),
 }

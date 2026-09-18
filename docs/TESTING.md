@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-18 — 792 test functions across 26 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 70 are red-team tests.**
+**Last updated: 2026-09-18 — 800 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 73 are red-team tests.**
 
-**676 of the 792 tests have an entry of their own on this page** — an *entry*,
+**684 of the 800 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -168,12 +168,13 @@ guarantee and is not one.
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 22 |
+| `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-cli` unit | 29 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 48 |
+| `itsanas-node` unit | 49 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 1 |
-| `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 3 |
+| `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -963,7 +964,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (52)
+# `itsanas-node` — a node on disk (54)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -992,10 +993,11 @@ anything.
 
 ---
 
-## `node` — identity on disk (12)
+## `node` — identity on disk (13)
 
 | Test | What it proves |
 | --- | --- |
+| **`an_empty_node_home_reads_as_unmounted_storage_rather_than_a_fresh_start`** | A node home on a disk that is not mounted is an *empty directory*, and "no node found, run `itsanas init`" is then advice to create a **second account** on the root filesystem — while the real one sits on a disk nobody is looking at, and the next backup captures the empty one. A directory that does not exist at all still reads as a fresh start. |
 | **`a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does`** | `itsanas passphrase` re-seals the keystore without regenerating anything — same account, same device id — the old passphrase stops working, and the pending file is renamed over the keystore rather than left beside it. |
 | `a_wrong_current_passphrase_changes_nothing` | Somebody at an unlocked terminal cannot choose a new passphrase for a machine without the current one; the keystore bytes are untouched. |
 | **`the_phrase_is_not_written_anywhere_under_the_node_directory`** | Scans every file under the node's home for the phrase. A recovery phrase stored on the machine it protects is not a backup, it is an extra copy for an attacker to find. |
@@ -1289,6 +1291,7 @@ sentence somebody can act on.
 
 | Test | What it proves |
 | --- | --- |
+| **`changing_the_announced_address_is_worth_asking_about_again`** | Found by using it, during the fleet migration of 2026-09-18: a node repointed at a new coordinator and given a new announced address could not confirm the new one, because the budget was keyed by device alone and the second question read as a repeat of the first. The budget exists to stop a daemon asking every round, not to stop somebody who just changed the thing being asked about. |
 | **`red_team_asking_twice_in_a_row_does_not_cost_the_coordinator_twice`** | The budget, through the whole stack rather than in the limiter alone: the second ask inside the hour is answered from what is known, without another outbound connection. This is what makes the design affordable at three thousand machines. |
 | **`a_member_whose_address_reaches_the_wrong_machine_is_told_which_way_it_is_wrong`** | The answer distinguishes "nothing resolves" from "nothing answers" from "something answered and it was not you", because those are three different evenings of work. |
 | `a_member_who_publishes_an_address_only_their_lan_can_dial_is_told_why` | A private announced address is explained rather than reported as the member being unreachable — the coordinator cannot say anything about it, and saying "you are broken" would send somebody to rewire a working router. |
@@ -1320,6 +1323,29 @@ hostile *host*, and a hostile host is somebody who joined.
 | `an_invitation_good_for_nothing_is_refused_rather_than_stored` | Zero uses, or an expiry before the issue date. Neither can admit anybody, so storing them fills the directory with rows that exist only to be rejected. |
 
 ---
+
+# `itsanas-folder` — storage that vanished (`tests/storage_vanished.rs`) (6)
+
+The failure this file is about is not exotic and it destroys data on every
+machine of an account at once. An unmounted disk, or a network share that
+dropped, leaves its mount point behind as an **empty directory**: the scan finds
+nothing, every file the ledger says this machine holds looks deleted, and those
+deletions replicate. The disk comes back an hour later with the files still on
+it, and the account has already agreed they were gone.
+
+Nothing in the filesystem distinguishes that from a folder somebody emptied on
+purpose, so there are two defences aimed at two shapes — a **marker** carrying
+the device id, which goes away with the storage it sits on, and a **guard on the
+count**, for when the directory really is there and most of it is not.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_an_unmounted_folder_writes_no_deletion_at_all`** | The accident itself: an empty mount point beside a ledger of three files. The pass refuses, names the cause, and the ledger still holds all three. Without the marker this writes three deletions into the log, where they replicate as deletions to every machine of the account. |
+| **`red_team_a_folder_that_emptied_itself_has_its_deletions_held`** | The other shape: the directory is there, the marker with it, and six of seven files are not — a restore that wrote into the wrong place, a `rm -rf` in the wrong terminal. The deletions are held, nothing leaves the account, and `itsanas folder --confirm` is what applies them when somebody has looked. |
+| **`red_team_a_folder_that_belongs_to_another_node_is_refused`** | Two nodes pointed at one directory is the other way a folder empties itself: each deletes what the other wrote. The marker names a device, so the second one can tell, and the refusal says whose folder it is. |
+| `deleting_a_few_files_is_an_ordinary_thing_to_do` | Three files of seven go through untouched. A guard that held every deletion would teach its owner to pass `--confirm` out of habit, which is how a guard becomes a formality. |
+| `a_folder_from_before_markers_is_adopted_rather_than_refused` | Upgrading must not stop anybody: a folder whose files are present gets a marker and carries on. |
+| `the_marker_is_never_synced` | Syncing the marker would send one machine's device id to every other machine, where it would name the wrong device and make every folder look foreign. |
 
 # `itsanas-coord` — claims kept in two orders (4)
 

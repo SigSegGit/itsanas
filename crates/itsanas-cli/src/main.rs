@@ -181,8 +181,17 @@ enum Command {
     /// Once set, files put in it are uploaded, files deleted from it are
     /// deleted everywhere, and changes from other devices appear in it.
     Folder {
-        /// The directory. Omit to show the current setting.
+        /// Where the synced folder lives. Omit to print the current one.
         path: Option<PathBuf>,
+        /// Apply deletions a pass held back because there were too many.
+        ///
+        /// A pass that would remove most of the folder holds the deletions
+        /// instead of writing them: an unmounted disk and a folder somebody
+        /// emptied look identical from here, and deletions replicate to every
+        /// machine of the account. This says a person looked and they really
+        /// are meant to go.
+        #[arg(long)]
+        confirm: bool,
     },
     /// Reconcile the synced folder with the store, once.
     ///
@@ -539,7 +548,7 @@ fn run() -> Result<()> {
         Command::Put { path, source } => put(&home, &path, &source),
         Command::Get { path, destination } => get(&home, &path, destination.as_deref()),
         Command::Rm { path } => remove(&home, &path),
-        Command::Folder { path } => folder(&home, path.as_deref()),
+        Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
         Command::Scan { deep } => scan(&home, deep),
         Command::Space {
             pledge,
@@ -1199,7 +1208,7 @@ fn render_status(node: &Node) -> Result<String> {
     w!("  device          {}", node.store.device_id());
     w!("  home            {}", node.home.display());
     match &node.config.folder {
-        Some(folder) => w!("  synced folder   {}", folder.display()),
+        Some(folder) => w!("{}", describe_folder(folder)),
         None => w!("  synced folder   none (`itsanas folder <path>`)"),
     }
     w!();
@@ -1786,13 +1795,31 @@ fn remove(home: &Path, path: &str) -> Result<()> {
     Ok(())
 }
 
-fn folder(home: &Path, path: Option<&Path>) -> Result<()> {
+fn folder(home: &Path, path: Option<&Path>, confirm: bool) -> Result<()> {
     let mut node = open(home)?;
 
     let Some(path) = path else {
-        match &node.config.folder {
-            Some(folder) => println!("{}", folder.display()),
-            None => println!("(no folder configured — `itsanas folder <path>`)"),
+        let Some(configured) = node.config.folder.clone() else {
+            println!("(no folder configured — `itsanas folder <path>`)");
+            return Ok(());
+        };
+        println!("{}", configured.display());
+
+        if confirm {
+            // Only here, and only because somebody typed it: this is the one
+            // path that writes deletions a pass refused to write on its own.
+            let folder = itsanas_folder::Folder::open(&configured)?;
+            let report = folder.reconcile_confirmed(&node.store, false)?;
+            println!();
+            println!("{}", report.summary());
+            if report.removed_from_store.is_empty() {
+                println!("  nothing was waiting to be deleted.");
+            } else {
+                println!(
+                    "  {} file(s) removed from the account, as confirmed.",
+                    report.removed_from_store.len()
+                );
+            }
         }
         return Ok(());
     };
@@ -1909,6 +1936,30 @@ fn describe_announce(node: &Node) -> String {
         .announce
         .clone()
         .unwrap_or_else(|| "this machine's address on the network it is on".to_owned())
+}
+
+/// The synced folder's line in `status`, and the warning when it is not there.
+///
+/// A folder whose marker is gone is either a disk that is not mounted or a
+/// directory somebody emptied. Both stop syncing, and neither says so anywhere
+/// else, which is how a disk stays unmounted for a week.
+fn describe_folder(folder: &std::path::Path) -> String {
+    let mut out = format!("  synced folder   {}", folder.display());
+    if !folder.join(itsanas_folder::scan::MARKER).exists() {
+        out.push_str(
+            "
+                  STORAGE UNREACHABLE: no marker there.",
+        );
+        out.push_str(
+            "
+                  A disk or share that is not mounted leaves an empty",
+        );
+        out.push_str(
+            "
+                  directory behind. Nothing has been deleted.",
+        );
+    }
+    out
 }
 
 /// One line of `itsanas device list`.
