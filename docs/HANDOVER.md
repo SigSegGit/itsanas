@@ -10,7 +10,7 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0o
-TITLE: Phase 2 of 0o -- peers exchange presences, and claims get an index by account
+TITLE: Phase 2 of 0o -- peers exchange the presences they saw, so a healthy round asks the VM nothing
 WRITTEN-AT: 2026-09-18
 BASE: 743f0dd
 -->
