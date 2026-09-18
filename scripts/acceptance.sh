@@ -53,6 +53,8 @@ usage: acceptance.sh <test> <phase> [arguments]
   H sample                             one sample of the running daemon (Linux)
   H report                             the samples so far, against the criterion
   I check <daemon-log>                 syncing went on while the coordinator was down
+  O away <folder>                      away from home: the coordinator answers, and a file is written
+  O check <folder> <name> <sha256>     that file reached a machine back home
   J count <folder>                     how many files there are, before rebooting
   J check <folder> <count>             same count after, and doctor --deep clean
 
@@ -323,6 +325,35 @@ i_check() {
     fi
 }
 
+# Test O: this machine, on somebody else's network, still reaches the account.
+#
+# Two things have to be true and only one of them is about files. The
+# coordinator has to be reachable from a network that is not home -- which is
+# a port forward or an IPv6 firewall rule on equipment no script here touches,
+# so it is checked by doing it -- and what this machine publishes from here has
+# to be recorded, because a laptop away from home publishes the address it has
+# on the network it is on, and that is the address the rest of the account will
+# try to dial.
+o_away() {
+    local folder=$1
+    need_dir "$folder"
+
+    local out
+    if ! out=$("$BIN" register 2>&1); then
+        verdict FAIL O away "the coordinator could not be reached from this network: $(printf '%s' "$out" | tail -1)"
+        return
+    fi
+
+    local announced
+    announced=$(printf '%s' "$out" | sed -n 's/^announced //p' | tail -1)
+    [ -n "$announced" ] || announced="nothing (register did not say what it published)"
+
+    local name
+    name="acceptance-O-$(date -u +%Y%m%dT%H%M%SZ)-$$.bin"
+    random_bytes "$folder/$name"
+    verdict PASS O away "coordinator reached from this network; published $announced; $name sha256 $(sha_of "$folder/$name")"
+}
+
 j_count() {
     need_dir "$1"
     verdict PASS J count "$(find "$1" -type f | wc -l | tr -d ' ') files in $1"
@@ -366,6 +397,8 @@ case "$test $phase $#" in
     "H sample 0") h_sample ;;
     "H report 0") h_report ;;
     "I check 1") i_check "$1" ;;
+    "O away 1") o_away "$1" ;;
+    "O check 3") check_phase O "$1" "$2" "$3" ;;
     "J count 1") j_count "$1" ;;
     "J check 2") j_check "$1" "$2" ;;
     *) usage ;;

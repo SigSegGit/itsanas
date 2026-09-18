@@ -19,6 +19,10 @@ rcgen = { version = "0.14.5", default-features = false, features = ["crypto", "r
 # cross-compiles everywhere.
 rustls = { version = "0.23.35", default-features = false, features = ["ring", "std", "logging"] }
 rustls-pki-types = "1.14.0"
+# For one socket that answers both IP versions: std cannot clear
+# IPV6_V6ONLY, which Windows sets by default, so binding `[::]` there would
+# refuse every IPv4 caller. Already in the tree for `itsanas-discover`.
+socket2 = { version = "0.6.5", features = ["all"] }
 thiserror = "2.0.20"
 
 [dev-dependencies]

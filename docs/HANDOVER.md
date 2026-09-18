@@ -9,16 +9,96 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0l
-TITLE: A storage location that vanished never reads as a deletion
-WRITTEN-AT: 2026-09-17
-BASE: 07c4070
+NEXT: 8.0o
+TITLE: Phase 2 of 0o -- peers exchange the presences they saw, so the coordinator is a backup
+WRITTEN-AT: 2026-09-18
+BASE: 1dbb8f4
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-18, reaching the account from outside the house** (branch
+`outside-the-lan`). Nicolas asked, in this order: where do we stand on outbound
+connectivity, does it work at a friend's house, then **put it on the MVP's path
+because four machines in one house cannot produce a decent testing run**, and
+then **prefer a decentralised answer** -- the VM may be a backup and a
+bookkeeper, but clients should call each other, and nothing whose cost scales
+per machine may become a dependency -- and finally, while this branch was being
+written, **that the VM be contacted only when necessary**, for example when no
+machine of an account is connected. That last one is not built here: it is
+specified as §8 0o phase 2, which is `NEXT`, with the central/decentralised
+split written out and the one decision it needs from him named. What is worth
+knowing meanwhile is the size of the thing he is reacting to: every node dials
+the coordinator **twice per round, unconditionally**, which is 576 connections
+per node per day at the default interval, including three machines sitting on
+one LAN that found each other by broadcast.
+
+The answer to the question, established before any code: **no.** Every node has
+`coordinator = 192.168.1.10:9898` and `peer = 192.168.1.11:9801`, both private.
+Away from home a round reaches nothing, the daemon keeps scanning and versioning
+locally, and everything flushes on return. Two measurements worth keeping, both
+made from the laptop on the home LAN through the public name: `ngas.fr:22010`
+and `:22011` answer, so **the Freebox hairpins its forwards** -- one name works
+from both sides, and the "hairpin NAT" risk in ROADMAP's adversarial sweep is
+one sample of evidence lighter. `9898` and `9797` answer nothing: **no port
+reaches ITSaNAS from outside today**, which is the real blocker and is Nicolas's
+to open. `tailscale status` shows a tailnet on the laptop; the Pi and the VM are
+not on it, and after his second message it stays a deployment option, never a
+dependency.
+
+Built here, which is §8 0o **phase 1**, and no wire change:
+
+- **`announce = host:port`** in the configuration, `itsanas announce [--forget]`,
+  `provision.sh --announce`, `provision.ps1 -Announce`, and a line in `status`.
+  It is published verbatim, **port included**, because a forward maps an outside
+  port to a different inside one. Refused when it cannot be dialled from
+  anywhere: unspecified, loopback, `localhost`, no port, port 0.
+- **A wildcard `listen` now takes a dual-stack socket** (`itsanas_tls::reach`),
+  so a node accepts IPv6 as well as IPv4 -- IPv6 being the one route between two
+  houses that costs nothing per machine. It falls back to the IPv4 socket where
+  the kernel has no IPv6, because refusing to start there would be a regression
+  for that machine's owner. The coordinator's listener takes the same path.
+- **A name is dialled at every address it resolves to**, not the first. A
+  dual-stack name whose IPv6 route is blocked -- a friend's wifi, a hotel -- read
+  as the peer being down.
+- **Five seconds to connect instead of thirty.** At a friend's house a laptop is
+  handed its account's addresses, most of them on a network it has left; at
+  `IO_TIMEOUT` each those dead dials ate two minutes of a five-minute round.
+- **The addresses that can work are dialled first.** `coordinator::peers` sorts
+  public names and addresses before private ones, by the *receiver's* judgement
+  and never by a claim in the presence -- the same rule that keeps a peer's
+  clock out of ordering (§6). Sorting first buys an attacker nothing: dialling
+  is pinned to the device id.
+- **MVP test O**, `scripts/acceptance.sh O away|check`, its preparation in
+  `BRIEFING-MVP.md` §2.5 in French, and machine 5 (Mandarine's MacBook Air, in
+  another house) in MVP §2. **The exit criterion is now A-M *and* O** --
+  Nicolas's instruction, and the one decision-level change in this PR.
+
+Traps from this session, both of which cost real time:
+
+- **A quoted heredoc through the Bash tool still eats one backslash.** Not only
+  in Rust string continuations: it silently turned `printf '%s\n'` into a
+  literal newline inside a shell script, and put runs of spaces inside three
+  Rust messages. `scripts/check-messages.py` caught the Rust ones; nothing
+  catches the shell ones. Write edit scripts with the file-writing tool, or use
+  `concat!`.
+- **A unit test of an ordering function proves nothing about the code that was
+  supposed to call it.** Removing `reachable_first`'s call site left all five
+  unit tests green. `tests/away_from_home.rs` -- a real coordinator, three real
+  nodes -- is what fails, and it was written because the first sabotage pass
+  came back green.
+
+What is verified and what is not: every gate in `check-all.sh` is green here,
+`cargo test` passes for the five crates touched, and each new defence was
+sabotage-verified (both `reach.rs` defences, the announce validator, the
+published address, and the ordering's call site separately). **Nothing has run
+on a real network**: the dual-stack listener, the announced address and the
+resolution fallback have only met loopback and CI. Three checks in
+`acceptance-local.sh` fail **on this laptop only**, for the documented reason --
+a daemon from an older build holds UDP 21037 and Windows answers 10013.
 
 **2026-09-17, the listener, hardened for a public port** (branch
 `harden-listener`). Nicolas asked, the same day, for five things: use the
@@ -185,7 +265,7 @@ pass wrote**: this session's own findings included a stale `NEXT` line, a
 defect. Twelve gates, a pointer with its own gate, counters in three files and a
 tense discipline were each a sound answer to a real failure, and together they
 mean every change costs N document edits, each of which is new surface for the
-next pass. **The stopping rule is now written in §11 and it is A-M, not
+next pass. **The stopping rule is now written in §11 and it is A-M and O, not
 quiescence.**
 
 *Audits and use find different bugs.* The console window that Nicolas closed --
@@ -960,7 +1040,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
 0. **Pass the MVP on the fleet, before any more enforcement.** Decided
    2026-09-14, when Nicolas asked for a valid MVP. `docs/MVP.md` defines it as
-   tests A–M passing unassisted on the four machines, and §6 there shows every
+   tests A–M and O passing unassisted on the fleet, and §6 there shows every
    one is built and most have never been run outside the laboratory. Verified
    facts:
 
@@ -1031,7 +1111,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       is pushed to, and the report names the refusal; sabotage by dropping the
       count. Found by the acceptance bench, whose E, F and G failed until every
       node pledged.
-   c. **Nicolas runs A–M with the kit.** Gated on (i) and (j) since
+   c. **Nicolas runs A–M and O with the kit.** Gated on (i) and (j) since
       2026-09-16. The next session pastes the receipts
       into MVP.md §6 and applies the verdict rule of §4 as written.
    d. **Whatever fails becomes the next item**, ahead of everything below.
@@ -1059,7 +1139,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       run on a Mac. Both want a scratch machine or Nicolas at the keyboard.
 
       Asked for by Nicolas on 2026-09-16, and it gates (c): he
-      will not spend a day running A-M until this is true. The target, in his
+      will not spend a day running A-M and O until this is true. The target, in his
       words, is that setting a machine up with two distinct accounts is "as
       simple as it should be" -- for him on Windows, the Pi and the VM, and
       later for a second person on a Mac and an Android phone.
@@ -1217,39 +1297,124 @@ Detail and measurements are in ROADMAP.md; this is the map.
       checks. The in-process check of 8.1b comes first on every platform and
       is the one that is enforced; the native quota is presentation.
 
-   o. **Reach the network from outside the LAN, with machines that move.**
-      Asked for by Nicolas on 2026-09-17. **A design for him to decide
-      before building beyond phase 1**: he asked for caution because he does
-      not master this area. What exists: peers dial each other directly and
-      authenticate by device key; the coordinator is a signed address book
-      (`itsanas-coord`), republished every round (`daemon.rs` ~628), so a
-      machine that moves updates itself; a node behind NAT can push and not be
-      dialled, and `session::drain_vault` makes work flow both ways as long as
-      one side dials. The listener is now fit for a forwarded port (2026-09-17,
-      see §0).
-      Phase 1 — `announce = host:port` next to `listen` (config, `itsanas
-      announce`, `provision.sh --announce`, `provision.ps1 -Announce`),
-      published instead of the local address; Freebox port forwards per home
-      node, announced as `ngas.fr:<port>`. No wire change. Mobile machines
-      announce nothing public and dial home. The verified facts from the
-      earlier plan are in the private note: `reachable_address` already passes
-      a hostname through, and peer dialling resolves hostnames. Open: Freebox
-      hairpin NAT, and a mobile machine publishing a private address nobody
-      else can reach (dial private addresses with a short timeout).
-      Phase 2 — every node keeps the signed presences it last saw for its
-      account's devices and its hosts, and exchanges them with peers (an
-      appended peer request), so machines still find each other when the VM
-      is down; the coordinator becomes bootstrap and backup. **Constraint from
-      §6: a peer's clock never decides ordering**, so "newer address" must be
-      decided by the receiver's own observation, not by `at_unix`.
-      Phase 3, only if 1–2 fall short: several addresses per device (IPv6,
-      which Free provides natively, would give direct links between houses
-      without port forwards), then NAT traversal. Mesh VPNs that stay free and
-      open source were considered: Nebula (MIT; "lighthouses", which can be
-      several machines, not one) and Headscale with the Tailscale client
-      (self-hosted, BSD). Either could carry this traffic as a **deployment
-      option** without changing the code. Neither should become a dependency
-      of the protocol, which already authenticates end to end.
+   o. 🟨 **Reach the network from outside the LAN, with machines that move.**
+      Asked for by Nicolas on 2026-09-17, put on the MVP's path by him on
+      2026-09-18 ("I can't get enough machines to work in my own home for a
+      decent testing run"), with a constraint he added the same day: **prefer a
+      decentralised answer** -- the VM may be a backup and a bookkeeper, but
+      clients should call each other, and **nothing whose cost scales per
+      machine may become a dependency** (he would accept a Tailscale-equivalent,
+      but not one that is expensive at scale).
+
+      **Phase 1 is built (2026-09-18, this PR).** `announce` in the
+      configuration and `itsanas announce`, published verbatim with its own
+      port; a dual-stack listener, so IPv6 reaches a node at all; a name dialled
+      at every address it resolves to; a five-second connect timeout; and a
+      lookup that offers the addresses which can work from where the caller
+      stands before the ones that cannot. `itsanas_tls::reach` holds the two
+      socket decisions, because the coordinator needs both and must not grow a
+      dependency on the peer protocol. MVP test O and `BRIEFING-MVP.md` §2.5 are
+      the human half. **No wire change.**
+
+      **What phase 1 does not do, and it is the thing to say out loud:** it does
+      not make an unreachable machine reachable. It makes a machine that *can*
+      be reached say so correctly. Two machines that both move still cannot meet
+      without a third party.
+
+      **Verified facts for whoever picks this up**, measured 2026-09-18 from the
+      laptop on the home LAN through the public name: `ngas.fr` is 82.67.35.234;
+      `:22010` and `:22011` (the SSH forwards) answer, so **the Freebox hairpins
+      its forwards** and one name serves inside and outside; `:9898` and `:9797`
+      answer nothing, so **nothing reaches ITSaNAS from outside yet**. Every
+      node still has `coordinator = 192.168.1.10:9898`. Opening the port and
+      switching the nodes is Nicolas's, and `BRIEFING-MVP.md` §2.5 is the
+      procedure.
+
+      **Phase 2 -- this is `NEXT`, and it is the decentralised half.** Specified
+      on 2026-09-18 after Nicolas asked for it in his own words: *"j'aimerais
+      que la vm centrale ne soit contactée que si c'est nécessaire, par exemple
+      si aucune machine d'un compte n'est connectée"*. Today every node dials
+      the coordinator **twice per round, unconditionally** -- `announce` then
+      `peers`, `daemon.rs` ~634 -- which at the 300-second default is 576
+      connections per node per day whether or not anything needed it. Three
+      machines at home, all on one LAN, all finding each other by broadcast,
+      still generate every one of them.
+
+      The split to build, and the reasoning for each side:
+
+      **Stays central, and it is small.** (1) *Bootstrap*: a device that knows
+      nobody reachable needs one fixed point, and nothing decentralised removes
+      that -- it is the same problem a DHT solves with hard-coded seed nodes.
+      (2) *Escrow*: recovery from a passphrase needs a server that can rate-limit
+      an offline attack, contacted at `login --from` and `register --recovery`
+      and at no other time. (3) *Account registration, enrolment, withdrawal*:
+      rare, owner-signed, and the coordinator is the thing that makes a username
+      unique. (4) *Availability for entitlement*, which is the one that is not
+      obviously small -- see the decision below.
+
+      **Becomes decentralised.** Every node keeps a **persistent address book**:
+      for each device it cares about -- its account's other devices, its hosts,
+      and the guests it hosts for -- the signed presences it has seen, and its
+      own record of when it last *successfully dialled* each one. Peers exchange
+      those presences over an **appended** peer request (`WantHosted` is the
+      model: an older peer answers `Refused`, and the caller reads that as "this
+      one cannot tell me" rather than as a failed round).
+
+      **The rule that decides when the VM is dialled at all**, which is the
+      actual deliverable: a round dials the coordinator only when (a) it reached
+      **no** peer by LAN discovery or by its address book, or (b) the book holds
+      no entry for a device it needs, or every entry for it has failed, or (c)
+      this machine's own address changed *and* it could not hand its new
+      presence to any peer, or (d) an account event -- register, enrol,
+      withdraw, escrow -- or (e) a **backstop interval**, long, so a fleet that
+      is quietly healthy still checks in. At home, healthy, the answer is
+      **never** between backstops.
+
+      Constraints, none of them negotiable:
+
+      - **A peer's clock never decides ordering** (§6). For a *relayed* presence
+        this is sharper than it looks: the receiver did not observe the
+        announcement, only the relay. So do not order by any claimed time at
+        all. Keep every candidate address for a device as a **set**, and order
+        it by *this machine's own record of which one last worked*. Success is
+        the evidence; a timestamp is an opinion.
+      - **A relay cannot invent a presence**: `SignedPresence` carries the
+        device's own signature, and `Response::Peers` currently throws it away
+        (`service.rs` ~336 maps to bare `Presence`). Carrying the signature
+        through is the first change, and it is what makes the gossip safe at all.
+      - **Presences are not gossiped to strangers.** An address book handed to
+        anyone who authenticates is a map of an account's machines. Exchange
+        only with devices of the same account, or with a peer there is already a
+        storage relationship with -- the `is_confirmed` notion the neighbourhood
+        already has. Bound the table, as discovery's is bounded, because device
+        ids are free keypairs.
+      - Expect two red-team tests named for their attacks: a peer handing out a
+        presence it forged, and a peer replaying a stale one to strand a machine
+        at an address it has left.
+
+      **The decision this needs from Nicolas, and it must not be made by
+      accident:** the per-round announce is also the heartbeat the coordinator
+      measures availability from (`Directory::last_seen`, `AvailabilityRecord`),
+      and availability is what ECONOMICS §3 turns into entitlement. Dialling the
+      coordinator only when necessary makes that measurement coarser by design.
+      Two honest options: keep a **backstop announce** (say hourly) so
+      availability keeps its meaning at a twelfth of today's cost, or move
+      availability onto **bilateral evidence** -- peers already exchange signed
+      rounds, and who answered whom is a better measure of being *useful* than
+      who pinged a server. The second is the better system and the larger
+      change. Do not start phase 2 without choosing.
+
+            **Phase 3, only if 1 and 2 fall short: several addresses per device**,
+      which is the wire change phase 2 will already have opened the door to
+      (`Presence.address` is one string, signed; several means a signed list),
+      and then hole punching with the coordinator as a rendezvous rather than a
+      relay. IPv6 first at every step: Free provides it natively, it gives
+      direct links between houses with no forward, and it is the only option in
+      this list whose cost does not grow with the number of machines. Mesh VPNs
+      (Nebula, MIT; Headscale with the Tailscale client, BSD) stay what they
+      were: a **deployment option** anybody may use, never a dependency of the
+      protocol, which already authenticates end to end. Nicolas confirmed that
+      reading on 2026-09-18.
 
    p. **Named instances only, each showing its account and storage.** Asked
       for by Nicolas on 2026-09-16 and again on 2026-09-17: no unnamed default
@@ -1600,8 +1765,11 @@ previous pass wrote, so the loop partly feeds itself.
 
 Therefore:
 
-1. **The exit criterion is `docs/MVP.md` A-M and the verdict rule of §4.**
-   Nothing else. Not "stable", not "no open findings".
+1. **The exit criterion is `docs/MVP.md` A-M and O, and the verdict rule of
+   §4.** Nothing else. Not "stable", not "no open findings". O joined it on
+   2026-09-18 at Nicolas's instruction: four machines in one house cannot
+   produce a decent testing run, and every other test can pass while the thing
+   is a LAN product.
 2. **While §8 item 0 is open, do not open a new audit pass on code that the
    fleet tests have never exercised.** Audit what a step changed, as §5 of the
    working loop requires, and stop there.

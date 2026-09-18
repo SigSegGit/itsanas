@@ -225,6 +225,33 @@ pub fn reachable_address(configured: &str, local: SocketAddr) -> String {
     }
 }
 
+/// What this node tells the coordinator, which is not always where it listens.
+///
+/// `announce` in the configuration wins, verbatim and including its port: it is
+/// the address that reaches this machine from *another* network, and the whole
+/// reason it exists is that it differs from the local one. A forwarded port
+/// maps an outside port to a different inside port, so replacing the port with
+/// the listening one would publish an address that is wrong in exactly the case
+/// the setting is for.
+///
+/// Without it, the old behaviour: the local end of the connection that reached
+/// the coordinator. That is right for a house where everyone is on one LAN and
+/// right for a machine that moves -- a laptop at a friend's house has no
+/// address anybody elsewhere can dial, and saying so honestly is better than
+/// inventing one. Such a machine takes part by dialling out; one reachable side
+/// per pair is enough.
+#[must_use]
+pub fn published_address(
+    config: &crate::config::Config,
+    listen: &str,
+    local: SocketAddr,
+) -> String {
+    match config.announce.as_deref() {
+        Some(announce) => announce.to_owned(),
+        None => reachable_address(listen, local),
+    }
+}
+
 /// Publish where this device can be reached, and return what was published.
 ///
 /// Signed by the device, not by the owner: a laptop moving between networks
@@ -235,7 +262,7 @@ pub fn reachable_address(configured: &str, local: SocketAddr) -> String {
 /// printed the configured value and was wrong whenever the two differed.
 pub fn announce(node: &Node, address: &str, now: u64) -> Result<String> {
     let mut client = dial(node)?;
-    let address = reachable_address(address, client.local_addr());
+    let address = published_address(&node.config, address, client.local_addr());
     let presence = Presence {
         device: node.store.device_id(),
         address: address.clone(),
@@ -252,10 +279,79 @@ pub fn announce(node: &Node, address: &str, now: u64) -> Result<String> {
 
 /// Where the other devices of `user` say they are.
 pub fn peers(node: &Node, user: UserId) -> Result<Vec<(DeviceId, String)>> {
-    Ok(devices(node, user)?
+    let mut found: Vec<(DeviceId, String)> = devices(node, user)?
         .into_iter()
         .filter(|(device, _)| *device != node.store.device_id())
-        .collect())
+        .collect();
+    reachable_first(&mut found);
+    Ok(found)
+}
+
+/// Put the addresses that can work from anywhere before the ones that cannot.
+///
+/// A private address means something only on the network its announcer was on.
+/// Read at home it is every one of your machines; read from a friend's house it
+/// is nothing, or worse, somebody else's machine at the same number -- refused,
+/// because the device id is pinned, but only after a connection was spent on
+/// it. A round dials in order and has a budget, so the order decides what gets
+/// tried at all on a laptop that has three dead entries and one live one.
+///
+/// This is the receiver's own judgement about an address, not a claim carried
+/// in the presence. A peer does not get to sort itself first, for the same
+/// reason its clock does not get to order its announcements.
+///
+/// Stable, so the coordinator's own order -- most recently seen first -- still
+/// decides between two addresses of the same kind.
+pub fn reachable_first(peers: &mut [(DeviceId, String)]) {
+    peers.sort_by_key(|(_, address)| u8::from(is_private_address(address)));
+}
+
+/// The same order, for addresses with no device id beside them -- the peers
+/// somebody typed into the configuration, which a round dials before anything
+/// else and which are usually the LAN addresses of a house.
+pub fn reachable_first_addresses(addresses: &mut [String]) {
+    addresses.sort_by_key(|address| u8::from(is_private_address(address)));
+}
+
+/// Whether an address is one that only its own network can dial.
+///
+/// A name is never private: it is the thing somebody set up precisely so that
+/// others could reach them, and what it resolves to is a question for the
+/// resolver, not for this.
+///
+/// **Where this is deliberately wrong:** an overlay network -- Tailscale,
+/// Nebula, any `WireGuard` mesh -- hands out addresses in `100.64.0.0/10`, and
+/// inside such a network they are reachable from anywhere. Counted here as
+/// private, so they sort last. That is the right default, because the same
+/// range is what a mobile carrier hands a phone behind CGNAT and that address
+/// is reachable from nothing; and it costs only an ordering. Anybody running
+/// this over an overlay should give the node a **name** for that address, which
+/// is what names are for and what this function trusts.
+#[must_use]
+pub fn is_private_address(address: &str) -> bool {
+    let Ok(parsed) = address.parse::<SocketAddr>() else {
+        return false;
+    };
+    match parsed.ip() {
+        std::net::IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                // 100.64.0.0/10, carrier-grade NAT: what a mobile network and
+                // an overlay such as Tailscale hand out. `Ipv4Addr::is_shared`
+                // says this and is still unstable.
+                || (a == 100 && (64..128).contains(&b))
+        }
+        std::net::IpAddr::V6(v6) => {
+            let [a, b, ..] = v6.octets();
+            v6.is_loopback()
+                // fc00::/7 unique local, and fe80::/10 link local. Both are
+                // `Ipv6Addr` methods that are still unstable.
+                || (a & 0xfe) == 0xfc
+                || (a == 0xfe && (b & 0xc0) == 0x80)
+        }
+    }
 }
 
 /// Every device the coordinator lists for an account, this one included.
@@ -485,6 +581,112 @@ pub fn fetch_escrow(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_configured_announce_is_published_instead_of_the_local_address() {
+        // The whole point of the setting. Without it a node behind a router
+        // publishes its address on the LAN it is on, which is what every
+        // machine in another house cannot use.
+        let config = crate::config::Config {
+            announce: Some("ngas.fr:9801".to_owned()),
+            ..crate::config::Config::default()
+        };
+        let local = "192.168.1.11:41999".parse().unwrap();
+        assert_eq!(
+            published_address(&config, "0.0.0.0:9797", local),
+            "ngas.fr:9801"
+        );
+    }
+
+    #[test]
+    fn the_announced_port_is_not_replaced_by_the_listening_one() {
+        // THE BUG THIS PREVENTS: a port forward exists to map an outside port
+        // to a different inside one. `ngas.fr:9801 -> 192.168.1.11:9797` is the
+        // normal shape of one. Substituting the listening port here would
+        // publish ngas.fr:9797, where the router forwards nothing, and the
+        // failure would look like the peer being offline.
+        let config = crate::config::Config {
+            announce: Some("ngas.fr:9801".to_owned()),
+            ..crate::config::Config::default()
+        };
+        let local = "192.168.1.11:41999".parse().unwrap();
+        assert!(published_address(&config, "0.0.0.0:9797", local).ends_with(":9801"));
+    }
+
+    #[test]
+    fn a_machine_that_moves_still_publishes_where_it_is() {
+        // No announce is the right configuration for a laptop: it has no
+        // address another network can dial. It must still publish something --
+        // announcing is also the heartbeat the coordinator counts availability
+        // from, and a node that stopped announcing would be counted as gone.
+        let config = crate::config::Config::default();
+        let friends_house = "10.42.0.7:41999".parse().unwrap();
+        assert_eq!(
+            published_address(&config, "0.0.0.0:9797", friends_house),
+            "10.42.0.7:9797"
+        );
+    }
+
+    #[test]
+    fn an_address_that_only_its_own_lan_can_dial_is_tried_last() {
+        // THE SCENARIO: the laptop is at a friend's house. The coordinator
+        // hands it the account's four devices, three of them at home on
+        // 192.168.1.x. Dialling those first spends the round's budget and its
+        // connection timeouts on addresses that cannot answer, and the one
+        // machine that published a name -- the one that can -- is reached last
+        // or not at all.
+        let ids: Vec<DeviceId> = (0..4).map(|n| DeviceId::from_bytes([n; 32])).collect();
+        let mut peers = vec![
+            (ids[0], "192.168.1.10:9797".to_owned()),
+            (ids[1], "192.168.1.11:9797".to_owned()),
+            (ids[2], "ngas.fr:9801".to_owned()),
+            (ids[3], "[2001:db8::1]:9797".to_owned()),
+        ];
+        reachable_first(&mut peers);
+
+        let order: Vec<&str> = peers.iter().map(|(_, a)| a.as_str()).collect();
+        assert_eq!(
+            order,
+            vec![
+                "ngas.fr:9801",
+                "[2001:db8::1]:9797",
+                "192.168.1.10:9797",
+                "192.168.1.11:9797"
+            ],
+            concat!(
+                "addresses reachable from another network must be dialled ",
+                "first, and the coordinator's own order kept within each kind"
+            )
+        );
+    }
+
+    #[test]
+    fn the_private_ranges_a_home_actually_uses_are_all_recognised() {
+        for address in [
+            "192.168.1.10:9797",
+            "10.0.0.5:9797",
+            "172.16.4.4:9797",
+            "127.0.0.1:9797",
+            "169.254.3.3:9797",
+            // Carrier-grade NAT: a mobile network, and what an overlay VPN
+            // hands out. Publishing one of those tells a member in another
+            // house to dial a machine inside somebody else's overlay.
+            "100.90.54.102:9797",
+            "[fd00::1]:9797",
+            "[fe80::1]:9797",
+        ] {
+            assert!(
+                is_private_address(address),
+                "{address} can only be dialled from its own network and must sort last"
+            );
+        }
+        for address in ["ngas.fr:9801", "82.67.35.234:9801", "[2001:db8::1]:9797"] {
+            assert!(
+                !is_private_address(address),
+                "{address} is how somebody in another house reaches this one"
+            );
+        }
+    }
 
     #[test]
     fn a_device_id_round_trips_through_its_hexadecimal_form() {

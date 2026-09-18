@@ -601,7 +601,13 @@ fn one_round(
     // the configuration is itself the evidence that they are real, so
     // they are confirmed on contact without having to earn it.
     let mut reached: BTreeSet<DeviceId> = BTreeSet::new();
-    for peer in &node.config.peers {
+    // In the same order as everything else this round dials: the ones that can
+    // answer from where this machine stands, first. A configured peer is
+    // usually a LAN address somebody typed at home, and a round that starts
+    // with those spends its first connect timeouts on them from anywhere else.
+    let mut configured = node.config.peers.clone();
+    coordinator::reachable_first_addresses(&mut configured);
+    for peer in &configured {
         if shutdown.load(Ordering::Relaxed) {
             break;
         }

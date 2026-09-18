@@ -77,6 +77,24 @@ pub struct Config {
     pub split: Split,
     /// Where to listen when serving.
     pub listen: String,
+    /// The address to publish to the coordinator, when it is not where this
+    /// node listens.
+    ///
+    /// A node behind a router publishes, by default, the address it reached the
+    /// coordinator from -- which is its address *on the LAN it is on*, and
+    /// means nothing to a member in another house. This is what to publish
+    /// instead: the name or public address that reaches this machine from
+    /// outside, `ngas.fr:9801` for a forwarded port or a global IPv6 address
+    /// for a machine that needs no forward at all.
+    ///
+    /// The port is published as written and is **not** replaced by the listen
+    /// port, because a forward exists precisely to map one to the other.
+    ///
+    /// Absent is right for a machine that moves -- a laptop, a phone. Those are
+    /// not dialled from elsewhere and do not pretend to be; they dial out, and
+    /// one reachable side per pair is enough (ROADMAP, mutual hosting over one
+    /// outbound connection).
+    pub announce: Option<String>,
     /// Peers to sync with, as `host:port`.
     pub peers: Vec<String>,
     /// A coordinator to register with, announce to, and look peers up on.
@@ -132,6 +150,7 @@ impl Default for Config {
             pledge_bytes: DEFAULT_PLEDGE_BYTES,
             split: Split::DEFAULT,
             listen: DEFAULT_LISTEN.to_owned(),
+            announce: None,
             peers: Vec::new(),
             coordinator: None,
             coordinator_device: None,
@@ -170,6 +189,9 @@ impl Config {
         let _ = writeln!(out, "pledge_bytes = {}", self.pledge_bytes);
         let _ = writeln!(out, "split = {}", self.split);
         let _ = writeln!(out, "listen = {}", self.listen);
+        if let Some(announce) = &self.announce {
+            let _ = writeln!(out, "announce = {announce}");
+        }
         if let Some(keep) = self.keep_bytes {
             let _ = writeln!(out, "keep_bytes = {keep}");
         }
@@ -267,6 +289,11 @@ impl Config {
                         ))
                     })?;
                 }
+                "announce" => {
+                    config.announce = Some(parse_announce(value).map_err(|error| {
+                        NodeError::Config(format!("line {}: {error}", number + 1))
+                    })?);
+                }
                 "keep_only" => config.keep_only.push(value.to_owned()),
                 "keep_bytes" => {
                     config.keep_bytes = Some(value.parse().map_err(|_| {
@@ -291,7 +318,7 @@ impl Config {
                             "line {}: unknown setting {:?}. Known settings: ",
                             "username, pledge_bytes, split, keep_bytes, keep_order, ",
                             "keep_only, ",
-                            "listen, folder, peer, ",
+                            "listen, announce, folder, peer, ",
                             "coordinator, coordinator_device"
                         ),
                         number + 1,
@@ -353,6 +380,92 @@ pub fn parse_listen(text: &str) -> Result<SocketAddr> {
             "listen must be an address and port such as 0.0.0.0:9797, found {text:?}"
         ))
     })
+}
+
+/// Check an address a node wants published, and return it unchanged.
+///
+/// Unlike [`parse_listen`] a **name is the point**: a home's public IPv4
+/// address changes when the router reconnects, and a name is the only thing
+/// that survives it. So this validates the shape and cannot resolve anything --
+/// a name that does not resolve yet is a name whose DNS is not set up yet, and
+/// refusing it here would be refusing to prepare a machine before its record
+/// exists.
+///
+/// What it does refuse is an address that is a mistake in every network:
+///
+/// * **Unspecified** (`0.0.0.0`, `[::]`). Every node's `listen` is `0.0.0.0` by
+///   default, so copying it into `announce` is the obvious slip, and it
+///   publishes "dial nothing" to the whole account.
+/// * **Loopback**. It resolves on every machine, so a member who received it
+///   dials *itself*, authenticates against its own device id, and reports the
+///   peer as unreachable-for-another-reason for ever.
+/// * **No port**, or port 0. The coordinator hands the string to a dialler
+///   verbatim; a missing port fails at each of them instead of here.
+///
+/// # Errors
+///
+/// If `text` is not a plausible `host:port` reachable from another network.
+pub fn parse_announce(text: &str) -> Result<String> {
+    let text = text.trim();
+
+    let bad = |why: &str| {
+        // `concat!` rather than a continuation: a backslash continuation in
+        // this repository has twice reached the tree with the indentation of
+        // the next line inside the message. It cannot capture `why` and `text`
+        // implicitly, hence the explicit arguments.
+        NodeError::Config(format!(
+            concat!(
+                "announce must be the host:port that reaches this machine from ",
+                "another network, such as ngas.fr:9801 or [2001:db8::1]:9797; ",
+                "{}, found {:?}"
+            ),
+            why, text
+        ))
+    };
+
+    if text.len() > itsanas_coord::claim::MAX_ADDRESS_LEN {
+        return Err(bad("that is longer than an address may be"));
+    }
+
+    // An IP literal parses whole -- an IPv6 one bracketed, which is the same
+    // spelling a dialler needs. Anything else is a name, and of a name only the
+    // port can be checked here.
+    let port = if let Ok(address) = text.parse::<SocketAddr>() {
+        if address.ip().is_unspecified() {
+            return Err(bad("an unspecified address is not somewhere to dial"));
+        }
+        if address.ip().is_loopback() {
+            return Err(bad(
+                "loopback resolves on every machine, so every member would dial itself",
+            ));
+        }
+        address.port()
+    } else {
+        let Some((host, port)) = text.rsplit_once(':') else {
+            return Err(bad("there is no port"));
+        };
+        if host.is_empty() {
+            return Err(bad("there is no host"));
+        }
+        // A colon or a bracket left in the host means an IPv6 literal that
+        // failed to parse above: unbracketed, or malformed.
+        if host.contains([':', '[', ']', '/', ' ']) {
+            return Err(bad("that is not a name or a bracketed IPv6 address"));
+        }
+        if host.eq_ignore_ascii_case("localhost") {
+            return Err(bad(
+                "localhost resolves on every machine, so every member would dial itself",
+            ));
+        }
+        port.parse::<u16>()
+            .map_err(|_| bad("the port is not a number"))?
+    };
+
+    if port == 0 {
+        return Err(bad("port 0 is not a port anybody can dial"));
+    }
+
+    Ok(text.to_owned())
 }
 
 pub fn parse_size(text: &str) -> Result<u64> {
@@ -484,9 +597,75 @@ mod tests {
             keep_order: Order::Oldest,
             keep_only: vec!["Documents".to_owned(), "Photos/2026".to_owned()],
             folder: Some(PathBuf::from("/home/nicolas/ITSaNAS")),
+            announce: Some("ngas.fr:9801".to_owned()),
         };
 
         assert_eq!(Config::parse(&config.render()).unwrap(), config);
+    }
+
+    #[test]
+    fn an_announced_address_survives_the_round_trip_through_the_file() {
+        // It is written to the file by `itsanas announce` and read back by the
+        // daemon on the next start. A setting that rendered and did not parse
+        // would leave a node publishing its LAN address again after a restart,
+        // and nothing would say so.
+        let text = Config {
+            username: "nicolas".to_owned(),
+            announce: Some("ngas.fr:9801".to_owned()),
+            ..Config::default()
+        }
+        .render();
+
+        assert_eq!(
+            Config::parse(&text).unwrap().announce.as_deref(),
+            Some("ngas.fr:9801")
+        );
+    }
+
+    #[test]
+    fn red_team_an_announce_nobody_can_dial_is_refused_where_it_enters() {
+        // Every one of these publishes an address to the whole account, and
+        // each fails somewhere else: the unspecified ones tell a peer to dial
+        // nothing, and the loopback ones tell every member to dial *itself*,
+        // which authenticates against its own device id and reports the peer as
+        // unreachable for a reason that names the wrong machine. The obvious
+        // slip is the first: `listen` is `0.0.0.0:9797` on every node, and
+        // copying it here is what a tired person does at midnight.
+        for value in [
+            "announce = 0.0.0.0:9797",
+            "announce = [::]:9797",
+            "announce = 127.0.0.1:9797",
+            "announce = [::1]:9797",
+            "announce = localhost:9797",
+            "announce = ngas.fr",
+            "announce = ngas.fr:0",
+            "announce = ngas.fr:notaport",
+            "announce = :9801",
+            "announce = 2001:db8::1:9797",
+        ] {
+            let refused = Config::parse(value);
+            assert!(
+                refused.is_err(),
+                concat!(
+                    "{} would be published to every member of the account ",
+                    "and cannot be dialled by any of them"
+                ),
+                value
+            );
+        }
+
+        // And the ones that are the point of the setting.
+        for value in [
+            "announce = ngas.fr:9801",
+            "announce = 82.67.35.234:9801",
+            "announce = [2001:db8::1]:9797",
+            "announce = pi.ngas.fr:9797",
+        ] {
+            assert!(
+                Config::parse(value).is_ok(),
+                "{value} is how a member in another house reaches this one"
+            );
+        }
     }
 
     #[test]
