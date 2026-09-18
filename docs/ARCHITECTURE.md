@@ -337,6 +337,29 @@ in both directions as long as one side can dial. Hole punching and relay
 fallback would want QUIC, which is now an optimisation rather than a
 prerequisite for security.
 
+**What is built instead, since 2026-09-18, is the cheap half of the same
+problem**: being dialable on purpose rather than by luck. `announce` in the
+configuration is the address that reaches a machine from another network -- a
+forwarded port, or a global IPv6 address -- and is published verbatim, port
+included, instead of the address the node reached the coordinator from. A
+wildcard `listen` takes a dual-stack socket on Unix, so a node accepts IPv6
+callers as well as IPv4 ones -- **not on Windows**, where clearing
+`IPV6_V6ONLY` means building the socket by hand and a hand-built socket there
+loses `SO_EXCLUSIVEADDRUSE`, the option that stops another local process binding
+this node's port and taking its traffic. A Windows node therefore keeps the IPv4
+listener and cannot be dialled over IPv6; the trade was made knowingly, because
+the machines that must be dialable in this fleet are the Linux ones that stay at
+home. A name is dialled at *every* address it resolves to, not
+only the first, because a dual-stack name whose IPv6 route is blocked would
+otherwise read as the peer being down; and a connection attempt is given five
+seconds rather than thirty, because a machine away from home is handed several
+addresses that cannot answer and the round has a budget.
+
+The order matters as much as the addresses: a lookup puts the addresses that can
+work from anywhere before the ones only their own LAN can dial. That judgement
+is the *receiver's*, never a claim in the presence -- the same rule as the one
+that keeps a peer's clock out of ordering.
+
 ## 7. Operational behaviour
 
 The daemon is meant to be invisible: a folder that syncs. Invisible systems fail

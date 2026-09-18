@@ -2,6 +2,7 @@
 pub mod auth;
 pub mod error;
 pub mod limits;
+pub mod reach;
 pub mod session;
 
 pub use auth::{AUTH_DOMAIN, AuthHello, EXPORTER_LEN, check, prove};

@@ -43,9 +43,16 @@ ITSaNAS is a worse Dropbox with extra steps.
 | # | Machine | Role | Realistic uptime | Dialable from outside |
 | --- | --- | --- | --- | --- |
 | 1 | Windows laptop (Dell) | member, own data | ~25 % of the day, changing networks | **no**, and its network changes |
-| 2 | Raspberry Pi 4B+, 1 TB RAID1 | member, large host | high, home connection | only if a port is forwarded to it -- **record which** |
+| 2 | Raspberry Pi 4B+, 1 TB RAID1 | member, large host | high, home connection | **only once a forward or an IPv6 pinhole is set up and `itsanas announce` names it** -- record which |
 | 3 | VMware VM on external SSD | member, and the throwaway used for recovery tests | on demand | no |
-| 4 | **Freebox Delta VM, public IP** | **coordinator, and an availability anchor** | always on | **yes** |
+| 4 | **Freebox Delta VM, public IP** | **coordinator, and an availability anchor** | always on | **yes -- and until its port is actually forwarded, nothing outside the house can reach it either** |
+| 5 | **MacBook Air (M4), another house, another account** | second account, and the only machine on a network Nicolas does not control | on demand | no, and that is the point of it |
+
+Machine 5 was added on 2026-09-18, for a reason that is about evidence rather
+than hardware: **four machines in one house cannot show that this works, because
+they never leave the LAN where local discovery makes every question easy.**
+Every result above is a result about one network. A second account in a second
+house is the smallest fleet that can fail the way a real one fails.
 
 **The last column is not bookkeeping; it decides whether a result means
 anything.** NAT traversal is not built: a node behind NAT can push but cannot be
@@ -54,6 +61,14 @@ dialled, and work flows in both directions as long as *one* side of a pair can
 directly **only while they are on the same LAN**, where local discovery finds
 them. The moment machine 1 is elsewhere -- and its row says it usually is --
 machine 4 is the only component either side can dial.
+
+**Since 2026-09-18 a node can be told what to publish** (`itsanas announce
+<host:port>`, ✅ built, and a listener that answers IPv6 as well as IPv4). That
+is the half of the problem that is code. The other half is not: a forwarded port
+or an IPv6 pinhole on a router, which no script here touches and which nothing
+in the system can check. Until somebody sets one up, every row in the last
+column that is not machine 4 reads "no", and machine 4's reads "yes" only about
+the box -- not about the coordinator's port.
 
 Two consequences, both of which change how the tests below are read. A test run
 with everything sitting at home exercises the LAN path and says nothing about
@@ -448,6 +463,57 @@ of them uses names a program chose.
 
 ---
 
+### O. It works from somewhere that is not home
+
+Added 2026-09-18, at Nicolas's instruction and for his reason: **four machines
+in one house cannot produce a decent testing run.** Every other test on this
+page can pass while the system is, in effect, a LAN product -- and a LAN product
+is not what this is for. A friend's wifi, a second house, a phone's tether: the
+question is whether an account survives its machines being on different
+networks.
+
+**Preparation, once, and it is not code:**
+
+1. A port reaches the coordinator from outside. On the Freebox: a forward to
+   the VM's 9898, or an IPv6 pinhole. Measured on 2026-09-18, from inside the
+   LAN through the public name: `ngas.fr:22010` and `:22011` answer, so **the
+   box does hairpin its forwards** and one name works from both sides; 9898 and
+   9797 answered nothing, so nothing is forwarded to ITSaNAS yet.
+2. Every node's `coordinator` becomes that name, not `192.168.1.10:9898`.
+3. At least one machine at home is dialable and says so:
+   `itsanas announce ngas.fr:<forwarded port>`, then `itsanas register` to
+   republish. Without this the away machine can be *told about* its own account
+   and reach none of it.
+
+**The test.** On the mobile machine, on a network that is not home -- a friend's
+wifi, or a phone tether, which is the cheap way to run this without leaving the
+building:
+
+    bash scripts/acceptance.sh O away ~/ITSaNAS     # prints a name and a sha256
+    # then, back at home or on another machine that stayed there:
+    bash scripts/acceptance.sh O check ~/ITSaNAS <name> <sha256>
+
+**Pass:** the away phase reaches the coordinator from that network and says what
+it published, and the file written away arrives byte for byte on a machine that
+never left home. **Fail** is informative either way: the away phase failing says
+the coordinator is not reachable from outside, and the check failing with the
+away phase passing says the addresses in the directory cannot be dialled from
+where each machine stands -- which is the announce step, not the network.
+
+**Run it in both directions**, and this is where machine 5 earns its place:
+Nicolas's laptop at somebody else's house, and Mandarine's MacBook Air at hers.
+One account away from a fleet at home is the easy half; two accounts whose
+machines are never on the same network is the shape of the thing being built.
+
+**What this test does not claim.** It does not show NAT traversal, because there
+is none: it shows that a member away from home can work *provided one side of
+each pair is reachable*, which is what the architecture has always said it needs
+([ARCHITECTURE.md](ARCHITECTURE.md) §6). A fleet where nobody has a forward and
+nobody has IPv6 fails this test, correctly, and the fix for that case is
+[HANDOVER.md](HANDOVER.md) §8 0o phases 2 and 3.
+
+---
+
 ### Running them with the kit
 
 `scripts/acceptance.sh` turns each test into phases that end in `PASS` or `FAIL`
@@ -477,6 +543,7 @@ the line for "nothing to send". Since 2026-09-15 the round adds
 | H | the Windows laptop, and the Linux machines | **Windows:** `scripts\acceptance.ps1 H schedule` (samples every five minutes as a scheduled task), after 24 hours `H report` (CPU, peak memory, bytes written, and a `powercfg` battery report beside the verdict), then `H sleep` from an **administrator** PowerShell (whether the daemon holds the machine awake, and whether it woke it in the last day); `H unschedule` to stop. **Linux:** `H sample` every five minutes for 24 hours, then `H report`. Battery is reported, not judged: one day of one laptop measures the day as much as the daemon. **H passes only when `H report` and `H sleep` both pass and the battery report has been read**; `H report` alone is CPU and memory. The kit reads "CPU at idle indistinguishable from the daemon being stopped" as under 5% of a core averaged over the hours awake (at least 4 of them), decided before any result |
 | I | any member, coordinator off | daemon output to a file, and **write a file on another machine during the outage** — idle rounds print nothing; then `I check <that file>` |
 | J | every machine | `J count ~/ITSaNAS` before; reboot or cut power; daemon stopped, `J check ~/ITSaNAS <count>` |
+| O | machine 1 or 5, on a network that is not home, then a machine that stayed | `O away ~/ITSaNAS` there -- it prints what it published and a name and sha256 -- then `O check ~/ITSaNAS <name> <sha256>` at home. Needs the preparation in §3 O: the coordinator reachable from outside, and at least one machine at home with `itsanas announce` set |
 
 `D check` and `J check` open the node, so the daemon must not be running on that
 machine at that moment. `scripts/acceptance-local.sh` runs B, D, E, F and G and
@@ -497,11 +564,17 @@ Set in advance so it cannot be softened afterwards.
 - **L fails** → the product is not fit to put in front of a person, however
   correct it is underneath. Nothing goes to anybody else until it passes.
 - **M fails** → the multi-instance work of #18 is not finished.
+- **O fails** → the system works on one LAN and is not a network. That is not a
+  bug to fix afterwards: it means every other result on this page was measured
+  in the one condition that makes the questions easy, and the fleet cannot be
+  grown past the machines in one room. Added to the verdict on 2026-09-18 at
+  Nicolas's instruction, which makes the exit criterion **A–M and O** rather
+  than A–M.
 - **N** → all three halves were run on 2026-09-16 and none of them fails the
   way this row first predicted. Case pairs and long paths pass on Windows; the
   accented-name question was answered on a real Mac and APFS folds the two
   spellings rather than duplicating them. What is left is a conflict-copy case
-  the existing machinery already handles. N does not block the verdict on A-M,
+  the existing machinery already handles. N does not block the verdict on A-M and O,
   and no longer blocks the pilot either.
 - **All pass** → the project has earned the day of reading, and the question
   becomes whether to open it to people beyond Nicolas.
@@ -586,6 +659,8 @@ Measured against §3, not against the roadmap.
 Memory is an order of magnitude inside the 200 MiB the criterion asks for. **The number that was not being watched is the third column: three hundred megabytes written per day by a node with nothing to do** — a hundred gigabytes a year to store nothing new. A controlled experiment since: **61 KB per round with no peer, 962 KB with two**, so 94% is the sync round. The cause turned out to be the *number* of transactions rather than their content — a copy-on-write engine charges by the commit. Writing back fewer ledger rows bought 19%; collapsing the audit's sixteen commits into two bought 43% more. **447 KB per round now, about 129 MB/day against the 313 it was found at.** One transaction per round is the end state and is not built. On an SSD it is unremarkable; on the SD card this project has already destroyed one of, it is not. Recorded rather than guessed at, and the next thing to measure |
 | I — coordinator outage | ✅ *verified locally* | A node with a coordinator configured and unreachable syncs normally with a known peer and the file arrives. The daemon keeps its loop, reports the outage **once** rather than every round, and says what is degraded. Not yet done across the real fleet for 48 hours |
 | J — reboots cleanly | 🟨 | **Two of three parts done.** *The machine part, on real hardware, 2026-09-06*: both Linux machines were rebooted -- the Freebox VM and the Raspberry Pi that carries the coordinator. Everything came back without a hand on it: the coordinator as a system service, both member nodes as user units through lingering, ports rebound, and the vaults intact (7 blobs on the VM before and after, 14 on the Pi). Then the network reformed on its own -- a file dropped into the laptop's synced folder afterwards reached the VM, taking it from 7 blobs to 8. `scripts/disk-health.sh` bracketed the Pi's reboot and reported nothing moved, with a control proving the search worked. *The process part*: a crash test kills the process mid-write a dozen times at measured points and checks that nothing is listed-but-unreadable and no repair is needed; it passes. *What is still missing*: a power cut. Killing a process does not discard the kernel's page cache, and neither does a clean reboot -- `systemctl reboot` flushes. That needs ten seconds and a plug. See below |
+
+| O — it works from somewhere that is not home | ⬜ **never attempted, and the preparation it needs does not exist yet** | The code half landed on 2026-09-18: `itsanas announce` publishes the address that reaches a machine from outside, a wildcard listener now answers IPv6 as well as IPv4, a name is dialled at every address it resolves to rather than only the first, and a dead dial costs 5 seconds instead of 30. None of that has been run on anything but loopback. The half that is not code has not been done at all: **no port on the Freebox reaches the coordinator** -- measured on 2026-09-18, `ngas.fr:22010` and `:22011` answer and 9898 does not -- and every node still has `coordinator = 192.168.1.10:9898`, a private address, so a machine away from home reaches nothing. Until that is set up this test cannot be run, and the answer to "does it work at a friend's house" is **no** |
 
 **The critical path is now the fleet itself.** Everything the acceptance tests
 need is built; none of it has been run on four real machines, and three of the

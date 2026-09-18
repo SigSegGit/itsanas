@@ -68,6 +68,12 @@ param(
     # 9797 here.
     [string] $Listen = '',
 
+    # What to publish, when members outside this network reach this machine at
+    # a forwarded port or a public IPv6 address. Leave it out on a laptop: a
+    # machine that moves has no address another network can dial, and takes
+    # part by dialling out.
+    [string] $Announce = '',
+
     # A peer to sync with directly. Repeatable.
     [string[]] $Peer = @(),
 
@@ -323,6 +329,14 @@ if ($Pledge -or $Keep) {
 if ($Listen) {
     & $bin listen $Listen
     if ($LASTEXITCODE -ne 0) { Die "could not set the listen address to $Listen" }
+}
+
+# Same reason, one step further out. Nothing here can check that the address
+# reaches this machine -- that is a router forward or an IPv6 firewall rule --
+# so a wrong one makes this node unreachable without saying anything.
+if ($Announce) {
+    & $bin announce $Announce
+    if ($LASTEXITCODE -ne 0) { Die "could not set the announced address to $Announce" }
 }
 
 if ($Folder) {

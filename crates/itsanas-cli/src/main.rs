@@ -260,6 +260,24 @@ enum Command {
         /// e.g. `0.0.0.0:9797`. Omit to print the current one.
         address: Option<String>,
     },
+    /// The address to publish, when it is not where this node listens.
+    ///
+    /// What a member on another network dials to reach this machine: the name
+    /// or public address of a forwarded port, or a global IPv6 address, with
+    /// the port as seen from outside. Without it a node publishes its address
+    /// on whatever LAN it is on, which is right at home and useless anywhere
+    /// else.
+    ///
+    /// A machine that moves -- a laptop, a phone -- wants none of this. It has
+    /// no address another network can dial, it takes part by dialling out, and
+    /// one reachable side per pair is enough.
+    Announce {
+        /// e.g. `ngas.fr:9801`. Omit to print the current setting.
+        address: Option<String>,
+        /// Go back to publishing the address this node reaches from.
+        #[arg(long, conflicts_with = "address")]
+        forget: bool,
+    },
     /// Serve peers.
     Serve {
         /// Address to listen on. Defaults to the configured `listen`.
@@ -534,6 +552,7 @@ fn run() -> Result<()> {
         Command::Pledge { size } => pledge(&home, &size),
         Command::Device { what } => device(&home, &what),
         Command::Listen { address } => listen_on(&home, address.as_deref()),
+        Command::Announce { address, forget } => announce_as(&home, address.as_deref(), forget),
         Command::Serve { listen } => serve(&home, listen.as_deref()),
         Command::Daemon {
             listen,
@@ -1266,6 +1285,10 @@ fn render_status(node: &Node) -> Result<String> {
     w!();
     w!("network");
     w!("  listen          {}", node.config.listen);
+    // What other machines are told, which is the number that decides whether
+    // anybody outside this LAN can reach this one -- and which differs from
+    // `listen` exactly when somebody has set it up to.
+    w!("  announced       {}", describe_announce(node));
     if node.config.peers.is_empty() {
         w!("  peers           none configured (`itsanas peer add <host:port>`)");
     } else {
@@ -1880,6 +1903,14 @@ fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
     }
 }
 
+/// What `status` says this node publishes.
+fn describe_announce(node: &Node) -> String {
+    node.config
+        .announce
+        .clone()
+        .unwrap_or_else(|| "this machine's address on the network it is on".to_owned())
+}
+
 /// One line of `itsanas device list`.
 ///
 /// The silence is the coordinator's own measurement, so it is what decides
@@ -2074,6 +2105,66 @@ fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn announce_as(home: &Path, address: Option<&str>, forget: bool) -> Result<()> {
+    let mut node = open(home)?;
+
+    if forget {
+        match node.config.announce.take() {
+            Some(previous) => {
+                node.save_config()?;
+                println!("no longer announcing {previous}");
+                println!("  this node now publishes the address it reaches the");
+                println!("  coordinator from, which only its own network can dial");
+            }
+            None => println!("nothing was being announced"),
+        }
+        refresh_hint(&node);
+        return Ok(());
+    }
+
+    let Some(address) = address else {
+        match node.config.announce.as_deref() {
+            Some(announce) => println!("{announce}"),
+            None => println!(
+                "nothing announced: this node publishes the address it reaches the coordinator from"
+            ),
+        }
+        return Ok(());
+    };
+
+    // Validated here and not merely stored, for the same reason `listen` is:
+    // a value that cannot work must fail in front of the person who typed it,
+    // not in a daemon log after the next restart.
+    let announce = crate::config::parse_announce(address)?;
+    let previous = node.config.announce.replace(announce.clone());
+    node.save_config()?;
+
+    match previous {
+        Some(previous) if previous != announce => {
+            println!("announcing {announce} from now on (was {previous})");
+        }
+        _ => println!("announcing {announce} from now on"),
+    }
+    println!("  nothing checks that this address reaches this machine: that is");
+    println!("  your router's forward, or your IPv6 firewall, and a wrong one");
+    println!("  makes this node unreachable rather than noisy");
+
+    refresh_hint(&node);
+    Ok(())
+}
+
+/// The coordinator keeps handing out the previous address until it is told.
+///
+/// Said rather than done: refreshing needs the passphrase and the coordinator
+/// to be up, and a command that half-worked silently is worse than one that
+/// says what is left.
+fn refresh_hint(node: &Node) {
+    if node.config.coordinator.is_some() {
+        println!("  the coordinator still publishes the old address; refresh it with:");
+        println!("    itsanas register");
+    }
 }
 
 fn scan(home: &Path, deep: bool) -> Result<()> {

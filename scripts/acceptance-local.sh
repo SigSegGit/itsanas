@@ -432,6 +432,33 @@ must node m1 device forget "${m2_id:0:12}"
 check "a withdrawn machine leaves the list" test "$(enrolled)" -eq 1
 check "a withdrawn machine cannot enrol itself again" \
     sh -c "out=\$(ITSANAS_HOME='$WORK/m2' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' register </dev/null 2>&1) && { printf '%s\n' \"\$out\"; exit 1; }; printf '%s\n' \"\$out\" | grep -q 'withdrawn from this account'"
+say "O: what a machine away from home publishes, and what it refuses to publish"
+# The kit's O phase cannot be run here in the sense that matters -- everything
+# on this bench is on one loopback, which is the opposite of the test -- but
+# what it depends on can be, and each of these has failed in a way that looked
+# like a network problem.
+#
+# The negative controls first, because `announce` is the setting a tired person
+# fills in with whatever `listen` says.
+check "an announce that cannot be dialled is refused when it is typed" \
+    sh -c "! ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' announce 0.0.0.0:9797 </dev/null"
+check "and so is one that resolves on every machine to that machine" \
+    sh -c "! ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' announce localhost:9797 </dev/null"
+
+# Then the thing itself: what the coordinator hands to the account's other
+# machines is the announced address, port included, and not the one this node
+# reached the coordinator from.
+must node m1 announce "ngas.invalid:9801"
+must node m1 register
+check "the coordinator hands out the announced address, with the announced port" \
+    sh -c "ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' device list </dev/null | grep -q 'ngas.invalid:9801'"
+# And back: forgetting it must restore the local address, or a machine that
+# loses its port forward stays unreachable with nothing to say why.
+must node m1 announce --forget
+must node m1 register
+check "forgetting it publishes this machine's own address again" \
+    sh -c "ITSANAS_HOME='$WORK/m1' ITSANAS_PASSPHRASE='$PASSPHRASE' '$BIN' device list </dev/null | grep -q '127.0.0.1:'"
+
 NEW_PASSPHRASE=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')
 must env ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" ITSANAS_NEW_PASSPHRASE="$NEW_PASSPHRASE" "$BIN" passphrase
 check "the new passphrase opens machine 3" \

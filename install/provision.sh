@@ -69,6 +69,7 @@ USERNAME=""
 PHRASE_FILE=""
 COORDINATOR=""
 COORDINATOR_DEVICE=""
+ANNOUNCE=""
 INVITE=""
 PLEDGE=""
 KEEP=""
@@ -92,6 +93,10 @@ The account
                          instead of creating a new one
 
 The network
+  --announce HOST:PORT          what to publish, if members outside this
+                                network reach this machine at a forwarded
+                                port or a public IPv6 address. Leave it out
+                                on a machine that moves
   --coordinator HOST:PORT        where members find each other
   --coordinator-device ID        the coordinator's device id, which you pin
   --invite CODE                  an invitation, if the coordinator needs one
@@ -171,6 +176,8 @@ while [ $# -gt 0 ]; do
         --username=*) USERNAME="${1#--username=}"; shift ;;
         --phrase-file) [ $# -ge 2 ] || die "--phrase-file needs a path"; PHRASE_FILE="$2"; shift 2 ;;
         --phrase-file=*) PHRASE_FILE="${1#--phrase-file=}"; shift ;;
+        --announce) [ $# -ge 2 ] || die "--announce needs host:port"; ANNOUNCE="$2"; shift 2 ;;
+        --announce=*) ANNOUNCE="${1#--announce=}"; shift ;;
         --coordinator) [ $# -ge 2 ] || die "--coordinator needs host:port"; COORDINATOR="$2"; shift 2 ;;
         --coordinator=*) COORDINATOR="${1#--coordinator=}"; shift ;;
         --coordinator-device) [ $# -ge 2 ] || die "--coordinator-device needs an id"; COORDINATOR_DEVICE="$2"; shift 2 ;;
@@ -384,6 +391,14 @@ fi
 # port this node does not answer on.
 if [ -n "$LISTEN" ]; then
     $BIN listen "$LISTEN" || die "could not set the listen address to $LISTEN"
+fi
+
+# Same reason, one step further out: what gets published is this, when it is
+# set. Nothing here can check that the address reaches this machine -- that is
+# a router forward or an IPv6 firewall rule, on equipment this script has no
+# business touching -- so a wrong one makes the node unreachable silently.
+if [ -n "$ANNOUNCE" ]; then
+    $BIN announce "$ANNOUNCE" || die "could not set the announced address to $ANNOUNCE"
 fi
 
 if [ -n "$FOLDER" ]; then

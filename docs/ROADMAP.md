@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**760 test functions, 3 of them `#[ignore]`d into the slow job, and 62 of
+**773 test functions, 3 of them `#[ignore]`d into the slow job, and 63 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -715,6 +715,18 @@ device and reaching a different one is refused.
   fallback would want QUIC, which is now an optimisation rather than a
   prerequisite for security.
 
+  **2026-09-18 narrowed the gap without closing it.** A machine that *can* be
+  reached now says so and is reached: `itsanas announce <host:port>` publishes
+  the address that works from outside, verbatim and with its own port, so a
+  forwarded port or a global IPv6 address is usable; the wildcard listener takes
+  a dual-stack socket, so IPv6 -- the one route between two houses that costs
+  nothing per machine and asks nobody for anything -- reaches a node at all; a
+  name is dialled at every address it resolves to; and the addresses that cannot
+  work from where a node stands are dialled last, with a five-second timeout
+  instead of thirty. What is still missing is the case where *neither* side can
+  be dialled, which is two machines that both move. That is hole punching, and
+  it is [HANDOVER.md](HANDOVER.md) §8 0o phase 3.
+
 ---
 
 ### M4b — Local discovery ✅ (`itsanas-discover`)
@@ -1281,7 +1293,7 @@ corrected form, because the correction is more useful than the claim was.
   them. The lesson is cheaper to write than to keep relearning: **absence of
   code is evidence about code, not about behaviour.**
 
-None of this is a security hole and none blocks the A–M verdict.
+None of this is a security hole and none blocks the A–M and O verdict.
 
 ### What an adversarial sweep found and what is still open — 2026-09-09
 

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-17 — 760 test functions across 24 binaries, 3 of them
-`#[ignore]`d, plus 2 doctests. 62 are red-team tests.**
+**Last updated: 2026-09-18 — 773 test functions across 25 binaries, 3 of them
+`#[ignore]`d, plus 2 doctests. 63 are red-team tests.**
 
-**644 of the 760 tests have an entry of their own on this page** — an *entry*,
+**657 of the 773 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -153,7 +153,7 @@ guarantee and is not one.
 | `itsanas-crypto` unit | 65 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-wire` unit | 17 |
-| `itsanas-tls` unit | 14 |
+| `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 151 |
 | `itsanas-store` integration (`tests/store.rs`) | 40 (1 `#[ignore]`d) |
@@ -171,7 +171,8 @@ guarantee and is not one.
 | `itsanas-cli` unit | 29 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 41 |
+| `itsanas-node` unit | 48 |
+| `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 1 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -961,14 +962,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (41)
+# `itsanas-node` — a node on disk (49)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `coordinator` — publishing an address (6)
+## `coordinator` — publishing an address (11)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -982,6 +983,11 @@ anything.
 | **`an_unspecified_listen_address_is_not_what_gets_published`** | The address published is the local end of the connection that just reached the coordinator, not `0.0.0.0`. Of this machine's addresses it is the one demonstrably able to talk to the coordinator. Still wrong behind NAT, where only the coordinator can see the address a peer needs; that is a protocol change and is written down in `coordinator.rs`. |
 | **`the_published_port_is_the_listening_one_not_the_one_dialled_from`** | The local end carries an *ephemeral* source port. Taking the port along with the address would publish somewhere nothing listens — a failure that arrives later, elsewhere, and looks like a network fault. |
 | `an_address_somebody_chose_is_left_alone` | Substitution happens only where the configuration said "anywhere". A specific address or a hostname is a decision, and overruling it would break the setups that were configured deliberately. |
+| **`an_address_that_only_its_own_lan_can_dial_is_tried_last`** | The scenario the whole step is for: the laptop is at a friend's house and the coordinator hands it the account's machines, three of them on `192.168.1.x` at home. Dialling those first spends the round's budget and its connection timeouts on addresses that cannot answer — and from a network using the same private range they reach a *stranger's* machine, refused only because the device id is pinned. Addresses reachable from anywhere sort first, by the receiver's own judgement and never by a claim in the presence. |
+| **`the_announced_port_is_not_replaced_by_the_listening_one`** | A port forward exists to map an outside port to a different inside one; `ngas.fr:9801 -> 192.168.1.11:9797` is the normal shape. Substituting the listening port would publish an address the router forwards nothing to, and the failure would read as the peer being offline. |
+| **`a_configured_announce_is_published_instead_of_the_local_address`** | Without it a node behind a router publishes its address on the LAN it is on, which is precisely what no machine in another house can use. |
+| `a_machine_that_moves_still_publishes_where_it_is` | No `announce` is the right configuration for a laptop, and it must still publish something: announcing is also the heartbeat availability is counted from, so a node that stopped would be counted as gone. |
+| `the_private_ranges_a_home_actually_uses_are_all_recognised` | RFC1918, loopback, link-local, carrier-grade NAT (which is what a mobile network and an overlay VPN hand out) and IPv6 unique-local and link-local. Publishing any of them tells members elsewhere to dial a machine inside somebody else's network. |
 
 ---
 
@@ -1014,7 +1020,7 @@ to the peer, each turns the matching test red.
 | **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
 | `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
 
-## `config` — settings (20)
+## `config` — settings (22)
 
 | Test | What it proves |
 | --- | --- |
@@ -1024,6 +1030,8 @@ to the peer, each turns the matching test red.
 | **`an_unknown_setting_is_an_error_rather_than_being_ignored`** | A silently discarded typo is how a node ends up pledging nothing while its operator believes it pledged a terabyte. |
 | **`defaults_are_safe`** | Pledge defaults to zero and listen defaults to loopback. A node that has not said what it offers has not offered any. |
 | **`a_nonsense_size_is_refused_rather_than_read_as_zero`** | Reading "ten gigabytes" as 0 would silently disable hosting. |
+| **`red_team_an_announce_nobody_can_dial_is_refused_where_it_enters`** | `announce` is published to every machine of the account, so a wrong value is a wrong address on all of them. `0.0.0.0:9797` is the obvious slip — it is what `listen` says on every node — and tells peers to dial nothing; loopback and `localhost` are worse, because they resolve on every machine, so each member dials *itself*, authenticates against its own device id, and reports the wrong machine as unreachable. Refused when the file is read, alongside the listen address. |
+| `an_announced_address_survives_the_round_trip_through_the_file` | Written by `itsanas announce`, read back by the daemon at the next start. A setting that rendered and did not parse would leave a node publishing its LAN address again after a restart, with nothing saying so. |
 | `a_malformed_line_names_its_line_number` | Errors are actionable. |
 | `an_overflowing_size_is_refused` | `999999999999T` does not wrap. |
 | `sizes_parse_the_way_people_write_them` | `500`, `1K`, `2MB`, `10G`, `1TiB`. |
@@ -1257,6 +1265,18 @@ hardware it will actually run on.
 
 ---
 
+---
+
+# `itsanas-node` away from home (`tests/away_from_home.rs`) — the lookup a member elsewhere makes (1)
+
+A real coordinator on a real socket and three real nodes of one account. The
+only thing simulated is which machine each node runs on, which is the thing the
+test is about.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_member_elsewhere_is_given_the_address_that_can_answer_first`** | The unit tests prove the ordering function orders; this proves the lookup *applies* it, and that what a member is handed is the announced address with its announced port. Deleting the call in `coordinator::peers` leaves every unit test green — the shape of a defence that is tested and not wired — and this fails, naming the order it got. |
+
 # `itsanas-coord` — admission (17 of the coordinator's unit tests)
 
 `src/invitation.rs` and the invitation half of `src/directory.rs`. The front
@@ -1356,10 +1376,10 @@ The five remaining tests cover `Connection`, the generic `Read + Write` wrapper:
 
 ---
 
-# `itsanas-tls` — device authentication and listener limits (19)
+# `itsanas-tls` — device authentication and listener limits (24)
 
-Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, five
-integration tests in `tests/handshake.rs`.
+Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, five in
+`reach.rs`, five integration tests in `tests/handshake.rs`.
 
 | Test | What it proves |
 | --- | --- |
@@ -1379,6 +1399,11 @@ integration tests in `tests/handshake.rs`.
 | `an_ipv4_caller_is_one_caller_however_it_arrives` | A dual-stack listener sees IPv4 callers as `::ffff:a.b.c.d`; they are counted as the IPv4 address, not as a second caller. |
 | `the_overall_cap_holds_across_addresses` | The global cap is a cap. |
 | **`a_closed_connection_gives_its_slot_back_even_after_a_panic`** | A slot that is never returned is a limit that shrinks, one crash at a time, until the listener serves nobody. |
+| **`a_second_listener_cannot_take_a_port_this_one_holds`** | `SO_REUSEADDR` on Windows does not mean what it means on Unix: it lets a *second* process bind a port a first one already holds and take its traffic, and `SO_EXCLUSIVEADDRUSE` — which `TcpListener::bind` sets — is what stops it. A socket built by hand to clear `IPV6_V6ONLY` does not inherit that, and `socket2` 0.6 exposes no safe way to set it. **This test failed the moment it was written**, on the first version of `bind_dual_stack`, which is why Windows now keeps the plain IPv4 listener rather than the dual-stack one. |
+| **`a_node_asked_for_every_interface_is_reachable_over_ipv6_too`** | `listen = 0.0.0.0:9797` is the default and it is IPv4 only, so every IPv6 caller was refused by a node that believed it was accepting from everywhere. IPv6 is the one route between two houses that needs no port forward and costs nothing per machine, so an IPv4-only listener cannot use the cheapest path there is. A wildcard bind takes a dual-stack socket; on a machine with no IPv6 the test asserts the fallback instead, because refusing to start there would be a regression in exchange for a reachability that machine cannot have. |
+| **`an_address_that_does_not_answer_does_not_hide_the_one_that_does`** | A dual-stack name resolves to an AAAA record *and* an A record, and plenty of networks drop IPv6. Connecting to only the first resolved address turned "one of two routes is shut" into "the peer is down". Fails when the dialler stops at the first address. |
+| `an_address_that_names_one_interface_is_not_widened_to_all_of_them` | The dual-stack substitution happens only where the configuration said "anywhere". Widening `127.0.0.1` would put a node meant to be private on every interface of the machine. |
+| `nothing_answering_anywhere_is_still_an_error` | Trying several addresses must still fail when none answers, rather than returning the last error as success or hanging on an empty list. |
 
 ---
 

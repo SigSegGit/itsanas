@@ -159,7 +159,68 @@ Pour une instance nommée, préfixe `ITSANAS_HOME=~/.itsanas-voisin`.
 
 ---
 
-## 3. Le MVP : tests A à N
+### 2.5 Sortir de la maison (test O) — la préparation qui n'est pas du code
+
+Ajouté le 2026-09-18, pour la raison que tu as donnée : **quatre machines dans
+une seule maison ne font pas une campagne de test.** Tant que tout est sur le
+même LAN, la découverte locale rend chaque question facile et aucun résultat ne
+dit quoi que ce soit du cas réel.
+
+Trois choses, dans cet ordre. Les deux premières sont sur ta Freebox, pas dans
+le dépôt, et rien dans le code ne peut les vérifier à ta place.
+
+1. **Ouvrir un port vers le coordinateur.** Aujourd'hui il n'y en a pas :
+   mesuré le 2026-09-18 depuis le LAN, via le nom public, `ngas.fr:22010` et
+   `:22011` répondent (donc **la Freebox fait bien du hairpin** : un seul nom
+   marche de l'intérieur comme de l'extérieur), et `9898` ne répond rien. Une
+   redirection TCP vers le 9898 de la VM, ou une ouverture IPv6 vers elle.
+2. **Basculer chaque nœud sur ce nom.** Tous ont encore
+   `coordinator = 192.168.1.10:9898`, une adresse privée : hors de la maison,
+   une machine ne joint personne, pas même l'annuaire.
+
+   ```sh
+   itsanas coordinator ngas.fr:9898 --device <id-du-coordinateur>
+   itsanas register
+   ```
+3. **Au moins une machine à la maison doit être joignable, et le dire.** C'est
+   la nouveauté du 2026-09-18 :
+
+   ```sh
+   itsanas announce ngas.fr:9801   # le port VU DE DEHORS, pas celui d'écoute
+   itsanas register                # republie l'adresse
+   ```
+
+   Une redirection fait correspondre un port externe à un port interne
+   différent : c'est l'externe qui se publie. Une adresse IPv6 globale marche
+   pareil et ne demande aucune redirection :
+   `itsanas announce [2001:db8::1]:9797`. Free fournit l'IPv6 nativement, c'est
+   la seule route entre deux maisons qui ne coûte rien par machine et ne
+   demande rien à personne — mais il faut que le pare-feu de la box laisse
+   entrer le port sur cette machine.
+
+   **W (le laptop) et le Mac de mandarine ne prennent rien de tout ça.** Une
+   machine qui bouge n'a pas d'adresse joignable ; elle participe en appelant,
+   et un seul côté joignable par paire suffit. `itsanas status` affiche
+   maintenant la ligne `announced`, qui dit ce qui est publié.
+
+Puis le test lui-même, sur W depuis un réseau qui n'est pas chez toi — le
+partage de connexion du téléphone suffit et évite de sortir :
+
+```sh
+bash scripts/acceptance.sh O away ~/ITSaNAS      # donne un nom et un sha256
+# puis, sur P ou V restées à la maison :
+bash scripts/acceptance.sh O check ~/ITSaNAS <nom> <sha256>
+```
+
+`O away` échoue → le coordinateur n'est pas joignable de l'extérieur (point 1
+ou 2). `O away` passe et `O check` échoue → les adresses de l'annuaire ne sont
+dialables de nulle part (point 3). **Fais-le dans les deux sens** : toi chez
+quelqu'un, et le MacBook de mandarine chez elle. Un compte loin d'une flotte à
+la maison, c'est la moitié facile.
+
+---
+
+## 3. Le MVP : tests A à N, plus O
 
 W = laptop, P = Pi, V = VM, `~/ITSaNAS` = dossier synchronisé du compte `nicolas`.
 
@@ -330,7 +391,7 @@ travers.
 | Inconnu | Pourquoi tes machines ne le voient pas | État dans le code |
 | --- | --- | --- |
 | **Des inconnus hostiles, nombreux** | tous les nœuds sont à toi ; personne ne triche | audits aléatoires et red-team en labo ; jamais contre un vrai tricheur |
-| **NAT et Internet** | P et V sont chez toi ou à IP publique | **pas de traversée de NAT** ; une machine derrière un NAT se joint seulement en sortant |
+| **NAT et Internet** | P et V sont chez toi ou à IP publique | **pas de traversée de NAT** ; une machine derrière un NAT se joint seulement en sortant. Depuis le 2026-09-18 : `itsanas announce` publie l'adresse vue de dehors, l'écoute accepte l'IPv6, et un nom est appelé sur *toutes* ses adresses — donc une machine joignable l'est vraiment. Deux machines qui bougent toutes les deux restent hors de portée l'une de l'autre (HANDOVER §8 0o phase 3) |
 | **Bande passante** | réseau local rapide | aucune comptabilité de débit (HANDOVER §9) |
 | **Le téraoctet** | tes comptes pèsent des Go | un fichier par bloc ; pack files décidés, pas construits ; l'audit couvre 1 To en ~10 ans |
 | **L'économie** | tu ne peux pas te voler toi-même | le partage 30/70 n'est appliqué que localement ; un client modifié stocke sans donner (HANDOVER §8.1 b-c) |

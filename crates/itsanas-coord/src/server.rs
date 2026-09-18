@@ -83,8 +83,17 @@ pub struct CoordServer {
 
 impl CoordServer {
     /// Bind to `address`.
+    ///
+    /// Through [`itsanas_tls::reach::listen_on`], so that a coordinator asked
+    /// for every interface answers IPv6 callers too. It is the one machine in a
+    /// fleet that everybody must be able to reach from anywhere, so it is the
+    /// one where being IPv4-only costs the most.
     pub fn bind(address: impl ToSocketAddrs) -> Result<Self> {
-        let listener = TcpListener::bind(address).map_err(CoordError::from)?;
+        let resolved: Vec<SocketAddr> = address
+            .to_socket_addrs()
+            .map_err(CoordError::from)?
+            .collect();
+        let listener = itsanas_tls::reach::listen_on(&resolved).map_err(CoordError::from)?;
         listener.set_nonblocking(false).map_err(CoordError::from)?;
         // One anonymous certificate for the life of the process. It
         // authenticates nobody — identity is proved a layer up, by signing the
@@ -300,13 +309,17 @@ impl CoordClient {
         device: &DeviceKeys,
         expect: Option<DeviceId>,
     ) -> Result<Self> {
-        let target = address
+        // Every resolved address, not the first: `coordinator = ngas.fr:9898`
+        // is how a member away from home finds one, and a name resolves to an
+        // IPv6 record as well as an IPv4 one. On a network that drops IPv6,
+        // stopping at the first meant the coordinator was unreachable while the
+        // address beside it would have answered.
+        let targets: Vec<SocketAddr> = address
             .to_socket_addrs()
             .map_err(CoordError::from)?
-            .next()
-            .ok_or_else(|| CoordError::Transport("no address to connect to".to_owned()))?;
+            .collect();
 
-        let stream = TcpStream::connect_timeout(&target, IO_TIMEOUT).map_err(CoordError::from)?;
+        let stream = itsanas_tls::reach::connect_to_one_of(&targets).map_err(CoordError::from)?;
         let local = stream.local_addr().map_err(CoordError::from)?;
         stream
             .set_read_timeout(Some(IO_TIMEOUT))

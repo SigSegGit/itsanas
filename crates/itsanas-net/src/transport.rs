@@ -49,6 +49,7 @@ use itsanas_store::SegmentEnvelope;
 use itsanas_tls::{
     Authenticated, Identity,
     limits::{ConnectionLimits, Slot},
+    reach::{connect_to_one_of, listen_on},
 };
 use itsanas_wire::Connection;
 
@@ -90,7 +91,7 @@ impl PeerServer {
         let identity = Identity::generate()?;
 
         Ok(Self {
-            listener: TcpListener::bind(resolved.as_slice())?,
+            listener: listen_on(&resolved)?,
             config: identity.server_config()?,
             handshake_deadline: HANDSHAKE_DEADLINE,
         })
@@ -353,12 +354,9 @@ impl PeerClient {
         owner: UserId,
         expect: Option<DeviceId>,
     ) -> Result<Self> {
-        let address = address
-            .to_socket_addrs()?
-            .next()
-            .ok_or_else(|| NetError::Refused("no address to connect to".to_owned()))?;
+        let addresses: Vec<SocketAddr> = address.to_socket_addrs()?.collect();
 
-        let stream = TcpStream::connect_timeout(&address, IO_TIMEOUT)?;
+        let stream = connect_to_one_of(&addresses)?;
         stream.set_read_timeout(Some(IO_TIMEOUT))?;
         stream.set_write_timeout(Some(IO_TIMEOUT))?;
         stream.set_nodelay(true)?;
@@ -623,7 +621,11 @@ mod tests {
         // and sizes to anyone on the path. TLS closed that, so keeping the
         // refusal would be cargo cult.
         let server = PeerServer::bind("0.0.0.0:0").expect("a public bind should work");
-        assert_eq!(server.local_addr().unwrap().ip().to_string(), "0.0.0.0");
+        // Unspecified rather than `0.0.0.0` exactly: since 2026-09-18 a wildcard
+        // bind takes a dual-stack socket where the machine has IPv6, so it
+        // reports `::` and accepts both families. What this test is about is
+        // that the bind is not refused.
+        assert!(server.local_addr().unwrap().ip().is_unspecified());
     }
 
     #[test]

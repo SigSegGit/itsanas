@@ -158,6 +158,29 @@ itsanas keep 2G --order newest
 Everything is still listed; what is not held says so, and asking for one fetches
 it.
 
+### 4b. A machine somewhere else
+
+Everything above assumes one network, where machines find each other by
+themselves. Across two houses, one side of each pair has to be dialable, and
+nothing can guess which:
+
+```sh
+itsanas announce ngas.example:9801    # what reaches THIS machine from outside
+itsanas register                      # republish it to the coordinator
+```
+
+That is the outside name and the **outside** port -- a router forward maps one
+port to another, and this is the one somebody else dials. A global IPv6 address
+works the same way and needs no forward: `itsanas announce [2001:db8::1]:9797`.
+
+Nothing here can check that the address reaches this machine. That is a forward
+or a firewall rule on your router, and a wrong one makes this node quietly
+unreachable rather than noisy -- `itsanas status` shows what is being published,
+which is the first thing to look at.
+
+A laptop or a phone wants none of this: it has no address another network can
+dial, it takes part by dialling out, and one reachable side per pair is enough.
+
 ### 5. Check on it
 
 ```sh
