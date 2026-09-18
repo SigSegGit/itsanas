@@ -373,14 +373,31 @@ pub fn enrolled(node: &Node) -> Result<Option<Vec<EnrolledDevice>>> {
 }
 
 /// What the coordinator found when it tried to reach this machine.
+///
+/// Three states, and the third is not a polite version of the second. A
+/// coordinator that **did not look** -- because this address was asked about
+/// within the hour, or because it is private and no coordinator could say
+/// anything about it -- has found nothing, and reporting that as "nothing can
+/// reach you" sends somebody to rewire a router that works. They were the same
+/// value for half a day and using it is what caught the difference.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Reachability {
-    /// Whether it completed a handshake with this device at the published
-    /// address.
-    pub reachable: bool,
-    /// The sentence to show a person: which address was tried, and what
-    /// happened.
-    pub detail: String,
+pub enum Reachability {
+    /// It completed a handshake with this device at the published address.
+    Reachable(String),
+    /// It tried, and could not.
+    Unreachable(String),
+    /// It did not try, and says why.
+    Unknown(String),
+}
+
+impl Reachability {
+    /// The sentence to show a person.
+    #[must_use]
+    pub fn detail(&self) -> &str {
+        match self {
+            Self::Reachable(detail) | Self::Unreachable(detail) | Self::Unknown(detail) => detail,
+        }
+    }
 }
 
 /// Publish this device's address and list the account's machines, in one call.
@@ -457,9 +474,12 @@ pub fn announce_and_peers(
 pub fn check_me(node: &Node) -> Result<Option<Reachability>> {
     let mut client = dial(node)?;
     match client.ask(&Request::CheckMe) {
-        Ok(Response::Reachable { reachable, detail }) => {
-            Ok(Some(Reachability { reachable, detail }))
-        }
+        Ok(Response::Reachable { reachable, detail }) => Ok(Some(if reachable {
+            Reachability::Reachable(detail)
+        } else {
+            Reachability::Unreachable(detail)
+        })),
+        Ok(Response::Unknown(why)) => Ok(Some(Reachability::Unknown(why))),
         Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
         Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
         // A coordinator that does not know this request closes the connection

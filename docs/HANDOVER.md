@@ -54,6 +54,18 @@ the answer. The key is now device *and* address, and
 `changing_the_announced_address_is_worth_asking_about_again` fails against the
 old one.
 
+**A second defect the deployment found, and it is the worst kind.** `doctor` on
+the Pi -- a machine that was perfectly reachable -- printed `NOTHING can reach
+this machine`, and then, on the next line, the reason: it had been asked twice
+within the hour. The answer and the *absence* of an answer were the same value,
+so a wait was presented as a verdict, and somebody reading the first line goes
+and rewires a router that works. That is precisely the failure this whole
+feature exists to prevent, built into the feature. `Response::Unknown` is
+appended (wire number 9), `Reachability` is now three states, and every refusal
+to probe -- the budget, a private address, a name resolving into a private
+network, the concurrency bound -- comes back as "not checked" with its reason
+rather than as "nothing can reach you".
+
 **Then §8 0l, which is the one that protects data.** An unmounted disk leaves an
 empty mount point; the scan found nothing, every file in the ledger looked
 deleted, and those deletions replicated to every machine of the account. Built:

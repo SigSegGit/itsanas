@@ -420,19 +420,24 @@ fn check_reachable(node: &Node, published: &str, reach: &mut Reach) {
     reach.published = Some(published.to_owned());
 
     match coordinator::check_me(node) {
-        Ok(Some(found)) => {
-            if reach.verdict != Some(found.reachable) {
-                if found.reachable {
-                    println!("reachable: {}", found.detail);
-                } else {
-                    println!("NOT reachable from outside: {}", found.detail);
-                    println!("  Other members cannot dial this machine. It can still take");
-                    println!("  part by dialling them, and one reachable side per pair is");
-                    println!("  enough -- but if a forward was meant to work, it does not.");
-                }
+        Ok(Some(coordinator::Reachability::Reachable(detail))) => {
+            if reach.verdict != Some(true) {
+                println!("reachable: {detail}");
             }
-            reach.verdict = Some(found.reachable);
+            reach.verdict = Some(true);
         }
+        Ok(Some(coordinator::Reachability::Unreachable(detail))) => {
+            if reach.verdict != Some(false) {
+                println!("NOT reachable from outside: {detail}");
+                println!("  Other members cannot dial this machine. It can still take");
+                println!("  part by dialling them, and one reachable side per pair is");
+                println!("  enough -- but if a forward was meant to work, it does not.");
+            }
+            reach.verdict = Some(false);
+        }
+        // Not an answer, so it does not become one. Leaving the verdict alone
+        // means the next round asks again rather than reporting a guess.
+        Ok(Some(coordinator::Reachability::Unknown(_))) => {}
         // Too old to answer. Not a verdict, and saying nothing is right: the
         // alternative is telling a member their forward is broken when what is
         // out of date is the coordinator.

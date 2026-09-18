@@ -249,12 +249,10 @@ fn answer_check_me(
 ) -> Response {
     let target = match service.probe_target(caller, now_unix()) {
         Ok(Probe::Address(address)) => address,
-        Ok(Probe::Refuse(why)) => {
-            return Response::Reachable {
-                reachable: false,
-                detail: why,
-            };
-        }
+        // A refusal to probe is not a finding about the member's network.
+        // "Your address is private" and "nothing can reach you" are different
+        // sentences and only one of them sends somebody to a router.
+        Ok(Probe::Refuse(why)) => return Response::Unknown(why),
         Err(error) => return Response::Refused(error.to_string()),
     };
 
@@ -268,12 +266,10 @@ fn answer_check_me(
         // during a fleet migration, the second question was refused as a
         // repeat of the first, which is the moment somebody most needs it.
         if !probes.allow(&format!("{}@{target}", caller.to_hex()), Instant::now()) {
-            return Response::Reachable {
-                reachable: false,
-                detail:
-                    "this device has already been probed within the hour; the last answer stands"
-                        .to_owned(),
-            };
+            return Response::Unknown(
+                "this address was already probed within the hour; the answer from then stands"
+                    .to_owned(),
+            );
         }
     }
 
@@ -282,20 +278,17 @@ fn answer_check_me(
     // shrinks to zero, and every probe of an unreachable member is a failure
     // path.
     let Some(_slot) = InFlight::take(in_flight) else {
-        return Response::Reachable {
-            reachable: false,
-            detail: "this coordinator is already probing as many members as it will at once; ask again shortly".to_owned(),
-        };
+        return Response::Unknown(
+            "this coordinator is already probing as many members as it will at once; ask again shortly"
+                .to_owned(),
+        );
     };
 
     let targets = match resolve_probe_target(&target) {
         Ok(targets) => targets,
-        Err(why) => {
-            return Response::Reachable {
-                reachable: false,
-                detail: why,
-            };
-        }
+        // Refusing to dial is not a verdict either: a name that resolves into a
+        // private network says nothing about whether the member is reachable.
+        Err(why) => return Response::Unknown(why),
     };
 
     let (reachable, detail) = probe(&target, &targets, caller, device);
