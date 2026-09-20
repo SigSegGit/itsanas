@@ -2796,27 +2796,25 @@ fn peer(home: &Path, action: PeerAction) -> Result<()> {
 ///    command a person runs rather than something on a timer.
 /// 3. **What would I dial?** The account's other machines, and whether their
 ///    addresses are ones this machine could use from where it is standing.
-fn network_report(node: &Node) {
+fn network_report(identity: &itsanas_node::node::Identity) {
     println!();
     println!("network");
 
-    let Some(address) = node.config.coordinator.as_deref() else {
+    let Some(address) = identity.config.coordinator.as_deref() else {
         println!("  no coordinator configured, so this machine can only meet peers on");
         println!("  its own network, or ones added by hand with `itsanas peer add`.");
         return;
     };
 
-    match coordinator::devices(node, node.store.owner()) {
+    match coordinator::devices_as(&identity.config, &identity.device, identity.user.user_id()) {
         Ok(found) => {
             println!("  out    the coordinator at {address} answered");
-            let elsewhere = found
-                .iter()
-                .filter(|(device, _)| *device != node.store.device_id())
-                .count();
+            let me = identity.device.device_id();
+            let elsewhere = found.iter().filter(|(device, _)| *device != me).count();
             let dialable = found
                 .iter()
                 .filter(|(device, candidate)| {
-                    *device != node.store.device_id() && !coordinator::is_private_address(candidate)
+                    *device != me && !coordinator::is_private_address(candidate)
                 })
                 .count();
             println!(
@@ -2838,11 +2836,11 @@ fn network_report(node: &Node) {
         }
     }
 
-    match coordinator::check_me(node) {
+    match coordinator::check_me_as(&identity.config, &identity.device, identity.user.user_id()) {
         Ok(Some(coordinator::Reachability::Reachable(detail))) => println!("  in     {detail}"),
         Ok(Some(coordinator::Reachability::Unreachable(detail))) => {
             println!("  in     NOTHING can reach this machine: {detail}");
-            if let Some(announce) = node.config.announce.as_deref() {
+            if let Some(announce) = identity.config.announce.as_deref() {
                 println!("         This machine announces {announce}, so something was meant");
                 println!("         to reach it there: check the forward, and that it points at");
                 println!("         this machine's listening port.");
@@ -2866,6 +2864,22 @@ fn network_report(node: &Node) {
 }
 
 fn doctor(home: &Path, deep: bool) -> Result<()> {
+    // The network half first, and from the keys alone. Only one process may
+    // hold the store, and the daemon holds it on every machine that is
+    // working -- so a `doctor` that needed the store refused to run on exactly
+    // the machines somebody asks about, and stopping the daemon to ask changed
+    // the answer, because a node that is not running is not listening.
+    let identity = itsanas_node::node::Identity::open(home, &passphrase(false)?)?;
+    network_report(&identity);
+    println!();
+
+    if itsanas_store::Store::is_locked(Node::store_path(home)) {
+        println!("the stored data was not checked: this node is running, and only");
+        println!("one process at a time may hold its state. Stop the daemon and run");
+        println!("`itsanas doctor` again to check the data itself.");
+        return Ok(());
+    }
+
     let node = open(home)?;
     let report = node.store.verify_integrity(deep)?;
 
@@ -2877,10 +2891,6 @@ fn doctor(home: &Path, deep: bool) -> Result<()> {
 
     if report.is_healthy() && report.orphan_blobs.is_empty() {
         println!("the stored data checks out.");
-        // Asked here and not in `status`: it costs the coordinator a real
-        // connection to another machine, and `status` is run in loops by
-        // scripts. `doctor` is what somebody runs because something is wrong.
-        network_report(&node);
         return Ok(());
     }
 
@@ -2931,14 +2941,8 @@ fn doctor(home: &Path, deep: bool) -> Result<()> {
     if report.is_healthy() {
         println!();
         println!("nothing is damaged. Those chunks are waiting for `itsanas gc`.");
-        network_report(&node);
         return Ok(());
     }
-
-    // The network section prints even when the store is damaged: the two
-    // failures are unrelated, and somebody whose disk is hurt still wants to
-    // know whether the machines that could repair it can be reached.
-    network_report(&node);
 
     // A report is information, not a crash. Exit non-zero so a monitoring
     // system notices, but say everything first.

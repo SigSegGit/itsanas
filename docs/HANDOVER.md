@@ -43,15 +43,14 @@ cannot be run in the sense that matters -- **the two machines that are reachable
 belong to different accounts**, so nothing of one account is hosted by a
 reachable machine of the other.
 
-**A usability defect found by running it, worth fixing before the fleet tests.**
-`itsanas doctor` opens the store, and the daemon holds it, so the command
-somebody runs *because nothing is syncing* refuses to run on a machine that is
-syncing: `index.redb is already open in another process`. Stopping the daemon to
-run it then makes the inbound probe fail for the wrong reason -- nothing is
-listening while it is stopped. The network section needs no store: it wants the
-config, the device key and the coordinator. Splitting it out (or an
-`itsanas doctor --network` that never opens the store) is small and is the
-difference between a diagnostic and a diagnostic nobody can use.
+**A usability defect found by running it, fixed the same evening.**
+`itsanas doctor` opened the store, and the daemon holds it, so the command
+somebody runs *because nothing is syncing* refused to run on a machine that is
+syncing. Stopping the daemon to run it then made the inbound probe fail for the
+wrong reason -- nothing is listening while it is stopped. `Identity::open` now
+reads the keystore and the config and stops there, `network_report` works from
+that, and `doctor` prints the network section **first**, always, then checks the
+data only if the store is free and says so when it is not.
 
 **2026-09-18, the fleet, and a folder that cannot lose your files**
 (branch `storage-that-vanished`). Two things in one session, because Nicolas
