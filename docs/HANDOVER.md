@@ -20,6 +20,36 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-09-21, a decision that was not one.** Nicolas asked Rodin to settle the
+availability question that had been blocking §8 0o phase 2 for three exchanges.
+There was nothing to settle: `Directory::tick`, `contributions` and
+`accounting::assess` are called only by their own tests, and `ECONOMICS.md` had
+already removed availability from the coordinator on purpose. **The authority
+for that is the written decision, not the absent caller** -- a `grep` cannot
+tell a decision from an oversight, and treating "nothing calls it" as licence is
+how the next reader concludes the opposite on finding one caller.
+
+Rodin then found the thing that mattered, and it was in the specification
+written the day before: phase 2's rule said the coordinator is dialled when a
+round "reached no peer". In a parc of machines that are usually off, the Pi
+wakes, finds the VM by LAN broadcast, has therefore reached a peer, and **never
+publishes its address** -- so a laptop elsewhere asks the directory and finds
+nothing. The rule confused **publishing** (what makes a machine findable by
+somebody who is not there, and can never be conditioned on having met somebody
+who is) with **reading** (what can be skipped). §8 0o now says so, with the
+numbers that justify the work: 864 000 connections a day at 3000 machines
+becomes under 72 000.
+
+Two smaller things from the same audit. `tick`'s doc comment said "called on a
+timer" when no timer has ever called it -- a present tense for something that
+does not happen, which is the drift §4 exists to stop; the three functions now
+carry the decision that keeps them unreached. And a gate to catch "public, and
+called only by tests" was attempted and **removed the same hour**: the only
+cheap way to ask counts call sites in each file's production half, and that
+stops at the first `#[cfg(test)]`, so forty correctly wired functions were
+reported. Why it failed is written in `check-wired.py`, so nobody retries it
+naively.
+
 **Where the fleet actually stands, 2026-09-18 evening.** Verified by asking
 the machines, not by remembering:
 
@@ -1581,14 +1611,42 @@ Detail and measurements are in ROADMAP.md; this is the map.
       one cannot tell me" rather than as a failed round).
 
       **The rule that decides when the VM is dialled at all**, which is the
-      actual deliverable: a round dials the coordinator only when (a) it reached
-      **no** peer by LAN discovery or by its address book, or (b) the book holds
-      no entry for a device it needs, or every entry for it has failed, or (c)
-      this machine's own address changed *and* it could not hand its new
-      presence to any peer, or (d) an account event -- register, enrol,
-      withdraw, escrow -- or (e) a **backstop interval**, long, so a fleet that
-      is quietly healthy still checks in. At home, healthy, the answer is
-      **never** between backstops.
+      actual deliverable -- **and the first version of this rule was wrong in a
+      way that would have made machines invisible.** It said the coordinator is
+      dialled when a round "reached no peer". Apply that to the parc ROADMAP
+      describes, *machines that are usually off*: the Pi wakes, finds the VM by
+      LAN broadcast, has therefore reached a peer, and **never publishes its
+      address**. A laptop at a friend's house asks the directory and finds
+      nothing, or an entry seven days old about to expire. Found by the Rodin
+      audit of 2026-09-21.
+
+      The rule confuses two things that today share one connection:
+      **publishing** where this machine is, and **reading** where the others
+      are. They have opposite economics.
+
+      * **Publishing is what makes a machine findable by somebody who is not
+        here**, so it can never be conditioned on having met somebody who is.
+        A node announces **at every start and at every change of its published
+        address, always**, plus a long backstop so a presence never expires
+        under a running node. That is the whole cost: a machine that is always
+        on and never moves announces once an hour, not 288 times a day.
+      * **Reading is what can be avoided.** `Peers` is asked only when this node
+        needs a device it cannot already reach: the address book has no live
+        entry for it, or every entry has failed. A fleet at home, all of it
+        found by broadcast, reads **never**.
+
+      Account events -- register, enrol, withdraw, escrow -- dial as they always
+      did; they are rare and they are the point of having a coordinator.
+
+      **What the change is worth, in numbers, because that is the only
+      justification for building it.** Today every node makes 288 coordinator
+      connections a day whatever happens. After: the Pi, always on and never
+      moving, makes about 24. A laptop woken six times a day and changing
+      network three times makes about 9 publications plus the reads of a node
+      looking for peers it has not met -- call it 15. At the scale Nicolas
+      asked about, 3000 machines, the centre goes from **864 000 connections a
+      day (10/s) to something under 72 000 (under 1/s)**. If a design does not
+      beat that on paper, it is not worth the wire change.
 
       Constraints, none of them negotiable:
 
@@ -1612,17 +1670,26 @@ Detail and measurements are in ROADMAP.md; this is the map.
         presence it forged, and a peer replaying a stale one to strand a machine
         at an address it has left.
 
-      **The decision this needs from Nicolas, and it must not be made by
-      accident:** the per-round announce is also the heartbeat the coordinator
-      measures availability from (`Directory::last_seen`, `AvailabilityRecord`),
-      and availability is what ECONOMICS §3 turns into entitlement. Dialling the
-      coordinator only when necessary makes that measurement coarser by design.
-      Two honest options: keep a **backstop announce** (say hourly) so
-      availability keeps its meaning at a twelfth of today's cost, or move
-      availability onto **bilateral evidence** -- peers already exchange signed
-      rounds, and who answered whom is a better measure of being *useful* than
-      who pinged a server. The second is the better system and the larger
-      change. Do not start phase 2 without choosing.
+      **There is no decision to take here, and saying there was cost three
+      exchanges.** This item claimed that the per-round announce feeds the
+      availability that ECONOMICS turns into entitlement, so that thinning it
+      needed Nicolas to choose. That is wrong, and the authority is not that
+      nothing calls those functions -- an absent caller is as much an oversight
+      as a decision, and a `grep` cannot tell them apart. The authority is that
+      **ECONOMICS already decided it**: "A member measures their own, and each
+      pair measures each other. A coordinator may still publish a hint; nothing
+      depends on it." A future caller of `Directory::tick` or
+      `accounting::assess` from the entitlement path is therefore a *bug*, not
+      a reason to keep the heartbeat.
+
+      What the backstop is actually for is much smaller: `PRESENCE_TTL` is seven
+      days, so an hourly announce leaves 168 chances to refresh before an
+      address expires, and `device list` keeps saying how long a machine has
+      been silent to within an hour. One unwritten dependency to keep in mind:
+      `Response::Peers` orders by `last_seen`, so once everybody announces on
+      the same hour that order flattens into the device-id tie-break, and the
+      client's own `reachable_first` is what puts usable addresses first. Two
+      mechanisms now lean on each other without saying so.
 
             **The index is built** (2026-09-18, after the measurement that found it):
       claims are kept in a second table keyed by account, so the lookup phase 2

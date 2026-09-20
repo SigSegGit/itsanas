@@ -45,6 +45,28 @@ them would flag every property this project pins down.
 
 The allowlist is for work deferred by decision. Each entry says what would wire
 it, so the list reads as unfinished work rather than as excuses.
+
+What this deliberately does NOT try to catch, after trying
+-----------------------------------------------------------
+
+**"Public, and called only by tests."** That is a real failure mode and it cost
+real time: `Directory::tick`, `contributions` and `accounting::assess` measure
+an availability that `ECONOMICS.md` removed from the coordinator, they are
+tested, and their silence reads as "finished and waiting". A whole step was held
+up in 2026-09 while somebody waited for a decision about a heartbeat that feeds
+nothing.
+
+It was attempted here on 2026-09-21 and removed the same hour, because the only
+cheap way to ask the question is to count call sites in the *production half* of
+each file -- and `production_half` stops at the **first** `#[cfg(test)]`, so
+every file with a test module before its last function loses the rest of itself.
+Forty correctly wired functions were reported. A gate that cries wolf is a gate
+somebody turns off, which is worse than no gate.
+
+Doing it properly means understanding where `mod tests` ends rather than where
+it begins, which is brace-matching, which is a parser. Until then the defence is
+a comment on each of those functions saying the decision that keeps them
+unreached -- see `Directory::tick`.
 """
 
 import io
