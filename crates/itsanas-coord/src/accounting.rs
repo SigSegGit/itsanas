@@ -315,6 +315,20 @@ pub struct Assessment<'a> {
 
 /// Work out where a member stands.
 #[must_use]
+/// **Nothing on the live path may call this, and that is a decision.**
+///
+/// `ECONOMICS.md` removed availability from the coordinator: a member
+/// measures their own and each pair measures each other, and a coordinator
+/// may publish a hint that nothing depends on. A caller that feeds this
+/// into entitlement is a **bug**, not a feature coming back.
+///
+/// Kept rather than deleted: the arithmetic is right and tested, and the
+/// bilateral model needs the same shape between two peers. Documented here
+/// because the silence misleads -- tested, public and unused reads as
+/// "finished and waiting", and `scripts/check-wired.py` counts tests as
+/// callers on purpose, so nothing flags it. That silence held up a whole
+/// step in 2026-09 while somebody waited for a decision about a heartbeat
+/// that feeds nothing.
 pub fn assess(input: &Assessment<'_>) -> Standing {
     let pledged_bytes = input.devices.iter().fold(0u64, |total, device| {
         total.saturating_add(device.pledged_bytes)

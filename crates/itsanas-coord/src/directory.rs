@@ -825,9 +825,22 @@ impl Directory {
 
     /// Fold one period's observation into every device's availability.
     ///
-    /// Called on a timer. A device heard from since its last tick counts as up
-    /// for that period; one that was not counts as down. Nothing a node says
-    /// about itself enters this calculation.
+    /// **Nothing calls this, and that is a decision rather than an omission.**
+    /// `ECONOMICS.md` removed availability from the coordinator: a member
+    /// measures their own, each pair measures each other, and a coordinator may
+    /// publish a hint that nothing depends on. Its doc comment said "called on
+    /// a timer" until 2026-09-21, which was a present tense for something no
+    /// timer has ever called -- and reading it as live is what held a whole
+    /// step up while somebody waited for a decision about a heartbeat that
+    /// feeds nothing.
+    ///
+    /// Kept because the arithmetic is right and tested, and the bilateral model
+    /// needs the same shape between two peers. A caller that feeds this into
+    /// entitlement is a bug.
+    ///
+    /// A device heard from since its last tick would count as up for that
+    /// period; one that was not counts as down. Nothing a node says about
+    /// itself enters the calculation.
     pub fn tick(&self, now: u64) -> Result<usize> {
         let txn = self.db.begin_write()?;
         let mut folded = 0;
@@ -871,6 +884,20 @@ impl Directory {
         Ok(folded)
     }
 
+    /// **Nothing on the live path may call this, and that is a decision.**
+    ///
+    /// `ECONOMICS.md` removed availability from the coordinator: "A member measures
+    /// their own, and each pair measures each other. A coordinator may still
+    /// publish a hint; nothing depends on it." So this measures a hint, and a
+    /// caller that feeds it into entitlement is a **bug**, not a feature returning.
+    ///
+    /// It is kept rather than deleted because the arithmetic is right and tested,
+    /// and the bilateral model needs the same shape between two peers. It is
+    /// documented here because its silence is misleading: tested, public and
+    /// unused reads as "finished and waiting", and `scripts/check-wired.py`
+    /// deliberately counts tests as callers, so nothing flags it. That silence
+    /// cost three exchanges in 2026-09: a whole step was held up waiting for a
+    /// decision about a heartbeat that feeds nothing.
     /// What each of a member's live devices contributes.
     pub fn contributions(&self, user: UserId) -> Result<Vec<DeviceContribution>> {
         let txn = self.db.begin_read()?;
