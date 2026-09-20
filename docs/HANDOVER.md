@@ -12,13 +12,46 @@ contract.
 NEXT: 8.0m
 TITLE: 0m -- count the live copies, and let a machine leave politely
 WRITTEN-AT: 2026-09-18
-BASE: 5e52d3a
+BASE: 59795cc
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**Where the fleet actually stands, 2026-09-18 evening.** Verified by asking
+the machines, not by remembering:
+
+| | runs | reachable from outside |
+| --- | --- | --- |
+| **VM** `itsworkstation` (192.168.1.11) | **the coordinator**, `[::]:9898` | **yes**, `ngas.fr:9898` |
+| **Pi** `NGASRPI4B` (192.168.1.10) | a node, `*:9797`, account `nicolas` | **yes**, `ngas.fr:9797`, announced |
+| **Laptop** `SIGSEG-DELL` | a node, account `sigseg42`, task `ITSaNAS` | no, and it announces nothing -- correct for a machine that moves |
+
+All three run the day's build. The coordinator's directory holds **6 enrolled
+devices**. `itsanas-coordinator.service` on the Pi is stopped **and disabled**,
+which is deliberate: it is the migrated-from machine.
+
+**Two things that are not done, and both are Nicolas's to decide rather than
+mine to guess.** The fleet does not match `INSTALL-FLOTTE.md`: the accounts are
+`nicolas` (Pi) and `sigseg42` (laptop), not the `sigseg`/`tester`/`mandarine`
+instances the plan describes, and no node is a *named instance*. Reconciling
+that means the full reset in that document, which needs him at the keyboard for
+three sets of 24 words and a passphrase per instance. Until then MVP test O
+cannot be run in the sense that matters -- **the two machines that are reachable
+belong to different accounts**, so nothing of one account is hosted by a
+reachable machine of the other.
+
+**A usability defect found by running it, worth fixing before the fleet tests.**
+`itsanas doctor` opens the store, and the daemon holds it, so the command
+somebody runs *because nothing is syncing* refuses to run on a machine that is
+syncing: `index.redb is already open in another process`. Stopping the daemon to
+run it then makes the inbound probe fail for the wrong reason -- nothing is
+listening while it is stopped. The network section needs no store: it wants the
+config, the device key and the coordinator. Splitting it out (or an
+`itsanas doctor --network` that never opens the store) is small and is the
+difference between a diagnostic and a diagnostic nobody can use.
 
 **2026-09-18, the fleet, and a folder that cannot lose your files**
 (branch `storage-that-vanished`). Two things in one session, because Nicolas
