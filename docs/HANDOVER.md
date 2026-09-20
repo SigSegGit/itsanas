@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0m
 TITLE: 0m -- count the live copies, and let a machine leave politely
 WRITTEN-AT: 2026-09-18
-BASE: 59795cc
+BASE: 7fbc831
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -27,6 +27,7 @@ the machines, not by remembering:
 | --- | --- | --- |
 | **VM** `itsworkstation` (192.168.1.11) | **the coordinator**, `[::]:9898` | **yes**, `ngas.fr:9898` |
 | **Pi** `NGASRPI4B` (192.168.1.10) | a node, `*:9797`, account `nicolas` | **yes**, `ngas.fr:9797`, announced |
+| | | *and proven: the laptop pushed 293 KiB to it through that name, and the Pi's vault holds chunks for `6ac44550…` -- the laptop's account -- with the file's name appearing nowhere in it* |
 | **Laptop** `SIGSEG-DELL` | a node, account `sigseg42`, task `ITSaNAS` | no, and it announces nothing -- correct for a machine that moves |
 
 All three run the day's build. The coordinator's directory holds **6 enrolled
