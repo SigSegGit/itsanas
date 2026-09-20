@@ -12,13 +12,44 @@ contract.
 NEXT: 8.0m
 TITLE: 0m -- count the live copies, and let a machine leave politely
 WRITTEN-AT: 2026-09-18
-BASE: 7fbc831
+BASE: 54784d8
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-21, MVP tests D and E passed on the fleet, which neither had ever
+done.** Nicolas asked for a throwaway node that recovers files from somewhere
+else. The run, end to end and all of it through `ngas.fr`:
+
+1. A throwaway account `evasion` was created on the **VM**, enrolled with an
+   invitation minted by the Pi, and lodged its sealed container with
+   `register --recovery`.
+2. Two files -- 88 B and 400 000 B -- were written and pushed to the **Pi**,
+   which belongs to the account `nicolas` and holds them blind.
+3. The VM's node was left switched off. It never ran again.
+4. On the **laptop**, a node with no data, no configuration and **no recovery
+   phrase** ran `itsanas login --username evasion --from ngas.fr:9898` with the
+   passphrase alone. It restored the same account id `942dd0e3…`.
+5. One `sync` against the Pi returned **both files, byte for byte**:
+   `149ee0377dc7ca76…` and `b1e5c75c05411b5c…`, the digests taken on the VM
+   before sending.
+
+That is **D** -- recovery by passphrase alone, which MVP.md said was built and
+had never been run -- and **E** at the same time, because the machine that wrote
+the files and the machine that read them never spoke: everything went through a
+host of another account that cannot read a byte of what it relayed. What D still
+lacks is nothing; what E still lacks is a real power cut rather than a process
+that was never started.
+
+Cleaned up afterwards: escrow withdrawn, both devices withdrawn, both homes and
+both folders deleted, the invitation code removed. **What remains on purpose**:
+the account name stays in the directory (a username is bound to a key for life),
+and the Pi still holds the chunks in its vault -- the network never deletes as a
+sanction, so they leave when the audit and the collector get to them. The
+directory is back to 6 enrolled devices.
 
 **2026-09-21, a decision that was not one.** Nicolas asked Rodin to settle the
 availability question that had been blocking §8 0o phase 2 for three exchanges.
