@@ -1216,6 +1216,59 @@ Dependency direction is strict: `crypto → store → sync → net → cli`, wit
 `wire`/`tls` beside them and `coord` deliberately unable to reach `store` or
 `sync`.
 
+## 4b. Four rules against the way this goes wrong
+
+Added 2026-09-21, after Nicolas said the sessions contain too many detours and
+false discoveries. He is right, and the four below each come from a specific
+failure in one day's work rather than from a principle. Each names its own
+counter-example, because a rule without one is advice.
+
+**A claim about code you have not read is a hypothesis, and it does not get
+written as a fact.** Before writing that a mechanism exists, is called, or
+imposes a constraint: look, and cite what establishes it. *The failure*: a whole
+step was held up for three exchanges on the claim that the per-round announce
+feeds entitlement, so a decision was needed from Nicolas. Nothing feeds
+entitlement -- `tick`, `contributions` and `assess` are called only by their own
+tests, and ECONOMICS.md had already said so in writing. One `grep` at the start
+would have cost a minute. The same failure, smaller, twice more the same day: a
+comment asserting that `socket2` sets `SO_EXCLUSIVEADDRUSE` by default (it does
+not, and the listener was hijackable until a test said so), and `tick`'s own
+doc comment claiming it is "called on a timer" when no timer has ever called it.
+
+**Measure before you qualify.** A number nobody took is not an argument, in
+either direction. *The failure*: the full-table scan in `peers_of` was announced
+as "the wall at three thousand machines" before anything was timed. Timed, it
+was 2.6 % of one core -- real, worth fixing, not a wall. Dramatising an unmeasured
+cost is the same error as dismissing one, and it wastes the same attention.
+
+**What can be done now does not go into the next pass.** *The failure*:
+`itsanas doctor` opened the store, the daemon held the store, so the command a
+person runs *because nothing is syncing* refused to run on a machine that is
+syncing. It was written down as something to fix later. It took under an hour
+when Nicolas pushed back. "Noted for the next session" is the right answer only
+when the work is genuinely blocked on somebody else or genuinely belongs to
+another step -- and saying which of the two it is, out loud, is part of the
+answer.
+
+**A restoration is a copy, never an edit.** Undoing a sabotage by replacing text
+is a second edit, and a second edit can fail on its own. *The failure*: three
+sabotages applied to `directory.rs` by text replacement; breaking the first made
+another anchor ambiguous, the restore matched nothing, and the half-restored
+file looked like a working one while three unrelated tests failed for a reason
+that was not in the code. The afternoon had to be reapplied on a file taken back
+from `main`. `scripts/sabotage.py` now does it from a byte-for-byte copy and
+restores on any exit, including a crash.
+
+Two of these are now mechanical rather than remembered, which is the only kind
+that survives:
+
+| | |
+| --- | --- |
+| `scripts/sabotage.py` | breaks one defence at a time, runs the tests, restores from a copy, and **reports a defence whose sabotage turned nothing red** as the finding it is |
+| `scripts/merge-when-green.sh` | merges only when passing checks equal total checks and there are enough of them to be the real suite. It exists because `gh pr checks \| grep -civ pass && gh pr merge` merged a pull request with two checks still running: `grep -c` exits 0 when it *finds* something, so finding three failures ran the merge. A gate must say "all of them passed", never "I saw no failure" |
+
+---
+
 ## 5. Reading the code: a route, not a tour
 
 Nobody reads 22 000 lines. This is the shortest path to the point where the rest
