@@ -19,7 +19,7 @@ use itsanas_coord::directory::Registration;
 use itsanas_coord::invitation::{Invitation, SECRET_LEN, Secret};
 use itsanas_coord::protocol::{EnrolledDevice, Request, Response};
 use itsanas_coord::server::CoordClient;
-use itsanas_crypto::{DeviceId, KdfParams, Keystore, UserId};
+use itsanas_crypto::{DeviceId, DeviceKeys, KdfParams, Keystore, UserId};
 // One classifier, in the crate both callers already depend on: a node uses
 // it to order what it dials, a coordinator to refuse probing what it must
 // not. Two copies would drift the day one of them learned a range.
@@ -35,20 +35,34 @@ use crate::{NodeError as CliError, Result};
 /// coordinator address is configuration; configuration is not a promise about
 /// who lives there.
 pub fn dial(node: &Node) -> Result<CoordClient> {
-    let Some(address) = node.config.coordinator.as_deref() else {
+    dial_as(&node.config, &node.device)
+}
+
+/// The same, for a caller that has the keys but not an open store.
+///
+/// Talking to a coordinator needs the config and this device's key. It does
+/// **not** need the store, and only one process at a time may hold that -- so
+/// tying the two together is what made `doctor` refuse to run on a machine
+/// whose daemon was running, which is every machine somebody would ask about.
+///
+/// # Errors
+///
+/// If no coordinator is configured, or it cannot be reached, or the device that
+/// answers is not the one pinned.
+pub fn dial_as(config: &crate::config::Config, device: &DeviceKeys) -> Result<CoordClient> {
+    let Some(address) = config.coordinator.as_deref() else {
         return Err(CliError::Usage(
             "no coordinator configured; run `itsanas coordinator <host:port>`".to_owned(),
         ));
     };
 
-    let expect = node
-        .config
+    let expect = config
         .coordinator_device
         .as_deref()
         .map(parse_device)
         .transpose()?;
 
-    CoordClient::connect(address, &node.device, expect)
+    CoordClient::connect(address, device, expect)
         .map_err(|error| CliError::Usage(format!("{address}: {error}")))
 }
 
@@ -329,7 +343,20 @@ pub fn reachable_first_addresses(addresses: &mut [String]) {
 /// If the coordinator cannot be reached, refuses, or answers with something
 /// else.
 pub fn devices(node: &Node, user: UserId) -> Result<Vec<(DeviceId, String)>> {
-    let mut client = dial(node)?;
+    devices_as(&node.config, &node.device, user)
+}
+
+/// The same, without an open store. See [`dial_as`].
+///
+/// # Errors
+///
+/// As [`devices`].
+pub fn devices_as(
+    config: &crate::config::Config,
+    device: &DeviceKeys,
+    user: UserId,
+) -> Result<Vec<(DeviceId, String)>> {
+    let mut client = dial_as(config, device)?;
     match client.ask(&Request::Peers { user })? {
         Response::Peers(list) => Ok(list
             .into_iter()
@@ -472,7 +499,20 @@ pub fn announce_and_peers(
 ///
 /// If the coordinator cannot be reached at all, or answers with something else.
 pub fn check_me(node: &Node) -> Result<Option<Reachability>> {
-    let mut client = dial(node)?;
+    check_me_as(&node.config, &node.device, node.store.owner())
+}
+
+/// The same, without an open store. See [`dial_as`].
+///
+/// # Errors
+///
+/// As [`check_me`].
+pub fn check_me_as(
+    config: &crate::config::Config,
+    device: &DeviceKeys,
+    owner: UserId,
+) -> Result<Option<Reachability>> {
+    let mut client = dial_as(config, device)?;
     match client.ask(&Request::CheckMe) {
         Ok(Response::Reachable { reachable, detail }) => Ok(Some(if reachable {
             Reachability::Reachable(detail)
@@ -486,7 +526,7 @@ pub fn check_me(node: &Node) -> Result<Option<Reachability>> {
         // rather than answering, which is indistinguishable from an outage
         // until something that *is* known succeeds. `Devices` learnt this
         // first; the shape is the same.
-        Err(failed) => match devices(node, node.store.owner()) {
+        Err(failed) => match devices_as(config, device, owner) {
             Ok(_) => Ok(None),
             Err(_) => Err(CliError::Usage(format!(
                 "the coordinator stopped answering ({failed}); it is not a version question"

@@ -132,6 +132,79 @@ impl fmt::Debug for Node {
     }
 }
 
+/// A node's configuration and keys, without opening its store.
+///
+/// **Why this exists.** Only one process at a time may hold a node's store, and
+/// the daemon holds it whenever the node is running. So every command that
+/// opened a `Node` refused to run on a working machine -- including `doctor`,
+/// which is the command somebody runs *because* something is wrong. Stopping
+/// the daemon to ask it then changes the answer: a node that is not running is
+/// not listening, so "can anybody reach me" comes back no, for a reason that
+/// is the asking.
+///
+/// Everything about reaching the network -- who this device is, which
+/// coordinator to dial, what address is announced -- lives in the keystore and
+/// the config file. Neither is the store, and neither is locked.
+impl std::fmt::Debug for Identity {
+    /// Names the device and nothing else.
+    ///
+    /// Every secret-bearing type in this workspace has a hand-written Debug for
+    /// the same reason: one `tracing::debug!(?identity)` would put an account's
+    /// key material in a journal. `Node` derived `Debug` once and a red-team
+    /// test caught it.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Identity")
+            .field("device", &self.device.device_id())
+            .finish_non_exhaustive()
+    }
+}
+
+pub struct Identity {
+    /// The non-secret settings.
+    pub config: Config,
+    /// This machine's key.
+    pub device: DeviceKeys,
+    /// The account's keys.
+    pub user: UserKeys,
+}
+
+impl Identity {
+    /// Read the keystore and the config, and stop there.
+    ///
+    /// # Errors
+    ///
+    /// If there is no node, the passphrase is wrong, or the config is invalid.
+    pub fn open(home: &Path, passphrase: &str) -> Result<Self> {
+        let keystore_path = Node::keystore_path(home);
+        let bytes = match std::fs::read(&keystore_path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(missing_node(home));
+            }
+            Err(error) => {
+                return Err(NodeError::Io {
+                    path: keystore_path,
+                    source: error,
+                });
+            }
+        };
+
+        let keystore = Keystore::from_bytes(&bytes)?;
+        let plaintext = keystore
+            .unlock(passphrase, KEYSTORE_LABEL)
+            .map_err(|_| NodeError::Unlock)?;
+
+        let secrets: NodeSecrets = postcard::from_bytes(&plaintext)?;
+        let master = MasterSecret::from_bytes(secrets.master);
+
+        Ok(Self {
+            config: Config::load(&Node::config_path(home))?,
+            device: DeviceKeys::from_seed(&SecretBytes::new(secrets.device_seed)),
+            user: UserKeys::derive(&master),
+        })
+    }
+}
+
 /// Which "no node here" this is.
 ///
 /// A node home on a disk that is not mounted is an **empty directory**, and the
@@ -429,6 +502,39 @@ pub mod zeroize_phrase {
 
 #[cfg(test)]
 mod tests {
+
+    /// THE COMMAND NOBODY COULD RUN: only one process may hold a node's store,
+    /// and the daemon holds it on every machine that is working. Anything that
+    /// opened a `Node` therefore refused to run on exactly the machines
+    /// somebody asks about -- including `doctor`, which is what a person runs
+    /// *because* something is wrong. Stopping the daemon to ask then changes
+    /// the answer, because a node that is not running is not listening.
+    ///
+    /// The keys and the config are not the store, and nothing locks them.
+    #[test]
+    fn the_keys_can_be_read_while_the_store_is_held_by_another_process() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let home = dir.path().join("node");
+
+        let (node, _phrase) = Node::create(&home, "a passphrase", "nicolas").expect("create");
+        let device = node.device.device_id();
+        // `node` is still alive, so the store is locked exactly as it is when
+        // the daemon is running.
+        assert!(
+            Store::is_locked(Node::store_path(&home)),
+            "the fixture must hold the lock"
+        );
+
+        let identity = Identity::open(&home, "a passphrase")
+            .expect("the keys must be readable while the node is running");
+
+        assert_eq!(identity.device.device_id(), device);
+        assert_eq!(identity.user.user_id(), node.store.owner());
+        assert_eq!(identity.config.username, "nicolas");
+
+        // And a wrong passphrase still gets nothing.
+        assert!(Identity::open(&home, "not the passphrase").is_err());
+    }
 
     /// THE SECOND ACCOUNT: a node home on a disk that is not mounted is an
     /// empty directory, and "no node found, run `itsanas init`" is then advice
