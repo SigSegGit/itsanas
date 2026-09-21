@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0m
-TITLE: 0m -- count the live copies, and let a machine leave politely
+TITLE: 0m parts 2 and 3 -- itsanas leave, and departures recorded apart from silences
 WRITTEN-AT: 2026-09-18
-BASE: 4d22b9d
+BASE: 5a2b222
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
