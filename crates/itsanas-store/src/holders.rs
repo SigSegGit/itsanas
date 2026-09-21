@@ -473,6 +473,42 @@ pub const SAFE_TO_RELEASE: usize = 2;
 
 pub const CONFIRMED_FOR: u64 = 14 * 24 * 60 * 60;
 
+/// How long a holder record is allowed to stand in for a live copy when
+/// deciding whether to **make another one**.
+///
+/// Deliberately shorter than [`CONFIRMED_FOR`], and the arithmetic is the
+/// point. A record is refreshed every [`REFRESH_AFTER`] -- a quarter of
+/// `CONFIRMED_FOR`, so three and a half days -- whenever that peer answers an
+/// audit or says it still holds the chunk during a push. A record older than
+/// twice that has missed **two consecutive opportunities** to be confirmed.
+///
+/// Why not `CONFIRMED_FOR` itself, which is what everything else uses: the two
+/// questions are not the same. "Is this record still worth anything" can afford
+/// to be generous, because being wrong costs a wasted question. "Do enough
+/// copies exist, or must I make another" cannot, because being wrong costs the
+/// copies themselves -- a machine that died six months ago counted as a live
+/// copy until a failed audit withdrew its records, and an audit needs that
+/// machine to answer. It never would.
+///
+/// Why not shorter: this network is built out of machines that are usually off.
+/// A laptop up a quarter of the day still answers several times a week, and a
+/// window that re-replicated on every quiet weekend would spend a fleet's
+/// bandwidth proving nothing.
+pub const LIVE_FOR: u64 = REFRESH_AFTER * 2;
+
+// Checked by the compiler rather than by a test, because it is a relation
+// between two constants and nothing about it can be true at runtime and false
+// at compile time. A test would run later, in one configuration, and could be
+// filtered out; this cannot be built around.
+const _: () = assert!(
+    LIVE_FOR < CONFIRMED_FOR,
+    "a holder record may outlive its standing as a live copy, never the reverse:      widening the repair window past the record lifetime would count records      that have already expired"
+);
+const _: () = assert!(
+    LIVE_FOR == REFRESH_AFTER * 2,
+    "the window is two missed refresh opportunities, and that derivation is the      only reason this number is defensible"
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;

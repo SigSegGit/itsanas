@@ -255,7 +255,7 @@ impl<'a> PeerService<'a> {
         let wanted = (limit as usize).min(CEILING);
         let at_risk = self
             .store
-            .under_replicated(itsanas_store::REPLICATION_TARGET)?;
+            .under_replicated(itsanas_store::REPLICATION_TARGET, itsanas_store::now_unix())?;
 
         Ok(Response::WantHosted {
             owner: self.store.owner(),

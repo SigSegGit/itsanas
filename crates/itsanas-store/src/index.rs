@@ -194,7 +194,14 @@ const META_CHAIN_LENGTH: &str = "chain_length";
 /// A clock before 1970 is a misconfigured machine, not an attack; treating it
 /// as zero keeps garbage collection conservative (nothing looks old enough to
 /// collect) rather than destructive.
-pub(crate) fn now_unix() -> u64 {
+/// Seconds since the epoch, by this machine's clock.
+///
+/// Exported because callers that must decide "is this record still standing in
+/// for a live copy" need the same clock the records were written with, and
+/// three implementations of the same four lines is how two of them end up
+/// disagreeing about what a second is.
+#[must_use]
+pub fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
@@ -1782,7 +1789,15 @@ impl Index {
     }
 
     /// Ordering by id would make the work random with respect to risk.
-    pub fn under_replicated(&self, target: usize) -> Result<Vec<AtRisk>> {
+    pub fn under_replicated(&self, target: usize, now: u64) -> Result<Vec<AtRisk>> {
+        // The window that decides whether a record stands in for a live copy.
+        // Counting every record whatever its age -- which this did until
+        // 2026-09-21 -- means a machine that died six months ago still counts
+        // as one of your three copies, so repair never fires. Its records are
+        // only withdrawn by a **failed audit**, and an audit needs that machine
+        // to answer; a dead one never does. The ledger was optimistic in the
+        // one direction that loses data.
+        let live_since = now.saturating_sub(holders::LIVE_FOR);
         let txn = self.db.begin_read()?;
         let refs = txn.open_table(CHUNK_REFS)?;
         let holders_table = txn.open_table(HOLDERS)?;
@@ -1794,11 +1809,19 @@ impl Index {
                 continue;
             }
             let chunk = ChunkId::from_slice(key.value())?;
-            let held_by = holders_table
-                .range(
-                    holders::range_start(&chunk).as_slice()..=holders::range_end(&chunk).as_slice(),
-                )?
-                .count();
+            let mut held_by = 0usize;
+            for holder in holders_table.range(
+                holders::range_start(&chunk).as_slice()..=holders::range_end(&chunk).as_slice(),
+            )? {
+                let (_, confirmed) = holder?;
+                // The timestamp is written every time that peer confirms this
+                // chunk, which is what `Index::holder_evidence` calls `fresh`:
+                // somebody answered about *this* chunk, not merely that the
+                // machine picked up the phone about something else.
+                if confirmed.value() >= live_since {
+                    held_by += 1;
+                }
+            }
             // The copy on this disk. Referenced chunks are the ones this
             // node's own files use, so the blob is here unless a pull left the
             // entry ahead of its data — which `doctor` reports separately, and
@@ -2768,17 +2791,17 @@ mod tests {
         index.put_file("a", &entry(&[1])).unwrap();
 
         assert_eq!(
-            index.under_replicated(3).unwrap()[0].held_by,
+            index.under_replicated(3, 1).unwrap()[0].held_by,
             1,
             "with no remote holders, the local copy is the only one"
         );
 
         index.record_holder(&chunk(1), &device(7), 1).unwrap();
-        assert_eq!(index.under_replicated(3).unwrap()[0].held_by, 2);
+        assert_eq!(index.under_replicated(3, 1).unwrap()[0].held_by, 2);
 
         index.record_holder(&chunk(1), &device(8), 1).unwrap();
         assert!(
-            index.under_replicated(3).unwrap().is_empty(),
+            index.under_replicated(3, 1).unwrap().is_empty(),
             "two remote holders plus this device meets a target of three"
         );
     }
@@ -2891,7 +2914,7 @@ mod tests {
             )
         );
         assert_eq!(
-            index.under_replicated(3).unwrap()[0].held_by,
+            index.under_replicated(3, 1).unwrap()[0].held_by,
             1,
             concat!(
                 "under_replicated counts this machine, and deliberately: the ",
@@ -3019,10 +3042,78 @@ mod tests {
         index.record_holder(&chunk(3), &device(7), 1).unwrap();
         index.record_holder(&chunk(3), &device(8), 1).unwrap();
 
-        let risky = index.under_replicated(4).unwrap();
+        let risky = index.under_replicated(4, 1).unwrap();
         let order: Vec<usize> = risky.iter().map(|r| r.held_by).collect();
         assert_eq!(order, vec![1, 2, 3], "worst first");
         assert!(risky[0].only_copy());
+    }
+
+    /// THE LEDGER WAS OPTIMISTIC IN THE ONE DIRECTION THAT LOSES DATA. Repair
+    /// drained `under_replicated`, which counted every holder record whatever
+    /// its age. A machine that died six months ago still counted as one of your
+    /// three copies, so repair never fired -- and the only thing that withdraws
+    /// its records is a **failed audit**, which needs that machine to answer.
+    /// A dead one never does. The account believed it had three copies and had
+    /// one, and nothing anywhere said otherwise.
+    #[test]
+    fn red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy() {
+        let (_dir, index) = index();
+        index.put_file("a", &entry(&[1])).unwrap();
+
+        let long_ago = 1_000;
+        let now = long_ago + holders::LIVE_FOR + 1;
+
+        // Two machines confirmed this chunk, and then both went quiet.
+        index
+            .record_holder(&chunk(1), &device(7), long_ago)
+            .unwrap();
+        index
+            .record_holder(&chunk(1), &device(8), long_ago)
+            .unwrap();
+
+        // While they were fresh, three copies existed and nothing was at risk.
+        assert!(
+            index.under_replicated(3, long_ago).unwrap().is_empty(),
+            "two live holders and this disk are three copies"
+        );
+
+        // Past the window they are a belief, not a copy.
+        let risky = index.under_replicated(3, now).unwrap();
+        assert_eq!(
+            risky.len(),
+            1,
+            "two holders silent past the liveness window still counted as copies, \
+             so nothing would ever be re-replicated"
+        );
+        assert_eq!(
+            risky[0].held_by, 1,
+            "only this machine's own copy is evidence; got {risky:?}"
+        );
+        assert!(risky[0].only_copy());
+    }
+
+    /// The other half, and the one that stops the window being a data-loss
+    /// machine of its own: a holder that keeps confirming keeps counting. A
+    /// window that expired live records would re-replicate a healthy fleet's
+    /// entire content on a schedule.
+    #[test]
+    fn a_holder_that_keeps_answering_keeps_counting() {
+        let (_dir, index) = index();
+        index.put_file("a", &entry(&[1])).unwrap();
+
+        let start = 1_000;
+        let now = start + holders::LIVE_FOR * 4;
+
+        index.record_holder(&chunk(1), &device(7), start).unwrap();
+        index.record_holder(&chunk(1), &device(8), start).unwrap();
+        // Both answered again recently, which is what an audit or a push does.
+        index.record_holder(&chunk(1), &device(7), now - 1).unwrap();
+        index.record_holder(&chunk(1), &device(8), now - 1).unwrap();
+
+        assert!(
+            index.under_replicated(3, now).unwrap().is_empty(),
+            "holders that confirmed a moment ago were treated as gone"
+        );
     }
 
     #[test]
@@ -3034,7 +3125,7 @@ mod tests {
         index.put_file("a", &entry(&[1])).unwrap();
         index.remove_file("a", &tombstone()).unwrap();
 
-        assert!(index.under_replicated(3).unwrap().is_empty());
+        assert!(index.under_replicated(3, 1).unwrap().is_empty());
     }
 
     #[test]

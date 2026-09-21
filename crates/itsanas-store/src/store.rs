@@ -1157,8 +1157,8 @@ impl Store {
     /// Live chunks held by fewer than `target` devices, worst first.
     ///
     /// `target` counts this device: a target of three asks for two elsewhere.
-    pub fn under_replicated(&self, target: usize) -> Result<Vec<AtRisk>> {
-        self.index.under_replicated(target)
+    pub fn under_replicated(&self, target: usize, now: u64) -> Result<Vec<AtRisk>> {
+        self.index.under_replicated(target, now)
     }
 
     /// How many complete copies exist on other machines.

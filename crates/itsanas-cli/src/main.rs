@@ -928,7 +928,9 @@ fn concentration_report(node: &Node, coverage: &itsanas_store::Coverage) -> Resu
         )
     );
 
-    let short = node.store.under_replicated(REPLICATION_TARGET)?;
+    let short = node
+        .store
+        .under_replicated(REPLICATION_TARGET, itsanas_discover::now_unix())?;
     if !short.is_empty() {
         w!(
             concat!(
