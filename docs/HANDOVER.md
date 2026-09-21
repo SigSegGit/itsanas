@@ -12,13 +12,29 @@ contract.
 NEXT: 8.0m
 TITLE: 0m -- count the live copies, and let a machine leave politely
 WRITTEN-AT: 2026-09-18
-BASE: 54784d8
+BASE: 4d22b9d
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-21, a dead machine stopped counting as a copy** (§8 0m part 1).
+`Store::under_replicated` -- the query repair drains -- counted **every holder
+record whatever its age**. A machine that died six months ago still counted as
+one of your three copies, so repair never fired; the only thing that withdraws
+its records is a failed audit, and an audit needs that machine to answer. The
+ledger was optimistic in the one direction that loses data, and ROADMAP had said
+so in prose without anything acting on it.
+
+`holders::LIVE_FOR = REFRESH_AFTER * 2` is seven days: a record is refreshed
+every three and a half whenever that peer answers an audit or confirms during a
+push, so past this it has missed two consecutive opportunities. Shorter would
+re-replicate a fleet of machines that are usually off every quiet weekend;
+`CONFIRMED_FOR` itself is too generous, because "is this record worth anything"
+and "must I make another copy" are different questions and only the second costs
+copies when it is wrong.
 
 **2026-09-21, MVP tests D and E passed on the fleet, which neither had ever
 done.** Nicolas asked for a throwaway node that recovers files from somewhere
@@ -1590,7 +1606,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       directory, a ledger with files) writes no deletion to the log; and a
       folder emptied by accident has its deletions held, not replicated.
 
-   m. **Count the live copies, and let a machine leave politely.** Asked for
+   m. 🟨 **Count the live copies, and let a machine leave politely.** Part (1) built 2026-09-21; (2) and (3) are the next step, described at the end of this item. Asked for
       by Nicolas on 2026-09-17: each instance checks how many copies are live
       and asks for a new one elsewhere; a machine shutting down on purpose
       should first ask for copies, so a graceful exit can be told apart from a
@@ -1612,6 +1628,25 @@ Detail and measurements are in ROADMAP.md; this is the map.
       expected for (1): a holder silent past the window is not counted, and a
       chunk whose other copies are all silent is repaired; and for (2): a
       departure notice signed by another device is refused.
+
+      **(1) is built, 2026-09-21.** `holders::LIVE_FOR` is `REFRESH_AFTER * 2`
+      -- seven days, two missed opportunities to be confirmed -- and
+      `Index::under_replicated` now takes `now` and counts only records
+      confirmed within it. The arithmetic lives in the constant's own comment,
+      and two `const _: () = assert!(...)` in `holders.rs` pin the relation at
+      **compile time** -- stronger than the test that first held it, because a
+      relation between two constants cannot be true at runtime and false at
+      build time, and a test can be filtered out where a build cannot. The
+      counting defence is sabotage-verified with `scripts/sabotage.py`.
+
+      **(2) and (3) are the next step, and here is why rather than a shrug**: a
+      departure notice is an *appended* peer request and an appended coordinator
+      message, so it is a wire change, and §6 says those are never inserted.
+      That is a different kind of work from a one-constant liveness window; it
+      wants its own branch and its own sabotage of the "signed by another
+      device" refusal, and folding it in here would mix a data-safety fix with a
+      protocol addition in one review.
+
 
    n. **Refuse a file that will not fit, before copying it.** This is 8.1b,
       pulled forward on 2026-09-17: Nicolas calls it a basic feature, and asks

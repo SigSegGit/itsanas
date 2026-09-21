@@ -18,6 +18,15 @@ afternoon's work reapplied.
 The failure is not carelessness, it is the method: *editing* a sabotage back is
 a second edit that can fail on its own. Copying the file back cannot.
 
+What counts as red
+------------------
+
+A test that fails, or **a build that refuses to compile**. The second is not a
+consolation prize: a defence expressed as `const _: () = assert!(...)` cannot be
+turned off by filtering a test or running one configuration, and sabotaging it
+stops the build rather than a test. That case looked like silence here until
+this script was run against one, the day it was written.
+
 What it does
 ------------
 
@@ -109,7 +118,20 @@ def verify(name, defence, command, root):
             out.write(pristine.replace(live, dead))
 
         run = subprocess.run(command, cwd=root, capture_output=True, text=True)
-        return red_tests(run.stdout + run.stderr), None
+        output = run.stdout + run.stderr
+        red = red_tests(output)
+        if red:
+            return red, None
+
+        # A defence the compiler enforces -- `const _: () = assert!(...)`, a
+        # type that cannot be built wrong -- cannot turn a test red, because
+        # sabotaging it means nothing compiles and no test runs. That is the
+        # strongest verification there is and it looked like silence until this
+        # script was run against one on 2026-09-21.
+        if run.returncode != 0 and 'error' in output:
+            return ['(the build itself refused it)'], None
+
+        return [], None
     finally:
         # Whatever happened -- a failed build, a panic, a Ctrl-C -- the file goes
         # back byte for byte. This is the whole point of the script.
@@ -137,8 +159,9 @@ def main():
             continue
         if not red:
             print('%-40s NOTHING WENT RED' % name)
-            print('    Sabotaging this changed no test outcome, so no test is')
-            print('    checking it. That is the finding.')
+            print('    Sabotaging this changed no test outcome and the build')
+            print('    still succeeded, so nothing is checking it. That is the')
+            print('    finding.')
             failures += 1
             continue
         print('%-40s %d test(s) red' % (name, len(red)))

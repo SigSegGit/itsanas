@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-18 — 801 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 73 are red-team tests.**
+**Last updated: 2026-09-18 — 803 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 74 are red-team tests.**
 
-**685 of the 801 tests have an entry of their own on this page** — an *entry*,
+**687 of the 803 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -155,7 +155,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 151 |
+| `itsanas-store` unit | 153 |
 | `itsanas-store` integration (`tests/store.rs`) | 40 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
@@ -412,7 +412,10 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (136, plus the 15 vault tests below)
+# `itsanas-store` — unit tests (138, plus the 15 vault tests below)
+
+| **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
+| `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
 
 ## `reliability` — remembering that a peer failed (9)
 
@@ -435,7 +438,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 | `a_chunk_held_more_widely_than_its_target_has_no_shortfall` | Saturating rather than wrapping. An underflow here would ask the repair loop for four billion pushes. |
 | `a_key_round_trips_through_its_two_halves` / `a_key_of_the_wrong_length_is_refused_rather_than_guessed_at` | The encoding, and that a key written by something else is refused rather than reinterpreted. |
 
-## `index` — the placement ledger (15)
+## `index` — the placement ledger (17)
 
 Where this node's data actually went. This is what replaced the coordinator's
 signed node-set epoch: an owner who already keeps a log of their own chunks can

@@ -1269,11 +1269,19 @@ fn a_sync_round_records_which_peer_now_holds_this_nodes_data() {
     }
 
     assert!(
-        laptop.store.under_replicated(2).expect("risk").is_empty(),
+        laptop
+            .store
+            .under_replicated(2, itsanas_store::now_unix())
+            .expect("risk")
+            .is_empty(),
         "one remote holder plus this device meets a target of two"
     );
     assert!(
-        !laptop.store.under_replicated(3).expect("risk").is_empty(),
+        !laptop
+            .store
+            .under_replicated(3, itsanas_store::now_unix())
+            .expect("risk")
+            .is_empty(),
         "a target of three is not met by one remote holder"
     );
 }
@@ -1378,7 +1386,7 @@ fn a_host_that_refuses_to_store_is_not_recorded_as_holding_anything() {
     assert!(
         laptop
             .store
-            .under_replicated(2)
+            .under_replicated(2, itsanas_store::now_unix())
             .expect("risk")
             .iter()
             .all(AtRisk::only_copy),
@@ -1878,7 +1886,7 @@ fn red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder() {
     assert!(
         owner
             .store
-            .under_replicated(2)
+            .under_replicated(2, itsanas_store::now_unix())
             .expect("risk")
             .iter()
             .all(itsanas_store::AtRisk::only_copy),
@@ -2266,7 +2274,7 @@ fn the_side_that_dialled_ends_up_hosting_too() {
 
     let at_risk = reachable
         .store
-        .under_replicated(itsanas_store::REPLICATION_TARGET)
+        .under_replicated(itsanas_store::REPLICATION_TARGET, itsanas_store::now_unix())
         .unwrap();
     assert!(
         !at_risk.is_empty(),
@@ -2320,7 +2328,7 @@ fn the_owner_learns_who_is_holding_after_a_reciprocal_round() {
 
     let before = reachable
         .store
-        .under_replicated(itsanas_store::REPLICATION_TARGET)
+        .under_replicated(itsanas_store::REPLICATION_TARGET, itsanas_store::now_unix())
         .unwrap();
     let worst_before = before.first().map_or(0, |risk| risk.held_by);
 
@@ -2333,7 +2341,7 @@ fn the_owner_learns_who_is_holding_after_a_reciprocal_round() {
 
     let after = reachable
         .store
-        .under_replicated(itsanas_store::REPLICATION_TARGET)
+        .under_replicated(itsanas_store::REPLICATION_TARGET, itsanas_store::now_unix())
         .unwrap();
     let worst_after = after.first().map_or(0, |risk| risk.held_by);
 
