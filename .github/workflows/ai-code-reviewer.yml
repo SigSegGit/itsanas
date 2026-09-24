@@ -1,0 +1,94 @@
+name: AI code review
+
+# Reviews the diff -- never the repository -- with whichever OpenAI-compatible
+# provider the repository is configured for. See `AGENTS.md` for where this sits
+# among the agents, and `scripts/ci_code_reviewer.py` for what is sent and why.
+#
+# Configuration (Settings -> Secrets and variables -> Actions):
+#   secret    AI_API_KEY     required; the job fails without it
+#   variable  AI_MODEL_NAME  required; e.g. gemini-3.8-flash, gpt-4o-mini, deepseek-chat
+#   variable  AI_BASE_URL    optional; empty means api.openai.com
+#
+# `pull_request`, not `pull_request_target`: the diff is untrusted, and this job
+# must never run a fork's code with the repository's secrets. The consequence is
+# that a PR from a fork has no AI_API_KEY and this job fails on it, loudly, as
+# every missing-key case does.
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Review the diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The three-dot diff needs the merge base, which a shallow clone lacks.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - run: python -m pip install --disable-pip-version-check openai
+
+      # The reviewer's own tests, against a fake endpoint: before any key is
+      # needed, so a broken reviewer is named as one and not found mid-review.
+      - name: The reviewer's own tests
+        run: python scripts/test_ci_code_reviewer.py
+
+      - name: Required configuration is present
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_MODEL_NAME: ${{ vars.AI_MODEL_NAME }}
+        run: |
+          missing=0
+          if [ -z "$AI_API_KEY" ]; then
+            echo "::error::secret AI_API_KEY is not set (or not available to this run, e.g. a PR from a fork)"
+            missing=1
+          fi
+          if [ -z "$AI_MODEL_NAME" ]; then
+            echo "::error::repository variable AI_MODEL_NAME is not set"
+            missing=1
+          fi
+          [ "$missing" -eq 0 ] || exit 1
+          echo "AI_BASE_URL: ${{ vars.AI_BASE_URL || '(empty: api.openai.com)' }}"
+
+      - name: Choose the diff range
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            range="origin/$BASE_REF...HEAD"
+          elif [ -n "$BEFORE" ] && ! printf '%s' "$BEFORE" | grep -qE '^0+$'; then
+            # A push to main: review what the push added, not main against itself.
+            range="$BEFORE...$AFTER"
+          else
+            range="HEAD~1...HEAD"
+          fi
+          echo "AI_DIFF_RANGE=$range" >> "$GITHUB_ENV"
+          echo "diff range: $range"
+
+      - name: Review
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_BASE_URL: ${{ vars.AI_BASE_URL }}
+          AI_MODEL_NAME: ${{ vars.AI_MODEL_NAME }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/ci_code_reviewer.py
