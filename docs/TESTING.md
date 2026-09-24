@@ -134,8 +134,11 @@ cross-builds for aarch64 and runs the suite under `qemu-user-static` on an x86
 runner. At sixty seconds that job reported **eight tests timed out and 724
 seconds for the suite** — while the same suite on a real Raspberry Pi 4, slower
 silicon on an SSD, has nothing anywhere near a minute. The limit there was
-measuring an instruction-set emulator, so the `ci-emulated` profile allows five
-minutes. The exemption and its reason live in `scripts/check-test-budget.py`
+measuring an instruction-set emulator, so the `ci-emulated` profile allows three
+minutes -- and three minutes is also the ceiling no profile may pass, exempt or
+not: `HARD_CEILING` in the gate below. It allowed five until 2026-09-24; by then
+the whole emulated suite took 123 seconds, so no single test was near either
+limit. The exemption and its reason live in `scripts/check-test-budget.py`
 itself, which prints them on every run, so it cannot become the norm by sitting
 somewhere nobody reads.
 
