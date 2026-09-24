@@ -47,15 +47,18 @@ request" from the same day.)
   | Name | Kind | Required | Example |
   |---|---|---|---|
   | `AI_API_KEY` | secret | yes | provider's API key |
-  | `AI_MODEL_NAME` | variable | yes | `gemini-3.8-flash` (configured), `gpt-4o-mini`, `deepseek-chat` |
+  | `AI_MODEL_NAME` | variable | yes | a list, e.g. `gemini-flash-lite-latest,gemma-4-31b-it,gemini-3.8-flash` |
   | `AI_BASE_URL` | variable | no | empty = OpenAI; `https://generativelanguage.googleapis.com/v1beta/openai/`, `https://api.deepseek.com`, `https://api.moonshot.ai/v1` |
 
-- **Fails loudly.** A missing key or model, an API timeout (120 s), an API
-  error, an empty answer or a failed comment post turns the
-  job red with the reason in the log. Transient errors only — 503 overloaded,
-  429 rate-limited, a dropped connection — are retried after 20, 40 and 80 s:
-  Gemini's free tier answered 503 on its first real run. An empty diff is the only green run
-  without a review, and the log says so.
+- **Fails loudly.** A missing key, an API error, an empty answer or a failed
+  comment post turns the job red with the reason in the log. `AI_MODEL_NAME` is
+  a comma-separated list tried in order: a model that is overloaded (503/429,
+  after retries at 10 and 20 s), missing (404) or slow (90 s) hands over to the
+  next, and when none answers the job goes red and **lists the models the key
+  can use**. Gemini's free tier kept three flash models at 503 for minutes on
+  its first evening, which is why the list exists and why light models come
+  first. An empty diff is the only green run without a review, and the log
+  says so.
 - Its findings are **advice**: the job goes red for a broken reviewer, not for
   what the reviewer says. A BLOCKER in its comment is for a human, or Claude
   Code, to answer on the PR.

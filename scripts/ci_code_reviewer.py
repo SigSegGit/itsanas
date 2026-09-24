@@ -49,7 +49,7 @@ import urllib.request
 from typing import NoReturn
 
 DEFAULT_MAX_DIFF_CHARS = 120_000
-API_TIMEOUT_SECONDS = 120
+API_TIMEOUT_SECONDS = 90
 
 # Waits before each retry of a *transient* failure: 503 overloaded, 429 rate
 # limited, connection dropped. Gemini's free tier answered 503 "high demand" on
@@ -57,7 +57,12 @@ API_TIMEOUT_SECONDS = 120
 # two retries are a few seconds apart -- too short for an overload. Everything
 # else (bad key, unknown model, timeout) fails on the first attempt: retrying
 # those only delays the same red with the same reason.
-RETRY_WAITS_SECONDS = (20, 40, 80)
+#
+# Short, because AI_MODEL_NAME is a list and moving to the next model is the
+# better cure for an overload: on 2026-09-24 three Gemini flash models stayed
+# at 503 through 20+40+80 s each, and five models at that rate would outlast
+# the job's ten minutes.
+RETRY_WAITS_SECONDS = (10, 20)
 
 # Lockfiles are large, machine-written, and reviewed by cargo-deny already.
 EXCLUDED_PATHS = [":(exclude)Cargo.lock", ":(exclude)**/Cargo.lock"]
@@ -206,7 +211,11 @@ def review(diff: str) -> tuple:
                 )
                 break
             except APITimeoutError:
-                fail(f"API timed out after {API_TIMEOUT_SECONDS}s (endpoint {target}, model {model})")
+                # One slow model is not the end of the list: an overloaded
+                # service answers late as often as it answers 503. The run still
+                # fails, loudly, if no model in the list answers.
+                failures.append(f"{model}: timed out after {API_TIMEOUT_SECONDS}s")
+                break
             except (InternalServerError, RateLimitError, APIConnectionError) as e:
                 if not waits:
                     failures.append(f"{model}: still {type(e).__name__} after "
