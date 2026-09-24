@@ -56,8 +56,9 @@ explicitly asked for**, not as a step of every change.
 
 ## Aider + local Qwen
 
-`scripts/local_ai_helper.sh` starts Aider on whatever model LM Studio serves at
-`http://localhost:1234/v1`; `scripts/local_ai_helper.sh review` reviews the
-branch before a push without editing anything. The optional `pre-push` hook is
+`scripts/local_ai_helper.sh` starts Aider on `qwen/qwen3-coder-30b` served by
+LM Studio, on whatever port `lms server status` reports;
+`scripts/local_ai_helper.sh review` reviews the branch before a push without
+editing anything, and is killed after 180 s. The optional `pre-push` hook is
 documented, not installed: [`docs/LOCAL_AI_HOOKS.md`](docs/LOCAL_AI_HOOKS.md).
 It never blocks a push.

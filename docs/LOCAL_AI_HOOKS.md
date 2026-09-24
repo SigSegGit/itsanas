@@ -7,8 +7,10 @@ the CI job `.github/workflows/ai-code-reviewer.yml` (see [`AGENTS.md`](../AGENTS
 ## 1. Manual use
 
 Prerequisites: LM Studio with its server started (`lms server start`, or the
-Developer tab → Start Server) and a model loaded, e.g. Qwen2.5-Coder; Aider
-installed (`python -m pip install aider-install && aider-install`).
+Developer tab → Start Server) and the model downloaded — it does not need to be
+loaded, LM Studio loads it on the first request; Aider installed
+(`python -m pip install aider-install && aider-install`, which puts `aider` in
+`~/.local/bin` inside its own Python 3.12 environment).
 
 ```bash
 # Interactive Aider session on the loaded model. Any Aider argument passes through.
@@ -22,15 +24,30 @@ scripts/local_ai_helper.sh review origin/main
 
 | Variable | Default | |
 |---|---|---|
-| `LMSTUDIO_URL` | `http://localhost:1234/v1` | |
-| `LOCAL_AI_MODEL` | first model LM Studio lists | the id as `curl $LMSTUDIO_URL/models` shows it |
+| `LMSTUDIO_URL` | the port `lms server status` reports, else `http://localhost:1234/v1` | not a fixed 1234: on Nicolas's laptop the server is on 54321, for itsaresume |
+| `LOCAL_AI_MODEL` | `qwen/qwen3-coder-30b` | an id from `lms ls`; MoE with 3B active, usable on 8 GB of VRAM with RAM offload |
 | `LOCAL_AI_MAX_DIFF_CHARS` | `60000` | the diff is cut there, and the model is told so |
+| `LOCAL_AI_TIMEOUT` | `180` | seconds before `review` is killed |
 
-Exit codes: `0` done, `2` LM Studio unreachable or no model loaded, `3` Aider
-not installed. The check against LM Studio has a 2-second timeout.
+Exit codes: `0` done, `2` LM Studio unreachable or the model not available,
+`3` Aider not installed, `124` `review` ran past `LOCAL_AI_TIMEOUT`. The check
+against LM Studio has a 2-second timeout.
 
-On Windows, run it from Git Bash (it is a bash script; `curl` and `git` must be
-on the `PATH`, which Git for Windows provides).
+**What to expect from `review`**, measured on 2026-09-24 on the laptop (RTX 4070
+8 GB, 64 GB RAM): about 30 s on a clean 25 kB diff, answering "nothing found";
+about 2 minutes on an 863-byte diff with a planted flaw — a node-claim signature
+check turned into "log and accept" — which it named at the right `file:line` in
+three runs out of three. Before the answer was capped at 1,500 tokens, two of
+those three runs found the flaw and then repeated themselves for over eight
+minutes; that is why the timeout exists. It answers in French whatever the
+prompt asks: Aider follows the system locale.
+
+What it is not: a proof that a diff is safe. One planted flaw caught three times
+is evidence the review can see an obvious hole, not that it sees subtle ones.
+
+On Windows, run it from **Git Bash**, not WSL: `curl` and `git` come with Git
+for Windows, and under WSL's default NAT networking `localhost` is the Linux VM,
+not the Windows host LM Studio listens on.
 
 ## 2. As a `pre-push` hook, fail-safe
 
@@ -73,6 +90,7 @@ status=$?
 case $status in
     0) ;;
     2|3) echo "pre-push: local AI unavailable (exit $status), push continues" >&2 ;;
+    124) echo "pre-push: local AI review timed out, push continues" >&2 ;;
     *)   echo "pre-push: local AI review failed (exit $status), push continues" >&2 ;;
 esac
 exit 0
