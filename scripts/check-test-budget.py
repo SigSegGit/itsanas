@@ -41,13 +41,18 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # it is two edits and a decision rather than one edit and a habit.
 BUDGET = 60
 
+# The ceiling no profile may exceed, exempt or not: no test in CI runs longer
+# than three minutes (Nicolas, 2026-09-24). An exemption is a reason to allow
+# more than BUDGET, never a reason to allow more than this.
+HARD_CEILING = 180
+
 # Profiles allowed to exceed it, and why. Keeping the reason here rather than
 # only in the TOML means the exemption is visible from the gate: running this
 # script prints what is exempt, so an exemption cannot quietly become the norm
 # by being somewhere nobody looks.
 EXEMPT = {
     "ci-emulated": (
-        300,
+        180,
         "runs the suite under qemu-user-static on an x86 runner. At 60s that job "
         "reported eight timeouts and 724s for the suite, while the same suite on "
         "a real Raspberry Pi 4 has nothing near a minute -- so the limit there "
@@ -57,6 +62,13 @@ EXEMPT = {
 
 problems = []
 exemptions = []
+
+for name, (ceiling, _) in EXEMPT.items():
+    if ceiling > HARD_CEILING:
+        problems.append(
+            f"the exemption for `{name}` allows {ceiling}s per test, over the "
+            f"{HARD_CEILING}s that no test in CI may exceed"
+        )
 
 
 def parse_timeout(profile, name):
@@ -194,7 +206,7 @@ if problems:
     sys.exit(1)
 
 print(
-    f"test budget: {BUDGET}s per test, terminating; "
+    f"test budget: {BUDGET}s per test, {HARD_CEILING}s for any exemption, terminating; "
     f"every CI test invocation goes through nextest, and the doctests are run"
 )
 for exemption in exemptions:
