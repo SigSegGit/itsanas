@@ -15,6 +15,13 @@ Designs and implements. Every behaviour change starts from a test that fails
 without it (`scripts/sabotage.py` checks that the test actually bites). Keeps
 `docs/` current in the same change as the code.
 
+**Test output is read by an agent, so it is sized for one.** Run the suite with
+`cargo nextest run --profile ci --workspace --all-features`: a green run is six
+lines, and slow or failed tests still come out in full. The default profile
+prints about 800 `PASS` lines that say nothing the summary does not. No test in
+CI may run longer than three minutes; `scripts/check-test-budget.py` enforces
+it on every nextest profile CI uses.
+
 **Code self-review is delegated to CI.** The routine critique of a change — the
 second reading looking for missing tests, unbounded memory, P2P security
 holes — is the AI code reviewer's job on the PR. **Rodin is invoked only when
