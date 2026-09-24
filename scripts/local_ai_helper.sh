@@ -14,9 +14,11 @@
 #                     LM Studio loads it on the first request if it is not loaded.
 #   LOCAL_AI_MAX_DIFF_CHARS  cap on the diff sent by `review` (default 60000;
 #                     a local model's context is smaller than a hosted one's)
+#   LOCAL_AI_TIMEOUT  seconds before `review` is killed (default 180)
 #
-# Exit codes: 0 ok, 2 LM Studio unreachable or no model, 3 aider not installed.
-# The pre-push hook in docs/LOCAL_AI_HOOKS.md relies on 2 and 3 to skip quietly.
+# Exit codes: 0 ok, 2 LM Studio unreachable or no model, 3 aider not installed,
+# 124 `review` ran past LOCAL_AI_TIMEOUT. The pre-push hook in
+# docs/LOCAL_AI_HOOKS.md lets the push through on every one of them.
 
 set -euo pipefail
 
@@ -29,6 +31,7 @@ if [ -z "${LMSTUDIO_URL:-}" ]; then
     LMSTUDIO_URL="http://localhost:${port:-1234}/v1"
 fi
 MAX_DIFF="${LOCAL_AI_MAX_DIFF_CHARS:-60000}"
+TIMEOUT="${LOCAL_AI_TIMEOUT:-180}"
 
 die() { code=$1; shift; printf 'local_ai_helper: %s\n' "$*" >&2; exit "$code"; }
 
@@ -91,7 +94,18 @@ msg=$(mktemp)
 # Aider writes its chat and input history into the current directory, which is
 # the repository: the first real run left .aider.chat.history.md at its root.
 hist=$(mktemp)
-trap 'rm -f "$msg" "$hist" "$hist.in"' EXIT
+settings=$(mktemp)
+trap 'rm -f "$msg" "$hist" "$hist.in" "$settings"' EXIT
+
+# Two bounds, because qwen3-coder-30b does not always stop: on 2026-09-24 two
+# runs out of three on an 863-character diff found the planted flaw and then
+# repeated themselves for over eight minutes. max_tokens bounds the answer;
+# `timeout` bounds everything else, including a model that is slow to load.
+cat > "$settings" <<EOF
+- name: openai/$model
+  extra_params:
+    max_tokens: 1500
+EOF
 {
     echo "Review this diff of ITSaNAS (Rust, P2P zero-knowledge storage) for DEFECTS IN"
     echo "THE CHANGED LINES. Look for: a behaviour change with no test that would fail if"
@@ -112,6 +126,7 @@ echo "local_ai_helper: reviewing $base...HEAD (${#diff} chars) with $model" >&2
 # `ask` mode: Aider's default edit mode tells the model to work on files added
 # to the chat, and with none added the first real run answered "no content was
 # provided" to an 8.9k-token diff.
-aider "${aider_base[@]}" --chat-mode ask --dry-run --no-auto-commits --no-git \
+timeout "$TIMEOUT" aider "${aider_base[@]}" --model-settings-file "$settings" \
+    --chat-mode ask --dry-run --no-auto-commits --no-git \
     --yes-always --no-fancy-input --message-file "$msg" \
     --chat-history-file "$hist" --input-history-file "$hist.in"
