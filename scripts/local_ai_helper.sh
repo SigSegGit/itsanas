@@ -113,4 +113,5 @@ echo "local_ai_helper: reviewing $base...HEAD (${#diff} chars) with $model" >&2
 # to the chat, and with none added the first real run answered "no content was
 # provided" to an 8.9k-token diff.
 aider "${aider_base[@]}" --chat-mode ask --dry-run --no-auto-commits --no-git \
-    --yes-always --no-fancy-input --message-file "$msg" \n    --chat-history-file "$hist" --input-history-file "$hist.in"
+    --yes-always --no-fancy-input --message-file "$msg" \
+    --chat-history-file "$hist" --input-history-file "$hist.in"
