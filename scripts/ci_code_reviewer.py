@@ -22,7 +22,8 @@ official `openai` client:
                       https://api.deepseek.com
                       https://api.moonshot.ai/v1
                       https://generativelanguage.googleapis.com/v1beta/openai/
-    AI_MODEL_NAME   required; e.g. gemini-3.8-flash, gpt-4o-mini, deepseek-chat
+    AI_MODEL_NAME   required; one model or a comma-separated fallback list,
+                    e.g. gemini-3.8-flash, gpt-4o-mini, deepseek-chat
 
 Failure is loud
 ---------------
@@ -171,53 +172,77 @@ def truncate(diff: str, limit: int):
     return "".join(kept), omitted
 
 
-def review(diff: str) -> str:
+def review(diff: str) -> tuple:
     try:
         from openai import (OpenAI, APIConnectionError, APIError, APITimeoutError,
-                            InternalServerError, RateLimitError)
+                            InternalServerError, NotFoundError, RateLimitError)
     except ImportError as e:
         fail(f"the `openai` package is not installed: {e}")
 
     api_key = require_env("AI_API_KEY")
-    model = require_env("AI_MODEL_NAME")
+    # A comma-separated list, tried in order. Gemini's free tier answered 503
+    # "high demand" for over two minutes on one model on 2026-09-24: retrying the
+    # same model does not help then, another model usually does.
+    models = [m.strip() for m in require_env("AI_MODEL_NAME").split(",") if m.strip()]
     base_url = os.environ.get("AI_BASE_URL", "").strip() or None
 
     client = OpenAI(api_key=api_key, base_url=base_url,
                     timeout=API_TIMEOUT_SECONDS, max_retries=0)
     target = base_url or "https://api.openai.com/v1"
-    print(f"ci_code_reviewer: model={model} endpoint={target} diff_chars={len(diff)}")
+    print(f"ci_code_reviewer: models={','.join(models)} endpoint={target} diff_chars={len(diff)}")
 
-    waits = list(RETRY_WAITS_SECONDS)
-    while True:
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"```diff\n{diff}\n```"},
-                ],
-            )
+    failures = []
+    for model in models:
+        response = None
+        waits = list(RETRY_WAITS_SECONDS)
+        while True:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": f"```diff\n{diff}\n```"},
+                    ],
+                )
+                break
+            except APITimeoutError:
+                fail(f"API timed out after {API_TIMEOUT_SECONDS}s (endpoint {target}, model {model})")
+            except (InternalServerError, RateLimitError, APIConnectionError) as e:
+                if not waits:
+                    failures.append(f"{model}: still {type(e).__name__} after "
+                                    f"{len(RETRY_WAITS_SECONDS)} retries: {e}")
+                    break
+                wait = waits.pop(0)
+                print(f"ci_code_reviewer: {model}: transient {type(e).__name__}, retrying in {wait}s")
+                time.sleep(wait)
+            except NotFoundError as e:
+                # A retired or misspelled model: the next one in the list may exist.
+                failures.append(f"{model}: not found: {e}")
+                break
+            except APIError as e:
+                fail(f"API error from {target} (model {model}): {type(e).__name__}: {e}")
+            except Exception as e:  # DNS, TLS, anything else: still not silent
+                fail(f"cannot reach {target}: {type(e).__name__}: {e}")
+        if response is not None:
             break
-        except APITimeoutError:
-            fail(f"API timed out after {API_TIMEOUT_SECONDS}s (endpoint {target}, model {model})")
-        except (InternalServerError, RateLimitError, APIConnectionError) as e:
-            if not waits:
-                fail(f"API still failing after {len(RETRY_WAITS_SECONDS)} retries "
-                     f"({target}, model {model}): {type(e).__name__}: {e}")
-            wait = waits.pop(0)
-            print(f"ci_code_reviewer: transient {type(e).__name__}, retrying in {wait}s")
-            time.sleep(wait)
-        except APIError as e:
-            fail(f"API error from {target} (model {model}): {type(e).__name__}: {e}")
-        except Exception as e:  # DNS, TLS, anything else: still not silent
-            fail(f"cannot reach {target}: {type(e).__name__}: {e}")
+        print(f"ci_code_reviewer: giving up on {model}")
+    else:
+        # Name what this key can use, so the fix is one variable edit rather
+        # than a guess -- the first two model names tried here were guesses.
+        try:
+            available = sorted(m.id for m in client.models.list())
+            listing = ", ".join(available) if available else "(empty list)"
+        except Exception as e:
+            listing = f"(could not list models: {type(e).__name__}: {e})"
+        fail("no model in AI_MODEL_NAME answered:\n  " + "\n  ".join(failures)
+             + f"\nmodels this key can use at {target}: {listing}")
 
     if not response.choices:
         fail("API returned no choices")
     content = (response.choices[0].message.content or "").strip()
     if not content:
         fail(f"API returned an empty answer (finish_reason={response.choices[0].finish_reason})")
-    return content
+    return model, content
 
 
 def post_pr_comment(body: str) -> None:
@@ -274,9 +299,9 @@ def main() -> None:
     print(f"ci_code_reviewer: range {rng}, {len(diff)} chars, "
           f"{len(split_by_file(diff))} files, sent {len(kept)} chars")
 
-    answer = review(kept)
+    model_used, answer = review(kept)
 
-    header = f"### AI review (`{os.environ.get('AI_MODEL_NAME')}`, diff `{rng}`)\n\n"
+    header = f"### AI review (`{model_used}`, diff `{rng}`)\n\n"
     if omitted:
         header += (
             f"> **Warning: the diff is {len(diff)} characters, over the "
