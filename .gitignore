@@ -31,3 +31,6 @@ android/app/build/
 android/local.properties
 android/app/src/main/jniLibs/
 android/.kotlin/
+
+# Aider's history and cache, when it is run by hand rather than by the helper.
+.aider*

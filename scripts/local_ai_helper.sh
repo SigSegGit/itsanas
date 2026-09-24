@@ -7,9 +7,11 @@
 #                                                else origin/main); edits nothing
 #
 # Environment:
-#   LMSTUDIO_URL      default http://localhost:1234/v1
-#   LOCAL_AI_MODEL    model id as LM Studio lists it; default: the first model
-#                     LM Studio reports as available
+#   LMSTUDIO_URL      default: the port `lms server status` reports, else
+#                     LM Studio's own default http://localhost:1234/v1
+#   LOCAL_AI_MODEL    model id as LM Studio lists it; default qwen/qwen3-coder-30b
+#                     (MoE, 3B active: usable on 8 GB of VRAM with RAM offload).
+#                     LM Studio loads it on the first request if it is not loaded.
 #   LOCAL_AI_MAX_DIFF_CHARS  cap on the diff sent by `review` (default 60000;
 #                     a local model's context is smaller than a hosted one's)
 #
@@ -18,7 +20,14 @@
 
 set -euo pipefail
 
-LMSTUDIO_URL="${LMSTUDIO_URL:-http://localhost:1234/v1}"
+# Not a fixed 1234: on Nicolas's laptop the server is on 54321 because
+# itsaresume's router is configured for it, and a helper that assumed 1234
+# reported "not answering" against a server that was up.
+if [ -z "${LMSTUDIO_URL:-}" ]; then
+    # `lms` prints its status on stderr, not stdout.
+    port=$(lms server status 2>&1 | grep -o 'port [0-9]*' | grep -o '[0-9]*' || true)
+    LMSTUDIO_URL="http://localhost:${port:-1234}/v1"
+fi
 MAX_DIFF="${LOCAL_AI_MAX_DIFF_CHARS:-60000}"
 
 die() { code=$1; shift; printf 'local_ai_helper: %s\n' "$*" >&2; exit "$code"; }
@@ -29,12 +38,13 @@ command -v aider >/dev/null 2>&1 \
 models_json=$(curl -fsS --max-time 2 "$LMSTUDIO_URL/models" 2>/dev/null) \
     || die 2 "LM Studio is not answering at $LMSTUDIO_URL (start its server: lms server start)"
 
-model="${LOCAL_AI_MODEL:-}"
-if [ -z "$model" ]; then
-    model=$(printf '%s' "$models_json" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' \
-        | head -n1 | sed 's/.*"\([^"]*\)"$/\1/')
-    [ -n "$model" ] || die 2 "LM Studio at $LMSTUDIO_URL lists no model; load one or set LOCAL_AI_MODEL"
-fi
+# A named default, not "the first model listed": LM Studio lists every model
+# on disk, in no useful order, and the first one on this laptop was a 1.9B
+# speculative-decoding draft model -- it would have answered, badly, and
+# nothing would have said so.
+model="${LOCAL_AI_MODEL:-qwen/qwen3-coder-30b}"
+printf '%s' "$models_json" | grep -qF "\"$model\"" \
+    || die 2 "LM Studio at $LMSTUDIO_URL has no model '$model' (lms ls lists them; set LOCAL_AI_MODEL)"
 
 # LM Studio ignores the key, but the OpenAI client Aider uses refuses an empty one.
 aider_base=(
@@ -44,7 +54,14 @@ aider_base=(
     --no-show-model-warnings
     --no-check-update
     --no-analytics
+    # Aider offers to fetch every URL it sees in a message, and --yes-always
+    # accepts: on the first real run a diff mentioning five URLs made this
+    # laptop open a headless browser on each of them. Off.
+    --no-detect-urls
 )
+
+# Aider prints through Python; the Windows console code page garbles accents.
+export PYTHONUTF8=1
 
 cd "$(git rev-parse --show-toplevel)"
 
@@ -71,12 +88,19 @@ if [ "${#diff}" -gt "$MAX_DIFF" ]; then
 fi
 
 msg=$(mktemp)
-trap 'rm -f "$msg"' EXIT
+# Aider writes its chat and input history into the current directory, which is
+# the repository: the first real run left .aider.chat.history.md at its root.
+hist=$(mktemp)
+trap 'rm -f "$msg" "$hist" "$hist.in"' EXIT
 {
-    echo "Review this diff of ITSaNAS (Rust, P2P zero-knowledge storage). Axes: does each"
-    echo "behaviour change have a test that fails if reverted; unbounded memory driven by"
-    echo "peer input; P2P security (auth/signature checks, replay, trusting a peer). Terse,"
-    echo "file:line per finding, no praise. Do not edit any file. $note"
+    echo "Review this diff of ITSaNAS (Rust, P2P zero-knowledge storage) for DEFECTS IN"
+    echo "THE CHANGED LINES. Look for: a behaviour change with no test that would fail if"
+    echo "it were reverted; memory that grows without bound on input from a peer; a P2P"
+    echo "security hole (skipped auth or signature check, replay, trusting a peer's word)."
+    echo "These are things to look for, not features every file must implement: a doc or"
+    echo "shell script that has nothing to do with them is not a finding. Each finding:"
+    echo "file:line, what is wrong, how it fails. If there is none, answer exactly"
+    echo "'nothing found'. English, terse, no praise. Do not edit any file. $note"
     echo
     echo '```diff'
     printf '%s\n' "$diff"
@@ -85,5 +109,8 @@ trap 'rm -f "$msg"' EXIT
 
 echo "local_ai_helper: reviewing $base...HEAD (${#diff} chars) with $model" >&2
 # Not exec: the trap must still remove the message file afterwards.
-aider "${aider_base[@]}" --dry-run --no-auto-commits --no-git --yes-always \
-    --message-file "$msg"
+# `ask` mode: Aider's default edit mode tells the model to work on files added
+# to the chat, and with none added the first real run answered "no content was
+# provided" to an 8.9k-token diff.
+aider "${aider_base[@]}" --chat-mode ask --dry-run --no-auto-commits --no-git \
+    --yes-always --no-fancy-input --message-file "$msg" \n    --chat-history-file "$hist" --input-history-file "$hist.in"
