@@ -22,7 +22,7 @@ official `openai` client:
                       https://api.deepseek.com
                       https://api.moonshot.ai/v1
                       https://generativelanguage.googleapis.com/v1beta/openai/
-    AI_MODEL_NAME   required; e.g. gpt-4o-mini, deepseek-chat, gemini-2.0-flash
+    AI_MODEL_NAME   required; e.g. gemini-3.8-flash, gpt-4o-mini, deepseek-chat
 
 Failure is loud
 ---------------
@@ -42,12 +42,21 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from typing import NoReturn
 
 DEFAULT_MAX_DIFF_CHARS = 120_000
-API_TIMEOUT_SECONDS = 180
+API_TIMEOUT_SECONDS = 120
+
+# Waits before each retry of a *transient* failure: 503 overloaded, 429 rate
+# limited, connection dropped. Gemini's free tier answered 503 "high demand" on
+# the first run that got past configuration (2026-09-24), and the client's own
+# two retries are a few seconds apart -- too short for an overload. Everything
+# else (bad key, unknown model, timeout) fails on the first attempt: retrying
+# those only delays the same red with the same reason.
+RETRY_WAITS_SECONDS = (20, 40, 80)
 
 # Lockfiles are large, machine-written, and reviewed by cargo-deny already.
 EXCLUDED_PATHS = [":(exclude)Cargo.lock", ":(exclude)**/Cargo.lock"]
@@ -164,7 +173,8 @@ def truncate(diff: str, limit: int):
 
 def review(diff: str) -> str:
     try:
-        from openai import OpenAI, APIError, APITimeoutError
+        from openai import (OpenAI, APIConnectionError, APIError, APITimeoutError,
+                            InternalServerError, RateLimitError)
     except ImportError as e:
         fail(f"the `openai` package is not installed: {e}")
 
@@ -173,23 +183,34 @@ def review(diff: str) -> str:
     base_url = os.environ.get("AI_BASE_URL", "").strip() or None
 
     client = OpenAI(api_key=api_key, base_url=base_url,
-                    timeout=API_TIMEOUT_SECONDS, max_retries=2)
+                    timeout=API_TIMEOUT_SECONDS, max_retries=0)
     target = base_url or "https://api.openai.com/v1"
     print(f"ci_code_reviewer: model={model} endpoint={target} diff_chars={len(diff)}")
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"```diff\n{diff}\n```"},
-            ],
-        )
-    except APITimeoutError:
-        fail(f"API timed out after {API_TIMEOUT_SECONDS}s (endpoint {target}, model {model})")
-    except APIError as e:
-        fail(f"API error from {target} (model {model}): {type(e).__name__}: {e}")
-    except Exception as e:  # connection refused, DNS, TLS: still not silent
-        fail(f"cannot reach {target}: {type(e).__name__}: {e}")
+
+    waits = list(RETRY_WAITS_SECONDS)
+    while True:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": f"```diff\n{diff}\n```"},
+                ],
+            )
+            break
+        except APITimeoutError:
+            fail(f"API timed out after {API_TIMEOUT_SECONDS}s (endpoint {target}, model {model})")
+        except (InternalServerError, RateLimitError, APIConnectionError) as e:
+            if not waits:
+                fail(f"API still failing after {len(RETRY_WAITS_SECONDS)} retries "
+                     f"({target}, model {model}): {type(e).__name__}: {e}")
+            wait = waits.pop(0)
+            print(f"ci_code_reviewer: transient {type(e).__name__}, retrying in {wait}s")
+            time.sleep(wait)
+        except APIError as e:
+            fail(f"API error from {target} (model {model}): {type(e).__name__}: {e}")
+        except Exception as e:  # DNS, TLS, anything else: still not silent
+            fail(f"cannot reach {target}: {type(e).__name__}: {e}")
 
     if not response.choices:
         fail("API returned no choices")

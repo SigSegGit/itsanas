@@ -24,8 +24,15 @@ it on every nextest profile CI uses.
 
 **Code self-review is delegated to CI.** The routine critique of a change — the
 second reading looking for missing tests, unbounded memory, P2P security
-holes — is the AI code reviewer's job on the PR. **Rodin is invoked only when
-explicitly asked for**, not as a step of every change.
+holes — is the AI code reviewer's job on the PR, not a Claude Code pass per
+commit.
+
+**Rodin before each major step, once.** A major step is a `docs/HANDOVER.md` §8
+item, or anything Nicolas calls one. Rodin critiques the *plan* before the code
+is written, where a wrong design is cheapest to drop; he is not re-run per
+commit or per CI run, which is where the tokens went. Outside major steps, only
+when Nicolas asks. (Nicolas, 2026-09-24; this replaced "only on explicit
+request" from the same day.)
 
 ## AI code reviewer (CI)
 
@@ -40,12 +47,14 @@ explicitly asked for**, not as a step of every change.
   | Name | Kind | Required | Example |
   |---|---|---|---|
   | `AI_API_KEY` | secret | yes | provider's API key |
-  | `AI_MODEL_NAME` | variable | yes | `gpt-4o-mini`, `gemini-2.0-flash`, `deepseek-chat`, `kimi-k2-0905-preview` |
+  | `AI_MODEL_NAME` | variable | yes | `gemini-3.8-flash` (configured), `gpt-4o-mini`, `deepseek-chat` |
   | `AI_BASE_URL` | variable | no | empty = OpenAI; `https://generativelanguage.googleapis.com/v1beta/openai/`, `https://api.deepseek.com`, `https://api.moonshot.ai/v1` |
 
-- **Fails loudly.** A missing key or model, an API timeout (180 s, two
-  retries), an API error, an empty answer or a failed comment post turns the
-  job red with the reason in the log. An empty diff is the only green run
+- **Fails loudly.** A missing key or model, an API timeout (120 s), an API
+  error, an empty answer or a failed comment post turns the
+  job red with the reason in the log. Transient errors only — 503 overloaded,
+  429 rate-limited, a dropped connection — are retried after 20, 40 and 80 s:
+  Gemini's free tier answered 503 on its first real run. An empty diff is the only green run
   without a review, and the log says so.
 - Its findings are **advice**: the job goes red for a broken reviewer, not for
   what the reviewer says. A BLOCKER in its comment is for a human, or Claude
@@ -56,7 +65,7 @@ explicitly asked for**, not as a step of every change.
 
 ## Aider + local Qwen
 
-`scripts/local_ai_helper.sh` starts Aider on `qwen/qwen3-coder-30b` served by
+`scripts/local_ai_helper.sh` starts Aider on `qwen/qwen3-coder-next` served by
 LM Studio, on whatever port `lms server status` reports;
 `scripts/local_ai_helper.sh review` reviews the branch before a push without
 editing anything, and is killed after 180 s. The optional `pre-push` hook is

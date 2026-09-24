@@ -9,9 +9,10 @@
 # Environment:
 #   LMSTUDIO_URL      default: the port `lms server status` reports, else
 #                     LM Studio's own default http://localhost:1234/v1
-#   LOCAL_AI_MODEL    model id as LM Studio lists it; default qwen/qwen3-coder-30b
-#                     (MoE, 3B active: usable on 8 GB of VRAM with RAM offload).
-#                     LM Studio loads it on the first request if it is not loaded.
+#   LOCAL_AI_MODEL    model id as LM Studio lists it; default qwen/qwen3-coder-next
+#                     (80B MoE, 3B active; 48.5 GB, so RAM offload on an 8 GB GPU).
+#                     Chosen by measurement, see docs/LOCAL_AI_HOOKS.md. Loaded
+#                     with a 32k context if `lms` is here and it is not loaded.
 #   LOCAL_AI_MAX_DIFF_CHARS  cap on the diff sent by `review` (default 60000;
 #                     a local model's context is smaller than a hosted one's)
 #   LOCAL_AI_TIMEOUT  seconds before `review` is killed (default 180)
@@ -45,9 +46,19 @@ models_json=$(curl -fsS --max-time 2 "$LMSTUDIO_URL/models" 2>/dev/null) \
 # on disk, in no useful order, and the first one on this laptop was a 1.9B
 # speculative-decoding draft model -- it would have answered, badly, and
 # nothing would have said so.
-model="${LOCAL_AI_MODEL:-qwen/qwen3-coder-30b}"
+model="${LOCAL_AI_MODEL:-qwen/qwen3-coder-next}"
 printf '%s' "$models_json" | grep -qF "\"$model\"" \
     || die 2 "LM Studio at $LMSTUDIO_URL has no model '$model' (lms ls lists them; set LOCAL_AI_MODEL)"
+
+# Loaded explicitly rather than left to LM Studio's load-on-first-request,
+# which uses whatever default context the model has -- a 60 000-character diff
+# is about 17k tokens and must fit. Not possible from WSL, where there is no
+# `lms`; there the model has to be loaded already.
+if command -v lms >/dev/null 2>&1 && ! lms ps 2>&1 | grep -qF "$model"; then
+    echo "local_ai_helper: loading $model with a 32k context (about 2 minutes)" >&2
+    timeout 300 lms load "$model" --context-length 32768 -y >/dev/null 2>&1 \
+        || die 2 "could not load $model (not enough memory? lms ps shows what is loaded)"
+fi
 
 # LM Studio ignores the key, but the OpenAI client Aider uses refuses an empty one.
 aider_base=(
@@ -97,9 +108,9 @@ hist=$(mktemp)
 settings=$(mktemp)
 trap 'rm -f "$msg" "$hist" "$hist.in" "$settings"' EXIT
 
-# Two bounds, because qwen3-coder-30b does not always stop: on 2026-09-24 two
-# runs out of three on an 863-character diff found the planted flaw and then
-# repeated themselves for over eight minutes. max_tokens bounds the answer;
+# Two bounds, because a local model does not always stop: on 2026-09-24
+# qwen3-coder-30b, then the default, found a planted flaw in two runs out of
+# three and then repeated itself for over eight minutes. max_tokens bounds the answer;
 # `timeout` bounds everything else, including a model that is slow to load.
 cat > "$settings" <<EOF
 - name: openai/$model

@@ -6,7 +6,7 @@ name: AI code review
 #
 # Configuration (Settings -> Secrets and variables -> Actions):
 #   secret    AI_API_KEY     required; the job fails without it
-#   variable  AI_MODEL_NAME  required; e.g. gpt-4o-mini, deepseek-chat, gemini-2.0-flash
+#   variable  AI_MODEL_NAME  required; e.g. gemini-3.8-flash, gpt-4o-mini, deepseek-chat
 #   variable  AI_BASE_URL    optional; empty means api.openai.com
 #
 # `pull_request`, not `pull_request_target`: the diff is untrusted, and this job
