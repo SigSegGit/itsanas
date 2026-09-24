@@ -26,6 +26,16 @@ cargo nextest run --workspace --all-features    # about half a minute
 cargo test --doc --workspace --all-features     # nextest does not run doctests
 ```
 
+**Reading the output.** The default profile prints one `PASS` line per test --
+about 800 lines for a green run, which buries the one line that matters and, for
+an agent reading it, costs tokens for nothing. `--profile ci` prints only what
+needs reading: tests over 20 seconds, failures with their full output, and the
+summary. A green run is six lines.
+
+```bash
+cargo nextest run --profile ci --workspace --all-features
+```
+
 `cargo test --workspace` still works and still passes. It simply has no
 per-test timeout, so a test that hangs under it hangs until you notice.
 

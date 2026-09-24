@@ -75,18 +75,28 @@ fail-fast = false
 #
 # So the limit there is not measuring this project. It is measuring an
 # instruction-set emulator, and lowering the code's cost would not move it.
-# Five minutes, which is comfortably above the slowest thing observed under
-# emulation and still small enough to catch a genuine hang.
+#
+# Three minutes, and no more. It was five until 2026-09-24, when Nicolas set a
+# hard rule: no test in CI may run longer than three minutes, emulated or not.
+# By then the whole emulated suite took 123 s (794 tests, run 36027510096), so
+# no single test can be near 180 s -- five minutes had become a ceiling nothing
+# approached, which only delays the moment a real hang is named.
+#
+# It lists slow tests (over 60 s) rather than failures alone, for the reason
+# given on the `ci` profile below: a test drifting towards the limit must be
+# visible before the run where it crosses it. Passing tests stay silent, so
+# the log is the slow and the failed, not 794 lines of PASS.
 #
 # `scripts/check-test-budget.py` knows about this profile by name and prints
 # the reason, so that the exemption is visible from the gate rather than only
 # from this file.
 [profile.ci-emulated]
-slow-timeout = { period = "60s", terminate-after = 5 }
+slow-timeout = { period = "60s", terminate-after = 3 }
 retries = 0
 fail-fast = false
 failure-output = "immediate-final"
-status-level = "fail"
+status-level = "slow"
+final-status-level = "slow"
 
 # For finding out what is slow, rather than guessing: everything over a second
 # is reported, and nothing is terminated — a measurement that kills its subject
