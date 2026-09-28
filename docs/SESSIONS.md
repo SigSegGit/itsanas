@@ -21,4 +21,4 @@ Colonnes :
 
 | Début | Durée | Tokens | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|
-| 2026-09-28 21:15 | ~15 min | ~95 k ctx · +2 pts/5 h | au bout | ✅ | Création de ce journal et branchement du skill pour le remplir | à venir |
+| 2026-09-28 21:15 | ~15 min | ~95 k ctx · +2 pts/5 h | au bout | ✅ | Création de ce journal et branchement du skill pour le remplir | #177 |
