@@ -40,6 +40,6 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
-| 2026-09-28 23:39 | ~30 min | ~277 k ctx · +30 pts/5 h | 8.0n | au bout | 🟨 | Écriture refusée au-delà de ce que les pledges du compte gagnent (règle corrigée après Rodin) ; moitié disque de 1b non faite | #PR |
+| 2026-09-28 23:39 | ~30 min | ~277 k ctx · +30 pts/5 h | 8.0n | au bout | 🟨 | Écriture refusée au-delà de ce que les pledges du compte gagnent (règle corrigée après Rodin) ; moitié disque de 1b non faite | #181 |
 | 2026-09-28 22:52 | ~40 min | ~165 k ctx · +10 pts/5 h | 8.0m | au bout | 🟨 | `itsanas leave` : notice pair `Leaving` (v5) + départ signé au coordinateur ; arrêt du service non branché | #180 |
 | 2026-09-28 21:15 | ~15 min | ~95 k ctx · +2 pts/5 h | hors-§8 | au bout | ✅ | Création de ce journal et branchement du skill pour le remplir | #177 |
