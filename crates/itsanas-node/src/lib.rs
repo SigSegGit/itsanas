@@ -18,6 +18,9 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+/// When the coordinator is dialled at all: publishing where this machine is,
+/// always; reading where the others are, only when something is missing.
+pub mod contact;
 /// Talking to a coordinator. Lived in the CLI binary until 2026-09-16, where
 /// only the CLI could reach it -- so the Android application could not join a
 /// coordinator at all, which is the one thing a new member has to do.

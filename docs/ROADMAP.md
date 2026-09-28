@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**814 test functions, 4 of them `#[ignore]`d into the slow job, and 82 of
+**822 test functions, 4 of them `#[ignore]`d into the slow job, and 85 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -735,9 +735,11 @@ device and reaching a different one is refused.
   machine noise rather than a number to plan against, and it is recorded here
   rather than dropped.
 
-  What this does **not** fix: the round still dials the coordinator once, so the
-  *number of requests* is still O(nodes × rounds). Making a healthy round ask
-  nothing at all is §8 0o phase 2.
+  What this did **not** fix: every round still dialled the coordinator once, so
+  the *number of requests* was O(nodes × rounds). Since 2026-09-29 (§8 0o
+  phase 2a) a round dials it only at start, when the address changes, and
+  hourly: O(nodes × hours), 24 connections a day for a machine that does not
+  move instead of 288, with the read on the same connection.
 
 - **NAT traversal.** A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts
@@ -755,8 +757,8 @@ device and reaching a different one is refused.
   reachable". `itsanas doctor` prints out, in, and what it would dial. Asked on
   change rather than on a timer, one per device per hour, four at once, three
   seconds each. A round also stopped dialling the coordinator twice: 576
-  connections per node per day became 288. Making it zero on a healthy round is
-  §8 0o phase 2 and is not built.
+  connections per node per day became 288, and §8 0o phase 2a (2026-09-29) took
+  a machine that does not move to 24 -- a healthy round no longer dials it.
 
   **2026-09-18 narrowed the gap without closing it.** A machine that *can* be
   reached now says so and is reached: `itsanas announce <host:port>` publishes

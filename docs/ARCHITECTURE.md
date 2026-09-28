@@ -386,9 +386,15 @@ standing.
 whether this design survives a thousand members: a round used to dial the
 coordinator **twice**, once to announce and once to list — 576 connections per
 node per day at the default interval, from machines usually sitting on one LAN
-that had already found each other by broadcast. It is now one. Making it *zero*
-on a healthy round needs peers to exchange the addresses they know, which is
-[HANDOVER.md](HANDOVER.md) §8 0o phase 2 and is not built.
+that had already found each other by broadcast. Then once. Since 2026-09-29 a
+round dials it only when something is owed (`itsanas_node::contact`): a
+publication at start, when the machine's address changes, and hourly so that a
+presence never expires under a running node, with the account's devices read on
+that same connection and never on one of their own. A machine that never moves
+makes 24 connections a day instead of 288; 3000 of them make 72 000, under one
+a second. What stays is the hourly read, so a machine enrolled or moved
+elsewhere is learned within the hour, not at once; peers handing each other
+signed presences is [HANDOVER.md](HANDOVER.md) §8 0o phase 2b and is not built.
 
 
 ## 7. Operational behaviour

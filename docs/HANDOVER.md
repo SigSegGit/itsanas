@@ -10,15 +10,57 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0o
-TITLE: Dial the coordinator only when it is needed (phase 2 of reaching the network from outside)
-WRITTEN-AT: 2026-09-28
-BASE: 9fc0565
+TITLE: Signed presences, a kept address book, and gossip between peers (phase 2b of reaching the network from outside)
+WRITTEN-AT: 2026-09-29
+BASE: f2fa6ad
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-29, the coordinator is dialled only when something is owed** (§8 0o
+phase 2a, branch `step/8.0o-contact-when-needed`; 0n merged first as #181
+after its ten sabotages were re-run). `itsanas_node::contact::Contact` decides
+per round: publish at start, when `coordinator::address_now` -- a UDP
+`connect` that sends nothing -- finds a different address, and hourly; read
+the account's devices on every connection a publication opens and never
+otherwise. `coordinator::contact` does both on one connection and refreshes
+the pledges of 0n there too, so the daemon's separate hourly `Devices` dial is
+gone. The round dials the coordinator first when something is owed, then
+configured peers, then the book (the coordinator's last list, each device's
+addresses ordered by *this machine's* record of which one worked), then the
+LAN. A Pi that never moves and never restarts: 24 connections a day, was 288;
+every start still publishes and reads, as before.
+
+Rodin, before the commit: the coordinator was dialled *last*, a leftover of a
+rule that needed to know who the round reached -- the start publication waited
+behind every sync of the first round; and a publication accepted before a
+failed read was forgotten with it and repeated every round. Both fixed
+(`Contacted::read_failed`), **neither with a test of its own, 🟨**: no harness
+has a coordinator that accepts `Announce` and refuses `Peers`, and the order
+lives in `one_round`, which only `acceptance-local.sh` runs. Documented, not
+fixed: "hourly" is an hour of
+`Instant`, which does not advance during suspend on Linux and macOS.
+
+Decided without asking, say so if wrong: **reads ride on every publication**,
+where §8 said "a fleet at home reads never" -- a machine enrolled after this
+one started is on no list, so "read when a listed device goes missing" would
+never dial it; the read costs no connection. The book lives in memory (a
+restart publishes and reads anyway); keeping it on disk is 2b.
+`MAX_ADDRESSES` is 4, because every dead address costs a round a connect
+timeout. Probe and connection are compared probe-to-probe, never
+probe-to-published, because a dual-stack name can give them different families
+and that would publish every round. **Not done, 🟨:** everything that needs the
+signature -- gossip, relayed presences, dropping the hourly read (§8 0o 2b).
+
+Traps this time: `sabotage.py` with `cargo test -q` reports every sabotage as
+"the build itself refused it", because `-q` prints dots instead of the
+`test ... FAILED` lines it parses -- never pass `-q` to it; `sed` on the JSON
+spec did not remove `"-q"` because `json.dump(indent=1)` puts it on its own
+line; a long Python heredoc failed to parse in Git Bash -- write the script to
+the scratchpad and run it.
 
 **2026-09-28, a file that will not fit is refused before it is copied** (§8
 0n, branch `step/8.0n-write-budget`). The account's size was counted nowhere:
@@ -1771,12 +1813,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
       switching the nodes is Nicolas's, and `BRIEFING-MVP.md` §2.5 is the
       procedure.
 
-      **Phase 2 -- this is `NEXT`, and it is the decentralised half.** Specified
-      on 2026-09-18 after Nicolas asked for it in his own words: *"j'aimerais
-      que la vm centrale ne soit contactée que si c'est nécessaire, par exemple
-      si aucune machine d'un compte n'est connectée"*. Today every node dials
-      the coordinator **twice per round, unconditionally** -- `announce` then
-      `peers`, `daemon.rs` ~634 -- which at the 300-second default is 576
+      **Phase 2 -- the decentralised half. 2a is built (2026-09-29); 2b is
+      `NEXT`, specified at the end of this item.** Specified on 2026-09-18
+      after Nicolas asked for it in his own words: *"j'aimerais que la vm
+      centrale ne soit contactée que si c'est nécessaire, par exemple si
+      aucune machine d'un compte n'est connectée"*. Until then every node
+      dialled the coordinator **twice per round, unconditionally** --
+      `announce` then `peers` -- which at the 300-second default was 576
       connections per node per day whether or not anything needed it. Three
       machines at home, all on one LAN, all finding each other by broadcast,
       still generate every one of them.
@@ -1824,7 +1867,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
       * **Reading is what can be avoided.** `Peers` is asked only when this node
         needs a device it cannot already reach: the address book has no live
         entry for it, or every entry has failed. A fleet at home, all of it
-        found by broadcast, reads **never**.
+        found by broadcast, reads **never**. *(2a departed from this, see
+        below: until gossip exists, a device enrolled after this one started
+        is on no list and cannot "go missing", so 2a reads on every
+        publication's connection. That costs requests, not connections.)*
 
       Account events -- register, enrol, withdraw, escrow -- dial as they always
       did; they are rare and they are the point of having a coordinator.
@@ -1849,7 +1895,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
         the evidence; a timestamp is an opinion.
       - **A relay cannot invent a presence**: `SignedPresence` carries the
         device's own signature, and `Response::Peers` currently throws it away
-        (`service.rs` ~336 maps to bare `Presence`). Carrying the signature
+        (`CoordService::peers_of`, `service.rs` ~405, returns bare
+        `Presence`; dispatched at ~300). Carrying the signature
         through is the first change, and it is what makes the gossip safe at all.
       - **Presences are not gossiped to strangers.** An address book handed to
         anyone who authenticates is a map of an account's machines. Exchange
@@ -1887,6 +1934,50 @@ Detail and measurements are in ROADMAP.md; this is the map.
       makes rarer is no longer also the expensive one. What phase 2 still has to
       do is make a healthy round ask for it at all -- the *number* of requests is
       still O(nodes x rounds), which is the part gossip removes.
+
+      **Phase 2a ✅ (2026-09-29): the dial rule.** `itsanas-node/src/contact.rs`
+      holds it and its seven tests; `coordinator::contact` and
+      `coordinator::address_now` are the socket half, tested against a real
+      coordinator in `tests/away_from_home.rs`. Publish at start, on a change
+      of the probed address, and every `PUBLISH_EVERY` (1 h); read on every
+      publication's connection; pledges refreshed on the same connection.
+      Measured by the test that justifies it: 288 rounds make 24 connections.
+      The book is in memory, fed only by the coordinator, bounded
+      (`MAX_DEVICES` 256, `MAX_ADDRESSES` 4), and orders a device's addresses
+      by this machine's `Instant` of last success. No wire change.
+
+      **Phase 2b -- `NEXT`: signatures, a kept book, gossip.** In this order,
+      each its own commit:
+
+      1. *Carry the signature through.* Append `Request::SignedPeers { user }`
+         / `Response::SignedPeers(Vec<SignedPresence>)` to the coordinator
+         protocol (appended, §6; `red_team_coordinator_messages_keep_their_wire_numbers`
+         must stay green). `peers_of` already has the signed rows before it
+         strips them. The client verifies each against its device id
+         (`SignedPresence::verify`, `claim.rs` ~229) and drops failures; an
+         older coordinator closes the connection, so fall back to `Peers` as
+         `enrolled` falls back today.
+      2. *Keep the book* in `<home>/address-book`: signed presences plus this
+         machine's own last-success times as unix seconds of *its* clock, read
+         at daemon start, written after a round that changed it. A file of its
+         own, for the reason `others-pledged` is one (the config parser
+         refuses unknown keys).
+      3. *Gossip.* Peer protocol 6 appends `Request::Presences` (model:
+         `WantHosted`; a v5 peer answers `Refused`, read as "cannot tell me").
+         Answered only to a device of the same account or one
+         `Neighbourhood::is_confirmed`; the answer is the signed presences of
+         the asker's account that this node holds. Relayed presences join the
+         book as candidates, never displacing one that worked.
+      4. Then, and only then, make the hourly read conditional: read when a
+         book device was reached by no address this round *and* gossip had
+         nothing newer. That is where "a fleet at home reads never" becomes
+         true.
+
+      Expected red-team tests, one per attack and named for it: a peer
+      handing out a presence it forged (sabotage: skip the verify); a peer
+      replaying a stale presence to strand a machine at an address it left;
+      a stranger asking for an account's presences; and a coordinator passing
+      off a presence with no valid signature.
 
       **Phase 3, only if 1 and 2 fall short: several addresses per device**,
       which is the wire change phase 2 will already have opened the door to

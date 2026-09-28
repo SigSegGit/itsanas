@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use itsanas_coord::Directory;
 use itsanas_coord::server::CoordServer;
 use itsanas_crypto::{DeviceKeys, SecretBytes};
-use itsanas_node::{coordinator, node::Node};
+use itsanas_node::{contact::Due, coordinator, node::Node};
 
 const PASSPHRASE: &str = "a passphrase for a test and nowhere else";
 const NOW: u64 = 1_700_000_000;
@@ -167,6 +167,54 @@ fn red_team_the_account_s_pledge_is_the_other_machines_as_the_coordinator_lists_
             Node::account_pledge(&laptop.home, &laptop.config),
             750 * GB,
             "the account lends what both machines lend"
+        );
+    });
+}
+
+/// One connection publishes and reads, and the probe that decides whether a
+/// round needs that connection names the address the connection publishes.
+/// If the two disagreed on an ordinary network, `Contact` would see a machine
+/// that never moved as one that moves every round, and publish every round --
+/// the 288 a day this step removes, put back by a socket.
+#[test]
+fn a_contact_publishes_and_reads_on_one_connection_and_the_probe_agrees() {
+    with_coordinator(|address| {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (pi, phrase) = member(&dir.path().join("pi"), address, None, None);
+        coordinator::announce(&pi, "127.0.0.1:9701", NOW).expect("the Pi announces");
+        let (laptop, _) = member(&dir.path().join("laptop"), address, None, phrase.as_deref());
+
+        let listen = "0.0.0.0:9797";
+        let probe = coordinator::address_now(&laptop.config, listen);
+        assert_eq!(probe.as_deref(), Some("127.0.0.1:9797"));
+
+        let contacted = coordinator::contact(
+            &laptop,
+            listen,
+            NOW + 1,
+            &Due {
+                publish: true,
+                read: true,
+            },
+        )
+        .expect("the coordinator answers");
+        assert_eq!(
+            contacted.published, probe,
+            "the probe and the connection disagree about where this machine is"
+        );
+        assert_eq!(
+            contacted.found,
+            Some(vec![(pi.store.device_id(), "127.0.0.1:9701".to_owned())]),
+            "the read on the publication's connection did not list the Pi"
+        );
+        assert!(contacted.pledges_not_kept.is_none());
+
+        let mut announced = laptop.config.clone();
+        announced.announce = Some("ngas.fr:9801".to_owned());
+        assert_eq!(
+            coordinator::address_now(&announced, listen).as_deref(),
+            Some("ngas.fr:9801"),
+            "an announced address is what is published, so it is what is compared"
         );
     });
 }
