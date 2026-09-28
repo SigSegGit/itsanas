@@ -8,6 +8,22 @@ Rempli par le skill `itsanas` au §6, dans la même PR que le travail. Une sessi
 interrompue avant sa PR est ajoutée par la session suivante (§1), à partir de
 l'arbre sale ou de la PR orpheline qu'elle trouve, avec `Fin` = `interrompue`.
 
+## Repérer une session coupée par la limite
+
+Une session coupée n'écrit rien. Deux traces la trahissent, et le skill les
+cherche au §1 de la session suivante :
+
+- **un arbre sale ou une PR orpheline** — le travail est là, la ligne manque ;
+- **une session de l'app sans ligne ici** — `list_sessions` montre une session
+  itsanas dont le `createdAt` ne figure dans aucune `Début` : elle est morte
+  avant d'avoir produit quoi que ce soit. Ligne `interrompue`, tokens `n/d`,
+  même si rien n'est à reprendre — son coût compte dans l'étape.
+
+## Lire le journal
+
+`python3 scripts/session-cost.py` liste les sessions interrompues et somme les
+points 5 h par étape (borne basse marquée `+` quand un coût est `n/d`).
+
 Colonnes :
 
 - **Début** — heure locale de création de la session (`get_session.createdAt`).
@@ -15,10 +31,13 @@ Colonnes :
 - **Tokens** — contexte final de la session (`get_usage.context.tokensUsed`)
   et points de la fenêtre 5 h consommés (`plan` % fin − % début). Approximatif :
   le contexte n'est pas la facturation cumulée ; `n/d` si l'outil manque.
+- **Étape** — l'identifiant §8 de `HANDOVER.md` visé (`8.0m`…), ou `hors-§8`.
+  C'est la clé de regroupement : le coût d'une feature est la somme de ses
+  lignes, sessions interrompues comprises.
 - **Fin** — `au bout` (PR fusionnée ou livrable remis) ou `interrompue`.
 - **Statut** — ✅ réussie · 🟨 partielle (livrée avec des manques nommés) · ❌ échec.
 - **Focus** — une phrase courte.
 
-| Début | Durée | Tokens | Fin | Statut | Focus | PR |
-|---|---|---|---|---|---|---|
-| 2026-09-28 21:15 | ~15 min | ~95 k ctx · +2 pts/5 h | au bout | ✅ | Création de ce journal et branchement du skill pour le remplir | #177 |
+| Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
+|---|---|---|---|---|---|---|---|
+| 2026-09-28 21:15 | ~15 min | ~95 k ctx · +2 pts/5 h | hors-§8 | au bout | ✅ | Création de ce journal et branchement du skill pour le remplir | #177 |
