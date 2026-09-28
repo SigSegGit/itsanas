@@ -106,6 +106,9 @@ const SHUTDOWN_POLL: Duration = Duration::from_millis(200);
 /// enough that such an edit is not lost for a working day.
 const DEEP_SCAN_EVERY: Duration = Duration::from_secs(3600);
 
+/// How often the daemon asks what the account's other machines pledge.
+const PLEDGES_EVERY: Duration = Duration::from_secs(60 * 60);
+
 /// Longest a continuous stream of file events may postpone a reconcile.
 ///
 /// Copying a large directory in produces events for as long as the copy takes.
@@ -488,6 +491,7 @@ fn sync_loop(
     let mut warned_alone = false;
     let mut outage = Outage::new();
     let mut reach = Reach::new();
+    let mut next_pledges = Instant::now();
 
     while !shutdown.load(Ordering::Relaxed) {
         let deep = Instant::now() >= next_deep;
@@ -530,6 +534,17 @@ fn sync_loop(
             }
             if let Some(published) = &announced {
                 check_reachable(node, published, &mut reach);
+            }
+
+            // What the account's other machines lend, for the write bound.
+            // Hourly rather than every round: pledges change when somebody
+            // types a command, and every dial here is one §8 0o is trying to
+            // take away.
+            if node.config.coordinator.is_some() && Instant::now() >= next_pledges {
+                next_pledges = Instant::now() + PLEDGES_EVERY;
+                if let Err(error) = coordinator::refresh_others_pledged(node) {
+                    eprintln!("itsanas: could not refresh the account's pledges: {error}");
+                }
             }
 
             // Say it once, rather than leaving someone watching a silent
@@ -885,6 +900,12 @@ fn open_folder(node: &Node) -> Result<Option<(Folder, Option<Watcher>)>> {
 /// alternative -- a line in a log nobody reads -- is how a disk stays unmounted
 /// for a week.
 fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
+    // Counting what other devices wrote since the last pass. On failure the
+    // bound from the last pass stays, which is never none: opening the node
+    // set one.
+    if let Err(error) = node.bound_writes() {
+        eprintln!("itsanas: could not count the account's files elsewhere: {error}");
+    }
     match folder.reconcile(&node.store, deep) {
         Ok(report) => {
             if report.changed_anything() {

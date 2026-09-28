@@ -11,6 +11,7 @@
 use std::{
     collections::BTreeMap,
     path::Path,
+    sync::{Mutex, MutexGuard},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -218,6 +219,15 @@ pub struct Index {
     /// reads the file, and the whole point is that the *remote host* cannot
     /// compute it.
     audit_key: SymmetricKey,
+    /// Sum of the sizes of every file in `FILES`, once somebody has asked.
+    ///
+    /// Kept rather than recounted because every write has to know it, and a
+    /// folder's first import is thousands of writes: recounting each time
+    /// would make that import quadratic. `None` until first asked. Every writer
+    /// of `FILES` holds this lock across its transaction and adjusts the total
+    /// after committing, so a count taken on another thread cannot be replaced
+    /// by one read before the commit it missed.
+    local_bytes: Mutex<Option<u64>>,
 }
 
 /// The index's filename inside a store root.
@@ -302,7 +312,11 @@ impl Index {
         }
         txn.commit()?;
 
-        let index = Self { db, audit_key };
+        let index = Self {
+            db,
+            audit_key,
+            local_bytes: Mutex::new(None),
+        };
         index.rebuild_holdings_if_stale()?;
         index.drop_superseded_tables()?;
         Ok(index)
@@ -463,8 +477,10 @@ impl Index {
     /// will later reclaim.
     pub fn put_file(&self, path: &str, entry: &FileEntry) -> Result<Vec<ChunkId>> {
         let encoded = postcard::to_stdvec(entry)?;
+        let mut local_bytes = self.lock_local_bytes()?;
         let txn = self.db.begin_write()?;
         let newly_unreferenced;
+        let replaced_size;
 
         {
             let mut files = txn.open_table(FILES)?;
@@ -475,6 +491,8 @@ impl Index {
                 Some(value) => Some(postcard::from_bytes(value.value())?),
                 None => None,
             };
+
+            replaced_size = previous.as_ref().map_or(0, |previous| previous.size);
 
             let mut delta: BTreeMap<[u8; 32], i64> = BTreeMap::new();
             if let Some(previous) = &previous {
@@ -497,6 +515,11 @@ impl Index {
         }
 
         txn.commit()?;
+        if let Some(total) = local_bytes.as_mut() {
+            *total = total
+                .saturating_sub(replaced_size)
+                .saturating_add(entry.size);
+        }
         Ok(newly_unreferenced)
     }
 
@@ -514,8 +537,10 @@ impl Index {
     /// caller is asking for a state, not performing a transaction, and "it was
     /// already not here" is that state.
     pub fn release_file(&self, path: &str) -> Result<Vec<ChunkId>> {
+        let mut local_bytes = self.lock_local_bytes()?;
         let txn = self.db.begin_write()?;
         let newly_unreferenced;
+        let dropped_size;
 
         {
             let mut files = txn.open_table(FILES)?;
@@ -526,6 +551,7 @@ impl Index {
                 Some(value) => Some(postcard::from_bytes(value.value())?),
                 None => None,
             };
+            dropped_size = previous.as_ref().map_or(0, |previous| previous.size);
 
             newly_unreferenced = match previous {
                 None => Vec::new(),
@@ -544,6 +570,9 @@ impl Index {
         }
 
         txn.commit()?;
+        if let Some(total) = local_bytes.as_mut() {
+            *total = total.saturating_sub(dropped_size);
+        }
         Ok(newly_unreferenced)
     }
 
@@ -552,8 +581,10 @@ impl Index {
     /// Returns the chunks that lost their last reference.
     pub fn remove_file(&self, path: &str, tombstone: &Tombstone) -> Result<Vec<ChunkId>> {
         let encoded_tombstone = postcard::to_stdvec(tombstone)?;
+        let mut local_bytes = self.lock_local_bytes()?;
         let txn = self.db.begin_write()?;
         let newly_unreferenced;
+        let dropped_size;
 
         {
             let mut files = txn.open_table(FILES)?;
@@ -566,6 +597,7 @@ impl Index {
                 Some(value) => Some(postcard::from_bytes(value.value())?),
                 None => None,
             };
+            dropped_size = previous.as_ref().map_or(0, |previous| previous.size);
 
             newly_unreferenced = match previous {
                 None => Vec::new(),
@@ -584,6 +616,9 @@ impl Index {
         }
 
         txn.commit()?;
+        if let Some(total) = local_bytes.as_mut() {
+            *total = total.saturating_sub(dropped_size);
+        }
         Ok(newly_unreferenced)
     }
 
@@ -675,6 +710,38 @@ impl Index {
             out.push((key.value().to_owned(), postcard::from_bytes(value.value())?));
         }
         Ok(out)
+    }
+
+    /// Total size of the files this index holds: the part of the account whose
+    /// content is on this device.
+    ///
+    /// Logical sizes, as the writing device recorded them -- not what the blobs
+    /// take after deduplication and sealing. An allowance is stated in the
+    /// sizes a person sees in a listing, and a total that shrank because two
+    /// of their files happen to share chunks would be one nobody can check.
+    pub fn local_bytes(&self) -> Result<u64> {
+        let mut cached = self.lock_local_bytes()?;
+        if let Some(total) = *cached {
+            return Ok(total);
+        }
+
+        let txn = self.db.begin_read()?;
+        let files = txn.open_table(FILES)?;
+        let mut total: u64 = 0;
+        for row in files.iter()? {
+            let (_, value) = row?;
+            let entry: FileEntry = postcard::from_bytes(value.value())?;
+            total = total.saturating_add(entry.size);
+        }
+
+        *cached = Some(total);
+        Ok(total)
+    }
+
+    fn lock_local_bytes(&self) -> Result<MutexGuard<'_, Option<u64>>> {
+        self.local_bytes.lock().map_err(|_| {
+            StoreError::Corrupt("the index's byte count was poisoned by a panic".to_owned())
+        })
     }
 
     /// How many files the index holds.

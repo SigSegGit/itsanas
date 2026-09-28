@@ -62,6 +62,32 @@ pub struct Store {
     /// update that looks causally valid — the worst kind, because nothing
     /// downstream would flag it as a conflict.
     write_lock: Mutex<()>,
+    /// How much the account may hold, or `None` for no bound at all.
+    budget: Mutex<Option<WriteBudget>>,
+}
+
+/// How much an account may hold, as far as a write on this device can tell.
+///
+/// # Why the store is told rather than working it out
+///
+/// The rule -- what a pledge earns, under which split, with which allowance --
+/// lives in `itsanas-coord` and the pledge in the node's configuration, and
+/// this crate depends on neither. And the account's size is not the store's to
+/// know either: files this device has not downloaded exist only in the vault's
+/// copy of other devices' logs. So the node, which holds all three, works the
+/// numbers out and hands them over, and the store applies them on the one path
+/// every write takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WriteBudget {
+    /// Bytes the whole account may hold.
+    pub allowed: u64,
+    /// Bytes of the account whose content is not on this device.
+    ///
+    /// Zero understates the account on a device that holds only part of it,
+    /// which lets that device write more than it should; it never refuses a
+    /// write that fits. A file that is here *and* counted in this figure is
+    /// counted twice, which errs the other way, and only for its size.
+    pub elsewhere: u64,
 }
 
 /// What one garbage-collection pass did.
@@ -223,6 +249,7 @@ impl Store {
             user,
             device,
             write_lock: Mutex::new(()),
+            budget: Mutex::new(None),
         })
     }
 
@@ -243,6 +270,75 @@ impl Store {
 
     // ----------------------------------------------------------------- write
 
+    /// Bound every later write by `budget`, or lift the bound with `None`.
+    ///
+    /// # Errors
+    ///
+    /// If a panic poisoned the lock.
+    pub fn set_write_budget(&self, budget: Option<WriteBudget>) -> Result<()> {
+        *self.lock_budget()? = budget;
+        Ok(())
+    }
+
+    /// The bound writes are held to, if any.
+    ///
+    /// # Errors
+    ///
+    /// If a panic poisoned the lock.
+    pub fn write_budget(&self) -> Result<Option<WriteBudget>> {
+        Ok(*self.lock_budget()?)
+    }
+
+    fn lock_budget(&self) -> Result<std::sync::MutexGuard<'_, Option<WriteBudget>>> {
+        self.budget.lock().map_err(|_| {
+            StoreError::Corrupt("the store's write budget was poisoned by a panic".to_owned())
+        })
+    }
+
+    /// Refuse, before a byte is read, a file of `incoming` bytes that would not
+    /// fit.
+    ///
+    /// [`Self::write_stream`] enforces the same bound whether or not this was
+    /// asked, but it can only find out as the bytes go past: a refusal there
+    /// comes after reading up to the limit. A caller that knows the size --
+    /// a file on disk has one -- asks here first, so that a 3 GB video offered
+    /// to an account with 100 MB left costs a `stat` and not a 100 MB copy.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::OverBudget`] with the numbers, or if the index cannot be
+    /// read.
+    pub fn check_room(&self, path: &str, incoming: u64) -> Result<()> {
+        let Some(budget) = self.write_budget()? else {
+            return Ok(());
+        };
+        let account = self.account_besides(path, budget)?;
+        Self::refuse_past(path, budget, account, account.saturating_add(incoming))
+    }
+
+    /// The account's bytes, not counting what is at `path` now -- a write
+    /// there replaces it, so an edit that grows a file by a kilobyte is charged
+    /// a kilobyte.
+    fn account_besides(&self, path: &str, budget: WriteBudget) -> Result<u64> {
+        let replaced = self.index.get_file(path)?.map_or(0, |entry| entry.size);
+        Ok(budget
+            .elsewhere
+            .saturating_add(self.index.local_bytes()?)
+            .saturating_sub(replaced))
+    }
+
+    fn refuse_past(path: &str, budget: WriteBudget, account: u64, total: u64) -> Result<()> {
+        if total > budget.allowed {
+            return Err(StoreError::OverBudget {
+                path: path.to_owned(),
+                account,
+                total,
+                allowed: budget.allowed,
+            });
+        }
+        Ok(())
+    }
+
     /// Chunk, seal and store everything `reader` produces, under `path`.
     ///
     /// **This is the real write path.** Memory use is bounded by the chunker's
@@ -255,6 +351,15 @@ impl Store {
     /// Returns the resulting entry. The write is recorded in the operation log
     /// as a pending entry; call [`Self::flush_segment`] to seal it into a
     /// segment that peers can replicate.
+    ///
+    /// # A refused write leaves nothing behind
+    ///
+    /// Under a [`WriteBudget`], the chunk that would take the account past it
+    /// is never stored, and the blobs this call already created are removed
+    /// again, with no index entry and nothing in the log. Every other failure
+    /// part-way through does the same. Before, it left those blobs as orphans
+    /// for `verify` to report: harmless one at a time, and a disk filling with
+    /// the first 100 MB of a file refused once per folder pass.
     pub fn write_stream<R: std::io::Read>(&self, path: &str, reader: R) -> Result<FileEntry> {
         logical_path::validate(path)?;
 
@@ -266,19 +371,47 @@ impl Store {
         let mut hasher = blake3::Hasher::new();
         let mut size: u64 = 0;
 
-        crate::chunker::split_stream(&self.chunker, reader, |chunk| {
+        // Read once, under the write lock: nothing else writing here can move
+        // it, and a stream is refused against the account as it stood when the
+        // write began.
+        let budget = self.write_budget()?;
+        let account = match budget {
+            Some(budget) => self.account_besides(path, budget)?,
+            None => 0,
+        };
+        // Blobs this call brought into existence, and only those. A chunk that
+        // was already here belongs to some other file too, and removing it on
+        // the way out would destroy that file.
+        let mut created: Vec<ChunkId> = Vec::new();
+
+        let streamed = crate::chunker::split_stream(&self.chunker, reader, |chunk| {
             // Hash as we go rather than over a reassembled copy, so the
             // whole-file digest costs no extra memory and no second pass.
             hasher.update(chunk);
             size += chunk.len() as u64;
 
+            if let Some(budget) = budget {
+                Self::refuse_past(path, budget, account, account.saturating_add(size))?;
+            }
+
             // `seal_chunk` derives the address from the content itself, so the
             // fixed-nonce construction's precondition cannot be violated here.
             let (address, sealed) = self.user.seal_chunk(chunk)?;
-            self.blobs.put(&address, &sealed)?;
+            if self.blobs.put(&address, &sealed)? {
+                created.push(address);
+            }
             chunks.push(address);
             Ok(())
-        })?;
+        });
+
+        if let Err(error) = streamed {
+            for address in &created {
+                // The refusal is what the caller needs to hear; a blob that
+                // will not go is an orphan `verify` reports, as before.
+                let _ = self.blobs.remove(address);
+            }
+            return Err(error);
+        }
 
         // Build on whatever this path's history already is: the live entry if
         // there is one, otherwise the tombstone left by a delete, otherwise

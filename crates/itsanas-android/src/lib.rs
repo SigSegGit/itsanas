@@ -413,6 +413,12 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_put(
         with_node(|node| {
             let file = std::fs::File::open(&source)
                 .map_err(|error| Failure::Usage(format!("could not read {source}: {error}")))?;
+            let incoming = file
+                .metadata()
+                .map_err(|error| Failure::Usage(format!("could not read {source}: {error}")))?
+                .len();
+            node.bound_writes()?;
+            node.store.check_room(&path, incoming)?;
             let entry = node.store.write_stream(&path, file)?;
             node.store.flush_segment()?;
 

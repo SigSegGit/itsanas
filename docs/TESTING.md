@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-28 — 806 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 76 are red-team tests.**
+**Last updated: 2026-09-28 — 814 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 82 are red-team tests.**
 
-**690 of the 806 tests have an entry of their own on this page** — an *entry*,
+**698 of the 814 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -159,7 +159,7 @@ guarantee and is not one.
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 153 |
-| `itsanas-store` integration (`tests/store.rs`) | 40 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 43 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 39 |
@@ -170,13 +170,13 @@ guarantee and is not one.
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
-| `itsanas-folder` integration (`tests/folder.rs`) | 22 |
+| `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-cli` unit | 29 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 50 |
-| `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 1 |
+| `itsanas-node` unit | 53 |
+| `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 2 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
@@ -586,7 +586,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (40)
+# `itsanas-store` — integration tests (43)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -597,6 +597,9 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 | **`an_insertion_at_the_start_of_a_large_file_reuses_almost_every_chunk`** | M2 exit criterion, end to end through the real store. |
 | **`two_users_storing_the_same_document_produce_unrelated_chunk_ids`** | Two users storing byte-identical content get disjoint addresses. If addresses were plain content hashes a host could correlate users and confirm guessed files. |
 | **`one_users_store_cannot_be_opened_with_another_users_keys`** | Sealing is bound to the owner, not merely to the directory. |
+| **`red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log`** | A 1 MiB file offered to an account with 344 KiB left, through `write_file`, so nothing asks its size first and the refusal can only come part-way through the stream -- after chunks were sealed and stored. It must be refused with the account, the limit and the total it would have reached, and leave no blob, no index entry and no log entry behind. A folder pass retries a refused file every round, so debris here is a disk filling with the first part of the same file again and again. Sabotaged twice: without the in-stream check the file is accepted; without the clean-up the blobs stay. (HANDOVER §8 0n.) |
+| **`a_write_inside_the_budget_succeeds_and_an_edit_is_charged_only_its_growth`** | Keeps the test above from passing on a store that refuses everything, and pins what is charged: growing a 600 KiB file to 700 KiB in a 1 MiB account succeeds (the old version is not counted twice), 400 KiB more is refused naming 700 KiB held, and deleting the file makes the room back. Sabotaged on the replaced-size subtraction and on the cached-total adjustments of `put_file` and `remove_file`. `release_file`'s adjustment is the same line as `remove_file`'s and was broken with it; no test isolates it. |
+| **`red_team_what_the_account_holds_elsewhere_counts_against_it`** | A phone keeping 2 GB of a 40 GB account holds 2 GB locally. Counting only that would let it write 38 GB past what the account may hold: bytes known only from other devices' logs count too. |
 | **`the_published_test_identities_are_refused_by_the_normal_constructor`** | The claim README.md and SECURITY.md both make. Before this test the ban-list function was defined, exported, and called by nothing. |
 | **`red_team_a_held_store_says_so_before_anybody_is_asked_for_a_key`** | `itsanas status` prints the daemon's snapshot when the store is locked -- the normal state of a working machine. It used to reach that arm through an open that resolves the passphrase *first*, so on the laptop the command answered "no terminal to prompt on": it demanded the keystore secret in order to print a plaintext file lying beside it. If the probe regresses, the owner of a running node cannot ask whether their data is safe without unsealing their keys, and `MVP.md` test L cannot pass. |
 | **`a_chunk_served_under_the_wrong_address_does_not_decrypt`** | The substitution attack, with two genuine chunks from the same user. |
@@ -972,7 +975,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (55)
+# `itsanas-node` — a node on disk (59)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1001,13 +1004,16 @@ anything.
 
 ---
 
-## `node` — identity on disk (14)
+## `node` — identity on disk (17)
 
 | Test | What it proves |
 | --- | --- |
 | **`the_keys_can_be_read_while_the_store_is_held_by_another_process`** | Only one process may hold a node's store, and the daemon holds it on every machine that is working — so anything that opened a `Node` refused to run on exactly the machines somebody asks about, including `doctor`, which is what a person runs *because* something is wrong. Stopping the daemon to ask then changes the answer: a node that is not running is not listening, so "can anybody reach me" comes back no, for a reason that is the asking. `Identity::open` reads the keystore and the config, neither of which is locked. |
 | **`an_empty_node_home_reads_as_unmounted_storage_rather_than_a_fresh_start`** | A node home on a disk that is not mounted is an *empty directory*, and "no node found, run `itsanas init`" is then advice to create a **second account** on the root filesystem — while the real one sits on a disk nobody is looking at, and the next backup captures the empty one. A directory that does not exist at all still reads as a fresh start. |
 | **`a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does`** | `itsanas passphrase` re-seals the keystore without regenerating anything — same account, same device id — the old passphrase stops working, and the pending file is renamed over the keystore rather than left beside it. |
+| **`red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns`** | Every write goes through `node.store`, and the store refuses nothing it has not been told about. Opening a node pledging 700 GB must hold writes to the 300 GB that earns at 30/70, and a node pledging nothing to the joining allowance, as `keep` does. Sabotaged on the wiring in `Node::assemble` and on the allowance floor: without either, the CLI, the folder and the phone would write unbounded while every store test stayed green. |
+| **`red_team_files_this_machine_has_not_downloaded_count_against_its_writes`** | A phone knows most of its account only from the laptop's log in its vault. A 300 000-byte file written on the laptop and never downloaded must reach the phone's write bound as `elsewhere`, or the phone writes as though the account were the sliver it keeps. Sabotaged on the `Absent` filter in `bound_writes`. |
+| **`red_team_a_machine_that_lends_nothing_writes_by_what_the_account_lends`** | The rule this step first shipped, caught by Rodin before it merged: the bound read *this machine's* pledge. A laptop pledging nothing -- the default -- in an account whose Pi lends 700 GB must be held to the 300 GB the account earns, on opening and again after the refresh every writer calls; it was being held to the joining allowance for the whole account. Sabotaged on both. |
 | `a_wrong_current_passphrase_changes_nothing` | Somebody at an unlocked terminal cannot choose a new passphrase for a machine without the current one; the keystore bytes are untouched. |
 | **`the_phrase_is_not_written_anywhere_under_the_node_directory`** | Scans every file under the node's home for the phrase. A recovery phrase stored on the machine it protects is not a backup, it is an extra copy for an attacker to find. |
 | **`the_phrase_does_not_leak_through_debug`** | The single most likely way for a phrase to escape is a stray `dbg!` or a derived `Debug`. |
@@ -1192,11 +1198,12 @@ destructive if wrong.
 
 ---
 
-# `itsanas-folder` — integration tests (22)
+# `itsanas-folder` — integration tests (23)
 
 | Test | What it proves |
 | --- | --- |
 | **`a_brand_new_device_downloads_everything_and_deletes_nothing`** | The catastrophe. An empty folder on a device that has never synced must produce downloads, not a mass deletion. |
+| **`a_file_over_the_budget_is_refused_left_on_disk_and_blocks_nothing_else`** | A file the account has no room for lands in the report's failures with the numbers, twice in a row, while a small file beside it is imported; the refused file is untouched on disk and no deletion is held. Refused must never read as deleted, or a quota would cost somebody the original. |
 | **`a_file_the_user_deletes_is_deleted_everywhere`** | The counterpart — a genuine delete must propagate, with a tombstone so an offline device does not resurrect it. |
 | **`an_imported_file_is_announced_to_peers_not_just_stored_locally`** | A real bug found by running two daemons: the reconciler wrote to the store but never sealed a log segment, so files looked synced on the machine that had them and existed nowhere else. |
 | **`a_deletion_is_announced_to_peers_too`** | The same, for deletes. |
@@ -1279,7 +1286,7 @@ hardware it will actually run on.
 
 ---
 
-# `itsanas-node` away from home (`tests/away_from_home.rs`) — the lookup a member elsewhere makes (1)
+# `itsanas-node` away from home (`tests/away_from_home.rs`) — the lookup a member elsewhere makes (2)
 
 A real coordinator on a real socket and three real nodes of one account. The
 only thing simulated is which machine each node runs on, which is the thing the
@@ -1287,6 +1294,7 @@ test is about.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_the_account_s_pledge_is_the_other_machines_as_the_coordinator_lists_them`** | The laptop learns what the account lends from the coordinator, through `Request::Devices`. The Pi claims 700 GB, the laptop 50 GB: the laptop must remember 700 GB for the others and reach 750 GB for the account. Counting its own entry as well would let it write past what the account earns; leaving the Pi out would hold it to the joining allowance. Sabotaged on the filter that leaves this machine out. |
 | **`a_member_elsewhere_is_given_the_address_that_can_answer_first`** | The unit tests prove the ordering function orders; this proves the lookup *applies* it, and that what a member is handed is the announced address with its announced port. Deleting the call in `coordinator::peers` leaves every unit test green — the shape of a defence that is tested and not wired — and this fails, naming the order it got. |
 
 ---

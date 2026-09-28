@@ -9,16 +9,55 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0n
-TITLE: Refuse a file that will not fit, before copying it (8.1b pulled forward)
+NEXT: 8.0o
+TITLE: Dial the coordinator only when it is needed (phase 2 of reaching the network from outside)
 WRITTEN-AT: 2026-09-28
-BASE: dabb138
+BASE: 9fc0565
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-28, a file that will not fit is refused before it is copied** (§8
+0n, branch `step/8.0n-write-budget`). The account's size was counted nowhere:
+`Index` now keeps the sum of `FILES` in memory, adjusted inside its three
+writers, and `Node::bound_writes` adds what only the vault knows (files other
+devices hold) through `catalogue`. The store is handed a `WriteBudget`: what
+**the account's** pledges earn (`Node::allowed_for` over
+`Node::account_pledge`) -- this machine's pledge now, plus the other machines'
+as `Request::Devices` last listed them, cached in `<home>/others-pledged` and
+refreshed by `put` and hourly by the daemon. `write_stream`
+refuses before storing the chunk that crosses and removes the blobs it created;
+`put`, the folder import and the JNI `put` ask `check_room` with the file's size
+first. Opening a node sets the bound with nothing counted elsewhere, so a new
+caller cannot forget it; the daemon refreshes it before every folder pass.
+
+**The spec was wrong and Nicolas chose the fix.** 1b said "exactly the rule
+`keep` applies", i.e. this machine's pledge. Rodin found that the bound compares
+the *account's* bytes to *one machine's* pledge, while `accounting::assess` sums
+every device: with the default pledge of 0, a laptop writing for a Pi that lends
+a terabyte would have refused everything past 10 GiB. Asked on 2026-09-29, he
+chose the account's sum. `keep` still reads this machine's pledge, because its
+question is what this machine holds.
+
+Decided without asking, say so if wrong: the joining allowance applies whatever
+the account's age, as for `keep` (the node does not know when it joined); sizes
+are logical, not deduplicated; a machine that never reached a coordinator counts
+the others' pledges as zero. **Not done, 🟨:** the disk half of 1b (a write
+eating into room pledged to others); the native quotas of 0n (research only); a
+daemon picks up its own new pledge only on restart; the phone never refreshes
+the others' pledges (JNI has no coordinator call on that path); an account over
+its bound cannot take a remote edit that conflicts with a local one, because
+`keep_both` imports the local copy first and that import is refused -- nothing
+is lost, the remote version waits; and the refusal says "at least" even when
+`check_room` knows the total exactly.
+
+Traps this time: `release_file` **removes** the path from `FILES` -- the index is
+what is here, not the account, which is why the vault walk is needed; and the
+two `saturating_sub(dropped_size)` lines are identical, so `sabotage.py` refuses
+the anchor -- sabotaged by hand, both at once.
 
 **2026-09-28, a machine can leave politely** (§8 0m parts 2 and 3, branch
 `step/8.0m-leave`). Peer protocol 5 appends `Request::Leaving`, which carries
@@ -1670,7 +1709,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
       protocol addition in one review.
 
 
-   n. **Refuse a file that will not fit, before copying it.** Next step. Start
+   n. ✅ **Refuse a file that will not fit, before copying it.** Built
+      2026-09-28: see §0 for what and how. Red-team tests, all sabotage-verified:
+      `red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log`,
+      `red_team_what_the_account_holds_elsewhere_counts_against_it`,
+      `red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns`.
+      **Remaining, 🟨:** the native quotas below, which are research and
+      presentation; and 1b's disk check. The original text follows. Start
       from `Store::write_stream` (`crates/itsanas-store/src/store.rs`) and 8.1b
       below, which names the check; the in-process refusal is the deliverable,
       native quotas are research only. Red-team test expected: a write that
@@ -1998,10 +2043,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
      claim (`crates/itsanas-cli/src/coordinator.rs:180`) and the daemon's
      `Pledge` (`crates/itsanas-cli/src/daemon.rs`) carry `pledge_bytes` and never
      read a split, which is correct.
-   - **Writing never consults it.** `Store::write_stream` and `write_file`
-     (`crates/itsanas-store/src/store.rs`, ~246 and ~310) and the folder import
-     (`crates/itsanas-folder/src/lib.rs`, ~259) accept any amount: an account's
-     size is bounded by nothing.
+   - **Writing consults it since 2026-09-28** (0n): a write past what the
+     pledge earns is refused, on the honest client. Before, `write_stream` and
+     the folder import accepted any amount.
    - **Hosts bound themselves, not owners.** `would_exceed_pledge`
      (`crates/itsanas-net/src/service.rs`) stops a host exceeding its own
      pledge; nothing limits what one owner stores on a host, so a rebuilt client
@@ -2041,7 +2085,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
       All went red on 2026-09-14, as did the two tests the audit added
       (`red_team_a_node_cannot_grant_itself_a_more_generous_split`,
       `a_quoted_price_parses_back_to_no_less_than_the_price`).
-   b. **Bound writes on the honest client.** `Store::write_stream` and
+   b. 🟨 **Bound writes on the honest client.** The account half is built
+      (§8 0n, 2026-09-28); **left: the disk half** -- refuse when this
+      machine's own store plus what its pledge still has to receive would
+      exceed the disk. It wants the vault's size, which the store cannot see,
+      so it belongs in `Node::bound_writes` beside the vault walk, using
+      `fs4::available_space` as `space` does. **Correction to the original
+      text below:** the bound is what the *account's* pledges earn, not this
+      machine's -- see §0, 2026-09-28. The original text:
+      `Store::write_stream` and
       `write_file` (`crates/itsanas-store/src/store.rs`, ~246 and ~310) and the
       folder import (`crates/itsanas-folder/src/lib.rs`, ~259) refuse when the
       account's bytes plus the incoming file exceed what the pledge earns —

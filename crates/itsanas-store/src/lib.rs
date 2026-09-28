@@ -88,6 +88,8 @@ pub use oplog::{
     FileEntry, LogEntry, Operation, SegmentBody, SegmentEnvelope, Tombstone, validate_chain,
 };
 pub use reliability::{FAILURES_BEFORE_PAUSE, PROBATION_CEILING, Reliability};
-pub use store::{GcReport, IntegrityReport, Release, ReleaseReport, Store, StoreStats};
+pub use store::{
+    GcReport, IntegrityReport, Release, ReleaseReport, Store, StoreStats, WriteBudget,
+};
 pub use vault::{Vault, VaultStats};
 pub use version::{CausalOrder, VersionVector};

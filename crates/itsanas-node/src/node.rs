@@ -34,7 +34,7 @@ use itsanas_crypto::{
     DeviceKeys, KdfParams, Keystore, MasterSecret, SecretBytes, UserKeys,
     is_published_test_identity,
 };
-use itsanas_store::{Store, Vault};
+use itsanas_store::{Presence, Store, Vault, WriteBudget};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -244,6 +244,95 @@ impl Node {
         home.join("store")
     }
 
+    /// What `pledged_bytes` earns under this node's split, and never less than
+    /// the joining allowance.
+    ///
+    /// One function so that `keep`, which passes this machine's pledge, and a
+    /// write, which passes the account's, cannot disagree about the rule. The
+    /// allowance applies whatever the account's age, as it does for `keep`:
+    /// this node does not know when its account joined -- only the coordinator
+    /// does -- and a limit that shrank on day thirty-one would refuse, on a
+    /// timer, the files the same rule accepted the day before.
+    #[must_use]
+    pub fn allowed_for(config: &Config, pledged_bytes: u64) -> u64 {
+        config
+            .split
+            .room_earned(pledged_bytes)
+            .max(itsanas_coord::accounting::JOINING_ALLOWANCE)
+    }
+
+    /// What the account's machines pledge together, as far as this one knows:
+    /// its own pledge as configured now, plus the others' as the coordinator
+    /// last listed them.
+    ///
+    /// # Why the sum, and not this machine's pledge
+    ///
+    /// Entitlement belongs to the account -- `accounting::assess` sums every
+    /// device -- and a write adds to the account. Bounded by one machine's
+    /// pledge, a laptop that pledges nothing, which is the default, would be
+    /// held to the joining allowance for the whole account however much the Pi
+    /// beside it lends. That was the rule first written for this step, taken
+    /// from `keep`, whose question is what *this machine* holds; an audit found
+    /// it before it merged.
+    ///
+    /// A machine that has never heard from a coordinator counts the others as
+    /// nothing: it cannot vouch for pledges it has never been told about. The
+    /// figure comes from the coordinator and is only as honest as it is, which
+    /// is the whole of what a bound on the honest client can promise.
+    #[must_use]
+    pub fn account_pledge(home: &Path, config: &Config) -> u64 {
+        let others = std::fs::read_to_string(Self::others_pledged_path(home))
+            .ok()
+            .and_then(|text| text.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        config.pledge_bytes.saturating_add(others)
+    }
+
+    fn others_pledged_path(home: &Path) -> PathBuf {
+        home.join("others-pledged")
+    }
+
+    /// Remember what the account's *other* machines pledge, for
+    /// [`Self::account_pledge`].
+    ///
+    /// A file of its own rather than a configuration line: it is a copy of the
+    /// coordinator's answer that nobody types, and the configuration parser
+    /// refuses a key it does not know, so a line added there would stop an
+    /// older binary opening this node at all.
+    pub fn remember_others_pledged(&self, bytes: u64) -> Result<()> {
+        let path = Self::others_pledged_path(&self.home);
+        std::fs::write(&path, format!("{bytes}\n")).map_err(|error| NodeError::Io {
+            path: path.clone(),
+            source: error,
+        })
+    }
+
+    /// Bound this node's writes by what the account's pledges earn, counting
+    /// the files of the account this device has not downloaded.
+    ///
+    /// Opening a node already bounds writes, counting only what is here: that
+    /// needs no walk and cannot be forgotten by a new caller. This adds what
+    /// only the vault knows, at the cost of walking it, so the callers that
+    /// are about to write call it and nobody else pays. A walk that stopped at
+    /// [`MAX_SEGMENTS_WALKED`](itsanas_store::catalogue::MAX_SEGMENTS_WALKED)
+    /// counts less than the account holds, which errs towards accepting.
+    pub fn bound_writes(&self) -> Result<()> {
+        let listing = itsanas_store::catalogue(&self.store, &self.vault)?;
+        let elsewhere = listing
+            .files
+            .iter()
+            .filter(|known| known.presence == Presence::Absent)
+            .fold(0u64, |total, known| total.saturating_add(known.size));
+        self.store.set_write_budget(Some(WriteBudget {
+            allowed: Self::allowed_for(
+                &self.config,
+                Self::account_pledge(&self.home, &self.config),
+            ),
+            elsewhere,
+        }))?;
+        Ok(())
+    }
+
     /// Whether a node already exists at `home`.
     #[must_use]
     pub fn exists(home: &Path) -> bool {
@@ -404,6 +493,10 @@ impl Node {
             user,
             DeviceKeys::from_seed(&device.seed()),
         )?;
+        store.set_write_budget(Some(WriteBudget {
+            allowed: Self::allowed_for(&config, Self::account_pledge(home, &config)),
+            elsewhere: 0,
+        }))?;
         let vault = Vault::open(home.join("vault"))?;
 
         Ok(Self {
@@ -746,6 +839,126 @@ mod tests {
         assert!(
             !home.join("keystore.bin.new").exists(),
             "the pending keystore was left behind"
+        );
+    }
+
+    /// Every write goes through `node.store`, and the store refuses nothing it
+    /// has not been told about. A node that opened without telling it would
+    /// leave the CLI, the folder and the phone writing without a bound while
+    /// every store test stayed green.
+    #[test]
+    fn red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns() {
+        use itsanas_coord::accounting::JOINING_ALLOWANCE;
+        const GB: u64 = 1_000_000_000;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        let (mut node, _phrase) = Node::create(&home, PASSPHRASE, "nicolas").unwrap();
+        node.config.pledge_bytes = 700 * GB;
+        node.save_config().unwrap();
+        drop(node);
+
+        let node = Node::open(&home, PASSPHRASE).unwrap();
+        assert_eq!(
+            node.store.write_budget().unwrap(),
+            Some(WriteBudget {
+                allowed: 300 * GB,
+                elsewhere: 0
+            }),
+            "a node pledging 700 GB at 30/70 must be held to the 300 GB that earns"
+        );
+
+        node.bound_writes().unwrap();
+        assert_eq!(
+            node.store
+                .write_budget()
+                .unwrap()
+                .map(|budget| budget.allowed),
+            Some(300 * GB)
+        );
+
+        let mut config = node.config.clone();
+        config.pledge_bytes = 0;
+        assert_eq!(
+            Node::allowed_for(&config, 0),
+            JOINING_ALLOWANCE,
+            "a node pledging nothing must still have the joining allowance, as `keep` does"
+        );
+    }
+
+    /// A phone keeping a sliver of an account knows the rest only from the
+    /// laptop's log in its vault. `bound_writes` has to count those files, or
+    /// the phone writes as though the account were the sliver.
+    #[test]
+    fn red_team_files_this_machine_has_not_downloaded_count_against_its_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let (laptop, phrase) =
+            Node::create(&dir.path().join("laptop"), PASSPHRASE, "nicolas").unwrap();
+        let phone =
+            Node::restore(&dir.path().join("phone"), PASSPHRASE, "nicolas", &phrase.0).unwrap();
+
+        laptop
+            .store
+            .write_file("big.bin", &vec![7u8; 300_000])
+            .unwrap();
+        laptop.store.flush_segment().unwrap();
+        for envelope in laptop.store.segments().unwrap() {
+            phone.vault.put_segment(&envelope).unwrap();
+        }
+
+        phone.bound_writes().unwrap();
+        assert_eq!(
+            phone
+                .store
+                .write_budget()
+                .unwrap()
+                .map(|budget| budget.elsewhere),
+            Some(300_000),
+            "a file known only from another machine's log was not counted, so this \
+             machine can write past what the account may hold"
+        );
+    }
+
+    /// The laptop writes, the Pi lends. The laptop pledges nothing -- the
+    /// default -- and the account is entitled by the Pi's pledge, because
+    /// entitlement is the account's. Bounded by its own pledge, the laptop
+    /// would refuse every file past the joining allowance for the whole
+    /// account, while the machine lending for it sat half empty.
+    #[test]
+    fn red_team_a_machine_that_lends_nothing_writes_by_what_the_account_lends() {
+        const GB: u64 = 1_000_000_000;
+
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("laptop");
+        let (node, _phrase) = Node::create(&home, PASSPHRASE, "nicolas").unwrap();
+        assert_eq!(
+            node.config.pledge_bytes, 0,
+            "the fixture is the default laptop"
+        );
+        node.remember_others_pledged(700 * GB).unwrap();
+        drop(node);
+
+        let node = Node::open(&home, PASSPHRASE).unwrap();
+        assert_eq!(
+            node.store
+                .write_budget()
+                .unwrap()
+                .map(|budget| budget.allowed),
+            Some(300 * GB),
+            "a laptop pledging nothing in an account whose Pi lends 700 GB must be \
+             held to the 300 GB the account earns, not to the joining allowance"
+        );
+
+        // And again after the refresh every writer calls, which is the bound a
+        // write actually meets.
+        node.bound_writes().unwrap();
+        assert_eq!(
+            node.store
+                .write_budget()
+                .unwrap()
+                .map(|budget| budget.allowed),
+            Some(300 * GB),
+            "the refresh before a write fell back to this machine's own pledge"
         );
     }
 

@@ -131,3 +131,42 @@ fn a_member_elsewhere_is_given_the_address_that_can_answer_first() {
         );
     });
 }
+
+/// The laptop writes wherever it is, and what it may write is set by what the
+/// whole account lends -- here, the Pi at home. The coordinator is how the
+/// laptop learns that figure, so the lookup has to sum the *other* machines:
+/// counting itself twice would let it write more than the account earns, and
+/// leaving the Pi out would hold it to the joining allowance.
+#[test]
+fn red_team_the_account_s_pledge_is_the_other_machines_as_the_coordinator_lists_them() {
+    const GB: u64 = 1_000_000_000;
+
+    with_coordinator(|address| {
+        let dir = tempfile::tempdir().expect("temp dir");
+
+        let (mut laptop, phrase) = member(&dir.path().join("laptop"), address, None, None);
+        laptop.config.pledge_bytes = 50 * GB;
+        laptop.save_config().expect("save config");
+        coordinator::register_with(&laptop, None, NOW + 1).expect("claim the laptop's pledge");
+
+        let (mut pi, _) = member(&dir.path().join("pi"), address, None, phrase.as_deref());
+        pi.config.pledge_bytes = 700 * GB;
+        pi.save_config().expect("save config");
+        coordinator::register_with(&pi, None, NOW + 1).expect("claim the Pi's pledge");
+
+        // A later claim replaces an earlier one, hence `NOW + 1` above.
+        let others = coordinator::refresh_others_pledged(&laptop)
+            .expect("the coordinator answers")
+            .expect("this coordinator lists devices");
+        assert_eq!(
+            others,
+            700 * GB,
+            "the laptop must learn the Pi's pledge and not count its own a second time"
+        );
+        assert_eq!(
+            Node::account_pledge(&laptop.home, &laptop.config),
+            750 * GB,
+            "the account lends what both machines lend"
+        );
+    });
+}
