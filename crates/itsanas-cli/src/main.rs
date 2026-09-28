@@ -1690,6 +1690,29 @@ fn list(home: &Path) -> Result<()> {
 
 fn put(home: &Path, path: &str, source: &std::path::Path) -> Result<()> {
     let node = open(home)?;
+    // What the account's other machines lend counts towards what it may hold.
+    // A coordinator that cannot be reached leaves the figure it gave last time,
+    // which is the right answer offline and not worth failing a write over.
+    if node.config.coordinator.is_some()
+        && let Err(error) = itsanas_node::coordinator::refresh_others_pledged(&node)
+    {
+        eprintln!("itsanas: using the last known pledges of your other machines: {error}");
+    }
+    node.bound_writes()?;
+
+    // A file on disk says how big it is, so it is refused before it is read;
+    // stdin cannot, and is refused by the store as it streams past.
+    if source != std::path::Path::new("-") {
+        let incoming = std::fs::metadata(source)
+            .map_err(|error| CliError::Io {
+                path: source.to_owned(),
+                source: error,
+            })?
+            .len();
+        node.store
+            .check_room(path, incoming)
+            .map_err(|error| over_budget(&node, error))?;
+    }
 
     let content = if source == std::path::Path::new("-") {
         let mut buffer = Vec::new();
@@ -1707,7 +1730,10 @@ fn put(home: &Path, path: &str, source: &std::path::Path) -> Result<()> {
         })?
     };
 
-    let entry = node.store.write_file(path, &content)?;
+    let entry = node
+        .store
+        .write_file(path, &content)
+        .map_err(|error| over_budget(&node, error))?;
     node.store.flush_segment()?;
 
     println!(
@@ -1716,6 +1742,33 @@ fn put(home: &Path, path: &str, source: &std::path::Path) -> Result<()> {
         entry.chunks.len()
     );
     Ok(())
+}
+
+/// A refused write, in the words `itsanas keep` and `itsanas space` use: what
+/// it would take, what that needs pledged, and the command that offers it.
+fn over_budget(node: &Node, error: itsanas_store::StoreError) -> CliError {
+    let itsanas_store::StoreError::OverBudget { path, total, .. } = error else {
+        return error.into();
+    };
+    // What the account needs in all, less what the other machines already
+    // lend, is what this one would have to offer.
+    let account = Node::account_pledge(&node.home, &node.config);
+    let others = account.saturating_sub(node.config.pledge_bytes);
+    let needed = node.config.split.pledge_needed_for(total);
+    let here = needed.saturating_sub(others);
+    CliError::Usage(format!(
+        concat!(
+            "{} would bring this account to {}, which needs {} pledged across its ",
+            "machines, and they offer {}. Nothing was stored. ",
+            "`itsanas space --pledge {} --apply` here makes up the difference, ",
+            "or make room first."
+        ),
+        path,
+        format_size(total),
+        itsanas_node::config::size_argument(needed),
+        format_size(account),
+        itsanas_node::config::size_argument(here),
+    ))
 }
 
 /// Go and get a file this device knows about and has not downloaded.
@@ -2389,9 +2442,7 @@ fn keep(home: &Path, size: Option<&str>, order: Option<&str>, only: &[String]) -
             // the machine. Refused here, with the number that would make it
             // legal.
             let split = node.config.split;
-            let allowed = split
-                .room_earned(node.config.pledge_bytes)
-                .max(itsanas_coord::accounting::JOINING_ALLOWANCE);
+            let allowed = Node::allowed_for(&node.config, node.config.pledge_bytes);
             if bytes > allowed {
                 return Err(CliError::Usage(format!(
                     concat!(

@@ -31,7 +31,9 @@ it says so. Where it is forced by arithmetic, the arithmetic is shown.
 
 > **Correction, 2026-09-11.** This section used to be marked ✅ built. What is
 > built is the *rule* and its *local* enforcement: `itsanas keep`, `itsanas
-> space --apply` and the provisioners refuse a figure the pledge has not earned.
+> space --apply` and the provisioners refuse a figure the pledge has not earned,
+> and since 2026-09-28 every write -- `put`, the synced folder, the phone --
+> refuses a file that would take the account past it.
 > What is not built is anything that makes a **modified client** obey it.
 > `accounting::assess()` — the function that turns a member's pledge, usage and
 > availability into a standing — is called only from its own tests; so are
@@ -81,7 +83,7 @@ will discover this by losing files.
 network all three copies, and only `C = 3` breaks even on that. A network of
 phones should therefore set a stricter split, which is what the configuration
 field is for. Stricter only: until the network enforces the split, `itsanas
-keep` is the one place it is applied, and a field that could loosen it would
+keep` and the write path are the places it is applied, and a field that could loosen it would
 switch that off from a text editor. The default assumes machines that keep their own data. If the
 membership ever stops looking like that, the value may have to depend on how
 much of an account is held locally rather than being one number per network.

@@ -431,6 +431,32 @@ pub fn enrolled(node: &Node) -> Result<Option<Vec<EnrolledDevice>>> {
     }
 }
 
+/// Ask the coordinator what this account's other machines pledge, and remember
+/// it for the write bound ([`Node::account_pledge`]).
+///
+/// Returns the sum, or `None` when the coordinator is too old to list devices,
+/// in which case the figure remembered last is left as it was. This machine's
+/// own entry is left out: its pledge is read from its configuration, which is
+/// current, where the coordinator's copy is whatever it last claimed.
+///
+/// # Errors
+///
+/// As [`enrolled`], or if the figure cannot be written.
+pub fn refresh_others_pledged(node: &Node) -> Result<Option<u64>> {
+    let Some(devices) = enrolled(node)? else {
+        return Ok(None);
+    };
+    let mine = node.device.device_id();
+    let others = devices
+        .iter()
+        .filter(|enrolled| enrolled.device != mine)
+        .fold(0u64, |total, enrolled| {
+            total.saturating_add(enrolled.pledged_bytes)
+        });
+    node.remember_others_pledged(others)?;
+    Ok(Some(others))
+}
+
 /// What the coordinator found when it tried to reach this machine.
 ///
 /// Three states, and the third is not a polite version of the second. A

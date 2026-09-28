@@ -9,7 +9,9 @@
 use std::{collections::HashSet, fs, path::Path, time::Duration};
 
 use itsanas_crypto::{ChunkId, DeviceKeys, MasterSecret, UserKeys};
-use itsanas_store::{CausalOrder, ChunkerConfig, Operation, Store, validate_chain};
+use itsanas_store::{
+    CausalOrder, ChunkerConfig, Operation, Store, StoreError, WriteBudget, validate_chain,
+};
 use itsanas_testkit as testkit;
 
 /// Open a store, permitting the published fixture identities.
@@ -377,6 +379,153 @@ fn one_users_store_cannot_be_opened_with_another_users_keys() {
              not bound to the owner"
         ),
     }
+}
+
+// ---------------------------------------------------------------------------
+// The account's budget (HANDOVER §8 0n, 1b)
+// ---------------------------------------------------------------------------
+
+const KIB: u64 = 1024;
+
+/// A file the account has no room for is refused, and refusing it costs
+/// nothing but the refusal.
+///
+/// Written through `write_file`, with no size asked first, so the refusal can
+/// only come part-way through the stream -- after the first chunks of the file
+/// have already been sealed and stored. That is the path that could leave
+/// debris, and a folder pass retries a refused file every time it runs: debris
+/// here is a disk that fills with the first part of the same video, again and
+/// again, while the account stays exactly as full as it was.
+#[test]
+fn red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([61; 32]), dir.path());
+    store
+        .set_write_budget(Some(WriteBudget {
+            allowed: 600 * KIB,
+            elsewhere: 0,
+        }))
+        .unwrap();
+
+    store
+        .write_file("kept.bin", &testkit::filler("kept", 256 * 1024))
+        .expect("a file inside the budget is stored");
+    let before = store.stats().unwrap();
+    let unsealed = store.unsealed_entries().unwrap().len();
+
+    let refused = store.write_file("big.bin", &testkit::filler("big", 1024 * 1024));
+    match refused {
+        Err(StoreError::OverBudget {
+            account,
+            total,
+            allowed,
+            ..
+        }) => {
+            assert_eq!(account, 256 * KIB, "the refusal misstates the account");
+            assert_eq!(allowed, 600 * KIB, "the refusal misstates the limit");
+            assert!(total > allowed, "refused at {total}, not past {allowed}");
+        }
+        other => panic!(
+            "a 1 MiB file was accepted into an account with 344 KiB left: {other:?}. \
+             Nothing bounds what an honest client writes, so an account grows past \
+             what its pledge earns and the network is asked to hold it"
+        ),
+    }
+
+    let after = store.stats().unwrap();
+    assert_eq!(
+        after.bytes_on_disk,
+        before.bytes_on_disk,
+        "the refused file left {} bytes of chunks on disk. A folder pass retries it \
+         every round, so the disk fills with a file the account never took",
+        after.bytes_on_disk.saturating_sub(before.bytes_on_disk)
+    );
+    assert!(
+        store.stat("big.bin").unwrap().is_none(),
+        "the refused file has an index entry, so it is listed and will be announced"
+    );
+    assert_eq!(
+        store.unsealed_entries().unwrap().len(),
+        unsealed,
+        "the refused file was written to the log, so every device will look for it"
+    );
+    assert_eq!(
+        store.read_file("kept.bin").unwrap().unwrap(),
+        testkit::filler("kept", 256 * 1024),
+        "cleaning up after the refusal damaged a file that was already there"
+    );
+}
+
+/// The bound charges what a write adds, not what it weighs.
+///
+/// Kept beside the red-team test so that one cannot pass on a store that
+/// refuses everything, and so that an account at its limit can still edit its
+/// own files: charging an edit its whole size would lock a full account out of
+/// changing a single byte.
+#[test]
+fn a_write_inside_the_budget_succeeds_and_an_edit_is_charged_only_its_growth() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([62; 32]), dir.path());
+    store
+        .set_write_budget(Some(WriteBudget {
+            allowed: 1024 * KIB,
+            elsewhere: 0,
+        }))
+        .unwrap();
+
+    store
+        .write_file("a.bin", &testkit::filler("a1", 600 * 1024))
+        .expect("600 KiB fits in 1 MiB");
+    store
+        .write_file("a.bin", &testkit::filler("a2", 700 * 1024))
+        .expect(
+            "growing a 600 KiB file to 700 KiB in a 1 MiB account was refused: the \
+             edit was charged its whole size, as if the old version still counted",
+        );
+
+    assert!(
+        matches!(
+            store.check_room("b.bin", 400 * KIB),
+            Err(StoreError::OverBudget { account, .. }) if account == 700 * KIB
+        ),
+        "400 KiB more on top of 700 KiB was not refused against a 1 MiB budget"
+    );
+
+    store.remove_file("a.bin").unwrap();
+    store
+        .check_room("b.bin", 1024 * KIB)
+        .expect("a deleted file still counts against the account, so deleting never makes room");
+}
+
+/// Files this device has not downloaded are still the account's.
+///
+/// A phone keeping 2 GB of a 40 GB account holds 2 GB here; counting only that
+/// would let it write 38 GB past what the account may hold.
+#[test]
+fn red_team_what_the_account_holds_elsewhere_counts_against_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([63; 32]), dir.path());
+    store
+        .set_write_budget(Some(WriteBudget {
+            allowed: 1024 * KIB,
+            elsewhere: 900 * KIB,
+        }))
+        .unwrap();
+
+    match store.check_room("new.bin", 200 * KIB) {
+        Err(StoreError::OverBudget { account, total, .. }) => {
+            assert_eq!(account, 900 * KIB);
+            assert_eq!(total, 1100 * KIB);
+        }
+        other => panic!(
+            "200 KiB was accepted into an account holding 900 KiB of 1 MiB on other \
+             devices: {other:?}. A device holding part of an account can write past \
+             what the whole account may hold"
+        ),
+    }
+    store
+        .check_room("new.bin", 100 * KIB)
+        .expect("100 KiB fits exactly in what is left");
 }
 
 // ---------------------------------------------------------------------------

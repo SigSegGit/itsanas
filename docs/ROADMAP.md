@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**806 test functions, 4 of them `#[ignore]`d into the slow job, and 76 of
+**814 test functions, 4 of them `#[ignore]`d into the slow job, and 82 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1013,6 +1013,17 @@ regression tests:
    segments to the store — so a node that never dialled anybody held its own
    data and never looked at it. `session::drain_vault` fixes it. Not a corner
    case: a device behind NAT can push and cannot be dialled.
+
+**A file the account has no room for is refused before it is copied**
+(2026-09-28). `itsanas put`, the synced folder and the phone stop a write that
+would take the account past what the pledges of all its machines earn, joining
+allowance included -- the other machines' pledges as the coordinator last listed
+them -- and ask the file's size before reading it. A refusal part-way through a stream removes what that stream had stored.
+The account counts the files other devices hold too, read from the vault.
+This binds the honest client only: a host bounding what one owner stores
+(HANDOVER §8 1c) is not built. Not built either: refusing a write that would
+eat into the disk room pledged to others, and the operating system seeing the
+quota (Explorer still believes the volume's free space).
 
 Still to build:
 

@@ -460,6 +460,16 @@ impl Folder {
         let file =
             std::fs::File::open(real).map_err(|error| FolderError::io(real.to_owned(), error))?;
 
+        // Asked before a byte is read. `write_stream` refuses too, but only as
+        // the bytes go past, and a folder pass retries a refused file every
+        // round: without this, each round re-reads and re-seals the part of it
+        // that fits before throwing that work away.
+        let incoming = file
+            .metadata()
+            .map_err(|error| FolderError::io(real.to_owned(), error))?
+            .len();
+        store.check_room(path, incoming)?;
+
         let entry = store.write_stream(path, std::io::BufReader::new(file))?;
         Self::record(store, path, real, entry.content_hash)
     }

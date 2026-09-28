@@ -530,6 +530,46 @@ fn an_unreadable_file_does_not_stop_the_rest_of_the_folder() {
     assert_eq!(node.store.list().unwrap().len(), 2);
 }
 
+/// A file the account has no room for is left where it is, said, and does not
+/// hold up the rest.
+///
+/// Refused is not deleted: the file stays on disk and out of the account, and
+/// the next pass asks again -- so making room, or pledging more, is all it
+/// takes for it to go in.
+#[test]
+fn a_file_over_the_budget_is_refused_left_on_disk_and_blocks_nothing_else() {
+    let node = node(21);
+    node.store
+        .set_write_budget(Some(itsanas_store::WriteBudget {
+            allowed: 100,
+            elsewhere: 0,
+        }))
+        .unwrap();
+    write_disk(node.folder.root(), "small.txt", &[1; 10]);
+    write_disk(node.folder.root(), "huge.bin", &[2; 1000]);
+
+    for pass in 0..2 {
+        let report = node.folder.reconcile(&node.store, false).unwrap();
+        assert!(
+            report
+                .failed
+                .iter()
+                .any(|(path, why)| path == "huge.bin" && why.contains("bytes, over the 100 bytes")),
+            "pass {pass}: the refusal does not name the file and the numbers: {:?}",
+            report.failed
+        );
+        assert_eq!(report.held_deletions, 0, "pass {pass}");
+    }
+
+    assert!(node.store.stat("small.txt").unwrap().is_some());
+    assert!(node.store.stat("huge.bin").unwrap().is_none());
+    assert_eq!(
+        read_disk(node.folder.root(), "huge.bin").as_deref(),
+        Some(&[2u8; 1000][..]),
+        "the refused file was touched on disk; a quota must never cost the original"
+    );
+}
+
 #[test]
 fn an_empty_folder_and_an_empty_store_do_nothing() {
     let node = node(20);

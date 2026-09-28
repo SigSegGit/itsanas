@@ -58,6 +58,24 @@ pub enum StoreError {
     )]
     PublishedTestIdentity(String),
 
+    #[error(
+        "{path} would bring this account to at least {total} bytes, over the \
+         {allowed} bytes it may hold (it holds {account} without it). Nothing \
+         was stored."
+    )]
+    OverBudget {
+        /// The logical path that was being written.
+        path: String,
+        /// The account's bytes before this write, not counting whatever the
+        /// write would have replaced.
+        account: u64,
+        /// What the account would have held. A lower bound when the refusal
+        /// came part-way through a stream: the rest was never read.
+        total: u64,
+        /// What the account may hold.
+        allowed: u64,
+    },
+
     #[error("{0}")]
     Corrupt(String),
 }
