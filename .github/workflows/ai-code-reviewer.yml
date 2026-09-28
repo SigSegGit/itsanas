@@ -13,6 +13,13 @@ name: AI code review
 # must never run a fork's code with the repository's secrets. The consequence is
 # that a PR from a fork has no AI_API_KEY and this job fails on it, loudly, as
 # every missing-key case does.
+#
+# Dependabot PRs are reviewed too, with the same key. GitHub gives a run
+# triggered by Dependabot only the *Dependabot* secret store -- neither Actions
+# secrets nor repository variables -- so the three names are duplicated there
+# (Settings -> Secrets and variables -> Dependabot), all three as secrets, and
+# each `vars.X` below falls back to `secrets.X`. Without the copy every weekly
+# bump went red on "AI_API_KEY is not set" (PRs 175, 176).
 
 on:
   pull_request:
@@ -53,7 +60,7 @@ jobs:
       - name: Required configuration is present
         env:
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
-          AI_MODEL_NAME: ${{ vars.AI_MODEL_NAME }}
+          AI_MODEL_NAME: ${{ vars.AI_MODEL_NAME || secrets.AI_MODEL_NAME }}
         run: |
           missing=0
           if [ -z "$AI_API_KEY" ]; then
@@ -61,11 +68,11 @@ jobs:
             missing=1
           fi
           if [ -z "$AI_MODEL_NAME" ]; then
-            echo "::error::repository variable AI_MODEL_NAME is not set"
+            echo "::error::AI_MODEL_NAME is not set (repository variable, or Dependabot secret on a Dependabot PR)"
             missing=1
           fi
           [ "$missing" -eq 0 ] || exit 1
-          echo "AI_BASE_URL: ${{ vars.AI_BASE_URL || '(empty: api.openai.com)' }}"
+          echo "AI_BASE_URL: ${{ vars.AI_BASE_URL || secrets.AI_BASE_URL || '(empty: api.openai.com)' }}"
 
       - name: Choose the diff range
         env:
@@ -88,7 +95,7 @@ jobs:
       - name: Review
         env:
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
-          AI_BASE_URL: ${{ vars.AI_BASE_URL }}
-          AI_MODEL_NAME: ${{ vars.AI_MODEL_NAME }}
+          AI_BASE_URL: ${{ vars.AI_BASE_URL || secrets.AI_BASE_URL }}
+          AI_MODEL_NAME: ${{ vars.AI_MODEL_NAME || secrets.AI_MODEL_NAME }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/ci_code_reviewer.py
