@@ -287,6 +287,17 @@ enum Command {
         #[arg(long, conflicts_with = "address")]
         forget: bool,
     },
+    /// Tell the peers and the coordinator this machine is leaving, then exit.
+    ///
+    /// For a machine switched off on purpose -- sold, retired, away for a
+    /// month. Every peer that keeps a ledger stops counting it as a copy at
+    /// once and repairs from the devices still online, instead of believing
+    /// in it for the seven days a silence takes to be noticed. The coordinator
+    /// records the departure apart from a silence.
+    ///
+    /// Run it with the daemon stopped: one process at a time holds a node's
+    /// state. It does not wait for the repair, which is the peers' work.
+    Leave,
     /// Serve peers.
     Serve {
         /// Address to listen on. Defaults to the configured `listen`.
@@ -562,6 +573,7 @@ fn run() -> Result<()> {
         Command::Device { what } => device(&home, &what),
         Command::Listen { address } => listen_on(&home, address.as_deref()),
         Command::Announce { address, forget } => announce_as(&home, address.as_deref(), forget),
+        Command::Leave => leave(&home),
         Command::Serve { listen } => serve(&home, listen.as_deref()),
         Command::Daemon {
             listen,
@@ -2157,6 +2169,85 @@ fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
         println!("    itsanas register");
     }
 
+    Ok(())
+}
+
+/// Tell whoever keeps a ledger about this device that it is going.
+///
+/// Who that is: this account's other devices, which keep the ledger of its own
+/// files, and the owners of whatever this machine hosts, which keep theirs.
+/// The configured peers are told too, because somebody typed them in. Each is
+/// told at most once, and a peer that cannot be reached is named rather than
+/// retried: its records age out of `LIVE_FOR` like a crash's would.
+fn leave(home: &Path) -> Result<()> {
+    let node = open(home)?;
+    let me = node.store.device_id();
+
+    let mut targets: Vec<(Option<DeviceId>, String)> = node
+        .config
+        .peers
+        .iter()
+        .map(|address| (None, address.clone()))
+        .collect();
+    if node.config.coordinator.is_some() {
+        let mut owners = vec![node.store.owner()];
+        for owner in node.vault.owners()? {
+            if !owners.contains(&owner) {
+                owners.push(owner);
+            }
+        }
+        for owner in owners {
+            match coordinator::devices(&node, owner) {
+                Ok(found) => targets.extend(
+                    found
+                        .into_iter()
+                        .filter(|(device, _)| *device != me)
+                        .map(|(device, address)| (Some(device), address)),
+                ),
+                Err(error) => println!("could not list the devices of {}: {error}", owner.short()),
+            }
+        }
+    }
+
+    let mut told: std::collections::BTreeSet<DeviceId> = std::collections::BTreeSet::new();
+    for (expect, address) in &targets {
+        if expect.is_some_and(|device| told.contains(&device)) {
+            continue;
+        }
+        let mut client =
+            match PeerClient::connect(address, &node.device, node.store.owner(), *expect) {
+                Ok(client) => client,
+                Err(error) => {
+                    println!("{address}: not told, unreachable ({error})");
+                    continue;
+                }
+            };
+        let device = client.peer_device();
+        if !told.insert(device) {
+            continue;
+        }
+        match client.leaving() {
+            Ok(true) => println!("{address}: told"),
+            Ok(false) => println!("{address}: not told, too old to know the notice"),
+            Err(error) => println!("{address}: not told ({error})"),
+        }
+    }
+
+    if node.config.coordinator.is_some() {
+        match coordinator::depart(&node, itsanas_discover::now_unix()) {
+            Ok(true) => println!("coordinator: departure recorded"),
+            Ok(false) => println!("coordinator: too old to record a departure"),
+            Err(error) => println!("coordinator: not recorded ({error})"),
+        }
+    }
+    // Said plainly when nobody heard: a machine found only by the LAN beacons
+    // is not in any list this command can read, and "you can switch off now"
+    // after telling no one would be the reassurance this notice exists to end.
+    if told.is_empty() {
+        println!("no peer was told: their ledgers will stop counting this node after LIVE_FOR");
+    } else {
+        println!("{} peer(s) told; this node can be switched off", told.len());
+    }
     Ok(())
 }
 

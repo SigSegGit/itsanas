@@ -307,6 +307,15 @@ A node that simply vanishes gets none of this, which is why repair exists. The
 notice period is the difference between leaving politely and leaving rudely, and
 the network survives both — it just does more work for the second.
 
+What exists today is the first half of politeness: `itsanas leave`, run with the
+daemon stopped, tells every peer that keeps a ledger about this device to stop
+counting it (`red_team_a_leaving_notice_withdraws_only_the_caller`), so repair
+starts at once instead of after the seven days a silence takes to be noticed,
+and the coordinator records the departure apart from a silence
+(`a_departure_is_recorded_apart_from_a_silence`). It does **not** keep serving
+while copies are taken — that is `evict`'s notice period — and nothing reads the
+recorded departures yet.
+
 ---
 
 ## 5. When a member takes more than they give 🟨 **partly built**

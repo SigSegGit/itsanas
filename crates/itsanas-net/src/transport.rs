@@ -57,7 +57,7 @@ use crate::{
     error::{NetError, Result},
     protocol::{
         Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_CHUNK_SUMMARY,
-        PROTOCOL_WITH_DROP_NOTICES, Request, Response,
+        PROTOCOL_WITH_DROP_NOTICES, PROTOCOL_WITH_LEAVING, Request, Response,
     },
     service::PeerService,
 };
@@ -598,6 +598,22 @@ impl PeerClient {
             return Ok(false);
         }
         match self.request(&Request::Dropped { owner, chunks })? {
+            Response::Stored { accepted } => Ok(accepted),
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
+        }
+    }
+
+    /// Tell the peer this device is going and should no longer be counted.
+    ///
+    /// Answers `false`, having sent nothing, when the peer is too old to know
+    /// the verb: its records age out of `LIVE_FOR` instead, which is what
+    /// happened before this existed.
+    pub fn leaving(&mut self) -> Result<bool> {
+        if self.spoken < PROTOCOL_WITH_LEAVING {
+            return Ok(false);
+        }
+        match self.request(&Request::Leaving)? {
             Response::Stored { accepted } => Ok(accepted),
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse { expected: "stored" }),

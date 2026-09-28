@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     accounting::DeviceContribution,
-    claim::{SignedClaim, SignedPresence},
+    claim::{SignedClaim, SignedDeparture, SignedPresence},
     error::{CoordError, Result},
     invitation::{self, Secret, SignedInvitation},
 };
@@ -101,6 +101,12 @@ const AVAILABILITY: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("av
 /// cannot redeem, which is the whole reason the secret stays with the inviter
 /// and the invitee.
 const INVITATIONS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("invitations");
+/// Device id -> the signed notice and when **this coordinator** received it.
+///
+/// A table of its own rather than a flag on availability, because a silence
+/// and a departure are different facts and the regulation that will read them
+/// has not been written: keeping them apart now is what leaves it free.
+const DEPARTURES: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("departures");
 
 /// A member's account, as the coordinator holds it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -245,6 +251,13 @@ pub fn validate_username(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// A departure notice, and when this coordinator received it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct DepartureRecord {
+    notice: SignedDeparture,
+    received_unix: u64,
+}
+
 /// Smoothed availability for one device.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct AvailabilityRecord {
@@ -276,6 +289,7 @@ impl Directory {
             let _ = txn.open_table(ESCROW)?;
             let _ = txn.open_table(USAGE)?;
             let _ = txn.open_table(AVAILABILITY)?;
+            let _ = txn.open_table(DEPARTURES)?;
         }
         txn.commit()?;
 
@@ -793,6 +807,53 @@ impl Directory {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// Record that a device said it is leaving.
+    ///
+    /// Refused for a device with no live claim, as for a presence: a notice
+    /// from a machine nobody answers for is not history worth keeping. Only the
+    /// latest notice is kept; a device that leaves, comes back and leaves again
+    /// has one departure on record, the last.
+    ///
+    /// Durable, unlike a presence: a departure is the one event in a device's
+    /// life that is not repeated every round, so losing it loses it.
+    pub fn depart(&self, signed: &SignedDeparture, now: u64) -> Result<()> {
+        signed.verify(now)?;
+        self.claim_for(signed.departure.device)?
+            .filter(|claim| !claim.claim.revoked)
+            .ok_or_else(|| CoordError::UnclaimedDevice(signed.departure.device.short()))?;
+
+        let record = DepartureRecord {
+            notice: signed.clone(),
+            received_unix: now,
+        };
+        let txn = self.db.begin_write()?;
+        {
+            let mut departures = txn.open_table(DEPARTURES)?;
+            departures.insert(
+                signed.departure.device.to_bytes().as_slice(),
+                postcard::to_stdvec(&record)?.as_slice(),
+            )?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// When **this coordinator** received a device's last departure notice.
+    ///
+    /// `None` for a device that never said it was leaving -- which is every
+    /// device that crashed, and the difference this table exists to keep.
+    pub fn departed(&self, device: DeviceId) -> Result<Option<u64>> {
+        let txn = self.db.begin_read()?;
+        let departures = txn.open_table(DEPARTURES)?;
+        match departures.get(device.to_bytes().as_slice())? {
+            Some(value) => {
+                let record: DepartureRecord = postcard::from_bytes(value.value())?;
+                Ok(Some(record.received_unix))
+            }
+            None => Ok(None),
+        }
     }
 
     /// When **this coordinator** last heard from a device, by its own clock.

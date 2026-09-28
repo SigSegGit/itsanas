@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-18 — 803 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 74 are red-team tests.**
+**Last updated: 2026-09-28 — 806 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 76 are red-team tests.**
 
-**687 of the 803 tests have an entry of their own on this page** — an *entry*,
+**690 of the 806 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -162,10 +162,10 @@ guarantee and is not one.
 | `itsanas-store` integration (`tests/store.rs`) | 40 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
-| `itsanas-net` unit | 38 |
+| `itsanas-net` unit | 39 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 47 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 100 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 102 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 15 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 23 |
@@ -711,7 +711,7 @@ about reading.
 
 ---
 
-# `itsanas-net` — unit tests (38)
+# `itsanas-net` — unit tests (39)
 
 ## `protocol` — messages and challenges (12)
 
@@ -730,7 +730,7 @@ about reading.
 | **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 
-## `service` — what a peer may obtain (19)
+## `service` — what a peer may obtain (20)
 
 | Test | What it proves |
 | --- | --- |
@@ -750,6 +750,7 @@ about reading.
 | **`a_segment_already_held_is_answered_not_stored`** | `accepted` has to be what happened, not what the call returned. Mapping `Ok(_)` to accepted made every idle round look like a round that had moved something, so the daemon printed a line every five minutes on a quiet fleet — which is how an operator learns to stop reading the log. |
 | **`a_hello_from_a_newer_peer_is_answered_with_the_version_both_sides_know`** | The version window. Requiring an exact match — which is what this did — meant no node could speak to a node one commit ahead, so every protocol addition partitioned the network until every machine upgraded at the same instant. Survivable in one household; impossible for people who join and leave. |
 | `a_hello_from_below_the_floor_is_refused_rather_than_guessed_at` | A window has a bottom. Below it there is no shared vocabulary, and pretending otherwise fails on some later message instead of this one. |
+| **`red_team_a_leaving_notice_withdraws_only_the_caller`** | `Leaving` withdraws every record about a device at once, the most destructive notice a peer can send: pointed at the wrong device it would make an owner forget the only holder that still has its data. It carries no device, so the subject is the connection's proven one. Also checks the chunk is then under-replicated, which is what makes the next round repair it instead of waiting the seven days of `LIVE_FOR`. |
 | `a_drop_notice_for_another_account_is_refused` | A node hosting somebody else's sealed data keeps no ledger about it. Accepting silently would look like the record had been withdrawn somewhere. |
 | `a_peer_can_fetch_this_nodes_own_segments_and_chunks` | The basic serving path. |
 | `the_segment_limit_is_clamped_to_the_protocol_maximum` | Limits are applied. |
@@ -1504,6 +1505,16 @@ Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, five in
 | `nothing_answering_anywhere_is_still_an_error` | Trying several addresses must still fail when none answers, rather than returning the last error as success or hanging on an empty list. |
 
 ---
+
+# `itsanas-coord` — departures (2)
+
+A device leaving on purpose tells the coordinator, which records it apart from a
+silence for a regulation that does not exist yet. Nothing reads the record today.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_departure_notice_from_another_device_is_refused`** | A history anybody can write about somebody else is worthless to the regulation it is kept for. Two ways in, both refused with nothing recorded: a genuine notice delivered over another device's connection (a replay), and a notice naming a device and signed by another key (a forgery). Then the device itself is heard, so the refusals are not an accident of a broken path. |
+| `a_departure_is_recorded_apart_from_a_silence` | The only reason to record departures is to keep them apart from silences: a device that stopped announcing without a word has none on record. Recording one changes nothing else yet — the device's last presence stands. |
 
 # `itsanas-coord` — claims, directory, accounting (58)
 

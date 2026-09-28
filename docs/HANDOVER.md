@@ -9,16 +9,38 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0m
-TITLE: 0m parts 2 and 3 -- itsanas leave, and departures recorded apart from silences
-WRITTEN-AT: 2026-09-18
-BASE: 5a2b222
+NEXT: 8.0n
+TITLE: Refuse a file that will not fit, before copying it (8.1b pulled forward)
+WRITTEN-AT: 2026-09-28
+BASE: dabb138
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-28, a machine can leave politely** (§8 0m parts 2 and 3, branch
+`step/8.0m-leave`). Peer protocol 5 appends `Request::Leaving`, which carries
+nothing: the device withdrawn is the one the connection proved, so the owner's
+node runs `forget_device(caller)` and the next round repairs at once instead of
+after `LIVE_FOR`. A v4 peer is not told (`PROTOCOL_WITH_LEAVING`; negotiation is
+`min` of both sides, checked). The coordinator appends `Request::Depart`, a
+`SignedDeparture` under its own domain, refused unless its device is the caller
+and kept in a `departures` table apart from presence -- **nothing reads it
+yet**, on purpose. `itsanas leave` tells configured peers, this account's
+devices and the owners of what the vault holds, then the coordinator.
+
+What it does **not** do, found by Rodin and left 🟨: it runs with the daemon
+stopped, so a service manager that restarts the daemon brings the machine back
+and the recorded departure lies about a live node -- the soft stop on the
+service (systemd `ExecStop`, the Windows task) is not wired. Peers known only
+from LAN beacons are not in any list `leave` can read; it now says "no peer was
+told" instead of "can be switched off" when that happens.
+
+Traps this time: a Git Bash heredoc ate `\n` inside a Python edit script
+(write scripts with the Write tool); the coord test helper `enrol` registers
+one account per device, so two devices need two owners.
 
 **2026-09-21, a dead machine stopped counting as a copy** (§8 0m part 1).
 `Store::under_replicated` -- the query repair drains -- counted **every holder
@@ -1606,7 +1628,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       directory, a ledger with files) writes no deletion to the log; and a
       folder emptied by accident has its deletions held, not replicated.
 
-   m. 🟨 **Count the live copies, and let a machine leave politely.** Part (1) built 2026-09-21; (2) and (3) are the next step, described at the end of this item. Asked for
+   m. ✅ **Count the live copies, and let a machine leave politely.** Parts (1)-(3) built (2026-09-21, 2026-09-28). **Remaining, 🟨:** wire `itsanas leave` into the service's own stop (systemd `ExecStop=`, the Windows scheduled task, the tray of item f) so a restart does not contradict the recorded departure. Asked for
       by Nicolas on 2026-09-17: each instance checks how many copies are live
       and asks for a new one elsewhere; a machine shutting down on purpose
       should first ask for copies, so a graceful exit can be told apart from a
@@ -1648,7 +1670,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
       protocol addition in one review.
 
 
-   n. **Refuse a file that will not fit, before copying it.** This is 8.1b,
+   n. **Refuse a file that will not fit, before copying it.** Next step. Start
+      from `Store::write_stream` (`crates/itsanas-store/src/store.rs`) and 8.1b
+      below, which names the check; the in-process refusal is the deliverable,
+      native quotas are research only. Red-team test expected: a write that
+      would exceed the account's entitlement is refused before any chunk is
+      stored, and the refusal names the numbers. This is 8.1b,
       pulled forward on 2026-09-17: Nicolas calls it a basic feature, and asks
       what happens when the disk has room but the account's quota does not.
       Read 8.1b for the specification. On 2026-09-17 he also asked that the

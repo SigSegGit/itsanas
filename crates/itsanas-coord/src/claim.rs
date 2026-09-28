@@ -71,6 +71,12 @@ pub const CLAIM_DOMAIN: &str = "itsanas v1 node claim";
 /// Signature domain for a presence announcement.
 pub const PRESENCE_DOMAIN: &str = "itsanas v1 node presence";
 
+/// Domain string for a device's notice that it is leaving.
+///
+/// Its own domain, so a departure can never be replayed as a presence or the
+/// other way round: both are the same device key over a device id and a date.
+pub const DEPARTURE_DOMAIN: &str = "itsanas v1 node departure";
+
 /// How far into the future a timestamp may be before it is refused.
 ///
 /// Live claims supersede each other by timestamp, so a device whose clock is
@@ -241,6 +247,65 @@ impl SignedPresence {
             self.signature,
         )
         .map_err(|_| CoordError::BadSignature("presence"))
+    }
+}
+
+/// A device saying it is going on purpose.
+///
+/// Recorded by the coordinator apart from silences, so that a future
+/// regulation can tell a machine that left politely from one that vanished.
+/// Nothing reads it for that yet: the record comes first, so that the history
+/// exists on the day somebody decides what it should mean.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Departure {
+    pub device: DeviceId,
+    /// The device's opinion of the time. Not evidence: the coordinator records
+    /// its own clock beside it.
+    pub at_unix: u64,
+}
+
+/// A [`Departure`] with the device's signature over it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignedDeparture {
+    pub departure: Departure,
+    pub signature: Signature,
+}
+
+impl Departure {
+    fn payload(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(32 + 8);
+        out.extend_from_slice(self.device.as_bytes());
+        out.extend_from_slice(&self.at_unix.to_le_bytes());
+        out
+    }
+
+    /// Sign with the device's own key.
+    #[must_use]
+    pub fn sign(self, device: &DeviceKeys) -> SignedDeparture {
+        let signature = device.sign(DEPARTURE_DOMAIN, &self.payload());
+        SignedDeparture {
+            departure: self,
+            signature,
+        }
+    }
+}
+
+impl SignedDeparture {
+    /// Check the signature against the device that claims to be leaving.
+    pub fn verify(&self, now: u64) -> Result<()> {
+        if self.departure.at_unix > now.saturating_add(MAX_CLOCK_SKEW) {
+            return Err(CoordError::FromTheFuture {
+                issued: self.departure.at_unix,
+                now,
+            });
+        }
+        verify(
+            self.departure.device.as_bytes(),
+            DEPARTURE_DOMAIN,
+            &self.departure.payload(),
+            self.signature,
+        )
+        .map_err(|_| CoordError::BadSignature("departure"))
     }
 }
 

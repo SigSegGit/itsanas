@@ -22,7 +22,7 @@
 use itsanas_crypto::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
 
-use crate::claim::{Presence, SignedClaim, SignedPresence};
+use crate::claim::{Presence, SignedClaim, SignedDeparture, SignedPresence};
 use crate::directory::{Account, SignedRegistration};
 use crate::invitation::{Secret, SignedInvitation};
 
@@ -185,6 +185,18 @@ pub enum Request {
     /// Appended last. postcard numbers variants by position, and a coordinator
     /// older than this closes the connection rather than misreading it.
     CheckMe,
+
+    /// "This device is leaving on purpose." Signed by the device.
+    ///
+    /// Recorded apart from a silence, for a regulation that does not exist yet
+    /// and must one day tell a polite departure from a vanishing. The
+    /// coordinator refuses one whose device is not the caller, as for
+    /// [`Request::Announce`]: a notice for somebody else's machine would be a
+    /// way to write a false history about it.
+    ///
+    /// Appended last. postcard numbers variants by position, and a coordinator
+    /// older than this closes the connection rather than misreading it.
+    Depart(Box<SignedDeparture>),
 }
 
 /// One enrolled device, as [`Response::Devices`] lists it.
@@ -294,6 +306,7 @@ impl Request {
             Self::GetEscrow { .. } => "get-escrow",
             Self::Devices { .. } => "devices",
             Self::CheckMe => "check-me",
+            Self::Depart(_) => "depart",
         }
     }
 }
@@ -413,6 +426,16 @@ mod tests {
             ),
             (10, Request::Devices { user }),
             (11, Request::CheckMe),
+            (
+                12,
+                Request::Depart(Box::new(
+                    crate::claim::Departure {
+                        device: keys.device_id(),
+                        at_unix: 0,
+                    }
+                    .sign(&keys),
+                )),
+            ),
         ];
         let account = crate::directory::Account {
             username: "a".to_owned(),
@@ -466,7 +489,8 @@ mod tests {
                 | Request::PutEscrow { .. }
                 | Request::GetEscrow { .. }
                 | Request::Devices { .. }
-                | Request::CheckMe => {}
+                | Request::CheckMe
+                | Request::Depart(_) => {}
             }
             assert_eq!(
                 postcard::to_stdvec(request).unwrap()[0],
