@@ -50,6 +50,10 @@ request" from the same day.)
   | `AI_MODEL_NAME` | variable | yes | a list, e.g. `gemini-flash-lite-latest,gemma-4-31b-it,gemini-3.8-flash` |
   | `AI_BASE_URL` | variable | no | empty = OpenAI; `https://generativelanguage.googleapis.com/v1beta/openai/`, `https://api.deepseek.com`, `https://api.moonshot.ai/v1` |
 
+  Dependabot PRs see only the **Dependabot** secret store, not Actions secrets
+  or variables: the same three names are copied there, all as secrets, and the
+  workflow reads `vars.X || secrets.X`. Rotate the key in both stores.
+
 - **Fails loudly.** A missing key, an API error, an empty answer or a failed
   comment post turns the job red with the reason in the log. `AI_MODEL_NAME` is
   a comma-separated list tried in order: a model that is overloaded (503/429,
