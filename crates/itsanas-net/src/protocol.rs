@@ -32,7 +32,7 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 4;
+pub const PROTOCOL_VERSION: u16 = 5;
 
 /// The oldest version this node will still talk to.
 ///
@@ -88,6 +88,15 @@ pub const PROTOCOL_WITH_DROP_NOTICES: u16 = 3;
 /// is correct and expensive. Gated rather than assumed, because that is what
 /// [`MIN_PROTOCOL_VERSION`] is for.
 pub const PROTOCOL_WITH_CHUNK_SUMMARY: u16 = 4;
+
+/// The first version in which a device can say it is leaving.
+///
+/// A peer at 4 does not know [`Request::Leaving`] and would close the
+/// connection on it, so it is simply not told: its records about the departing
+/// device age out of [`itsanas_store::holders::LIVE_FOR`] exactly as a crash's
+/// would. Gated, not assumed, because the window is what makes a mixed fleet
+/// work at all.
+pub const PROTOCOL_WITH_LEAVING: u16 = 5;
 
 /// Domain string for storage-challenge proofs.
 const CHALLENGE_DOMAIN: &str = "itsanas v1 storage challenge";
@@ -210,6 +219,28 @@ pub enum Request {
     /// sanctioned or repaired on the strength of it. What follows a mismatch is
     /// the same have/missing exchange as before, over a slice of the id space.
     ChunkSummary { owner: UserId },
+
+    /// "I am going, and I will not be back soon: stop counting me."
+    ///
+    /// # Why a device has to be able to say this
+    ///
+    /// Without it, a machine switched off on purpose is indistinguishable from
+    /// one that crashed: every ledger keeps counting it as a holder until its
+    /// records age out of `LIVE_FOR`, seven days during which an owner believes
+    /// it has a copy that nobody can serve. Saying so costs one message and
+    /// lets repair start at once, from the devices still online.
+    ///
+    /// **Carries nothing on purpose.** The subject is the device this
+    /// connection proved, exactly as for [`Request::Dropped`]: a device can
+    /// only ever withdraw itself. A field naming the departing device would be
+    /// a way to make somebody else's copies disappear from a ledger.
+    ///
+    /// It is not a promise and nothing is sanctioned on the strength of it. A
+    /// device that says it is leaving and comes back is simply confirmed again
+    /// by the next audit or push, like any holder.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Leaving,
 }
 
 /// What a peer answers.
@@ -391,6 +422,7 @@ mod tests {
                 chunks: vec![ChunkId::from_bytes([10; 32])],
             },
             Request::ChunkSummary { owner: user() },
+            Request::Leaving,
         ]
     }
 
@@ -417,6 +449,7 @@ mod tests {
             Request::Hosted { .. } => {}
             Request::Dropped { .. } => {}
             Request::ChunkSummary { .. } => {}
+            Request::Leaving => {}
         }
     }
 
@@ -592,6 +625,7 @@ mod tests {
             Request::Hosted { .. } => 9,
             Request::Dropped { .. } => 10,
             Request::ChunkSummary { .. } => 11,
+            Request::Leaving => 12,
         }
     }
 

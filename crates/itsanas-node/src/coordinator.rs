@@ -295,6 +295,38 @@ pub fn announce(node: &Node, address: &str, now: u64) -> Result<String> {
     }
 }
 
+/// Tell the coordinator this device is leaving on purpose.
+///
+/// `Ok(false)` when the coordinator is too old to know the request: it closes
+/// the connection, and the departure simply goes unrecorded, which is what a
+/// crash looks like and costs nothing today -- nothing reads the record yet.
+///
+/// # Errors
+///
+/// If the coordinator cannot be reached, or refuses.
+pub fn depart(node: &Node, now: u64) -> Result<bool> {
+    let mut client = dial(node)?;
+    let notice = itsanas_coord::Departure {
+        device: node.store.device_id(),
+        at_unix: now,
+    }
+    .sign(&node.device);
+    match client.ask(&Request::Depart(Box::new(notice))) {
+        Ok(Response::Done) => Ok(true),
+        Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
+        Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+        // An old coordinator closes the connection on a request it does not
+        // know, which looks exactly like an outage. Something it has always
+        // answered tells the two apart, as for `check_me`.
+        Err(failed) => match devices(node, node.store.owner()) {
+            Ok(_) => Ok(false),
+            Err(_) => Err(CliError::Usage(format!(
+                "the coordinator stopped answering ({failed}); it is not a version question"
+            ))),
+        },
+    }
+}
+
 /// Where the other devices of `user` say they are.
 pub fn peers(node: &Node, user: UserId) -> Result<Vec<(DeviceId, String)>> {
     let mut found: Vec<(DeviceId, String)> = devices(node, user)?

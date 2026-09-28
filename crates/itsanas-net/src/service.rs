@@ -227,6 +227,21 @@ impl<'a> PeerService<'a> {
                 Ok(Response::Stored { accepted: true })
             }
 
+            Request::Leaving => {
+                // Scoped to the caller by construction, as for `Dropped`: the
+                // device withdrawn is the one this connection proved, never one
+                // the request names. Every record about it goes, so
+                // `under_replicated` sees the gap now rather than when the
+                // records age out, and the next round repairs from whoever is
+                // still online.
+                //
+                // Answered the same whatever this node held: a peer that knew
+                // nothing of the device has nothing to withdraw, and telling it
+                // so would only teach a stranger which ledgers mention it.
+                self.store.forget_device(&caller)?;
+                Ok(Response::Stored { accepted: true })
+            }
+
             Request::Hosted { chunks } => {
                 // A claim, recorded and then checked. The storage challenges
                 // this node already runs are what turn it into evidence: a peer
@@ -850,6 +865,45 @@ mod tests {
             left,
             vec![honest],
             "a peer's notice removed somebody else's record"
+        );
+    }
+
+    #[test]
+    fn red_team_a_leaving_notice_withdraws_only_the_caller() {
+        // `Leaving` withdraws every record about a device at once, so it is the
+        // most destructive notice a peer can send: pointed at the wrong device
+        // it would make an owner forget the only holder that still has its
+        // data. It carries no device for that reason, and this is the test
+        // that keeps it so. After it, the chunk is under-replicated, which is
+        // what makes the next round repair it rather than wait a week.
+        let node = node(&alice(), 26);
+        node.store.write_file("notes.txt", b"content").unwrap();
+        let chunk = node.store.stat("notes.txt").unwrap().unwrap().chunks[0];
+
+        let stays = DeviceId::from_bytes([0xA3; 32]);
+        let goes = DeviceId::from_bytes([0xB4; 32]);
+        node.store.record_holders(&[chunk], &stays).unwrap();
+        node.store.record_holders(&[chunk], &goes).unwrap();
+
+        let response = service(&node).handle(&Request::Leaving, goes).unwrap();
+        assert!(matches!(response, Response::Stored { accepted: true }));
+
+        let left: Vec<_> = node
+            .store
+            .remote_holders(&chunk)
+            .unwrap()
+            .into_iter()
+            .map(|holder| holder.device)
+            .collect();
+        assert_eq!(left, vec![stays], "leaving withdrew the wrong device");
+
+        let at_risk = node
+            .store
+            .under_replicated(itsanas_store::REPLICATION_TARGET, itsanas_store::now_unix())
+            .unwrap();
+        assert!(
+            at_risk.iter().any(|risk| risk.chunk == chunk),
+            "a departed holder is still counted, so nothing repairs"
         );
     }
 

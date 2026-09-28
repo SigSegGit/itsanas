@@ -321,6 +321,24 @@ impl<'a> CoordService<'a> {
 
             Request::Devices { user } => self.devices_of(*user, caller, now_unix),
 
+            Request::Depart(signed) => {
+                // A device may only say that *it* is leaving. The signature
+                // alone does not settle this: a departure signed by device A
+                // and relayed over device B's connection is authentic and
+                // still not B's to deliver, and accepting it would let any
+                // member replay a notice it once saw into somebody else's
+                // history. Same rule as `Announce`, for the same reason.
+                if signed.departure.device != caller {
+                    return Ok(Response::Refused(
+                        "a device may only announce its own departure".to_owned(),
+                    ));
+                }
+                match self.directory.depart(signed, now_unix) {
+                    Ok(()) => Ok(Response::Done),
+                    Err(error) => Ok(Response::Refused(error.to_string())),
+                }
+            }
+
             // Answered in `server.rs`, which has the device keys to prove who
             // is calling back and a socket to call with. Reaching here means
             // somebody wired a service without that, and a silent "no" would
@@ -777,6 +795,113 @@ mod tests {
             ),
             "a withdrawn device still spends this coordinator's connections"
         );
+    }
+
+    fn ask(service: &CoordService<'_>, request: &Request, caller: DeviceId) -> Response {
+        let mut limiter = EscrowLimiter::new();
+        service
+            .handle(request, caller, NOW, &mut limiter, Instant::now())
+            .unwrap()
+    }
+
+    /// A departure is history about a device, and a history anybody can write
+    /// about somebody else is worthless to the regulation it is kept for. Two
+    /// ways in: a notice signed by the right device but delivered by another
+    /// (a replay), and a notice naming a device and signed by another (a
+    /// forgery). Both must leave nothing on record.
+    #[test]
+    fn red_team_a_departure_notice_from_another_device_is_refused() {
+        let directory = directory();
+        let owner = user(12);
+        let laptop = device(12);
+        let other = device(13);
+        enrol(&directory, &owner, &laptop);
+        enrol(&directory, &user(13), &other);
+        let service = CoordService::new(&directory);
+
+        let genuine = crate::claim::Departure {
+            device: laptop.device_id(),
+            at_unix: NOW,
+        }
+        .sign(&laptop);
+        let replayed = ask(
+            &service,
+            &Request::Depart(Box::new(genuine.clone())),
+            other.device_id(),
+        );
+        assert!(
+            matches!(replayed, Response::Refused(_)),
+            "a member delivered another device's departure: {replayed:?}"
+        );
+
+        let forged = crate::claim::Departure {
+            device: laptop.device_id(),
+            at_unix: NOW,
+        }
+        .sign(&other);
+        let forged = ask(
+            &service,
+            &Request::Depart(Box::new(forged)),
+            laptop.device_id(),
+        );
+        assert!(
+            matches!(forged, Response::Refused(_)),
+            "a departure signed by another key was believed: {forged:?}"
+        );
+
+        assert_eq!(
+            directory.departed(laptop.device_id()).unwrap(),
+            None,
+            "a refused notice still wrote a departure into the laptop's history"
+        );
+
+        // And the device itself is heard, or the refusals above prove nothing.
+        let own = ask(
+            &service,
+            &Request::Depart(Box::new(genuine)),
+            laptop.device_id(),
+        );
+        assert!(matches!(own, Response::Done), "{own:?}");
+        assert_eq!(directory.departed(laptop.device_id()).unwrap(), Some(NOW));
+    }
+
+    /// A departure and a silence are different facts, and the only reason to
+    /// record departures is to keep them apart. A device that stopped
+    /// announcing without a word has no departure on record, however long it
+    /// has been gone.
+    #[test]
+    fn a_departure_is_recorded_apart_from_a_silence() {
+        let directory = directory();
+        let owner = user(14);
+        let polite = device(14);
+        let silent = device(15);
+        enrol(&directory, &owner, &polite);
+        enrol(&directory, &user(15), &silent);
+        announce_address(&directory, &owner, &polite, "a:1");
+        announce_address(&directory, &user(15), &silent, "b:1");
+
+        directory
+            .depart(
+                &crate::claim::Departure {
+                    device: polite.device_id(),
+                    at_unix: NOW,
+                }
+                .sign(&polite),
+                NOW + 60,
+            )
+            .unwrap();
+
+        assert_eq!(
+            directory.departed(polite.device_id()).unwrap(),
+            Some(NOW + 60)
+        );
+        assert_eq!(
+            directory.departed(silent.device_id()).unwrap(),
+            None,
+            "a silent device was recorded as having left politely"
+        );
+        // Recording it changes nothing else yet: its last presence stands.
+        assert_eq!(directory.last_seen(polite.device_id()).unwrap(), Some(NOW));
     }
 
     /// A device that has never announced has nothing to probe, and the
