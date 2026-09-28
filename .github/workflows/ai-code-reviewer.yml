@@ -46,7 +46,7 @@ jobs:
           # The three-dot diff needs the merge base, which a shallow clone lacks.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
