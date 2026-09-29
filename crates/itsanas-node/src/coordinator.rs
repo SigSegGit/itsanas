@@ -406,6 +406,10 @@ pub struct Located {
     /// Whether the list was signed. `false` means the coordinator hung up on
     /// `SignedPeers` and `Peers` answered: every address is on its word.
     pub signed: bool,
+    /// The presences behind `found`, each checked against its device. Empty
+    /// when `signed` is false. Kept so the address book can write them and
+    /// check them again when it reads them back.
+    pub presences: Vec<SignedPresence>,
 }
 
 /// Where the devices of `user` are, each address checked against the device
@@ -430,11 +434,16 @@ fn located(
 ) -> Result<Located> {
     match client.ask(&Request::SignedPeers { user }) {
         Ok(Response::SignedPeers(list)) => {
-            let (found, forged) = verified(list);
+            let (presences, forged) = verified_presences(list);
+            let found = presences
+                .iter()
+                .map(|signed| (signed.presence.device, signed.presence.address.clone()))
+                .collect();
             Ok(Located {
                 found,
                 forged,
                 signed: true,
+                presences,
             })
         }
         Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
@@ -457,6 +466,7 @@ fn located(
                         .collect(),
                     forged: 0,
                     signed: false,
+                    presences: Vec::new(),
                 }),
                 Response::Refused(why) => Err(CliError::Usage(why)),
                 other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
@@ -476,11 +486,21 @@ fn located(
 /// coordinator could otherwise have invented.
 #[must_use]
 pub fn verified(list: Vec<SignedPresence>) -> (Vec<(DeviceId, String)>, usize) {
+    let (kept, dropped) = verified_presences(list);
+    let kept = kept
+        .into_iter()
+        .map(|signed| (signed.presence.device, signed.presence.address))
+        .collect();
+    (kept, dropped)
+}
+
+/// As [`verified`], keeping the signed presences themselves.
+#[must_use]
+pub fn verified_presences(list: Vec<SignedPresence>) -> (Vec<SignedPresence>, usize) {
     let offered = list.len();
-    let kept: Vec<(DeviceId, String)> = list
+    let kept: Vec<SignedPresence> = list
         .into_iter()
         .filter(|signed| signed.verify_origin().is_ok())
-        .map(|signed| (signed.presence.device, signed.presence.address))
         .collect();
     let dropped = offered - kept.len();
     (kept, dropped)
@@ -601,6 +621,8 @@ pub struct Contacted {
     /// Whether the read was a signed list. `false` with `found` set means the
     /// coordinator answered only `Peers`, and the caller should say so.
     pub signed: bool,
+    /// The signed presences behind `found`, for the address book.
+    pub presences: Vec<SignedPresence>,
 }
 
 /// Publish, read, or both, on one connection: whatever [`Due`] asks for.
@@ -656,6 +678,7 @@ pub fn contact(node: &Node, listen: &str, now: u64, due: &Due) -> Result<Contact
                 contacted.found = Some(found);
                 contacted.forged = read.forged;
                 contacted.signed = read.signed;
+                contacted.presences = read.presences;
             }
             // Nothing was published to keep: the whole contact failed.
             Err(error) if contacted.published.is_none() => return Err(error),

@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**827 test functions, 4 of them `#[ignore]`d into the slow job, and 89 of
+**832 test functions, 4 of them `#[ignore]`d into the slow job, and 92 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -744,7 +744,9 @@ device and reaching a different one is refused.
   signature, a client drops and reports any that fails, and it reads the old
   unsigned list only from a coordinator it has not yet seen sign -- once it
   has, a coordinator hanging up on the signed question is a failed read, not
-  a reason to believe it. Until a restart: that memory is not on disk yet.
+  a reason to believe it. Since phase 2b.2 that memory, and the signed
+  addresses with which of them last worked from here, survive a restart in
+  `<home>/address-book`, checked again on load as on the wire.
 
 - **NAT traversal.** A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts

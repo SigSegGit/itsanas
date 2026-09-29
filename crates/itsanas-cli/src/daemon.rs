@@ -490,7 +490,14 @@ fn sync_loop(
     let mut warned_alone = false;
     let mut outage = Outage::new();
     let mut reach = Reach::new();
-    let mut contact = Contact::new();
+    // The address book outlives the process: it remembers which address of
+    // each machine worked, and that this coordinator signs its list, so a
+    // restart does not re-open the downgrade to an unsigned one.
+    let book = Contact::path(&node.home);
+    let (mut contact, unreadable) = Contact::load(&book);
+    if let Some(why) = unreadable {
+        eprintln!("itsanas: {why}");
+    }
 
     while !shutdown.load(Ordering::Relaxed) {
         let deep = Instant::now() >= next_deep;
@@ -531,6 +538,9 @@ fn sync_loop(
                 scope,
             );
             next_sync = Instant::now() + interval;
+            if let Err(error) = contact.save(&book) {
+                eprintln!("itsanas: could not keep the address book: {error}");
+            }
 
             // Free evidence first, then the paid kind: if something from
             // outside has already reached this machine, the way in works and
@@ -744,7 +754,7 @@ fn one_round(
                         announced = Some(published);
                     }
                     if let Some(found) = contacted.found {
-                        contact.read(&found, Instant::now());
+                        contact.read(&found, &contacted.presences, Instant::now());
                         if contacted.signed {
                             contact.signed();
                         } else {
@@ -866,7 +876,7 @@ fn dial_listed(
         }
         if let Some(outcome) = sync_once(node, &address, Some(device), true, scope) {
             reached.insert(outcome.device);
-            contact.worked(device, &address, Instant::now());
+            contact.worked(device, &address, itsanas_discover::now_unix());
             if outcome.earned_trust {
                 neighbourhood.confirm(outcome.device);
             }
