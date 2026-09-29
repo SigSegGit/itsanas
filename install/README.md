@@ -425,7 +425,8 @@ powershell -ExecutionPolicy Bypass -File install\clean.ps1 -Instance voisin
 
 On Linux the service is the template `itsanas@.service` that `linux.sh` writes
 beside `itsanas.service`; on Windows the task is `ITSaNAS-NAME`. Commands aimed
-at an instance by hand need `ITSANAS_HOME=~/.itsanas-NAME`. A clean-up without
+at an instance by hand take `itsanas --instance NAME …` (or
+`ITSANAS_INSTANCE=NAME`), which opens `~/.itsanas-NAME`, the same home. A clean-up without
 `--instance` removes the programs, every instance's service and passphrase, and
 keeps every node directory unless told otherwise. macOS has no named instances:
 its launch agent is one.

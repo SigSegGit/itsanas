@@ -10,15 +10,29 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0p
-TITLE: Named instances only, each showing its account and storage
+TITLE: Named instances, second half: `itsanas instances`, the ~/.itsanas migration, refusing an unnamed command
 WRITTEN-AT: 2026-09-29
-BASE: 064422b
+BASE: 701bd68
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-29, 0p first half: `itsanas --instance NAME`** (branch
+`step/8.0p-instance-flag`). Split in two by Nicolas because the weekly quota
+stood at 92 %. `config::instance_home(name)` maps a name to `~/.itsanas-NAME`,
+the mapping `provision.sh`, `provision.ps1` and both `clean` scripts use, with
+`provision.sh`'s rule (1-32 of `a-z0-9-`, no edge dash); the CLI's global
+`--instance` (env `ITSANAS_INSTANCE`) resolves through it and refuses a
+`--home`/`ITSANAS_HOME` that disagrees, as `provision.sh` does. Found while
+checking the scripts: `~/.itsanas-passphrase` is the default node's passphrase
+**file**, so `passphrase` is refused as a name in the CLI -- the shell scripts
+still accept it, and `clean.sh`'s `"$HOME"/.itsanas-*` glob (~173) and
+`clean.ps1` (~125) match that file; not fixed, part of the second half. Two
+tests, three sabotages (validation, mapping, reserved name), three red. No
+Rodin: half a step, and the rule is once per major step.
 
 **2026-09-29, item 4 of §8 0o 2b judged moot, not built.** The hourly read
 stays unconditional, and 0o phase 2 is done. Why: the read only happens on
@@ -2268,6 +2282,23 @@ Detail and measurements are in ROADMAP.md; this is the map.
       and **the migration names an existing `~/.itsanas` after its account
       and leaves its data readable** (sabotage: skip the rename, or rename
       without moving the vault).
+
+      **First half done 2026-09-29:** `config::instance_home` and the CLI's
+      global `--instance NAME` / `ITSANAS_INSTANCE` (`main.rs` `run()`), tests
+      `red_team_an_instance_name_cannot_leave_the_home_directory` and
+      `an_instance_lives_where_provision_sh_puts_it`. **Second half, next:**
+      (1) `itsanas instances`: glob `~/.itsanas-*` **directories** holding a
+      `keystore.bin` (not the `.itsanas-passphrase` file), plus `~/.itsanas`
+      itself until migrated; per instance the account (`Config::username`),
+      home, `folder` and whether it is reachable (0l's check), and whether a
+      daemon runs (the listen port answers, or the pid the daemon writes, if
+      any -- check first). (2) The migration: rename `~/.itsanas` to
+      `~/.itsanas-<username>`; the vault is inside the home, so a rename moves
+      it, but the systemd unit / scheduled task and its `ITSANAS_HOME` point at
+      the old path -- the migration must say so or rewrite them. (3) Only then
+      the refusal without a name. (4) Make `provision.sh`/`clean.sh`/`.ps1`
+      refuse `passphrase` too and exclude the file from their `.itsanas-*`
+      globs.
 
    f. **A tray icon for the Windows daemon.** Asked for by Nicolas on
       2026-09-14 after the untitled console: "a minimum of polish", dark or

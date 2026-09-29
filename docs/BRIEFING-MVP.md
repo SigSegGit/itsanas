@@ -138,7 +138,7 @@ perdue là en épargne une quand les trois machines attendent.
 
 **Vérifier, sur P et V** — tu notes le résultat en une ligne :
 
-- `ITSANAS_HOME=~/.itsanas-voisin itsanas listen` ≠ celui de `itsanas listen`.
+- `itsanas --instance voisin listen` ≠ celui de `itsanas listen`.
 - `systemctl --user status itsanas itsanas@voisin` : les deux actifs.
 - `journalctl --user-unit itsanas@voisin | grep found` : « found another user's
   device … » ; **jamais** « local discovery is off ».

@@ -571,6 +571,43 @@ pub fn default_home() -> PathBuf {
     )
 }
 
+/// Where the named instance `name` keeps its state: `~/.itsanas-NAME`.
+///
+/// The same mapping and the same rule as `install/provision.sh --instance`, so
+/// a node the script set up is the node `itsanas --instance NAME` opens. The
+/// rule is strict because the name becomes a directory, a systemd unit and a
+/// file name: anything that needs quoting, or a `/` or `..` that would walk
+/// out of the home directory, is refused rather than cleaned.
+///
+/// # Errors
+///
+/// If `name` is empty, longer than 32 characters, or not lowercase letters,
+/// digits and inner dashes.
+pub fn instance_home(name: &str) -> Result<PathBuf> {
+    // `~/.itsanas-passphrase` is the default node's passphrase file, so that
+    // one name would point an instance at a file.
+    let valid = !name.is_empty()
+        && name != "passphrase"
+        && name.len() <= 32
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+    if !valid {
+        return Err(NodeError::Config(format!(
+            concat!(
+                "an instance name is 1 to 32 lowercase letters, digits and inner ",
+                "dashes, because it names a directory, a service and a file; found {:?}"
+            ),
+            name
+        )));
+    }
+    Ok(dirs_home()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(format!(".itsanas-{name}")))
+}
+
 fn dirs_home() -> Option<PathBuf> {
     // Avoids a dependency for something this small. Both variables are set on
     // every platform this project targets.
@@ -582,6 +619,45 @@ fn dirs_home() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn red_team_an_instance_name_cannot_leave_the_home_directory() {
+        // The name is joined onto the home directory: a separator or a `..`
+        // accepted here would let `--instance` open, and `clean.sh` delete,
+        // a directory that belongs to no instance.
+        for name in [
+            "",
+            "../etc",
+            "a/b",
+            r"a\b",
+            "..",
+            "Nicolas",
+            "-x",
+            "x-",
+            "a b",
+            "abcdefghijklmnopqrstuvwxyz0123456",
+            "passphrase",
+        ] {
+            assert!(
+                instance_home(name).is_err(),
+                "{name:?} was accepted as an instance name"
+            );
+        }
+    }
+
+    #[test]
+    fn an_instance_lives_where_provision_sh_puts_it() {
+        // provision.sh sets ITSANAS_HOME="$HOME/.itsanas-$INSTANCE"; if the CLI
+        // mapped a name elsewhere, `itsanas --instance x` would open an empty
+        // home beside the node the script installed.
+        let home = instance_home("tester-2").expect("a valid name");
+        assert_eq!(
+            home.file_name(),
+            Some(std::ffi::OsStr::new(".itsanas-tester-2"))
+        );
+        assert_eq!(home.parent(), dirs_home().as_deref());
+        assert!(instance_home(&"a".repeat(32)).is_ok());
+    }
 
     #[test]
     fn a_config_round_trips() {
