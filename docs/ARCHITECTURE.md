@@ -316,7 +316,10 @@ what gossip (§8 0o 2b.3) will need the claim for -- but that read does not
 check whose a machine is, so a coordinator that hangs up on purpose can still
 list another account's genuine machines as yours. The cost is a connect
 timeout per such row, bounded by the address book, and none of them is ever
-relayed. That is the only discovery job
+relayed. The book keeps each checked claim beside its address, re-checks it
+against this node's account on load, and `Contact::relayable` hands out only
+addresses that have both; the peer request that carries them is not built
+yet (§8 0o 2b.3). That is the only discovery job
 left for it, and [DESIGN.md](DESIGN.md) §8 explains why it is not worth replacing
 with a DHT at this size.
 
