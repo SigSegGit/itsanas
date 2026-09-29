@@ -10,15 +10,44 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0o
-TITLE: Keep the address book on disk, and remember that the coordinator signs (phase 2b.2 of reaching the network from outside)
+TITLE: Gossip signed presences between an account's machines, each with its owner-signed claim (phase 2b.3 of reaching the network from outside)
 WRITTEN-AT: 2026-09-29
-BASE: 43e24b9
+BASE: 495112c
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-29, the address book is kept on disk** (§8 0o phase 2b.2, branch
+`step/8.0o-address-book`, PR #184). `Contact::load` / `Contact::save`
+(`crates/itsanas-node/src/contact.rs`) keep `{ version, signs, entries }` in
+`<home>/address-book`, postcard, written to `address-book.tmp`, synced, renamed
+over. The daemon loads it before its loop and saves after each round in which
+`read`, `worked` or `signed` changed something. Load goes through `insert`, the
+same door as the wire, after `verify_origin`: bounds and signatures apply to
+the file. A damaged or foreign-version file is an empty book and a log line.
+Only signed addresses are written; an unsigned fallback address is dialled and
+forgotten at exit. `Located` and `Contacted` now carry `presences` (the checked
+`SignedPresence`s) beside `found`; `coordinator::verified_presences` is the
+check both use. Success times are unix seconds of this machine's clock.
+
+Rodin, before the commit: a Pi with no real-time clock reads 1970 until NTP,
+so a success recorded then ranked below yesterday's stale address -- one
+connect timeout per round. `Contact::worked` now records a success as later
+than every success in the book. Also named in `load`'s doc, not fixed: anyone
+with this user's rights can set `signs` false or mark a stale genuine address
+as worked; they can rewrite the configuration too. Three red-team tests, three
+sabotages, three red.
+
+**Not done, 🟨:** the daemon's load/save has no test of its own (it is in the
+loop `acceptance-local.sh` drives); the call to `Contact::signed` still has
+none either; one-off commands still accept an unsigned list silently. Traps
+this time: Python `write_text` on Windows wrote CRLF into three `.rs` files --
+use `write_bytes`; a Git Bash heredoc turned `\` in a Rust string
+continuation into a literal `
+` twice -- use the Edit tool for those.
 
 **2026-09-29, the coordinator's list is signed, and checked** (§8 0o phase
 2b.1, branch `step/8.0o-signed-peers`; 2a merged first as #182 after its five
@@ -1993,7 +2022,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       by this machine's `Instant` of last success. No wire change.
 
       **Phase 2b: signatures, a kept book, gossip.** In this order, each its
-      own PR. 1 is done; **2 is `NEXT`**.
+      own PR. 1 and 2 are done; **3 is `NEXT`**.
 
       1. ✅ *Carry the signature through* (2026-09-29, see §0 for what and
          how). Built as specified, except that the check is
@@ -2009,7 +2038,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
          (`SignedPresence::verify`, `claim.rs` ~229) and drops failures; an
          older coordinator closes the connection, so fall back to `Peers` as
          `enrolled` falls back today.
-      2. **`NEXT`.** *Keep the book* in `<home>/address-book`: signed
+      2. ✅ *Keep the book* (2026-09-29, #184; see §0). Built as below, plus
+         success times that never go backward (Rodin). The original text:
+         *Keep the book* in `<home>/address-book`: signed
          presences plus this machine's own last-success times as unix seconds
          of *its* clock, read at daemon start, written after a round that
          changed it. A file of its own, for the reason `others-pledged` is one
@@ -2044,7 +2075,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
          presence loses it on load** (sabotage: skip `verify_origin` there).
          Update `ROADMAP.md`'s sentence "Until a restart: that memory is not
          on disk yet" in the same commit.
-      3. *Gossip.* Peer protocol 6 appends `Request::Presences` (model:
+      3. **`NEXT`.** *Gossip.* What is there to build on, verified
+         2026-09-29: each book `Candidate` holds its `SignedPresence`
+         (`contact.rs`, `presence: Option<_>`, `None` = unsigned, never
+         relayed); add a `Contact::relayable(owner)` that returns them.
+         Start with the claim, as Rodin's finding below says: the
+         coordinator protocol needs the owner-signed `SignedClaim` of each
+         listed device (`Directory::claim_for`), so `SignedPeers` either
+         grows a claim per row (append a new request, §6) or the book asks
+         `Devices`. Then peer protocol 6. Peer protocol 6 appends `Request::Presences` (model:
          `WantHosted`; a v5 peer answers `Refused`, read as "cannot tell me").
          Answered only to a device of the same account or one
          `Neighbourhood::is_confirmed`; the answer is the signed presences of

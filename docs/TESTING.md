@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-29 — 827 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 89 are red-team tests.**
+**Last updated: 2026-09-29 — 832 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 92 are red-team tests.**
 
-**711 of the 827 tests have an entry of their own on this page** — an *entry*,
+**716 of the 832 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -175,7 +175,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 29 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 62 |
+| `itsanas-node` unit | 67 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
@@ -975,7 +975,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (71)
+# `itsanas-node` — a node on disk (76)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1005,7 +1005,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (8)
+## `contact` — when the coordinator is dialled at all (13)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1022,6 +1022,11 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_coordinator_cannot_grow_the_address_book_without_bound`** | The coordinator still decides which presences it lists -- an older one unsigned, any of them stale. 65 536 devices in one answer leave `MAX_DEVICES` in the table; a thousand addresses for one device leave `MAX_ADDRESSES`. |
 | **`red_team_addresses_that_never_worked_do_not_displace_one_that_did`** | Twenty stale addresses for the Pi, from a coordinator that lies or is only out of date, arrive after its LAN address answered: that address is still dialled first and the rest is capped. Order is this machine's record of success, never the list's. |
 | **`red_team_a_coordinator_that_has_signed_cannot_talk_this_node_down_to_an_unsigned_list`** | §8 0o 2b.1, found by Rodin: a coordinator that hangs up on `SignedPeers`, as an older one does, would have the client fall back to `Peers`, whose addresses it can forge -- the signature check made advisory against the one party it checks. Once a coordinator has signed, `Due::accept_unsigned` stays false for every later hour. Sabotaged by leaving it true. |
+| **`red_team_a_restart_does_not_reopen_the_downgrade`** | §8 0o 2b.2: 2b.1 remembered that the coordinator signs only in the process, so every daemon start re-opened the fallback to an unsigned list until the first read. A book saved after a signed read, loaded back, gives `accept_unsigned == false` on the first round. Sabotaged by not loading `signs`. |
+| **`red_team_an_address_book_edited_to_hold_a_forged_presence_loses_it_on_load`** | `<home>/address-book` is editable by anything running as this user, and its addresses are dialled before the coordinator is asked anything. A file holding one genuine presence and one whose address was changed after signing, marked as having worked, loads the genuine one only and says `1 of 2` were dropped. Sabotaged by skipping `verify_origin` on load. |
+| **`the_address_that_worked_is_still_first_after_a_restart`** | What the book is for: the address that answered, recorded in this machine's own unix seconds, is still dialled first after a save and a load; an unchanged book is not rewritten; and an address an older coordinator handed out unsigned is dialled but never written, so no load has to take it on trust. |
+| **`red_team_a_clock_back_in_1970_does_not_rank_a_stale_address_first`** | Found by Rodin on 2026-09-29: success times are this machine's unix seconds, and a Pi with no real-time clock reads 1970 until NTP answers. An address that worked at 40 must outrank one that worked at 1.7·10⁹, or every round spends a connect timeout on yesterday's address. `Contact::worked` records a success as later than any already in the book. Sabotaged by recording the clock as read. |
+| **`a_damaged_address_book_is_an_empty_one_not_a_failed_start`** | Three bytes of garbage load as an empty book with a warning, and a missing file (a first start) as an empty book with none. The book is a cache the coordinator refills; it never stops a daemon. |
 | **`a_device_no_longer_listed_is_forgotten`** | A withdrawn or long-silent device leaves the book at the next read, so a round stops spending connect timeouts on it. |
 
 ## `node` — identity on disk (17)
