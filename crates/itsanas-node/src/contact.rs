@@ -36,8 +36,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use itsanas_coord::claim::SignedPresence;
-use itsanas_crypto::DeviceId;
+use itsanas_coord::claim::{ClaimedPresence, SignedClaim, SignedPresence};
+use itsanas_crypto::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
 
 use crate::coordinator::is_private_address;
@@ -115,10 +115,18 @@ struct Candidate {
     /// older coordinator handed out unsigned: it is dialled, and never written
     /// to the address book or relayed, because nothing proves it.
     presence: Option<SignedPresence>,
+    /// The owner's claim on the device, checked against this account
+    /// ([`ClaimedPresence::verify_for`]). Only a candidate with both a
+    /// presence and a claim is handed to a peer ([`Contact::relayable`]): a
+    /// presence alone says where a machine is, not whose.
+    claim: Option<SignedClaim>,
 }
 
-/// The address book's version. A file of another version is read as empty.
-const BOOK_VERSION: u32 = 1;
+/// The address book's version. A file of another version is read as empty,
+/// except version 1, which is version 2 with no claims and is read as such:
+/// dropping it would forget that the coordinator signs, and re-open the
+/// downgrade once on the upgrade.
+const BOOK_VERSION: u32 = 2;
 
 /// The address book as written to `<home>/address-book`.
 #[derive(Serialize, Deserialize)]
@@ -132,6 +140,39 @@ struct BookFile {
 struct BookEntry {
     presence: SignedPresence,
     worked: Option<u64>,
+    claim: Option<SignedClaim>,
+}
+
+/// Version 1 of the file, before claims.
+#[derive(Serialize, Deserialize)]
+struct BookFileV1 {
+    version: u32,
+    signs: bool,
+    entries: Vec<BookEntryV1>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct BookEntryV1 {
+    presence: SignedPresence,
+    worked: Option<u64>,
+}
+
+impl From<BookFileV1> for BookFile {
+    fn from(old: BookFileV1) -> Self {
+        Self {
+            version: BOOK_VERSION,
+            signs: old.signs,
+            entries: old
+                .entries
+                .into_iter()
+                .map(|entry| BookEntry {
+                    presence: entry.presence,
+                    worked: entry.worked,
+                    claim: None,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// This node's side of its coordinator: what it last published, when it last
@@ -214,7 +255,10 @@ impl Contact {
     /// `found` is every `(device, address)` the read kept; `presences` are the
     /// signed ones among them (none when an older coordinator answered
     /// unsigned). An address with its signature in `presences` carries it
-    /// into the book, which is what lets it be written to disk.
+    /// into the book, which is what lets it be written to disk. `claimed` are
+    /// those that came with this account's claim, already checked
+    /// ([`crate::coordinator::verified_claimed`]); none when the coordinator
+    /// is older than `ClaimedPeers`.
     ///
     /// A device no longer listed is dropped: it was withdrawn, or has been
     /// silent past the presence's lifetime, and in both cases this node has no
@@ -225,6 +269,7 @@ impl Contact {
         &mut self,
         found: &[(DeviceId, String)],
         presences: &[SignedPresence],
+        claimed: &[ClaimedPresence],
         now: Instant,
     ) {
         self.read_at = Some(now);
@@ -240,7 +285,11 @@ impl Contact {
                     signed.presence.device == *device && signed.presence.address == *address
                 })
                 .cloned();
-            self.insert(*device, address, presence, None);
+            let claim = claimed
+                .iter()
+                .find(|row| presence.as_ref() == Some(&row.presence))
+                .map(|row| row.claim.clone());
+            self.insert(*device, address, presence, claim, None);
         }
     }
 
@@ -251,6 +300,7 @@ impl Contact {
         device: DeviceId,
         address: &str,
         presence: Option<SignedPresence>,
+        claim: Option<SignedClaim>,
         worked: Option<u64>,
     ) {
         if !self.book.contains_key(&device) && self.book.len() >= MAX_DEVICES {
@@ -258,9 +308,29 @@ impl Contact {
         }
         let candidates = self.book.entry(device).or_default();
         if let Some(known) = candidates.iter_mut().find(|known| known.address == address) {
-            // The same address signed again, or signed at last: keep the proof.
-            if known.presence.is_none() && presence.is_some() {
-                known.presence = presence;
+            // Signed at last, or signed again later: keep the latest proof.
+            // The device's own date, compared only with its own earlier
+            // ones. Kept old, the presence this node relays would look stale
+            // to the receiver, who could not tell it from a replay.
+            if let Some(presence) = presence
+                && known
+                    .presence
+                    .as_ref()
+                    .is_none_or(|held| held.presence.at_unix < presence.presence.at_unix)
+            {
+                known.presence = Some(presence);
+                self.changed = true;
+            }
+            // A claim at last, or a later one: the later is the owner's
+            // current word on the device.
+            if let Some(claim) = claim
+                && known.presence.is_some()
+                && known
+                    .claim
+                    .as_ref()
+                    .is_none_or(|held| held.claim.issued_unix < claim.claim.issued_unix)
+            {
+                known.claim = Some(claim);
                 self.changed = true;
             }
             return;
@@ -268,6 +338,8 @@ impl Contact {
         candidates.push(Candidate {
             address: address.to_owned(),
             worked,
+            // Never a claim without the presence it vouches for.
+            claim: presence.as_ref().and(claim),
             presence,
         });
         if candidates.len() > MAX_ADDRESSES {
@@ -321,6 +393,10 @@ impl Contact {
     /// on disk, where anything with this user's rights can edit it, and an
     /// address in it is dialled before the coordinator is asked anything.
     ///
+    /// A claim is checked against `owner`, this node's account
+    /// ([`ClaimedPresence::verify_for`]); one that fails is dropped and the
+    /// address kept, dialled but never relayed.
+    ///
     /// What this does not defend: somebody with this user's rights can also set
     /// `signs` false or mark a genuine but stale address as having worked. Such
     /// a person can rewrite the configuration too; the check is against an
@@ -330,7 +406,7 @@ impl Contact {
     /// a sentence in the second value, never a failed start: the book is a
     /// cache, and the coordinator refills it on the first round.
     #[must_use]
-    pub fn load(path: &Path) -> (Self, Option<String>) {
+    pub fn load(path: &Path, owner: UserId) -> (Self, Option<String>) {
         let mut contact = Self::new();
         let bytes = match std::fs::read(path) {
             Ok(bytes) => bytes,
@@ -345,7 +421,13 @@ impl Contact {
                 );
             }
         };
-        let file: BookFile = match postcard::from_bytes::<BookFile>(&bytes) {
+        // The version comes first in every version of the file, so it can be
+        // read before knowing the shape of the rest.
+        let decoded = match postcard::take_from_bytes::<u32>(&bytes) {
+            Ok((1, _)) => postcard::from_bytes::<BookFileV1>(&bytes).map(BookFile::from),
+            _ => postcard::from_bytes::<BookFile>(&bytes),
+        };
+        let file: BookFile = match decoded {
             Ok(file) if file.version == BOOK_VERSION => file,
             Ok(file) => {
                 return (
@@ -370,22 +452,41 @@ impl Contact {
         contact.signs = file.signs;
         let offered = file.entries.len();
         let mut forged = 0usize;
+        let mut foreign = 0usize;
         for entry in file.entries {
             if entry.presence.verify_origin().is_err() {
                 forged += 1;
                 continue;
             }
+            let claim = entry.claim.filter(|claim| {
+                let kept = ClaimedPresence {
+                    presence: entry.presence.clone(),
+                    claim: claim.clone(),
+                }
+                .verify_for(owner)
+                .is_ok();
+                foreign += usize::from(!kept);
+                kept
+            });
             let device = entry.presence.presence.device;
             let address = entry.presence.presence.address.clone();
-            contact.insert(device, &address, Some(entry.presence), entry.worked);
+            contact.insert(device, &address, Some(entry.presence), claim, entry.worked);
         }
         contact.changed = false;
-        let warning = (forged > 0).then(|| {
-            format!(
-                "{} held {forged} of {offered} addresses their device never signed; they were dropped",
-                path.display()
-            )
-        });
+        let mut problems = Vec::new();
+        if forged > 0 {
+            problems.push(format!(
+                "{forged} of {offered} addresses their device never signed, dropped"
+            ));
+        }
+        if foreign > 0 {
+            problems.push(format!(
+                "{foreign} claims that are not a live device of this account, dropped \
+                 (their addresses are kept and never relayed)"
+            ));
+        }
+        let warning = (!problems.is_empty())
+            .then(|| format!("{} held {}", path.display(), problems.join("; ")));
         (contact, warning)
     }
 
@@ -414,6 +515,7 @@ impl Contact {
                 candidate.presence.clone().map(|presence| BookEntry {
                     presence,
                     worked: candidate.worked,
+                    claim: candidate.claim.clone(),
                 })
             })
             .collect();
@@ -455,6 +557,25 @@ impl Contact {
         }
         out
     }
+
+    /// What this node may hand a peer of its account: every address it holds
+    /// with both the device's signature and the owner's claim.
+    ///
+    /// An unsigned address is on an old coordinator's word and an unclaimed
+    /// one proves where a machine is but not whose; neither leaves this node.
+    #[must_use]
+    pub fn relayable(&self) -> Vec<ClaimedPresence> {
+        self.book
+            .values()
+            .flatten()
+            .filter_map(|candidate| {
+                Some(ClaimedPresence {
+                    presence: candidate.presence.clone()?,
+                    claim: candidate.claim.clone()?,
+                })
+            })
+            .collect()
+    }
 }
 
 /// Worked most recently first, then never-worked public before never-worked
@@ -469,8 +590,8 @@ fn sort_best_first(candidates: &mut [Candidate]) {
 
 #[cfg(test)]
 mod tests {
-    use itsanas_coord::claim::Presence;
-    use itsanas_crypto::{DeviceKeys, SecretBytes};
+    use itsanas_coord::claim::{NodeClaim, Presence};
+    use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
 
     use super::*;
 
@@ -506,7 +627,7 @@ mod tests {
             }
             if due.read {
                 reads += 1;
-                contact.read(&listing(&[2]), &[], now);
+                contact.read(&listing(&[2]), &[], &[], now);
             }
         }
         assert_eq!(
@@ -533,7 +654,7 @@ mod tests {
              elsewhere can ever find it"
         );
         contact.published(Some(HOME), start);
-        contact.read(&listing(&[2, 3]), &[], start);
+        contact.read(&listing(&[2, 3]), &[], &[], start);
 
         assert!(
             contact.due(Some(HOME), start + PUBLISH_EVERY).publish,
@@ -546,7 +667,7 @@ mod tests {
         let mut contact = Contact::new();
         let start = Instant::now();
         contact.published(Some("192.168.1.30:9797"), start);
-        contact.read(&[], &[], start);
+        contact.read(&[], &[], &[], start);
 
         let next = start + ROUND;
         assert!(
@@ -572,7 +693,7 @@ mod tests {
         let mut contact = Contact::new();
         let start = Instant::now();
         contact.published(Some(HOME), start);
-        contact.read(&listing(&[2]), &[], start);
+        contact.read(&listing(&[2]), &[], &[], start);
 
         for round in 1..12u32 {
             assert!(
@@ -585,7 +706,7 @@ mod tests {
             contact.due(Some(HOME), hour).read,
             "a machine enrolled after this one started would never be dialled by it"
         );
-        contact.read(&listing(&[2, 3]), &[], hour);
+        contact.read(&listing(&[2, 3]), &[], &[], hour);
         assert!(
             contact.candidates().iter().any(|(d, _)| *d == device(3)),
             "the read did not put the new machine in the book"
@@ -609,7 +730,7 @@ mod tests {
                 )
             })
             .collect();
-        contact.read(&flood, &[], now);
+        contact.read(&flood, &[], &[], now);
         assert_eq!(
             contact.book.len(),
             MAX_DEVICES,
@@ -620,7 +741,7 @@ mod tests {
         let addresses: Vec<(DeviceId, String)> = (0..1000)
             .map(|n| (one, format!("10.1.{}.{}:9797", n >> 8, n & 0xff)))
             .collect();
-        contact.read(&addresses, &[], now);
+        contact.read(&addresses, &[], &[], now);
         assert!(
             contact.book.values().all(|c| c.len() <= MAX_ADDRESSES),
             "one device was given a thousand addresses and kept them"
@@ -637,13 +758,13 @@ mod tests {
         let mut contact = Contact::new();
         let start = Instant::now();
         let pi = device(2);
-        contact.read(&[(pi, "192.168.1.20:9797".to_owned())], &[], start);
+        contact.read(&[(pi, "192.168.1.20:9797".to_owned())], &[], &[], start);
         contact.worked(pi, "192.168.1.20:9797", 1_000);
 
         let stale: Vec<(DeviceId, String)> = (0..20)
             .map(|n| (pi, format!("203.0.113.{n}:9797")))
             .collect();
-        contact.read(&stale, &[], start + ROUND);
+        contact.read(&stale, &[], &[], start + ROUND);
 
         let order = contact.candidates();
         assert_eq!(
@@ -669,7 +790,7 @@ mod tests {
         );
 
         contact.published(Some(HOME), start);
-        contact.read(&listing(&[2]), &[], start);
+        contact.read(&listing(&[2]), &[], &[], start);
         contact.signed();
         for round in 1..=24u32 {
             assert!(
@@ -689,6 +810,166 @@ mod tests {
             at_unix: 0,
         }
         .sign(&keys)
+    }
+
+    fn owner(seed: u8) -> UserKeys {
+        UserKeys::derive(&MasterSecret::from_bytes([seed; 32]))
+    }
+
+    /// The account these tests' node belongs to.
+    fn me() -> UserId {
+        owner(1).user_id()
+    }
+
+    /// Device `seed`'s presence at `address`, with `account`'s claim on it.
+    fn claimed_at(account: &UserKeys, seed: u8, address: &str) -> ClaimedPresence {
+        let keys = DeviceKeys::from_seed(&SecretBytes::new([seed; 32]));
+        ClaimedPresence {
+            presence: signed_at(seed, address),
+            claim: NodeClaim {
+                owner: account.user_id(),
+                device: keys.device_id(),
+                pledged_bytes: 0,
+                issued_unix: 0,
+                revoked: false,
+            }
+            .sign(account),
+        }
+    }
+
+    /// What 2b.3 needs the book for: the pairs a peer may be handed, kept
+    /// across a restart. An address that came without a claim, or unsigned,
+    /// stays dialled and never leaves.
+    #[test]
+    fn claimed_addresses_are_relayable_across_a_restart_and_nothing_else_is() {
+        let home = tempfile::tempdir().expect("temporary directory");
+        let path = Contact::path(home.path());
+        let pi = claimed_at(&owner(1), 2, "192.168.1.20:9797");
+        let unclaimed = signed_at(3, "192.168.1.30:9797");
+        let unsigned = (device(9), "192.168.1.99:9797".to_owned());
+
+        let mut before = Contact::new();
+        let presences = [pi.presence.clone(), unclaimed.clone()];
+        let mut listed = found(&presences);
+        listed.push(unsigned);
+        before.read(
+            &listed,
+            &presences,
+            std::slice::from_ref(&pi),
+            Instant::now(),
+        );
+        assert_eq!(
+            before.relayable(),
+            vec![pi.clone()],
+            "the book would hand a peer an address with no claim of this account on it"
+        );
+        before.save(&path).expect("save");
+
+        let (after, warning) = Contact::load(&path, me());
+        assert_eq!(warning, None, "a book this node wrote was not read cleanly");
+        assert_eq!(
+            after.relayable(),
+            vec![pi],
+            "the claim was lost across a restart, so a rebooted machine has nothing to relay"
+        );
+    }
+
+    /// A machine re-publishes the same address every hour with a new date.
+    /// The book keeps the latest signature, not the first: the one it holds
+    /// is the one a peer is handed, and a receiver has only the date to tell
+    /// a fresh presence from a replayed one.
+    #[test]
+    fn the_same_address_signed_again_later_keeps_the_later_signature() {
+        let keys = DeviceKeys::from_seed(&SecretBytes::new([2; 32]));
+        let at = |at_unix| {
+            Presence {
+                device: keys.device_id(),
+                address: "192.168.1.20:9797".to_owned(),
+                at_unix,
+            }
+            .sign(&keys)
+        };
+        let mut contact = Contact::new();
+        for signed in [at(100), at(200), at(150)] {
+            contact.read(
+                &found(std::slice::from_ref(&signed)),
+                std::slice::from_ref(&signed),
+                &[],
+                Instant::now(),
+            );
+        }
+        let held = contact.book[&keys.device_id()][0]
+            .presence
+            .as_ref()
+            .map(|signed| signed.presence.at_unix);
+        assert_eq!(
+            held,
+            Some(200),
+            "the book kept an older signature, which a peer would be handed as if current"
+        );
+    }
+
+    /// The file is editable by anything running as this user. A claim in it
+    /// is checked as the wire's is: another account's genuine claim, put on
+    /// one of the listed machines, would otherwise be handed to every peer of
+    /// this account as one of its own.
+    #[test]
+    fn red_team_an_address_book_edited_to_hold_another_accounts_claim_does_not_relay_it() {
+        let home = tempfile::tempdir().expect("temporary directory");
+        let path = Contact::path(home.path());
+        let theirs = claimed_at(&owner(2), 2, "203.0.113.67:9797");
+        let file = BookFile {
+            version: BOOK_VERSION,
+            signs: true,
+            entries: vec![BookEntry {
+                presence: theirs.presence.clone(),
+                worked: None,
+                claim: Some(theirs.claim),
+            }],
+        };
+        std::fs::write(&path, postcard::to_stdvec(&file).expect("encode")).expect("write");
+
+        let (contact, warning) = Contact::load(&path, me());
+        assert!(
+            contact.relayable().is_empty(),
+            "another account's machine would be relayed as one of this account's"
+        );
+        assert!(
+            warning.is_some_and(|why| why.contains("1 claims")),
+            "a tampered claim was dropped without a word"
+        );
+    }
+
+    /// The book's format changed under running machines. Read as empty, the
+    /// old file would forget that the coordinator signs, and the first round
+    /// after the upgrade would accept an unsigned list again.
+    #[test]
+    fn red_team_the_upgrade_does_not_reopen_the_downgrade() {
+        let home = tempfile::tempdir().expect("temporary directory");
+        let path = Contact::path(home.path());
+        let pi = signed_at(2, "192.168.1.20:9797");
+        let old = BookFileV1 {
+            version: 1,
+            signs: true,
+            entries: vec![BookEntryV1 {
+                presence: pi.clone(),
+                worked: Some(5),
+            }],
+        };
+        std::fs::write(&path, postcard::to_stdvec(&old).expect("encode")).expect("write");
+
+        let (contact, warning) = Contact::load(&path, me());
+        assert_eq!(warning, None, "a version-1 book was refused");
+        assert!(
+            !contact.due(Some(HOME), Instant::now()).accept_unsigned,
+            "the upgrade forgot that the coordinator signs: an unsigned list is \
+             accepted again on the first round"
+        );
+        assert_eq!(
+            contact.candidates(),
+            found(&[pi]),
+            "the old addresses were lost"
+        );
     }
 
     fn found(presences: &[SignedPresence]) -> Vec<(DeviceId, String)> {
@@ -712,6 +993,7 @@ mod tests {
         before.read(
             &found(std::slice::from_ref(&pi)),
             std::slice::from_ref(&pi),
+            &[],
             Instant::now(),
         );
         before.signed();
@@ -720,7 +1002,7 @@ mod tests {
             "a changed book was not written"
         );
 
-        let (after, warning) = Contact::load(&path);
+        let (after, warning) = Contact::load(&path, me());
         assert_eq!(warning, None, "a book this node wrote was not read cleanly");
         assert!(
             !after.due(Some(HOME), Instant::now()).accept_unsigned,
@@ -747,16 +1029,18 @@ mod tests {
                 BookEntry {
                     presence: genuine.clone(),
                     worked: None,
+                    claim: None,
                 },
                 BookEntry {
                     presence: moved,
                     worked: Some(u64::MAX),
+                    claim: None,
                 },
             ],
         };
         std::fs::write(&path, postcard::to_stdvec(&file).expect("encode")).expect("write");
 
-        let (contact, warning) = Contact::load(&path);
+        let (contact, warning) = Contact::load(&path, me());
         assert_eq!(
             contact.candidates(),
             found(&[genuine]),
@@ -784,7 +1068,7 @@ mod tests {
         let mut before = Contact::new();
         let mut listed = found(&[public.clone(), home_lan.clone()]);
         listed.push(unsigned.clone());
-        before.read(&listed, &[public, home_lan], Instant::now());
+        before.read(&listed, &[public, home_lan], &[], Instant::now());
         before.worked(pi, "192.168.1.20:9797", 1_000);
         assert!(
             before.candidates().contains(&unsigned),
@@ -796,7 +1080,7 @@ mod tests {
             "an unchanged book was written again"
         );
 
-        let (after, _) = Contact::load(&path);
+        let (after, _) = Contact::load(&path, me());
         let order = after.candidates();
         assert_eq!(
             order.first().map(|(_, address)| address.as_str()),
@@ -822,6 +1106,7 @@ mod tests {
                 (pi, "192.168.1.20:9797".to_owned()),
             ],
             &[],
+            &[],
             Instant::now(),
         );
         contact.worked(pi, "203.0.113.20:9797", 1_700_000_000);
@@ -842,14 +1127,14 @@ mod tests {
         let home = tempfile::tempdir().expect("temporary directory");
         let path = Contact::path(home.path());
         std::fs::write(&path, [0xff; 3]).expect("write");
-        let (contact, warning) = Contact::load(&path);
+        let (contact, warning) = Contact::load(&path, me());
         assert!(contact.candidates().is_empty());
         assert!(
             warning.is_some(),
             "a damaged book was dropped without a word"
         );
         assert_eq!(
-            Contact::load(&home.path().join("absent")).1,
+            Contact::load(&home.path().join("absent"), me()).1,
             None,
             "a first start is not a warning"
         );
@@ -859,8 +1144,8 @@ mod tests {
     fn a_device_no_longer_listed_is_forgotten() {
         let mut contact = Contact::new();
         let now = Instant::now();
-        contact.read(&listing(&[2, 3]), &[], now);
-        contact.read(&listing(&[2]), &[], now);
+        contact.read(&listing(&[2, 3]), &[], &[], now);
+        contact.read(&listing(&[2]), &[], &[], now);
         let devices: BTreeSet<DeviceId> =
             contact.candidates().into_iter().map(|(d, _)| d).collect();
         assert_eq!(

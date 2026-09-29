@@ -494,7 +494,7 @@ fn sync_loop(
     // each machine worked, and that this coordinator signs its list, so a
     // restart does not re-open the downgrade to an unsigned one.
     let book = Contact::path(&node.home);
-    let (mut contact, unreadable) = Contact::load(&book);
+    let (mut contact, unreadable) = Contact::load(&book, node.store.owner());
     if let Some(why) = unreadable {
         eprintln!("itsanas: {why}");
     }
@@ -754,7 +754,12 @@ fn one_round(
                         announced = Some(published);
                     }
                     if let Some(found) = contacted.found {
-                        contact.read(&found, &contacted.presences, Instant::now());
+                        contact.read(
+                            &found,
+                            &contacted.presences,
+                            &contacted.claimed,
+                            Instant::now(),
+                        );
                         if contacted.signed {
                             contact.signed();
                         } else {

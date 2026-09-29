@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-29 — 838 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 97 are red-team tests.**
+**Last updated: 2026-09-29 — 842 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 99 are red-team tests.**
 
-**722 of the 838 tests have an entry of their own on this page** — an *entry*,
+**726 of the 842 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -175,7 +175,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 29 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 68 |
+| `itsanas-node` unit | 72 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
@@ -975,7 +975,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (77)
+# `itsanas-node` — a node on disk (81)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1006,7 +1006,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (13)
+## `contact` — when the coordinator is dialled at all (17)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1027,6 +1027,10 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_an_address_book_edited_to_hold_a_forged_presence_loses_it_on_load`** | `<home>/address-book` is editable by anything running as this user, and its addresses are dialled before the coordinator is asked anything. A file holding one genuine presence and one whose address was changed after signing, marked as having worked, loads the genuine one only and says `1 of 2` were dropped. Sabotaged by skipping `verify_origin` on load. |
 | **`the_address_that_worked_is_still_first_after_a_restart`** | What the book is for: the address that answered, recorded in this machine's own unix seconds, is still dialled first after a save and a load; an unchanged book is not rewritten; and an address an older coordinator handed out unsigned is dialled but never written, so no load has to take it on trust. |
 | **`red_team_a_clock_back_in_1970_does_not_rank_a_stale_address_first`** | Found by Rodin on 2026-09-29: success times are this machine's unix seconds, and a Pi with no real-time clock reads 1970 until NTP answers. An address that worked at 40 must outrank one that worked at 1.7·10⁹, or every round spends a connect timeout on yesterday's address. `Contact::worked` records a success as later than any already in the book. Sabotaged by recording the clock as read. |
+| **`claimed_addresses_are_relayable_across_a_restart_and_nothing_else_is`** | §8 0o 2b.3: `Contact::relayable` returns the presences that came with this account's claim, and still does after a save and a load; an address read without a claim, or unsigned, is dialled and never relayed. Sabotaged by not writing the claim, and by not taking it from the read. |
+| **`the_same_address_signed_again_later_keeps_the_later_signature`** | Found by Rodin on 2026-09-29 before 2b.3's relay: the book kept the first signature of an address and never the later ones, so the presence it would relay aged while the machine kept re-publishing, and a receiver could not tell it from a replay. Signatures at 100, 200, 150: 200 is kept. Sabotaged by keeping the first. |
+| **`red_team_an_address_book_edited_to_hold_another_accounts_claim_does_not_relay_it`** | `<home>/address-book` is editable by anything running as this user. Another account's genuine claim on a listed machine, planted in the file, is dropped on load (`ClaimedPresence::verify_for` against this node's account) and said in the warning; the address stays dialled, never relayed. Sabotaged by skipping the check on load. |
+| **`red_team_the_upgrade_does_not_reopen_the_downgrade`** | The book went from version 1 to 2 (claims). A version-1 file read as empty would forget that the coordinator signs, and the first round after the upgrade would accept an unsigned list. It is read as version 2 with no claims. Sabotaged by not recognising version 1. |
 | **`a_damaged_address_book_is_an_empty_one_not_a_failed_start`** | Three bytes of garbage load as an empty book with a warning, and a missing file (a first start) as an empty book with none. The book is a cache the coordinator refills; it never stops a daemon. |
 | **`a_device_no_longer_listed_is_forgotten`** | A withdrawn or long-silent device leaves the book at the next read, so a round stops spending connect timeouts on it. |
 

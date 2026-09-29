@@ -10,15 +10,34 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0o
-TITLE: Keep each claim in the address book, then gossip claimed presences over peer protocol 6 (phase 2b.3, second half, of reaching the network from outside)
+TITLE: Peer protocol 6: Request::Presences, relaying the book's claimed presences between an account's machines (phase 2b.3, step c)
 WRITTEN-AT: 2026-09-29
-BASE: d4fae8b
+BASE: ed09100
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-29, the address book keeps each claim** (§8 0o 2b.3 steps a-b,
+branch `step/8.0o-book-claims`). `Candidate` in
+`crates/itsanas-node/src/contact.rs` has `claim: Option<SignedClaim>`, filled
+by `Contact::read` from `Contacted::claimed` (new fourth argument), written in
+the book file, re-checked on load by `ClaimedPresence::verify_for` against
+`Contact::load(path, owner)` -- the daemon passes `node.store.owner()`. A
+failed claim is dropped and its address kept, dialled, never relayed.
+`Contact::relayable()` returns the `ClaimedPresence`s the book holds. The book
+file is version 2; a version-1 file is read as version 2 without claims, so
+the upgrade keeps `signs` (else the downgrade re-opens once).
+
+Rodin: `insert` kept an address's *first* signature for ever, so the presence
+it would relay aged while the machine re-published hourly, and a receiver
+could not tell it from a replay. Now the latest `at_unix` of that device wins.
+Named, not fixed: a device withdrawn by its owner stays relayable here until
+the next coordinator read drops it (at most an hour, or the first round after
+a start) -- the receiver's check in step c is what must refuse it. Four
+red-team/functional tests added, five sabotages, five red.
 
 **2026-09-29, the coordinator's list says whose each machine is** (§8 0o
 phase 2b.3, first half, branch `step/8.0o-claimed-peers`). Found in the tree
@@ -2096,11 +2115,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
          presence loses it on load** (sabotage: skip `verify_origin` there).
          Update `ROADMAP.md`'s sentence "Until a restart: that memory is not
          on disk yet" in the same commit.
-      3. **`NEXT`, second half.** First half ✅ (2026-09-29, see §0): the
+      3. **`NEXT`: step (c).** First half ✅ (2026-09-29, #185): the
          coordinator's list carries each owner-signed claim
          (`Request::ClaimedPeers`, `ClaimedPresence::verify_for`), and
-         `Contacted::claimed` holds the checked pairs. Next, in order:
-         (a) give the book `Candidate` a `claim: Option<SignedClaim>` beside
+         `Contacted::claimed` holds the checked pairs. (a) and (b) ✅
+         (2026-09-29, see §0): `Contact::relayable()` exists and survives a
+         restart. For (c): the peer protocol is `crates/itsanas-net/src/protocol.rs`
+         (`PROTOCOL_VERSION = 5` ~35, `MIN_PROTOCOL_VERSION = 4` ~68; model
+         `WantHosted`, served in `service.rs`, sent in `transport.rs`); the daemon's `Contact` is in
+         `one_round` (`crates/itsanas-cli/src/daemon.rs`), which is where a
+         reply's rows go through `Contact::read`-like insertion with
+         `verify_for(node.store.owner())` and the revocation rule below. The
+         original plan, in order: (a) give the book `Candidate` a `claim: Option<SignedClaim>` beside
          `presence`, filled from `Contacted::claimed` in `Contact::read`,
          written and re-checked (`verify_for`) by `load`/`save` -- a
          candidate with no claim is never relayed; (b) `Contact::relayable`
