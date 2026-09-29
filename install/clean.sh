@@ -71,6 +71,9 @@ done
 if [ -n "$INSTANCE" ]; then
     case "$INSTANCE" in
         *[!a-z0-9-]*|-*|*-) say "--instance must be lowercase letters, digits and inner dashes"; exit 2 ;;
+        # ~/.itsanas-passphrase is the default node's passphrase file, never an
+        # instance; provision.sh and the CLI refuse the name as well.
+        passphrase) say "--instance passphrase is reserved: $HOME/.itsanas-passphrase is a file"; exit 2 ;;
     esac
     NODE_HOME="$HOME/.itsanas-$INSTANCE"
     SERVICE="itsanas@$INSTANCE"

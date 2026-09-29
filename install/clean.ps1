@@ -48,7 +48,7 @@ $taskName = 'ITSaNAS'
 function Plan([string]$line) { Write-Host "  $line" }
 
 if ($Instance) {
-    if ($Instance -cnotmatch '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$') {
+    if ($Instance -cnotmatch '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$' -or $Instance -ceq 'passphrase') {
         Write-Host "-Instance must be lowercase letters, digits and inner dashes"
         exit 2
     }

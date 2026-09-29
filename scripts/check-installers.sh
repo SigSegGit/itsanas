@@ -658,6 +658,35 @@ else
     fi
 fi
 
+# ------------------------------------------------ a name that is not a node
+#
+# `~/.itsanas-passphrase` is the default node's passphrase *file*, and
+# `--instance NAME` means `~/.itsanas-NAME`. The CLI refused `passphrase` from
+# 0p; the shell scripts accepted it and aimed provision's mkdir, and clean's
+# plan, at that file. Both must refuse, and leave the file alone.
+
+reserved_home=$(mktemp -d)
+printf 'secret\n' > "$reserved_home/.itsanas-passphrase"
+for script in install/clean.sh install/provision.sh; do
+    case "$script" in
+        *clean.sh) args="--yes --purge-account" ;;
+        *) args="--username u --no-install" ;;
+    esac
+    # shellcheck disable=SC2086
+    out=$(env HOME="$reserved_home" PATH=/usr/bin:/bin ITSANAS_PASSPHRASE=x \
+        timeout 30 sh "$script" $args --instance passphrase 2>&1 </dev/null)
+    status=$?
+    if [ "$status" -eq 0 ] || ! printf '%s' "$out" | grep -q 'reserved'; then
+        bad "$script --instance passphrase is not refused as reserved (exit $status)"
+        say "  ~/.itsanas-passphrase is the default node's passphrase file, not an instance."
+    elif [ "$(cat "$reserved_home/.itsanas-passphrase" 2>/dev/null)" != secret ]; then
+        bad "$script --instance passphrase touched ~/.itsanas-passphrase"
+    else
+        say "$script refuses --instance passphrase"
+    fi
+done
+rm -rf "$reserved_home"
+
 if [ "$failed" -ne 0 ]; then
     echo
     echo "An installer is the one program here that runs on a machine nobody has"

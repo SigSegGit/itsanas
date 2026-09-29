@@ -164,6 +164,8 @@ enum Command {
     Status,
     /// Show this account's public identity.
     Whoami,
+    /// List the nodes on this machine: account, home, folder, daemon.
+    Instances,
     /// List the files this node knows about.
     Ls,
     /// Store a file.
@@ -574,6 +576,10 @@ fn run() -> Result<()> {
         Command::Invite { uses, days } => invite(&home, uses, days),
         Command::Passphrase { recovery } => change_passphrase(&home, recovery),
         Command::Status => status(&home),
+        Command::Instances => {
+            print!("{}", instances_report(&config::user_home()));
+            Ok(())
+        }
         Command::Whoami => whoami(&home),
         Command::Ls => list(&home),
         Command::Put { path, source } => put(&home, &path, &source),
@@ -1409,6 +1415,64 @@ fn snapshot_status(home: &Path, running: bool) -> Result<String> {
 /// whether their files are safe.
 fn passphrase_available() -> bool {
     std::env::var(PASSPHRASE_ENV).is_ok() || std::io::stdin().is_terminal()
+}
+
+/// Every node home under `base`, one line each, without a passphrase.
+///
+/// A home is `.itsanas` or a `.itsanas-NAME` **directory holding a keystore**:
+/// `~/.itsanas-passphrase` is the default node's passphrase file, and a
+/// directory left by `clean --purge-account` is no node. The folder is
+/// "reachable" only when its 0l marker is there -- an unmounted disk leaves an
+/// empty mount point that `is_dir` alone would call healthy. "running" is the
+/// store lock `status` already trusts, not the listen port, which another
+/// program may hold.
+fn instances_report(base: &Path) -> String {
+    let mut homes: Vec<(String, PathBuf)> = std::fs::read_dir(base)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let file_name = entry.file_name();
+            let file_name = file_name.to_str()?;
+            let name = match file_name.strip_prefix(".itsanas") {
+                Some("") => "(unnamed)".to_owned(),
+                Some(rest) => rest.strip_prefix('-')?.to_owned(),
+                None => return None,
+            };
+            let home = entry.path();
+            Node::exists(&home).then_some((name, home))
+        })
+        .collect();
+    homes.sort();
+    if homes.is_empty() {
+        return format!("no node under {}\n", base.display());
+    }
+
+    let mut out = String::new();
+    for (name, home) in homes {
+        let config = config::Config::load(&Node::config_path(&home));
+        let account = config
+            .as_ref()
+            .map_or_else(|_| "config unreadable".to_owned(), |c| c.username.clone());
+        let folder = match config.ok().and_then(|c| c.folder) {
+            None => "no folder".to_owned(),
+            Some(folder) if folder.join(itsanas_folder::scan::MARKER).is_file() => {
+                format!("folder {} reachable", folder.display())
+            }
+            Some(folder) => format!("folder {} UNREACHABLE", folder.display()),
+        };
+        let daemon = if itsanas_store::Store::is_locked(Node::store_path(&home)) {
+            "running"
+        } else {
+            "stopped"
+        };
+        let _ = writeln!(
+            out,
+            "{name}: account {account}, home {}, {folder}, {daemon}",
+            home.display()
+        );
+    }
+    out
 }
 
 fn status(home: &Path) -> Result<()> {
@@ -3139,9 +3203,74 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceId, SNAPSHOT, describe_age, first_free_port, looks_like_a_closed_pipe,
-        resolve_device, sibling_ports, snapshot_status,
+        DeviceId, SNAPSHOT, describe_age, first_free_port, instances_report,
+        looks_like_a_closed_pipe, resolve_device, sibling_ports, snapshot_status,
     };
+
+    /// A node home as `instances` sees one: a keystore and a config, no keys.
+    fn fake_node(home: &std::path::Path, username: &str, folder: Option<&std::path::Path>) {
+        std::fs::create_dir_all(home).expect("home");
+        std::fs::write(home.join("keystore.bin"), b"sealed").expect("keystore");
+        let config = itsanas_node::config::Config {
+            username: username.to_owned(),
+            folder: folder.map(std::path::Path::to_path_buf),
+            ..itsanas_node::config::Config::default()
+        };
+        config
+            .save(&itsanas_node::Node::config_path(home))
+            .expect("config");
+    }
+
+    /// Only directories holding a keystore are nodes. `~/.itsanas-passphrase`
+    /// is the default node's passphrase *file*, and a home emptied by
+    /// `clean --purge-account` is no node: listing either would send somebody
+    /// to `--instance passphrase`, or to a node that no longer exists.
+    #[test]
+    fn red_team_instances_lists_only_homes_that_hold_a_node() {
+        let base = tempfile::tempdir().expect("temp dir");
+        std::fs::write(base.path().join(".itsanas-passphrase"), "secret").expect("file");
+        std::fs::create_dir(base.path().join(".itsanas-gone")).expect("empty home");
+        fake_node(&base.path().join(".itsanas"), "alice", None);
+        fake_node(&base.path().join(".itsanas-bob"), "bob", None);
+
+        let out = instances_report(base.path());
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2, "exactly the two nodes, got:\n{out}");
+        assert!(lines[0].starts_with("(unnamed): account alice,"), "{out}");
+        assert!(lines[1].starts_with("bob: account bob,"), "{out}");
+        assert!(
+            !out.contains("passphrase") && !out.contains("gone"),
+            "{out}"
+        );
+        assert!(
+            out.contains("stopped"),
+            "no daemon holds these stores: {out}"
+        );
+    }
+
+    /// An unmounted disk leaves an empty mount point: the directory exists, the
+    /// files are gone. Calling it reachable is the lie 0l exists to prevent, so
+    /// only the folder marker makes a folder reachable.
+    #[test]
+    fn red_team_an_empty_mount_point_is_not_a_reachable_folder() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let folder = base.path().join("mnt");
+        std::fs::create_dir(&folder).expect("mount point");
+        fake_node(&base.path().join(".itsanas-carol"), "carol", Some(&folder));
+
+        let out = instances_report(base.path());
+        assert!(
+            out.contains("UNREACHABLE"),
+            "an empty mount point read as healthy: {out}"
+        );
+
+        std::fs::write(folder.join(itsanas_folder::scan::MARKER), "device").expect("marker");
+        let out = instances_report(base.path());
+        assert!(
+            out.contains("reachable") && !out.contains("UNREACHABLE"),
+            "{out}"
+        );
+    }
 
     /// The snapshot is read and dated without a passphrase anywhere near it.
     ///

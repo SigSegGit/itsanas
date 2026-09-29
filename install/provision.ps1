@@ -173,6 +173,13 @@ if ($Instance -and $Instance -cnotmatch '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$') 
         'It names a scheduled task, a directory and a file, so nothing that needs quoting.'
     )
 }
+# The same names as provision.sh and the CLI (config::instance_home), so an
+# instance created here can be named there.
+if ($Instance -ceq 'passphrase') {
+    Die '-Instance passphrase is reserved' @(
+        'provision.sh keeps the default node''s passphrase in ~/.itsanas-passphrase.'
+    )
+}
 $suffix = if ($Instance) { "-$Instance" } else { '' }
 $taskName = "ITSaNAS$suffix"
 $secretDir = Join-Path $env:LOCALAPPDATA 'itsanas'
