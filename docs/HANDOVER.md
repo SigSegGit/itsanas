@@ -10,15 +10,36 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0o
-TITLE: Gossip signed presences between an account's machines, each with its owner-signed claim (phase 2b.3 of reaching the network from outside)
+TITLE: Keep each claim in the address book, then gossip claimed presences over peer protocol 6 (phase 2b.3, second half, of reaching the network from outside)
 WRITTEN-AT: 2026-09-29
-BASE: 495112c
+BASE: d4fae8b
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-29, the coordinator's list says whose each machine is** (§8 0o
+phase 2b.3, first half, branch `step/8.0o-claimed-peers`). Found in the tree
+uncommitted, left by an interrupted session; checked here as new work, five
+sabotages re-run, five red. `ClaimedPresence { presence, claim }`
+(`crates/itsanas-coord/src/claim.rs`) and `verify_for(owner)`: both
+signatures, claim names `owner` and the presence's device, not revoked, no
+date. `Request::ClaimedPeers` / `Response::ClaimedPeers` appended (wire 14 and
+11); `CoordService::claimed_peers_of` builds the list and `peers_of` strips it.
+The client (`coordinator::located`) asks `ClaimedPeers` first, keeps what
+`verified_claimed` keeps into `Located::claimed` / `Contacted::claimed`, and on
+a hang-up asks `SignedPeers` with `claimed` empty.
+
+Rodin: ARCHITECTURE §6.1 said a coordinator *cannot* list another account's
+machines as yours; it can, by hanging up on `ClaimedPeers` -- the signed
+fallback checks where, not whose. Prose corrected, not closed: the cost is a
+connect timeout per row, bounded by the book, never relayed (same call as the
+2b.1 fallback). **Not done, 🟨:** nothing stores `claimed` yet -- the daemon
+drops it, so the book has nothing relayable; and a relay could replay a
+device's *old* unrevoked claim after the owner withdrew it (§8 2b.3 says what
+to test).
 
 **2026-09-29, the address book is kept on disk** (§8 0o phase 2b.2, branch
 `step/8.0o-address-book`, PR #184). `Contact::load` / `Contact::save`
@@ -2075,7 +2096,23 @@ Detail and measurements are in ROADMAP.md; this is the map.
          presence loses it on load** (sabotage: skip `verify_origin` there).
          Update `ROADMAP.md`'s sentence "Until a restart: that memory is not
          on disk yet" in the same commit.
-      3. **`NEXT`.** *Gossip.* What is there to build on, verified
+      3. **`NEXT`, second half.** First half ✅ (2026-09-29, see §0): the
+         coordinator's list carries each owner-signed claim
+         (`Request::ClaimedPeers`, `ClaimedPresence::verify_for`), and
+         `Contacted::claimed` holds the checked pairs. Next, in order:
+         (a) give the book `Candidate` a `claim: Option<SignedClaim>` beside
+         `presence`, filled from `Contacted::claimed` in `Contact::read`,
+         written and re-checked (`verify_for`) by `load`/`save` -- a
+         candidate with no claim is never relayed; (b) `Contact::relayable`
+         returns `ClaimedPresence`s only; (c) peer protocol 6 as below,
+         relaying `ClaimedPresence` not `SignedPresence`, the receiver keeping
+         a row only if `verify_for(asker's account)` passes. Red-team test
+         expected besides those listed below: **a relay replays a claim made
+         before the owner withdrew the device** -- `verify_for` has no date
+         and cannot refuse it; the receiver must drop a relayed row whose
+         device the coordinator's last `ClaimedPeers` or `Devices` read showed
+         withdrawn, or whose `issued_unix` is older than a claim it already
+         holds for that device. The original text: *Gossip.* What is there to build on, verified
          2026-09-29: each book `Candidate` holds its `SignedPresence`
          (`contact.rs`, `presence: Option<_>`, `None` = unsigned, never
          relayed); add a `Contact::relayable(owner)` that returns them.

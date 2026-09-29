@@ -466,7 +466,11 @@ fn serve_one(
         // decode it, so it hangs up -- done on purpose, by one that wants its
         // clients on the unsigned list. Only in tests of those clients.
         #[cfg(feature = "hostile")]
-        if matches!(request, Request::SignedPeers { .. }) && service.plays_old() {
+        if matches!(
+            request,
+            Request::SignedPeers { .. } | Request::ClaimedPeers { .. }
+        ) && service.plays_old()
+        {
             return Ok(());
         }
 

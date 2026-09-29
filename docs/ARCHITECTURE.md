@@ -307,7 +307,16 @@ what fails, so a coordinator can withhold an address or hand out one a device
 has since left. It can invent one only by pretending to predate signed lists,
 and a node that has seen it sign does not fall for that, across restarts too
 (the memory is kept in `<home>/address-book` with the signed addresses); a node that has not
-reads the unsigned list and says so in its log. That is the only discovery job
+reads the unsigned list and says so in its log. A signature says where a
+device is and not whose, so the list also carries each device's owner-signed
+claim (`ClaimedPeers`), and a client keeps only rows whose claim is a live one
+of the account it asked about. One older than that hangs up on the question;
+the client then reads `SignedPeers` and keeps nothing it could relay, which is
+what gossip (§8 0o 2b.3) will need the claim for -- but that read does not
+check whose a machine is, so a coordinator that hangs up on purpose can still
+list another account's genuine machines as yours. The cost is a connect
+timeout per such row, bounded by the address book, and none of them is ever
+relayed. That is the only discovery job
 left for it, and [DESIGN.md](DESIGN.md) §8 explains why it is not worth replacing
 with a DHT at this size.
 

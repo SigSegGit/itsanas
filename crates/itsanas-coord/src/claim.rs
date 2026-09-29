@@ -145,6 +145,16 @@ impl SignedClaim {
             });
         }
 
+        self.verify_origin()
+    }
+
+    /// Check the owner's signature, and nothing about when.
+    ///
+    /// For a claim that arrives second-hand, beside a presence in the
+    /// coordinator's list or, later, relayed by a peer. No date, for the
+    /// reason [`SignedPresence::verify_origin`] gives: a Raspberry Pi with no
+    /// real-time clock reads 1970 and would refuse every claim.
+    pub fn verify_origin(&self) -> Result<()> {
         verify(
             self.claim.owner.as_bytes(),
             CLAIM_DOMAIN,
@@ -265,6 +275,42 @@ impl SignedPresence {
     }
 }
 
+/// A presence with the owner's claim on its device.
+///
+/// A [`SignedPresence`] proves *where* a device is, and nothing about *whose*
+/// it is: any device signs its own. A list of an account's machines made of
+/// presences alone can be padded with other accounts' genuine machines, and
+/// the reader cannot tell -- up to the address book's 256 places, every one of
+/// them a connect timeout. The claim can tell, because only the owner's key
+/// makes it. This pair is what may be relayed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaimedPresence {
+    pub presence: SignedPresence,
+    pub claim: SignedClaim,
+}
+
+impl ClaimedPresence {
+    /// Check that this is a machine of `owner`, at an address it published.
+    ///
+    /// Both signatures; the claim naming `owner` and the presence's device;
+    /// the claim not a withdrawal. No date, for the reason on
+    /// [`SignedPresence::verify_origin`].
+    pub fn verify_for(&self, owner: UserId) -> Result<()> {
+        self.presence.verify_origin()?;
+        self.claim.verify_origin()?;
+        if self.claim.claim.owner != owner {
+            return Err(CoordError::Rejected("the claim names another account"));
+        }
+        if self.claim.claim.device != self.presence.presence.device {
+            return Err(CoordError::Rejected("the claim is for another device"));
+        }
+        if self.claim.claim.revoked {
+            return Err(CoordError::Rejected("the device was withdrawn"));
+        }
+        Ok(())
+    }
+}
+
 /// A device saying it is going on purpose.
 ///
 /// Recorded by the coordinator apart from silences, so that a future
@@ -355,6 +401,78 @@ mod tests {
         let owner = user(1);
         let dev = device(1);
         claim(&owner, &dev, NOW, false).verify(NOW).unwrap();
+    }
+
+    fn claimed(owner: &UserKeys, dev: &DeviceKeys, revoked: bool) -> ClaimedPresence {
+        ClaimedPresence {
+            presence: Presence {
+                device: dev.device_id(),
+                address: "203.0.113.7:9797".to_owned(),
+                at_unix: NOW,
+            }
+            .sign(dev),
+            claim: claim(owner, dev, NOW, revoked),
+        }
+    }
+
+    #[test]
+    fn a_claimed_presence_of_this_account_is_kept_whatever_the_readers_clock() {
+        // A Pi booted in 1970 reads it too; the check has no date in it.
+        let owner = user(1);
+        let row = claimed(&owner, &device(1), false);
+        row.verify_for(owner.user_id()).unwrap();
+        assert!(
+            row.claim.verify(0).is_err(),
+            "the dated check would refuse it"
+        );
+    }
+
+    #[test]
+    fn red_team_a_relay_cannot_pass_off_another_accounts_machine_as_yours() {
+        // Genuine, both signatures good: it is simply somebody else's. Kept,
+        // the reader's address book fills with machines it cannot sync with.
+        let mine = user(1);
+        let theirs = claimed(&user(2), &device(2), false);
+        assert!(
+            theirs.verify_for(mine.user_id()).is_err(),
+            "another account's machine was accepted as one of this account's"
+        );
+    }
+
+    #[test]
+    fn red_team_a_claim_cannot_vouch_for_a_different_device() {
+        // This account's genuine claim on one machine, pinned to a stranger's
+        // presence: the stranger would ride in on it.
+        let owner = user(1);
+        let mut row = claimed(&owner, &device(1), false);
+        row.presence = claimed(&user(2), &device(2), false).presence;
+        assert!(
+            row.verify_for(owner.user_id()).is_err(),
+            "a claim on one device let another device in"
+        );
+    }
+
+    #[test]
+    fn red_team_a_withdrawn_device_is_not_relayed_as_live() {
+        // A sold or stolen laptop, withdrawn by its owner, keeps its keys.
+        let owner = user(1);
+        let row = claimed(&owner, &device(1), true);
+        assert!(
+            row.verify_for(owner.user_id()).is_err(),
+            "a withdrawn device was accepted as one of the account's machines"
+        );
+    }
+
+    #[test]
+    fn red_team_a_claim_with_a_forged_owner_signature_is_refused() {
+        // The relay rewrites the owner field to the account asked about.
+        let owner = user(1);
+        let mut row = claimed(&user(2), &device(2), false);
+        row.claim.claim.owner = owner.user_id();
+        assert!(
+            row.verify_for(owner.user_id()).is_err(),
+            "a claim the owner never signed was accepted"
+        );
     }
 
     #[test]
