@@ -92,6 +92,11 @@ struct Cli {
     #[arg(long, global = true, env = "ITSANAS_HOME")]
     home: Option<PathBuf>,
 
+    /// A named instance on this machine: its state is in ~/.itsanas-NAME, the
+    /// home `install/provision.sh --instance NAME` set up.
+    #[arg(long, global = true, env = "ITSANAS_INSTANCE")]
+    instance: Option<String>,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -525,7 +530,22 @@ fn main() -> ExitCode {
 
 fn run() -> Result<()> {
     let cli = Cli::parse();
-    let home = cli.home.unwrap_or_else(config::default_home);
+    let home = match (cli.instance.as_deref(), cli.home) {
+        (Some(name), home) => {
+            let named = config::instance_home(name)?;
+            // Same refusal as provision.sh: two answers to "which node" is a
+            // mistake to report, not a precedence rule to guess at.
+            if let Some(home) = home.filter(|home| *home != named) {
+                return Err(CliError::Usage(format!(
+                    "--instance {name} keeps its node in {}, but the home is {}; drop one",
+                    named.display(),
+                    home.display()
+                )));
+            }
+            named
+        }
+        (None, home) => home.unwrap_or_else(config::default_home),
+    };
 
     match cli.command {
         Command::Init { username } => init(&home, &username),
