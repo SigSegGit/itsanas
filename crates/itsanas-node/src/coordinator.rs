@@ -14,7 +14,7 @@
 
 use std::net::{SocketAddr, ToSocketAddrs};
 
-use itsanas_coord::claim::{MAX_ADDRESS_LEN, NodeClaim, Presence, SignedPresence};
+use itsanas_coord::claim::{ClaimedPresence, MAX_ADDRESS_LEN, NodeClaim, Presence, SignedPresence};
 use itsanas_coord::directory::Registration;
 use itsanas_coord::invitation::{Invitation, SECRET_LEN, Secret};
 use itsanas_coord::protocol::{EnrolledDevice, Request, Response};
@@ -400,8 +400,10 @@ pub struct Located {
     /// Each device and the address it published, in the coordinator's order.
     pub found: Vec<(DeviceId, String)>,
     /// How many presences were dropped because their device did not sign them
-    /// ([`verified`]). An honest coordinator checked every one on arrival, so
-    /// anything but zero means it is lying.
+    /// ([`verified`]), or because their claim did not make them a live device
+    /// of the account asked about ([`verified_claimed`]). An honest
+    /// coordinator checked every one on arrival, so anything but zero means
+    /// it is lying.
     pub forged: usize,
     /// Whether the list was signed. `false` means the coordinator hung up on
     /// `SignedPeers` and `Peers` answered: every address is on its word.
@@ -410,13 +412,20 @@ pub struct Located {
     /// when `signed` is false. Kept so the address book can write them and
     /// check them again when it reads them back.
     pub presences: Vec<SignedPresence>,
+    /// The same presences with the owner's claim on each, checked. Empty
+    /// when the coordinator is older than `ClaimedPeers`: then this read has
+    /// nothing a peer could be handed on, which is the safe way to be short.
+    pub claimed: Vec<ClaimedPresence>,
 }
 
 /// Where the devices of `user` are, each address checked against the device
 /// that published it.
 ///
-/// Asks `SignedPeers` and keeps what [`verified`] keeps. A coordinator older
-/// than that request hangs up on it, which looks like an outage. With
+/// Asks `ClaimedPeers` and keeps what [`verified_claimed`] keeps; a
+/// coordinator older than that hangs up, and a fresh connection asks
+/// `SignedPeers` and keeps what [`verified`] keeps, with nothing relayable.
+/// A coordinator older than that request hangs up on it too, which looks
+/// like an outage. With
 /// `accept_unsigned`, `client` is then replaced by a fresh connection that asks
 /// `Peers`, which every coordinator answers, and the result says it is
 /// unsigned. **That fallback is a door a hostile coordinator can open at will**
@@ -426,6 +435,53 @@ pub struct Located {
 /// would be advice. If the fresh connection fails too, the network is the
 /// problem and is reported as one.
 fn located(
+    client: &mut CoordClient,
+    config: &crate::config::Config,
+    device: &DeviceKeys,
+    user: UserId,
+    accept_unsigned: bool,
+) -> Result<Located> {
+    match client.ask(&Request::ClaimedPeers { user }) {
+        Ok(Response::ClaimedPeers(list)) => {
+            let (claimed, forged) = verified_claimed(list, user);
+            let found = claimed
+                .iter()
+                .map(|row| {
+                    (
+                        row.presence.presence.device,
+                        row.presence.presence.address.clone(),
+                    )
+                })
+                .collect();
+            let presences = claimed.iter().map(|row| row.presence.clone()).collect();
+            Ok(Located {
+                found,
+                forged,
+                signed: true,
+                presences,
+                claimed,
+            })
+        }
+        Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
+        Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+        // Older than `ClaimedPeers`, or pretending to be: it hung up. What is
+        // lost is the claim, so nothing read here is relayable -- the signed
+        // list below still checks every address against its device, and the
+        // unsigned one still needs `accept_unsigned`. No memory is kept of
+        // this coordinator having claimed before, because being refused
+        // relayable presences costs gossip and never sends a machine anywhere.
+        // The price, accepted: the signed list checks where, not whose, so a
+        // coordinator hanging up here on purpose can still pad the book with
+        // other accounts' machines -- a connect timeout each, never relayed.
+        Err(_) => {
+            *client = dial_as(config, device)?;
+            signed_located(client, config, device, user, accept_unsigned)
+        }
+    }
+}
+
+/// [`located`] without the claims: `SignedPeers`, falling back to `Peers`.
+fn signed_located(
     client: &mut CoordClient,
     config: &crate::config::Config,
     device: &DeviceKeys,
@@ -444,6 +500,7 @@ fn located(
                 forged,
                 signed: true,
                 presences,
+                claimed: Vec::new(),
             })
         }
         Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
@@ -467,6 +524,7 @@ fn located(
                     forged: 0,
                     signed: false,
                     presences: Vec::new(),
+                    claimed: Vec::new(),
                 }),
                 Response::Refused(why) => Err(CliError::Usage(why)),
                 other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
@@ -501,6 +559,28 @@ pub fn verified_presences(list: Vec<SignedPresence>) -> (Vec<SignedPresence>, us
     let kept: Vec<SignedPresence> = list
         .into_iter()
         .filter(|signed| signed.verify_origin().is_ok())
+        .collect();
+    let dropped = offered - kept.len();
+    (kept, dropped)
+}
+
+/// The rows that are live devices of `owner` at addresses they published,
+/// and how many were dropped.
+///
+/// [`verified_presences`] checks where a device is; this also checks whose it
+/// is ([`ClaimedPresence::verify_for`]). A coordinator could otherwise list
+/// other accounts' genuine machines under this one -- each a connect timeout,
+/// and each, once gossip relays what the book holds, handed on as this
+/// account's.
+#[must_use]
+pub fn verified_claimed(
+    list: Vec<ClaimedPresence>,
+    owner: UserId,
+) -> (Vec<ClaimedPresence>, usize) {
+    let offered = list.len();
+    let kept: Vec<ClaimedPresence> = list
+        .into_iter()
+        .filter(|row| row.verify_for(owner).is_ok())
         .collect();
     let dropped = offered - kept.len();
     (kept, dropped)
@@ -615,14 +695,16 @@ pub struct Contacted {
     /// Not a failed contact: the publication and the read went through.
     pub pledges_not_kept: Option<NodeError>,
     /// How many presences the read dropped because their device did not sign
-    /// them. Counted because anything but zero means the coordinator is lying
-    /// about where the account's machines are.
+    /// them or their claim was not this account's. Counted because anything
+    /// but zero means the coordinator is lying about the account's machines.
     pub forged: usize,
     /// Whether the read was a signed list. `false` with `found` set means the
     /// coordinator answered only `Peers`, and the caller should say so.
     pub signed: bool,
     /// The signed presences behind `found`, for the address book.
     pub presences: Vec<SignedPresence>,
+    /// Those of them that came with this account's claim ([`Located::claimed`]).
+    pub claimed: Vec<ClaimedPresence>,
 }
 
 /// Publish, read, or both, on one connection: whatever [`Due`] asks for.
@@ -679,6 +761,7 @@ pub fn contact(node: &Node, listen: &str, now: u64, due: &Due) -> Result<Contact
                 contacted.forged = read.forged;
                 contacted.signed = read.signed;
                 contacted.presences = read.presences;
+                contacted.claimed = read.claimed;
             }
             // Nothing was published to keep: the whole contact failed.
             Err(error) if contacted.published.is_none() => return Err(error),
@@ -992,6 +1075,47 @@ mod tests {
             "an address the Pi never signed was believed, or the one it did sign was not"
         );
         assert_eq!(dropped, 2, "a forgery was dropped without being counted");
+    }
+
+    /// A signed presence says where a machine is, not whose. A coordinator --
+    /// or, once gossip exists, a relay -- that lists another account's genuine
+    /// machine under this one passes every signature check on the presence;
+    /// only the owner's claim tells. Kept, it costs a connect timeout per
+    /// round, and gossip would hand it on as this account's.
+    #[test]
+    fn red_team_a_coordinator_cannot_pass_off_another_accounts_machine_as_yours() {
+        use itsanas_crypto::{MasterSecret, UserKeys};
+        let row = |owner: &UserKeys, seed: u8, address: &str| {
+            let machine = DeviceKeys::from_seed(&SecretBytes::new([seed; 32]));
+            ClaimedPresence {
+                presence: Presence {
+                    device: machine.device_id(),
+                    address: address.to_owned(),
+                    at_unix: 0,
+                }
+                .sign(&machine),
+                claim: NodeClaim {
+                    owner: owner.user_id(),
+                    device: machine.device_id(),
+                    pledged_bytes: 0,
+                    issued_unix: 0,
+                    revoked: false,
+                }
+                .sign(owner),
+            }
+        };
+        let me = UserKeys::derive(&MasterSecret::from_bytes([1; 32]));
+        let them = UserKeys::derive(&MasterSecret::from_bytes([2; 32]));
+        let mine = row(&me, 2, "192.168.1.20:9797");
+        let theirs = row(&them, 3, "203.0.113.67:9797");
+
+        let (kept, dropped) = verified_claimed(vec![theirs, mine.clone()], me.user_id());
+        assert_eq!(
+            kept,
+            vec![mine],
+            "another account's machine was listed as this account's, or this account's own was lost"
+        );
+        assert_eq!(dropped, 1, "the lie was dropped without being counted");
     }
 
     #[test]

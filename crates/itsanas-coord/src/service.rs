@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use itsanas_crypto::{DeviceId, UserId};
 
-use crate::claim::{Presence, SignedPresence};
+use crate::claim::{ClaimedPresence, Presence, SignedPresence};
 use crate::directory::{Admission, Directory};
 use crate::error::Result;
 use crate::protocol::{
@@ -303,6 +303,10 @@ impl<'a> CoordService<'a> {
                 Ok(Response::SignedPeers(self.peers_of(*user, now_unix)?))
             }
 
+            Request::ClaimedPeers { user } => Ok(Response::ClaimedPeers(
+                self.claimed_peers_of(*user, now_unix)?,
+            )),
+
             Request::PutEscrow { blob } => self.put_escrow(caller, blob.as_deref(), now_unix),
 
             Request::GetEscrow { username } => {
@@ -428,6 +432,18 @@ impl<'a> CoordService<'a> {
     /// Each with the signature it was announced under, so `SignedPeers` can
     /// hand it on and the reader can check it.
     fn peers_of(&self, user: UserId, now: u64) -> Result<Vec<SignedPresence>> {
+        Ok(self
+            .claimed_peers_of(user, now)?
+            .into_iter()
+            .map(|claimed| claimed.presence)
+            .collect())
+    }
+
+    /// As [`Self::peers_of`], each with the live claim it was listed under.
+    ///
+    /// The claim is the one the list is built from, so a row cannot carry a
+    /// claim other than the one that put it there.
+    fn claimed_peers_of(&self, user: UserId, now: u64) -> Result<Vec<ClaimedPresence>> {
         let mut out = Vec::new();
         for claim in self.directory.live_claims_of(user)? {
             let device = claim.claim.device;
@@ -438,17 +454,21 @@ impl<'a> CoordService<'a> {
             if now.saturating_sub(seen) > PRESENCE_TTL {
                 continue;
             }
-            out.push((seen, presence));
+            out.push((seen, ClaimedPresence { presence, claim }));
         }
 
         // Then by device id, so two clients asking at the same moment get the
         // same list rather than a shuffling one.
         out.sort_by(|a, b| {
-            b.0.cmp(&a.0)
-                .then(a.1.presence.device.cmp(&b.1.presence.device))
+            b.0.cmp(&a.0).then(
+                a.1.presence
+                    .presence
+                    .device
+                    .cmp(&b.1.presence.presence.device),
+            )
         });
         out.truncate(MAX_PEERS_RETURNED);
-        Ok(out.into_iter().map(|(_, presence)| presence).collect())
+        Ok(out.into_iter().map(|(_, claimed)| claimed).collect())
     }
 
     /// Which address, if any, may be probed on this caller's behalf.

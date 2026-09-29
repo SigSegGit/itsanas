@@ -22,7 +22,7 @@
 use itsanas_crypto::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
 
-use crate::claim::{Presence, SignedClaim, SignedDeparture, SignedPresence};
+use crate::claim::{ClaimedPresence, Presence, SignedClaim, SignedDeparture, SignedPresence};
 use crate::directory::{Account, SignedRegistration};
 use crate::invitation::{Secret, SignedInvitation};
 
@@ -220,6 +220,23 @@ pub enum Request {
         /// The user whose devices to list.
         user: UserId,
     },
+
+    /// [`Request::SignedPeers`], each presence with its device's owner-signed
+    /// claim.
+    ///
+    /// A signed presence says where a device is, not whose it is, so a
+    /// coordinator could list other accounts' genuine machines under this
+    /// one and the reader could not tell ([`ClaimedPresence`]). With the claim
+    /// it can, and a presence that travels with its claim is one a peer may
+    /// relay later without being able to invent whose it is.
+    ///
+    /// A coordinator older than this hangs up; the client then asks
+    /// `SignedPeers` and keeps nothing it could relay. Answered to the same
+    /// callers as `Peers`. Appended last.
+    ClaimedPeers {
+        /// The user whose devices to list.
+        user: UserId,
+    },
 }
 
 /// One enrolled device, as [`Response::Devices`] lists it.
@@ -301,6 +318,11 @@ pub enum Response {
     /// signature its device made. Appended last, for the reason given on
     /// [`Request::SignedPeers`].
     SignedPeers(Vec<SignedPresence>),
+
+    /// Reachable devices as [`Response::SignedPeers`] lists them, each with
+    /// its owner's claim. Appended last, for the reason given on
+    /// [`Request::ClaimedPeers`].
+    ClaimedPeers(Vec<ClaimedPresence>),
 }
 
 impl Request {
@@ -336,6 +358,7 @@ impl Request {
             Self::CheckMe => "check-me",
             Self::Depart(_) => "depart",
             Self::SignedPeers { .. } => "signed-peers",
+            Self::ClaimedPeers { .. } => "claimed-peers",
         }
     }
 }
@@ -373,6 +396,12 @@ mod tests {
         );
         assert!(
             !Request::SignedPeers {
+                user: UserId::from_bytes([0; ID_LEN])
+            }
+            .is_open()
+        );
+        assert!(
+            !Request::ClaimedPeers {
                 user: UserId::from_bytes([0; ID_LEN])
             }
             .is_open()
@@ -454,7 +483,7 @@ mod tests {
                     username: "a".to_owned(),
                 },
             ),
-            (5, Request::Claim(Box::new(claim))),
+            (5, Request::Claim(Box::new(claim.clone()))),
             (6, Request::Announce(Box::new(presence.clone()))),
             (7, Request::Peers { user }),
             (8, Request::PutEscrow { blob: None }),
@@ -468,6 +497,7 @@ mod tests {
             (11, Request::CheckMe),
             (12, Request::Depart(Box::new(departure))),
             (13, Request::SignedPeers { user }),
+            (14, Request::ClaimedPeers { user }),
         ];
         let account = crate::directory::Account {
             username: "a".to_owned(),
@@ -524,7 +554,8 @@ mod tests {
                 | Request::Devices { .. }
                 | Request::CheckMe
                 | Request::Depart(_)
-                | Request::SignedPeers { .. } => {}
+                | Request::SignedPeers { .. }
+                | Request::ClaimedPeers { .. } => {}
             }
             assert_eq!(
                 postcard::to_stdvec(request).unwrap()[0],
@@ -546,7 +577,8 @@ mod tests {
                 | Response::Devices(_)
                 | Response::Reachable { .. }
                 | Response::Unknown(_)
-                | Response::SignedPeers(_) => {}
+                | Response::SignedPeers(_)
+                | Response::ClaimedPeers(_) => {}
             }
             assert_eq!(
                 postcard::to_stdvec(response).unwrap()[0],

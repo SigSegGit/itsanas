@@ -208,6 +208,28 @@ fn a_member_registers_enrols_a_device_and_is_then_findable_by_name() {
             signed.iter().all(|s| s.verify_origin().is_ok()),
             "a presence came back with a signature its device did not make"
         );
+
+        // And with the owner's claim on each, which is what says the laptop
+        // is this account's and not merely somewhere.
+        let Response::ClaimedPeers(claimed) = looking
+            .ask(&Request::ClaimedPeers {
+                user: account.user.id,
+            })
+            .unwrap()
+        else {
+            panic!("no claimed peers returned");
+        };
+        assert_eq!(
+            claimed.iter().map(|c| &c.presence).collect::<Vec<_>>(),
+            signed.iter().collect::<Vec<_>>(),
+            "the claimed list and the signed one disagree"
+        );
+        assert!(
+            claimed
+                .iter()
+                .all(|c| c.verify_for(account.user.id).is_ok()),
+            "a listed device came back without a claim of this account on it"
+        );
     });
 }
 

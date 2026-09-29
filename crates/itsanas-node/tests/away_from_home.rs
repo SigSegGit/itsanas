@@ -280,6 +280,15 @@ fn red_team_a_coordinator_cannot_pass_off_an_address_its_machine_never_signed() 
             "the Pi's genuine presence must survive the check"
         );
         assert_eq!(
+            contacted
+                .claimed
+                .iter()
+                .map(|row| row.presence.presence.device)
+                .collect::<Vec<_>>(),
+            vec![pi.store.device_id()],
+            "the Pi's presence came back without the account's claim on it"
+        );
+        assert_eq!(
             contacted.forged, 1,
             "the lie was dropped without a word, so nobody learns the coordinator lies"
         );
@@ -323,6 +332,10 @@ fn red_team_a_coordinator_that_pretends_to_be_old_cannot_talk_a_node_down_to_an_
         assert!(
             !first.signed,
             "an unsigned list was reported as signed, so nobody is told"
+        );
+        assert!(
+            first.claimed.is_empty(),
+            "a list read without claims came back with something to relay"
         );
 
         let after = read(false);
