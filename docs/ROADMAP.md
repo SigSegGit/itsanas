@@ -751,7 +751,12 @@ device and reaching a different one is refused.
   peer may be handed. Since peer protocol 6 (2b.3, the same day) peers of one
   account exchange them (`Request::Presences`), each row checked for both
   signatures and this account, only for a machine the book already holds, and
-  never older than what it holds; the hourly read is still unconditional.
+  never older than what it holds. The hourly read stays unconditional, by
+  decision: only it learns a machine enrolled later, and it rides on the
+  hourly publication's connection. Known gap: a presence signed on a clock
+  far ahead (say 2099) that arrives by relay counts as the latest one, so
+  no later relayed presence for that device is kept; the coordinator's read,
+  which has no date filter, still finds the machine.
 
 - **NAT traversal.** A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts

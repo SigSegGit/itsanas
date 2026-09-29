@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-09-29 19:00 | ~15 min | ~70 k ctx · n/d | 8.0o (2b.4) | au bout | ✅ | #187 (2b.3 c) trouvée fusionnée, sa ligne manquait ; point 4 jugé sans objet (la lecture conditionnelle n'apprendrait jamais une machine inscrite plus tard), 0o clos, pointeur sur 0p | à venir |
 | 2026-09-29 18:25 | ~20 min | ~160 k ctx · +5 pts/5 h | 8.0o (2b.3 a-b) | au bout | 🟨 | Le carnet garde la claim de chaque adresse (fichier v2, v1 relu), la revérifie au chargement, `relayable()` ; trou Rodin corrigé (signature la plus récente gardée) ; appareil retiré relayable jusqu'à la lecture suivante, nommé | #186 |
 | 2026-09-29 17:45 | ~20 min | ~105 k ctx · +5 pts/5 h (fenêtre remise à zéro) | 8.0o (2b.3, 1re moitié) | au bout | 🟨 | Travail interrompu trouvé dans l'arbre (liste du coordinateur avec la claim de chaque machine) revérifié, 5 sabotages rouges ; prose ARCHITECTURE corrigée (repli par raccrochage, trou Rodin) ; claims pas encore gardées dans le carnet | #185 |
 | 2026-09-29 14:15 | ~25 min | ~137 k ctx · +8 pts/5 h | 8.0o (2b.2) | au bout | 🟨 | Carnet d'adresses sur disque (présences signées, mémoire de la signature, écriture atomique), revérifié au chargement ; succès horodatés monotones (trou Rodin : Pi en 1970) ; chargement/sauvegarde du démon sans test propre | #184 |
