@@ -301,7 +301,12 @@ than itself. What is discovered is then dialled with the announcing device
 pinned, so an address answering as somebody else is refused: discovery says who
 *might* be worth talking to and never says who somebody *is*.
 
-Across networks, a coordinator supplies addresses. That is the only discovery job
+Across networks, a coordinator supplies addresses, each signed by the device
+that published it (`SignedPeers`). A client checks every signature and drops
+what fails, so a coordinator can withhold an address or hand out one a device
+has since left. It can invent one only by pretending to predate signed lists,
+and a node that has seen it sign does not fall for that; a node that has not
+reads the unsigned list and says so in its log. That is the only discovery job
 left for it, and [DESIGN.md](DESIGN.md) §8 explains why it is not worth replacing
 with a DHT at this size.
 

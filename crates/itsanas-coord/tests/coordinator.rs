@@ -188,6 +188,26 @@ fn a_member_registers_enrols_a_device_and_is_then_findable_by_name() {
         };
         assert_eq!(peers.len(), 1);
         assert_eq!(peers[0].address, "192.168.1.20:9797");
+
+        // The same answer with the laptop's own signature on it, which is what
+        // lets the reader stop taking the coordinator's word for the address.
+        let Response::SignedPeers(signed) = looking
+            .ask(&Request::SignedPeers {
+                user: account.user.id,
+            })
+            .unwrap()
+        else {
+            panic!("no signed peers returned");
+        };
+        assert_eq!(
+            signed.iter().map(|s| &s.presence).collect::<Vec<_>>(),
+            peers.iter().collect::<Vec<_>>(),
+            "the signed list and the bare one disagree"
+        );
+        assert!(
+            signed.iter().all(|s| s.verify_origin().is_ok()),
+            "a presence came back with a signature its device did not make"
+        );
     });
 }
 

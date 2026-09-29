@@ -272,6 +272,9 @@ struct AvailabilityRecord {
 #[derive(Debug)]
 pub struct Directory {
     db: Database,
+    /// See [`Directory::play_old`].
+    #[cfg(feature = "hostile")]
+    plays_old: std::sync::atomic::AtomicBool,
 }
 
 impl Directory {
@@ -293,7 +296,11 @@ impl Directory {
         }
         txn.commit()?;
 
-        let directory = Self { db };
+        let directory = Self {
+            db,
+            #[cfg(feature = "hostile")]
+            plays_old: std::sync::atomic::AtomicBool::new(false),
+        };
         directory.rebuild_owner_index_if_missing()?;
         Ok(directory)
     }
@@ -753,7 +760,41 @@ impl Directory {
     /// set without an account to be held responsible.
     pub fn announce(&self, signed: &SignedPresence, now: u64) -> Result<()> {
         signed.verify(now)?;
+        self.keep_presence(signed, now)
+    }
 
+    /// Record a presence **without checking its signature**: a coordinator
+    /// that lies, for the tests of the clients that must not believe one.
+    ///
+    /// A client reading `SignedPeers` checks every address against its device,
+    /// and the only way to prove that check is wired is a coordinator that
+    /// hands out a presence nobody signed. Behind a feature that only
+    /// dev-dependencies enable, so no coordinator that is built to run has it.
+    /// Make the server behind this directory close the connection on
+    /// `SignedPeers`, as a coordinator older than it does: a coordinator that
+    /// pretends to be old, to talk its clients down to the unsigned list.
+    #[cfg(feature = "hostile")]
+    #[doc(hidden)]
+    pub fn play_old(&self, old: bool) {
+        self.plays_old
+            .store(old, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether [`Self::play_old`] is on.
+    #[cfg(feature = "hostile")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn plays_old(&self) -> bool {
+        self.plays_old.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[cfg(feature = "hostile")]
+    #[doc(hidden)]
+    pub fn plant_presence(&self, signed: &SignedPresence, now: u64) -> Result<()> {
+        self.keep_presence(signed, now)
+    }
+
+    fn keep_presence(&self, signed: &SignedPresence, now: u64) -> Result<()> {
         let claim = self
             .claim_for(signed.presence.device)?
             .filter(|claim| !claim.claim.revoked)

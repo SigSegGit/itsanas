@@ -225,19 +225,34 @@ impl Presence {
 }
 
 impl SignedPresence {
-    /// Check the signature against the device that claims to have sent it.
+    /// Check the signature against the device that claims to have sent it, as
+    /// the coordinator does when the device announces itself.
     pub fn verify(&self, now: u64) -> Result<()> {
-        if self.presence.address.len() > MAX_ADDRESS_LEN {
-            return Err(CoordError::Rejected("address is too long"));
-        }
-        if self.presence.address.is_empty() {
-            return Err(CoordError::Rejected("address is empty"));
-        }
         if self.presence.at_unix > now.saturating_add(MAX_CLOCK_SKEW) {
             return Err(CoordError::FromTheFuture {
                 issued: self.presence.at_unix,
                 now,
             });
+        }
+        self.verify_origin()
+    }
+
+    /// Check that the device named in the presence signed it, and nothing
+    /// about when.
+    ///
+    /// For a presence that arrives second-hand: from the coordinator's list, or
+    /// relayed by a peer. The relay may have lied about the address, and this
+    /// is what catches it. It says nothing about time because the reader's
+    /// clock is not a reference either: a Raspberry Pi with no real-time clock
+    /// boots in 1970, and would refuse every presence as "from the future".
+    /// Staleness is judged by which address last *worked* from here, never by
+    /// the date inside (HANDOVER §6).
+    pub fn verify_origin(&self) -> Result<()> {
+        if self.presence.address.len() > MAX_ADDRESS_LEN {
+            return Err(CoordError::Rejected("address is too long"));
+        }
+        if self.presence.address.is_empty() {
+            return Err(CoordError::Rejected("address is empty"));
         }
 
         verify(
@@ -530,6 +545,35 @@ mod tests {
         forged.presence.device = honest.device_id();
 
         assert!(forged.verify(NOW).is_err());
+    }
+
+    /// A presence read second-hand is checked for who signed it, never against
+    /// the reader's clock: a Pi that booted in 1970 would otherwise refuse
+    /// every presence it is handed.
+    #[test]
+    fn a_relayed_presence_is_checked_for_its_signer_and_not_its_date() {
+        let dev = device(16);
+        let genuine = Presence {
+            device: dev.device_id(),
+            address: "192.168.1.20:9797".to_owned(),
+            at_unix: NOW,
+        }
+        .sign(&dev);
+        assert!(
+            genuine.verify(0).is_err(),
+            "the coordinator's check reads its own clock"
+        );
+        assert!(
+            genuine.verify_origin().is_ok(),
+            "a reader whose clock says 1970 refused a genuine presence"
+        );
+
+        let mut moved = genuine;
+        moved.presence.address = "203.0.113.66:9797".to_owned();
+        assert!(
+            moved.verify_origin().is_err(),
+            "an address changed after signing still verified"
+        );
     }
 
     #[test]

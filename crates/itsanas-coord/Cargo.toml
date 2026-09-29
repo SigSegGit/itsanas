@@ -18,6 +18,12 @@ redb = "2.6.0"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"
 
+[features]
+# A coordinator that lies: `Directory::plant_presence` records a presence
+# without checking its signature, so a client's tests can prove it refuses one.
+# Enabled only by dev-dependencies; nothing built to run turns it on.
+hostile = []
+
 [lints]
 workspace = true
 

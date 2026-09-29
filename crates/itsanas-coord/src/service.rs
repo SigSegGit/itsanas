@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use itsanas_crypto::{DeviceId, UserId};
 
-use crate::claim::Presence;
+use crate::claim::{Presence, SignedPresence};
 use crate::directory::{Admission, Directory};
 use crate::error::Result;
 use crate::protocol::{
@@ -297,7 +297,11 @@ impl<'a> CoordService<'a> {
                 }
             }
 
-            Request::Peers { user } => Ok(Response::Peers(self.peers_of(*user, now_unix)?)),
+            Request::Peers { user } => Ok(Response::Peers(self.bare_peers_of(*user, now_unix)?)),
+
+            Request::SignedPeers { user } => {
+                Ok(Response::SignedPeers(self.peers_of(*user, now_unix)?))
+            }
 
             Request::PutEscrow { blob } => self.put_escrow(caller, blob.as_deref(), now_unix),
 
@@ -393,6 +397,24 @@ impl<'a> CoordService<'a> {
         Ok(Response::Devices(out))
     }
 
+    /// Whether this coordinator is pretending to be older than `SignedPeers`
+    /// ([`Directory::play_old`]).
+    #[cfg(feature = "hostile")]
+    #[must_use]
+    pub fn plays_old(&self) -> bool {
+        self.directory.plays_old()
+    }
+
+    /// [`Self::peers_of`] without the signatures, for `Peers`, which predates
+    /// them.
+    fn bare_peers_of(&self, user: UserId, now: u64) -> Result<Vec<Presence>> {
+        Ok(self
+            .peers_of(user, now)?
+            .into_iter()
+            .map(|signed| signed.presence)
+            .collect())
+    }
+
     /// Live, reachable devices for `user`, most recently confirmed first.
     ///
     /// Ordered and expired by **this coordinator's** record of when it last
@@ -402,7 +424,10 @@ impl<'a> CoordService<'a> {
     /// anybody who wanted to sort first could simply say so. The same mistake
     /// was made and removed in `itsanas-discover`; it does not get to come back
     /// here.
-    fn peers_of(&self, user: UserId, now: u64) -> Result<Vec<Presence>> {
+    ///
+    /// Each with the signature it was announced under, so `SignedPeers` can
+    /// hand it on and the reader can check it.
+    fn peers_of(&self, user: UserId, now: u64) -> Result<Vec<SignedPresence>> {
         let mut out = Vec::new();
         for claim in self.directory.live_claims_of(user)? {
             let device = claim.claim.device;
@@ -413,12 +438,15 @@ impl<'a> CoordService<'a> {
             if now.saturating_sub(seen) > PRESENCE_TTL {
                 continue;
             }
-            out.push((seen, presence.presence));
+            out.push((seen, presence));
         }
 
         // Then by device id, so two clients asking at the same moment get the
         // same list rather than a shuffling one.
-        out.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.device.cmp(&b.1.device)));
+        out.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then(a.1.presence.device.cmp(&b.1.presence.device))
+        });
         out.truncate(MAX_PEERS_RETURNED);
         Ok(out.into_iter().map(|(_, presence)| presence).collect())
     }
