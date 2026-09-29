@@ -608,6 +608,15 @@ pub fn instance_home(name: &str) -> Result<PathBuf> {
         .join(format!(".itsanas-{name}")))
 }
 
+/// The directory every node home hangs off: `~/.itsanas` and `~/.itsanas-NAME`.
+///
+/// What `itsanas instances` scans. `.` when neither `HOME` nor `USERPROFILE` is
+/// set, as [`default_home`] does.
+#[must_use]
+pub fn user_home() -> PathBuf {
+    dirs_home().unwrap_or_else(|| PathBuf::from("."))
+}
+
 fn dirs_home() -> Option<PathBuf> {
     // Avoids a dependency for something this small. Both variables are set on
     // every platform this project targets.

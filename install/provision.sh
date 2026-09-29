@@ -239,6 +239,10 @@ if [ -n "$INSTANCE" ]; then
     case "$INSTANCE" in
         *[!a-z0-9-]*|-*|*-) die "--instance must be lowercase letters, digits and inner dashes" \
             "It names a systemd unit, a directory and a file, so nothing that needs quoting." ;;
+        # ~/.itsanas-passphrase is the default node's passphrase file; the CLI
+        # refuses this name too (config::instance_home).
+        passphrase) die "--instance passphrase is reserved" \
+            "$HOME/.itsanas-passphrase is the default node's passphrase file, not a node." ;;
     esac
     [ "${#INSTANCE}" -le 32 ] || die "--instance is longer than 32 characters"
     if [ -n "${ITSANAS_HOME:-}" ] && [ "$ITSANAS_HOME" != "$HOME/.itsanas-$INSTANCE" ]; then

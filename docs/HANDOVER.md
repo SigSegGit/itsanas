@@ -10,15 +10,31 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0p
-TITLE: Named instances, second half: `itsanas instances`, the ~/.itsanas migration, refusing an unnamed command
-WRITTEN-AT: 2026-09-29
-BASE: 701bd68
+TITLE: Named instances, last third: the ~/.itsanas migration, then refusing an unnamed command
+WRITTEN-AT: 2026-09-30
+BASE: 2f8f84b
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0p second third: `itsanas instances`, `passphrase` refused by
+the scripts** (branch `step/8.0p-instances`). Sliced again by Nicolas: weekly
+quota at 96 %. `instances_report` (`crates/itsanas-cli/src/main.rs`) lists
+`~/.itsanas` as `(unnamed)` and every `~/.itsanas-*` **directory holding
+`keystore.bin`**, each with account, home, folder (reachable only if 0l's
+`.itsanas-folder` marker is there -- an empty mount point is UNREACHABLE) and
+running/stopped from the store lock `status` already trusts, no passphrase.
+`provision.sh`, `clean.sh`, `provision.ps1`, `clean.ps1` refuse `--instance
+passphrase`; `check-installers.sh` probes the two `.sh` (refused, file
+untouched). **Correction to the entry below:** the `clean` globs never matched
+the passphrase file -- `clean.sh` tests `-d`, `clean.ps1` uses `-Directory`;
+the real exposure was provision's `mkdir` and clean's plan aimed at it. Two
+red-team tests + one gate probe; four sabotages, four red. **Not done, 🟨:**
+the `.ps1` refusals have no test (no PowerShell in the installer gate); no
+Rodin (a slice; due once 0p closes).
 
 **2026-09-29, 0p first half: `itsanas --instance NAME`** (branch
 `step/8.0p-instance-flag`). Split in two by Nicolas because the weekly quota
@@ -2286,8 +2302,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
       **First half done 2026-09-29:** `config::instance_home` and the CLI's
       global `--instance NAME` / `ITSANAS_INSTANCE` (`main.rs` `run()`), tests
       `red_team_an_instance_name_cannot_leave_the_home_directory` and
-      `an_instance_lives_where_provision_sh_puts_it`. **Second half, next:**
-      (1) `itsanas instances`: glob `~/.itsanas-*` **directories** holding a
+      `an_instance_lives_where_provision_sh_puts_it`. **(1) and (4) done
+      2026-09-30** (`instances_report`, the scripts' `passphrase` refusal; see
+      §0). **Next: (2) then (3), then Rodin on the whole of 0p.** Original
+      plan kept for reference -- (1) `itsanas instances`: glob `~/.itsanas-*` **directories** holding a
       `keystore.bin` (not the `.itsanas-passphrase` file), plus `~/.itsanas`
       itself until migrated; per instance the account (`Config::username`),
       home, `folder` and whether it is reachable (0l's check), and whether a
