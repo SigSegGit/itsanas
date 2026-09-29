@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-28 — 814 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 82 are red-team tests.**
+**Last updated: 2026-09-29 — 822 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 85 are red-team tests.**
 
-**698 of the 814 tests have an entry of their own on this page** — an *entry*,
+**706 of the 822 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -175,8 +175,8 @@ guarantee and is not one.
 | `itsanas-cli` unit | 29 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 53 |
-| `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 2 |
+| `itsanas-node` unit | 60 |
+| `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 3 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
@@ -975,7 +975,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (59)
+# `itsanas-node` — a node on disk (67)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1003,6 +1003,24 @@ anything.
 | `the_private_ranges_a_home_actually_uses_are_all_recognised` | RFC1918, loopback, link-local, carrier-grade NAT (which is what a mobile network and an overlay VPN hand out) and IPv6 unique-local and link-local. Publishing any of them tells members elsewhere to dial a machine inside somebody else's network. |
 
 ---
+
+## `contact` — when the coordinator is dialled at all (7)
+
+§8 0o phase 2a. A round used to dial the coordinator every time, 288
+connections a day per node whatever happened. Now it publishes at start, when
+its address changes, and hourly, and reads the account's devices only on the
+connection a publication opens. Every instant is this machine's own; nothing
+here reads a peer's clock or trusts the coordinator's order.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_machine_that_never_moves_dials_the_coordinator_once_an_hour`** | The number the step is justified by: 288 rounds of a Pi that never moves make 24 connections, 24 publications and 24 reads -- every read on a publication's connection, none on its own. |
+| **`red_team_a_machine_that_found_everybody_by_broadcast_still_publishes`** | The Rodin finding of 2026-09-21 against the first rule ("dial when the round reached nobody"): a Pi that found the VM by broadcast never published, and a laptop elsewhere could not find it. The rule is not given who was reached; publishing at start and hourly are each sabotaged and each turns this red. |
+| **`a_machine_that_changes_network_publishes_at_once`** | A laptop whose address changed publishes on the next round, not in an hour; an unchanged address inside the hour costs no connection; losing the route counts as a change. |
+| **`a_machine_enrolled_after_this_one_started_is_dialled_within_the_hour`** | Why reads ride on every publication instead of waiting for a listed device to go missing: a machine enrolled after this one started is on no list, so it can never go missing. Eleven rounds make no connection, the hourly one reads, and the new machine is in the book. |
+| **`red_team_a_coordinator_cannot_grow_the_address_book_without_bound`** | The coordinator's answer is unverified until phase 2b. 65 536 devices in one answer leave `MAX_DEVICES` in the table; a thousand addresses for one device leave `MAX_ADDRESSES`. |
+| **`red_team_addresses_that_never_worked_do_not_displace_one_that_did`** | Twenty stale addresses for the Pi, from a coordinator that lies or is only out of date, arrive after its LAN address answered: that address is still dialled first and the rest is capped. Order is this machine's record of success, never the list's. |
+| **`a_device_no_longer_listed_is_forgotten`** | A withdrawn or long-silent device leaves the book at the next read, so a round stops spending connect timeouts on it. |
 
 ## `node` — identity on disk (17)
 
@@ -1286,7 +1304,7 @@ hardware it will actually run on.
 
 ---
 
-# `itsanas-node` away from home (`tests/away_from_home.rs`) — the lookup a member elsewhere makes (2)
+# `itsanas-node` away from home (`tests/away_from_home.rs`) — the lookup a member elsewhere makes (3)
 
 A real coordinator on a real socket and three real nodes of one account. The
 only thing simulated is which machine each node runs on, which is the thing the
@@ -1294,6 +1312,7 @@ test is about.
 
 | Test | What it proves |
 | --- | --- |
+| **`a_contact_publishes_and_reads_on_one_connection_and_the_probe_agrees`** | `Contact` compares the address the UDP probe finds with the one it found last time; if the probe and the TCP connection named different addresses on an ordinary network, a machine that never moved would look moved every round and publish every round. On a real coordinator: the probe of `0.0.0.0:9797` is `127.0.0.1:9797`, the publication sends exactly that, the read on the same connection lists the Pi, and an `announce` is what the probe returns. |
 | **`red_team_the_account_s_pledge_is_the_other_machines_as_the_coordinator_lists_them`** | The laptop learns what the account lends from the coordinator, through `Request::Devices`. The Pi claims 700 GB, the laptop 50 GB: the laptop must remember 700 GB for the others and reach 750 GB for the account. Counting its own entry as well would let it write past what the account earns; leaving the Pi out would hold it to the joining allowance. Sabotaged on the filter that leaves this machine out. |
 | **`a_member_elsewhere_is_given_the_address_that_can_answer_first`** | The unit tests prove the ordering function orders; this proves the lookup *applies* it, and that what a member is handed is the announced address with its announced port. Deleting the call in `coordinator::peers` leaves every unit test green — the shape of a defence that is tested and not wired — and this fails, naming the order it got. |
 

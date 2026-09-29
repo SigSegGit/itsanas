@@ -12,7 +12,7 @@
 //! anyone who steals its database. Escrow is therefore opt-in, and withdrawing
 //! it is one command.
 
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 
 use itsanas_coord::claim::{NodeClaim, Presence};
 use itsanas_coord::directory::Registration;
@@ -25,8 +25,9 @@ use itsanas_crypto::{DeviceId, DeviceKeys, KdfParams, Keystore, UserId};
 // not. Two copies would drift the day one of them learned a range.
 pub use itsanas_tls::reach::is_private_address;
 
+use crate::contact::Due;
 use crate::node::{ESCROW_LABEL, Node};
-use crate::{NodeError as CliError, Result};
+use crate::{NodeError, NodeError as CliError, Result};
 
 /// Open a connection to the node's configured coordinator.
 ///
@@ -446,6 +447,10 @@ pub fn refresh_others_pledged(node: &Node) -> Result<Option<u64>> {
     let Some(devices) = enrolled(node)? else {
         return Ok(None);
     };
+    remember_pledges(node, &devices).map(Some)
+}
+
+fn remember_pledges(node: &Node, devices: &[EnrolledDevice]) -> Result<u64> {
     let mine = node.device.device_id();
     let others = devices
         .iter()
@@ -454,7 +459,7 @@ pub fn refresh_others_pledged(node: &Node) -> Result<Option<u64>> {
             total.saturating_add(enrolled.pledged_bytes)
         });
     node.remember_others_pledged(others)?;
-    Ok(Some(others))
+    Ok(others)
 }
 
 /// What the coordinator found when it tried to reach this machine.
@@ -485,55 +490,132 @@ impl Reachability {
     }
 }
 
-/// Publish this device's address and list the account's machines, in one call.
+/// What one contact with the coordinator brought back.
+#[derive(Debug, Default)]
+pub struct Contacted {
+    /// The address published, if this contact published.
+    pub published: Option<String>,
+    /// The account's other devices, reachable first, if this contact read
+    /// them.
+    pub found: Option<Vec<(DeviceId, String)>>,
+    /// Why the read failed, when the publication before it went through.
+    ///
+    /// Kept apart from a failed contact on purpose. Reported as one, the
+    /// accepted publication was forgotten with it and repeated every round,
+    /// for as long as the coordinator refused the read -- the per-round
+    /// heartbeat this module exists to remove, brought back by an error path.
+    pub read_failed: Option<NodeError>,
+    /// Why the account's pledges could not be remembered, if they could not.
+    /// Not a failed contact: the publication and the read went through.
+    pub pledges_not_kept: Option<NodeError>,
+}
+
+/// Publish, read, or both, on one connection: whatever [`Due`] asks for.
 ///
-/// One connection rather than two. `announce` and `peers` each dialled the
-/// coordinator, so a round cost two TCP connections and two TLS handshakes to
-/// ask one question and answer another -- 576 a day per node at the default
-/// interval, from machines that are usually sitting on the same LAN and have
-/// already found each other. Halving that is the cheapest part of making the
-/// centre something a thousand members could share.
+/// A publication also refreshes what the account's other machines pledge
+/// ([`Node::account_pledge`]) on the same connection. That was an hourly dial
+/// of its own, beside an hourly publication that is already one. A coordinator
+/// too old to list devices closes the connection at that request; by then the
+/// publication and the read are done, so that costs the refresh and nothing
+/// else.
 ///
 /// # Errors
 ///
 /// If the coordinator cannot be reached, refuses, or answers with something
-/// else. Both halves share one failure, deliberately: they share one
+/// else. The halves share one failure, deliberately: they share one
 /// connection, and reporting them separately doubled the noise for one cause.
-pub fn announce_and_peers(
-    node: &Node,
-    address: &str,
-    now: u64,
-) -> Result<(String, Vec<(DeviceId, String)>)> {
+pub fn contact(node: &Node, listen: &str, now: u64, due: &Due) -> Result<Contacted> {
     let mut client = dial(node)?;
-    let address = published_address(&node.config, address, client.local_addr());
+    let mut contacted = Contacted::default();
 
-    let presence = Presence {
-        device: node.store.device_id(),
-        address: address.clone(),
-        at_unix: now,
+    if due.publish {
+        let address = published_address(&node.config, listen, client.local_addr());
+        let presence = Presence {
+            device: node.store.device_id(),
+            address: address.clone(),
+            at_unix: now,
+        }
+        .sign(&node.device);
+        match client.ask(&Request::Announce(Box::new(presence)))? {
+            Response::Done => {}
+            Response::Refused(why) => return Err(CliError::Usage(why)),
+            other => return Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+        }
+        contacted.published = Some(address);
     }
-    .sign(&node.device);
 
-    match client.ask(&Request::Announce(Box::new(presence)))? {
-        Response::Done => {}
-        Response::Refused(why) => return Err(CliError::Usage(why)),
-        other => return Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+    if due.read {
+        let read = match client.ask(&Request::Peers {
+            user: node.store.owner(),
+        }) {
+            Ok(Response::Peers(list)) => {
+                let mut found = list
+                    .into_iter()
+                    .filter(|presence| presence.device != node.store.device_id())
+                    .map(|presence| (presence.device, presence.address))
+                    .collect::<Vec<_>>();
+                reachable_first(&mut found);
+                Ok(found)
+            }
+            Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
+            Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+            Err(error) => Err(error.into()),
+        };
+        match read {
+            Ok(found) => contacted.found = Some(found),
+            // Nothing was published to keep: the whole contact failed.
+            Err(error) if contacted.published.is_none() => return Err(error),
+            Err(error) => contacted.read_failed = Some(error),
+        }
     }
 
-    let mut found = match client.ask(&Request::Peers {
-        user: node.store.owner(),
-    })? {
-        Response::Peers(list) => list
-            .into_iter()
-            .filter(|presence| presence.device != node.store.device_id())
-            .map(|presence| (presence.device, presence.address))
-            .collect::<Vec<_>>(),
-        Response::Refused(why) => return Err(CliError::Usage(why)),
-        other => return Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
-    };
-    reachable_first(&mut found);
+    if due.publish
+        && let Ok(Response::Devices(list)) = client.ask(&Request::Devices {
+            user: node.store.owner(),
+        })
+    {
+        contacted.pledges_not_kept = remember_pledges(node, &list).err();
+    }
 
-    Ok((address, found))
+    Ok(contacted)
+}
+
+/// Where this machine would publish itself now, found without dialling.
+///
+/// `announce`, and a listening address that names an interface, are what they
+/// are. Otherwise the answer is the local end of a route to the coordinator,
+/// which a UDP socket finds by `connect` while sending nothing: a laptop that
+/// changed network sees its address change without costing the coordinator a
+/// connection. It is not always the address a TCP connection would publish --
+/// the two can pick different families of a dual-stack name -- which is why
+/// [`Contact`](crate::contact::Contact) compares it only with itself.
+///
+/// `None` when there is no route: no network, or a name that does not resolve.
+#[must_use]
+pub fn address_now(config: &crate::config::Config, listen: &str) -> Option<String> {
+    if let Some(announce) = config.announce.as_deref() {
+        return Some(announce.to_owned());
+    }
+    match listen.parse::<SocketAddr>() {
+        Ok(parsed) if parsed.ip().is_unspecified() => {}
+        // An interface, or a name somebody chose: published as it stands.
+        _ => return Some(listen.to_owned()),
+    }
+    let coordinator = config.coordinator.as_deref()?;
+    coordinator
+        .to_socket_addrs()
+        .ok()?
+        .find_map(|target| {
+            let any: SocketAddr = if target.is_ipv4() {
+                (std::net::Ipv4Addr::UNSPECIFIED, 0).into()
+            } else {
+                (std::net::Ipv6Addr::UNSPECIFIED, 0).into()
+            };
+            let socket = std::net::UdpSocket::bind(any).ok()?;
+            socket.connect(target).ok()?;
+            socket.local_addr().ok()
+        })
+        .map(|local| reachable_address(listen, local))
 }
 
 /// Ask the coordinator whether anybody outside can reach this machine.

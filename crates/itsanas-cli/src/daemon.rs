@@ -39,9 +39,10 @@
 //! node on the local network and records what it hears, so machines in one
 //! house find each other with nothing configured. Addresses in the
 //! configuration are dialled first, because somebody typed them. And if a
-//! coordinator is configured, each round publishes this node's address there
-//! and asks where the account's other devices are — which is the only one of
-//! the three that reaches a machine on a different network.
+//! coordinator is configured, it is where this node publishes its address and
+//! learns where the account's other devices are — the only one of the three
+//! that reaches a machine on a different network. Not every round: at start,
+//! when the address changes, and hourly (`itsanas_node::contact`).
 //!
 //! Every candidate is dialled with its device id pinned, so an address that
 //! answers as somebody else is refused. Discovery of any kind says who *might*
@@ -75,6 +76,7 @@ use itsanas_crypto::DeviceId;
 use itsanas_discover::Lan;
 use itsanas_folder::{Folder, Watcher, watch};
 use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
+use itsanas_node::contact::Contact;
 use itsanas_policy::{Attention, Conditions, Network, Power, Scope as PolicyScope};
 
 use crate::{
@@ -105,9 +107,6 @@ const SHUTDOWN_POLL: Duration = Duration::from_millis(200);
 /// the bytes. Hourly is cheap enough for a folder of any sane size and short
 /// enough that such an edit is not lost for a working day.
 const DEEP_SCAN_EVERY: Duration = Duration::from_secs(3600);
-
-/// How often the daemon asks what the account's other machines pledge.
-const PLEDGES_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// Longest a continuous stream of file events may postpone a reconcile.
 ///
@@ -491,7 +490,7 @@ fn sync_loop(
     let mut warned_alone = false;
     let mut outage = Outage::new();
     let mut reach = Reach::new();
-    let mut next_pledges = Instant::now();
+    let mut contact = Contact::new();
 
     while !shutdown.load(Ordering::Relaxed) {
         let deep = Instant::now() >= next_deep;
@@ -522,8 +521,15 @@ fn sync_loop(
         }
 
         if Instant::now() >= next_sync && scope.connects() {
-            let (reached, announced) =
-                one_round(node, shutdown, neighbourhood, bound, &mut outage, scope);
+            let (reached, announced) = one_round(
+                node,
+                shutdown,
+                neighbourhood,
+                &mut contact,
+                bound,
+                &mut outage,
+                scope,
+            );
             next_sync = Instant::now() + interval;
 
             // Free evidence first, then the paid kind: if something from
@@ -534,17 +540,6 @@ fn sync_loop(
             }
             if let Some(published) = &announced {
                 check_reachable(node, published, &mut reach);
-            }
-
-            // What the account's other machines lend, for the write bound.
-            // Hourly rather than every round: pledges change when somebody
-            // types a command, and every dial here is one §8 0o is trying to
-            // take away.
-            if node.config.coordinator.is_some() && Instant::now() >= next_pledges {
-                next_pledges = Instant::now() + PLEDGES_EVERY;
-                if let Err(error) = coordinator::refresh_others_pledged(node) {
-                    eprintln!("itsanas: could not refresh the account's pledges: {error}");
-                }
             }
 
             // Say it once, rather than leaving someone watching a silent
@@ -708,30 +703,68 @@ fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
 }
 
 /// One pass over every way this node knows of reaching a peer.
-/// One pass over every way this node knows of reaching a peer.
 ///
-/// In order: addresses somebody typed into the configuration; the account's
-/// other devices as the coordinator reports them, if one is configured; and
-/// whatever announced itself on the local network. Each is dialled with its
-/// device id pinned wherever one is known, so an address that answers as
-/// somebody else is refused rather than trusted.
+/// In order: the coordinator, if this round owes it anything; addresses
+/// somebody typed into the configuration; the account's other devices where the
+/// coordinator last said they were; and whatever announced itself on the local
+/// network. Each is dialled with its device id pinned wherever one is known, so
+/// an address that answers as somebody else is refused rather than trusted.
+///
+/// Returns who was reached and, if this round published, what it published:
+/// whether that is worth asking to be probed is the caller's question.
+#[allow(clippy::too_many_arguments)]
 fn one_round(
     node: &Node,
     shutdown: &AtomicBool,
     neighbourhood: &Neighbourhood,
+    contact: &mut Contact,
     bound: std::net::SocketAddr,
     outage: &mut Outage,
     scope: PolicyScope,
 ) -> (BTreeSet<DeviceId>, Option<String>) {
-    // Configured peers first: somebody typed those in, so they are
+    // The coordinator first, and only with a reason: this machine has not
+    // published since it started, has moved, or owes its hourly publication
+    // (`contact.rs`). First because nothing it decides depends on who this
+    // round reaches, and a publication that waited for the round would wait
+    // behind every sync in it -- hours, on the first sync of a large folder,
+    // during which nobody elsewhere can find this machine. It also fills the
+    // book before the book is dialled. Failures here are ordinary: it may be
+    // down, and a node whose peers are already known keeps working without it.
+    let mut announced: Option<String> = None;
+    if node.config.coordinator.is_some() && !shutdown.load(Ordering::Relaxed) {
+        let listen = bound.to_string();
+        let here = coordinator::address_now(&node.config, &listen);
+        let due = contact.due(here.as_deref(), Instant::now());
+        if due.any() {
+            match coordinator::contact(node, &listen, itsanas_discover::now_unix(), &due) {
+                Ok(contacted) => {
+                    outage.succeeded();
+                    if let Some(published) = contacted.published {
+                        contact.published(here.as_deref(), Instant::now());
+                        announced = Some(published);
+                    }
+                    if let Some(found) = contacted.found {
+                        contact.read(&found, Instant::now());
+                    }
+                    if let Some(error) = contacted.read_failed {
+                        eprintln!(
+                            "itsanas: published, but could not list the account's machines: {error}"
+                        );
+                    }
+                    if let Some(error) = contacted.pledges_not_kept {
+                        eprintln!("itsanas: could not keep the account's pledges: {error}");
+                    }
+                }
+                Err(error) => outage.failed(&error.to_string()),
+            }
+        }
+    }
+
+    // Configured peers next: somebody typed those in, so they are
     // wanted even if they are also on the local network — and being in
     // the configuration is itself the evidence that they are real, so
     // they are confirmed on contact without having to earn it.
     let mut reached: BTreeSet<DeviceId> = BTreeSet::new();
-    // What the coordinator was told, this round, if it was reached at all.
-    // Returned rather than printed: whether it is worth asking to be probed is
-    // the caller's question, and it is the answer to it.
-    let mut announced: Option<String> = None;
     // In the same order as everything else this round dials: the ones that can
     // answer from where this machine stands, first. A configured peer is
     // usually a LAN address somebody typed at home, and a round that starts
@@ -748,47 +781,10 @@ fn one_round(
         }
     }
 
-    // Then whatever announced itself here. Each is pinned to the device
-    // that announced it, so an address answering as somebody else is
-    // refused rather than trusted: discovery says who might be there,
-    // never who is.
-    // The coordinator, if there is one. Failures here are ordinary:
-    // it may be down, and a node whose peers are already known keeps
-    // working without it. That is the point of it carrying nothing
-    // vital.
-    let mut from_coordinator: Vec<(DeviceId, String)> = Vec::new();
-    if node.config.coordinator.is_some() {
-        let now = itsanas_discover::now_unix();
-        let listen = bound.to_string();
-        // Announcing and listing are one outage, not two. Reporting them
-        // separately doubled the noise for a single cause.
-        // One connection for both halves. They were two, which cost a TCP
-        // connection and a TLS handshake each, twice a round, from every node
-        // for ever -- including three machines on one LAN that had already
-        // found each other by broadcast.
-        match coordinator::announce_and_peers(node, &listen, now) {
-            Ok((published, found)) => {
-                outage.succeeded();
-                from_coordinator = found;
-                announced = Some(published);
-            }
-            Err(error) => outage.failed(&error.to_string()),
-        }
-    }
-
-    for (device, address) in &from_coordinator {
-        if shutdown.load(Ordering::Relaxed) || reached.contains(device) {
-            continue;
-        }
-        // Pinned: the coordinator supplies addresses and is not trusted
-        // to say who lives at one.
-        if let Some(outcome) = sync_once(node, address, Some(*device), true, scope) {
-            reached.insert(outcome.device);
-            if outcome.earned_trust {
-                neighbourhood.confirm(outcome.device);
-            }
-        }
-    }
+    // The account's devices at the addresses the coordinator last gave, the
+    // one that last worked first. Pinned: the coordinator supplies addresses
+    // and is not trusted to say who lives at one.
+    dial_listed(node, shutdown, neighbourhood, contact, &mut reached, scope);
 
     let mut strangers_dialled = 0usize;
     for candidate in neighbourhood.dial_order(node.store.owner()) {
@@ -835,6 +831,30 @@ fn one_round(
     }
 
     (reached, announced)
+}
+
+/// Dial the account's devices at every address the coordinator gave for them,
+/// best first, until each answers once.
+fn dial_listed(
+    node: &Node,
+    shutdown: &AtomicBool,
+    neighbourhood: &Neighbourhood,
+    contact: &mut Contact,
+    reached: &mut BTreeSet<DeviceId>,
+    scope: PolicyScope,
+) {
+    for (device, address) in contact.candidates() {
+        if shutdown.load(Ordering::Relaxed) || reached.contains(&device) {
+            continue;
+        }
+        if let Some(outcome) = sync_once(node, &address, Some(device), true, scope) {
+            reached.insert(outcome.device);
+            contact.worked(device, &address, Instant::now());
+            if outcome.earned_trust {
+                neighbourhood.confirm(outcome.device);
+            }
+        }
+    }
 }
 
 /// Block until the folder changes, the next sync is due, or shutdown.
