@@ -57,7 +57,8 @@ use crate::{
     error::{NetError, Result},
     protocol::{
         Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_CHUNK_SUMMARY,
-        PROTOCOL_WITH_DROP_NOTICES, PROTOCOL_WITH_LEAVING, Request, Response,
+        PROTOCOL_WITH_DROP_NOTICES, PROTOCOL_WITH_LEAVING, PROTOCOL_WITH_PRESENCES, Request,
+        Response,
     },
     service::PeerService,
 };
@@ -617,6 +618,44 @@ impl PeerClient {
             Response::Stored { accepted } => Ok(accepted),
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
+        }
+    }
+
+    /// Ask the peer where the account's machines are, as it knows them.
+    ///
+    /// `None` when the peer cannot tell: it is older than
+    /// [`PROTOCOL_WITH_PRESENCES`] (and is not asked), or it refused -- it
+    /// keeps no book, or does not count this device as one of its account.
+    /// Neither is an error: the coordinator remains the other source.
+    ///
+    /// The rows are the peer's word until checked, and the caller checks
+    /// every one (`itsanas_node::contact::Contact::relayed`). What is bounded
+    /// here is only their number and size, past which the answer is refused
+    /// whole rather than trimmed: a peer that pads is not one to believe.
+    ///
+    /// # Errors
+    ///
+    /// If the connection fails or the answer is not a list of presences.
+    pub fn presences(&mut self) -> Result<Option<Vec<Vec<u8>>>> {
+        if self.spoken < PROTOCOL_WITH_PRESENCES {
+            return Ok(None);
+        }
+        match self.request(&Request::Presences)? {
+            Response::Presences(rows)
+                if rows.len() <= crate::protocol::MAX_RELAYED_ROWS
+                    && rows
+                        .iter()
+                        .all(|row| row.len() <= crate::protocol::MAX_RELAYED_ROW_BYTES) =>
+            {
+                Ok(Some(rows))
+            }
+            Response::Presences(_) => Err(NetError::UnexpectedResponse {
+                expected: "a bounded list of presences",
+            }),
+            Response::Refused(_) => Ok(None),
+            _ => Err(NetError::UnexpectedResponse {
+                expected: "presences",
+            }),
         }
     }
 

@@ -32,7 +32,7 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 5;
+pub const PROTOCOL_VERSION: u16 = 6;
 
 /// The oldest version this node will still talk to.
 ///
@@ -97,6 +97,26 @@ pub const PROTOCOL_WITH_CHUNK_SUMMARY: u16 = 4;
 /// would. Gated, not assumed, because the window is what makes a mixed fleet
 /// work at all.
 pub const PROTOCOL_WITH_LEAVING: u16 = 5;
+
+/// The first version in which a machine can ask another of its account where
+/// the account's machines are ([`Request::Presences`]).
+///
+/// A peer at 5 does not know the request and would close the connection on
+/// it, so it is not asked: the coordinator stays the only source, as before.
+pub const PROTOCOL_WITH_PRESENCES: u16 = 6;
+
+/// Most rows one [`Response::Presences`] carries.
+///
+/// The receiver's address book holds 256 devices (`itsanas_node::contact`),
+/// so more rows than that can only be padding.
+pub const MAX_RELAYED_ROWS: usize = 256;
+
+/// Largest encoded row in a [`Response::Presences`].
+///
+/// A row is a presence and a claim: two ids, an address of at most 255 bytes,
+/// two signatures and a few integers -- under 500 bytes. Double that, and a
+/// row that needs more is not one.
+pub const MAX_RELAYED_ROW_BYTES: usize = 1024;
 
 /// Domain string for storage-challenge proofs.
 const CHALLENGE_DOMAIN: &str = "itsanas v1 storage challenge";
@@ -241,6 +261,24 @@ pub enum Request {
     ///
     /// Appended last: postcard numbers variants by position.
     Leaving,
+
+    /// "Where are this account's machines, as far as you know?"
+    ///
+    /// # Why a machine asks another
+    ///
+    /// Until this, only the coordinator said where the account's machines
+    /// were. A machine that moved while the coordinator was down, or before
+    /// this one's hourly read, was lost until the next read that worked. A
+    /// machine of the same account that reached it since already knows.
+    ///
+    /// **Carries nothing, like [`Request::Leaving`]:** the subject is the
+    /// device TLS proved. Who may ask is decided by the answering node from
+    /// that device alone -- a machine its coordinator lists, with an owner's
+    /// claim, as one of its own account -- never from anything the request
+    /// says, so a stranger cannot ask about somebody else's account.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Presences,
 }
 
 /// What a peer answers.
@@ -273,6 +311,15 @@ pub enum Response {
     /// Carries a short reason for the operator's logs. Never carries anything
     /// derived from a secret.
     Refused(String),
+    /// The account's machines, as [`Request::Presences`] asked: each row an
+    /// encoded `itsanas_coord::claim::ClaimedPresence`, carried as bytes so
+    /// this crate need not know the coordinator's types. Every row is checked
+    /// by the receiver, signature by signature; nothing here is taken on the
+    /// sender's word. At most [`MAX_RELAYED_ROWS`], each at most
+    /// [`MAX_RELAYED_ROW_BYTES`].
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Presences(Vec<Vec<u8>>),
 }
 
 /// How far one device's chain has advanced, as a peer reports it.
@@ -423,6 +470,7 @@ mod tests {
             },
             Request::ChunkSummary { owner: user() },
             Request::Leaving,
+            Request::Presences,
         ]
     }
 
@@ -450,6 +498,7 @@ mod tests {
             Request::Dropped { .. } => {}
             Request::ChunkSummary { .. } => {}
             Request::Leaving => {}
+            Request::Presences => {}
         }
     }
 
@@ -488,6 +537,7 @@ mod tests {
             Response::Stored { accepted: false },
             Response::ChallengeProof([8; 32]),
             Response::Refused("no such user".to_owned()),
+            Response::Presences(vec![vec![1, 2, 3], Vec::new()]),
         ];
 
         for response in responses {
@@ -626,6 +676,7 @@ mod tests {
             Request::Dropped { .. } => 10,
             Request::ChunkSummary { .. } => 11,
             Request::Leaving => 12,
+            Request::Presences => 13,
         }
     }
 
@@ -642,6 +693,7 @@ mod tests {
             Response::ChunkSummary(_) => 7,
             Response::WantHosted { .. } => 8,
             Response::Refused(_) => 9,
+            Response::Presences(_) => 10,
         }
     }
 
@@ -683,6 +735,7 @@ mod tests {
                 chunks: Vec::new(),
             },
             Response::Refused(String::new()),
+            Response::Presences(Vec::new()),
         ];
         let numbered: std::collections::BTreeSet<u8> =
             responses.iter().map(response_number).collect();

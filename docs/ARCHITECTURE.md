@@ -318,8 +318,16 @@ list another account's genuine machines as yours. The cost is a connect
 timeout per such row, bounded by the address book, and none of them is ever
 relayed. The book keeps each checked claim beside its address, re-checks it
 against this node's account on load, and `Contact::relayable` hands out only
-addresses that have both; the peer request that carries them is not built
-yet (§8 0o 2b.3). That is the only discovery job
+addresses that have both. Since peer protocol 6 a machine asks every machine
+of its book, after syncing with it, where the others are
+(`Request::Presences`). The answer goes only to a device the answering book
+holds with this account's claim -- the device TLS proved, never one the
+request names -- and each row is kept only if both signatures check out for
+this account, its device is already in the book (a relay refreshes addresses
+and never introduces a machine, so a withdrawn one cannot be replayed back),
+and neither its claim nor its presence is older than what the book holds. A
+kept row has never worked, so it is dialled after every address that has.
+That is the only discovery job
 left for it, and [DESIGN.md](DESIGN.md) §8 explains why it is not worth replacing
 with a DHT at this size.
 

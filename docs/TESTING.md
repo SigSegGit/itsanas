@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-29 — 842 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 99 are red-team tests.**
+**Last updated: 2026-09-29 — 852 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 106 are red-team tests.**
 
-**726 of the 842 tests have an entry of their own on this page** — an *entry*,
+**736 of the 852 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -162,7 +162,7 @@ guarantee and is not one.
 | `itsanas-store` integration (`tests/store.rs`) | 43 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
-| `itsanas-net` unit | 39 |
+| `itsanas-net` unit | 42 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 47 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 108 (1 `#[ignore]`d) |
@@ -175,7 +175,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 29 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 72 |
+| `itsanas-node` unit | 79 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
@@ -714,7 +714,7 @@ about reading.
 
 ---
 
-# `itsanas-net` — unit tests (39)
+# `itsanas-net` — unit tests (42)
 
 ## `protocol` — messages and challenges (12)
 
@@ -733,7 +733,7 @@ about reading.
 | **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 
-## `service` — what a peer may obtain (20)
+## `service` — what a peer may obtain (23)
 
 | Test | What it proves |
 | --- | --- |
@@ -757,6 +757,9 @@ about reading.
 | `a_drop_notice_for_another_account_is_refused` | A node hosting somebody else's sealed data keeps no ledger about it. Accepting silently would look like the record had been withdrawn somewhere. |
 | `a_peer_can_fetch_this_nodes_own_segments_and_chunks` | The basic serving path. |
 | `the_segment_limit_is_clamped_to_the_protocol_maximum` | Limits are applied. |
+| `a_node_that_keeps_no_book_says_so` | §8 0o 2b.3 (c): a `PeerService` built without `with_relay` answers `Request::Presences` with `NO_BOOK`, which `PeerClient::presences` reads as "cannot tell", not as an error. |
+| **`red_team_presences_are_answered_to_the_device_tls_proved_and_no_other`** | `Request::Presences` carries nothing: who may ask is the device the connection proved, handed to the book as `caller`. The member gets its rows; any other device gets `NOT_YOURS`. Sabotaged by asking the book about a fixed device instead of the caller. |
+| `an_answer_never_exceeds_what_the_receiver_accepts` | The client refuses a padded answer whole, so the service trims its own to `MAX_RELAYED_ROWS` rows of at most `MAX_RELAYED_ROW_BYTES`: a book past the bounds costs rows, never the answer. |
 
 ## `transport` — binding and serving (2)
 
@@ -975,7 +978,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (81)
+# `itsanas-node` — a node on disk (88)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1006,7 +1009,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (17)
+## `contact` — when the coordinator is dialled at all (24)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1033,6 +1036,13 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_the_upgrade_does_not_reopen_the_downgrade`** | The book went from version 1 to 2 (claims). A version-1 file read as empty would forget that the coordinator signs, and the first round after the upgrade would accept an unsigned list. It is read as version 2 with no claims. Sabotaged by not recognising version 1. |
 | **`a_damaged_address_book_is_an_empty_one_not_a_failed_start`** | Three bytes of garbage load as an empty book with a warning, and a missing file (a first start) as an empty book with none. The book is a cache the coordinator refills; it never stops a daemon. |
 | **`a_device_no_longer_listed_is_forgotten`** | A withdrawn or long-silent device leaves the book at the next read, so a round stops spending connect timeouts on it. |
+| **`a_newer_address_relayed_by_a_machine_of_the_account_joins_the_book`** | §8 0o 2b.3 (c), the point of the step: the Pi moved while the coordinator was down, a machine of the account that reached it says where, and `Contact::relayed` keeps the newer address -- behind the one that worked, and relayable onward. |
+| **`red_team_a_peer_cannot_hand_out_a_presence_it_forged`** | A relayed row whose address was changed after its device signed it is refused and never reaches the book. Sabotaged by skipping `verify_for` in `relayed`. |
+| **`red_team_a_relay_cannot_pass_off_another_accounts_machine_as_ours`** | Rodin's finding of 2026-09-29, closed on the relay: a listed device's presence, newer on every date, claimed by *another* account, is refused -- only the owner's signature can tell. Sabotaged by skipping `verify_for`. |
+| **`red_team_a_relay_cannot_bring_back_a_machine_the_owner_withdrew`** | `verify_for` has no date, so a relay could replay a withdrawn machine's old, unrevoked claim. The coordinator's next read drops the device, and a relay never introduces a device the book does not hold. Sabotaged by letting `relayed` take an unknown device. |
+| **`red_team_a_peer_cannot_strand_a_machine_at_an_address_it_left`** | A genuine but older presence (the device's own clock, compared only with itself) at an address the machine has left is refused, so the book does not dial it every round nor relay it onward. Sabotaged by dropping the presence-date check. |
+| **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
+| **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
 ## `node` — identity on disk (17)
 

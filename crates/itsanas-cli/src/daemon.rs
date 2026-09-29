@@ -76,7 +76,7 @@ use itsanas_crypto::DeviceId;
 use itsanas_discover::Lan;
 use itsanas_folder::{Folder, Watcher, watch};
 use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
-use itsanas_node::contact::Contact;
+use itsanas_node::contact::{Contact, SharedBoard};
 use itsanas_policy::{Attention, Conditions, Network, Power, Scope as PolicyScope};
 
 use crate::{
@@ -254,13 +254,18 @@ pub fn run(
     let server = bind_listener(node, address)?;
     let bound = server.local_addr()?;
 
+    // What the listener tells a machine of this account that asks where the
+    // others are (`Request::Presences`). The round owns the book; the listener
+    // answers from the copy each round leaves here.
+    let board = SharedBoard::default();
     let service = PeerService::new(
         &node.store,
         &node.vault,
         Pledge {
             bytes: node.config.pledge_bytes,
         },
-    );
+    )
+    .with_relay(&board);
 
     install_signal_handler()?;
     let shutdown = &SHUTDOWN;
@@ -368,6 +373,7 @@ pub fn run(
             &neighbourhood,
             bound,
             Some(&witness),
+            &board,
         );
     });
 
@@ -472,6 +478,7 @@ fn sync_loop(
     neighbourhood: &Neighbourhood,
     bound: std::net::SocketAddr,
     witness: Option<&itsanas_net::transport::Witness>,
+    board: &SharedBoard,
 ) {
     let folder = match open_folder(node) {
         Ok(folder) => folder,
@@ -498,6 +505,7 @@ fn sync_loop(
     if let Some(why) = unreadable {
         eprintln!("itsanas: {why}");
     }
+    board.replace(contact.board());
 
     while !shutdown.load(Ordering::Relaxed) {
         let deep = Instant::now() >= next_deep;
@@ -538,6 +546,7 @@ fn sync_loop(
                 scope,
             );
             next_sync = Instant::now() + interval;
+            board.replace(contact.board());
             if let Err(error) = contact.save(&book) {
                 eprintln!("itsanas: could not keep the address book: {error}");
             }
@@ -807,7 +816,7 @@ fn one_round(
         if shutdown.load(Ordering::Relaxed) {
             break;
         }
-        if let Some(outcome) = sync_once(node, peer, None, true, scope) {
+        if let Some(outcome) = sync_once(node, peer, None, true, false, scope) {
             neighbourhood.confirm(outcome.device);
             reached.insert(outcome.device);
         }
@@ -847,6 +856,7 @@ fn one_round(
             &candidate.address.to_string(),
             Some(candidate.device),
             candidate.mine,
+            false,
             scope,
         );
 
@@ -879,9 +889,23 @@ fn dial_listed(
         if shutdown.load(Ordering::Relaxed) || reached.contains(&device) {
             continue;
         }
-        if let Some(outcome) = sync_once(node, &address, Some(device), true, scope) {
+        if let Some(outcome) = sync_once(node, &address, Some(device), true, true, scope) {
             reached.insert(outcome.device);
             contact.worked(device, &address, itsanas_discover::now_unix());
+            // What this machine of the account knows of the others. Checked
+            // row by row (`Contact::relayed`); what it adds is dialled from the
+            // next round, behind every address that has worked.
+            if let Some(rows) = &outcome.relayed {
+                let relayed = contact.relayed(rows, node.store.owner(), node.store.device_id());
+                if relayed.refused > 0 {
+                    eprintln!(
+                        "itsanas: {address} relayed {} address(es) of this account's machines \
+                         that do not check out (forged, another account's, a machine not \
+                         listed here, or older than what this node holds); ignored",
+                        relayed.refused
+                    );
+                }
+            }
             if outcome.earned_trust {
                 neighbourhood.confirm(outcome.device);
             }
@@ -985,7 +1009,7 @@ fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
 }
 
 /// What one round against one peer established.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct Outcome {
     /// Which device actually answered.
     device: DeviceId,
@@ -994,6 +1018,10 @@ struct Outcome {
     /// Deliberately separate from "it answered". A device key is a free
     /// keypair, so authenticating identifies a peer and vouches for nothing.
     earned_trust: bool,
+    /// What the peer said of where the account's machines are
+    /// ([`PeerClient::presences`]), unchecked. Asked only of a book device;
+    /// `None` if it could not tell.
+    relayed: Option<Vec<Vec<u8>>>,
 }
 
 /// One round against one peer. Never propagates an error.
@@ -1011,6 +1039,7 @@ fn sync_once(
     peer: &str,
     expect: Option<DeviceId>,
     announce_failure: bool,
+    ask_presences: bool,
     scope: PolicyScope,
 ) -> Option<Outcome> {
     let mut client = match PeerClient::connect(peer, &node.device, node.store.owner(), expect) {
@@ -1132,9 +1161,23 @@ fn sync_once(
 
     take_on_hosting(node, peer, &mut client);
 
+    // One exchange on a connection already open. A failure costs this round
+    // the answer and nothing else: the coordinator remains the other source.
+    // Only of a machine the book lists: found on the LAN, a stranger is
+    // pinned too, and its answer would be read for nothing (Rodin).
+    let relayed = if ask_presences {
+        client.presences().unwrap_or_else(|error| {
+            println!("{peer}: could not ask where the account's machines are ({error})");
+            None
+        })
+    } else {
+        None
+    };
+
     Some(Outcome {
         device: answered,
         earned_trust,
+        relayed,
     })
 }
 
