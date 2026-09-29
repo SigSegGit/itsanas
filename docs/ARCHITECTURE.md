@@ -419,8 +419,10 @@ presence never expires under a running node, with the account's devices read on
 that same connection and never on one of their own. A machine that never moves
 makes 24 connections a day instead of 288; 3000 of them make 72 000, under one
 a second. What stays is the hourly read, so a machine enrolled or moved
-elsewhere is learned within the hour, not at once; peers handing each other
-signed presences is [HANDOVER.md](HANDOVER.md) §8 0o phase 2b and is not built.
+elsewhere is learned within the hour, not at once. Since peer protocol 6 the
+machines of one account also hand each other the signed addresses they hold,
+but only of machines already known: a new machine is learned from the read,
+which is why the read stays hourly ([HANDOVER.md](HANDOVER.md) §8 0o 2b, item 4).
 
 
 ## 7. Operational behaviour

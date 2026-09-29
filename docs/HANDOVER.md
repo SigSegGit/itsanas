@@ -9,16 +9,28 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0o
-TITLE: Make the hourly coordinator read conditional on the book and the relay (phase 2b, item 4)
+NEXT: 8.0p
+TITLE: Named instances only, each showing its account and storage
 WRITTEN-AT: 2026-09-29
-BASE: 4a25960
+BASE: 064422b
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-29, item 4 of §8 0o 2b judged moot, not built.** The hourly read
+stays unconditional, and 0o phase 2 is done. Why: the read only happens on
+the hourly publication's connection (`Contact::due`: `read = publish ||
+read_at.is_none()`), so skipping it saves one request on an open connection,
+not a connection. The rule it would need ("read when a book device went
+unreached") cannot see a machine enrolled after this one started: it is on
+no list, and a relay never introduces a machine (step c). So a home fleet
+where everyone answers would never learn a new laptop. Still open from
+step c, now in `ROADMAP.md`: the 2099-clock presence that blinds the relay
+for one device. Phase 3 only if phases 1 and 2 fall short on the fleet, which
+nobody has measured yet. Next is 0p. Step c merged as #187.
 
 **2026-09-29, peers of one account relay where the others are** (§8 0o
 2b.3 step c, branch `ccr-c9f4329d-v9cnbp`). Peer protocol 6
@@ -1923,7 +1935,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       checks. The in-process check of 8.1b comes first on every platform and
       is the one that is enforced; the native quota is presentation.
 
-   o. 🟨 **Reach the network from outside the LAN, with machines that move.**
+   o. ✅ **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187). **Remaining, 🟨:** no test that a v5 peer is not asked for presences; the daemon's relay wiring has no test of its own; the 2099-clock gap (`ROADMAP.md`); phase 3 only if the fleet shows 1 and 2 fall short.
       Asked for by Nicolas on 2026-09-17, put on the MVP's path by him on
       2026-09-18 ("I can't get enough machines to work in my own home for a
       decent testing run"), with a constraint he added the same day: **prefer a
@@ -2190,7 +2202,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
          the claim verifies, is not revoked, and names the account it asked
          about. The coordinator's own list has the same gap and is harmless
          only because `sync_once` decides trust on the connection.
-      4. **`NEXT`.** Then, and only then, make the hourly read conditional: read when a
+      4. ✅ *Moot* (2026-09-29, see §0): not built, the read stays hourly.
+         Skipping it saves a request on a connection publication opens
+         anyway, and "a book device unreached" never triggers for a machine
+         enrolled later, which no list and no relay would then bring in.
+         The original text: make the hourly read conditional: read when a
          book device was reached by no address this round *and* gossip had
          nothing newer. That is where "a fleet at home reads never" becomes
          true. What is there, verified 2026-09-29: `Contact::due`
@@ -2240,6 +2256,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
       migration for an existing `~/.itsanas` that names it after its account
       rather than breaking it. Keep 0i's red-team test in mind: cleaning one
       instance must not touch a sibling.
+
+      Verified 2026-09-29: `default_home` is at
+      `crates/itsanas-node/src/config.rs` ~560; the CLI's home is the global
+      `--home` (`env = "ITSANAS_HOME"`, `crates/itsanas-cli/src/main.rs`
+      ~92); `--instance NAME` is parsed only by `install/provision.sh` (~197)
+      and `install/clean.sh`. Start by reading how `provision.sh` maps a name
+      to a home, and reuse that mapping so the scripts and the CLI agree.
+      Red-team tests expected: **a command without `--instance` or `--home`
+      refuses rather than using `~/.itsanas`** once the migration has run;
+      and **the migration names an existing `~/.itsanas` after its account
+      and leaves its data readable** (sabotage: skip the rename, or rename
+      without moving the vault).
 
    f. **A tray icon for the Windows daemon.** Asked for by Nicolas on
       2026-09-14 after the untitled console: "a minimum of polish", dark or
