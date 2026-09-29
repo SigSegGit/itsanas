@@ -28,6 +28,9 @@ zeroize = "1.9.0"
 
 [dev-dependencies]
 blake3 = "1.8.7"
+# The same crate, able to play a coordinator that hands out a presence nobody
+# signed: the only way to prove the client refuses one.
+itsanas-coord = { version = "0.1.0", path = "../itsanas-coord", features = ["hostile"] }
 tempfile = "3.23.0"
 
 [lints]

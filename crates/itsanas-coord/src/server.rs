@@ -462,6 +462,14 @@ fn serve_one(
             Ok(None) | Err(_) => return Ok(()),
         };
 
+        // What a coordinator older than `SignedPeers` does with it -- it cannot
+        // decode it, so it hangs up -- done on purpose, by one that wants its
+        // clients on the unsigned list. Only in tests of those clients.
+        #[cfg(feature = "hostile")]
+        if matches!(request, Request::SignedPeers { .. }) && service.plays_old() {
+            return Ok(());
+        }
+
         if served == MAX_REQUESTS_PER_CONNECTION {
             let _ = connection.send(&Response::Refused(format!(
                 concat!("this connection has made its {} requests; ", "open another"),

@@ -33,6 +33,12 @@ impl Drop for StopOnDrop<'_> {
 }
 
 fn with_coordinator<T>(body: impl FnOnce(SocketAddr) -> T) -> T {
+    with_directory(|address, _| body(address))
+}
+
+/// The same, with the coordinator's directory in hand, so a test can make it
+/// lie.
+fn with_directory<T>(body: impl FnOnce(SocketAddr, &Directory) -> T) -> T {
     let dir = tempfile::tempdir().expect("temp dir");
     let directory = Directory::open(dir.path().join("directory.redb")).expect("directory");
     let server = CoordServer::bind("127.0.0.1:0").expect("bind");
@@ -45,7 +51,7 @@ fn with_coordinator<T>(body: impl FnOnce(SocketAddr) -> T) -> T {
             let _ = server.serve_until(&directory, &coordinator_device, &shutdown, |_| {});
         });
         let _stop = StopOnDrop(&shutdown, address);
-        body(address)
+        body(address, &directory)
     })
 }
 
@@ -195,6 +201,7 @@ fn a_contact_publishes_and_reads_on_one_connection_and_the_probe_agrees() {
             &Due {
                 publish: true,
                 read: true,
+                accept_unsigned: false,
             },
         )
         .expect("the coordinator answers");
@@ -215,6 +222,113 @@ fn a_contact_publishes_and_reads_on_one_connection_and_the_probe_agrees() {
             coordinator::address_now(&announced, listen).as_deref(),
             Some("ngas.fr:9801"),
             "an announced address is what is published, so it is what is compared"
+        );
+    });
+}
+
+/// A coordinator relays presences; it does not make them. This one hands out
+/// an address for the VM that the VM never signed -- a coordinator that lies,
+/// or a database somebody edited. Believed, it sends every machine of the
+/// account to a place of the coordinator's choosing: pinning refuses the
+/// connection there, but only after a connect timeout, every round, and the VM
+/// is never reached at all. The laptop must drop it, keep the Pi's genuine
+/// presence -- which proves the read happened rather than failed -- and say it
+/// was lied to.
+#[test]
+fn red_team_a_coordinator_cannot_pass_off_an_address_its_machine_never_signed() {
+    with_directory(|address, directory| {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (pi, phrase) = member(&dir.path().join("pi"), address, None, None);
+        coordinator::announce(&pi, "127.0.0.1:9701", NOW).expect("the Pi announces");
+
+        let (vm, _) = member(&dir.path().join("vm"), address, None, phrase.as_deref());
+        coordinator::announce(&vm, "127.0.0.1:9702", NOW).expect("the VM announces");
+        let mut forged = directory
+            .presence_of(vm.store.device_id())
+            .expect("the directory reads")
+            .expect("the VM's presence is held");
+        forged.presence.address = "203.0.113.66:9797".to_owned();
+        // Planted at the server's own time, as `announce` records it: at `NOW`
+        // it would have expired years ago and been left out of the list for
+        // that reason, and the test would pass without checking a signature.
+        directory
+            .plant_presence(&forged, itsanas_discover::now_unix())
+            .expect("the coordinator lies");
+
+        let (laptop, _) = member(&dir.path().join("laptop"), address, None, phrase.as_deref());
+        let contacted = coordinator::contact(
+            &laptop,
+            "127.0.0.1:9703",
+            NOW + 1,
+            &Due {
+                publish: false,
+                read: true,
+                accept_unsigned: false,
+            },
+        )
+        .expect("the coordinator answers");
+
+        assert!(contacted.signed, "a signed list was reported as unsigned");
+        let found = contacted.found.expect("the read went through");
+        assert!(
+            found.iter().all(|(_, a)| a != "203.0.113.66:9797"),
+            "the laptop was handed an address the VM never signed: {found:?}"
+        );
+        assert_eq!(
+            found,
+            vec![(pi.store.device_id(), "127.0.0.1:9701".to_owned())],
+            "the Pi's genuine presence must survive the check"
+        );
+        assert_eq!(
+            contacted.forged, 1,
+            "the lie was dropped without a word, so nobody learns the coordinator lies"
+        );
+    });
+}
+
+/// The other way to pass off an address: hang up on `SignedPeers`, as a
+/// coordinator older than it does, and let the client fall back to `Peers`,
+/// whose addresses nobody signed. A node with no history with this coordinator
+/// must still read it -- the VM is upgraded after the machines, not before --
+/// and must be told the list is unsigned, so the daemon says so. A node that
+/// has seen it sign must not be talked down: the hang-up is a failed read.
+#[test]
+fn red_team_a_coordinator_that_pretends_to_be_old_cannot_talk_a_node_down_to_an_unsigned_list() {
+    with_directory(|address, directory| {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (pi, phrase) = member(&dir.path().join("pi"), address, None, None);
+        coordinator::announce(&pi, "127.0.0.1:9701", NOW).expect("the Pi announces");
+        let (laptop, _) = member(&dir.path().join("laptop"), address, None, phrase.as_deref());
+        directory.play_old(true);
+
+        let read = |accept_unsigned| {
+            coordinator::contact(
+                &laptop,
+                "127.0.0.1:9703",
+                NOW + 1,
+                &Due {
+                    publish: false,
+                    read: true,
+                    accept_unsigned,
+                },
+            )
+        };
+
+        let first = read(true).expect("an older coordinator is still read");
+        assert_eq!(
+            first.found,
+            Some(vec![(pi.store.device_id(), "127.0.0.1:9701".to_owned())]),
+            "a coordinator older than signed lists must still be readable"
+        );
+        assert!(
+            !first.signed,
+            "an unsigned list was reported as signed, so nobody is told"
+        );
+
+        let after = read(false);
+        assert!(
+            after.is_err(),
+            "a node that saw this coordinator sign was talked down to its unsigned list: {after:?}"
         );
     });
 }

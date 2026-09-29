@@ -10,15 +10,61 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0o
-TITLE: Signed presences, a kept address book, and gossip between peers (phase 2b of reaching the network from outside)
+TITLE: Keep the address book on disk, and remember that the coordinator signs (phase 2b.2 of reaching the network from outside)
 WRITTEN-AT: 2026-09-29
-BASE: f2fa6ad
+BASE: 43e24b9
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-29, the coordinator's list is signed, and checked** (§8 0o phase
+2b.1, branch `step/8.0o-signed-peers`; 2a merged first as #182 after its five
+sabotages were re-run -- the session that wrote it had stopped with the PR green
+and open). `Request::SignedPeers` / `Response::SignedPeers` are appended to the
+coordinator protocol (wire numbers 13 and 10); `CoordService::peers_of` keeps
+the signed rows and `Peers` strips them. `SignedPresence::verify_origin` checks
+the signer and the address, **not the date**: the reader's clock is no
+reference, and a Pi booted in 1970 would refuse everything. The client reads
+through one function, `coordinator::located`, which keeps what `verified` keeps
+and counts the rest (`Contacted::forged`, logged by the daemon); `contact`,
+`devices_as` and `find_member` all go through it.
+
+Rodin, before the commit: the fallback to `Peers` for an older coordinator is a
+door a hostile one opens by hanging up, so the signature was advice, and three
+sentences (the `SignedPeers` doc, ARCHITECTURE §6.1, a test's name) said
+otherwise. Now `Due::accept_unsigned` is false once `Contact::signed` has been
+called -- the daemon calls it after every signed read -- and a hang-up is then a
+failed read; a read that did fall back says `signed: false` and the daemon logs
+it. Tested on a real coordinator told to hang up (`Directory::play_old`) and on
+one holding a planted forgery (`Directory::plant_presence`), both behind the
+`hostile` feature of `itsanas-coord`, which only `itsanas-node`'s
+dev-dependencies turn on. Four red-team tests, five sabotages, five red.
+
+**Not done, 🟨:** the memory that this coordinator signs lives in the process,
+so every daemon start re-opens the downgrade until its first read -- 2b.2 keeps
+it with the book; the daemon's call to `Contact::signed` has no test (it is in
+`one_round`, which only `acceptance-local.sh` runs); one-off commands
+(`device list`, `find`) accept an unsigned list and do not say so; and **a
+presence proves where a device is, not whose it is** -- a coordinator can list
+another account's genuine machines under yours. Harmless today (`sync_once`
+decides trust on the connection, the book is bounded), and it must be closed
+before 2b.3 relays anything: §8 says how.
+
+Decided without asking, say so if wrong: the fallback stays rather than going,
+because removing it stops every node reading until the VM is upgraded, and the
+VM is upgraded after the machines.
+
+Traps this time: `cargo test --lib --test X` stops at the first failing binary,
+so `sabotage.py` saw only the unit test go red until given `--no-fail-fast`; a
+presence planted at the test's fixed `NOW` had expired by the server's real
+clock, was left out for that reason, and the first version of the red-team test
+passed without checking a signature -- the `forged` count caught it; clippy's
+100-line limit on `CoordService::handle` and on the wire-number fixture (the
+repo has no `allow` for it: split instead); a Git Bash heredoc holding a Python
+script with `'''` did not parse -- Write tool.
 
 **2026-09-29, the coordinator is dialled only when something is owed** (§8 0o
 phase 2a, branch `step/8.0o-contact-when-needed`; 0n merged first as #181
@@ -1813,8 +1859,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       switching the nodes is Nicolas's, and `BRIEFING-MVP.md` §2.5 is the
       procedure.
 
-      **Phase 2 -- the decentralised half. 2a is built (2026-09-29); 2b is
-      `NEXT`, specified at the end of this item.** Specified on 2026-09-18
+      **Phase 2 -- the decentralised half. 2a and 2b.1 are built
+      (2026-09-29); 2b.2 is `NEXT`, specified at the end of this item.** Specified on 2026-09-18
       after Nicolas asked for it in his own words: *"j'aimerais que la vm
       centrale ne soit contactée que si c'est nécessaire, par exemple si
       aucune machine d'un compte n'est connectée"*. Until then every node
@@ -1946,10 +1992,16 @@ Detail and measurements are in ROADMAP.md; this is the map.
       (`MAX_DEVICES` 256, `MAX_ADDRESSES` 4), and orders a device's addresses
       by this machine's `Instant` of last success. No wire change.
 
-      **Phase 2b -- `NEXT`: signatures, a kept book, gossip.** In this order,
-      each its own commit:
+      **Phase 2b: signatures, a kept book, gossip.** In this order, each its
+      own PR. 1 is done; **2 is `NEXT`**.
 
-      1. *Carry the signature through.* Append `Request::SignedPeers { user }`
+      1. ✅ *Carry the signature through* (2026-09-29, see §0 for what and
+         how). Built as specified, except that the check is
+         `SignedPresence::verify_origin` -- signer and address, never the
+         reader's clock -- and that the fallback to `Peers` closes once the
+         coordinator has signed in front of the process (`Due::accept_unsigned`),
+         because a hostile coordinator can hang up on purpose. The original
+         text: Append `Request::SignedPeers { user }`
          / `Response::SignedPeers(Vec<SignedPresence>)` to the coordinator
          protocol (appended, §6; `red_team_coordinator_messages_keep_their_wire_numbers`
          must stay green). `peers_of` already has the signed rows before it
@@ -1957,17 +2009,56 @@ Detail and measurements are in ROADMAP.md; this is the map.
          (`SignedPresence::verify`, `claim.rs` ~229) and drops failures; an
          older coordinator closes the connection, so fall back to `Peers` as
          `enrolled` falls back today.
-      2. *Keep the book* in `<home>/address-book`: signed presences plus this
-         machine's own last-success times as unix seconds of *its* clock, read
-         at daemon start, written after a round that changed it. A file of its
-         own, for the reason `others-pledged` is one (the config parser
-         refuses unknown keys).
+      2. **`NEXT`.** *Keep the book* in `<home>/address-book`: signed
+         presences plus this machine's own last-success times as unix seconds
+         of *its* clock, read at daemon start, written after a round that
+         changed it. A file of its own, for the reason `others-pledged` is one
+         (the config parser refuses unknown keys).
+
+         What is there to build on, verified 2026-09-29: `Contact`
+         (`crates/itsanas-node/src/contact.rs`) holds `book:
+         BTreeMap<DeviceId, Vec<Candidate>>`, a `Candidate` being an address
+         and `worked: Option<Instant>`; `signs: bool` is the downgrade memory
+         of 2b.1. The daemon builds one `Contact` per process
+         (`crates/itsanas-cli/src/daemon.rs`, `one_round`, the block that
+         calls `coordinator::contact`). What reaches the book today is
+         `(DeviceId, String)`: `coordinator::located` has the
+         `SignedPresence` and throws it away after `verified`. So, in order:
+         (a) carry the `SignedPresence` from `verified` through `Located` and
+         `Contacted::found` into `Candidate` (an unsigned fallback entry has
+         none, is dialled, and is never relayed or written); (b) replace
+         `Instant` in `Candidate` with unix seconds of this machine's clock,
+         compared only with each other -- the one clock that may order this
+         machine's own records; (c) write `{ version, signs, entries }` with
+         postcard to a temporary file and rename it over `address-book`
+         (`others-pledged` is a bare `fs::write`, which a power cut can leave
+         empty -- do not copy that), after a round in which `read` or
+         `worked` changed anything; (d) at daemon start, load it through the
+         same `read` path, so `MAX_DEVICES`, `MAX_ADDRESSES` and
+         `verify_origin` apply to the file as to the wire, and treat an
+         unreadable file as an empty book with a log line, never as a failed
+         start. Red-team tests expected: **a restart does not re-open the
+         downgrade** (a book that says the coordinator signs gives
+         `accept_unsigned == false` on the first round -- sabotage: do not
+         load `signs`); and **an address-book file edited to hold a forged
+         presence loses it on load** (sabotage: skip `verify_origin` there).
+         Update `ROADMAP.md`'s sentence "Until a restart: that memory is not
+         on disk yet" in the same commit.
       3. *Gossip.* Peer protocol 6 appends `Request::Presences` (model:
          `WantHosted`; a v5 peer answers `Refused`, read as "cannot tell me").
          Answered only to a device of the same account or one
          `Neighbourhood::is_confirmed`; the answer is the signed presences of
          the asker's account that this node holds. Relayed presences join the
          book as candidates, never displacing one that worked.
+         **Found by Rodin on 2026-09-29, and it comes first:** a
+         `SignedPresence` proves where a device is, not *whose* it is, so a
+         relay could fill the book's 256 places with other accounts' genuine
+         presences and a receiver could not tell. Each relayed presence must
+         travel with its device's owner-signed `SignedClaim` (the coordinator
+         holds it: `Directory::claim_for`), and the receiver keeps it only if
+         the claim verifies, is not revoked, and names the account it asked
+         about. The coordinator's own list has the same gap and is harmless
+         only because `sync_once` decides trust on the connection.
       4. Then, and only then, make the hourly read conditional: read when a
          book device was reached by no address this round *and* gossip had
          nothing newer. That is where "a fleet at home reads never" becomes
@@ -1976,8 +2067,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Expected red-team tests, one per attack and named for it: a peer
       handing out a presence it forged (sabotage: skip the verify); a peer
       replaying a stale presence to strand a machine at an address it left;
-      a stranger asking for an account's presences; and a coordinator passing
-      off a presence with no valid signature.
+      a stranger asking for an account's presences; a relay passing off
+      another account's machine as one of yours; and ✅ a coordinator passing
+      off a presence with no valid signature (2b.1: planted, and by pretending
+      to be old).
 
       **Phase 3, only if 1 and 2 fall short: several addresses per device**,
       which is the wire change phase 2 will already have opened the door to

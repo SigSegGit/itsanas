@@ -14,7 +14,7 @@
 
 use std::net::{SocketAddr, ToSocketAddrs};
 
-use itsanas_coord::claim::{NodeClaim, Presence};
+use itsanas_coord::claim::{MAX_ADDRESS_LEN, NodeClaim, Presence, SignedPresence};
 use itsanas_coord::directory::Registration;
 use itsanas_coord::invitation::{Invitation, SECRET_LEN, Secret};
 use itsanas_coord::protocol::{EnrolledDevice, Request, Response};
@@ -390,14 +390,100 @@ pub fn devices_as(
     user: UserId,
 ) -> Result<Vec<(DeviceId, String)>> {
     let mut client = dial_as(config, device)?;
-    match client.ask(&Request::Peers { user })? {
-        Response::Peers(list) => Ok(list
-            .into_iter()
-            .map(|presence| (presence.device, presence.address))
-            .collect()),
-        Response::Refused(why) => Err(CliError::Usage(why)),
-        other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+    // A one-off command has no history with this coordinator to hold it to.
+    located(&mut client, config, device, user, true).map(|read| read.found)
+}
+
+/// What one read of an account's devices brought back.
+#[derive(Debug, Default)]
+pub struct Located {
+    /// Each device and the address it published, in the coordinator's order.
+    pub found: Vec<(DeviceId, String)>,
+    /// How many presences were dropped because their device did not sign them
+    /// ([`verified`]). An honest coordinator checked every one on arrival, so
+    /// anything but zero means it is lying.
+    pub forged: usize,
+    /// Whether the list was signed. `false` means the coordinator hung up on
+    /// `SignedPeers` and `Peers` answered: every address is on its word.
+    pub signed: bool,
+}
+
+/// Where the devices of `user` are, each address checked against the device
+/// that published it.
+///
+/// Asks `SignedPeers` and keeps what [`verified`] keeps. A coordinator older
+/// than that request hangs up on it, which looks like an outage. With
+/// `accept_unsigned`, `client` is then replaced by a fresh connection that asks
+/// `Peers`, which every coordinator answers, and the result says it is
+/// unsigned. **That fallback is a door a hostile coordinator can open at will**
+/// -- hanging up is all it takes -- which is why a caller that has seen this
+/// coordinator sign passes `false` ([`crate::contact::Due::accept_unsigned`]),
+/// and the hang-up is then a failed read. Without the flag the signature check
+/// would be advice. If the fresh connection fails too, the network is the
+/// problem and is reported as one.
+fn located(
+    client: &mut CoordClient,
+    config: &crate::config::Config,
+    device: &DeviceKeys,
+    user: UserId,
+    accept_unsigned: bool,
+) -> Result<Located> {
+    match client.ask(&Request::SignedPeers { user }) {
+        Ok(Response::SignedPeers(list)) => {
+            let (found, forged) = verified(list);
+            Ok(Located {
+                found,
+                forged,
+                signed: true,
+            })
+        }
+        Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
+        Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+        Err(failed) if !accept_unsigned => Err(CliError::Usage(format!(
+            "the coordinator signed its list before and now hangs up on the question \
+             ({failed}); an unsigned list from it is not read"
+        ))),
+        Err(_) => {
+            *client = dial_as(config, device)?;
+            match client.ask(&Request::Peers { user })? {
+                Response::Peers(list) => Ok(Located {
+                    found: list
+                        .into_iter()
+                        .filter(|presence| {
+                            !presence.address.is_empty()
+                                && presence.address.len() <= MAX_ADDRESS_LEN
+                        })
+                        .map(|presence| (presence.device, presence.address))
+                        .collect(),
+                    forged: 0,
+                    signed: false,
+                }),
+                Response::Refused(why) => Err(CliError::Usage(why)),
+                other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+            }
+        }
     }
+}
+
+/// The presences their own device signed, as `(device, address)`, and how many
+/// were dropped.
+///
+/// A coordinator relays presences; it does not make them. One that alters an
+/// address, or lists a device at an address that device never published, can
+/// send every machine of an account to a place of its choosing -- TLS pinning
+/// refuses the connection there, but only after a connect timeout spent on it,
+/// every round, for every machine. What is dropped is exactly what a
+/// coordinator could otherwise have invented.
+#[must_use]
+pub fn verified(list: Vec<SignedPresence>) -> (Vec<(DeviceId, String)>, usize) {
+    let offered = list.len();
+    let kept: Vec<(DeviceId, String)> = list
+        .into_iter()
+        .filter(|signed| signed.verify_origin().is_ok())
+        .map(|signed| (signed.presence.device, signed.presence.address))
+        .collect();
+    let dropped = offered - kept.len();
+    (kept, dropped)
 }
 
 /// Every device enrolled under this account, reachable or not.
@@ -508,6 +594,13 @@ pub struct Contacted {
     /// Why the account's pledges could not be remembered, if they could not.
     /// Not a failed contact: the publication and the read went through.
     pub pledges_not_kept: Option<NodeError>,
+    /// How many presences the read dropped because their device did not sign
+    /// them. Counted because anything but zero means the coordinator is lying
+    /// about where the account's machines are.
+    pub forged: usize,
+    /// Whether the read was a signed list. `false` with `found` set means the
+    /// coordinator answered only `Peers`, and the caller should say so.
+    pub signed: bool,
 }
 
 /// Publish, read, or both, on one connection: whatever [`Due`] asks for.
@@ -545,24 +638,25 @@ pub fn contact(node: &Node, listen: &str, now: u64, due: &Due) -> Result<Contact
     }
 
     if due.read {
-        let read = match client.ask(&Request::Peers {
-            user: node.store.owner(),
-        }) {
-            Ok(Response::Peers(list)) => {
-                let mut found = list
+        let read = located(
+            &mut client,
+            &node.config,
+            &node.device,
+            node.store.owner(),
+            due.accept_unsigned,
+        );
+        match read {
+            Ok(read) => {
+                let mut found = read
+                    .found
                     .into_iter()
-                    .filter(|presence| presence.device != node.store.device_id())
-                    .map(|presence| (presence.device, presence.address))
+                    .filter(|(device, _)| *device != node.store.device_id())
                     .collect::<Vec<_>>();
                 reachable_first(&mut found);
-                Ok(found)
+                contacted.found = Some(found);
+                contacted.forged = read.forged;
+                contacted.signed = read.signed;
             }
-            Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
-            Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
-            Err(error) => Err(error.into()),
-        };
-        match read {
-            Ok(found) => contacted.found = Some(found),
             // Nothing was published to keep: the whole contact failed.
             Err(error) if contacted.published.is_none() => return Err(error),
             Err(error) => contacted.read_failed = Some(error),
@@ -721,16 +815,8 @@ pub fn find_member(node: &Node, username: &str) -> Result<(UserId, Vec<(DeviceId
         )));
     }
 
-    match client.ask(&Request::Peers { user })? {
-        Response::Peers(list) => Ok((
-            user,
-            list.into_iter()
-                .map(|presence| (presence.device, presence.address))
-                .collect(),
-        )),
-        Response::Refused(why) => Err(CliError::Usage(why)),
-        other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
-    }
+    let read = located(&mut client, &node.config, &node.device, user, true)?;
+    Ok((user, read.found))
 }
 
 /// Withdraw a device from this account.
@@ -846,7 +932,44 @@ pub fn fetch_escrow(
 
 #[cfg(test)]
 mod tests {
+    use itsanas_crypto::SecretBytes;
+
     use super::*;
+
+    /// A coordinator relays presences; it does not make them. Two ways to pass
+    /// one off: change the address after the device signed it, or sign with
+    /// another key and put the device's id on top. Both are dropped and
+    /// counted. The genuine one is dated 1970, as a Pi with no real-time clock
+    /// dates it, and is kept: the check is who signed, never when.
+    #[test]
+    fn red_team_a_presence_its_device_did_not_sign_is_dropped() {
+        let pi = DeviceKeys::from_seed(&SecretBytes::new([2; 32]));
+        let stranger = DeviceKeys::from_seed(&SecretBytes::new([3; 32]));
+        let genuine = Presence {
+            device: pi.device_id(),
+            address: "192.168.1.20:9797".to_owned(),
+            at_unix: 0,
+        }
+        .sign(&pi);
+
+        let mut moved = genuine.clone();
+        moved.presence.address = "203.0.113.66:9797".to_owned();
+        let mut borrowed = Presence {
+            device: stranger.device_id(),
+            address: "203.0.113.67:9797".to_owned(),
+            at_unix: 0,
+        }
+        .sign(&stranger);
+        borrowed.presence.device = pi.device_id();
+
+        let (kept, dropped) = verified(vec![moved, genuine, borrowed]);
+        assert_eq!(
+            kept,
+            vec![(pi.device_id(), "192.168.1.20:9797".to_owned())],
+            "an address the Pi never signed was believed, or the one it did sign was not"
+        );
+        assert_eq!(dropped, 2, "a forgery was dropped without being counted");
+    }
 
     #[test]
     fn a_configured_announce_is_published_instead_of_the_local_address() {

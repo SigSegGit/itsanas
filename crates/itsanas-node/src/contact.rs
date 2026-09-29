@@ -55,10 +55,12 @@ pub const PUBLISH_EVERY: Duration = Duration::from_secs(3600);
 
 /// How many devices the address book holds.
 ///
-/// The list comes from the coordinator, whose answer is not verified yet --
-/// `Response::Peers` drops the device signatures, which phase 2b carries
-/// through. Until then a hostile coordinator decides what arrives here, and
-/// without a bound it decides how much memory the daemon uses too. An account
+/// The list comes from the coordinator. Each address in it is signed by its
+/// device and checked (`coordinator::verified`), but the coordinator still
+/// chooses which devices it lists and which of their past addresses it hands
+/// out, and one older than `SignedPeers` answers unsigned. So a hostile
+/// coordinator decides what arrives here, and without a bound it would decide
+/// how much memory the daemon uses too. An account
 /// with more machines than this has a problem no address book solves.
 pub const MAX_DEVICES: usize = 256;
 
@@ -78,6 +80,14 @@ pub struct Due {
     pub publish: bool,
     /// Ask where the account's other devices are.
     pub read: bool,
+    /// Whether an unsigned list may be read, from a coordinator that hangs up
+    /// on `SignedPeers` as one older than it does.
+    ///
+    /// True until a coordinator has signed its list in front of this process.
+    /// After that, one that hangs up on the question is not old: it is either
+    /// failing or trying to talk this node down to addresses it can forge, and
+    /// both are a failed read rather than a reason to believe it.
+    pub accept_unsigned: bool,
 }
 
 impl Due {
@@ -110,6 +120,9 @@ pub struct Contact {
     published: Option<(Option<String>, Instant)>,
     /// When the account's devices were last read.
     read_at: Option<Instant>,
+    /// Whether the coordinator has answered with a signed list since this
+    /// process started. See [`Due::accept_unsigned`].
+    signs: bool,
     book: BTreeMap<DeviceId, Vec<Candidate>>,
 }
 
@@ -142,13 +155,23 @@ impl Contact {
         // A read that failed on its own is retried at once: until one works,
         // this node knows none of its devices' addresses.
         let read = publish || self.read_at.is_none();
-        Due { publish, read }
+        Due {
+            publish,
+            read,
+            accept_unsigned: !self.signs,
+        }
     }
 
     /// Record a publication the coordinator accepted, for `address` as it was
     /// given to [`Self::due`].
     pub fn published(&mut self, address: Option<&str>, now: Instant) {
         self.published = Some((address.map(str::to_owned), now));
+    }
+
+    /// Record that the coordinator answered with a signed list, so that it is
+    /// never again read unsigned by this process.
+    pub fn signed(&mut self) {
+        self.signs = true;
     }
 
     /// Take in the coordinator's list of the account's other devices.
@@ -346,8 +369,9 @@ mod tests {
         );
     }
 
-    /// The coordinator's answer is not verified until phase 2b, so for now it
-    /// decides what arrives in this table. It must not decide its size.
+    /// The coordinator chooses which presences it lists -- stale ones, or
+    /// unsigned ones from an older coordinator -- so it decides what arrives
+    /// in this table. It must not decide its size.
     #[test]
     fn red_team_a_coordinator_cannot_grow_the_address_book_without_bound() {
         let mut contact = Contact::new();
@@ -405,6 +429,33 @@ mod tests {
             "the address that answered was pushed down by addresses that never did"
         );
         assert!(order.len() <= MAX_ADDRESSES, "the replay was kept in full");
+    }
+
+    /// A coordinator that pretends to be older than `SignedPeers` hangs up on
+    /// it, and a client that then asks `Peers` reads a list the coordinator can
+    /// forge at will: the signature check would be advisory against the one
+    /// party it exists to check. Once a coordinator has signed in front of this
+    /// process, that fallback is closed for good.
+    #[test]
+    fn red_team_a_coordinator_that_has_signed_cannot_talk_this_node_down_to_an_unsigned_list() {
+        let mut contact = Contact::new();
+        let start = Instant::now();
+        assert!(
+            contact.due(Some(HOME), start).accept_unsigned,
+            "a coordinator older than signed lists must still be readable"
+        );
+
+        contact.published(Some(HOME), start);
+        contact.read(&listing(&[2]), start);
+        contact.signed();
+        for round in 1..=24u32 {
+            assert!(
+                !contact
+                    .due(Some(HOME), start + PUBLISH_EVERY * round)
+                    .accept_unsigned,
+                "hour {round}: a coordinator that signed may now forge the list by hanging up"
+            );
+        }
     }
 
     #[test]

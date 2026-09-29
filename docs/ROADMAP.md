@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**822 test functions, 4 of them `#[ignore]`d into the slow job, and 85 of
+**827 test functions, 4 of them `#[ignore]`d into the slow job, and 89 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -739,7 +739,12 @@ device and reaching a different one is refused.
   the *number of requests* was O(nodes × rounds). Since 2026-09-29 (§8 0o
   phase 2a) a round dials it only at start, when the address changes, and
   hourly: O(nodes × hours), 24 connections a day for a machine that does not
-  move instead of 288, with the read on the same connection.
+  move instead of 288, with the read on the same connection. Since phase 2b.1
+  (the same day) that read is signed: each address carries its device's
+  signature, a client drops and reports any that fails, and it reads the old
+  unsigned list only from a coordinator it has not yet seen sign -- once it
+  has, a coordinator hanging up on the signed question is a failed read, not
+  a reason to believe it. Until a restart: that memory is not on disk yet.
 
 - **NAT traversal.** A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts

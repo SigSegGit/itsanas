@@ -197,6 +197,29 @@ pub enum Request {
     /// Appended last. postcard numbers variants by position, and a coordinator
     /// older than this closes the connection rather than misreading it.
     Depart(Box<SignedDeparture>),
+
+    /// [`Request::Peers`], answered with each device's own signature.
+    ///
+    /// `Peers` hands back bare presences, so what a client learns there is
+    /// whatever the coordinator says: it could send every member's laptop to
+    /// an address of its choosing. With the signature a client checks each
+    /// address against the device that published it
+    /// ([`SignedPresence::verify_origin`]). It is also what lets a peer relay
+    /// a presence later without being able to invent one.
+    ///
+    /// What that leaves a coordinator is staying silent and handing out an
+    /// address a device once published -- **and one more door, held shut only
+    /// by the client**: a coordinator older than this hangs up on it, the client
+    /// then asks `Peers`, and those addresses are on the coordinator's word. A
+    /// hostile one can hang up on purpose. The client reads unsigned only from
+    /// a coordinator it has never seen sign, and says so when it does.
+    ///
+    /// Answered to the same callers as `Peers`. Appended last. postcard
+    /// numbers variants by position.
+    SignedPeers {
+        /// The user whose devices to list.
+        user: UserId,
+    },
 }
 
 /// One enrolled device, as [`Response::Devices`] lists it.
@@ -273,6 +296,11 @@ pub enum Response {
     ///
     /// Appended last.
     Unknown(String),
+
+    /// Reachable devices as [`Response::Peers`] lists them, each with the
+    /// signature its device made. Appended last, for the reason given on
+    /// [`Request::SignedPeers`].
+    SignedPeers(Vec<SignedPresence>),
 }
 
 impl Request {
@@ -307,6 +335,7 @@ impl Request {
             Self::Devices { .. } => "devices",
             Self::CheckMe => "check-me",
             Self::Depart(_) => "depart",
+            Self::SignedPeers { .. } => "signed-peers",
         }
     }
 }
@@ -338,6 +367,12 @@ mod tests {
         );
         assert!(
             !Request::Peers {
+                user: UserId::from_bytes([0; ID_LEN])
+            }
+            .is_open()
+        );
+        assert!(
+            !Request::SignedPeers {
                 user: UserId::from_bytes([0; ID_LEN])
             }
             .is_open()
@@ -396,6 +431,11 @@ mod tests {
             at_unix: 0,
         }
         .sign(&keys);
+        let departure = crate::claim::Departure {
+            device: keys.device_id(),
+            at_unix: 0,
+        }
+        .sign(&keys);
 
         let requests = vec![
             (0, Request::Hello { version: 1 }),
@@ -426,16 +466,8 @@ mod tests {
             ),
             (10, Request::Devices { user }),
             (11, Request::CheckMe),
-            (
-                12,
-                Request::Depart(Box::new(
-                    crate::claim::Departure {
-                        device: keys.device_id(),
-                        at_unix: 0,
-                    }
-                    .sign(&keys),
-                )),
-            ),
+            (12, Request::Depart(Box::new(departure))),
+            (13, Request::SignedPeers { user }),
         ];
         let account = crate::directory::Account {
             username: "a".to_owned(),
@@ -447,7 +479,7 @@ mod tests {
             (0, Response::Welcome { version: 1 }),
             (1, Response::Done),
             (2, Response::Account(Box::new(account))),
-            (3, Response::Peers(vec![presence.presence])),
+            (3, Response::Peers(vec![presence.presence.clone()])),
             (4, Response::Escrow(Vec::new())),
             (5, Response::Missing),
             (6, Response::Refused(String::new())),
@@ -460,6 +492,7 @@ mod tests {
                 },
             ),
             (9, Response::Unknown(String::new())),
+            (10, Response::SignedPeers(vec![presence])),
         ];
         (requests, responses)
     }
@@ -490,7 +523,8 @@ mod tests {
                 | Request::GetEscrow { .. }
                 | Request::Devices { .. }
                 | Request::CheckMe
-                | Request::Depart(_) => {}
+                | Request::Depart(_)
+                | Request::SignedPeers { .. } => {}
             }
             assert_eq!(
                 postcard::to_stdvec(request).unwrap()[0],
@@ -511,7 +545,8 @@ mod tests {
                 | Response::Refused(_)
                 | Response::Devices(_)
                 | Response::Reachable { .. }
-                | Response::Unknown(_) => {}
+                | Response::Unknown(_)
+                | Response::SignedPeers(_) => {}
             }
             assert_eq!(
                 postcard::to_stdvec(response).unwrap()[0],

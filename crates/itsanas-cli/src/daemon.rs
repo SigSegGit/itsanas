@@ -745,6 +745,15 @@ fn one_round(
                     }
                     if let Some(found) = contacted.found {
                         contact.read(&found, Instant::now());
+                        if contacted.signed {
+                            contact.signed();
+                        } else {
+                            eprintln!(
+                                "itsanas: the coordinator does not sign its list of this \
+                                 account's machines (it is older than this node); their \
+                                 addresses are taken on its word until it is upgraded"
+                            );
+                        }
                     }
                     if let Some(error) = contacted.read_failed {
                         eprintln!(
@@ -753,6 +762,14 @@ fn one_round(
                     }
                     if let Some(error) = contacted.pledges_not_kept {
                         eprintln!("itsanas: could not keep the account's pledges: {error}");
+                    }
+                    if contacted.forged > 0 {
+                        eprintln!(
+                            "itsanas: the coordinator listed {} address(es) their machine never \
+                             signed; ignored. It is lying, or it is not the coordinator you \
+                             meant (pin it with its device id).",
+                            contacted.forged
+                        );
                     }
                 }
                 Err(error) => outage.failed(&error.to_string()),

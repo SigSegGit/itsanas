@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-29 — 822 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 85 are red-team tests.**
+**Last updated: 2026-09-29 — 827 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 89 are red-team tests.**
 
-**706 of the 822 tests have an entry of their own on this page** — an *entry*,
+**711 of the 827 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -165,7 +165,7 @@ guarantee and is not one.
 | `itsanas-net` unit | 39 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 47 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 102 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 103 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 15 |
 | `itsanas-discover` unit | 36 |
 | `itsanas-policy` unit | 23 |
@@ -175,8 +175,8 @@ guarantee and is not one.
 | `itsanas-cli` unit | 29 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 60 |
-| `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 3 |
+| `itsanas-node` unit | 62 |
+| `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
@@ -975,14 +975,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (67)
+# `itsanas-node` — a node on disk (71)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `coordinator` — publishing an address (11)
+## `coordinator` — publishing an address (12)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -1000,11 +1000,12 @@ anything.
 | **`the_announced_port_is_not_replaced_by_the_listening_one`** | A port forward exists to map an outside port to a different inside one; `ngas.fr:9801 -> 192.168.1.11:9797` is the normal shape. Substituting the listening port would publish an address the router forwards nothing to, and the failure would read as the peer being offline. |
 | **`a_configured_announce_is_published_instead_of_the_local_address`** | Without it a node behind a router publishes its address on the LAN it is on, which is precisely what no machine in another house can use. |
 | `a_machine_that_moves_still_publishes_where_it_is` | No `announce` is the right configuration for a laptop, and it must still publish something: announcing is also the heartbeat availability is counted from, so a node that stopped would be counted as gone. |
+| **`red_team_a_presence_its_device_did_not_sign_is_dropped`** | §8 0o phase 2b.1. A coordinator relays presences and does not make them: an address changed after the Pi signed it, and a presence signed by another key with the Pi's id on top, are both dropped and counted, and the genuine one -- dated 1970, as a Pi with no real-time clock dates it -- is kept. The check is who signed, never when. Sabotaged by keeping everything. |
 | `the_private_ranges_a_home_actually_uses_are_all_recognised` | RFC1918, loopback, link-local, carrier-grade NAT (which is what a mobile network and an overlay VPN hand out) and IPv6 unique-local and link-local. Publishing any of them tells members elsewhere to dial a machine inside somebody else's network. |
 
 ---
 
-## `contact` — when the coordinator is dialled at all (7)
+## `contact` — when the coordinator is dialled at all (8)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1018,8 +1019,9 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_machine_that_found_everybody_by_broadcast_still_publishes`** | The Rodin finding of 2026-09-21 against the first rule ("dial when the round reached nobody"): a Pi that found the VM by broadcast never published, and a laptop elsewhere could not find it. The rule is not given who was reached; publishing at start and hourly are each sabotaged and each turns this red. |
 | **`a_machine_that_changes_network_publishes_at_once`** | A laptop whose address changed publishes on the next round, not in an hour; an unchanged address inside the hour costs no connection; losing the route counts as a change. |
 | **`a_machine_enrolled_after_this_one_started_is_dialled_within_the_hour`** | Why reads ride on every publication instead of waiting for a listed device to go missing: a machine enrolled after this one started is on no list, so it can never go missing. Eleven rounds make no connection, the hourly one reads, and the new machine is in the book. |
-| **`red_team_a_coordinator_cannot_grow_the_address_book_without_bound`** | The coordinator's answer is unverified until phase 2b. 65 536 devices in one answer leave `MAX_DEVICES` in the table; a thousand addresses for one device leave `MAX_ADDRESSES`. |
+| **`red_team_a_coordinator_cannot_grow_the_address_book_without_bound`** | The coordinator still decides which presences it lists -- an older one unsigned, any of them stale. 65 536 devices in one answer leave `MAX_DEVICES` in the table; a thousand addresses for one device leave `MAX_ADDRESSES`. |
 | **`red_team_addresses_that_never_worked_do_not_displace_one_that_did`** | Twenty stale addresses for the Pi, from a coordinator that lies or is only out of date, arrive after its LAN address answered: that address is still dialled first and the rest is capped. Order is this machine's record of success, never the list's. |
+| **`red_team_a_coordinator_that_has_signed_cannot_talk_this_node_down_to_an_unsigned_list`** | §8 0o 2b.1, found by Rodin: a coordinator that hangs up on `SignedPeers`, as an older one does, would have the client fall back to `Peers`, whose addresses it can forge -- the signature check made advisory against the one party it checks. Once a coordinator has signed, `Due::accept_unsigned` stays false for every later hour. Sabotaged by leaving it true. |
 | **`a_device_no_longer_listed_is_forgotten`** | A withdrawn or long-silent device leaves the book at the next read, so a round stops spending connect timeouts on it. |
 
 ## `node` — identity on disk (17)
@@ -1304,7 +1306,7 @@ hardware it will actually run on.
 
 ---
 
-# `itsanas-node` away from home (`tests/away_from_home.rs`) — the lookup a member elsewhere makes (3)
+# `itsanas-node` away from home (`tests/away_from_home.rs`) — the lookup a member elsewhere makes (5)
 
 A real coordinator on a real socket and three real nodes of one account. The
 only thing simulated is which machine each node runs on, which is the thing the
@@ -1312,6 +1314,8 @@ test is about.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_coordinator_cannot_pass_off_an_address_its_machine_never_signed`** | The unit test proves `verified` drops a forgery; this proves `contact` calls it, and that the fallback to unsigned `Peers` is not what answers. A real coordinator whose directory holds an address for the VM that the VM never signed (`Directory::plant_presence`, behind the dev-only `hostile` feature): the laptop's read drops it, keeps the Pi's genuine presence, and counts one lie for the daemon to report. Sabotaged by reading `SignedPeers` without checking. Planted at the server's own time: planted at the test's fixed date, the presence had expired, was left out for that reason, and the first version of this test passed without checking a signature -- the count caught it. |
+| **`red_team_a_coordinator_that_pretends_to_be_old_cannot_talk_a_node_down_to_an_unsigned_list`** | The downgrade, on a real coordinator told to hang up on `SignedPeers` as an older one does (`Directory::play_old`, `hostile` feature). A node with no history still reads it -- the VM is upgraded after the machines -- and the result says `signed: false`, so the daemon logs it; a node that has seen it sign gets a failed read instead. Sabotaged twice: the client falling back regardless, and an unsigned list reported as signed. The daemon's own call to `Contact::signed` is not under test: it lives in `one_round`, which only `acceptance-local.sh` runs. |
 | **`a_contact_publishes_and_reads_on_one_connection_and_the_probe_agrees`** | `Contact` compares the address the UDP probe finds with the one it found last time; if the probe and the TCP connection named different addresses on an ordinary network, a machine that never moved would look moved every round and publish every round. On a real coordinator: the probe of `0.0.0.0:9797` is `127.0.0.1:9797`, the publication sends exactly that, the read on the same connection lists the Pi, and an `announce` is what the probe returns. |
 | **`red_team_the_account_s_pledge_is_the_other_machines_as_the_coordinator_lists_them`** | The laptop learns what the account lends from the coordinator, through `Request::Devices`. The Pi claims 700 GB, the laptop 50 GB: the laptop must remember 700 GB for the others and reach 750 GB for the account. Counting its own entry as well would let it write past what the account earns; leaving the Pi out would hold it to the joining allowance. Sabotaged on the filter that leaves this machine out. |
 | **`a_member_elsewhere_is_given_the_address_that_can_answer_first`** | The unit tests prove the ordering function orders; this proves the lookup *applies* it, and that what a member is handed is the announced address with its announced port. Deleting the call in `coordinator::peers` leaves every unit test green — the shape of a defence that is tested and not wired — and this fails, naming the order it got. |
@@ -1543,7 +1547,7 @@ silence for a regulation that does not exist yet. Nothing reads the record today
 | **`red_team_a_departure_notice_from_another_device_is_refused`** | A history anybody can write about somebody else is worthless to the regulation it is kept for. Two ways in, both refused with nothing recorded: a genuine notice delivered over another device's connection (a replay), and a notice naming a device and signed by another key (a forgery). Then the device itself is heard, so the refusals are not an accident of a broken path. |
 | `a_departure_is_recorded_apart_from_a_silence` | The only reason to record departures is to keep them apart from silences: a device that stopped announcing without a word has none on record. Recording one changes nothing else yet — the device's last presence stands. |
 
-# `itsanas-coord` — claims, directory, accounting (58)
+# `itsanas-coord` — claims, directory, accounting (59)
 
 Catalogued by property rather than test by test: the crate is a library with no
 server yet, and what matters is which rule each group of tests pins down.
@@ -1571,6 +1575,12 @@ It could, and "replaying an old enrolment" was the only case tested.
 | **`red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back`** | A claim dated after a withdrawal, signed with the master secret every keystore holds, is refused out loud and the device stays out of the live set. |
 | **`red_team_a_withdrawal_signed_on_a_slow_clock_still_withdraws`** | A withdrawal wins over a live claim whatever the two signing clocks say. |
 | **`a_later_enrolment_does_not_supersede_a_withdrawal`** | The same rule at `supersedes`, so the directory's refusal is not the only thing keeping a withdrawn device out. |
+
+One more, alone because it is the check a *reader* makes rather than the coordinator:
+
+| Test | What it proves |
+| --- | --- |
+| `a_relayed_presence_is_checked_for_its_signer_and_not_its_date` | `SignedPresence::verify_origin`, for a presence read second-hand: an address changed after signing fails, and a genuine presence passes for a reader whose clock says 1970, where `verify` -- the coordinator's check on arrival, against its own clock -- refuses it as from the future. |
 
 **The two halves of the space bargain agree.** `itsanas space` and both
 provisioners refuse a `--keep` larger than the pledge earns, and the refusal
