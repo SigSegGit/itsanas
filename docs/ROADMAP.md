@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**842 test functions, 4 of them `#[ignore]`d into the slow job, and 99 of
+**852 test functions, 4 of them `#[ignore]`d into the slow job, and 106 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -748,7 +748,10 @@ device and reaching a different one is refused.
   addresses with which of them last worked from here, survive a restart in
   `<home>/address-book`, checked again on load as on the wire, and since
   2b.3 each with the owner's claim when the coordinator sent one -- what a
-  peer may later be handed. Peers do not exchange them yet.
+  peer may be handed. Since peer protocol 6 (2b.3, the same day) peers of one
+  account exchange them (`Request::Presences`), each row checked for both
+  signatures and this account, only for a machine the book already holds, and
+  never older than what it holds; the hourly read is still unconditional.
 
 - **NAT traversal.** A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts

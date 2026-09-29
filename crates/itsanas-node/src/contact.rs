@@ -576,6 +576,162 @@ impl Contact {
             })
             .collect()
     }
+
+    /// Take in the rows a machine of this account relayed
+    /// ([`itsanas_net::Request::Presences`]), keeping only what the book can
+    /// check for itself.
+    ///
+    /// A row is kept only if all of these hold, and each one is an attack it
+    /// refuses:
+    ///
+    /// * it decodes, and both signatures check out for `owner`
+    ///   ([`ClaimedPresence::verify_for`]): a relay cannot forge an address,
+    ///   nor pass off another account's genuine machine as one of this one's;
+    /// * its device is one the book already holds a claim for, from the
+    ///   coordinator or the file. **A relay refreshes addresses; it never
+    ///   introduces a machine.** A device the owner withdrew is dropped by the
+    ///   next coordinator read ([`Self::read`]), and from then on no relay
+    ///   can bring it back with a claim signed before the withdrawal, which
+    ///   `verify_for` cannot date. New machines are learnt from the
+    ///   coordinator, as before;
+    /// * its claim is not older than the one the book holds for that device
+    ///   (the owner's clock against itself);
+    /// * its presence is not older than the latest the book holds for that
+    ///   device (the device's clock against itself): an address the machine
+    ///   has since left cannot be replayed into the book.
+    ///
+    /// A kept row joins as a candidate that has never worked: it is dialled
+    /// after every address that has, and [`MAX_ADDRESSES`] drops never-worked
+    /// ones first, so a relay cannot push out an address that answers. `me`
+    /// is this machine, which the book never lists.
+    pub fn relayed(&mut self, rows: &[Vec<u8>], owner: UserId, me: DeviceId) -> Relayed {
+        let mut outcome = Relayed::default();
+        for row in rows {
+            let Ok(row) = postcard::from_bytes::<ClaimedPresence>(row) else {
+                outcome.refused += 1;
+                continue;
+            };
+            let device = row.presence.presence.device;
+            if device == me {
+                continue;
+            }
+            if row.verify_for(owner).is_err() {
+                outcome.refused += 1;
+                continue;
+            }
+            let Some(held) = self.book.get(&device) else {
+                outcome.refused += 1;
+                continue;
+            };
+            let latest_claim = held
+                .iter()
+                .filter_map(|candidate| candidate.claim.as_ref())
+                .map(|claim| claim.claim.issued_unix)
+                .max();
+            let latest_presence = held
+                .iter()
+                .filter_map(|candidate| candidate.presence.as_ref())
+                .map(|presence| presence.presence.at_unix)
+                .max();
+            let fresh = latest_claim.is_some_and(|at| row.claim.claim.issued_unix >= at)
+                && latest_presence.is_none_or(|at| row.presence.presence.at_unix >= at);
+            if !fresh {
+                outcome.refused += 1;
+                continue;
+            }
+            let address = row.presence.presence.address.clone();
+            self.insert(device, &address, Some(row.presence), Some(row.claim), None);
+            outcome.kept += 1;
+        }
+        outcome
+    }
+
+    /// What this node answers a machine of its account that asks where the
+    /// others are. See [`Board`].
+    #[must_use]
+    pub fn board(&self) -> Board {
+        let members = self
+            .book
+            .iter()
+            .filter(|(_, candidates)| candidates.iter().any(|c| c.claim.is_some()))
+            .map(|(device, _)| *device)
+            .collect();
+        let rows = self
+            .relayable()
+            .into_iter()
+            .filter_map(|row| {
+                let device = row.presence.presence.device;
+                postcard::to_stdvec(&row).ok().map(|bytes| (device, bytes))
+            })
+            .collect();
+        Board { members, rows }
+    }
+}
+
+/// What [`Contact::relayed`] did with a peer's answer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Relayed {
+    /// Rows that joined or refreshed the book.
+    pub kept: usize,
+    /// Rows refused: undecodable, forged, another account's, a machine the
+    /// book does not know, or older than what it holds.
+    pub refused: usize,
+}
+
+/// The book as the listener answers from it: who may ask, and what they get.
+///
+/// A copy, because the book belongs to the daemon's round and the listener
+/// answers on other threads; the daemon replaces it after each round
+/// ([`SharedBoard::replace`]).
+///
+/// **Who may ask:** a device the book holds with this account's claim -- a
+/// machine the coordinator listed as one of this account's, checked by the
+/// owner's signature. Not a device that merely says it belongs: the request
+/// carries nothing, and the caller is the device TLS proved. A machine of the
+/// account the coordinator has not listed here yet is refused until it is;
+/// it is on the coordinator's list and can read it there.
+#[derive(Clone, Debug, Default)]
+pub struct Board {
+    members: BTreeSet<DeviceId>,
+    rows: Vec<(DeviceId, Vec<u8>)>,
+}
+
+/// A [`Board`] shared between the round that writes it and the listener that
+/// answers from it.
+#[derive(Debug, Default)]
+pub struct SharedBoard(std::sync::Mutex<Board>);
+
+impl SharedBoard {
+    /// Replace what the listener answers with.
+    pub fn replace(&self, board: Board) {
+        // A poisoned lock means a listener thread panicked while reading; the
+        // board is a plain value, whole either way.
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = board;
+    }
+}
+
+impl itsanas_net::Relay for SharedBoard {
+    fn presences_for(&self, caller: DeviceId) -> Option<Vec<Vec<u8>>> {
+        let board = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !board.members.contains(&caller) {
+            return None;
+        }
+        // Not the caller's own rows: it knows where it is.
+        Some(
+            board
+                .rows
+                .iter()
+                .filter(|(device, _)| *device != caller)
+                .map(|(_, row)| row.clone())
+                .collect(),
+        )
+    }
 }
 
 /// Worked most recently first, then never-worked public before never-worked
@@ -1152,6 +1308,235 @@ mod tests {
             devices,
             [device(2)].into(),
             "a withdrawn device kept its place and would be dialled every round"
+        );
+    }
+
+    /// Device `seed` at `address` on its own clock `at`, with `account`'s
+    /// claim issued at `issued`.
+    fn dated(account: &UserKeys, seed: u8, address: &str, at: u64, issued: u64) -> ClaimedPresence {
+        let keys = DeviceKeys::from_seed(&SecretBytes::new([seed; 32]));
+        ClaimedPresence {
+            presence: Presence {
+                device: keys.device_id(),
+                address: address.to_owned(),
+                at_unix: at,
+            }
+            .sign(&keys),
+            claim: NodeClaim {
+                owner: account.user_id(),
+                device: keys.device_id(),
+                pledged_bytes: 0,
+                issued_unix: issued,
+                revoked: false,
+            }
+            .sign(account),
+        }
+    }
+
+    fn encoded(rows: &[ClaimedPresence]) -> Vec<Vec<u8>> {
+        rows.iter()
+            .map(|row| postcard::to_stdvec(row).expect("encode"))
+            .collect()
+    }
+
+    /// A book that got `rows` from the coordinator.
+    fn book_of(rows: &[ClaimedPresence]) -> Contact {
+        let presences: Vec<_> = rows.iter().map(|row| row.presence.clone()).collect();
+        let mut contact = Contact::new();
+        contact.read(&found(&presences), &presences, rows, Instant::now());
+        contact
+    }
+
+    fn this_machine() -> DeviceId {
+        device(0xEE)
+    }
+
+    const AWAY: &str = "203.0.113.7:9797";
+
+    /// The point of the step: the Pi moved while the coordinator was down,
+    /// the laptop reached it since, and tells this machine. The new address
+    /// joins behind the one that worked, and is relayed onward.
+    #[test]
+    fn a_newer_address_relayed_by_a_machine_of_the_account_joins_the_book() {
+        let pi = dated(&owner(1), 2, HOME, 100, 10);
+        let mut contact = book_of(std::slice::from_ref(&pi));
+        contact.worked(pi.presence.presence.device, HOME, 1000);
+
+        let moved = dated(&owner(1), 2, AWAY, 200, 10);
+        let outcome = contact.relayed(&encoded(std::slice::from_ref(&moved)), me(), this_machine());
+
+        assert_eq!(
+            outcome,
+            Relayed {
+                kept: 1,
+                refused: 0
+            }
+        );
+        let addresses: Vec<_> = contact.candidates().into_iter().map(|(_, a)| a).collect();
+        assert_eq!(
+            addresses,
+            vec![HOME.to_owned(), AWAY.to_owned()],
+            "a relayed address must join behind the one that worked, never ahead of it"
+        );
+        assert!(
+            contact.relayable().contains(&moved),
+            "a kept row is not passed on"
+        );
+    }
+
+    /// Sabotage: skip `verify_for` in `relayed`.
+    #[test]
+    fn red_team_a_peer_cannot_hand_out_a_presence_it_forged() {
+        let pi = dated(&owner(1), 2, HOME, 100, 10);
+        let mut contact = book_of(std::slice::from_ref(&pi));
+        let mut forged = dated(&owner(1), 2, AWAY, 200, 10);
+        forged.presence.presence.address = "198.51.100.66:9797".to_owned();
+
+        let outcome = contact.relayed(&encoded(&[forged]), me(), this_machine());
+
+        assert_eq!(
+            outcome,
+            Relayed {
+                kept: 0,
+                refused: 1
+            }
+        );
+        assert_eq!(
+            contact.candidates(),
+            vec![(pi.presence.presence.device, HOME.to_owned())],
+            "an address the device never signed reached the book: the relay chooses where this \
+             machine dials"
+        );
+    }
+
+    /// A relay holds genuine presences of other accounts' machines, each
+    /// signed by its device and claimed by its owner. None of them is ours.
+    /// Sabotage: skip `verify_for` in `relayed`.
+    #[test]
+    fn red_team_a_relay_cannot_pass_off_another_accounts_machine_as_ours() {
+        let pi = dated(&owner(1), 2, HOME, 100, 10);
+        let mut contact = book_of(std::slice::from_ref(&pi));
+        // The same device, claimed by somebody else at a newer date: it would
+        // pass every date check, and only the owner's signature refuses it.
+        let theirs = dated(&owner(2), 2, AWAY, 200, 20);
+
+        let outcome = contact.relayed(&encoded(&[theirs]), me(), this_machine());
+
+        assert_eq!(
+            outcome,
+            Relayed {
+                kept: 0,
+                refused: 1
+            }
+        );
+        assert_eq!(
+            contact.candidates().len(),
+            1,
+            "another account's claim was taken as ours"
+        );
+    }
+
+    /// The owner withdrew the Pi; the coordinator stopped listing it, and the
+    /// book dropped it. A relay still holds its old, unrevoked claim, which
+    /// `verify_for` cannot date. Sabotage: let `relayed` take a device the
+    /// book does not hold.
+    #[test]
+    fn red_team_a_relay_cannot_bring_back_a_machine_the_owner_withdrew() {
+        let pi = dated(&owner(1), 2, HOME, 100, 10);
+        let laptop = dated(&owner(1), 3, "192.168.1.30:9797", 100, 10);
+        let mut contact = book_of(&[pi.clone(), laptop.clone()]);
+        // The next read lists the laptop only: the Pi was withdrawn.
+        contact.read(
+            &found(std::slice::from_ref(&laptop.presence)),
+            std::slice::from_ref(&laptop.presence),
+            std::slice::from_ref(&laptop),
+            Instant::now(),
+        );
+
+        let replayed = dated(&owner(1), 2, AWAY, 300, 10);
+        let outcome = contact.relayed(&encoded(&[replayed]), me(), this_machine());
+
+        assert_eq!(
+            outcome,
+            Relayed {
+                kept: 0,
+                refused: 1
+            }
+        );
+        assert!(
+            contact
+                .candidates()
+                .iter()
+                .all(|(d, _)| *d != pi.presence.presence.device),
+            "a withdrawn machine is back in the book on a relay's word, and would be dialled \
+             and relayed onward"
+        );
+    }
+
+    /// The Pi left `AWAY` for `HOME`. A relay replays its genuine, older
+    /// presence at `AWAY`. Sabotage: drop the presence-date check.
+    #[test]
+    fn red_team_a_peer_cannot_strand_a_machine_at_an_address_it_left() {
+        let pi = dated(&owner(1), 2, HOME, 200, 10);
+        let mut contact = book_of(std::slice::from_ref(&pi));
+
+        let stale = dated(&owner(1), 2, AWAY, 100, 10);
+        let outcome = contact.relayed(&encoded(&[stale]), me(), this_machine());
+
+        assert_eq!(
+            outcome,
+            Relayed {
+                kept: 0,
+                refused: 1
+            }
+        );
+        assert_eq!(
+            contact.candidates(),
+            vec![(pi.presence.presence.device, HOME.to_owned())],
+            "an address the machine left was replayed into the book: a connect timeout every \
+             round, and relayed onward"
+        );
+    }
+
+    /// The owner re-issued the Pi's claim; a relay offers the older one.
+    /// Sabotage: drop the claim-date check.
+    #[test]
+    fn red_team_a_claim_older_than_the_one_held_is_refused() {
+        let pi = dated(&owner(1), 2, HOME, 100, 20);
+        let mut contact = book_of(std::slice::from_ref(&pi));
+
+        let older = dated(&owner(1), 2, AWAY, 200, 10);
+        let outcome = contact.relayed(&encoded(&[older]), me(), this_machine());
+
+        assert_eq!(
+            outcome,
+            Relayed {
+                kept: 0,
+                refused: 1
+            },
+            "a claim the owner has replaced was taken back in"
+        );
+    }
+
+    /// Sabotage: drop the `members` check in `SharedBoard::presences_for`.
+    #[test]
+    fn red_team_a_stranger_asking_for_the_accounts_presences_is_refused() {
+        use itsanas_net::Relay;
+
+        let pi = dated(&owner(1), 2, HOME, 100, 10);
+        let laptop = dated(&owner(1), 3, "192.168.1.30:9797", 100, 10);
+        let shared = SharedBoard::default();
+        shared.replace(book_of(&[pi.clone(), laptop.clone()]).board());
+
+        assert_eq!(
+            shared.presences_for(device(0x77)),
+            None,
+            "a device that is not one of this account's machines was told where they are"
+        );
+        assert_eq!(
+            shared.presences_for(laptop.presence.presence.device),
+            Some(encoded(&[pi])),
+            "a machine of the account should get the others, and not itself"
         );
     }
 }

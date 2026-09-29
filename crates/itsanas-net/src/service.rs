@@ -66,12 +66,36 @@ impl Pledge {
     }
 }
 
+/// Where a node keeps what it knows of its account's machines, for
+/// [`Request::Presences`].
+///
+/// A trait because the book lives in `itsanas-node` and its rows are the
+/// coordinator's types, which this crate does not depend on: the service asks,
+/// the book decides.
+pub trait Relay: Sync {
+    /// The rows to hand `caller`, each an encoded claimed presence; `None` if
+    /// `caller` is not a machine of this node's account as the book knows it.
+    ///
+    /// `caller` is the device TLS proved, never one a request named.
+    fn presences_for(&self, caller: DeviceId) -> Option<Vec<Vec<u8>>>;
+}
+
+/// What a node that keeps no book answers [`Request::Presences`] with.
+pub const NO_BOOK: &str = "this node relays no presences";
+
+/// What a node answers a device it does not count as its account's.
+///
+/// The same words whether the caller is a stranger or a machine of the account
+/// the coordinator has not listed yet: which of the two it is would be worth
+/// knowing to somebody mapping accounts.
+pub const NOT_YOURS: &str = "not a machine of this account, as far as this node knows";
+
 /// Answers peer requests from a node's own store and its vault.
-#[derive(Debug)]
 pub struct PeerService<'a> {
     store: &'a Store,
     vault: &'a Vault,
     pledge: Pledge,
+    relay: Option<&'a dyn Relay>,
     /// Held across "is there room" and "store it".
     ///
     /// The listener serves connections concurrently, and the pledge check is a
@@ -82,6 +106,16 @@ pub struct PeerService<'a> {
     storing: std::sync::Mutex<()>,
 }
 
+impl std::fmt::Debug for PeerService<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PeerService")
+            .field("device", &self.store.device_id())
+            .field("pledge", &self.pledge)
+            .field("relays", &self.relay.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a> PeerService<'a> {
     #[must_use]
     pub const fn new(store: &'a Store, vault: &'a Vault, pledge: Pledge) -> Self {
@@ -89,8 +123,17 @@ impl<'a> PeerService<'a> {
             store,
             vault,
             pledge,
+            relay: None,
             storing: std::sync::Mutex::new(()),
         }
+    }
+
+    /// Answer [`Request::Presences`] from `relay`. Without it, every such
+    /// request is refused with [`NO_BOOK`].
+    #[must_use]
+    pub fn with_relay(mut self, relay: &'a dyn Relay) -> Self {
+        self.relay = Some(relay);
+        self
     }
 
     /// This node's device identity.
@@ -242,6 +285,8 @@ impl<'a> PeerService<'a> {
                 Ok(Response::Stored { accepted: true })
             }
 
+            Request::Presences => Ok(self.presences(caller)),
+
             Request::Hosted { chunks } => {
                 // A claim, recorded and then checked. The storage challenges
                 // this node already runs are what turn it into evidence: a peer
@@ -252,6 +297,25 @@ impl<'a> PeerService<'a> {
                 self.store.record_holders(chunks, &caller)?;
                 Ok(Response::Stored { accepted: true })
             }
+        }
+    }
+
+    /// The account's machines, for a caller the book counts as one of them.
+    ///
+    /// Trimmed to the wire's bounds here as well as by the book, so a book
+    /// that grew past them costs the caller rows and never the connection.
+    fn presences(&self, caller: DeviceId) -> Response {
+        let Some(relay) = self.relay else {
+            return Response::Refused(NO_BOOK.to_owned());
+        };
+        match relay.presences_for(caller) {
+            Some(rows) => Response::Presences(
+                rows.into_iter()
+                    .filter(|row| row.len() <= crate::protocol::MAX_RELAYED_ROW_BYTES)
+                    .take(crate::protocol::MAX_RELAYED_ROWS)
+                    .collect(),
+            ),
+            None => Response::Refused(NOT_YOURS.to_owned()),
         }
     }
 
@@ -1025,6 +1089,78 @@ mod tests {
         {
             Response::Segments(segments) => assert_eq!(segments.len(), 2),
             other => panic!("expected segments, got {other:?}"),
+        }
+    }
+
+    /// A book that knows one member and hands it the rows it was given.
+    struct Book {
+        member: DeviceId,
+        rows: Vec<Vec<u8>>,
+    }
+
+    impl Relay for Book {
+        fn presences_for(&self, caller: DeviceId) -> Option<Vec<Vec<u8>>> {
+            (caller == self.member).then(|| self.rows.clone())
+        }
+    }
+
+    #[test]
+    fn a_node_that_keeps_no_book_says_so() {
+        let node = node(&alice(), 1);
+        let response = service(&node)
+            .handle_from_test(&Request::Presences)
+            .unwrap();
+        assert_eq!(response, Response::Refused(NO_BOOK.to_owned()));
+    }
+
+    #[test]
+    fn red_team_presences_are_answered_to_the_device_tls_proved_and_no_other() {
+        // The request names nobody on purpose: who may ask is the device the
+        // connection proved. Sabotage: pass anything but `caller` to the book,
+        // and a stranger reads the account's addresses.
+        let node = node(&alice(), 1);
+        let member = DeviceId::from_bytes([0x11; 32]);
+        let book = Book {
+            member,
+            rows: vec![vec![1, 2, 3]],
+        };
+        let service = service(&node).with_relay(&book);
+
+        assert_eq!(
+            service.handle(&Request::Presences, member).unwrap(),
+            Response::Presences(vec![vec![1, 2, 3]])
+        );
+        assert_eq!(
+            service
+                .handle(&Request::Presences, DeviceId::from_bytes([0x22; 32]))
+                .unwrap(),
+            Response::Refused(NOT_YOURS.to_owned()),
+            "a stranger was handed the account's machines"
+        );
+    }
+
+    #[test]
+    fn an_answer_never_exceeds_what_the_receiver_accepts() {
+        // The receiver refuses a padded answer whole (`PeerClient::presences`),
+        // so a book past the bounds must cost rows here, not the answer.
+        let node = node(&alice(), 1);
+        let member = DeviceId::from_bytes([0x11; 32]);
+        let mut rows = vec![vec![0; crate::protocol::MAX_RELAYED_ROW_BYTES + 1]];
+        rows.extend(std::iter::repeat_n(
+            vec![7],
+            crate::protocol::MAX_RELAYED_ROWS + 5,
+        ));
+        let book = Book { member, rows };
+        match service(&node)
+            .with_relay(&book)
+            .handle(&Request::Presences, member)
+            .unwrap()
+        {
+            Response::Presences(rows) => {
+                assert_eq!(rows.len(), crate::protocol::MAX_RELAYED_ROWS);
+                assert!(rows.iter().all(|row| row == &vec![7]));
+            }
+            other => panic!("expected presences, got {other:?}"),
         }
     }
 }

@@ -10,15 +10,43 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0o
-TITLE: Peer protocol 6: Request::Presences, relaying the book's claimed presences between an account's machines (phase 2b.3, step c)
+TITLE: Make the hourly coordinator read conditional on the book and the relay (phase 2b, item 4)
 WRITTEN-AT: 2026-09-29
-BASE: ed09100
+BASE: 4a25960
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-29, peers of one account relay where the others are** (§8 0o
+2b.3 step c, branch `ccr-c9f4329d-v9cnbp`). Peer protocol 6
+(`PROTOCOL_VERSION = 6`, `PROTOCOL_WITH_PRESENCES`) appends
+`Request::Presences` (wire 13, carries nothing) and `Response::Presences(Vec<Vec<u8>>)`
+(wire 10), each row a postcard `ClaimedPresence` -- bytes, because
+`itsanas-net` must not depend on `itsanas-coord` (redb, rustls). The service
+answers through the `Relay` trait (`PeerService::with_relay`); the daemon's
+`SharedBoard` (`contact.rs`) is refreshed from the book after load and after
+each round, and answers only a caller the book holds with a claim.
+`Contact::relayed(rows, owner, me)` keeps a row only if `verify_for(owner)`
+passes, the device is already in the book, and neither its claim nor its
+presence is older than the book's. **A relay never introduces a machine** --
+that is what refuses a withdrawn device's replayed old claim: the
+coordinator's read has already dropped it. The daemon asks only in
+`dial_listed` (`sync_once`'s `ask_presences`), after the round.
+
+Rodin: `sync_once` first asked every pinned peer, LAN strangers included,
+and threw their answers away -- fixed with `ask_presences`. Named, not fixed:
+a presence signed on a clock far ahead (2099) that arrives by relay becomes
+"latest" and blinds the relay for that device (the coordinator's read still
+works, it has no date filter); a relayed address is dialled from the next
+round, not this one (`candidates()` is a snapshot). **Not done, 🟨:** no test
+that a v5 peer is not asked; the daemon wiring has no test of its own. Seven
+red-team/functional tests in `contact.rs`, three in `service.rs`; six
+sabotages, six red. Trap: the container's clippy (1.94) flags a pre-existing
+`doc_markdown` in `main.rs:2554` that CI's stable does not; ran it with that
+lint allowed.
 
 **2026-09-29, the address book keeps each claim** (§8 0o 2b.3 steps a-b,
 branch `step/8.0o-book-claims`). `Candidate` in
@@ -2115,7 +2143,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
          presence loses it on load** (sabotage: skip `verify_origin` there).
          Update `ROADMAP.md`'s sentence "Until a restart: that memory is not
          on disk yet" in the same commit.
-      3. **`NEXT`: step (c).** First half ✅ (2026-09-29, #185): the
+      3. ✅ *Relay* (2026-09-29, see §0): step (c) built as peer protocol
+         6. The plan as it stood: First half ✅ (2026-09-29, #185): the
          coordinator's list carries each owner-signed claim
          (`Request::ClaimedPeers`, `ClaimedPresence::verify_for`), and
          `Contacted::claimed` holds the checked pairs. (a) and (b) ✅
@@ -2161,10 +2190,24 @@ Detail and measurements are in ROADMAP.md; this is the map.
          the claim verifies, is not revoked, and names the account it asked
          about. The coordinator's own list has the same gap and is harmless
          only because `sync_once` decides trust on the connection.
-      4. Then, and only then, make the hourly read conditional: read when a
+      4. **`NEXT`.** Then, and only then, make the hourly read conditional: read when a
          book device was reached by no address this round *and* gossip had
          nothing newer. That is where "a fleet at home reads never" becomes
-         true.
+         true. What is there, verified 2026-09-29: `Contact::due`
+         (`crates/itsanas-node/src/contact.rs`) sets `read = publish ||
+         read_at.is_none()`; publication stays hourly (it is what makes this
+         machine findable), so the saving is the read on that connection,
+         not the connection. `dial_listed` (`crates/itsanas-cli/src/daemon.rs`)
+         knows which book devices answered, and `Contact::relayed` returns
+         `Relayed { kept, refused }`. Decide first whether skipping a read
+         on an already-open connection is worth anything; if not, item 4
+         reduces to "never learn a newly enrolled machine late", and the
+         honest move is to mark it moot and go to phase 3 or 0p. Red-team
+         test expected if built: **a relay that answers but withholds a
+         machine's new address does not suppress the read** (the device
+         still unreached must force it). Carry Rodin's 2099-clock finding
+         (§0): "newer" from a relay must not be trusted past the reader's
+         own clock plus `MAX_CLOCK_SKEW` when that clock is sane.
 
       Expected red-team tests, one per attack and named for it: a peer
       handing out a presence it forged (sabotage: skip the verify); a peer
