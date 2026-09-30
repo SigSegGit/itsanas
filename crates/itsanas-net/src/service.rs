@@ -443,7 +443,10 @@ impl<'a> PeerService<'a> {
     }
 
     fn would_exceed_pledge(&self, incoming: usize) -> Result<bool> {
-        let held = self.vault.stats()?.bytes;
+        // A running total, not `stats()`: this runs under the storing lock on
+        // every offer, and a walk here let a peer sending offers it knew would
+        // be refused hold up every honest store behind a pass over the disk.
+        let held = self.vault.held_bytes()?;
         Ok(held.saturating_add(incoming as u64) > self.pledge.bytes)
     }
 }

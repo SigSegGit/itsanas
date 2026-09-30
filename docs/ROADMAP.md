@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**875 test functions, 4 of them `#[ignore]`d into the slow job, and 127 of
+**881 test functions, 4 of them `#[ignore]`d into the slow job, and 132 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1422,15 +1422,21 @@ entirely. Plus two in the installers — `--clean` piped from the network ran
 script that removes a service and a passphrase file, and the unsafe-code gate
 was never in CI.
 
-**A refused request still costs the host a full walk of its vault.**
-`would_exceed_pledge` reads `Vault::stats()`, which iterates every owner, lists
-every blob address and stats each file — so a `StoreChunk` or `StoreSegment`
-that is going to be *refused* costs O(vault) first. The segment half of that is
-now a running total; the chunk half is not, though `vault_chunks` already stores
-each chunk's size and could be summed the same way. Nobody has measured what
-this costs on a full disk, and that measurement is the next honest step rather
-than a guess. Until then a peer can make a host work harder than it should, for
-free — bounded by connection throughput, destroying nothing.
+**A refused request cost the host a full walk of its vault — fixed
+2026-09-30.** `would_exceed_pledge` read `Vault::stats()`, which lists every
+owner's blobs and stats each file, under the storing lock. Measured on the
+laptop (release build, warm cache, 64-byte chunks): 70 ms at 1,000 chunks,
+686 ms at 10,000, 3.4 s at 50,000 — per refused offer, with every honest store
+queued behind it. It and `host_for` now read `Vault::held_bytes`, a total of
+`vault_chunks` kept in the same transaction as each row (about 1 µs at any
+size). A crash between a blob and its row is caught by a mark set at open and
+cleared on a clean drop -- and left set by a write that failed after its blob,
+or an open whose rebuild failed; finding it set, the next open rebuilds index
+and total from the directories and sweeps staging leftovers. The cost: one
+walk per start after an unclean stop, which is most starts on Android and a
+Windows daemon stopped by the Task Scheduler. What is left: `Node::held_for_others` still walks our
+*own* account's blobs in the vault (`stats_for`), and `itsanas status` still
+walks, on purpose — it is the check the total is tested against.
 
 **One peer could hold the inbound listener — fixed 2026-09-17, with what is
 left.** The peer server handled one connection at a time, so a single silent

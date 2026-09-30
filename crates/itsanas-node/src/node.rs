@@ -419,7 +419,8 @@ impl Node {
     ///
     /// If the vault cannot be read.
     pub fn held_for_others(&self) -> Result<u64> {
-        let all = self.vault.stats()?.bytes;
+        // The running total, equal to `stats().bytes` without the walk.
+        let all = self.vault.held_bytes()?;
         let owner = self.store.owner();
         if !self.vault.owners()?.contains(&owner) {
             return Ok(all);

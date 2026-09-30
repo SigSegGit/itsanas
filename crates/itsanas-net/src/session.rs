@@ -797,7 +797,9 @@ const PER_ROUND: u32 = 32;
 pub fn host_for(vault: &Vault, client: &mut PeerClient, pledge: Pledge) -> Result<HostReport> {
     let mut report = HostReport::default();
 
-    let held = vault.stats()?.bytes;
+    // The same total the host's `StoreChunk` check reads, so both paths
+    // refuse at the same byte, without walking the vault each round.
+    let held = vault.held_bytes()?;
     if held >= pledge.bytes {
         report.pledge_full = true;
         return Ok(report);

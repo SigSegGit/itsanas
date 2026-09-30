@@ -51,7 +51,7 @@ const CHAIN_LENGTHS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("vau
 ///
 /// # Why this exists, and what it was worth
 ///
-/// `would_exceed_pledge` reads `Vault::stats().bytes`, and `bytes` was the sum
+/// `would_exceed_pledge` read `Vault::stats().bytes`, and `bytes` was the sum
 /// of the *chunk* blobs alone. Segments live in `vault_segments` and counted
 /// for nothing, so `held` stayed at zero however many arrived: every
 /// `StoreSegment` passed the quota on any host whose pledge exceeded one
@@ -82,6 +82,28 @@ const HEADS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("vault_hea
 /// same set", which is the question that exists to be cheap.
 const CHUNKS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("vault_chunks");
 
+/// Running totals, keyed by name: [`CHUNK_BYTES`] and [`OPEN`].
+///
+/// # Why a total, and why it is not trusted blindly
+///
+/// Every `StoreChunk` and `StoreSegment` asks "would this exceed the pledge",
+/// under the storing lock. Answering it with [`Vault::stats`] listed every
+/// owner's blobs and stat'ed each file, so a peer spamming offers it knew would
+/// be *refused* delayed every honest store behind a full walk of the disk. The
+/// sum of `vault_chunks` is kept here instead, changed in the same transaction
+/// as the row it sums, so the two cannot disagree after a commit.
+///
+/// The one place they can drift from the *disk* is a crash between a blob
+/// write (or unlink) and that transaction. [`OPEN`] catches it: set when the
+/// vault opens, cleared when it is dropped, so finding it set at open means
+/// the last process died mid-flight, and the index and total are rebuilt from
+/// the directories before anything reads them.
+const TOTALS: TableDefinition<'_, &str, u64> = TableDefinition::new("vault_totals");
+/// Sum of every `vault_chunks` value: the chunk half of what the pledge counts.
+const CHUNK_BYTES: &str = "chunk_bytes";
+/// 1 while a process has the vault open; 0 after a clean drop.
+const OPEN: &str = "open";
+
 /// Bytes in a `owner ‖ device` key.
 const CHAIN_KEY_LEN: usize = 64;
 
@@ -105,6 +127,71 @@ fn segment_key(owner: UserId, device: DeviceId, position: u64) -> Vec<u8> {
 pub struct Vault {
     root: PathBuf,
     db: Database,
+    /// Held across a blob write or unlink and the transaction that indexes it.
+    ///
+    /// Without it two puts of one address with different bytes (a hostile peer
+    /// on two connections, or `host_for` racing a `StoreChunk`) could index
+    /// one length while the disk keeps the other, and the total would lie by
+    /// the difference -- in the direction that lets the pledge be overrun.
+    chunk_writes: std::sync::Mutex<()>,
+    /// This process may have left the disk and the index apart, so `Drop`
+    /// must not mark the close clean.
+    ///
+    /// Set until `open` has finished (a rebuild that failed half-way is the
+    /// state the mark exists to catch), and by any chunk write that did not
+    /// reach its commit -- an error or a panic after the blob was written or
+    /// unlinked, ENOSPC on the redb commit being the likely one. Without it a
+    /// clean shutdown after such a failure blessed the drift for good.
+    suspect: std::sync::atomic::AtomicBool,
+}
+
+/// Marks the vault suspect unless defused: held across a blob write or
+/// unlink and the commit that indexes it, so an early return or a panic in
+/// between is remembered.
+struct Unsure<'a> {
+    suspect: &'a std::sync::atomic::AtomicBool,
+    armed: bool,
+}
+
+impl<'a> Unsure<'a> {
+    fn arm(suspect: &'a std::sync::atomic::AtomicBool) -> Self {
+        Self {
+            suspect,
+            armed: true,
+        }
+    }
+
+    fn defuse(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for Unsure<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.suspect
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// A failure to inject at a named point, so the tests can fail the
+    /// steps the crash handling exists for.
+    static FAULT: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
+}
+
+/// Fail here if a test asked for it; nothing in a normal build.
+// The `Result` is the point: callers `?` it, and only tests make it fail.
+#[cfg_attr(not(test), allow(clippy::unnecessary_wraps))]
+fn fault(point: &'static str) -> Result<()> {
+    #[cfg(test)]
+    if FAULT.with(std::cell::Cell::get) == Some(point) {
+        return Err(StoreError::Corrupt(format!("injected fault: {point}")));
+    }
+    let _ = point;
+    Ok(())
 }
 
 /// What a vault is holding, for quota accounting and `itsanas status`.
@@ -164,13 +251,49 @@ impl Vault {
             let _ = txn.open_table(CHAIN_BYTES)?;
             let _ = txn.open_table(HEADS)?;
             let _ = txn.open_table(CHUNKS)?;
+            let _ = txn.open_table(TOTALS)?;
         }
         txn.commit()?;
 
-        let vault = Self { root, db };
-        vault.backfill_chunks()?;
+        let vault = Self {
+            root,
+            db,
+            chunk_writes: std::sync::Mutex::new(()),
+            // Suspect until the rebuild below has finished: if it fails, the
+            // vault is dropped here and must leave the mark as it found it.
+            suspect: std::sync::atomic::AtomicBool::new(true),
+        };
+        vault.reconcile_chunks_if_needed()?;
         vault.backfill_segment_bytes()?;
+
+        let txn = vault.db.begin_write()?;
+        {
+            txn.open_table(TOTALS)?.insert(OPEN, 1)?;
+        }
+        txn.commit()?;
+        vault
+            .suspect
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(vault)
+    }
+
+    /// Drop the vault as a crash would: without the clean-close mark.
+    #[cfg(test)]
+    pub(crate) fn abandon(self) {
+        self.suspect
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The chunk-writes lock, recovered if a panic poisoned it.
+    ///
+    /// Poisoning means a panic between a blob write and its index row, which
+    /// is the crash case in miniature; the panic's `Unsure` marks the vault
+    /// suspect so the next open rebuilds, and
+    /// refusing every later write would turn one bug into a dead host.
+    fn chunk_writes(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.chunk_writes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Per-owner blob directory.
@@ -189,16 +312,34 @@ impl Vault {
     /// Returns whether it was newly stored. The bytes are opaque and are not
     /// validated — see the module docs for why that is not a gap at this layer.
     pub fn put_chunk(&self, owner: UserId, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
-        let stored = self.blobs_for(owner)?.put(address, sealed)?;
+        let _writing = self.chunk_writes();
+        let unsure = Unsure::arm(&self.suspect);
+        let blobs = self.blobs_for(owner)?;
+        let stored = blobs.put(address, sealed)?;
+        fault("after the blob")?;
+        // The size on disk, not `sealed.len()`: a re-put of a held address
+        // keeps the old file, and indexing the new length would let a peer
+        // store 8 MiB, re-offer the address with 1 byte, and have the total
+        // forget the difference -- over and over, past the pledge.
+        let size = blobs
+            .size_of(address)?
+            .ok_or_else(|| StoreError::Corrupt("a chunk just written is not on disk".to_owned()))?;
         // Indexed whether or not it was new: a blob present without its index
         // row is exactly the state that makes a reconciliation disagree for
         // ever, and re-inserting an existing key costs nothing.
         let txn = self.db.begin_write()?;
         {
-            txn.open_table(CHUNKS)?
-                .insert(chunk_key(owner, address).as_slice(), sealed.len() as u64)?;
+            let old = txn
+                .open_table(CHUNKS)?
+                .insert(chunk_key(owner, address).as_slice(), size)?
+                .map(|old| old.value());
+            let mut totals = txn.open_table(TOTALS)?;
+            let total = totals.get(CHUNK_BYTES)?.map_or(0, |total| total.value());
+            let total = total.saturating_sub(old.unwrap_or(0)).saturating_add(size);
+            totals.insert(CHUNK_BYTES, total)?;
         }
         txn.commit()?;
+        unsure.defuse();
         Ok(stored)
     }
 
@@ -214,14 +355,46 @@ impl Vault {
 
     /// Drop a chunk.
     pub fn remove_chunk(&self, owner: UserId, address: &ChunkId) -> Result<bool> {
+        let _writing = self.chunk_writes();
+        let unsure = Unsure::arm(&self.suspect);
         let removed = self.blobs_for(owner)?.remove(address)?;
         let txn = self.db.begin_write()?;
         {
-            txn.open_table(CHUNKS)?
-                .remove(chunk_key(owner, address).as_slice())?;
+            let old = txn
+                .open_table(CHUNKS)?
+                .remove(chunk_key(owner, address).as_slice())?
+                .map(|old| old.value());
+            if let Some(old) = old {
+                let mut totals = txn.open_table(TOTALS)?;
+                let total = totals.get(CHUNK_BYTES)?.map_or(0, |total| total.value());
+                totals.insert(CHUNK_BYTES, total.saturating_sub(old))?;
+            }
         }
         txn.commit()?;
+        unsure.defuse();
         Ok(removed)
+    }
+
+    /// Every foreign byte this vault holds, without walking it.
+    ///
+    /// Equal to [`Self::stats`]`.bytes` -- chunk blobs plus log segments --
+    /// and it is what the pledge is checked against. `stats` walks the
+    /// directories and stays the answer for `itsanas status`; this reads two
+    /// running totals, so a request that will be refused costs a lookup, not
+    /// a pass over every file. See `TOTALS` for why the two cannot drift.
+    pub fn held_bytes(&self) -> Result<u64> {
+        let txn = self.db.begin_read()?;
+        let mut held = txn
+            .open_table(TOTALS)?
+            .get(CHUNK_BYTES)?
+            .map_or(0, |total| total.value());
+        // One row per device chain, not per object: small whatever the vault
+        // holds.
+        for row in txn.open_table(CHAIN_BYTES)?.iter()? {
+            let (_, bytes) = row?;
+            held = held.saturating_add(bytes.value());
+        }
+        Ok(held)
     }
 
     /// Every chunk address held for one owner, in ascending order.
@@ -273,41 +446,69 @@ impl Vault {
         }
     }
 
-    /// Populate the chunk index from the directories, once.
+    /// Rebuild the chunk index and its total from the directories, when they
+    /// cannot be trusted.
     ///
-    /// Vaults created before the index existed have blobs and no rows. Doing it
-    /// at open is a single walk on the first start after an upgrade, which is
-    /// the cheapest honest moment: the alternative is a vault that silently
-    /// reports an empty set and makes every peer re-send everything it holds.
-    fn backfill_chunks(&self) -> Result<()> {
+    /// Three cases, each one walk: a vault from before the index (blobs, no
+    /// rows), a vault from before the total (rows, no total), and a vault the
+    /// last process did not close (`OPEN` still set), where a crash between a
+    /// blob write or unlink and its transaction may have left a blob unindexed
+    /// or a row with no blob. The directories are the authority; the index is
+    /// made to agree with them, rows removed as well as added. A clean close
+    /// costs nothing at the next open.
+    fn reconcile_chunks_if_needed(&self) -> Result<()> {
         let txn = self.db.begin_read()?;
-        let indexed = txn.open_table(CHUNKS)?.iter()?.next().is_some();
+        let totals = txn.open_table(TOTALS)?;
+        let unclean = totals.get(OPEN)?.is_some_and(|open| open.value() != 0);
+        let untotalled = totals.get(CHUNK_BYTES)?.is_none();
+        drop(totals);
         drop(txn);
-        if indexed {
+        if !unclean && !untotalled {
             return Ok(());
         }
+        fault("rebuilding")?;
 
+        let mut on_disk: std::collections::BTreeMap<[u8; 64], u64> =
+            std::collections::BTreeMap::new();
         for owner in self.owners()? {
-            let addresses = self.blobs_for(owner)?.addresses()?;
-            if addresses.is_empty() {
-                continue;
-            }
-            let txn = self.db.begin_write()?;
-            {
-                let mut table = txn.open_table(CHUNKS)?;
-                for address in addresses {
-                    let size = self.blobs_for(owner)?.size_of(&address)?.unwrap_or(0);
-                    table.insert(chunk_key(owner, &address).as_slice(), size)?;
+            let blobs = self.blobs_for(owner)?;
+            // A crash mid-write also leaves its staging file, counted by
+            // nothing and never reclaimed unless swept here.
+            blobs.sweep_staging()?;
+            for address in blobs.addresses()? {
+                if let Some(size) = blobs.size_of(&address)? {
+                    on_disk.insert(chunk_key(owner, &address), size);
                 }
             }
-            txn.commit()?;
         }
+
+        let txn = self.db.begin_write()?;
+        {
+            let mut table = txn.open_table(CHUNKS)?;
+            let mut stale = Vec::new();
+            for row in table.iter()? {
+                let (key, _) = row?;
+                if !on_disk.contains_key(key.value()) {
+                    stale.push(key.value().to_vec());
+                }
+            }
+            for key in stale {
+                table.remove(key.as_slice())?;
+            }
+            let mut total = 0u64;
+            for (key, size) in &on_disk {
+                table.insert(key.as_slice(), *size)?;
+                total = total.saturating_add(*size);
+            }
+            txn.open_table(TOTALS)?.insert(CHUNK_BYTES, total)?;
+        }
+        txn.commit()?;
         Ok(())
     }
 
     /// Total up the segments a vault already holds, once.
     ///
-    /// Same reasoning as `backfill_chunks`, and the same cost: one walk on the
+    /// Same reasoning as the chunk reconciliation, and the same cost: one walk on the
     /// first start after an upgrade. Without it a vault that filled up before
     /// segments counted would report zero for them for ever, which is the bug
     /// this table exists to fix, preserved.
@@ -614,6 +815,27 @@ impl Vault {
         }
 
         Ok(stats)
+    }
+}
+
+impl Drop for Vault {
+    /// Mark the close clean, so the next open trusts the totals.
+    ///
+    /// Best effort: if this fails the mark stays set and the next open walks
+    /// the directories once, which is slower and still right.
+    fn drop(&mut self) {
+        if self.suspect.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let mark = || -> Result<()> {
+            let txn = self.db.begin_write()?;
+            {
+                txn.open_table(TOTALS)?.insert(OPEN, 0)?;
+            }
+            txn.commit()?;
+            Ok(())
+        };
+        let _ = mark();
     }
 }
 
@@ -1029,7 +1251,7 @@ mod tests {
 
     #[test]
     fn red_team_segments_count_against_the_pledge_like_any_other_foreign_byte() {
-        // The hole: `would_exceed_pledge` reads `stats().bytes`, and `bytes`
+        // The hole: `would_exceed_pledge` read `stats().bytes`, and `bytes`
         // summed the chunk blobs alone. Segments live in their own table and
         // counted for nothing, so `held` stayed at zero however many arrived --
         // every `StoreSegment` passed the quota, for ever, on any host whose
@@ -1068,6 +1290,172 @@ mod tests {
             vault.stats().unwrap().segment_bytes > first,
             "a second segment did not add to the total"
         );
+    }
+
+    /// The pledge reads `held_bytes`; `stats` walks the disk. A difference is
+    /// a pledge enforced against a number that is not what the disk holds.
+    fn assert_total_is_the_walk(vault: &Vault, when: &str) {
+        assert_eq!(
+            vault.held_bytes().unwrap(),
+            vault.stats().unwrap().bytes,
+            "after {when}, the running total the pledge reads is not what the \
+             vault holds on disk: the host would refuse or accept at the wrong byte"
+        );
+    }
+
+    #[test]
+    fn red_team_the_held_total_is_the_walk_after_every_kind_of_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let alice = keys(20).user_id();
+        let bob = keys(21).user_id();
+        let (a, b) = (ChunkId::from_bytes([1; 32]), ChunkId::from_bytes([2; 32]));
+        {
+            let vault = Vault::open(dir.path()).unwrap();
+            assert_total_is_the_walk(&vault, "opening an empty vault");
+
+            vault.put_chunk(alice, &a, &[7u8; 1000]).unwrap();
+            vault.put_chunk(bob, &a, &[8u8; 300]).unwrap();
+            vault.put_chunk(alice, &b, &[9u8; 50]).unwrap();
+            assert_total_is_the_walk(&vault, "puts for two owners");
+
+            // A re-put keeps the file already there. Both directions matter:
+            // smaller is the one that under-counts and lets the disk fill.
+            vault.put_chunk(alice, &a, &[7u8; 1000]).unwrap();
+            vault.put_chunk(alice, &a, &[1u8; 1]).unwrap();
+            vault.put_chunk(bob, &a, &[2u8; 9000]).unwrap();
+            assert_total_is_the_walk(&vault, "re-puts of held addresses at other sizes");
+
+            vault.remove_chunk(alice, &a).unwrap();
+            vault.remove_chunk(alice, &a).unwrap();
+            vault
+                .remove_chunk(bob, &ChunkId::from_bytes([3; 32]))
+                .unwrap();
+            assert_total_is_the_walk(&vault, "deletes, one repeated and one of nothing");
+
+            let user = keys(22);
+            vault
+                .put_segment(&segment(&user, &device(22), None, 1))
+                .unwrap();
+            assert_total_is_the_walk(&vault, "a segment");
+        }
+        let vault = Vault::open(dir.path()).unwrap();
+        assert_total_is_the_walk(&vault, "a clean close and reopen");
+        assert!(
+            vault.held_bytes().unwrap() > 0,
+            "the total was lost on reopen"
+        );
+    }
+
+    #[test]
+    fn red_team_a_crash_between_a_blob_and_its_row_is_rebuilt_at_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = keys(23).user_id();
+        let (a, b, c) = (
+            ChunkId::from_bytes([1; 32]),
+            ChunkId::from_bytes([2; 32]),
+            ChunkId::from_bytes([3; 32]),
+        );
+        let vault = Vault::open(dir.path()).unwrap();
+        vault.put_chunk(owner, &a, &[1u8; 400]).unwrap();
+        vault.put_chunk(owner, &b, &[2u8; 200]).unwrap();
+
+        // What a crash leaves: a blob renamed into place whose row was never
+        // committed, and a blob unlinked whose row was never removed.
+        let blobs = vault.blobs_for(owner).unwrap();
+        blobs.put(&c, &[3u8; 5000]).unwrap();
+        blobs.remove(&a).unwrap();
+        let staging = dir
+            .path()
+            .join("owners")
+            .join(owner.to_hex())
+            .join("tmp")
+            .join("left-by-a-crash.tmp");
+        std::fs::write(&staging, [0u8; 4096]).unwrap();
+        vault.abandon();
+
+        let vault = Vault::open(dir.path()).unwrap();
+        assert_total_is_the_walk(&vault, "a crash mid-write");
+        assert_eq!(
+            vault.chunks_for(owner).unwrap(),
+            vec![b, c],
+            "the index still disagrees with the disk after a crash: \
+             reconciliation would ask for a chunk held and offer one gone"
+        );
+        assert!(
+            !staging.exists(),
+            "a crash's staging file survived the rebuild: disk the pledge never counts"
+        );
+    }
+
+    /// Run `body` with a failure injected at `point`.
+    fn failing_at<T>(point: &'static str, body: impl FnOnce() -> T) -> T {
+        FAULT.with(|fault| fault.set(Some(point)));
+        let out = body();
+        FAULT.with(|fault| fault.set(None));
+        out
+    }
+
+    #[test]
+    fn red_team_a_write_that_fails_after_its_blob_is_rebuilt_after_a_clean_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = keys(25).user_id();
+        {
+            let vault = Vault::open(dir.path()).unwrap();
+            vault
+                .put_chunk(owner, &ChunkId::from_bytes([1; 32]), &[1u8; 100])
+                .unwrap();
+            // The blob lands and its commit fails (ENOSPC on redb, say); the
+            // process carries on and later shuts down cleanly.
+            let failed = failing_at("after the blob", || {
+                vault.put_chunk(owner, &ChunkId::from_bytes([2; 32]), &[2u8; 5000])
+            });
+            assert!(failed.is_err(), "the injected fault did not fire");
+        }
+        let vault = Vault::open(dir.path()).unwrap();
+        assert_total_is_the_walk(&vault, "a failed write and a clean close");
+    }
+
+    #[test]
+    fn red_team_an_open_that_fails_mid_rebuild_leaves_the_vault_unclean() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = keys(26).user_id();
+        let vault = Vault::open(dir.path()).unwrap();
+        vault
+            .put_chunk(owner, &ChunkId::from_bytes([1; 32]), &[1u8; 100])
+            .unwrap();
+        vault
+            .blobs_for(owner)
+            .unwrap()
+            .put(&ChunkId::from_bytes([2; 32]), &[2u8; 5000])
+            .unwrap();
+        vault.abandon();
+
+        // The rebuild after the crash fails (an antivirus lock, a permission);
+        // the retry must rebuild again, not trust the total it never fixed.
+        let failed = failing_at("rebuilding", || Vault::open(dir.path()));
+        assert!(failed.is_err(), "the injected fault did not fire");
+        drop(failed);
+
+        let vault = Vault::open(dir.path()).unwrap();
+        assert_total_is_the_walk(&vault, "a rebuild that failed once");
+    }
+
+    #[test]
+    fn a_vault_from_before_the_total_is_totalled_at_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = keys(24).user_id();
+        {
+            let vault = Vault::open(dir.path()).unwrap();
+            vault
+                .put_chunk(owner, &ChunkId::from_bytes([5; 32]), &[5u8; 777])
+                .unwrap();
+            // An upgraded vault: rows, no total, closed cleanly.
+            let txn = vault.db.begin_write().unwrap();
+            txn.open_table(TOTALS).unwrap().remove(CHUNK_BYTES).unwrap();
+            txn.commit().unwrap();
+        }
+        let vault = Vault::open(dir.path()).unwrap();
+        assert_total_is_the_walk(&vault, "an upgrade from a vault with no total");
     }
 
     #[test]
