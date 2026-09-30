@@ -93,6 +93,9 @@ param(
     # Do not register a scheduled task to start the daemon at logon.
     [switch] $NoTask,
 
+    # Do not start the tray icon (scripts/itsanas-tray.ps1) at logon.
+    [switch] $NoTray,
+
     # The binary is already here; only configure.
     [switch] $NoInstall
 )
@@ -598,6 +601,63 @@ if (-not $NoTask) {
         } else {
             Write-Warn "could not register the task: $($_.Exception.Message)"
             Write-Info 'Run the daemon by hand with:  itsanas daemon'
+        }
+    }
+}
+
+# ------------------------------------------------------------------ the tray
+
+# The icon, started at every logon of this user, for this node only.
+#
+# A shortcut in the user's Startup folder, not a second scheduled task: every
+# task whose name starts with ITSaNAS is read as a node -- above (`ITSaNAS*`,
+# "other nodes on this machine") and by clean.ps1 (`ITSaNAS-*`, the instance
+# tasks) -- so a task for the icon would be taken for an instance, and
+# `ITSaNAS-tray` *is* the task of an instance named tray. A shortcut needs no
+# administrator, cannot collide with an instance name (a space and brackets
+# are not allowed in one), and shows in Task Manager's Startup apps, where the
+# person can switch it off without reading this.
+#
+# Through `conhost.exe --headless` for the reason the daemon's task is: with
+# Windows Terminal as the default host, `-WindowStyle Hidden` alone leaves a
+# black window that somebody closes. conhost.exe is a GUI-subsystem program,
+# so Explorer starting it at logon opens no console of its own.
+#
+# The script is copied next to itsanas.exe: this script may run from a
+# checkout that is later moved or deleted, and a shortcut into it would then
+# point at nothing. clean.ps1 removes the copy with the programs.
+$trayShortcutName = if ($Instance) { "ITSaNAS tray ($Instance).lnk" } else { 'ITSaNAS tray.lnk' }
+if (-not $NoTray) {
+    Write-Step 'The tray icon'
+    $trayInstalled = Join-Path $binDir 'itsanas-tray.ps1'
+    $traySource = @((Join-Path $here '..\scripts\itsanas-tray.ps1'), (Join-Path $here 'itsanas-tray.ps1')) |
+        Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($traySource) {
+        try { Copy-Item -LiteralPath $traySource -Destination $trayInstalled -Force }
+        catch { Write-Warn "could not copy $traySource beside itsanas.exe: $($_.Exception.Message)" }
+    }
+    # ITSANAS_STARTUP_DIR only so scripts/check-installers.sh can run clean.ps1
+    # against a throwaway folder; nothing documented sets it.
+    $startup = if ($env:ITSANAS_STARTUP_DIR) { $env:ITSANAS_STARTUP_DIR } else { [Environment]::GetFolderPath('Startup') }
+    $trayArguments = "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$trayInstalled`"$(if ($Instance) { " -Instance $Instance" })"
+    if (-not (Test-Path -LiteralPath $trayInstalled)) {
+        Write-Warn 'no itsanas-tray.ps1 beside this script or in the checkout; no icon'
+        Write-Info 'Run this from a checkout to have one, or pass -NoTray.'
+    } elseif (-not $startup) {
+        Write-Warn 'this account has no Startup folder; no icon at logon'
+    } else {
+        try {
+            $trayShortcut = Join-Path $startup $trayShortcutName
+            $link = (New-Object -ComObject WScript.Shell).CreateShortcut($trayShortcut)
+            $link.TargetPath = Join-Path $env:windir 'System32\conhost.exe'
+            $link.Arguments = $trayArguments
+            $link.WorkingDirectory = $binDir
+            $link.Description = "ITSaNAS tray icon$(if ($Instance) { " for $Instance" })"
+            $link.Save()
+            Write-Ok "the icon starts at each logon: $trayShortcut"
+            Write-Info "To show it now:  Start-Process `"$trayShortcut`""
+        } catch {
+            Write-Warn "could not create the Startup shortcut: $($_.Exception.Message)"
         }
     }
 }

@@ -454,8 +454,19 @@ intervals, yellow when it is silent longer (`stale`) or has not reported
 yet, red when stopped or departed -- exactly what `itsanas status --brief`
 says. Left click opens the synced folder; the right-click menu opens the
 log, restarts the daemon's task, or closes the icon (the daemon keeps
-running). Nothing starts it at logon yet: put that line in a shortcut in
-`shell:startup` if you want it there.
+running).
+
+`provision.ps1` starts it at every logon: it copies the script beside
+`itsanas.exe` (`%LOCALAPPDATA%\Programs\itsanas\bin`) and puts a shortcut
+in your Startup folder, `ITSaNAS tray.lnk` for the default node and
+`ITSaNAS tray (sam).lnk` for `-Instance sam`, each running the icon for
+that node only. A shortcut rather than a second scheduled task: every task
+named `ITSaNAS*` is read as a node, and it needs no administrator. It
+shows in Task Manager's Startup apps, where you can switch it off;
+`-NoTray` skips it. `clean.ps1 -Instance sam` removes Sam's shortcut and
+no other; `clean.ps1` without `-Instance` removes them all with the
+programs. An icon already on screen stays until you log off or quit it.
+Nothing in the menu pauses, disconnects or decommissions a machine yet.
 
 ## After installing, on any of them
 
