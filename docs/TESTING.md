@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 863 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 115 are red-team tests.**
+**Last updated: 2026-09-30 — 866 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 118 are red-team tests.**
 
-**747 of the 863 tests have an entry of their own on this page** — an *entry*,
+**750 of the 866 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -159,7 +159,7 @@ guarantee and is not one.
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 153 |
-| `itsanas-store` integration (`tests/store.rs`) | 43 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 45 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 42 |
@@ -175,7 +175,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 37 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 82 |
+| `itsanas-node` unit | 83 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
@@ -586,7 +586,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (43)
+# `itsanas-store` — integration tests (45)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -598,6 +598,8 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 | **`two_users_storing_the_same_document_produce_unrelated_chunk_ids`** | Two users storing byte-identical content get disjoint addresses. If addresses were plain content hashes a host could correlate users and confirm guessed files. |
 | **`one_users_store_cannot_be_opened_with_another_users_keys`** | Sealing is bound to the owner, not merely to the directory. |
 | **`red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log`** | A 1 MiB file offered to an account with 344 KiB left, through `write_file`, so nothing asks its size first and the refusal can only come part-way through the stream -- after chunks were sealed and stored. It must be refused with the account, the limit and the total it would have reached, and leave no blob, no index entry and no log entry behind. A folder pass retries a refused file every round, so debris here is a disk filling with the first part of the same file again and again. Sabotaged twice: without the in-stream check the file is accepted; without the clean-up the blobs stay. (HANDOVER §8 0n.) |
+| **`red_team_a_write_past_the_disk_room_is_refused_and_leaves_nothing`** | The account may have room while the disk has not: what this machine's pledge still owes is space promised to others. A 1 MiB write against a 300 KiB local ceiling (100 KiB already held) is refused as `DiskFull` with the numbers and leaves no chunk and no index entry; a 100 KiB write inside it succeeds, so a store that refuses everything cannot pass. Sabotaged (the disk check never fires): red. (HANDOVER §8 1b.) |
+| **`red_team_many_small_writes_cannot_pass_the_disk_ceiling_together`** | The disk bound is a ceiling on the account's local bytes, not a room each write is checked against alone: a folder pass imports many files after one `bound_writes`, and the first version let a hundred 1 GB files into 10 GB of room (found by the `itsanas-redteam` agent before merge). Five 100 KiB files against 300 KiB: three fit, the fourth is refused; an edit in place is charged its growth. Sabotaged (per-write room again): red. |
 | **`a_write_inside_the_budget_succeeds_and_an_edit_is_charged_only_its_growth`** | Keeps the test above from passing on a store that refuses everything, and pins what is charged: growing a 600 KiB file to 700 KiB in a 1 MiB account succeeds (the old version is not counted twice), 400 KiB more is refused naming 700 KiB held, and deleting the file makes the room back. Sabotaged on the replaced-size subtraction and on the cached-total adjustments of `put_file` and `remove_file`. `release_file`'s adjustment is the same line as `remove_file`'s and was broken with it; no test isolates it. |
 | **`red_team_what_the_account_holds_elsewhere_counts_against_it`** | A phone keeping 2 GB of a 40 GB account holds 2 GB locally. Counting only that would let it write 38 GB past what the account may hold: bytes known only from other devices' logs count too. |
 | **`the_published_test_identities_are_refused_by_the_normal_constructor`** | The claim README.md and SECURITY.md both make. Before this test the ban-list function was defined, exported, and called by nothing. |
@@ -986,7 +988,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (91)
+# `itsanas-node` — a node on disk (92)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1052,7 +1054,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk (17)
+## `node` — identity on disk (18)
 
 | Test | What it proves |
 | --- | --- |
@@ -1060,6 +1062,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`an_empty_node_home_reads_as_unmounted_storage_rather_than_a_fresh_start`** | A node home on a disk that is not mounted is an *empty directory*, and "no node found, run `itsanas init`" is then advice to create a **second account** on the root filesystem — while the real one sits on a disk nobody is looking at, and the next backup captures the empty one. A directory that does not exist at all still reads as a fresh start. |
 | **`a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does`** | `itsanas passphrase` re-seals the keystore without regenerating anything — same account, same device id — the old passphrase stops working, and the pending file is renamed over the keystore rather than left beside it. |
 | **`red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns`** | Every write goes through `node.store`, and the store refuses nothing it has not been told about. Opening a node pledging 700 GB must hold writes to the 300 GB that earns at 30/70, and a node pledging nothing to the joining allowance, as `keep` does. Sabotaged on the wiring in `Node::assemble` and on the allowance floor: without either, the CLI, the folder and the phone would write unbounded while every store test stayed green. |
+| **`red_team_the_disk_room_sets_aside_what_the_pledge_still_owes`** | `Node::disk_room`: free space less what the pledge still owes beyond what is already hosted; owed past free leaves 0, over-hosting owes nothing, an unreadable free space bounds nothing rather than refusing every write, and a disk that really reads 0 free bounds everything (the `itsanas-redteam` agent found 0 read as unknown). Sabotaged (the owed pledge ignored): red. |
 | **`red_team_files_this_machine_has_not_downloaded_count_against_its_writes`** | A phone knows most of its account only from the laptop's log in its vault. A 300 000-byte file written on the laptop and never downloaded must reach the phone's write bound as `elsewhere`, or the phone writes as though the account were the sliver it keeps. Sabotaged on the `Absent` filter in `bound_writes`. |
 | **`red_team_a_machine_that_lends_nothing_writes_by_what_the_account_lends`** | The rule this step first shipped, caught by Rodin before it merged: the bound read *this machine's* pledge. A laptop pledging nothing -- the default -- in an account whose Pi lends 700 GB must be held to the 300 GB the account earns, on opening and again after the refresh every writer calls; it was being held to the joining allowance for the whole account. Sabotaged on both. |
 | `a_wrong_current_passphrase_changes_nothing` | Somebody at an unlocked terminal cannot choose a new passphrase for a machine without the current one; the keystore bytes are untouched. |

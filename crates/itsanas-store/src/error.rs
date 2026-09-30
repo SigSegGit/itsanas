@@ -77,6 +77,22 @@ pub enum StoreError {
         allowed: u64,
     },
 
+    #[error(
+        "{path} needs at least {incoming} bytes on this disk, and only {room} are \
+         free once the space this machine pledged to others is set aside. \
+         Nothing was stored. Free some disk, or lower the pledge with \
+         `itsanas space`."
+    )]
+    DiskFull {
+        /// The logical path that was being written.
+        path: String,
+        /// The bytes this write would have added. A lower bound when the
+        /// refusal came part-way through a stream.
+        incoming: u64,
+        /// What the disk could take without eating into the pledge.
+        room: u64,
+    },
+
     #[error("{0}")]
     Corrupt(String),
 }

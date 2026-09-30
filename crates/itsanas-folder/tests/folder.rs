@@ -543,6 +543,7 @@ fn a_file_over_the_budget_is_refused_left_on_disk_and_blocks_nothing_else() {
         .set_write_budget(Some(itsanas_store::WriteBudget {
             allowed: 100,
             elsewhere: 0,
+            local_ceiling: None,
         }))
         .unwrap();
     write_disk(node.folder.root(), "small.txt", &[1; 10]);

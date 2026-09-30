@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**863 test functions, 4 of them `#[ignore]`d into the slow job, and 115 of
+**866 test functions, 4 of them `#[ignore]`d into the slow job, and 118 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -757,6 +757,16 @@ device and reaching a different one is refused.
   far ahead (say 2099) that arrives by relay counts as the latest one, so
   no later relayed presence for that device is kept; the coordinator's read,
   which has no date filter, still finds the machine.
+
+- **The disk bound (1b) covers what this device writes, not what it pulls.**
+  `Store::accept_chunk`, which `sync` uses to fetch other devices' files,
+  consults no `WriteBudget` -- neither the account bound nor the disk
+  ceiling -- so a device with room for its pledge can still fill that room by
+  downloading the rest of its account (the keeping policy may trim it after;
+  unchecked). And `held` in `Node::disk_room` is the vault's bytes, which
+  may include this account's own chunks if its own heads land there
+  (unverified); that would overstate what is already hosted and loosen the
+  reserve. Both from the `itsanas-redteam` pass on #198.
 
 - **Named instances (0p): what `itsanas migrate` does not do.** It renames
   `~/.itsanas` to `~/.itsanas-<account>` and *prints* the service changes
