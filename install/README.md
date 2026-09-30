@@ -442,6 +442,21 @@ account's task. With `-Instance sam` the task is `ITSaNAS-sam` and the node
 `%USERPROFILE%\.itsanas-sam`, in Sam's own profile. Not yet tried with two
 real Windows accounts (HANDOVER §8 0i).
 
+## A tray icon on Windows
+
+```powershell
+powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File scripts\itsanas-tray.ps1              # the default node
+powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File scripts\itsanas-tray.ps1 -Instance sam
+```
+
+One icon per node: blue while its daemon runs and reported within two
+intervals, yellow when it is silent longer (`stale`) or has not reported
+yet, red when stopped or departed -- exactly what `itsanas status --brief`
+says. Left click opens the synced folder; the right-click menu opens the
+log, restarts the daemon's task, or closes the icon (the daemon keeps
+running). Nothing starts it at logon yet: put that line in a shortcut in
+`shell:startup` if you want it there.
+
 ## After installing, on any of them
 
 ```sh

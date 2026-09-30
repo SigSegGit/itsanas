@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 868 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 120 are red-team tests.**
+**Last updated: 2026-09-30 — 869 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 121 are red-team tests.**
 
-**752 of the 868 tests have an entry of their own on this page** — an *entry*,
+**753 of the 869 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -172,7 +172,7 @@ guarantee and is not one.
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
-| `itsanas-cli` unit | 37 |
+| `itsanas-cli` unit | 38 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 84 |
@@ -871,7 +871,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (37)
+# `itsanas-cli` — unit tests (38)
 
 ## `bench` — measuring this machine (4)
 
@@ -911,7 +911,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings and the phrase as printed (23)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed and the tray's one word (24)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -929,6 +929,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`the_ports_of_the_other_nodes_beside_this_one_are_found_and_its_own_is_not`** | A sibling node is a directory holding a keystore. A directory without one does not count, and a node's own configuration must not count against it. |
 | **`red_team_a_stopped_node_is_never_reported_as_a_running_one`** | `status` prints the snapshot in two different situations — the daemon is holding the store, or nothing is running and this is what a stopped node last said, possibly last week. One sentence for both would make "this node is running" a claim the command cannot support, and that sentence is what a reader uses to decide whether to trust the numbers under it. |
 | **`red_team_a_running_node_is_reported_with_its_age_and_no_passphrase`** | The other half of `an_age_never_reads_as_fresher_than_it_is`: that one checks the arithmetic, this one checks the arm is reachable at all. `snapshot_status` takes a path and nothing else, so it *cannot* prompt -- the guarantee is structural rather than a promise. A regression here is a node whose health is unreadable without the passphrase. |
+| **`red_team_a_silent_daemon_is_stale_never_healthy`** | `itsanas status --brief` is what the Windows tray draws: `healthy` only while a daemon holds the store and its snapshot (now stamped with its interval) is within two intervals; three intervals old is `stale`, no daemon `stopped`, after `leave` `departed`. A green icon over a hung daemon is the failure a tray exists to prevent (HANDOVER §8 f). Sabotaged (age check off): red. |
 | `a_snapshot_without_a_stamp_is_printed_but_not_dated` | A snapshot written by an older version has no time on its first line. Printing it is right; inventing an age for it is not, because the age is the only thing telling a reader whether to trust the numbers under it. |
 | `a_node_that_has_never_synced_says_so_rather_than_printing_nothing` | A node whose daemon has not finished a round yet has no snapshot. Succeeding with empty output would read as a healthy node with nothing to report, which is the opposite of the truth. |
 | `the_ports_a_node_had_to_skip_are_all_named_not_just_the_first` | The second account on a machine skipped 9797 *and* 9798 and was told only that "9797 is used by another node" — singular, naming one of two. Ports here are handed out without asking, so this line is the only place somebody learns what happened, and counting instances from it counted wrong. |

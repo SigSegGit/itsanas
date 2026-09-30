@@ -10,15 +10,37 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0f
-TITLE: A tray icon for the Windows daemon, reading status.snapshot only; first the crate choice against cargo deny and the unsafe gate
+TITLE: The tray, second half: started at logon by provision.ps1, and pause / disconnect / decommission with Nicolas's confirmations
 WRITTEN-AT: 2026-09-30
-BASE: 92585ff
+BASE: 68c7f44
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0f first half: the tray, as `status --brief` + PowerShell**
+(branch `step/8.0f-brief-status`). **Decision, against the letter of §8 f
+("a new crate `itsanas-tray`"):** `cargo deny` rejects `tray-icon` and
+`winit` -- MPL-2.0 and BSD-2-Clause licences and two "unmaintained"
+advisories, all from their GTK/Wayland dependencies. Declaring the crate
+`cfg(windows)`-only does not help: with several `[graph] targets`, cargo
+deny judges each dependency edge on every listed target (checked: each
+target alone passes, the list fails). Calling `Shell_NotifyIcon` directly
+needs `unsafe`, allowed in one file only. So the rule lives in Rust and the
+drawing in PowerShell, which ships `NotifyIcon`: `itsanas status --brief`
+prints `healthy|stale|stopped|departed|unknown [age]` without a
+passphrase; `healthy` needs the store lock **and** a snapshot within two
+intervals, which the daemon now writes into the stamp (`snapshot T every
+S`; readers take the first number, so old snapshots still parse).
+`scripts/itsanas-tray.ps1 [-Instance NAME]` draws it: icon + tooltip every
+30 s, left click opens the folder (from `itsanas instances`), menu opens
+the log, restarts the task, quits. One red-team test, sabotaged red; the
+script parses in pwsh and Windows PowerShell 5.1. Run against the laptop's live node: `status --brief`
+said `healthy`, and the script's reader functions found the folder and the
+state. **🟨:** the icon and menu themselves were never shown (a GUI in
+Nicolas's session); nothing launches it at logon.
 
 **2026-09-30, 0o: a v5 peer is proven not asked** (branch
 `step/8.0o-v5-not-asked`). `PeerService::speaking_at_most(v)` (doc-hidden,
@@ -2559,8 +2581,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
       does not say where `provision.ps1 -NoInstall` looks for
       `itsanas.exe` for a second *Windows* account.
 
-   f. **A tray icon for the Windows daemon.** **`NEXT` (2026-09-30):** do it
-      in two PRs. First, alone: pick the crates (`tray-icon` + `tao`/`winit`,
+   f. 🟨 **A tray icon for the Windows daemon.** First half built 2026-09-30
+      as `status --brief` + `scripts/itsanas-tray.ps1` (see §0 for why not a
+      crate). **`NEXT`:** `provision.ps1` registers it at logon beside the
+      daemon's task (per instance), and the menu gains pause / disconnect /
+      decommission, each behind the confirmation text below. Run the tray
+      once against a live node first and note what it gets wrong. Original
+      plan, kept for reference: do it in two PRs. First, alone: pick the crates (`tray-icon` + `tao`/`winit`,
       or `windows`-crate `Shell_NotifyIcon` directly) by running `cargo deny
       check` with them added and confirming `scripts/check-unsafe.py` still
       passes (unsafe inside dependencies is allowed, in this workspace not);
