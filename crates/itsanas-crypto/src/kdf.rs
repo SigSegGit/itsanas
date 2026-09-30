@@ -45,6 +45,13 @@ pub const CTX_USER_OPLOG: &str = "itsanas v1 user oplog object key";
 /// This key never leaves the owner's machine and is never written to disk: it
 /// is derived from the master secret on every open, like every other subkey.
 pub const CTX_USER_AUDIT_ORDER: &str = "itsanas v1 user audit ordering key";
+/// Key for the tag an announcement on the local network carries.
+///
+/// Only a machine holding this account's master secret can compute or check
+/// the tag, so a listener cannot group an account's machines, and a stranger
+/// who knows the user id -- a public key -- cannot recognise them either. It
+/// never goes on the wire: the beacon carries a keyed hash under it.
+pub const CTX_USER_LAN_TAG: &str = "itsanas v1 user local discovery tag key";
 /// Wrapping key for the passphrase-protected keystore and its escrow copy.
 pub const CTX_KEYSTORE_WRAP: &str = "itsanas v1 keystore wrapping key";
 /// Prehash context for domain-separated signatures.
@@ -60,6 +67,7 @@ pub const ALL_CONTEXTS: &[&str] = &[
     CTX_USER_BLINDING,
     CTX_USER_OPLOG,
     CTX_USER_AUDIT_ORDER,
+    CTX_USER_LAN_TAG,
     CTX_KEYSTORE_WRAP,
     CTX_SIGNED_MESSAGE,
 ];

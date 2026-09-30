@@ -37,8 +37,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use itsanas_crypto::{DeviceId, DeviceKeys, UserId};
-use itsanas_discover::{ANNOUNCE_INTERVAL, Candidate, EXPIRY, Heard, Lan, Neighbours, now_unix};
+use itsanas_crypto::{DeviceId, DeviceKeys};
+use itsanas_discover::{
+    ANNOUNCE_INTERVAL, Candidate, EXPIRY, Heard, HouseholdKey, Lan, Neighbours, now_unix,
+};
 
 /// How long to wait on the socket before checking for shutdown.
 ///
@@ -76,10 +78,10 @@ impl Neighbourhood {
     /// refused. Discovery says who might be there; the TLS layer decides who
     /// actually is.
     #[must_use]
-    pub fn dial_order(&self, owner: UserId) -> Vec<Candidate> {
+    pub fn dial_order(&self, household: &HouseholdKey) -> Vec<Candidate> {
         self.table
             .lock()
-            .map(|table| table.dial_order(owner))
+            .map(|table| table.dial_order(household))
             .unwrap_or_default()
     }
 
@@ -140,7 +142,7 @@ pub const NEW_PEERS_PER_ROUND: usize = 4;
 pub fn run(
     lan: &Lan,
     device: &DeviceKeys,
-    owner: UserId,
+    household: &HouseholdKey,
     service_port: u16,
     neighbourhood: &Neighbourhood,
     shutdown: &AtomicBool,
@@ -151,13 +153,24 @@ pub fn run(
     let mut next_expiry = Instant::now() + EXPIRY;
     let mut refused = 0usize;
     let mut next_complaint = Instant::now() + COMPLAINT_INTERVAL;
+    // Its own clock, starting now: a machine with no randomness sends nothing
+    // (a fixed nonce would be a fixed tag), and nobody should wait five
+    // minutes to learn why it is invisible.
+    let mut next_entropy_complaint = Instant::now();
 
     while !shutdown.load(Ordering::Relaxed) {
         if Instant::now() >= next_announce {
-            if let Err(error) = lan.announce(device, owner, service_port) {
+            if let Err(error) = lan.announce(device, household, service_port) {
+                if matches!(error, itsanas_discover::DiscoverError::Randomness(_)) {
+                    if Instant::now() >= next_entropy_complaint {
+                        eprintln!(
+                            "itsanas: not announcing on the local network: {error}.                              Nothing is sent rather than a beacon that could be linked."
+                        );
+                        next_entropy_complaint = Instant::now() + COMPLAINT_INTERVAL;
+                    }
                 // A laptop between networks has no route to broadcast on. That
                 // is the normal case, not a fault, and it fixes itself.
-                if Instant::now() >= next_complaint {
+                } else if Instant::now() >= next_complaint {
                     eprintln!("itsanas: could not announce on the local network: {error}");
                     next_complaint = Instant::now() + COMPLAINT_INTERVAL;
                 }
@@ -171,7 +184,7 @@ pub fn run(
                     // Our own broadcast, heard back. Not news.
                     continue;
                 }
-                report(neighbourhood, &announcement, from, owner);
+                report(neighbourhood, &announcement, from, household);
             }
             Ok(None) => {}
             Err(error) if error.is_foreign_traffic() => {}
@@ -203,14 +216,22 @@ fn report(
     neighbourhood: &Neighbourhood,
     announcement: &itsanas_discover::Announcement,
     from: std::net::IpAddr,
-    owner: UserId,
+    household: &HouseholdKey,
 ) {
     let Ok(mut table) = neighbourhood.table.lock() else {
         return;
     };
 
-    let mine = announcement.owner_tag == itsanas_discover::beacon::owner_tag(owner);
-    let whose = if mine { "your" } else { "another user's" };
+    // Only this account's machines can make a tag this key recognises. A
+    // version 1 beacon's tag is a hash of a public user id, so it is said to
+    // be what it is -- an older build -- rather than guessed at.
+    let whose = if announcement.owner_tag.is_legacy() {
+        "an older build's"
+    } else if announcement.is_mine(household) {
+        "your"
+    } else {
+        "another user's"
+    };
 
     match table.record(announcement, from, now_unix()) {
         Heard::New => println!(
@@ -233,17 +254,17 @@ fn report(
 mod tests {
     use std::collections::BTreeSet;
 
-    use itsanas_crypto::ID_LEN;
+    use itsanas_crypto::{MasterSecret, UserKeys};
     use itsanas_discover::Announcement;
 
     use super::*;
 
-    fn owner() -> UserId {
-        UserId::from_bytes([5u8; ID_LEN])
+    fn owner() -> HouseholdKey {
+        HouseholdKey::of(&UserKeys::derive(&MasterSecret::from_bytes([5u8; 32])))
     }
 
-    fn heard(keys: &DeviceKeys, owner: UserId, port: u16) -> Announcement {
-        Announcement::parse(&Announcement::seal(keys, owner, port, now_unix())).unwrap()
+    fn heard(keys: &DeviceKeys, owner: &HouseholdKey, port: u16) -> Announcement {
+        Announcement::parse(&Announcement::seal(keys, owner, port, now_unix()).unwrap()).unwrap()
     }
 
     #[test]
@@ -253,12 +274,12 @@ mod tests {
 
         report(
             &hood,
-            &heard(&keys, owner(), 9797),
+            &heard(&keys, &owner(), 9797),
             "192.168.1.20".parse().unwrap(),
-            owner(),
+            &owner(),
         );
 
-        let order = hood.dial_order(owner());
+        let order = hood.dial_order(&owner());
         assert_eq!(order.len(), 1);
         assert_eq!(order[0].device, keys.device_id());
         assert_eq!(order[0].address.port(), 9797);
@@ -281,9 +302,9 @@ mod tests {
 
         report(
             &hood,
-            &heard(&real, owner(), 9797),
+            &heard(&real, &owner(), 9797),
             "192.168.1.20".parse().unwrap(),
-            owner(),
+            &owner(),
         );
         hood.confirm(real.device_id());
 
@@ -291,19 +312,19 @@ mod tests {
             let attacker = DeviceKeys::generate().unwrap();
             report(
                 &hood,
-                &heard(&attacker, owner(), 9797),
+                &heard(&attacker, &owner(), 9797),
                 std::net::IpAddr::V4(std::net::Ipv4Addr::new(
                     10,
                     (index >> 8) as u8,
                     (index & 0xff) as u8,
                     1,
                 )),
-                owner(),
+                &owner(),
             );
         }
 
         assert!(
-            hood.dial_order(owner())
+            hood.dial_order(&owner())
                 .iter()
                 .any(|candidate| candidate.device == real.device_id()),
             "a confirmed peer was evicted by strangers"
@@ -314,7 +335,7 @@ mod tests {
     fn the_neighbourhood_is_empty_until_something_is_heard() {
         let hood = Neighbourhood::new();
         assert!(hood.is_empty());
-        assert!(hood.dial_order(owner()).is_empty());
+        assert!(hood.dial_order(&owner()).is_empty());
     }
 
     /// One round of the daemon's dialling rule, without the sockets.
@@ -322,7 +343,11 @@ mod tests {
     /// Mirrors `daemon::sync_loop`: dial in the table's order, ration how many
     /// unconfirmed devices are contacted, and confirm only those that earned
     /// it. `useful` decides what each dialled peer turns out to be.
-    fn one_round(hood: &Neighbourhood, owner: UserId, useful: &dyn Fn(&DeviceId) -> bool) -> usize {
+    fn one_round(
+        hood: &Neighbourhood,
+        owner: &HouseholdKey,
+        useful: &dyn Fn(&DeviceId) -> bool,
+    ) -> usize {
         let mut strangers = 0usize;
         let mut dialled = 0usize;
         for candidate in hood.dial_order(owner) {
@@ -363,9 +388,9 @@ mod tests {
 
         report(
             &hood,
-            &heard(&pi, owner(), 9797),
+            &heard(&pi, &owner(), 9797),
             "192.168.1.20".parse().unwrap(),
-            owner(),
+            &owner(),
         );
 
         let attackers: Vec<DeviceKeys> =
@@ -378,18 +403,18 @@ mod tests {
                 &hood,
                 // Claiming the victim's own owner id: nothing prevents it, and
                 // it is what buys priority in the dial order.
-                &heard(attacker, owner(), 9797),
+                &heard(attacker, &owner(), 9797),
                 std::net::IpAddr::V4(std::net::Ipv4Addr::new(
                     10,
                     u8::try_from((index >> 8) & 0xff).unwrap(),
                     u8::try_from(index & 0xff).unwrap(),
                     1,
                 )),
-                owner(),
+                &owner(),
             );
             // The Pi does its job whenever it is reached; the attackers never
             // store anything, which is the only cheap way to run this attack.
-            one_round(&hood, owner(), &|device| !attacker_ids.contains(device));
+            one_round(&hood, &owner(), &|device| !attacker_ids.contains(device));
         }
 
         assert!(
@@ -397,7 +422,7 @@ mod tests {
             "the honest peer never earned protection"
         );
         assert!(
-            hood.dial_order(owner())
+            hood.dial_order(&owner())
                 .iter()
                 .any(|candidate| candidate.device == pi.device_id()),
             "600 strangers evicted the only machine holding the data"
@@ -424,18 +449,18 @@ mod tests {
             let attacker = DeviceKeys::generate().unwrap();
             report(
                 &hood,
-                &heard(&attacker, owner(), 9797),
+                &heard(&attacker, &owner(), 9797),
                 std::net::IpAddr::V4(std::net::Ipv4Addr::new(
                     10,
                     u8::try_from(index >> 8).unwrap(),
                     u8::try_from(index & 0xff).unwrap(),
                     1,
                 )),
-                owner(),
+                &owner(),
             );
         }
 
-        let dialled = one_round(&hood, owner(), &|_| false);
+        let dialled = one_round(&hood, &owner(), &|_| false);
         assert!(
             dialled <= NEW_PEERS_PER_ROUND,
             "dialled {dialled} unknown peers in one round; the cap is {NEW_PEERS_PER_ROUND}"
@@ -451,14 +476,14 @@ mod tests {
         for (index, device) in mine.iter().enumerate() {
             report(
                 &hood,
-                &heard(device, owner(), 9797),
+                &heard(device, &owner(), 9797),
                 std::net::IpAddr::V4(std::net::Ipv4Addr::new(
                     192,
                     168,
                     1,
                     u8::try_from(index).unwrap() + 10,
                 )),
-                owner(),
+                &owner(),
             );
             hood.confirm(device.device_id());
         }
@@ -466,18 +491,18 @@ mod tests {
             let stranger = DeviceKeys::generate().unwrap();
             report(
                 &hood,
-                &heard(&stranger, owner(), 9797),
+                &heard(&stranger, &owner(), 9797),
                 std::net::IpAddr::V4(std::net::Ipv4Addr::new(
                     10,
                     u8::try_from(index >> 8).unwrap(),
                     u8::try_from(index & 0xff).unwrap(),
                     1,
                 )),
-                owner(),
+                &owner(),
             );
         }
 
-        let dialled = one_round(&hood, owner(), &|_| false);
+        let dialled = one_round(&hood, &owner(), &|_| false);
         assert!(
             dialled >= mine.len(),
             "only {dialled} peers were dialled; the three real machines must always be"

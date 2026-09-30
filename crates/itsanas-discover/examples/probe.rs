@@ -19,11 +19,11 @@
 
 use std::time::Duration;
 
-use itsanas_crypto::{DeviceKeys, ID_LEN, UserId};
-use itsanas_discover::{DEFAULT_PORT, Lan};
+use itsanas_crypto::{DeviceKeys, MasterSecret, UserKeys};
+use itsanas_discover::{DEFAULT_PORT, HouseholdKey, Lan, OwnerTag};
 
 /// First six bytes of a tag, for a diagnostic line.
-fn hex_short(bytes: &[u8; 32]) -> String {
+fn hex_short(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(12);
     for byte in &bytes[..6] {
@@ -59,7 +59,10 @@ fn main() {
                 Ok(Some((heard, from))) => println!(
                     "heard {} (owner {}) at {}:{}",
                     heard.device.short(),
-                    hex_short(&heard.owner_tag),
+                    match &heard.owner_tag {
+                        OwnerTag::Keyed { mac, .. } => format!("tag {}", hex_short(mac)),
+                        OwnerTag::Legacy(tag) => format!("version 1 tag {}", hex_short(tag)),
+                    },
                     from,
                     heard.port
                 ),
@@ -71,16 +74,18 @@ fn main() {
     }
 
     let keys = DeviceKeys::generate().expect("a keypair");
-    let owner = UserId::from_bytes([0xAB; ID_LEN]);
+    // A throwaway account, so the tag belongs to nobody.
+    let owner = UserKeys::derive(&MasterSecret::generate().expect("randomness"));
+    let household = HouseholdKey::of(&owner);
     println!(
         "announcing throwaway device {} as owner {} to {:?}",
         keys.device_id().short(),
-        owner.short(),
+        owner.user_id().short(),
         lan.targets()
     );
 
     for round in 1..=5 {
-        match lan.announce(&keys, owner, 9797) {
+        match lan.announce(&keys, &household, 9797) {
             Ok(()) => println!("  sent {round}/5"),
             Err(error) => println!("  send {round}/5 failed: {error}"),
         }

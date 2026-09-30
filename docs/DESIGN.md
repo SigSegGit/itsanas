@@ -751,7 +751,9 @@ the single test that would catch this being quietly weakened.
   the TLS layer only: the discovery beacon in §9 broadcasts a device id in the
   clear, because it is the verifying key, so a machine remains linkable across
   networks by anyone listening on both. The account behind it is not — that
-  travels as a keyed tag.
+  travels as a fresh nonce and a hash keyed on the account's secret, so only
+  the account's own machines recognise it and two of its beacons are unrelated
+  to anyone else.
 - Device revocation is a coordinator concern (`NodeClaim.revoked`), not a
   certificate-expiry concern. Nothing has to be reissued when a device leaves.
   A withdrawal is final for that device id and wins whatever the signing

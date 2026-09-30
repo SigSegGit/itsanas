@@ -32,7 +32,7 @@ pub enum DiscoverError {
     NotOurs,
 
     /// A future announcement format. Refused rather than reinterpreted.
-    #[error("discovery packet version {got} is not understood; this build speaks version 1")]
+    #[error("discovery packet version {got} is not understood; this build reads versions 1 and 2")]
     UnknownVersion {
         /// The version claimed by the packet.
         got: u8,
@@ -45,6 +45,13 @@ pub enum DiscoverError {
     /// An announcement pointing at a port nothing can listen on.
     #[error("discovery packet advertises port 0, which nothing can serve")]
     NoPort,
+
+    /// The operating system would not supply a beacon's nonce.
+    ///
+    /// Not papered over with a fixed value: a repeated nonce is a repeated
+    /// tag, and a repeated tag is what lets a listener group machines.
+    #[error("no randomness for a discovery beacon: {0}")]
+    Randomness(#[from] itsanas_crypto::CryptoError),
 
     /// The socket itself failed.
     #[error("local network discovery: {0}")]

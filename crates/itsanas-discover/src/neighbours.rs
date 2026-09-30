@@ -39,9 +39,9 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
 
-use itsanas_crypto::{DeviceId, ID_LEN, UserId};
+use itsanas_crypto::DeviceId;
 
-use crate::beacon::{Announcement, owner_tag};
+use crate::beacon::{Announcement, HouseholdKey, OwnerTag};
 
 /// How many devices a node remembers hearing from.
 ///
@@ -53,11 +53,12 @@ pub const DEFAULT_CAPACITY: usize = 128;
 /// A device heard from on the local network.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Neighbour {
-    /// Who this device claims to belong to, as a tag rather than a user id.
+    /// Who this device claims to belong to, as its last beacon's tag.
     ///
-    /// Unverified. Anybody who knows a user id can compute its tag and claim
-    /// it, so this orders candidates and authorises nothing.
-    pub owner_tag: [u8; ID_LEN],
+    /// Only this account's machines can tell whether it is theirs, and a
+    /// replayed beacon still passes, so this orders candidates and authorises
+    /// nothing. A version 1 tag is never read as ours.
+    pub owner_tag: OwnerTag,
     /// The device, proved by the announcement's signature.
     pub device: DeviceId,
     /// Where to reach it: the UDP source address, with the announced TCP port.
@@ -144,7 +145,7 @@ impl Neighbours {
     /// datagram, so a node can never advertise a machine other than itself.
     pub fn record(&mut self, announcement: &Announcement, source: IpAddr, now: u64) -> Heard {
         let address = SocketAddr::new(source, announcement.port);
-        let fresh = Neighbour {
+        let mut fresh = Neighbour {
             owner_tag: announcement.owner_tag,
             device: announcement.device,
             address,
@@ -153,6 +154,15 @@ impl Neighbours {
         };
 
         if let Some(existing) = self.entries.get_mut(&announcement.device) {
+            // A device heard speaking version 2 does not go back to version 1
+            // on the word of a packet. Nothing in a beacon is fresh, so an old
+            // version 1 beacon of an upgraded machine, replayed, would
+            // otherwise demote it to the strangers -- rationed, and its silence
+            // no longer reported as one of yours. The address still follows the
+            // packet, as for any replay: TLS pinning answers that.
+            if fresh.owner_tag.is_legacy() && !existing.owner_tag.is_legacy() {
+                fresh.owner_tag = existing.owner_tag;
+            }
             let was = existing.address;
             *existing = fresh;
             return if was == address {
@@ -225,18 +235,19 @@ impl Neighbours {
     /// syncing. Within each group the order is by device id, so it is stable
     /// and two machines produce the same list.
     ///
-    /// The announcement's owner tag is unverified, so a stranger who knows this
-    /// user's id can compute it and put themselves in the first group. That
-    /// gains them one earlier dial and nothing else: the caller pins the device
-    /// id, the peer protocol serves strangers only sealed and signed objects,
-    /// and a peer earns a permanent place only by storing something. A stranger
-    /// who does *not* know the user id cannot even reach the first group, which
-    /// is the point of the tag.
+    /// Only a machine holding `household` can make a tag that sorts into the
+    /// first group, and the device is inside the tag, so copying one heard on
+    /// the network does not work. A whole beacon replayed from elsewhere does:
+    /// that gains one earlier dial and nothing else, since the caller pins the
+    /// device id, the peer protocol serves strangers only sealed and signed
+    /// objects, and a peer earns a permanent place only by storing something.
+    /// A version 1 machine sorts with the strangers until it is upgraded.
     #[must_use]
-    pub fn dial_order(&self, owner: UserId) -> Vec<Candidate> {
-        let tag = owner_tag(owner);
-        let (mine, theirs): (Vec<&Neighbour>, Vec<&Neighbour>) =
-            self.entries.values().partition(|n| n.owner_tag == tag);
+    pub fn dial_order(&self, household: &HouseholdKey) -> Vec<Candidate> {
+        let (mine, theirs): (Vec<&Neighbour>, Vec<&Neighbour>) = self
+            .entries
+            .values()
+            .partition(|n| n.owner_tag.is_mine(household, &n.device));
         mine.into_iter()
             .map(|n| Candidate {
                 device: n.device,
@@ -280,21 +291,21 @@ impl Default for Neighbours {
 mod tests {
     use std::net::Ipv4Addr;
 
-    use itsanas_crypto::{DeviceKeys, ID_LEN};
+    use itsanas_crypto::{DeviceKeys, MasterSecret, UserKeys};
 
     use super::*;
     use crate::beacon::Announcement;
 
-    fn owner_a() -> UserId {
-        UserId::from_bytes([1u8; ID_LEN])
+    fn owner_a() -> HouseholdKey {
+        HouseholdKey::of(&UserKeys::derive(&MasterSecret::from_bytes([1u8; 32])))
     }
 
-    fn owner_b() -> UserId {
-        UserId::from_bytes([2u8; ID_LEN])
+    fn owner_b() -> HouseholdKey {
+        HouseholdKey::of(&UserKeys::derive(&MasterSecret::from_bytes([2u8; 32])))
     }
 
-    fn announce(keys: &DeviceKeys, owner: UserId, port: u16, sent: u64) -> Announcement {
-        Announcement::parse(&Announcement::seal(keys, owner, port, sent)).unwrap()
+    fn announce(keys: &DeviceKeys, owner: &HouseholdKey, port: u16, sent: u64) -> Announcement {
+        Announcement::parse(&Announcement::seal(keys, owner, port, sent).unwrap()).unwrap()
     }
 
     fn index_as_byte(index: usize) -> u8 {
@@ -311,7 +322,7 @@ mod tests {
         let k = DeviceKeys::generate().unwrap();
 
         assert_eq!(
-            table.record(&announce(&k, owner_a(), 9797, 500), ip(20), 1000),
+            table.record(&announce(&k, &owner_a(), 9797, 500), ip(20), 1000),
             Heard::New
         );
 
@@ -328,9 +339,9 @@ mod tests {
         let mut table = Neighbours::new(8);
         let k = DeviceKeys::generate().unwrap();
 
-        table.record(&announce(&k, owner_a(), 9797, 500), ip(20), 1000);
+        table.record(&announce(&k, &owner_a(), 9797, 500), ip(20), 1000);
         assert_eq!(
-            table.record(&announce(&k, owner_a(), 9797, 560), ip(20), 1030),
+            table.record(&announce(&k, &owner_a(), 9797, 560), ip(20), 1030),
             Heard::Refreshed
         );
         assert_eq!(table.len(), 1);
@@ -341,8 +352,8 @@ mod tests {
         let mut table = Neighbours::new(8);
         let k = DeviceKeys::generate().unwrap();
 
-        table.record(&announce(&k, owner_a(), 9797, 500), ip(20), 1000);
-        let moved = table.record(&announce(&k, owner_a(), 9797, 600), ip(31), 1100);
+        table.record(&announce(&k, &owner_a(), 9797, 500), ip(20), 1000);
+        let moved = table.record(&announce(&k, &owner_a(), 9797, 600), ip(31), 1100);
 
         assert_eq!(
             moved,
@@ -366,8 +377,8 @@ mod tests {
         let mut table = Neighbours::new(8);
         let k = DeviceKeys::generate().unwrap();
 
-        table.record(&announce(&k, owner_a(), 9797, 1_700_000_000), ip(20), 1000);
-        table.record(&announce(&k, owner_a(), 9797, 0), ip(45), 2000);
+        table.record(&announce(&k, &owner_a(), 9797, 1_700_000_000), ip(20), 1000);
+        table.record(&announce(&k, &owner_a(), 9797, 0), ip(45), 2000);
 
         assert_eq!(
             table.get(&k.device_id()).unwrap().address,
@@ -385,7 +396,7 @@ mod tests {
         for index in 0..64u8 {
             let k = DeviceKeys::generate().unwrap();
             table.record(
-                &announce(&k, owner_b(), 9797, 0),
+                &announce(&k, &owner_b(), 9797, 0),
                 ip(index),
                 1000 + u64::from(index),
             );
@@ -401,13 +412,13 @@ mod tests {
         let mut table = Neighbours::new(4);
         let pi = DeviceKeys::generate().unwrap();
 
-        table.record(&announce(&pi, owner_a(), 9797, 0), ip(10), 1);
+        table.record(&announce(&pi, &owner_a(), 9797, 0), ip(10), 1);
         table.protect(pi.device_id());
 
         for index in 0..200u8 {
             let attacker = DeviceKeys::generate().unwrap();
             table.record(
-                &announce(&attacker, owner_a(), 9797, 0),
+                &announce(&attacker, &owner_a(), 9797, 0),
                 ip(index),
                 1000 + u64::from(index),
             );
@@ -426,13 +437,13 @@ mod tests {
         let mut table = Neighbours::new(2);
         for index in 0..2u8 {
             let k = DeviceKeys::generate().unwrap();
-            table.record(&announce(&k, owner_a(), 9797, 0), ip(index), 1);
+            table.record(&announce(&k, &owner_a(), 9797, 0), ip(index), 1);
             table.protect(k.device_id());
         }
 
         let stranger = DeviceKeys::generate().unwrap();
         assert_eq!(
-            table.record(&announce(&stranger, owner_b(), 9797, 0), ip(99), 2),
+            table.record(&announce(&stranger, &owner_b(), 9797, 0), ip(99), 2),
             Heard::Ignored
         );
         assert_eq!(table.len(), 2);
@@ -444,11 +455,11 @@ mod tests {
         let old = DeviceKeys::generate().unwrap();
         let recent = DeviceKeys::generate().unwrap();
 
-        table.record(&announce(&old, owner_b(), 9797, 0), ip(1), 100);
-        table.record(&announce(&recent, owner_b(), 9797, 0), ip(2), 900);
+        table.record(&announce(&old, &owner_b(), 9797, 0), ip(1), 100);
+        table.record(&announce(&recent, &owner_b(), 9797, 0), ip(2), 900);
 
         let newcomer = DeviceKeys::generate().unwrap();
-        table.record(&announce(&newcomer, owner_b(), 9797, 0), ip(3), 1000);
+        table.record(&announce(&newcomer, &owner_b(), 9797, 0), ip(3), 1000);
 
         assert!(table.get(&old.device_id()).is_none());
         assert!(table.get(&recent.device_id()).is_some());
@@ -463,9 +474,9 @@ mod tests {
         let mine = DeviceKeys::generate().unwrap();
         let stranger = DeviceKeys::generate().unwrap();
 
-        table.record(&announce(&mine, owner_a(), 9797, 0), ip(10), 100);
+        table.record(&announce(&mine, &owner_a(), 9797, 0), ip(10), 100);
         table.protect(mine.device_id());
-        table.record(&announce(&stranger, owner_b(), 9797, 0), ip(11), 100);
+        table.record(&announce(&stranger, &owner_b(), 9797, 0), ip(11), 100);
 
         assert_eq!(table.expire(1000), 1);
         assert!(table.get(&mine.device_id()).is_some());
@@ -481,15 +492,64 @@ mod tests {
         let stranger = DeviceKeys::generate().unwrap();
         let mine = DeviceKeys::generate().unwrap();
 
-        table.record(&announce(&stranger, owner_b(), 9797, 0), ip(11), 100);
-        table.record(&announce(&mine, owner_a(), 9797, 0), ip(10), 100);
+        table.record(&announce(&stranger, &owner_b(), 9797, 0), ip(11), 100);
+        table.record(&announce(&mine, &owner_a(), 9797, 0), ip(10), 100);
 
-        let order = table.dial_order(owner_a());
+        let order = table.dial_order(&owner_a());
         assert_eq!(order.len(), 2);
         assert_eq!(order[0].device, mine.device_id());
         assert!(order[0].mine);
         assert_eq!(order[1].device, stranger.device_id());
         assert!(!order[1].mine);
+    }
+
+    #[test]
+    fn red_team_a_copied_tag_does_not_sort_a_stranger_among_my_machines() {
+        // THE ATTACK, at the layer the daemon dials from: hear the Pi's beacon,
+        // put its tag in a beacon signed by a freshly minted device, and be
+        // dialled before the household's own machines. The table must check
+        // the tag against the device it stored, not against anything else.
+        // If this fails, anybody who can hear one beacon jumps the queue.
+        let pi = DeviceKeys::generate().unwrap();
+        let honest = Announcement::seal(&pi, &owner_a(), 9797, 0).unwrap();
+        let mut tag = [0u8; 32];
+        tag.copy_from_slice(&honest[9..41]);
+        let attacker = DeviceKeys::generate().unwrap();
+        let forged = Announcement::sign(&attacker, crate::BEACON_VERSION, &tag, 9797, 0);
+
+        let mut table = Neighbours::default();
+        table.record(&Announcement::parse(&honest).unwrap(), ip(10), 1);
+        table.record(&Announcement::parse(&forged).unwrap(), ip(66), 1);
+
+        let order = table.dial_order(&owner_a());
+        let mine: Vec<DeviceId> = order.iter().filter(|c| c.mine).map(|c| c.device).collect();
+        assert_eq!(mine, vec![pi.device_id()], "a copied tag counted as ours");
+    }
+
+    #[test]
+    fn red_team_a_replayed_version_1_beacon_does_not_demote_an_upgraded_machine() {
+        // THE ATTACK: keep a version 1 beacon the laptop sent before it was
+        // upgraded, and replay it. It is validly signed and nothing in a beacon
+        // is fresh. If it replaced the laptop's version 2 tag, the laptop would
+        // drop out of its household's first dial group and its silence would
+        // stop being reported. If this fails, one old packet hides a machine
+        // from its own household.
+        let laptop = DeviceKeys::generate().unwrap();
+        let mut table = Neighbours::default();
+        table.record(&announce(&laptop, &owner_a(), 9797, 0), ip(10), 1);
+        let old = Announcement::seal_v1(
+            &laptop,
+            UserKeys::derive(&MasterSecret::from_bytes([1u8; 32])).user_id(),
+            9797,
+            0,
+        );
+        table.record(&Announcement::parse(&old).unwrap(), ip(10), 2);
+
+        let order = table.dial_order(&owner_a());
+        assert!(
+            order[0].mine,
+            "a replayed version 1 beacon demoted our own machine"
+        );
     }
 
     #[test]
@@ -501,7 +561,7 @@ mod tests {
         let mut forwards = Neighbours::new(8);
         for (index, k) in devices.iter().enumerate() {
             forwards.record(
-                &announce(k, owner_a(), 9797, 0),
+                &announce(k, &owner_a(), 9797, 0),
                 ip(index_as_byte(index)),
                 100,
             );
@@ -510,15 +570,15 @@ mod tests {
         let mut backwards = Neighbours::new(8);
         for (index, k) in devices.iter().enumerate().rev() {
             backwards.record(
-                &announce(k, owner_a(), 9797, 0),
+                &announce(k, &owner_a(), 9797, 0),
                 ip(index_as_byte(index)),
                 100,
             );
         }
 
         assert_eq!(
-            forwards.dial_order(owner_a()),
-            backwards.dial_order(owner_a())
+            forwards.dial_order(&owner_a()),
+            backwards.dial_order(&owner_a())
         );
     }
 
@@ -528,7 +588,7 @@ mod tests {
         let mut table = Neighbours::new(0);
         let k = DeviceKeys::generate().unwrap();
         assert_eq!(
-            table.record(&announce(&k, owner_a(), 9797, 0), ip(1), 1),
+            table.record(&announce(&k, &owner_a(), 9797, 0), ip(1), 1),
             Heard::New
         );
         assert_eq!(table.capacity(), 1);

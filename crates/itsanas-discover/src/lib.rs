@@ -38,7 +38,10 @@ pub mod error;
 pub mod lan;
 pub mod neighbours;
 
-pub use beacon::{Announcement, BEACON_DOMAIN, BEACON_LEN, BEACON_VERSION};
+pub use beacon::{
+    Announcement, BEACON_DOMAIN, BEACON_LEN, BEACON_VERSION, HouseholdKey, OLDEST_READ_VERSION,
+    OwnerTag,
+};
 pub use error::{DiscoverError, Result};
 pub use lan::{ANNOUNCE_INTERVAL, DEFAULT_PORT, EXPIRY, Lan, now_unix};
 pub use neighbours::{Candidate, DEFAULT_CAPACITY, Heard, Neighbour, Neighbours};

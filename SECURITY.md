@@ -66,8 +66,12 @@ Consequences worth stating:
   because the device id *is* the Ed25519 verifying key and nobody could check
   the signature without it. So somebody on two different networks — a café, then
   a hotel — can tell it is the same machine. What they cannot tell is *whose*:
-  the account is carried as a keyed tag, not as the user id, so they cannot
-  learn who owns it and cannot tell that two of your machines belong together.
+  the account is carried as a fresh nonce and a hash keyed on a secret only
+  the account's machines hold, not as the user id, so they cannot learn who
+  owns it and cannot tell that two of your machines belong together -- which
+  the version 1 beacon, one hash of the user id for ever, let them do. A machine
+  still on version 1 is heard by upgraded ones but not recognised as yours
+  until it is upgraded.
   Turn discovery off with `itsanas daemon --no-discovery` if even that is too
   much for the network you are on.
 - A node answers any device that authenticates, including one it has never met —

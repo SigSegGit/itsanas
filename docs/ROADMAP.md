@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**881 test functions, 4 of them `#[ignore]`d into the slow job, and 132 of
+**888 test functions, 4 of them `#[ignore]`d into the slow job, and 138 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1490,11 +1490,33 @@ disk on every host. Not decided, and the honest position is that the current
 scheme protects *contents* against a host and does not protect *which file it
 is* against a host that already has a candidate.
 
-**The LAN beacon groups an account's machines.** The owner tag is a plain hash
-of a public key, so anyone on the same network can tell which machines belong to
-one account, and anyone who knows a user id can recognise it. On a home LAN that
-is close to no disclosure; on a shared or hostile network it is one. A rotating
-tag derived per epoch would fix it.
+**The LAN beacon grouped an account's machines** -- ✅ fixed 2026-09-30
+(§8 3d). The version 1 owner tag was a plain hash of a public key, so anyone on
+the same network could tell which machines belong to one account, and anyone
+who knew a user id could recognise it. Not by a tag rotated per epoch, as this
+entry once said: a Pi 4 boots in 1970 and would stop recognising its household.
+Version 2 carries a fresh 16-byte nonce and a 16-byte hash keyed on a secret
+derived from the account's master secret, over nonce and device: two beacons
+of one account are unrelated, only the account's own machines recognise them,
+and a tag copied onto another device fails
+(`red_team_two_beacons_of_one_account_carry_unlinkable_tags`,
+`red_team_a_stranger_holding_the_user_id_cannot_recognise_the_tag`,
+`red_team_a_tag_lifted_onto_another_device_is_not_recognised`). Version 1 is
+still read, as a stranger that is dialled
+(`red_team_an_upgraded_listener_still_learns_a_not_yet_upgraded_sender`), so a
+mixed fleet loses LAN grouping during an upgrade, not LAN discovery; the
+coordinator path never reads the tag. **Still open, named:** a whole v2 beacon
+replayed from elsewhere reads as "mine" (one wasted dial; TLS device pinning
+refuses it); the device id is still in the clear, so one machine stays
+linkable across networks; and a version 1 build refuses version 2, so a
+not-yet-upgraded machine hears nobody and is found only because the upgraded
+ones dial it. A replayed *version 1* beacon of an upgraded machine no longer
+demotes it (`red_team_a_replayed_version_1_beacon_does_not_demote_an_upgraded_machine`,
+found by `itsanas-redteam`). Also named by it: a machine whose system refuses
+randomness sends no beacon and now says so at once, untested for want of a
+seam to fail the RNG; and the household key is copied into BLAKE3's keyed
+hasher, which does not zeroize it -- the same residue `chunk_id` leaves with the
+blinding key.
 
 **And the thing the sweep could not check.** Three of the eight surfaces —
 losing data through the store and garbage collector, secrets in the repository
