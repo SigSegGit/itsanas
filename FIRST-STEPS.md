@@ -118,7 +118,14 @@ itsanas space --pledge 100G --keep 30G
 
 It reports the free space on the disk this node actually sits on, what the
 pledge earns, and which limit binds. It changes nothing without `--apply`, and
-it refuses to apply numbers it has just said do not fit.
+it refuses to apply numbers it has just said do not fit. Then run it again with
+`--apply`: **a new node pledges nothing, and a node that pledges nothing stores
+nothing for anybody -- your own other machines included.** Until then a `sync`
+towards it says `refused ... its pledge is full or zero`.
+
+```sh
+itsanas space --pledge 100G --keep 30G --apply
+```
 
 **This bargain is enforced by your own client, not yet by the network.** A
 modified client can ignore it and nothing will notice — fine among your own
@@ -134,6 +141,12 @@ itsanas daemon
 The daemon watches the folder, syncs with peers, answers storage challenges and
 serves what it hosts. On Linux the installer already wrote a systemd unit:
 `systemctl --user enable --now itsanas`.
+
+While it runs it holds the node: `status` still answers, but commands that
+change the node (`space --apply`, `pledge`, `folder`, `peer add`, `ls`, `put`)
+say the store is open in another process. Stop it first -- `systemctl --user
+stop itsanas`, or on Windows `Stop-ScheduledTask ITSaNAS` -- and start it again
+after.
 
 ### 4. Add a second machine
 
@@ -152,8 +165,19 @@ passphrase for *this* machine's keystore; it need not be the first machine's
 (`ITSANAS_PASSPHRASE` supplies it to scripts). For `peer add`, use the first
 machine's LAN address and the port it listens on -- 9797, or the next free one
 if another node took it: the `listen` line of `itsanas status` there shows it,
-daemon running or not. `sync` writes what it received into the folder; the daemon does the
-same on its own from then on.
+daemon running or not. `sync` writes what it received into the folder. For it to keep happening
+without you, run `itsanas daemon` on **both** machines (or enable their
+services): a machine with no daemon never dials anybody, and the other side
+only dials the peers it knows -- give each the other's address with `peer add`
+when they do not find each other on the network.
+
+**A second account on the same computer** -- somebody else in the house, or a
+separate account of yours -- is a named instance, with its own home, port and
+passphrase: `itsanas --instance sam init --username sam`, then every command
+with `--instance sam` (or `ITSANAS_INSTANCE=sam` once in the shell).
+`itsanas instances` lists every node on the machine. The installers set one up
+with `provision.sh --instance sam` / `provision.ps1 -Instance sam`; see
+`install/README.md`.
 
 Both machines now hold the same account. Drop a file in the folder on one; it
 appears on the other.

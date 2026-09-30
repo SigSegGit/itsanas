@@ -10,15 +10,34 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0q
-TITLE: First-user friction, the lesser items: sync's "no machines found" line, scan's noise, instances wording, --instance in FIRST-STEPS, pledge vs space
+TITLE: First-user friction, what is left: sync exit status when every offer is refused, scan's noise, instances wording, sync/rename reporting, Android address entry
 WRITTEN-AT: 2026-09-30
-BASE: b562606
+BASE: 0401ae7
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0q, second persona (Windows + Android): the pledge, the
+home, the instance** (branch `step/8.0q-pledge-first`). A second persona
+run (a second account `--instance sam` beside another person's node, accents
+and nested folders; Android walked on paper) found: a new node pledges 0 and
+so refuses **even its own account's other devices** (`refused ... pledge is
+full or zero`) while `sync` exits 0 -- FIRST-STEPS §2 stopped at "add
+`--apply`" without saying it is required; now it says so and shows the
+command. §3 says which commands need the daemon stopped and how (systemd,
+`Stop-ScheduledTask ITSaNAS`); §4 that both machines need a daemon, and a
+paragraph on a second account (`--instance`, `ITSANAS_INSTANCE`,
+`instances`). **Code:** `config::dirs_home` preferred `HOME` everywhere, its
+comment claiming both variables exist on every platform -- false on Windows
+(checked: no persistent `HOME` on SIGSEG-DELL), where `provision.ps1` uses
+`USERPROFILE`; now `home_from` puts the profile first on Windows. One
+red-team test, one sabotage, red. **Risk named:** a Windows user whose `HOME`
+differs from the profile and who made a node with the CLI now finds it
+elsewhere (`itsanas --home` still reaches it); nobody on the fleet is in
+that case (checked on the laptop only).
 
 **2026-09-30, 0q (A)-(C): the worst first-user friction** (branch
 `step/8.0q-sync-folder`). `sync` now runs the daemon's own folder reconcile
@@ -2451,8 +2470,17 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the summary first; `instances` says "reachable, stopped" which reads
       as a contradiction; FIRST-STEPS never mentions `--instance` or
       `instances`; it mixes `pledge` and `space --apply`.
-      **(A), (B), (C) done 2026-09-30 (see §0).** Next: the lesser items
-      above, one small PR.
+      **(A), (B), (C) done 2026-09-30 (see §0), and a second persona
+      (Windows + Android) folded in the pledge, daemon-stop, both-daemons
+      and `--instance` doc fixes and the `USERPROFILE` code fix.** Left,
+      one small PR: `sync` exits 0 when every offer was refused (make it
+      non-zero, or at least a closing warning); `scan`/`sync` folder lines
+      name no files and show a rename as delete + add; `instances` says
+      "reachable, stopped" (say "folder reachable; daemon stopped");
+      `install/android.md` has no step for entering the laptop's address
+      and port, nor Doze / LAN-only notes; install/README "Two accounts"
+      does not say where `provision.ps1 -NoInstall` looks for
+      `itsanas.exe` for a second *Windows* account.
 
    f. **A tray icon for the Windows daemon.** Asked for by Nicolas on
       2026-09-14 after the untitled console: "a minimum of polish", dark or
