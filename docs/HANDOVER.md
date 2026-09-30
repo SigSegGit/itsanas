@@ -9,16 +9,30 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.2b
-TITLE: red-team the confidentiality surface by hand: what a host, or two hosts comparing notes, learn
+NEXT: 8.2c
+TITLE: a hostile host cannot stall a whole pull with one refused segment
 WRITTEN-AT: 2026-09-30
-BASE: 50515a5
+BASE: 4ee55cb
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 2b: confidentiality surface red-teamed by hand** (branch
+`step/8.2b-confidentiality-redteam`). Table in ROADMAP "The confidentiality
+surface, by hand". One new red-team test, sabotaged red by a convergent seal:
+two accounts sealing one file share no sealed bytes. **Found, named, not
+fixed:** reads are not scoped to the account -- any device key (anyone can
+make one) reads any account's envelopes, addresses and sealed chunks from any
+host, given the user id; the fix is the roster of §10 question 7. By design:
+op counts, sizes, cadence. **Not tested:** the has_chunk race in `kept` (no
+seam for a second writer) and repeated fetches of a shared noisy chunk (the
+simulator counts no fetches); the path-echo answer is from reading. §10
+gains question 7 (the #207 re-signing hole). Next, 2c: still agent-doable,
+client-side, not enforcement. Trap: `sabotage.py` with `cargo test -q`
+reports "the build itself refused it" for a test that failed; drop `-q`.
 
 **2026-09-30, 2a: integrity surface red-teamed by hand** (branch
 `step/8.2a-integrity-redteam`). Table of attacks, defences and tests in ROADMAP
@@ -2932,7 +2946,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
    else's device, LAN discovery eclipse). Git history was checked for secrets on
    2026-09-14 and is clean. *Identity* was examined by hand on 2026-09-15
    (ROADMAP, "The identity surface, examined 2026-09-15"; §8 0g); integrity on
-   2026-09-30 (§8 2a); confidentiality remains.
+   2026-09-30 (§8 2a); confidentiality on 2026-09-30 (§8 2b).
 
    a. ✅ **Integrity, by hand: what a hostile peer can make this node believe.**
       Done 2026-09-30 (see §0; ROADMAP "The integrity surface, by hand" has the
@@ -2955,8 +2969,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       truncation", deliberately open -- do not re-find it). One finding per
       PR; the survey's list goes in ROADMAP "What an adversarial sweep found".
 
-   b. **Confidentiality, by hand: what a host learns, alone or comparing notes
-      with another.** Next because it is the last unexamined §8 2 surface and
+   b. ✅ **Confidentiality, by hand: what a host learns, alone or comparing notes
+      with another.** Built 2026-09-30 (see §0; ROADMAP "The confidentiality
+      surface, by hand" has the table). Open from it: reads not scoped to the
+      account (§10 question 7, option 2 would close it). Original text follows.
+      Next because it is the last unexamined §8 2 surface and
       every other open item is host-side (1c) or waits on Nicolas. Not yet read
       for this. Start from the plaintext a host sees: `SegmentEnvelope`
       (`crates/itsanas-store/src/oplog.rs` ~160: owner, device, sequences,
@@ -2973,6 +2990,21 @@ Detail and measurements are in ROADMAP.md; this is the map.
       does a segment's size or cadence reveal file count or edit size; does
       any error message or log line a peer can provoke echo a path. Cap: ~5
       tests, one PR.
+
+   c. **A hostile host cannot stall a whole pull with one refused segment.**
+      Named by 2a (ROADMAP "The integrity surface, by hand", "Not examined or
+      not tested here"): one segment that fails any check -- signature,
+      `open`, `validate_chain` -- errors the whole pull, so one bad host
+      stops a round that honest segments from other devices' chains could
+      finish. Client-side, not enforcement, needs nobody. Not yet read for
+      this: where the pull in `crates/itsanas-net/src/session.rs` collects
+      segments per device and hands them to `itsanas_sync::apply_replaying`
+      (and `validate_chain` in `crates/itsanas-store/src/oplog.rs`). Shape
+      expected: refuse that device's chain for this round, keep the others,
+      report it. Red-team test: a peer serving one forged segment on device
+      A's chain and genuine ones on device B's; B's file is adopted, A's is
+      deferred, the round says so; sabotage by propagating the error again.
+      Do not hide the failure: a chain refused must still be visible.
 3. **The open findings** listed in ROADMAP.md, one per session.
 
    a. ✅ **`pledge` and the Android setters keep the split.** Built
@@ -3125,6 +3157,24 @@ Detail and measurements are in ROADMAP.md; this is the map.
    every merge. Add more contexts with
    `gh api -X PUT repos/SigSegGit/itsanas/branches/main/protection`; remove the
    lot with `gh api -X DELETE` on the same path if CI ever wedges.
+
+7. **A host can re-sign a genuine segment body under its own key** (named by
+   #207, ROADMAP "The integrity surface, by hand"). The seal binds the body
+   to owner and segment id, not to the device signing the envelope, so a host
+   holding any segment names a keypair of its own as `device` and signs; the
+   owner's machine applies that "stranger's chain", replaying its own
+   operations, and every release it made is undone. **Bounded today:** it
+   re-downloads content the owner released, up to the pull ceiling (8.1b), on
+   that owner's own machines; nothing is deleted, no content is revealed, and
+   other devices' operations replay idempotently. Two options, neither built:
+   (1) put the device id in `SealContext` for new segments: a seal format
+   change; old segments still open without it, so readers carry both paths
+   and a host can keep serving old-format bodies until they age out -- cheap
+   in code, the hole stays open for history; (2) an account device roster,
+   signed by the account, checked on open: closes it for all segments and
+   would also scope reads to the account (ROADMAP "The confidentiality
+   surface, by hand"), but it is a new signed object to distribute, keep and
+   revoke, and a keystore-replaced device must be added to it. Which one?
 
 ## 11. Working style Nicolas expects
 

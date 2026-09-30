@@ -692,6 +692,42 @@ mod tests {
     }
 
     #[test]
+    fn red_team_two_accounts_sealing_one_file_share_no_sealed_bytes() {
+        // THE ATTACK. Two hosts of two different accounts compare what they
+        // hold. Were the seal convergent across accounts -- one key, or the
+        // address a plain content hash -- equal sealed bytes would prove the
+        // two people hold the same file, and a host holding a candidate copy
+        // could confirm it. Blinding the address is only half of that; the
+        // sealed bytes must differ too, and share no run a keystream reuse
+        // would leave behind.
+        let alice = UserKeys::derive(&master(21));
+        let bob = UserKeys::derive(&master(22));
+        let content: Vec<u8> = (0..4096u32)
+            .map(|i| u8::try_from(i % 251).unwrap_or(0))
+            .collect();
+
+        let (alice_id, alice_sealed) = alice.seal_chunk(&content).unwrap();
+        let (bob_id, bob_sealed) = bob.seal_chunk(&content).unwrap();
+
+        // The vacuity guard: within one account the seal is byte-stable, so
+        // any difference below comes from the account, not from randomness.
+        assert_eq!(alice.seal_chunk(&content).unwrap().1, alice_sealed);
+        let shared = alice_sealed
+            .windows(16)
+            .filter(|run| bob_sealed.windows(16).any(|other| other == *run))
+            .count();
+        assert_eq!(
+            shared, 0,
+            concat!(
+                "two accounts sealing one file share {} runs of sealed bytes; ",
+                "two hosts comparing notes learn the owners hold the same file"
+            ),
+            shared
+        );
+        assert_ne!(alice_id, bob_id, "and the addresses say the same");
+    }
+
+    #[test]
     fn chunk_id_does_not_expose_the_plaintext_hash() {
         let keys = UserKeys::derive(&master(10));
         let content = b"guessable content";
