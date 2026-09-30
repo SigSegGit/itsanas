@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-09-30 12:25 | ~20 min | n/d ctx (sous-agent) · +21 pts/5 h | 8.1b (tirages) | au bout | ✅ | Tirages bornés par le plafond disque avant le premier chunk (`NoRoom`, différé) ; `held` excluait à tort nos propres chunks, corrigé ; redteam : répertoire de coffre créé pour soi, corrigé ; `get` non borné par décision, câblage non testé, nommés | #202 |
 | 2026-09-30 11:40 | ~30 min | ~410 k ctx (cumul) · 5 h ~27→~40 % | 8.0f (1re moitié) | au bout | 🟨 | Icône de barre des tâches : crates refusées par cargo deny (dépendances GTK, jugées sur chaque cible), donc `status --brief` en Rust testé + `itsanas-tray.ps1` ; jamais lancée contre un nœud réel | #201 |
 | 2026-09-30 11:20 | ~15 min | ~385 k ctx (cumul) · 5 h 19→~27 % (fenêtre neuve, partagée) | 8.0o (v5) | au bout | ✅ | Un pair v5 n'est jamais interrogé sur les présences (service plafonné + relais compteur) ; câblage du démon jugé non rentable à tester ; NEXT = icône de barre des tâches | #200 |
 | 2026-09-30 09:40 | ~15 min | ~360 k ctx (cumul) · 5 h ~70→~80 % | 8.0o (horloge) | au bout | 🟨 | Une présence datée 2099 n'aveugle plus le relais (refusée si relayée, ignorée comme « dernière ») ; test v5 et câblage du démon restent | #199 |

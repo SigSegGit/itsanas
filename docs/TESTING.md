@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 869 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 121 are red-team tests.**
+**Last updated: 2026-09-30 — 872 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 124 are red-team tests.**
 
-**753 of the 869 tests have an entry of their own on this page** — an *entry*,
+**756 of the 872 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -161,7 +161,7 @@ guarantee and is not one.
 | `itsanas-store` unit | 153 |
 | `itsanas-store` integration (`tests/store.rs`) | 45 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
-| `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
+| `itsanas-sync` convergence (`tests/convergence.rs`) | 23 |
 | `itsanas-net` unit | 42 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 48 |
 | `itsanas-placement` unit | 34 |
@@ -175,7 +175,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 38 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 84 |
+| `itsanas-node` unit | 85 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
@@ -644,12 +644,12 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 
 | Test | What it proves |
 | --- | --- |
-| `a_report_counts_every_outcome_kind` | Each of the six outcomes is tallied, and a deferred operation asks for another round. |
+| `a_report_counts_every_outcome_kind` | Each of the seven outcomes is tallied, a file with no room counts as deferred as well as `no_room`, and a deferred operation asks for another round. |
 | **`a_quiet_round_reports_no_work_and_no_retry`** | A round that only recognised things it already knew reports no progress. If it reported progress, the settle loop would never terminate. |
 
 ---
 
-# `itsanas-sync` — convergence tests (21)
+# `itsanas-sync` — convergence tests (23)
 
 The M3 exit criteria. Real stores, real chunking, real sealing, real signatures;
 only the network is simulated. Nothing uses randomness or wall-clock time, so a
@@ -674,6 +674,8 @@ failure reproduces exactly. `tests/convergence.rs`.
 | **`a_long_run_of_alternating_partitions_still_converges`** | Ten rounds of rotating partitions, twenty files, full agreement at the end. More history than a hand-built scenario covers. |
 | **`an_operation_whose_chunks_are_unavailable_is_deferred_not_half_applied`** | A segment can arrive before its chunks. Materialising anyway would create a file that exists but cannot be read. |
 | **`a_deferred_operation_completes_once_its_chunks_show_up`** | And the retry actually completes. |
+| **`red_team_a_pull_past_the_disk_ceiling_fetches_nothing_and_waits`** | 8.1b's pull half. A laptop with 100 KB of disk ceiling for the account is offered the Pi's 300 KB file: it must come back `NoRoom`, counted as deferred so the round is retried, with **no chunk of it fetched** (a refusal half-way would leave chunks no index entry counts) and no index entry; raised to 400 KB, the next round brings it in whole. Sabotaged on the check in `apply_upsert`: red. |
+| **`red_team_a_conflict_is_charged_both_versions_against_the_disk`** | A conflict keeps both files, so the incoming version frees nothing: a 300 KB version against our 1 KB one must be refused by a ceiling with 500 bytes to spare. Then, with room for exactly both, the conflict resolves; replayed on a disk with no room left, it must read as known rather than refused, or the round never finishes. Sabotaged three times (the check in `apply_conflict` removed; the incoming side charged as a replacement; the check moved above the idempotence check): red each time. |
 | **`the_hosts_hold_everything_and_can_read_none_of_it`** | Every byte the simulated hosts hold is scanned for Alice's canary *and* for each of her filenames. Includes a vacuity check proving the canary is really in the data. |
 | **`every_segment_a_host_holds_is_verifiable_by_that_host`** | Hosts cannot read segments but must be able to authenticate them, or anyone could flood a host with garbage attributed to a peer. |
 | **`a_full_corpus_converges_across_three_devices_with_partitions`** | The realistic end-to-end case: a real data set written across three devices that are never all online together, converging byte-identically. |
@@ -990,7 +992,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (93)
+# `itsanas-node` — a node on disk (94)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1057,7 +1059,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk (18)
+## `node` — identity on disk (19)
 
 | Test | What it proves |
 | --- | --- |
@@ -1066,6 +1068,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does`** | `itsanas passphrase` re-seals the keystore without regenerating anything — same account, same device id — the old passphrase stops working, and the pending file is renamed over the keystore rather than left beside it. |
 | **`red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns`** | Every write goes through `node.store`, and the store refuses nothing it has not been told about. Opening a node pledging 700 GB must hold writes to the 300 GB that earns at 30/70, and a node pledging nothing to the joining allowance, as `keep` does. Sabotaged on the wiring in `Node::assemble` and on the allowance floor: without either, the CLI, the folder and the phone would write unbounded while every store test stayed green. |
 | **`red_team_the_disk_room_sets_aside_what_the_pledge_still_owes`** | `Node::disk_room`: free space less what the pledge still owes beyond what is already hosted; owed past free leaves 0, over-hosting owes nothing, an unreadable free space bounds nothing rather than refusing every write, and a disk that really reads 0 free bounds everything (the `itsanas-redteam` agent found 0 read as unknown). Sabotaged (the owed pledge ignored): red. |
+| **`red_team_our_own_chunks_in_the_vault_do_not_count_as_hosted`** | Our other devices push to this vault too. `held`, what the pledge has already been paid, must count only other accounts' bytes: 40 000 bytes of our own chunks count 0, 10 000 of a stranger's count 10 000. Counted as hosted, our own backlog shrank the reserve by its own size. And asking must not create a vault directory for us, which made a fresh node list itself among the accounts it hosts (found by the `itsanas-redteam` agent). Sabotaged twice (`held_for_others` returning the whole vault; the owners guard removed): red. |
 | **`red_team_files_this_machine_has_not_downloaded_count_against_its_writes`** | A phone knows most of its account only from the laptop's log in its vault. A 300 000-byte file written on the laptop and never downloaded must reach the phone's write bound as `elsewhere`, or the phone writes as though the account were the sliver it keeps. Sabotaged on the `Absent` filter in `bound_writes`. |
 | **`red_team_a_machine_that_lends_nothing_writes_by_what_the_account_lends`** | The rule this step first shipped, caught by Rodin before it merged: the bound read *this machine's* pledge. A laptop pledging nothing -- the default -- in an account whose Pi lends 700 GB must be held to the 300 GB the account earns, on opening and again after the refresh every writer calls; it was being held to the joining allowance for the whole account. Sabotaged on both. |
 | `a_wrong_current_passphrase_changes_nothing` | Somebody at an unlocked terminal cannot choose a new passphrase for a machine without the current one; the keystore bytes are untouched. |

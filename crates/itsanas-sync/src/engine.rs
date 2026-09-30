@@ -63,6 +63,16 @@ pub enum Applied {
         /// How many of the operation's chunks are missing.
         missing: usize,
     },
+    /// The file would take this device past what its disk may hold for the
+    /// account -- the rest is owed to other people's pledged data -- so none
+    /// of it was fetched. Counted as deferred as well: the round is not
+    /// finished, and the file comes in once room appears.
+    NoRoom {
+        /// The file's size.
+        incoming: u64,
+        /// What this disk could still take for the account.
+        room: u64,
+    },
 }
 
 /// One operation's outcome, with the path it applied to.
@@ -81,6 +91,8 @@ pub struct SyncReport {
     pub conflicted: usize,
     pub deletes_lost: usize,
     pub deferred: usize,
+    /// Of `deferred`, the files left elsewhere because this disk had no room.
+    pub no_room: usize,
 }
 
 impl SyncReport {
@@ -92,6 +104,10 @@ impl SyncReport {
             Applied::Conflicted { .. } => self.conflicted += 1,
             Applied::DeleteLostToEdit => self.deletes_lost += 1,
             Applied::Deferred { .. } => self.deferred += 1,
+            Applied::NoRoom { .. } => {
+                self.deferred += 1;
+                self.no_room += 1;
+            }
         }
     }
 
@@ -248,6 +264,15 @@ fn apply_upsert(
         }
     }
 
+    // Before the first chunk: a refusal half-way would leave fetched chunks
+    // on disk that no index entry counts. See `Store::pull_room`.
+    if let Some(room) = store.pull_room(path, remote.size, local.is_some())? {
+        return Ok(Applied::NoRoom {
+            incoming: remote.size,
+            room,
+        });
+    }
+
     match fetch_missing(store, owner, &remote.chunks, source)? {
         0 => {
             store.adopt_entry(path, remote)?;
@@ -265,12 +290,6 @@ fn apply_conflict(
     owner: UserId,
     source: &dyn ChunkSource,
 ) -> Result<Applied> {
-    // Both versions are about to exist, so both need their chunks.
-    let missing = fetch_missing(store, owner, &remote.chunks, source)?;
-    if missing > 0 {
-        return Ok(Applied::Deferred { missing });
-    }
-
     // Authorship, not "who is running this code". The local copy may itself
     // have been adopted from a third device, and using this device's identity
     // for it would make two devices reach different verdicts about the same
@@ -299,6 +318,21 @@ fn apply_conflict(
         && existing.version.compare(&loser.version) == CausalOrder::Equal
     {
         return Ok(Applied::AlreadyKnown);
+    }
+
+    // Both versions are about to exist, so the incoming one is charged whole
+    // (nothing is replaced) and needs its chunks. After the idempotence check:
+    // a conflict resolved earlier costs nothing more and must not read as a
+    // disk with no room.
+    if let Some(room) = store.pull_room(path, remote.size, false)? {
+        return Ok(Applied::NoRoom {
+            incoming: remote.size,
+            room,
+        });
+    }
+    let missing = fetch_missing(store, owner, &remote.chunks, source)?;
+    if missing > 0 {
+        return Ok(Applied::Deferred { missing });
     }
 
     if remote_wins {
@@ -431,6 +465,10 @@ mod tests {
             },
             Applied::DeleteLostToEdit,
             Applied::Deferred { missing: 2 },
+            Applied::NoRoom {
+                incoming: 10,
+                room: 3,
+            },
         ] {
             report.record(&applied);
         }
@@ -440,7 +478,8 @@ mod tests {
         assert_eq!(report.superseded, 1);
         assert_eq!(report.conflicted, 1);
         assert_eq!(report.deletes_lost, 1);
-        assert_eq!(report.deferred, 1);
+        assert_eq!(report.deferred, 2, "a file with no room is deferred too");
+        assert_eq!(report.no_room, 1);
         assert!(report.needs_another_round());
         assert!(report.changed_anything());
     }

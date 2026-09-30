@@ -326,7 +326,7 @@ impl Node {
         // `ok()`, not `unwrap_or(0)`: a disk that is really full reads 0, and
         // that is when the bound matters most -- it must not read as unknown.
         let free = fs4::available_space(&self.home).ok();
-        let held = self.vault.stats()?.bytes;
+        let held = self.held_for_others()?;
         let local = self.store.local_bytes()?;
         self.store.set_write_budget(Some(WriteBudget {
             allowed: Self::allowed_for(
@@ -338,6 +338,28 @@ impl Node {
                 .map(|room| local.saturating_add(room)),
         }))?;
         Ok(())
+    }
+
+    /// Bytes this vault holds for *other* accounts: what counts against the
+    /// pledge.
+    ///
+    /// Not the vault's whole size. This account's other devices push to it too
+    /// (that is how a machine that cannot be dialled gets its work out), and
+    /// those chunks and segments are ours, not a debt paid to anybody. Counted
+    /// as hosted, they shrank what the pledge still owes and so loosened the
+    /// reserve by exactly the size of our own backlog.
+    ///
+    /// Only asks about our own account if the vault already has it:
+    /// `stats_for` opens the owner's blob directory, creating it, and a vault
+    /// with a directory for us then lists us among the accounts it hosts.
+    fn held_for_others(&self) -> Result<u64> {
+        let all = self.vault.stats()?.bytes;
+        let owner = self.store.owner();
+        if !self.vault.owners()?.contains(&owner) {
+            return Ok(all);
+        }
+        let ours = self.vault.stats_for(owner)?.bytes;
+        Ok(all.saturating_sub(ours))
     }
 
     /// What this disk can take for the account's own files: `free` less what
@@ -1011,6 +1033,49 @@ mod tests {
                 .map(|budget| budget.allowed),
             Some(300 * GB),
             "the refresh before a write fell back to this machine's own pledge"
+        );
+    }
+
+    /// The laptop pushes its own files into the Pi's vault; somebody else's
+    /// data sits there too. Only the second is paid against the Pi's pledge.
+    #[test]
+    fn red_team_our_own_chunks_in_the_vault_do_not_count_as_hosted() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pi, _phrase) = Node::create(&dir.path().join("pi"), PASSPHRASE, "nicolas").unwrap();
+        let (stranger, _phrase) =
+            Node::create(&dir.path().join("stranger"), PASSPHRASE, "somebody").unwrap();
+
+        let address = itsanas_crypto::ChunkId::from_bytes([3u8; 32]);
+        pi.vault
+            .put_chunk(pi.store.owner(), &address, &vec![1u8; 40_000])
+            .unwrap();
+        assert_eq!(
+            pi.held_for_others().unwrap(),
+            0,
+            "this account's own chunks counted as hosted for others: the \
+             reserve for the pledge shrinks by our own backlog and the disk \
+             fills with it"
+        );
+
+        // Asking must not enrol anybody: a fresh vault stays a vault that
+        // hosts no account, as `status` reports it.
+        let (fresh, _phrase) =
+            Node::create(&dir.path().join("fresh"), PASSPHRASE, "fresh").unwrap();
+        fresh.bound_writes().unwrap();
+        assert_eq!(
+            fresh.vault.stats().unwrap().owners,
+            0,
+            "working out the disk room made this machine list itself among \
+             the accounts it hosts"
+        );
+
+        pi.vault
+            .put_chunk(stranger.store.owner(), &address, &vec![2u8; 10_000])
+            .unwrap();
+        assert_eq!(
+            pi.held_for_others().unwrap(),
+            10_000,
+            "another account's chunk is exactly what the pledge is paid in"
         );
     }
 

@@ -10,15 +10,39 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0f
-TITLE: The tray, second half: started at logon by provision.ps1, and pause / disconnect / decommission with Nicolas's confirmations
+TITLE: The tray, second half cut down: provision.ps1 starts scripts/itsanas-tray.ps1 at logon per instance; no destructive menu items yet
 WRITTEN-AT: 2026-09-30
-BASE: 68c7f44
+BASE: cb91472
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 1b's pull half: a download is held to the disk ceiling**
+(branch `step/8.1b-pull-bound`). Chosen over 0f's second half by an
+`itsanas-lead` checkpoint. `apply_upsert` and `apply_conflict`
+(`crates/itsanas-sync/src/engine.rs`) ask `Store::pull_room` per file
+**before its first chunk**; a file past `local_ceiling` returns the new
+`Applied::NoRoom`, counted in `deferred` (so the markers stay and it is
+retried) and in `SyncReport::no_room` (so `sync` and the daemon say "left on
+the other machines: no room"). Not in `accept_chunk`: a per-chunk refusal
+half-writes the file, and repair uses it for files already counted.
+Only the disk half applies to a pull; the file is already in the account.
+**Verified, then fixed:** `held` in `disk_room` did include our own
+account's chunks -- `Vault::stats` sums every owner, and our devices push to
+our vault -- so `Node::held_for_others` subtracts `stats_for(own)`. The
+daemon loop without a folder, `sync_folder` and Android's sync now refresh
+the bound before pulling (before, the ceiling there was `Node::open`'s
+`None`). Three red-team tests, six sabotages, red. **The `itsanas-redteam`
+agent** found `stats_for` creates our own vault directory (a fresh node then
+"hosted" one account): guarded, tested. Its other findings are named, not
+fixed, in `ROADMAP.md` ("The disk bound (1b) on pulls"): `itsanas get`
+unbounded by decision, frozen markers replay every round while a file waits
+for room, the refresh fails open, the three call sites untested. **Next is
+0f cut down** (see §8 f): logon start only, nothing destructive until
+Nicolas has seen the icon.
 
 **2026-09-30, 0f first half: the tray, as `status --brief` + PowerShell**
 (branch `step/8.0f-brief-status`). **Decision, against the letter of §8 f
@@ -2583,10 +2607,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
    f. 🟨 **A tray icon for the Windows daemon.** First half built 2026-09-30
       as `status --brief` + `scripts/itsanas-tray.ps1` (see §0 for why not a
-      crate). **`NEXT`:** `provision.ps1` registers it at logon beside the
-      daemon's task (per instance), and the menu gains pause / disconnect /
-      decommission, each behind the confirmation text below. Run the tray
-      once against a live node first and note what it gets wrong. Original
+      crate). **`NEXT`, cut down on 2026-09-30:** `install/provision.ps1`
+      registers a second scheduled task per instance, at logon of the
+      provisioning user, running `powershell -WindowStyle Hidden -File
+      scripts\itsanas-tray.ps1 -Instance <name>` (the script already takes
+      `-Instance`; copy it beside the binary the way provision installs it),
+      and removes it wherever the daemon's task is removed (`install/clean.ps1`,
+      `itsanas leave`'s printed advice). **No new menu items**: pause,
+      disconnect and decommission wait until Nicolas has seen the icon once
+      and said what it gets wrong. Test expected: `scripts/check-installers.sh`
+      (or a Pester-free parse check like the tray's) proves the task line names
+      the instance and the hidden window; sabotage by dropping `-Instance`.
+      The pause / disconnect / decommission text below stays the
+      specification for later. Original
       plan, kept for reference: do it in two PRs. First, alone: pick the crates (`tray-icon` + `tao`/`winit`,
       or `windows`-crate `Shell_NotifyIcon` directly) by running `cargo deny
       check` with them added and confirming `scripts/check-unsafe.py` still
@@ -2769,7 +2802,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       All went red on 2026-09-14, as did the two tests the audit added
       (`red_team_a_node_cannot_grant_itself_a_more_generous_split`,
       `a_quoted_price_parses_back_to_no_less_than_the_price`).
-   b. 🟨 **Bound writes on the honest client.** Disk half done 2026-09-30 (see §0); pulls still unbounded (`ROADMAP.md`, "The disk bound (1b)"). The account half is built
+   b. ✅ **Bound writes on the honest client.** Disk half built 2026-09-30, pull half the same day (see §0); what the pull bound leaves open is named in `ROADMAP.md`, "The disk bound (1b) on pulls". The account half is built
       (§8 0n, 2026-09-28); **left: the disk half** -- refuse when this
       machine's own store plus what its pledge still has to receive would
       exceed the disk. It wants the vault's size, which the store cannot see,
