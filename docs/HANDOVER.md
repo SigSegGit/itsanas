@@ -9,16 +9,29 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0i
-TITLE: Two instances on one machine, provisioned and one cleaned, the other intact -- hermetically in check-installers.sh
+NEXT: 8.0m
+TITLE: Wire `itsanas leave` into the service's own stop, so a restart cannot contradict a recorded departure
 WRITTEN-AT: 2026-09-30
-BASE: 8701222
+BASE: 011bd3f
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0i's red-team test, hermetic** (branch
+`step/8.0i-twin-instances`). `scripts/check-installers.sh` ("two instances,
+one cleaned") provisions `a` and `b` with `provision.sh --instance` in a
+throwaway HOME -- stub `itsanas` at `~/.local/bin`, a `systemctl` first on
+`PATH` that only logs, the scripts copied out of the checkout so no
+`smoke.sh` runs against the stub -- cleans `b` with `--purge-account`, and
+requires `a`'s home, `a.environment`, the `itsanas@.service` template and
+a's enablement to survive, with no stop/disable of `itsanas@a`. Two
+sabotages of `clean.sh` (glob `*.environment`; disable `itsanas@*`), two
+red. Already a CI step, so no `ci.yml` change. **Still 🟨 in 0i:** it proves
+the scripts' file and unit bookkeeping, not that `a` keeps syncing; the
+cold human runs on Windows, the Pi, the VM and a Mac remain Nicolas's.
 
 **2026-09-30, 0p closed: (3) the refusal, then Rodin** (branch
 `step/8.0p-refuse-unnamed`). With neither `--instance` nor `--home`
@@ -1833,7 +1846,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       has **never been run by a human** -- only on a CI runner -- and that is
       the riskiest square in the table.
 
-      **`NEXT` (2026-09-30), the agent-doable half:** make that red-team
+      **Hermetic half done 2026-09-30 (see §0).** Was: make that red-team
       test hermetic in `scripts/check-installers.sh` (already a CI step, so
       no `ci.yml` change): a throwaway `HOME`, a fake `systemctl` (and
       `loginctl`) first on `PATH` that logs its arguments, a stub `itsanas`
@@ -1943,7 +1956,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       directory, a ledger with files) writes no deletion to the log; and a
       folder emptied by accident has its deletions held, not replicated.
 
-   m. ✅ **Count the live copies, and let a machine leave politely.** Parts (1)-(3) built (2026-09-21, 2026-09-28). **Remaining, 🟨:** wire `itsanas leave` into the service's own stop (systemd `ExecStop=`, the Windows scheduled task, the tray of item f) so a restart does not contradict the recorded departure. Asked for
+   m. 🟨 **Count the live copies, and let a machine leave politely.** Parts (1)-(3) built (2026-09-21, 2026-09-28). **Remaining, 🟨:** wire `itsanas leave` into the service's own stop (systemd `ExecStop=`, the Windows scheduled task, the tray of item f) so a restart does not contradict the recorded departure. Asked for
       by Nicolas on 2026-09-17: each instance checks how many copies are live
       and asks for a new one elsewhere; a machine shutting down on purpose
       should first ask for copies, so a graceful exit can be told apart from a

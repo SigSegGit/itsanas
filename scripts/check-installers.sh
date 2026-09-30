@@ -687,6 +687,76 @@ for script in install/clean.sh install/provision.sh; do
 done
 rm -rf "$reserved_home"
 
+# ------------------------------------------- two instances, one cleaned
+#
+# HANDOVER §8 0i's red-team test, hermetic: provision instances `a` and `b`
+# in a throwaway HOME, clean `b` with --purge-account, and check that `a`'s
+# home, passphrase file, the shared unit template and a's enablement are all
+# still there. #18 once had provision.ps1 kill every itsanas process; a clean
+# that globbed `*.environment` or disabled `itsanas@*` would take a sibling's
+# service down, and nobody would notice until its owner's files stopped
+# arriving. What this cannot see: that `a` really keeps syncing -- the
+# `itsanas` here is a stub, systemd a logger.
+
+twin=$(mktemp -d)
+mkdir -p "$twin/home/.local/bin" "$twin/home/.config/systemd/user" "$twin/fake" "$twin/scripts"
+# A copy outside the checkout, so provision finds no scripts/smoke.sh to run
+# against the stub.
+cp install/provision.sh install/clean.sh "$twin/scripts/"
+cat > "$twin/home/.local/bin/itsanas" <<'STUB'
+#!/bin/sh
+case "$1" in
+    init) mkdir -p "$ITSANAS_HOME" && : > "$ITSANAS_HOME/keystore.bin" && echo "word word word" ;;
+    status) echo "stub node at $ITSANAS_HOME" ;;
+esac
+exit 0
+STUB
+cat > "$twin/fake/systemctl" <<'FAKE'
+#!/bin/sh
+echo "$*" >> "$TWIN_LOG"
+case "$*" in *is-active*) exit 3 ;; esac
+exit 0
+FAKE
+chmod +x "$twin/home/.local/bin/itsanas" "$twin/fake/systemctl"
+: > "$twin/home/.config/systemd/user/itsanas@.service"
+twin_run() {
+    env HOME="$twin/home" PATH="$twin/fake:/usr/bin:/bin" TWIN_LOG="$twin/systemctl.log" \
+        ITSANAS_PASSPHRASE=x XDG_RUNTIME_DIR="$twin" \
+        timeout 60 sh "$@" </dev/null >"$twin/out" 2>&1
+}
+twin_ok=1
+for name in a b; do
+    if ! twin_run "$twin/scripts/provision.sh" --username "u$name" --no-install --instance "$name"; then
+        bad "provision.sh --instance $name failed in a throwaway home"
+        sed 's/^/    /' "$twin/out"
+        twin_ok=0
+    fi
+done
+if [ "$twin_ok" -eq 1 ] && ! twin_run "$twin/scripts/clean.sh" --yes --purge-account --instance b; then
+    bad "clean.sh --instance b failed in a throwaway home"
+    sed 's/^/    /' "$twin/out"
+    twin_ok=0
+fi
+if [ "$twin_ok" -eq 1 ]; then
+    h="$twin/home"
+    for kept in "$h/.itsanas-a/keystore.bin" "$h/.config/itsanas/a.environment" \
+                "$h/.config/systemd/user/itsanas@.service"; do
+        [ -e "$kept" ] || { bad "cleaning instance b removed ${kept#"$h"/}, which belongs to a or to both"; twin_ok=0; }
+    done
+    for gone in "$h/.itsanas-b" "$h/.config/itsanas/b.environment"; do
+        [ -e "$gone" ] && { bad "clean.sh --instance b --purge-account left ${gone#"$h"/}"; twin_ok=0; }
+    done
+    grep -q 'enable --now itsanas@a' "$twin/systemctl.log" \
+        || { bad "provision.sh --instance a never enabled itsanas@a"; twin_ok=0; }
+    if grep -E '(disable|stop).*itsanas@a|(disable|stop).*itsanas@\*|(disable|stop).* itsanas( |$)' "$twin/systemctl.log" >/dev/null; then
+        bad "provisioning or cleaning b stopped or disabled a sibling's service:"
+        sed 's/^/    /' "$twin/systemctl.log"
+        twin_ok=0
+    fi
+    [ "$twin_ok" -eq 1 ] && say "two instances provisioned, b cleaned, a untouched"
+fi
+rm -rf "$twin"
+
 if [ "$failed" -ne 0 ]; then
     echo
     echo "An installer is the one program here that runs on a machine nobody has"
@@ -695,4 +765,4 @@ if [ "$failed" -ne 0 ]; then
     exit 1
 fi
 
-echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs, sudo rule matches"
+echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs, sudo rule matches, a cleaned instance spares its sibling"
