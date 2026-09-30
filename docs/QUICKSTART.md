@@ -407,7 +407,7 @@ later by a coordinator:
 
 ```text
 itsanas: keeping 31.0 GiB needs 73G pledged, and this node offers 70.0 GiB.
-`itsanas space --pledge 73G --keep 31G --apply` sets both, or ask for less.
+`itsanas space --pledge 73G --keep 31G --apply` sets both, or keep less.
 ```
 
 **What the rest of the account looks like on that machine.** Everything is

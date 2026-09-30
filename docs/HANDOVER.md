@@ -9,16 +9,31 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.3a
-TITLE: pledge and the Android setters keep the split: lowering a pledge under what keep needs is refused, and pledge counts only others' bytes as held
+NEXT: 8.3b
+TITLE: a store the host will refuse costs no walk of its vault: a running total of chunk bytes
 WRITTEN-AT: 2026-09-30
-BASE: 6699f6b
+BASE: 9787dda
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 3a: every setter keeps the split** (branch
+`step/8.3a-pledge-keeps-split`). `Node::check_split` (`itsanas-node`
+`node.rs`) is the one rule, asked by `keep`, `space --apply`, `pledge` (new
+`set_pledge`) and the phone's `set_pledge`/`set_keep` (the JNI bodies,
+extracted); `pledge` counts hosted bytes with `held_for_others`, now public.
+Refusal text ends "or keep less" (was "ask for less"; QUICKSTART follows).
+**Verified:** three red-team tests, sabotaged eight ways (the check always
+`Ok`; `allowed_for` on `Split::DEFAULT`; each call dropped; each moved below
+its assignment), red each time. **Not verified:** the JNI shims themselves --
+the tests reach `set_pledge`/`set_keep`, not `Java_..._setPledge`/`setKeep`.
+**Decision:** strict -- a node already keeping more than it earns has
+`setKeep` (order, filter) and a too-small raise of `pledge` refused until keep
+is lowered. Left as found: negative `setPledge` via `unsigned_abs`, and a
+suggested `--keep NG` rounded up past its own quoted pledge (itsanas-redteam).
 
 **2026-09-30, 0f cut down: the tray icon starts at logon, per node**
 (branch `step/8.0f-tray-at-logon`). `install/provision.ps1` copies
@@ -2773,10 +2788,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
      more generous one is refused when the file is read. `Assessment::split` is the *coordinator's*, and is
      what `assess` grants entitlement by. Nothing a device sends may reach the
      second; `DeviceContribution` deliberately carries no split.
-   - `itsanas pledge` and the Android JNI `setKeep`/`setPledge`
-     (`crates/itsanas-android/src/lib.rs`, around 551–622) still skip the check
-     altogether — they set bytes without consulting any split. That is finding 3
-     in item 3 below and was already true; (a) did not touch it. The coordinator
+   - `itsanas pledge` and the Android JNI `setKeep`/`setPledge` consult the
+     split since 2026-09-30 (item 3a below, `Node::check_split`). The coordinator
      claim (`crates/itsanas-cli/src/coordinator.rs:180`) and the daemon's
      `Pledge` (`crates/itsanas-cli/src/daemon.rs`) carry `pledge_bytes` and never
      read a split, which is correct.
@@ -2875,7 +2888,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
    2026-09-14 and is clean.
 3. **The open findings** listed in ROADMAP.md, one per session.
 
-   a. **`pledge` and the Android setters keep the split.** Verified
+   a. ✅ **`pledge` and the Android setters keep the split.** Built
+      2026-09-30 as written (see §0); the original text follows. Verified
       2026-09-30: `pledge` (`crates/itsanas-cli/src/main.rs` ~3033) checks the
       free disk but not that the configured `keep_bytes` still fits the new
       pledge -- `keep` does (~2800, `Node::allowed_for` and
@@ -2894,10 +2908,22 @@ Detail and measurements are in ROADMAP.md; this is the map.
       enforcement: a rebuilt client skips it, which is 1c's job, deferred by
       §8 0.
 
-   Then, in the order written: a refused request still walks the
-   whole vault (and, since the listener became concurrent, delays honest stores
-   behind the storing lock); chunk-size sequences fingerprint files; the
-   LAN beacon groups an account's machines.
+   b. **A store the host will refuse costs no walk of its vault.**
+      `would_exceed_pledge` (`crates/itsanas-net/src/service.rs` ~445) reads
+      `Vault::stats()` (`crates/itsanas-store/src/vault.rs` ~586), which lists
+      every owner's blobs and stats each file, under the storing lock -- so a
+      peer spamming offers it knows are refused delays honest stores. Segment
+      bytes are already a running total (`CHAIN_BYTES`); keep one for chunk
+      bytes beside `vault_chunks` (`CHUNKS`, ~83), updated in the same
+      transaction as each put and delete, and read it here. Measure first
+      (ROADMAP, "A refused request still costs the host a full walk"): time a
+      refused `StoreChunk` on a vault of many chunks, before and after.
+      Red-team test expected: the total equals the sum over the blobs after
+      puts, a re-put of the same address and deletes; sabotage by skipping the
+      update on delete. Not enforcement: same rule, cheaper to ask.
+   c. Chunk-size sequences fingerprint files (ROADMAP; not decided, costs
+      disk on every host -- a question for Nicolas before code).
+   d. The LAN beacon groups an account's machines.
 4. **Verification at a terabyte.** Within a differing bucket, ask only about
    chunks with no fresh record for that peer (DESIGN.md §6.5). Today the budget
    buys about 3 MB of change a day at 1 TB.

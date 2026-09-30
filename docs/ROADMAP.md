@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**872 test functions, 4 of them `#[ignore]`d into the slow job, and 124 of
+**875 test functions, 4 of them `#[ignore]`d into the slow job, and 127 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1466,15 +1466,14 @@ now queue**: every `StoreChunk` takes the storing lock and then walks the vault
 (the finding above), so a peer spamming offers it knows will be refused delays
 honest stores by as much. The running total for chunks would make both cheap.
 
-**`itsanas pledge` does not re-check `keep`, and the Android bindings check
-neither.** `itsanas keep` refuses a figure the pledge has not earned, and
-`itsanas space --apply` refuses both; `pledge` on its own and `setKeep` /
-`setPledge` over JNI set the number without the ratio test. The consequence is a
-local config the coordinator would disagree with rather than any gain — the
-default is unbounded retention, which is strictly more parasitic and goes
-through the front door — so this is an inconsistency to tidy, not a hole. It is
-listed because three surfaces enforcing a rule and two not is exactly how a rule
-stops being one.
+✅ **`itsanas pledge` and the Android setters keep the split** (2026-09-30,
+HANDOVER §8 3a). `keep`, `pledge`, `space --apply` and the phone's `setKeep` /
+`setPledge` all ask `Node::check_split` before saving, so `keep 70G` then
+`pledge 1G` is refused with the `space --pledge .. --keep .. --apply` command
+and the file is left as it was; `pledge` counts only other accounts' bytes as
+hosted (`Node::held_for_others`). Tested through `set_pledge` / `set_keep`,
+not through the JNI shims. Still only the honest client: a rebuilt one skips
+it, which is host-side enforcement (§8 1c, deferred).
 
 **A chunk-size sequence is a fingerprint of the plaintext.** Content-defined
 chunking means the boundaries are a function of the bytes, so the sequence of

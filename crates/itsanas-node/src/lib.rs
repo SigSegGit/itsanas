@@ -32,4 +32,4 @@ pub mod node;
 pub use config::Config;
 pub use error::{NodeError, Result};
 pub use keeping::{KeepingReport, round};
-pub use node::{Node, SNAPSHOT};
+pub use node::{Node, SNAPSHOT, SplitRefusal};

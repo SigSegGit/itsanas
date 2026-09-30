@@ -595,23 +595,34 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_setKeep(
             .lock()
             .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
         let node = guard.as_mut().ok_or(Failure::Closed)?;
-
-        node.config.keep_bytes = if bytes > 0 {
-            Some(bytes.unsigned_abs())
-        } else {
-            None
-        };
-        node.config.keep_order = order;
-        node.config.keep_only = only
-            .split('\n')
-            .map(str::trim)
-            .filter(|prefix| !prefix.is_empty())
-            .map(ToOwned::to_owned)
-            .collect();
-        node.save_config()?;
-
-        Ok(describe_keeping(&node.config))
+        let keep = (bytes > 0).then(|| bytes.unsigned_abs());
+        set_keep(node, keep, order, &only)
     })
+}
+
+/// [`Java_fr_ngas_itsanas_Native_setKeep`] without the JNI, so a test reaches
+/// it: the split is checked before anything is changed, so a refused limit
+/// leaves order and filter as they were too.
+fn set_keep(
+    node: &mut Node,
+    keep: Option<u64>,
+    order: itsanas_policy::keeping::Order,
+    only: &str,
+) -> Result<String, Failure> {
+    Node::check_split(&node.config, node.config.pledge_bytes, keep)
+        .map_err(|refusal| Failure::Usage(refusal.to_string()))?;
+
+    node.config.keep_bytes = keep;
+    node.config.keep_order = order;
+    node.config.keep_only = only
+        .split('\n')
+        .map(str::trim)
+        .filter(|prefix| !prefix.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    node.save_config()?;
+
+    Ok(describe_keeping(&node.config))
 }
 
 /// Say how much room this device offers other people.
@@ -626,11 +637,20 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_setPledge(
             .lock()
             .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
         let node = guard.as_mut().ok_or(Failure::Closed)?;
-
-        node.config.pledge_bytes = bytes.unsigned_abs();
-        node.save_config()?;
-        Ok(serde_json::json!({ "pledgeBytes": node.config.pledge_bytes }).to_string())
+        set_pledge(node, bytes.unsigned_abs())
     })
+}
+
+/// [`Java_fr_ngas_itsanas_Native_setPledge`] without the JNI, so a test
+/// reaches it. A pledge under what the phone's `keep` needs is refused, as
+/// the CLI's `pledge` refuses it.
+fn set_pledge(node: &mut Node, bytes: u64) -> Result<String, Failure> {
+    Node::check_split(&node.config, bytes, node.config.keep_bytes)
+        .map_err(|refusal| Failure::Usage(refusal.to_string()))?;
+
+    node.config.pledge_bytes = bytes;
+    node.save_config()?;
+    Ok(serde_json::json!({ "pledgeBytes": node.config.pledge_bytes }).to_string())
 }
 
 /// Point this node at a coordinator, so it can be reached from off the network.
@@ -887,6 +907,66 @@ mod tests {
                 .as_str()
                 .is_some_and(|why| !why.is_empty()),
             "a plan with no reason leaves the application with nothing to show"
+        );
+    }
+
+    /// The phone's setters keep the split as `pledge` and `keep` do: a pledge
+    /// lowered under what `keep` needs, or a keep the pledge does not earn,
+    /// is refused and the node file is left as it was. Covers `set_pledge`
+    /// and `set_keep`, not the JNI shims that lock the node and call them.
+    /// Sabotage: drop the `check_split` call in either.
+    #[test]
+    fn red_team_the_phone_s_setters_keep_the_split() {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        let (mut node, _phrase) = Node::create(&home, "a long passphrase", "nicolas").unwrap();
+        node.config.pledge_bytes = 50 * GIB;
+        node.config.keep_bytes = Some(20 * GIB);
+        node.save_config().unwrap();
+        let path = Node::config_path(&home);
+        let before = std::fs::read(&path).unwrap();
+
+        assert!(
+            matches!(set_pledge(&mut node, 1024 * 1024), Err(Failure::Usage(_))),
+            "setPledge accepted 1 MiB beside a 20 GiB keep"
+        );
+        let order = node.config.keep_order;
+        let only = node.config.keep_only.clone();
+        assert!(
+            matches!(
+                set_keep(&mut node, Some(40 * GIB), order, "Photos"),
+                Err(Failure::Usage(_))
+            ),
+            "setKeep accepted 40 GiB on a 50 GiB pledge"
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "a refused setter still rewrote the node file"
+        );
+        // Nor the node in memory: it lives in a process-wide mutex, so the
+        // next setter that succeeds would save what a refused one left there.
+        assert_eq!(
+            node.config.pledge_bytes,
+            50 * GIB,
+            "refused pledge, yet set"
+        );
+        assert_eq!(
+            node.config.keep_bytes,
+            Some(20 * GIB),
+            "refused keep, yet set"
+        );
+        assert_eq!(node.config.keep_only, only, "refused keep, filter changed");
+
+        // Not setters that refuse everything.
+        assert!(
+            set_keep(&mut node, None, order, "").is_ok(),
+            "no limit refused"
+        );
+        assert!(
+            set_pledge(&mut node, 1024 * 1024).is_ok(),
+            "a small pledge with no keep refused"
         );
     }
 

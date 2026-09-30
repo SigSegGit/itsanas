@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 872 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 124 are red-team tests.**
+**Last updated: 2026-09-30 — 875 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 127 are red-team tests.**
 
-**756 of the 872 tests have an entry of their own on this page** — an *entry*,
+**759 of the 875 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -172,10 +172,10 @@ guarantee and is not one.
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
-| `itsanas-cli` unit | 38 |
-| `itsanas-android` unit | 2 |
+| `itsanas-cli` unit | 39 |
+| `itsanas-android` unit | 3 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 85 |
+| `itsanas-node` unit | 86 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
@@ -873,7 +873,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (38)
+# `itsanas-cli` — unit tests (39)
 
 ## `bench` — measuring this machine (4)
 
@@ -913,7 +913,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed and the tray's one word (24)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pledge that keeps the split (25)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -946,6 +946,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_what_a_sync_pulled_lands_in_the_folder`** | `itsanas sync` by hand fetched into the store and left the synced folder empty until an `itsanas scan` no guide names (found by a persona run of FIRST-STEPS, HANDOVER §8 q). A file put in the store as a pull would must be written out by `sync_folder`, which `sync` runs after its rounds. Sabotaged (it returns at once): red. |
 | `the_phrase_as_init_prints_it_reads_back_as_the_words` | `init` prints the words as a numbered grid; a person pastes that into `--phrase-file`. The numbers are dropped, words are never guessed at, and one word a line works too. |
 | **`red_team_an_empty_mount_point_is_not_a_reachable_folder`** | An unmounted disk leaves an empty mount point; `instances` must say UNREACHABLE unless 0l's `.itsanas-folder` marker is there, never trust `is_dir` alone. |
+| **`red_team_pledge_under_what_keep_needs_is_refused_and_saves_nothing`** | `itsanas pledge 1M` on a node keeping 20 GiB is refused with the `space --pledge .. --keep .. --apply` command, and neither the node file nor the node in memory changes; with no keep the same pledge goes through, so the setter is not one that refuses everything (HANDOVER §8 3a). Sabotaged (the `check_split` call in `set_pledge` dropped, or moved below the assignment; `check_split` always `Ok`): red. |
 
 # `itsanas-policy` — when to sync, and how much (23)
 
@@ -992,7 +993,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (94)
+# `itsanas-node` — a node on disk (95)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1059,7 +1060,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk (19)
+## `node` — identity on disk (20)
 
 | Test | What it proves |
 | --- | --- |
@@ -1082,6 +1083,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`opening_a_missing_node_says_what_to_do_about_it`** | The error names both `init` and `login`. |
 | `a_created_node_reopens_with_the_same_identity` | Reopening does not orphan the data. |
 | `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
+| **`red_team_a_pledge_under_what_keep_needs_is_refused`** | `Node::check_split`, the one rule `keep`, `pledge`, `space --apply` and the phone's setters ask: a 1 MiB pledge for a 20 GiB keep is refused, naming the pledge that earns it (which is then accepted) and the command `itsanas space --pledge 47G --keep 20G --apply`; a keep inside the joining allowance, or no keep, needs no pledge; a stricter 20/80 split in the node's config refuses what 30/70 allows. Sabotaged (`check_split` always `Ok`; `allowed_for` reading `Split::DEFAULT`): red. |
 
 ## `keeping` — a round on a device short of room (3)
 
@@ -1119,7 +1121,7 @@ to the peer, each turns the matching test red.
 | **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
 | `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |
 
-# `itsanas-android` — the JNI boundary (2)
+# `itsanas-android` — the JNI boundary (3)
 
 `src/lib.rs`. The only crate that relaxes the unsafe lint, and the only one
 whose contract is with another language. What is tested here is deliberately
@@ -1136,6 +1138,7 @@ from a host over a real socket, and one of them opened.
 | --- | --- |
 | **`a_plan_is_reported_with_the_names_kotlin_reads`** | The field names are a contract with another language, and a rename here fails silently over there — the application would show an empty reason and no interval, and nothing would say why. |
 | **`asking_a_closed_node_says_so_rather_than_crashing`** | Every entry point can be called before an account is open, because Android restarts a process whenever it likes. It has to answer with a sentence a person can act on, not with a panic crossing into the JVM. |
+| **`red_team_the_phone_s_setters_keep_the_split`** | `set_pledge` and `set_keep`, the bodies of `setPledge` and `setKeep`, refuse a pledge under what keep needs and a keep the pledge does not earn, and leave the node file and the node in memory (a process-wide mutex, saved by the next setter) as they were; with no keep, both go through. Reaches the two functions, **not the JNI shims** that lock the node and call them -- those are covered only by reading. Sabotaged five ways (either call dropped; either call moved below its assignments; `check_split` always `Ok`): red. |
 
 # `itsanas-drive` — the account as a folder (9)
 

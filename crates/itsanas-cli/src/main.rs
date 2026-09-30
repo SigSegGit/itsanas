@@ -2804,22 +2804,8 @@ fn keep(home: &Path, size: Option<&str>, order: Option<&str>, only: &[String]) -
             // then told it was never theirs to set -- with the data already on
             // the machine. Refused here, with the number that would make it
             // legal.
-            let split = node.config.split;
-            let allowed = Node::allowed_for(&node.config, node.config.pledge_bytes);
-            if bytes > allowed {
-                return Err(CliError::Usage(format!(
-                    concat!(
-                        "keeping {} needs {} pledged, and this node offers {}. ",
-                        "`itsanas space --pledge {} --keep {} --apply` sets both, ",
-                        "or ask for less."
-                    ),
-                    format_size(bytes),
-                    itsanas_node::config::size_argument(split.pledge_needed_for(bytes)),
-                    format_size(node.config.pledge_bytes),
-                    itsanas_node::config::size_argument(split.pledge_needed_for(bytes)),
-                    itsanas_node::config::size_argument(bytes),
-                )));
-            }
+            Node::check_split(&node.config, node.config.pledge_bytes, Some(bytes))
+                .map_err(|refusal| CliError::Usage(refusal.to_string()))?;
 
             node.config.keep_bytes = Some(bytes);
         }
@@ -2980,15 +2966,12 @@ fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> 
         ));
     }
 
-    let allowed = earned.max(itsanas_coord::accounting::JOINING_ALLOWANCE);
-    if let Some(keep) = wanted_keep
-        && keep > allowed
-    {
+    if let Err(refusal) = Node::check_split(&node.config, wanted_pledge, wanted_keep) {
         refusals.push(format!(
             "keeping {} needs {} pledged; you are offering {}",
-            format_size(keep),
-            itsanas_node::config::size_argument(split.pledge_needed_for(keep)),
-            format_size(wanted_pledge)
+            format_size(refusal.keep),
+            itsanas_node::config::size_argument(refusal.needed),
+            format_size(refusal.pledge)
         ));
     }
 
@@ -3033,8 +3016,21 @@ fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> 
 fn pledge(home: &Path, size: &str) -> Result<()> {
     let bytes = parse_size(size)?;
     let mut node = open(home)?;
+    set_pledge(&mut node, bytes)?;
+    println!("pledged {} to the network", format_size(bytes));
+    Ok(())
+}
 
-    let held = node.vault.stats()?.bytes;
+/// Set this node's pledge to `bytes`, or refuse and leave the file as it was.
+fn set_pledge(node: &mut Node, bytes: u64) -> Result<()> {
+    // The split first: lowering the pledge under what `keep` holds would leave
+    // this machine keeping more than it earns, which `keep` itself refuses.
+    Node::check_split(&node.config, bytes, node.config.keep_bytes)
+        .map_err(|refusal| CliError::Usage(refusal.to_string()))?;
+
+    // Only other accounts' bytes: our own devices push here too, and counting
+    // those as hosted said the pledge was already paid by our own backlog.
+    let held = node.held_for_others()?;
     if bytes < held {
         // Lowering below what is already stored is allowed — the operator may
         // be reclaiming a disk — but it must be said out loud, because the node
@@ -3065,8 +3061,6 @@ fn pledge(home: &Path, size: &str) -> Result<()> {
 
     node.config.pledge_bytes = bytes;
     node.save_config()?;
-
-    println!("pledged {} to the network", format_size(bytes));
     Ok(())
 }
 
@@ -3529,9 +3523,46 @@ mod tests {
     use super::{
         DeviceId, SNAPSHOT, brief_status, departure_refusal, describe_age, first_free_port,
         instances_report, looks_like_a_closed_pipe, migrate_unnamed, phrase_grid, phrase_words,
-        record_departure, refuse_if_departed, rejoin, resolve_device, sibling_ports,
+        record_departure, refuse_if_departed, rejoin, resolve_device, set_pledge, sibling_ports,
         snapshot_status, sync_folder,
     };
+
+    /// `itsanas pledge` lowered under what `keep` needs is refused and the
+    /// node file is left as it was. Sabotage: drop the `check_split` call in
+    /// `set_pledge` -- the 1 MiB pledge is then saved beside a 20 GiB keep.
+    #[test]
+    fn red_team_pledge_under_what_keep_needs_is_refused_and_saves_nothing() {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        let (mut node, _phrase) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        node.config.pledge_bytes = 50 * GIB;
+        node.config.keep_bytes = Some(20 * GIB);
+        node.save_config().expect("save");
+        let path = itsanas_node::Node::config_path(&home);
+        let before = std::fs::read(&path).expect("config");
+
+        let refused = set_pledge(&mut node, 1024 * 1024);
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|error| error.to_string().contains("--apply")),
+            "a 1 MiB pledge was accepted beside a 20 GiB keep: {refused:?}"
+        );
+        assert_eq!(
+            std::fs::read(&path).expect("config"),
+            before,
+            "a refused pledge still rewrote the node file"
+        );
+        // Nor the node in memory: a caller that saves later would write it.
+        assert_eq!(node.config.pledge_bytes, 50 * GIB, "refused, yet set");
+
+        // Not a setter that refuses everything: with no limit to earn, the
+        // same pledge goes through.
+        node.config.keep_bytes = None;
+        set_pledge(&mut node, 1024 * 1024).expect("a small pledge with no keep");
+    }
 
     /// A node home as `instances` sees one: a keystore and a config, no keys.
     fn fake_node(home: &std::path::Path, username: &str, folder: Option<&std::path::Path>) {
