@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 867 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 119 are red-team tests.**
+**Last updated: 2026-09-30 — 868 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 120 are red-team tests.**
 
-**751 of the 867 tests have an entry of their own on this page** — an *entry*,
+**752 of the 868 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -163,7 +163,7 @@ guarantee and is not one.
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 21 |
 | `itsanas-net` unit | 42 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 47 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 48 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 108 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 15 |
@@ -786,7 +786,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (47)
+# `itsanas-net` — two-node tests (48)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -816,6 +816,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | `a_metadata_round_offers_the_log_but_sends_no_chunks` | The upload direction: a photo taken on mobile data does not upload itself, and the peer still learns it happened. |
 | **`two_nodes_sync_a_file_over_a_real_socket`** | The M4 exit criterion. |
 | **`red_team_a_trickled_handshake_is_cut_off_by_the_node_listener`** | The deadline is unit-tested in `itsanas-tls`; this proves the node's listener applies it. Going back to plain `accept` left every other test green, which is how the Rodin audit of 2026-09-17 found the gap. Fails when the listener ignores its deadline. |
+| **`red_team_a_peer_speaking_protocol_5_is_never_asked_for_presences`** | A machine not yet on protocol 6 does not know `Presences`: asking costs a refusal a round, or a dropped connection if it misparses. `PeerService::speaking_at_most(5)` stands in for it and a counting `Relay` records every question: a v6 service is asked once (the control), a v5 one never, and the client reads its silence as `None`. Sabotaged (the client's `spoken < 6` gate removed): red. |
 | **`red_team_connections_that_say_nothing_do_not_stop_a_node_serving_others`** | The listener served one connection at a time, so one silent TCP connection held it for the thirty-second read timeout, and one every thirty seconds made the node undialable for everybody, for free. Harmless on a home network, an off switch on a forwarded port. With three silent connections open, an honest peer must authenticate and get an answer within five seconds. Fails, after thirty seconds, when the listener is made serial again. |
 | **`a_device_takes_the_files_it_asked_for_and_none_of_the_others`** | The ordinary case for a phone, not an edge case: a few gigabytes free against an account of hundreds. The device names what it wants and the source declines everything else, so the merge engine treats the rest as it treats a sleeping peer — deferred, nothing half-written, still listed for a client to fetch on demand. This was a byte budget inside the pull, which stopped when the allowance ran out and therefore kept whatever the log replayed first; deciding *which* files is now `itsanas_policy::keeping`, and this is the network half. |
 | **`a_second_push_offers_nothing_and_says_so`** | Found by reading three machines' daemon logs after an upgrade: "sent 400 B (0 chunks, 1 segments)" every five minutes on a fleet where nothing was happening. A push offered the whole chain every round whatever the peer held, the vault refused each already-held segment with a chain-break, and `store_segment` maps every refusal to `false` — so the waste was invisible from the pushing side and grows without bound as the chain does. Fails when the resume is removed. |

@@ -96,6 +96,8 @@ pub struct PeerService<'a> {
     vault: &'a Vault,
     pledge: Pledge,
     relay: Option<&'a dyn Relay>,
+    /// The newest protocol this service admits to in `Hello`.
+    protocol: u16,
     /// Held across "is there room" and "store it".
     ///
     /// The listener serves connections concurrently, and the pledge check is a
@@ -124,8 +126,20 @@ impl<'a> PeerService<'a> {
             vault,
             pledge,
             relay: None,
+            protocol: PROTOCOL_VERSION,
             storing: std::sync::Mutex::new(()),
         }
+    }
+
+    /// Answer `Hello` as a peer of protocol `version` at most would: how a
+    /// test stands in for a machine that has not been upgraded, to prove a
+    /// client does not ask it what it cannot know. Requests are still served
+    /// as by this version; only the version admitted to changes.
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn speaking_at_most(mut self, version: u16) -> Self {
+        self.protocol = version;
+        self
     }
 
     /// Answer [`Request::Presences`] from `relay`. Without it, every such
@@ -165,7 +179,7 @@ impl<'a> PeerService<'a> {
 
         match request {
             Request::Hello { protocol, .. } => Ok(Response::Hello {
-                protocol: (*protocol).min(PROTOCOL_VERSION),
+                protocol: (*protocol).min(self.protocol),
                 device: self.device_id(),
             }),
 
