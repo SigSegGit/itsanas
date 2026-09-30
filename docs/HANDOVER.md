@@ -9,16 +9,35 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0k
-TITLE: v0.2.0 prerequisites an agent can do: workspace version, CHANGELOG, FIRST-STEPS pin -- no tag, no APK signing
+NEXT: 8.1c
+TITLE: Bound owners on the host: store for an owner at most an allowance plus k x what its devices proved they hold for us
 WRITTEN-AT: 2026-09-30
-BASE: f86ad16
+BASE: caf008c
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 1b closed: the disk half of bounded writes** (branch
+`step/8.1b-disk-bound`). `WriteBudget` gains `disk_room: Option<u64>`;
+`Store::refuse_past` refuses a write adding more than that with the new
+`StoreError::DiskFull { incoming, room }`, on the same path as the account
+bound, so nothing is left behind. `Node::bound_writes` sets it to
+`Node::disk_room(free, pledge, held)` = free space (`fs4`, new dependency of
+`itsanas-node`, already in the lock via the CLI) less what the pledge still
+owes beyond the vault's bytes; `None` when the free space reads 0 (unknown),
+and at `Node::open`, whose vault opens later -- every writing path calls
+`bound_writes` first. Measured in plaintext bytes (a few bytes a chunk off).
+Two red-team tests, two sabotages, red. **Skipped 8.0k on purpose:** its
+agent half (version, CHANGELOG, re-pin FIRST-STEPS) would point the
+documented install at a `v0.2.0` tag that does not exist until Nicolas cuts
+it -- found by the `itsanas-lead` checkpoint. It is now marked "with
+Nicolas". Also from that checkpoint: 0p is 🟨, not ✅, while its service
+advice is unexercised. Trap this time: restoring a sabotage with
+`git checkout <file>` wiped the real edit in that file; back up to the
+scratchpad and copy back instead.
 
 **2026-09-30, 0q closed: the leftovers** (branch `step/8.0q-leftovers`).
 `sync` ends with a line on stderr naming every peer that refused
@@ -1983,7 +2002,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
    k. **v0.2.0, the marker release.** Asked for by Nicolas on 2026-09-16: a
       version that says "concrete enough to test, and nowhere near v1.0.0".
-      **`NEXT` (2026-09-30), the agent half only:** (i) is still 🟨 for
+      **With Nicolas, not an agent step (2026-09-30):** re-pinning
+      FIRST-STEPS before the tag exists breaks the documented install, so
+      the whole of (k) happens at the moment he cuts the tag. Was: (i) is still 🟨 for
       its human runs, so this prepares the release without cutting it:
       bump `[workspace.package] version` (check `Cargo.toml` and every
       crate that does not inherit it; `Cargo.lock` follows), write
@@ -2415,7 +2436,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       protocol, which already authenticates end to end. Nicolas confirmed that
       reading on 2026-09-18.
 
-   p. ✅ **Named instances only, each showing its account and storage.** Done 2026-09-30 (#189-#192). Asked
+   p. 🟨 **Named instances only, each showing its account and storage.** Built 2026-09-30 (#189-#192); left: the service advice `migrate` prints is unexercised on systemd and the Task Scheduler (`ROADMAP.md`, "Named instances (0p)"), a job for 0i's human runs. Asked
       for by Nicolas on 2026-09-16 and again on 2026-09-17: no unnamed default
       instance, launch and list instances by account and storage location, and
       check that the location is reachable (0l provides the check). Today
@@ -2681,7 +2702,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       All went red on 2026-09-14, as did the two tests the audit added
       (`red_team_a_node_cannot_grant_itself_a_more_generous_split`,
       `a_quoted_price_parses_back_to_no_less_than_the_price`).
-   b. 🟨 **Bound writes on the honest client.** The account half is built
+   b. ✅ **Bound writes on the honest client.** Disk half done 2026-09-30 (see §0). The account half is built
       (§8 0n, 2026-09-28); **left: the disk half** -- refuse when this
       machine's own store plus what its pledge still has to receive would
       exceed the disk. It wants the vault's size, which the store cannot see,

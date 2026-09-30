@@ -88,6 +88,13 @@ pub struct WriteBudget {
     /// write that fits. A file that is here *and* counted in this figure is
     /// counted twice, which errs the other way, and only for its size.
     pub elsewhere: u64,
+    /// Bytes one write may add to this machine's disk, if known: the free
+    /// space less what this machine's pledge still owes other people. `None`
+    /// when the free space could not be read -- no bound rather than a
+    /// refusal of everything. Measured in plaintext bytes, which a sealed
+    /// chunk exceeds by its tag and deduplication undercuts; the margin is a
+    /// few bytes a chunk, and the owed pledge is the real reserve.
+    pub disk_room: Option<u64>,
 }
 
 /// What one garbage-collection pass did.
@@ -334,6 +341,17 @@ impl Store {
                 account,
                 total,
                 allowed: budget.allowed,
+            });
+        }
+        // The account may have room and this disk not: what the pledge still
+        // owes is space promised to other people, and filling it with our own
+        // files breaks that promise the day they send their data.
+        let incoming = total.saturating_sub(account);
+        if let Some(room) = budget.disk_room.filter(|room| incoming > *room) {
+            return Err(StoreError::DiskFull {
+                path: path.to_owned(),
+                incoming,
+                room,
             });
         }
         Ok(())

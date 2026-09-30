@@ -396,6 +396,49 @@ const KIB: u64 = 1024;
 /// debris, and a folder pass retries a refused file every time it runs: debris
 /// here is a disk that fills with the first part of the same video, again and
 /// again, while the account stays exactly as full as it was.
+/// The account may have room while the disk has not: what this machine's
+/// pledge still owes is space promised to others. A write past the disk room
+/// is refused with the numbers and leaves nothing behind; a write inside it
+/// still succeeds, so the test cannot pass on a store that refuses all.
+#[test]
+fn red_team_a_write_past_the_disk_room_is_refused_and_leaves_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([62; 32]), dir.path());
+    store
+        .set_write_budget(Some(WriteBudget {
+            allowed: u64::MAX,
+            elsewhere: 0,
+            disk_room: Some(300 * KIB),
+        }))
+        .unwrap();
+
+    store
+        .write_file("small.bin", &testkit::filler("small", 100 * 1024))
+        .expect("a file inside the disk room is stored");
+    let before = store.stats().unwrap();
+
+    match store.write_file("big.bin", &testkit::filler("big-disk", 1024 * 1024)) {
+        Err(StoreError::DiskFull { incoming, room, .. }) => {
+            assert_eq!(room, 300 * KIB, "the refusal misstates the room");
+            assert!(incoming > room, "refused at {incoming}, not past {room}");
+        }
+        other => panic!(
+            "a 1 MiB file was written to a disk with 300 KiB to spare beyond the \
+             pledge: {other:?}. The space promised to other people is eaten by \
+             our own files, and their data has nowhere to go"
+        ),
+    }
+    let after = store.stats().unwrap();
+    assert_eq!(
+        after.bytes_on_disk, before.bytes_on_disk,
+        "the refused file left chunks on disk"
+    );
+    assert!(
+        store.read_file("big.bin").unwrap().is_none(),
+        "the refused file has an index entry"
+    );
+}
+
 #[test]
 fn red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log() {
     let dir = tempfile::tempdir().unwrap();
@@ -404,6 +447,7 @@ fn red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log() {
         .set_write_budget(Some(WriteBudget {
             allowed: 600 * KIB,
             elsewhere: 0,
+            disk_room: None,
         }))
         .unwrap();
 
@@ -470,6 +514,7 @@ fn a_write_inside_the_budget_succeeds_and_an_edit_is_charged_only_its_growth() {
         .set_write_budget(Some(WriteBudget {
             allowed: 1024 * KIB,
             elsewhere: 0,
+            disk_room: None,
         }))
         .unwrap();
 
@@ -509,6 +554,7 @@ fn red_team_what_the_account_holds_elsewhere_counts_against_it() {
         .set_write_budget(Some(WriteBudget {
             allowed: 1024 * KIB,
             elsewhere: 900 * KIB,
+            disk_room: None,
         }))
         .unwrap();
 

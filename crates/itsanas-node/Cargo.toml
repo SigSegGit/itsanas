@@ -9,6 +9,7 @@ authors.workspace = true
 description = "A node on disk: keystore, configuration, and one sync round"
 
 [dependencies]
+fs4 = { version = "1.1.0", default-features = false }
 getrandom = "0.4.3"
 itsanas-coord = { version = "0.1.0", path = "../itsanas-coord" }
 # For the one address classifier the node and the coordinator share, and
