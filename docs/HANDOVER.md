@@ -2581,7 +2581,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       does not say where `provision.ps1 -NoInstall` looks for
       `itsanas.exe` for a second *Windows* account.
 
-   f. 🟨 **A tray icon for the Windows daemon.** First half done 2026-09-30
+   f. 🟨 **A tray icon for the Windows daemon.** First half built 2026-09-30
       as `status --brief` + `scripts/itsanas-tray.ps1` (see §0 for why not a
       crate). **`NEXT`:** `provision.ps1` registers it at logon beside the
       daemon's task (per instance), and the menu gains pause / disconnect /
