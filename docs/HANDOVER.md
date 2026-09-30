@@ -9,16 +9,30 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0q
-TITLE: First-user friction, what is left: sync exit status when every offer is refused, scan's noise, instances wording, sync/rename reporting, Android address entry
+NEXT: 8.0k
+TITLE: v0.2.0 prerequisites an agent can do: workspace version, CHANGELOG, FIRST-STEPS pin -- no tag, no APK signing
 WRITTEN-AT: 2026-09-30
-BASE: 0401ae7
+BASE: f86ad16
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0q closed: the leftovers** (branch `step/8.0q-leftovers`).
+`sync` ends with a line on stderr naming every peer that refused
+(`finish_sync`; exit status kept at 0, because `acceptance-local.sh` expects
+a round against a pledge-0 host to succeed and print why); `instances` says
+"daemon running/stopped"; `install/android.md` says how to point the phone
+at a computer (address + `status`'s `listen` port) and the Doze / off-LAN
+limits; install/README says a second *Windows account* needs its own
+`itsanas.exe` and **must still use `-Instance`**: task names are
+machine-wide, so its plain `ITSaNAS` task would be the first account's
+(read from `provision.ps1` ~564, `Register-ScheduledTask -Force`; not run
+with two real Windows accounts -- add it to 0i's human runs). **Not done, named:** `scan`/`sync`
+folder lines still name no files and show a rename as delete + add (a
+reporting redesign, not friction); no test for the new stderr line.
 
 **2026-09-30, 0q, second persona (Windows + Android): the pledge, the
 home, the instance** (branch `step/8.0q-pledge-first`). A second persona
@@ -1969,6 +1983,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
    k. **v0.2.0, the marker release.** Asked for by Nicolas on 2026-09-16: a
       version that says "concrete enough to test, and nowhere near v1.0.0".
+      **`NEXT` (2026-09-30), the agent half only:** (i) is still 🟨 for
+      its human runs, so this prepares the release without cutting it:
+      bump `[workspace.package] version` (check `Cargo.toml` and every
+      crate that does not inherit it; `Cargo.lock` follows), write
+      `CHANGELOG.md` from `git log v0.1.0..main` in plain words -- what is
+      testable, what is not (the 🟨 list of 0i, 0o, Android's "never on
+      hardware"), and re-pin FIRST-STEPS where it says v0.1.0 (the first
+      persona run flagged that it disagrees with install/README's `main`).
+      **Do not tag and do not build a release APK**: the tag is Nicolas's
+      (other machines pin to it) and so is the signing key (§10.2). Grep
+      for every `0.1.0` first (`itsanas-docs-sweeper` does this cheaply).
+
       Cut it **after** (i) and (j) land, never before -- the point of the tag
       is that somebody can install the same feature set on any platform, so it
       is worth nothing until installing is the thing that was fixed.
@@ -2444,7 +2470,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       refuse `passphrase` too and exclude the file from their `.itsanas-*`
       globs.
 
-   q. **First-user friction, from a persona run of `FIRST-STEPS.md`.** Found
+   q. ✅ **First-user friction, from a persona run of `FIRST-STEPS.md`.** Closed 2026-09-30 (#195-#197). Found
       2026-09-30 by a subagent playing a Linux user with two machines (two
       throwaway HOMEs, no coordinator); everything in the goal worked, these
       are the places a person has to guess, worst first:

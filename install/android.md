@@ -50,6 +50,19 @@ rather than a test harness:
   listing and no signing key, so putting it on a phone means enabling unknown
   sources.
 
+### Pointing it at your computer
+
+The phone dials; nothing dials the phone. Give it one machine of the account
+that is on the same network: that machine's LAN address (on it, `ipconfig`
+or `ip addr`) and the port its node listens on -- the `listen` line of
+`itsanas status` there, 9797 unless another node on that computer took it
+(then 9798 and up). That is `192.168.1.42:9798`, typed into the app's peer
+field, as step 2 above did. Two limits follow from "sync runs while the
+service is up" below: Android's battery saving (Doze) may stop the service
+when the screen is off, and away from that network the phone reaches the
+account only through a machine with an address the outside can dial
+(`FIRST-STEPS.md` §4b).
+
 ### What it does not have
 
 | Missing | What that costs you |

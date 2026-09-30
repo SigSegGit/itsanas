@@ -1478,9 +1478,9 @@ fn instances_lines(homes: Vec<(String, PathBuf)>) -> String {
             Some(folder) => format!("folder {} UNREACHABLE", folder.display()),
         };
         let daemon = if itsanas_store::Store::is_locked(Node::store_path(&home)) {
-            "running"
+            "daemon running"
         } else {
-            "stopped"
+            "daemon stopped"
         };
         let _ = writeln!(
             out,
@@ -3073,6 +3073,7 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
     }
 
     let mut any_succeeded = false;
+    let mut refused_by: Vec<String> = Vec::new();
 
     for (target, pinned) in &targets {
         print!("{target}: ");
@@ -3119,6 +3120,7 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
                 );
                 if let Some(refused) = describe_refusal(&report.push) {
                     println!("  {refused}");
+                    refused_by.push(target.clone());
                 }
                 if keeping.released > 0 {
                     println!(
@@ -3145,15 +3147,29 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
     if !any_succeeded {
         return Err(CliError::Usage("no peer could be reached".to_owned()));
     }
+    finish_sync(&node, scope, &refused_by);
+    Ok(())
+}
+
+/// What `sync` says and does once every peer has had its round.
+fn finish_sync(node: &Node, scope: session::Scope, refused_by: &[String]) {
+    // Said again last, where a person reads: the refusal line sits in the
+    // middle of the round's output, and "sync" exiting 0 read as "my files
+    // are there" to a persona whose laptop had pledged nothing (§8 q).
+    if !refused_by.is_empty() {
+        eprintln!(
+            "itsanas: not everything was stored: {} refused it (see above); \
+             nothing refused is held there until that machine pledges room",
+            refused_by.join(", ")
+        );
+    }
     // And what came in lands in the folder. Without this a person who ran
     // `sync` by hand saw "received 201 files" and an empty folder until an
     // `itsanas scan` no guide names -- found by a persona run of
     // FIRST-STEPS.md (HANDOVER §8 q). Metadata-only fetched no content.
     if matches!(scope, session::Scope::Everything) {
-        sync_folder(&node);
+        sync_folder(node);
     }
-
-    Ok(())
 }
 
 /// The folder half of a sync: the daemon's own reconcile, so the guards of 0l
