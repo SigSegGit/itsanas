@@ -56,6 +56,36 @@ pub const KEYSTORE_LABEL: &str = "itsanas/keystore/local";
 /// mean a copy of either could be dropped in as the other.
 pub const ESCROW_LABEL: &str = "itsanas/keystore/escrow";
 
+/// A `keep` the pledge does not earn, from [`Node::check_split`].
+///
+/// A value rather than a sentence so each caller can phrase it; its `Display`
+/// is the one `keep` and `pledge` print, with the command that sets both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SplitRefusal {
+    /// What was to be kept here.
+    pub keep: u64,
+    /// The pledge that earns it, rounded up.
+    pub needed: u64,
+    /// The pledge asked for.
+    pub pledge: u64,
+}
+
+impl fmt::Display for SplitRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use crate::config::{format_size, size_argument};
+        write!(
+            f,
+            "keeping {} needs {} pledged, and this node offers {}. \
+             `itsanas space --pledge {} --keep {} --apply` sets both, or keep less.",
+            format_size(self.keep),
+            size_argument(self.needed),
+            format_size(self.pledge),
+            size_argument(self.needed),
+            size_argument(self.keep),
+        )
+    }
+}
+
 /// The secrets a node needs to operate.
 #[derive(Serialize, Deserialize)]
 struct NodeSecrets {
@@ -261,6 +291,38 @@ impl Node {
             .max(itsanas_coord::accounting::JOINING_ALLOWANCE)
     }
 
+    /// Refuse a `pledge` and `keep` pair this machine's split does not allow:
+    /// keeping more than the pledge earns.
+    ///
+    /// The one rule every setter asks before it saves -- `keep`, `pledge`,
+    /// `space --apply` and the phone's `setKeep` and `setPledge`. Until
+    /// 2026-09-30 only `keep` and `space` asked, so `keep 70G` then
+    /// `pledge 1G` left a node keeping far more than it earned, and nobody
+    /// found out until a coordinator refused it. `None` keeps everything,
+    /// which no pledge refuses: the account's size is bounded by writes, not
+    /// here.
+    ///
+    /// Only the honest client asks. A rebuilt one skips it; bounding owners
+    /// on the host is §8 1c.
+    ///
+    /// # Errors
+    ///
+    /// A [`SplitRefusal`] naming the pledge that would make `keep` legal.
+    pub fn check_split(
+        config: &Config,
+        pledge: u64,
+        keep: Option<u64>,
+    ) -> std::result::Result<(), SplitRefusal> {
+        match keep {
+            Some(keep) if keep > Self::allowed_for(config, pledge) => Err(SplitRefusal {
+                keep,
+                needed: config.split.pledge_needed_for(keep),
+                pledge,
+            }),
+            _ => Ok(()),
+        }
+    }
+
     /// What the account's machines pledge together, as far as this one knows:
     /// its own pledge as configured now, plus the others' as the coordinator
     /// last listed them.
@@ -352,7 +414,11 @@ impl Node {
     /// Only asks about our own account if the vault already has it:
     /// `stats_for` opens the owner's blob directory, creating it, and a vault
     /// with a directory for us then lists us among the accounts it hosts.
-    fn held_for_others(&self) -> Result<u64> {
+    ///
+    /// # Errors
+    ///
+    /// If the vault cannot be read.
+    pub fn held_for_others(&self) -> Result<u64> {
         let all = self.vault.stats()?.bytes;
         let owner = self.store.owner();
         if !self.vault.owners()?.contains(&owner) {
@@ -1076,6 +1142,55 @@ mod tests {
             pi.held_for_others().unwrap(),
             10_000,
             "another account's chunk is exactly what the pledge is paid in"
+        );
+    }
+
+    /// A pledge lowered under what `keep` needs is refused, with the pledge
+    /// that would earn it; a keep inside the allowance, or none, is refused by
+    /// no pledge. Sabotage: make `check_split` return `Ok(())` -- a node then
+    /// keeps 20 GiB on a 1 MiB pledge and only a coordinator notices.
+    #[test]
+    fn red_team_a_pledge_under_what_keep_needs_is_refused() {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let config = Config::default();
+
+        let refusal = Node::check_split(&config, 1024 * 1024, Some(20 * GIB))
+            .expect_err("a 1 MiB pledge accepted for a 20 GiB keep");
+        assert_eq!(refusal.needed, config.split.pledge_needed_for(20 * GIB));
+        assert!(
+            Node::check_split(&config, refusal.needed, Some(20 * GIB)).is_ok(),
+            "the pledge the refusal names is refused in turn"
+        );
+        let said = refusal.to_string();
+        assert!(
+            said.contains("itsanas space --pledge 47G --keep 20G --apply"),
+            "the refusal lost the command that fixes it: {said}"
+        );
+
+        assert!(
+            Node::check_split(
+                &config,
+                0,
+                Some(itsanas_coord::accounting::JOINING_ALLOWANCE)
+            )
+            .is_ok(),
+            "a keep inside the joining allowance needs no pledge"
+        );
+        assert!(
+            Node::check_split(&config, 0, None).is_ok(),
+            "keeping everything is bounded by writes, not by the pledge"
+        );
+
+        // The node's own split, not the default: a stricter one refuses what
+        // 30/70 allows. 50 GiB earns 21.4 GiB at 30/70 and 12.5 GiB at 20/80.
+        assert!(Node::check_split(&config, 50 * GIB, Some(20 * GIB)).is_ok());
+        let strict = Config {
+            split: itsanas_coord::accounting::Split::new(20, 80).unwrap(),
+            ..Config::default()
+        };
+        assert!(
+            Node::check_split(&strict, 50 * GIB, Some(20 * GIB)).is_err(),
+            "the check read the default split, not this node's stricter one"
         );
     }
 
