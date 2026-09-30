@@ -141,9 +141,19 @@ Install there, then restore the **same** account from the twenty-four words:
 
 ```sh
 itsanas login --username you --phrase-file words.txt
+itsanas folder ~/Sync
 itsanas peer add 192.168.1.42:9797
 itsanas sync
 ```
+
+`words.txt` holds the twenty-four words: on one line, one per line, or the
+numbered grid `init` printed, pasted as it is. `login` then asks for a
+passphrase for *this* machine's keystore; it need not be the first machine's
+(`ITSANAS_PASSPHRASE` supplies it to scripts). For `peer add`, use the first
+machine's LAN address and the port it listens on -- 9797, or the next free one
+if another node took it: `itsanas listen`, run there with its daemon stopped,
+prints it. `sync` writes what it received into the folder; the daemon does the
+same on its own from then on.
 
 Both machines now hold the same account. Drop a file in the folder on one; it
 appears on the other.

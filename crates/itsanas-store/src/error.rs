@@ -48,7 +48,8 @@ pub enum StoreError {
     #[error(
         "{0} is already open in another process.\n\
          Only one process at a time may hold a node's state — most likely \
-         `itsanas serve` is running. Stop it and try again."
+         its daemon (or `itsanas serve`) is running. Commands that change \
+         the node need it stopped: stop it and try again."
     )]
     Locked(PathBuf),
 

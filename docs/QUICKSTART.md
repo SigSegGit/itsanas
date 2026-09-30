@@ -155,8 +155,9 @@ read.
 >
 > ```text
 > itsanas: store: …/index.redb is already open in another process.
-> Only one process at a time may hold a node's state — most likely
-> `itsanas serve` is running. Stop it and try again.
+> Only one process at a time may hold a node's state — most likely its daemon
+> (or `itsanas serve`) is running. Commands that change the node need it
+> stopped: stop it and try again.
 > ```
 >
 > Use `itsanas daemon`, which does both. A local control socket would remove
@@ -571,7 +572,7 @@ That is tested end to end in
 
 | Symptom | What it means |
 | --- | --- |
-| `already open in another process` | `itsanas serve` is running against the same home. Stop it. |
+| `already open in another process` | The daemon, or `itsanas serve`, is running against the same home. Stop it; `itsanas status` still answers while it runs. |
 | `wrong passphrase, or the keystore has been tampered with` | Exactly that. The two are indistinguishable on purpose. |
 | `no node found at …` | Run `init` for a new account or `login` to restore one. |
 | `expected to reach device X but Y answered` | The address resolved to the wrong machine. Refused on purpose — the coordinator is not trusted to say who lives at an address. |

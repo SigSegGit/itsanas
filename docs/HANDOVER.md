@@ -10,15 +10,30 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0q
-TITLE: First-user friction found by a persona run: sync that leaves the folder empty, the words file, the peer address, the lock message
+TITLE: First-user friction, the lesser items: sync's "no machines found" line, scan's noise, instances wording, --instance in FIRST-STEPS, pledge vs space
 WRITTEN-AT: 2026-09-30
-BASE: c61019c
+BASE: b562606
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0q (A)-(C): the worst first-user friction** (branch
+`step/8.0q-sync-folder`). `sync` now runs the daemon's own folder reconcile
+(`sync_folder` -> `daemon::reconcile_once`, so 0l's guards apply) before its
+rounds, so local changes go out, and after them for `Scope::Everything`, so
+what came in lands in the folder. `login --phrase-file` accepts the grid
+`init` prints (`phrase_words` drops `N.` tokens; `phrase_grid` is now the
+one printer). The store-lock message names the daemon. FIRST-STEPS §4 adds
+the missing `itsanas folder` on the second machine (the persona had set it
+without noticing the guide never did), the words file's formats, the
+per-machine passphrase and how to read the port. One red-team test + one
+functional, one sabotage, red. **🟨:** `sync`'s call sites of
+`sync_folder` are one line each and untested; `itsanas listen` needs the
+daemon stopped to print the port -- `status` might be the better answer,
+unchecked.
 
 **2026-09-30, 0m closed: a departure survives a restart** (branch
 `step/8.0m-departed`). **Decision, against the letter of §8 m:** `leave` is
@@ -2436,7 +2451,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the summary first; `instances` says "reachable, stopped" which reads
       as a contradiction; FIRST-STEPS never mentions `--instance` or
       `instances`; it mixes `pledge` and `space --apply`.
-      Do (A) first, alone if it is not small; (B) and (C) are one PR.
+      **(A), (B), (C) done 2026-09-30 (see §0).** Next: the lesser items
+      above, one small PR; check first whether `status` (snapshot) prints
+      the listen address, and if so point FIRST-STEPS at it instead of
+      `listen`.
 
    f. **A tray icon for the Windows daemon.** Asked for by Nicolas on
       2026-09-14 after the untitled console: "a minimum of polish", dark or
