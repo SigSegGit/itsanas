@@ -313,7 +313,11 @@ enum Command {
     ///
     /// Run it with the daemon stopped: one process at a time holds a node's
     /// state. It does not wait for the repair, which is the peers' work.
+    /// Afterwards `daemon` exits at once, and `serve` and `sync` refuse,
+    /// until `itsanas rejoin`.
     Leave,
+    /// Undo `leave` on this machine: the daemon may start again.
+    Rejoin,
     /// Serve peers.
     Serve {
         /// Address to listen on. Defaults to the configured `listen`.
@@ -635,19 +639,14 @@ fn run() -> Result<()> {
         Command::Listen { address } => listen_on(&home, address.as_deref()),
         Command::Announce { address, forget } => announce_as(&home, address.as_deref(), forget),
         Command::Leave => leave(&home),
+        Command::Rejoin => rejoin(&home),
         Command::Serve { listen } => serve(&home, listen.as_deref()),
         Command::Daemon {
             listen,
             interval,
             metered,
             no_discovery,
-        } => daemon::run(
-            &open(&home)?,
-            listen.as_deref(),
-            interval.map(|seconds| std::time::Duration::from_secs(seconds.max(1))),
-            metered,
-            !no_discovery,
-        ),
+        } => start_daemon(&home, listen.as_deref(), interval, metered, !no_discovery),
         Command::Sync {
             address,
             metadata_only,
@@ -2475,7 +2474,96 @@ fn leave(home: &Path) -> Result<()> {
     } else {
         println!("{} peer(s) told; this node can be switched off", told.len());
     }
+    record_departure(home, itsanas_discover::now_unix())?;
+    println!("the daemon will not start here again until `itsanas rejoin`");
     Ok(())
+}
+
+/// The file in a node home that says `itsanas leave` ran, and when.
+///
+/// Why a file and not a stop hook: the service stops at every reboot and
+/// every upgrade, so running `leave` from `ExecStop=` would announce a
+/// departure each time and have the peers re-replicate the whole machine
+/// after a restart. The contradiction to prevent is the reverse -- a machine
+/// that left, then came back because systemd or the logon task started it --
+/// so the departure is recorded where the daemon looks before starting.
+const DEPARTED: &str = "departed";
+
+fn record_departure(home: &Path, now: u64) -> Result<()> {
+    let path = home.join(DEPARTED);
+    std::fs::write(&path, format!("{now}\n")).map_err(|error| CliError::Io {
+        path,
+        source: error,
+    })
+}
+
+/// Why this node must not talk to its peers, if `leave` ran here.
+fn departure_refusal(home: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(home.join(DEPARTED)).ok()?;
+    let when = text.trim().parse::<u64>().map_or_else(
+        |_| "at an unreadable time".to_owned(),
+        |at| {
+            format!(
+                "{} ago",
+                describe_age(itsanas_discover::now_unix().saturating_sub(at))
+            )
+        },
+    );
+    Some(format!(
+        "this node left the network {when} (`itsanas leave`), and its peers \
+         have stopped counting it; starting it again would contradict that. \
+         Run `itsanas rejoin` if it is coming back."
+    ))
+}
+
+fn start_daemon(
+    home: &Path,
+    listen: Option<&str>,
+    interval: Option<u64>,
+    metered: bool,
+    discovery: bool,
+) -> Result<()> {
+    // Exit 0, not an error: `Restart=on-failure` and the logon task would
+    // otherwise start it again every thirty seconds, for ever.
+    if let Some(why) = departure_refusal(home) {
+        eprintln!("itsanas: {why}");
+        return Ok(());
+    }
+    daemon::run(
+        &open(home)?,
+        listen,
+        interval.map(|seconds| std::time::Duration::from_secs(seconds.max(1))),
+        metered,
+        discovery,
+    )
+}
+
+fn refuse_if_departed(home: &Path) -> Result<()> {
+    departure_refusal(home).map_or(Ok(()), |why| Err(CliError::Usage(why)))
+}
+
+/// Undo `leave` locally. The peers count this node again once they confirm
+/// it holds their chunks, as for any machine that was away.
+fn rejoin(home: &Path) -> Result<()> {
+    if !Node::exists(home) {
+        return Err(CliError::NoNode(home.to_path_buf()));
+    }
+    let path = home.join(DEPARTED);
+    match std::fs::remove_file(&path) {
+        Ok(()) => {
+            println!("this node may start again: `itsanas daemon`, or start its service");
+            println!("with a coordinator, `itsanas register` publishes it again");
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            println!("this node had not left; nothing to do");
+            Ok(())
+        }
+        Err(error) => Err(CliError::Io {
+            path,
+            source: error,
+        }),
+    }
 }
 
 fn announce_as(home: &Path, address: Option<&str>, forget: bool) -> Result<()> {
@@ -2882,6 +2970,7 @@ fn pledge(home: &Path, size: &str) -> Result<()> {
 }
 
 fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
+    refuse_if_departed(home)?;
     let node = open(home)?;
     let address = listen.unwrap_or(&node.config.listen);
 
@@ -2913,6 +3002,7 @@ fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
 }
 
 fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()> {
+    refuse_if_departed(home)?;
     let node = open(home)?;
 
     // Configured peers unpinned, as the daemon dials them; the account's other
@@ -3293,8 +3383,9 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceId, SNAPSHOT, describe_age, first_free_port, instances_report,
-        looks_like_a_closed_pipe, migrate_unnamed, resolve_device, sibling_ports, snapshot_status,
+        DeviceId, SNAPSHOT, departure_refusal, describe_age, first_free_port, instances_report,
+        looks_like_a_closed_pipe, migrate_unnamed, record_departure, refuse_if_departed, rejoin,
+        resolve_device, sibling_ports, snapshot_status,
     };
 
     /// A node home as `instances` sees one: a keystore and a config, no keys.
@@ -3399,6 +3490,30 @@ mod tests {
             error.to_string().contains("alice") && error.to_string().contains("--instance"),
             "the refusal must name the instance and the flag: {error}"
         );
+    }
+
+    /// A machine that ran `leave` must not come back by itself: systemd's
+    /// `Restart=` or the logon task would start the daemon, and its peers,
+    /// told it was gone, would meet it again. After the departure the daemon's
+    /// check, `serve` and `sync` all refuse and name `rejoin`; after `rejoin`
+    /// they do not.
+    #[test]
+    fn red_team_a_departed_node_stays_departed_until_it_rejoins() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        assert!(refuse_if_departed(&home).is_ok(), "a node that never left");
+
+        record_departure(&home, itsanas_discover::now_unix()).expect("record");
+        let why = departure_refusal(&home).expect("the daemon must see the departure");
+        assert!(why.contains("itsanas rejoin"), "{why}");
+        assert!(
+            refuse_if_departed(&home).is_err(),
+            "serve and sync would still talk to the peers"
+        );
+
+        rejoin(&home).expect("rejoin");
+        assert!(departure_refusal(&home).is_none(), "rejoin did not undo it");
     }
 
     /// Onto an existing home is onto somebody's node: refused, both untouched.
