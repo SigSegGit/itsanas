@@ -986,7 +986,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (90)
+# `itsanas-node` — a node on disk (91)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
