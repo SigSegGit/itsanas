@@ -161,7 +161,13 @@ enum Command {
         recovery: bool,
     },
     /// Show this node's identity, contents and hosting.
-    Status,
+    Status {
+        /// One line for a tray icon or a script: `healthy`, `stale`,
+        /// `stopped`, `departed` or `unknown`, then the snapshot's age in
+        /// seconds when there is one. Never asks for a passphrase.
+        #[arg(long)]
+        brief: bool,
+    },
     /// Show this account's public identity.
     Whoami,
     /// List the nodes on this machine: account, home, folder, daemon.
@@ -615,7 +621,11 @@ fn run() -> Result<()> {
         } => register(&home, recovery, withdraw_recovery, invite.as_deref()),
         Command::Invite { uses, days } => invite(&home, uses, days),
         Command::Passphrase { recovery } => change_passphrase(&home, recovery),
-        Command::Status => status(&home),
+        Command::Status { brief: true } => {
+            print_brief(&home);
+            Ok(())
+        }
+        Command::Status { brief: false } => status(&home),
         Command::Instances | Command::Migrate { .. } => {
             unreachable!("answered before a home is resolved")
         }
@@ -1411,7 +1421,7 @@ fn snapshot_status(home: &Path, running: bool) -> Result<String> {
     let (stamp, body) = text.split_once('\n').unwrap_or(("", text.as_str()));
     let taken = stamp
         .strip_prefix("snapshot ")
-        .and_then(|seconds| seconds.trim().parse::<u64>().ok());
+        .and_then(|rest| rest.split_whitespace().next()?.parse::<u64>().ok());
     // The two cases are not the same claim and must not read as one. A daemon
     // holding the store means the snapshot is a recent report of a live node;
     // no daemon means it is the last thing a stopped node said, which may be
@@ -1557,6 +1567,51 @@ fn migration_advice(name: &str, to: &Path) -> String {
         home = to.display(),
         name = name,
     )
+}
+
+/// The node's state in one word, for a tray icon: what it shows, not what it
+/// hopes. `healthy` only while a daemon holds the store **and** its last
+/// snapshot is within two intervals; a daemon alive but silent longer than
+/// that is `stale` -- a green icon over a hung daemon is the failure a tray
+/// exists to prevent (HANDOVER §8 f). The age follows in seconds.
+fn print_brief(home: &Path) {
+    let running = Node::exists(home) && itsanas_store::Store::is_locked(Node::store_path(home));
+    println!(
+        "{}",
+        brief_status(home, running, itsanas_discover::now_unix())
+    );
+}
+
+fn brief_status(home: &Path, running: bool, now: u64) -> String {
+    if departure_refusal(home).is_some() {
+        return "departed".to_owned();
+    }
+    if !running {
+        return "stopped".to_owned();
+    }
+    let Ok(text) = std::fs::read_to_string(home.join(SNAPSHOT)) else {
+        return "unknown".to_owned();
+    };
+    let mut words = text.lines().next().unwrap_or("").split_whitespace();
+    let (Some("snapshot"), Some(taken)) = (
+        words.next(),
+        words.next().and_then(|w| w.parse::<u64>().ok()),
+    ) else {
+        return "unknown".to_owned();
+    };
+    let every = match (
+        words.next(),
+        words.next().and_then(|w| w.parse::<u64>().ok()),
+    ) {
+        (Some("every"), Some(every)) => every.max(1),
+        _ => daemon::DEFAULT_INTERVAL.as_secs(),
+    };
+    let age = now.saturating_sub(taken);
+    if age > every.saturating_mul(2) {
+        format!("stale {age}")
+    } else {
+        format!("healthy {age}")
+    }
 }
 
 fn status(home: &Path) -> Result<()> {
@@ -3442,9 +3497,10 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceId, SNAPSHOT, departure_refusal, describe_age, first_free_port, instances_report,
-        looks_like_a_closed_pipe, migrate_unnamed, phrase_grid, phrase_words, record_departure,
-        refuse_if_departed, rejoin, resolve_device, sibling_ports, snapshot_status, sync_folder,
+        DeviceId, SNAPSHOT, brief_status, departure_refusal, describe_age, first_free_port,
+        instances_report, looks_like_a_closed_pipe, migrate_unnamed, phrase_grid, phrase_words,
+        record_departure, refuse_if_departed, rejoin, resolve_device, sibling_ports,
+        snapshot_status, sync_folder,
     };
 
     /// A node home as `instances` sees one: a keystore and a config, no keys.
@@ -3610,6 +3666,36 @@ mod tests {
         let phrase = words.join(" ");
         assert_eq!(phrase_words(&phrase_grid(&phrase)), phrase);
         assert_eq!(phrase_words(&words.join("\n")), phrase, "one word a line");
+    }
+
+    /// A tray shows what this says, so a daemon that holds the store but has
+    /// not written a snapshot for more than two intervals is `stale`, never
+    /// `healthy`. Sabotage: drop the age check.
+    #[test]
+    fn red_team_a_silent_daemon_is_stale_never_healthy() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        let now = 1_000_000;
+        let write = |taken: u64| {
+            std::fs::write(
+                home.join(SNAPSHOT),
+                format!("snapshot {taken} every 300\n  files 3\n"),
+            )
+            .expect("snapshot");
+        };
+
+        write(now - 60);
+        assert_eq!(brief_status(&home, true, now), "healthy 60");
+        write(now - 3 * 300);
+        assert_eq!(
+            brief_status(&home, true, now),
+            "stale 900",
+            "three intervals without a round read as healthy: a green icon over a hung daemon"
+        );
+        assert_eq!(brief_status(&home, false, now), "stopped");
+        record_departure(&home, now).expect("depart");
+        assert_eq!(brief_status(&home, true, now), "departed");
     }
 
     /// Onto an existing home is onto somebody's node: refused, both untouched.

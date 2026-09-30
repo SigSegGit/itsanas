@@ -590,7 +590,7 @@ fn sync_loop(
             }
         }
 
-        write_snapshot(node);
+        write_snapshot(node, interval);
 
         wait_for_work(folder.as_ref(), next_sync, shutdown);
     }
@@ -612,7 +612,7 @@ fn sync_loop(
 /// Failing to write it is not worth interrupting a sync round over, and not
 /// worth a line in the log every five minutes either. `status` says how old the
 /// snapshot is, so a stale one announces itself.
-fn write_snapshot(node: &Node) {
+fn write_snapshot(node: &Node, interval: Duration) {
     let Ok(text) = crate::render_status(node) else {
         return;
     };
@@ -622,7 +622,14 @@ fn write_snapshot(node: &Node) {
     // written, and formatting a date needs a calendar this project does not
     // carry a dependency for -- while "four minutes ago" is both what somebody
     // wants to know and arithmetic.
-    let stamped = format!("snapshot {}\n{text}", itsanas_discover::now_unix());
+    // Then the interval, so a reader can tell a late snapshot from a stale
+    // one: "stale" is two intervals without a round, and the interval is this
+    // process's to know (`--interval`, the metered plan), nobody else's.
+    let stamped = format!(
+        "snapshot {} every {}\n{text}",
+        itsanas_discover::now_unix(),
+        interval.as_secs()
+    );
 
     let final_path = node.home.join(crate::node::SNAPSHOT);
     let pending = node.home.join(format!("{}.new", crate::node::SNAPSHOT));

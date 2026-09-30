@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-09-30 11:40 | ~30 min | ~410 k ctx (cumul) · 5 h ~27→~40 % | 8.0f (1re moitié) | au bout | 🟨 | Icône de barre des tâches : crates refusées par cargo deny (dépendances GTK, jugées sur chaque cible), donc `status --brief` en Rust testé + `itsanas-tray.ps1` ; jamais lancée contre un nœud réel | #201 |
 | 2026-09-30 11:20 | ~15 min | ~385 k ctx (cumul) · 5 h 19→~27 % (fenêtre neuve, partagée) | 8.0o (v5) | au bout | ✅ | Un pair v5 n'est jamais interrogé sur les présences (service plafonné + relais compteur) ; câblage du démon jugé non rentable à tester ; NEXT = icône de barre des tâches | #200 |
 | 2026-09-30 09:40 | ~15 min | ~360 k ctx (cumul) · 5 h ~70→~80 % | 8.0o (horloge) | au bout | 🟨 | Une présence datée 2099 n'aveugle plus le relais (refusée si relayée, ignorée comme « dernière ») ; test v5 et câblage du démon restent | #199 |
 | 2026-09-30 09:10 | ~30 min (dont ~15 min d'outil shell indisponible) | ~320 k ctx (cumul) · 5 h ~60→~66 % | 8.1b (disque) | au bout | 🟨 | Écriture refusée si elle mange l'espace promis aux autres (plafond local, `DiskFull`) ; le red-team a cassé la 1re version (instantané par écriture, disque plein lu comme inconnu), corrigé ; le pull reste non borné ; k laissé à Nicolas ; 0p repassé 🟨 | #198 |

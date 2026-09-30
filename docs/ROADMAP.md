@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**868 test functions, 4 of them `#[ignore]`d into the slow job, and 120 of
+**869 test functions, 4 of them `#[ignore]`d into the slow job, and 121 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1721,6 +1721,6 @@ real network.
 | --- | --- |
 | Reed–Solomon erasure coding | Needs ≥6 independent nodes to beat replication; the interface is already shaped for it |
 | Virtual drive mount, writing into it | **Reading works** — `itsanas-drive` shows the whole account in Explorer and downloads a file when it is opened, verified on 2026-09-08. What is missing is the other direction: a file dropped into the folder is not imported, because that needs ProjFS notification callbacks the MIT binding does not expose. `itsanas put` and `itsanas folder` are how things get in meanwhile. FUSE on Linux is untouched and low value: the Pi and the VM are servers nobody browses |
-| Tray / desktop GUI | The Pi needs the CLI regardless, so the CLI is the surface that must exist first |
+| Tray / desktop GUI | 🟨 Windows: `scripts/itsanas-tray.ps1` (2026-09-30) draws `itsanas status --brief` -- state, folder, log, restart; not yet started at logon, and pause / disconnect / decommission wait for their confirmations. macOS, Linux desktops: none. |
 | Fully decentralised discovery (DHT) | The coordinator is control-plane only and swappable; building both at once doubles the surface |
 | Traffic padding and cover traffic | Would hide object sizes and access timing, currently accepted as visible |
