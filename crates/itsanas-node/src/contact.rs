@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use itsanas_coord::claim::{ClaimedPresence, SignedClaim, SignedPresence};
+use itsanas_coord::claim::{ClaimedPresence, MAX_CLOCK_SKEW, SignedClaim, SignedPresence};
 use itsanas_crypto::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
 
@@ -604,7 +604,16 @@ impl Contact {
     /// after every address that has, and [`MAX_ADDRESSES`] drops never-worked
     /// ones first, so a relay cannot push out an address that answers. `me`
     /// is this machine, which the book never lists.
-    pub fn relayed(&mut self, rows: &[Vec<u8>], owner: UserId, me: DeviceId) -> Relayed {
+    ///
+    /// Dates more than [`MAX_CLOCK_SKEW`] past `now` count for nothing: a row
+    /// dated so is refused, and a presence already held with such a date is
+    /// not "the latest". Otherwise one device whose clock read 2099 once --
+    /// signed genuinely, since it is that device's own clock -- became the
+    /// newest presence for good, and every later relayed address for it was
+    /// refused as older. The coordinator's read, which has no date filter,
+    /// still reaches the machine; the relay no longer goes blind.
+    pub fn relayed(&mut self, rows: &[Vec<u8>], owner: UserId, me: DeviceId, now: u64) -> Relayed {
+        let horizon = now.saturating_add(MAX_CLOCK_SKEW);
         let mut outcome = Relayed::default();
         for row in rows {
             let Ok(row) = postcard::from_bytes::<ClaimedPresence>(row) else {
@@ -615,7 +624,7 @@ impl Contact {
             if device == me {
                 continue;
             }
-            if row.verify_for(owner).is_err() {
+            if row.verify_for(owner).is_err() || row.presence.presence.at_unix > horizon {
                 outcome.refused += 1;
                 continue;
             }
@@ -632,6 +641,7 @@ impl Contact {
                 .iter()
                 .filter_map(|candidate| candidate.presence.as_ref())
                 .map(|presence| presence.presence.at_unix)
+                .filter(|at| *at <= horizon)
                 .max();
             let fresh = latest_claim.is_some_and(|at| row.claim.claim.issued_unix >= at)
                 && latest_presence.is_none_or(|at| row.presence.presence.at_unix >= at);
@@ -1352,6 +1362,8 @@ mod tests {
     }
 
     const AWAY: &str = "203.0.113.7:9797";
+    /// "Now" for the relay tests: far past every date they sign.
+    const NOW: u64 = 1_000_000;
 
     /// The point of the step: the Pi moved while the coordinator was down,
     /// the laptop reached it since, and tells this machine. The new address
@@ -1363,7 +1375,12 @@ mod tests {
         contact.worked(pi.presence.presence.device, HOME, 1000);
 
         let moved = dated(&owner(1), 2, AWAY, 200, 10);
-        let outcome = contact.relayed(&encoded(std::slice::from_ref(&moved)), me(), this_machine());
+        let outcome = contact.relayed(
+            &encoded(std::slice::from_ref(&moved)),
+            me(),
+            this_machine(),
+            NOW,
+        );
 
         assert_eq!(
             outcome,
@@ -1392,7 +1409,7 @@ mod tests {
         let mut forged = dated(&owner(1), 2, AWAY, 200, 10);
         forged.presence.presence.address = "198.51.100.66:9797".to_owned();
 
-        let outcome = contact.relayed(&encoded(&[forged]), me(), this_machine());
+        let outcome = contact.relayed(&encoded(&[forged]), me(), this_machine(), NOW);
 
         assert_eq!(
             outcome,
@@ -1420,7 +1437,7 @@ mod tests {
         // pass every date check, and only the owner's signature refuses it.
         let theirs = dated(&owner(2), 2, AWAY, 200, 20);
 
-        let outcome = contact.relayed(&encoded(&[theirs]), me(), this_machine());
+        let outcome = contact.relayed(&encoded(&[theirs]), me(), this_machine(), NOW);
 
         assert_eq!(
             outcome,
@@ -1454,7 +1471,7 @@ mod tests {
         );
 
         let replayed = dated(&owner(1), 2, AWAY, 300, 10);
-        let outcome = contact.relayed(&encoded(&[replayed]), me(), this_machine());
+        let outcome = contact.relayed(&encoded(&[replayed]), me(), this_machine(), NOW);
 
         assert_eq!(
             outcome,
@@ -1473,6 +1490,33 @@ mod tests {
         );
     }
 
+    /// A clock far ahead once must not blind the relay for good: the Pi's
+    /// presence dated 2099 sits in the book, and a relayed presence dated now
+    /// is kept all the same; and a row dated past the skew is refused.
+    /// Sabotage: drop the horizon filter on the held presences.
+    #[test]
+    fn red_team_a_presence_from_a_clock_far_ahead_does_not_blind_the_relay() {
+        const Y2099: u64 = 4_070_908_800;
+        let pi = dated(&owner(1), 2, AWAY, Y2099, 10);
+        let mut contact = book_of(std::slice::from_ref(&pi));
+
+        let now_here = dated(&owner(1), 2, HOME, NOW - 5, 10);
+        let outcome = contact.relayed(&encoded(&[now_here]), me(), this_machine(), NOW);
+        assert_eq!(
+            outcome,
+            Relayed {
+                kept: 1,
+                refused: 0
+            },
+            "a presence dated 2099 in the book refused every honest one after it: the \
+             relay stays blind to that machine for good"
+        );
+
+        let ahead = dated(&owner(1), 2, AWAY, NOW + MAX_CLOCK_SKEW + 1, 10);
+        let outcome = contact.relayed(&encoded(&[ahead]), me(), this_machine(), NOW);
+        assert_eq!(outcome.refused, 1, "a row dated past the skew was kept");
+    }
+
     /// The Pi left `AWAY` for `HOME`. A relay replays its genuine, older
     /// presence at `AWAY`. Sabotage: drop the presence-date check.
     #[test]
@@ -1481,7 +1525,7 @@ mod tests {
         let mut contact = book_of(std::slice::from_ref(&pi));
 
         let stale = dated(&owner(1), 2, AWAY, 100, 10);
-        let outcome = contact.relayed(&encoded(&[stale]), me(), this_machine());
+        let outcome = contact.relayed(&encoded(&[stale]), me(), this_machine(), NOW);
 
         assert_eq!(
             outcome,
@@ -1506,7 +1550,7 @@ mod tests {
         let mut contact = book_of(std::slice::from_ref(&pi));
 
         let older = dated(&owner(1), 2, AWAY, 200, 10);
-        let outcome = contact.relayed(&encoded(&[older]), me(), this_machine());
+        let outcome = contact.relayed(&encoded(&[older]), me(), this_machine(), NOW);
 
         assert_eq!(
             outcome,

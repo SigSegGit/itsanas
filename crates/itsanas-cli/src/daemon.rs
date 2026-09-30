@@ -896,7 +896,12 @@ fn dial_listed(
             // row by row (`Contact::relayed`); what it adds is dialled from the
             // next round, behind every address that has worked.
             if let Some(rows) = &outcome.relayed {
-                let relayed = contact.relayed(rows, node.store.owner(), node.store.device_id());
+                let relayed = contact.relayed(
+                    rows,
+                    node.store.owner(),
+                    node.store.device_id(),
+                    itsanas_discover::now_unix(),
+                );
                 if relayed.refused > 0 {
                     eprintln!(
                         "itsanas: {address} relayed {} address(es) of this account's machines \
