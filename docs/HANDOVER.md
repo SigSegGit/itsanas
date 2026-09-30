@@ -10,15 +10,26 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0o
-TITLE: 0o leftovers: a relayed presence from a clock far ahead, a v5 peer not asked, the daemon relay wiring untested
+TITLE: 0o leftovers: prove a v5 peer is not asked for presences, and test the daemon's relay wiring
 WRITTEN-AT: 2026-09-30
-BASE: caf008c
+BASE: b7046a3
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0o: the 2099-clock gap closed** (branch
+`step/8.0o-clock-ahead`). `Contact::relayed` takes `now`; a row whose
+presence is dated past `now + MAX_CLOCK_SKEW` is refused, and a held
+presence dated so no longer counts as the latest -- so a device whose clock
+once read 2099 no longer blinds the relay for good. One red-team test, two
+sabotages, red. **Left in 0o, 🟨:** no test that a v5 peer is not asked
+(`PeerClient::presences` returns early when `spoken < 6`; nothing emulates a
+v5 server -- the cheapest way is a test-only protocol cap on
+`PeerService`'s `Hello` answer and a counter of `Presences` requests), and
+the daemon's relay wiring (`daemon.rs` ~899) has no test of its own.
 
 **2026-09-30, 1b closed: the disk half of bounded writes** (branch
 `step/8.1b-disk-bound`). `WriteBudget` gains `local_ceiling: Option<u64>`, the most bytes of the
@@ -2135,7 +2146,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       checks. The in-process check of 8.1b comes first on every platform and
       is the one that is enforced; the native quota is presentation.
 
-   o. 🟨 **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187). **Remaining, 🟨:** no test that a v5 peer is not asked for presences; the daemon's relay wiring has no test of its own; the 2099-clock gap (`ROADMAP.md`); phase 3 only if the fleet shows 1 and 2 fall short.
+   o. 🟨 **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187). **Remaining, 🟨:** no test that a v5 peer is not asked for presences; the daemon's relay wiring has no test of its own (the 2099-clock gap closed 2026-09-30); phase 3 only if the fleet shows 1 and 2 fall short.
       Asked for by Nicolas on 2026-09-17, put on the MVP's path by him on
       2026-09-18 ("I can't get enough machines to work in my own home for a
       decent testing run"), with a constraint he added the same day: **prefer a

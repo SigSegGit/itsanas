@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 866 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 118 are red-team tests.**
+**Last updated: 2026-09-30 — 867 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 119 are red-team tests.**
 
-**750 of the 866 tests have an entry of their own on this page** — an *entry*,
+**751 of the 867 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -175,7 +175,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 37 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 83 |
+| `itsanas-node` unit | 84 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
@@ -988,7 +988,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (92)
+# `itsanas-node` — a node on disk (93)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1019,7 +1019,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (24)
+## `contact` — when the coordinator is dialled at all (25)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1051,6 +1051,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_relay_cannot_pass_off_another_accounts_machine_as_ours`** | Rodin's finding of 2026-09-29, closed on the relay: a listed device's presence, newer on every date, claimed by *another* account, is refused -- only the owner's signature can tell. Sabotaged by skipping `verify_for`. |
 | **`red_team_a_relay_cannot_bring_back_a_machine_the_owner_withdrew`** | `verify_for` has no date, so a relay could replay a withdrawn machine's old, unrevoked claim. The coordinator's next read drops the device, and a relay never introduces a device the book does not hold. Sabotaged by letting `relayed` take an unknown device. |
 | **`red_team_a_peer_cannot_strand_a_machine_at_an_address_it_left`** | A genuine but older presence (the device's own clock, compared only with itself) at an address the machine has left is refused, so the book does not dial it every round nor relay it onward. Sabotaged by dropping the presence-date check. |
+| **`red_team_a_presence_from_a_clock_far_ahead_does_not_blind_the_relay`** | A device whose clock once read 2099 signed a genuine presence with that date; as "the latest" it made every later relayed address for it look older, for good. Dates past `MAX_CLOCK_SKEW` from now count for nothing: such a held presence is not the latest, and such a row is refused. Two sabotages (the filter on held presences; the refusal of rows), red both. |
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 

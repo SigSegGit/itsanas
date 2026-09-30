@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**866 test functions, 4 of them `#[ignore]`d into the slow job, and 118 of
+**867 test functions, 4 of them `#[ignore]`d into the slow job, and 119 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -753,10 +753,9 @@ device and reaching a different one is refused.
   signatures and this account, only for a machine the book already holds, and
   never older than what it holds. The hourly read stays unconditional, by
   decision: only it learns a machine enrolled later, and it rides on the
-  hourly publication's connection. Known gap: a presence signed on a clock
-  far ahead (say 2099) that arrives by relay counts as the latest one, so
-  no later relayed presence for that device is kept; the coordinator's read,
-  which has no date filter, still finds the machine.
+  hourly publication's connection. A presence dated more than
+  `MAX_CLOCK_SKEW` ahead no longer blinds the relay (2026-09-30): it is
+  refused when relayed and ignored as "the latest" when held.
 
 - **The disk bound (1b) covers what this device writes, not what it pulls.**
   `Store::accept_chunk`, which `sync` uses to fetch other devices' files,

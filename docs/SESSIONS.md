@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-09-30 09:40 | ~15 min | ~360 k ctx (cumul) · 5 h ~70→~80 % | 8.0o (horloge) | au bout | 🟨 | Une présence datée 2099 n'aveugle plus le relais (refusée si relayée, ignorée comme « dernière ») ; test v5 et câblage du démon restent | #199 |
 | 2026-09-30 09:10 | ~30 min (dont ~15 min d'outil shell indisponible) | ~320 k ctx (cumul) · 5 h ~60→~66 % | 8.1b (disque) | au bout | 🟨 | Écriture refusée si elle mange l'espace promis aux autres (plafond local, `DiskFull`) ; le red-team a cassé la 1re version (instantané par écriture, disque plein lu comme inconnu), corrigé ; le pull reste non borné ; k laissé à Nicolas ; 0p repassé 🟨 | #198 |
 | 2026-09-30 08:40 | ~20 min | ~300 k ctx (cumul) · 5 h ~44→~50 % | 8.0q (restes) | au bout | 🟨 | `sync` nomme les pairs qui ont refusé (stderr, sortie 0 gardée) ; `instances` « daemon stopped » ; android.md : adresse et port, Doze ; 2e compte Windows ; rapport des fichiers du dossier non refait | #197 |
 | 2026-09-30 08:15 | ~20 min | ~275 k ctx (cumul) · 5 h ~38→~44 % | 8.0q (persona Windows) | au bout | ✅ | 2e persona (Windows+Android) : pledge 0 qui refuse même ses propres machines documenté, arrêt du démon, deux démons, `--instance` dans FIRST-STEPS ; `USERPROFILE` avant `HOME` sous Windows | #196 |
