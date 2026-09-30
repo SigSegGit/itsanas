@@ -247,9 +247,12 @@ mod windows {
             "give a folder to show the account at, e.g. `itsanas-drive C:\\ITSaNAS`".to_owned()
         })?;
 
-        let home = home
-            .or_else(default_home)
-            .ok_or_else(|| "could not work out where this node lives; pass --home".to_owned())?;
+        // The CLI's rule, not a copy of it: once only named instances exist,
+        // ~/.itsanas is refused rather than opened.
+        let home = match home {
+            Some(home) => home,
+            None => itsanas_node::config::default_home().map_err(|error| error.to_string())?,
+        };
 
         let passphrase = passphrase()?;
         let node = Node::open(&home, &passphrase).map_err(|error| error.to_string())?;
@@ -310,18 +313,6 @@ mod windows {
                 }
             }
         }
-    }
-
-    fn default_home() -> Option<PathBuf> {
-        std::env::var_os("ITSANAS_HOME")
-            .map(PathBuf::from)
-            .or_else(|| dirs_home().map(|home| home.join(".itsanas")))
-    }
-
-    fn dirs_home() -> Option<PathBuf> {
-        std::env::var_os("USERPROFILE")
-            .or_else(|| std::env::var_os("HOME"))
-            .map(PathBuf::from)
     }
 
     /// The passphrase, from the environment or from the file the installer

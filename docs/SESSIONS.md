@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-09-30 06:52 | ~15 min | ~156 k ctx (cumul session) · 5 h +13 pts (3→16 %), hebdo 0→3 % | 8.0p (3) + Rodin | au bout | ✅ | Refus sans nom une fois seules des instances nommées ; règle unique dans `itsanas-node` (le drive avait sa copie) ; Rodin : `migrate` n'ignore plus `--home`, `default_home` morte supprimée ; restes nommés dans ROADMAP | #192 |
 | 2026-09-30 06:38 | ~15 min | ~110 k ctx · 5 h +2 pts (1→3 %), hebdo +0 | 8.0p (2) | au bout | 🟨 | `itsanas migrate` : `~/.itsanas` → `~/.itsanas-<compte>` par un seul rename, refusé démon actif ou cible existante ; service indiqué, pas réécrit, non essayé sur Pi/VM ; pas de Rodin | #191 |
 | 2026-09-29 23:52 | ~15 min | ~120 k ctx · 5 h +13 pts (18→31 %), hebdo +2 pts (96→98 %) | 8.0p (2e tiers) | au bout | 🟨 | Tranche (1)+(4) choisie par Nicolas (hebdo à 96 %) : `itsanas instances` (compte, home, dossier joignable par marqueur, démon par verrou) ; `passphrase` refusé par les 4 scripts ; `.ps1` non testés, pas de Rodin | #190 |
 | 2026-09-29 21:42 | ~1 h 30 (dont l'attente d'une réponse) | ~105 k ctx · fenêtre 5 h remise en cours, hebdo +3 pts (92→95 %) | 8.0p (1re moitié) | au bout | 🟨 | Coupée en deux sur décision de Nicolas (quota hebdo à 92 %) : `itsanas --instance NAME` / `ITSANAS_INSTANCE` → `~/.itsanas-NAME` comme provision.sh, nom validé (dont `passphrase` réservé) ; `instances`, migration et refus sans nom restent | #189 |

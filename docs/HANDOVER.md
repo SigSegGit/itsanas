@@ -9,16 +9,33 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0p
-TITLE: Named instances, last step: refuse a command without --instance or --home once migrated, then Rodin on 0p
+NEXT: 8.0i
+TITLE: Two instances on one machine, provisioned and one cleaned, the other intact -- hermetically in check-installers.sh
 WRITTEN-AT: 2026-09-30
-BASE: c682ea7
+BASE: 8701222
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0p closed: (3) the refusal, then Rodin** (branch
+`step/8.0p-refuse-unnamed`). With neither `--instance` nor `--home`
+(`ITSANAS_HOME`), `config::default_home()` is now `config::unnamed_home`:
+`~/.itsanas` while it holds a node or while the machine has no node at all,
+**a refusal naming the instances** once only named ones exist. It lives in
+`itsanas-node` so the CLI (`resolve_home`) and `itsanas-drive` share one
+rule -- the drive had its own copy of the old fallback, found only while
+answering Rodin. `instances` and `migrate` are answered before any home is
+resolved (otherwise they would refuse exactly when needed), and `migrate`
+refuses an explicit `--instance`/`--home` instead of ignoring it (Rodin).
+One red-team test, sabotaged twice (in the CLI, then after the move to
+`itsanas-node`), red both times. Rodin's named, not fixed, in `ROADMAP.md`
+("Named instances (0p)"): unexercised service advice, lock/rename race,
+`clean.sh` blind to named homes. Trap: Git Bash heredocs ate `\n` twice this
+session -- the skill's rule (Python scripts in the scratchpad) is not
+optional.
 
 **2026-09-30, 0p (2): `itsanas migrate`** (branch `step/8.0p-migrate`).
 `migrate_unnamed` (`crates/itsanas-cli/src/main.rs`) renames `~/.itsanas`
@@ -1816,6 +1833,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
       has **never been run by a human** -- only on a CI runner -- and that is
       the riskiest square in the table.
 
+      **`NEXT` (2026-09-30), the agent-doable half:** make that red-team
+      test hermetic in `scripts/check-installers.sh` (already a CI step, so
+      no `ci.yml` change): a throwaway `HOME`, a fake `systemctl` (and
+      `loginctl`) first on `PATH` that logs its arguments, a stub `itsanas`
+      binary if `provision.sh` needs one; run `provision.sh --instance a`,
+      then `--instance b`, then `clean.sh --instance b --purge-account`, and
+      assert `~/.itsanas-a`, `~/.config/itsanas/a.environment`, the
+      `itsanas@` template unit and a's enablement are untouched while b's are
+      gone. Sabotage: make `clean.sh --instance` remove `"$ENV_DIR"/*.environment`.
+      Read `provision.sh` first for what it really calls (build from source?
+      download?) and stub exactly that; if it cannot be made hermetic in
+      reasonable size, say so here and move on to `k` prerequisites.
+
       Red-team test expected: two instances provisioned on one machine, the
       second `--clean`ed, and the first still syncing. `clean.sh` removing a
       sibling's unit or passphrase file is the failure this guards, and it has
@@ -2294,7 +2324,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       protocol, which already authenticates end to end. Nicolas confirmed that
       reading on 2026-09-18.
 
-   p. **Named instances only, each showing its account and storage.** Asked
+   p. ✅ **Named instances only, each showing its account and storage.** Done 2026-09-30 (#189-#192). Asked
       for by Nicolas on 2026-09-16 and again on 2026-09-17: no unnamed default
       instance, launch and list instances by account and storage location, and
       check that the location is reachable (0l provides the check). Today
@@ -2325,7 +2355,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       2026-09-30** (`instances_report`, the scripts' `passphrase` refusal; see
       §0). **(2) done 2026-09-30** (`itsanas migrate`, tests
       `red_team_migration_names_the_node_after_its_account_and_keeps_its_data`,
-      `red_team_migration_never_lands_on_an_existing_home`). **Next: (3)** --
+      `red_team_migration_never_lands_on_an_existing_home`). **(3) done 2026-09-30, then Rodin (see §0). 0p is closed.** Kept for reference: (3) --
       in `run()` (`main.rs` ~542), the `(None, None)` arm falls back to
       `config::default_home()`; once `~/.itsanas` holds no node and some
       `~/.itsanas-*` does (i.e. `instances_report` finds named homes only),
