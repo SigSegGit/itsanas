@@ -104,6 +104,16 @@ impl Cloud {
         self.chunks.clear();
     }
 
+    /// Replace every chunk with noise of the same length.
+    ///
+    /// A host cannot read what it holds, so the worst it can do to a chunk is
+    /// answer with something else.
+    pub fn corrupt_all_chunks(&mut self) {
+        for sealed in self.chunks.values_mut() {
+            sealed.fill(0x5C);
+        }
+    }
+
     /// Every byte the cloud holds, for plaintext-leak scans.
     #[must_use]
     pub fn all_bytes(&self) -> Vec<u8> {

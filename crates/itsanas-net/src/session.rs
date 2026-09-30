@@ -706,13 +706,28 @@ pub fn fetch_only(
     )
     .map_err(|error| NetError::Refused(error.to_string()))?;
 
-    let served = source.served.into_inner();
+    let served = kept(store, source.served.into_inner());
     if !served.is_empty() {
         let peer = source.client.into_inner().peer_device();
         store.record_holders(&served, &peer)?;
     }
 
     Ok(report)
+}
+
+/// Of the chunks a peer answered, the ones that are now on this disk.
+///
+/// A source records every answer, and the engine only then checks the bytes.
+/// Noise under a real address is refused by `Store::accept_chunk`, and a peer
+/// that answered with noise does not hold the chunk: writing it down as a
+/// holder would count a copy that does not exist, and repair would ask it
+/// first. A chunk is fetched only when it is absent, so present afterwards
+/// means accepted.
+fn kept(store: &Store, served: Vec<ChunkId>) -> Vec<ChunkId> {
+    served
+        .into_iter()
+        .filter(|address| store.has_chunk(address))
+        .collect()
 }
 
 /// A remote source that serves only the chunks of one file.
@@ -1011,7 +1026,7 @@ pub fn pull_scoped(
             served: RefCell::new(Vec::new()),
         };
         let outcome = apply_segments(store, &fetched, &source);
-        let served = source.served.into_inner();
+        let served = kept(store, source.served.into_inner());
         (outcome, served)
     } else {
         (

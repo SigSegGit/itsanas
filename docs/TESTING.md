@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 888 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 138 are red-team tests.**
+**Last updated: 2026-09-30 — 890 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 140 are red-team tests.**
 
-**772 of the 888 tests have an entry of their own on this page** — an *entry*,
+**774 of the 890 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -161,9 +161,9 @@ guarantee and is not one.
 | `itsanas-store` unit | 158 |
 | `itsanas-store` integration (`tests/store.rs`) | 45 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
-| `itsanas-sync` convergence (`tests/convergence.rs`) | 23 |
+| `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
 | `itsanas-net` unit | 42 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 49 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 50 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 108 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 15 |
@@ -655,7 +655,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 
 ---
 
-# `itsanas-sync` — convergence tests (23)
+# `itsanas-sync` — convergence tests (24)
 
 The M3 exit criteria. Real stores, real chunking, real sealing, real signatures;
 only the network is simulated. Nothing uses randomness or wall-clock time, so a
@@ -678,6 +678,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 | **`syncing_repeatedly_changes_nothing`** | Hosts re-serve segments freely and there is no acknowledgement telling them to stop, so applying an operation twice must be a no-op. |
 | **`re_resolving_a_conflict_is_idempotent`** | Guards the specific bug this suite caught: a conflict re-resolved every round means a settle loop that stops when nothing changes never stops. |
 | **`a_long_run_of_alternating_partitions_still_converges`** | Ten rounds of rotating partitions, twenty files, full agreement at the end. More history than a hand-built scenario covers. |
+| **`red_team_a_chunk_that_does_not_match_its_address_leaves_the_file_deferred`** | The only host answers with noise of the right length. `accept_chunk` refused it and the engine counted it as fetched: the file was adopted with a hole, the round read as finished and a session moved its markers past the segment. Now deferred, and the honest bytes complete it. |
 | **`an_operation_whose_chunks_are_unavailable_is_deferred_not_half_applied`** | A segment can arrive before its chunks. Materialising anyway would create a file that exists but cannot be read. |
 | **`a_deferred_operation_completes_once_its_chunks_show_up`** | And the retry actually completes. |
 | **`red_team_a_pull_past_the_disk_ceiling_fetches_nothing_and_waits`** | 8.1b's pull half. A laptop with 100 KB of disk ceiling for the account is offered the Pi's 300 KB file: it must come back `NoRoom`, counted as deferred so the round is retried, with **no chunk of it fetched** (a refusal half-way would leave chunks no index entry counts) and no index entry; raised to 400 KB, the next round brings it in whole. Sabotaged on the check in `apply_upsert`: red. |
@@ -799,7 +800,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (49)
+# `itsanas-net` — two-node tests (50)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -813,6 +814,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost`** | An attack that repair itself introduced. Asking a peer "do you have chunk X?" tells it this node does not. The ids are blinded so nothing about the content leaks — but *which chunks now exist only on hosts* is precisely the list to delete to destroy somebody's data, and the first version asked every peer it connected to, strangers the discovery loop had just dialled included. A peer is now asked only about chunks the ledger already records it as holding, which discloses nothing it did not tell this node itself. |
 | **`what_doctor_finds_is_what_repair_fixes_first`** | Two detectors that ignored each other. `doctor` knows every local loss in one pass; the daemon's sampling scan needs fifty-five days to reach a given chunk on a terabyte store. Somebody running `doctor` because a file would not open therefore learned the answer and had no way to act on it. They now share a queue, and a loss `doctor` found is repaired in the next round rather than eventually. |
 | **`a_disk_that_quietly_lost_a_block_gets_it_back_from_a_host`** | The half of repair that pushing cannot do. `push` restores *replication* by offering a peer what the peer lacks; it can put nothing back on **this** disk, and a chunk missing here is the one failure the placement ledger was built to survive. A dropped block, an inode lost to a power cut, a partial restore: the file is unreadable, the bytes are on three other machines, and until now nothing reached for them and the only cure was a human running `doctor` and knowing what to do next. |
+| **`red_team_a_relay_that_serves_noise_is_not_written_down_as_a_holder`** | Same liar, over the real transport. The pull recorded every chunk a peer *answered* as held by it before anything checked the bytes, so the ledger counted a copy that does not exist and repair would ask the liar first; and the file was adopted. Now only chunks on this disk afterwards are recorded, and the file stays absent. |
 | **`red_team_a_relay_cannot_poison_a_chunk_on_the_ordinary_pull_path`** | The same attack as the repair one, through the door the repair defence did not cover. `accept_chunk` verifies; a second method wrote peer bytes unverified and argued that a chunk which fails to open is caught later by `read_file`. It is not caught later, and the reasoning against it had already been written fifteen lines away: noise under a real address makes `has_chunk` true, so nothing looks for the real bytes — not the repair scan, which checks presence, and not `doctor`, whose recorded loss the next scan clears because the blob is now there. That path is every chunk of every sync. |
 | **`red_team_a_host_cannot_answer_a_repair_request_with_rubbish`** | A host cannot read what it stores, so its one route to destroying data is to wait for a repair request and answer with noise. Written unverified, those bytes would make `has_chunk` true, the scan would stop looking, no other peer would ever be asked, and a **recoverable** loss would become permanent — strictly worse than refusing to answer. The bytes are opened and re-addressed before anything is written, and a host that answers with something else loses that record. |
 | **`a_failing_assertion_inside_a_server_scope_fails_rather_than_hangs`** | The harness under every test in this file. A panic used to skip the line that sets the shutdown flag, so `thread::scope` joined an accept loop that never stopped and the suite reported a **hang**. Every red-team test here runs inside `with_server`, so for as long as this was broken, a test that caught an attack reported a timeout — and a timeout is what everybody retries and nobody reads. Found by sabotaging a verification step on purpose and watching the suite hang instead of fail. `itsanas-coord`'s harness has had the guard, and the rationale written above it, since its server was written. |

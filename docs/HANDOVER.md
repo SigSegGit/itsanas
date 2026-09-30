@@ -9,16 +9,30 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.2a
-TITLE: red-team the integrity surface by hand: what a hostile peer can make this node believe
+NEXT: 8.2b
+TITLE: red-team the confidentiality surface by hand: what a host, or two hosts comparing notes, learn
 WRITTEN-AT: 2026-09-30
-BASE: edba361
+BASE: 50515a5
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 2a: integrity surface red-teamed by hand** (branch
+`step/8.2a-integrity-redteam`). Table of attacks, defences and tests in ROADMAP
+"The integrity surface, by hand". Two holes fixed, one named: a chunk refused by
+`accept_chunk` counted as fetched (`itsanas-sync` `fetch_missing`), so the file
+was adopted with a hole and the round read as finished; and a relay answering
+noise was recorded as a holder (`session.rs` `kept`). Three red-team tests, three
+sabotages red. **Named, not fixed:** a host re-signs a lifted segment body under
+its own key and it opens (the seal omits the device), replaying the owner's own
+ops and undoing releases. A version check was written, then withdrawn after
+`itsanas-redteam` showed it stalls peers on a keystore-replaced node. The fix is
+a protocol change. **Not verified:** the
+has_chunk race in `kept` and repeated fetches of a shared noisy chunk (named in
+ROADMAP). Next, 8.2b: confidentiality, the last §8 2 surface.
 
 **2026-09-30, 3d: the LAN beacon is version 2** (branch
 `step/8.3d-beacon-keyed-tag`). Tag field = 16 B random nonce + 16 B
@@ -2917,10 +2931,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
    two hosts learn by comparing notes), *identity* (many devices, claiming someone
    else's device, LAN discovery eclipse). Git history was checked for secrets on
    2026-09-14 and is clean. *Identity* was examined by hand on 2026-09-15
-   (ROADMAP, "The identity surface, examined 2026-09-15"; §8 0g); integrity and
-   confidentiality remain.
+   (ROADMAP, "The identity surface, examined 2026-09-15"; §8 0g); integrity on
+   2026-09-30 (§8 2a); confidentiality remains.
 
-   a. **Integrity, by hand: what a hostile peer can make this node believe.**
+   a. ✅ **Integrity, by hand: what a hostile peer can make this node believe.**
+      Done 2026-09-30 (see §0; ROADMAP "The integrity surface, by hand" has the
+      table). Open from it: the lifted-body re-signing (protocol change, the
+      device id into `SealContext` for new segments or an account device
+      roster), a hostile host stalling a round with any refused segment, and the
+      two `itsanas-redteam` residues. Original text follows.
       Chosen 2026-09-30 as `NEXT` because every other open §8 item is
       host-side enforcement (1c, deferred by 0), or waits on Nicolas (0c, 0f's
       menu, 0i, 0k, 3c, 5). Not yet read for this: start from where a pulled
@@ -2935,6 +2954,25 @@ Detail and measurements are in ROADMAP.md; this is the map.
       not match its id; a peer serving a prefix (compare §9 "Tail
       truncation", deliberately open -- do not re-find it). One finding per
       PR; the survey's list goes in ROADMAP "What an adversarial sweep found".
+
+   b. **Confidentiality, by hand: what a host learns, alone or comparing notes
+      with another.** Next because it is the last unexamined §8 2 surface and
+      every other open item is host-side (1c) or waits on Nicolas. Not yet read
+      for this. Start from the plaintext a host sees: `SegmentEnvelope`
+      (`crates/itsanas-store/src/oplog.rs` ~160: owner, device, sequences,
+      `previous`, body length), the blinded chunk address and the deterministic
+      seal (`UserKeys::chunk_id` / `seal_chunk`,
+      `crates/itsanas-crypto/src/identity.rs`, `seal.rs`), and what the wire
+      carries in the clear (`crates/itsanas-wire`, have/missing exchanges in
+      `crates/itsanas-net/src/session.rs`). Already named, do not re-find: the
+      chunk-size fingerprint (ROADMAP, same section), the device id in the LAN
+      beacon, blinded addressing's purpose. Questions to answer, each with a
+      red-team test that fails today or a named reason: can two hosts of
+      different accounts tell that they hold the same plaintext (convergent
+      ciphertext across accounts); can one host link two accounts' devices;
+      does a segment's size or cadence reveal file count or edit size; does
+      any error message or log line a peer can provoke echo a path. Cap: ~5
+      tests, one PR.
 3. **The open findings** listed in ROADMAP.md, one per session.
 
    a. ✅ **`pledge` and the Android setters keep the split.** Built

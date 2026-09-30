@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**888 test functions, 4 of them `#[ignore]`d into the slow job, and 138 of
+**890 test functions, 4 of them `#[ignore]`d into the slow job, and 140 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1517,6 +1517,61 @@ randomness sends no beacon and now says so at once, untested for want of a
 seam to fail the RNG; and the household key is copied into BLAKE3's keyed
 hasher, which does not zeroize it -- the same residue `chunk_id` leaves with the
 blinding key.
+
+**The integrity surface, by hand -- 2026-09-30 (HANDOVER §8 2a).** What a
+hostile host or peer can make this node believe. Each attack, the code that
+refuses it, and the test:
+
+| Attack | Refused by | Test |
+| --- | --- | --- |
+| Alter any envelope field | device signature | `tampering_with_any_envelope_field_invalidates_the_signature` |
+| Sign as another device | `verify` against `envelope.device` | `a_segment_signed_by_another_device_is_rejected` |
+| Envelope lies about the body's range | `open` cross-checks first/last | `an_envelope_that_lies_about_its_body_is_caught_on_open` |
+| Drop a segment from the middle, skip sequences | `validate_chain` | `a_host_dropping_a_segment_from_the_middle_is_detected`, `a_sequence_gap_is_detected_even_when_the_chain_links_up` |
+| Re-serve old segments | versions in the sealed body; idempotent merge | `syncing_repeatedly_changes_nothing`, `re_resolving_a_conflict_is_idempotent`, `an_offline_device_does_not_resurrect_a_file_deleted_while_it_slept` |
+| Noise under a real chunk address | `accept_chunk` (open + `chunk_id`) | `red_team_a_relay_cannot_poison_a_chunk_on_the_ordinary_pull_path`, `red_team_a_host_cannot_answer_a_repair_request_with_rubbish` |
+| Oversized chunk | length check before decryption | `a_reply_too_large_to_be_a_chunk_is_refused_without_decrypting_it` |
+| **Lift a genuine body into an envelope signed by its own key** | ⬜ **open**, see below | none |
+| **Serve noise: the file adopted with a hole, the round "finished"** | ✅ **fixed**: a refused chunk counts as missing | `red_team_a_chunk_that_does_not_match_its_address_leaves_the_file_deferred` |
+| **Serve noise: recorded as a holder** | ✅ **fixed**: only chunks on disk afterwards are recorded | `red_team_a_relay_that_serves_noise_is_not_written_down_as_a_holder` |
+
+**Open, named, not fixed: a host can re-sign a lifted body.** The seal binds
+a segment body to its owner and segment id (`SealContext.address`), not to the
+device that signs the envelope. A host holding any genuine segment of an
+account keeps id, owner and sealed bytes, names its own free keypair as
+`device`, and signs: the envelope verifies and the body opens. Served back to
+the owner's own machine, that "stranger's chain" is applied past the rule that
+skips a device's own log (`apply_replaying`, `Replay::OthersOnly`), so the
+owner replays its own operations -- and every release it made is undone, the
+content pulled back onto its disk up to the pull ceiling. Other devices'
+operations replayed this way are idempotent (their versions are sealed). A
+check was written and withdrawn in the same session: "every entry's version
+names the signing device at its sequence" is true of everything
+`write_stream` and `remove_file` log, but a keystore replaced over a kept store
+seals entries written under the old key, segments already on hosts from such
+a node would then stall every peer's round, and restamping at flush makes the
+announced version differ from the index (two sides disagree on whether a later
+edit conflicts) -- all found by `itsanas-redteam`. The fix is a protocol
+change: the device id in the seal context of new segments, or an account
+device roster to check `envelope.device` against.
+
+**Not examined or not tested here, named:** a segment for another owner is
+refused twice (`open_segment`'s owner check, then the AEAD) and no test can
+tell the two apart; a body moved under a *new* segment id fails the AEAD and
+has no test of its own; a chain served out of order is refused by
+`validate_chain` as a break, which stops the round rather than reordering it;
+**a hostile host can stall a round** by serving any segment that fails any
+check above, because one bad segment errors the whole pull -- the same as
+before this pass, now with one more way in; a version vector that wins over or
+resurrects a delete needs the owner's log key, which is the identity surface,
+not this one; a coordinator is not in the integrity path for data (it hands
+out addresses; TLS pins device keys) and was not re-read; tail truncation is
+§9, deliberate. From `itsanas-redteam` on the noise fixes: a liar is still
+recorded as a holder if the chunk reaches this disk by another route during the
+same pull (a concurrent write of identical content), because the record is
+"present afterwards", not "accepted from this peer" -- a narrow window, not
+reproduced; and noise on a chunk several files share is fetched and refused
+once per file in a round.
 
 **And the thing the sweep could not check.** Three of the eight surfaces —
 losing data through the store and garbage collector, secrets in the repository
