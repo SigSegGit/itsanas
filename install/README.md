@@ -431,6 +431,17 @@ at an instance by hand take `itsanas --instance NAME …` (or
 keeps every node directory unless told otherwise. macOS has no named instances:
 its launch agent is one.
 
+These instances live under **one** operating-system account. A second
+*Windows* account (another person signing in to the same PC) is a different
+profile: `-NoInstall` looks for `itsanas.exe` in that account's own
+`%LOCALAPPDATA%\Programs\itsanas\bin`, finds nothing, and stops. Run
+`install\windows.ps1` once in that account (or copy `itsanas.exe` there).
+Then provision it **with** `-Instance NAME` all the same: scheduled-task names
+are machine-wide, so a second account's plain `ITSaNAS` task is the first
+account's task. With `-Instance sam` the task is `ITSaNAS-sam` and the node
+`%USERPROFILE%\.itsanas-sam`, in Sam's own profile. Not yet tried with two
+real Windows accounts (HANDOVER §8 0i).
+
 ## After installing, on any of them
 
 ```sh
