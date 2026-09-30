@@ -26,10 +26,12 @@ never for this file.
 plus `CHAIN_BYTES`; read by `would_exceed_pledge`, `host_for` and
 `Node::held_for_others`. A put indexes the size **on disk** (a re-put keeps
 the old file; indexing `sealed.len()` let a peer's 1-byte re-put hide 8 MiB).
-An `open` mark, set at open and cleared on a clean `Drop`, makes the next open
-rebuild index and total from the directories after a crash. Measured: 3.4 s
-per refused offer at 50k chunks, ~1 µs now (ROADMAP). **Verified:** four
-tests, seven sabotages red. **Not verified:** a real kill mid-write (the crash
+An `open` mark, set at open and cleared on a clean `Drop` (not after a
+write that failed past its blob, nor a failed open: both found by
+`itsanas-redteam`), makes the next open rebuild index and total from the
+directories and sweep staging. Measured: 3.4 s
+per refused offer at 50k chunks, ~1 µs now (ROADMAP). **Verified:** six
+tests, eleven sabotages red. **Not verified:** a real kill mid-write (the crash
 is simulated); a daemon killed by the Task Scheduler walks once per restart.
 `itsanas status` still walks, on purpose.
 

@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**879 test functions, 4 of them `#[ignore]`d into the slow job, and 130 of
+**881 test functions, 4 of them `#[ignore]`d into the slow job, and 132 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1430,8 +1430,11 @@ laptop (release build, warm cache, 64-byte chunks): 70 ms at 1,000 chunks,
 queued behind it. It and `host_for` now read `Vault::held_bytes`, a total of
 `vault_chunks` kept in the same transaction as each row (about 1 µs at any
 size). A crash between a blob and its row is caught by a mark set at open and
-cleared on a clean drop; finding it set, the next open rebuilds index and total
-from the directories. What is left: `Node::held_for_others` still walks our
+cleared on a clean drop -- and left set by a write that failed after its blob,
+or an open whose rebuild failed; finding it set, the next open rebuilds index
+and total from the directories and sweeps staging leftovers. The cost: one
+walk per start after an unclean stop, which is most starts on Android and a
+Windows daemon stopped by the Task Scheduler. What is left: `Node::held_for_others` still walks our
 *own* account's blobs in the vault (`stats_for`), and `itsanas status` still
 walks, on purpose — it is the check the total is tested against.
 

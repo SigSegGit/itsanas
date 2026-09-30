@@ -134,8 +134,64 @@ pub struct Vault {
     /// one length while the disk keeps the other, and the total would lie by
     /// the difference -- in the direction that lets the pledge be overrun.
     chunk_writes: std::sync::Mutex<()>,
-    /// Set only by the test helper that simulates a crash.
-    abandoned: bool,
+    /// This process may have left the disk and the index apart, so `Drop`
+    /// must not mark the close clean.
+    ///
+    /// Set until `open` has finished (a rebuild that failed half-way is the
+    /// state the mark exists to catch), and by any chunk write that did not
+    /// reach its commit -- an error or a panic after the blob was written or
+    /// unlinked, ENOSPC on the redb commit being the likely one. Without it a
+    /// clean shutdown after such a failure blessed the drift for good.
+    suspect: std::sync::atomic::AtomicBool,
+}
+
+/// Marks the vault suspect unless defused: held across a blob write or
+/// unlink and the commit that indexes it, so an early return or a panic in
+/// between is remembered.
+struct Unsure<'a> {
+    suspect: &'a std::sync::atomic::AtomicBool,
+    armed: bool,
+}
+
+impl<'a> Unsure<'a> {
+    fn arm(suspect: &'a std::sync::atomic::AtomicBool) -> Self {
+        Self {
+            suspect,
+            armed: true,
+        }
+    }
+
+    fn defuse(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for Unsure<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.suspect
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// A failure to inject at a named point, so the tests can fail the
+    /// steps the crash handling exists for.
+    static FAULT: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
+}
+
+/// Fail here if a test asked for it; nothing in a normal build.
+// The `Result` is the point: callers `?` it, and only tests make it fail.
+#[cfg_attr(not(test), allow(clippy::unnecessary_wraps))]
+fn fault(point: &'static str) -> Result<()> {
+    #[cfg(test)]
+    if FAULT.with(std::cell::Cell::get) == Some(point) {
+        return Err(StoreError::Corrupt(format!("injected fault: {point}")));
+    }
+    let _ = point;
+    Ok(())
 }
 
 /// What a vault is holding, for quota accounting and `itsanas status`.
@@ -203,7 +259,9 @@ impl Vault {
             root,
             db,
             chunk_writes: std::sync::Mutex::new(()),
-            abandoned: false,
+            // Suspect until the rebuild below has finished: if it fails, the
+            // vault is dropped here and must leave the mark as it found it.
+            suspect: std::sync::atomic::AtomicBool::new(true),
         };
         vault.reconcile_chunks_if_needed()?;
         vault.backfill_segment_bytes()?;
@@ -213,19 +271,24 @@ impl Vault {
             txn.open_table(TOTALS)?.insert(OPEN, 1)?;
         }
         txn.commit()?;
+        vault
+            .suspect
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         Ok(vault)
     }
 
     /// Drop the vault as a crash would: without the clean-close mark.
     #[cfg(test)]
-    pub(crate) fn abandon(mut self) {
-        self.abandoned = true;
+    pub(crate) fn abandon(self) {
+        self.suspect
+            .store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// The chunk-writes lock, recovered if a panic poisoned it.
     ///
     /// Poisoning means a panic between a blob write and its index row, which
-    /// is the crash case in miniature; the next open rebuilds either way, and
+    /// is the crash case in miniature; the panic's `Unsure` marks the vault
+    /// suspect so the next open rebuilds, and
     /// refusing every later write would turn one bug into a dead host.
     fn chunk_writes(&self) -> std::sync::MutexGuard<'_, ()> {
         self.chunk_writes
@@ -250,8 +313,10 @@ impl Vault {
     /// validated — see the module docs for why that is not a gap at this layer.
     pub fn put_chunk(&self, owner: UserId, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
         let _writing = self.chunk_writes();
+        let unsure = Unsure::arm(&self.suspect);
         let blobs = self.blobs_for(owner)?;
         let stored = blobs.put(address, sealed)?;
+        fault("after the blob")?;
         // The size on disk, not `sealed.len()`: a re-put of a held address
         // keeps the old file, and indexing the new length would let a peer
         // store 8 MiB, re-offer the address with 1 byte, and have the total
@@ -274,6 +339,7 @@ impl Vault {
             totals.insert(CHUNK_BYTES, total)?;
         }
         txn.commit()?;
+        unsure.defuse();
         Ok(stored)
     }
 
@@ -290,6 +356,7 @@ impl Vault {
     /// Drop a chunk.
     pub fn remove_chunk(&self, owner: UserId, address: &ChunkId) -> Result<bool> {
         let _writing = self.chunk_writes();
+        let unsure = Unsure::arm(&self.suspect);
         let removed = self.blobs_for(owner)?.remove(address)?;
         let txn = self.db.begin_write()?;
         {
@@ -304,6 +371,7 @@ impl Vault {
             }
         }
         txn.commit()?;
+        unsure.defuse();
         Ok(removed)
     }
 
@@ -398,11 +466,15 @@ impl Vault {
         if !unclean && !untotalled {
             return Ok(());
         }
+        fault("rebuilding")?;
 
         let mut on_disk: std::collections::BTreeMap<[u8; 64], u64> =
             std::collections::BTreeMap::new();
         for owner in self.owners()? {
             let blobs = self.blobs_for(owner)?;
+            // A crash mid-write also leaves its staging file, counted by
+            // nothing and never reclaimed unless swept here.
+            blobs.sweep_staging()?;
             for address in blobs.addresses()? {
                 if let Some(size) = blobs.size_of(&address)? {
                     on_disk.insert(chunk_key(owner, &address), size);
@@ -752,7 +824,7 @@ impl Drop for Vault {
     /// Best effort: if this fails the mark stays set and the next open walks
     /// the directories once, which is slower and still right.
     fn drop(&mut self) {
-        if self.abandoned {
+        if self.suspect.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
         let mark = || -> Result<()> {
@@ -1292,6 +1364,13 @@ mod tests {
         let blobs = vault.blobs_for(owner).unwrap();
         blobs.put(&c, &[3u8; 5000]).unwrap();
         blobs.remove(&a).unwrap();
+        let staging = dir
+            .path()
+            .join("owners")
+            .join(owner.to_hex())
+            .join("tmp")
+            .join("left-by-a-crash.tmp");
+        std::fs::write(&staging, [0u8; 4096]).unwrap();
         vault.abandon();
 
         let vault = Vault::open(dir.path()).unwrap();
@@ -1302,6 +1381,63 @@ mod tests {
             "the index still disagrees with the disk after a crash: \
              reconciliation would ask for a chunk held and offer one gone"
         );
+        assert!(
+            !staging.exists(),
+            "a crash's staging file survived the rebuild: disk the pledge never counts"
+        );
+    }
+
+    /// Run `body` with a failure injected at `point`.
+    fn failing_at<T>(point: &'static str, body: impl FnOnce() -> T) -> T {
+        FAULT.with(|fault| fault.set(Some(point)));
+        let out = body();
+        FAULT.with(|fault| fault.set(None));
+        out
+    }
+
+    #[test]
+    fn red_team_a_write_that_fails_after_its_blob_is_rebuilt_after_a_clean_close() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = keys(25).user_id();
+        {
+            let vault = Vault::open(dir.path()).unwrap();
+            vault
+                .put_chunk(owner, &ChunkId::from_bytes([1; 32]), &[1u8; 100])
+                .unwrap();
+            // The blob lands and its commit fails (ENOSPC on redb, say); the
+            // process carries on and later shuts down cleanly.
+            let failed = failing_at("after the blob", || {
+                vault.put_chunk(owner, &ChunkId::from_bytes([2; 32]), &[2u8; 5000])
+            });
+            assert!(failed.is_err(), "the injected fault did not fire");
+        }
+        let vault = Vault::open(dir.path()).unwrap();
+        assert_total_is_the_walk(&vault, "a failed write and a clean close");
+    }
+
+    #[test]
+    fn red_team_an_open_that_fails_mid_rebuild_leaves_the_vault_unclean() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = keys(26).user_id();
+        let vault = Vault::open(dir.path()).unwrap();
+        vault
+            .put_chunk(owner, &ChunkId::from_bytes([1; 32]), &[1u8; 100])
+            .unwrap();
+        vault
+            .blobs_for(owner)
+            .unwrap()
+            .put(&ChunkId::from_bytes([2; 32]), &[2u8; 5000])
+            .unwrap();
+        vault.abandon();
+
+        // The rebuild after the crash fails (an antivirus lock, a permission);
+        // the retry must rebuild again, not trust the total it never fixed.
+        let failed = failing_at("rebuilding", || Vault::open(dir.path()));
+        assert!(failed.is_err(), "the injected fault did not fire");
+        drop(failed);
+
+        let vault = Vault::open(dir.path()).unwrap();
+        assert_total_is_the_walk(&vault, "a rebuild that failed once");
     }
 
     #[test]

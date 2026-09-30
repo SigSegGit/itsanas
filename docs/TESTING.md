@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 879 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 130 are red-team tests.**
+**Last updated: 2026-09-30 — 881 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 132 are red-team tests.**
 
-**763 of the 879 tests have an entry of their own on this page** — an *entry*,
+**765 of the 881 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,7 +158,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 156 |
+| `itsanas-store` unit | 158 |
 | `itsanas-store` integration (`tests/store.rs`) | 45 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 23 |
@@ -416,7 +416,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (138, plus the 18 vault tests below)
+# `itsanas-store` — unit tests (138, plus the 20 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -692,7 +692,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (18 of the store's unit tests)
+# `itsanas-store` — the vault (20 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -716,7 +716,9 @@ about reading.
 | `a_chunk_round_trips_without_the_vault_ever_holding_a_key` | The basic path. |
 | `everything_survives_reopening` | Durable across a restart. |
 | **`red_team_the_held_total_is_the_walk_after_every_kind_of_write`** | The pledge reads `held_bytes`, a running total, instead of walking every blob under the storing lock (3.4 s per refused offer at 50,000 chunks on the laptop, about 1 µs now). The total must equal the walk after puts for two owners, re-puts of a held address at a larger and a *smaller* size (the file on disk is kept, so indexing the offered length would let a peer store 8 MiB and have 1 byte counted), deletes repeated and of nothing, a segment, and a clean reopen. Fails when a delete skips the total, a put indexes `sealed.len()`, or a re-put does not subtract the old row. |
-| **`red_team_a_crash_between_a_blob_and_its_row_is_rebuilt_at_open`** | A blob is written, then indexed; a crash between the two leaves a blob nobody counts, or a row for a blob gone. A vault not closed cleanly is rebuilt from its directories at the next open, rows removed as well as added. Fails when the unclean mark is ignored or stale rows are kept. |
+| **`red_team_a_crash_between_a_blob_and_its_row_is_rebuilt_at_open`** | A blob is written, then indexed; a crash between the two leaves a blob nobody counts, or a row for a blob gone. A vault not closed cleanly is rebuilt from its directories at the next open, rows removed as well as added, and the crash's staging file swept (counted by nothing, otherwise never reclaimed). Fails when the unclean mark is ignored, stale rows are kept or staging is not swept. |
+| **`red_team_a_write_that_fails_after_its_blob_is_rebuilt_after_a_clean_close`** | Found by `itsanas-redteam`: a blob written whose commit then fails (ENOSPC on redb) leaves an uncounted blob, and a later *clean* shutdown cleared the mark and blessed the drift for good. A write that does not reach its commit, by error or panic, now marks the vault suspect and the close stays unclean. Fails when `Drop` ignores the mark or the guard is defused early. |
+| **`red_team_an_open_that_fails_mid_rebuild_leaves_the_vault_unclean`** | Also `itsanas-redteam`: an open whose rebuild failed (an antivirus lock, a permission) dropped the half-built vault through the clean close, so the retry trusted the total it never fixed. The vault is suspect until `open` returns. Fails when it starts unsuspect. |
 | `a_vault_from_before_the_total_is_totalled_at_open` | An upgraded vault has index rows and no total; reading it as 0 would hand the pledge back in full. Fails when a missing total is not rebuilt. |
 
 ---
