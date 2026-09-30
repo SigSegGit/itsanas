@@ -10,7 +10,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
+use itsanas_crypto::{ChunkId, DeviceKeys, MasterSecret, SecretBytes, UserKeys};
 use itsanas_net::{
     Offer, PeerClient, PeerServer, PeerService, Pledge, Refusal,
     protocol::{Request, Response},
@@ -2435,6 +2435,45 @@ fn a_pledge_of_nothing_takes_nothing_on() {
         stingy.vault.stats().unwrap().bytes,
         0,
         "a node that pledged nothing is holding something"
+    );
+}
+
+#[test]
+fn red_team_a_vault_already_at_its_pledge_takes_nothing_more_on() {
+    // `host_for` reads the vault's running total, not a walk. If that total
+    // forgot what is already held, a full host would be handed a whole
+    // pledge's worth of room again every round and fill past what it offered.
+    let reachable = node(&MasterSecret::from_bytes([0xE7; 32]), 46);
+    let full = node(&MasterSecret::from_bytes([0xF8; 32]), 47);
+
+    let stranger = UserKeys::derive(&MasterSecret::from_bytes([0x5E; 32])).user_id();
+    full.vault
+        .put_chunk(
+            stranger,
+            &ChunkId::from_bytes([0x5E; 32]),
+            &vec![0u8; 1 << 20],
+        )
+        .unwrap();
+    let pledge = Pledge { bytes: 1 << 20 };
+    let held_before = full.vault.stats().unwrap().bytes;
+
+    let payload = itsanas_testkit::filler("already-full", 200 * 1024);
+    reachable.store.write_file("theirs.bin", &payload).unwrap();
+    reachable.store.flush_segment().unwrap();
+
+    with_server(&reachable, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &full.device, full.store.owner(), None).unwrap();
+        let report =
+            session::host_for(&full.vault, &mut client, pledge).expect("a full node still answers");
+        assert_eq!(report.taken, 0, "a host at its pledge took more data on");
+        assert!(report.pledge_full, "it did not say it was full");
+    });
+
+    assert_eq!(
+        full.vault.stats().unwrap().bytes,
+        held_before,
+        "a host at its pledge holds more than it did: it is past what it offered"
     );
 }
 

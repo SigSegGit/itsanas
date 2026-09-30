@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 875 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 127 are red-team tests.**
+**Last updated: 2026-09-30 — 879 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 130 are red-team tests.**
 
-**759 of the 875 tests have an entry of their own on this page** — an *entry*,
+**763 of the 879 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,12 +158,12 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 153 |
+| `itsanas-store` unit | 156 |
 | `itsanas-store` integration (`tests/store.rs`) | 45 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 23 |
 | `itsanas-net` unit | 42 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 48 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 49 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 108 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 15 |
@@ -416,7 +416,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (138, plus the 15 vault tests below)
+# `itsanas-store` — unit tests (138, plus the 18 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -692,7 +692,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (15 of the store's unit tests)
+# `itsanas-store` — the vault (18 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -704,7 +704,7 @@ about reading.
 | **`a_segment_that_does_not_continue_the_chain_is_refused`** | Otherwise a host can be induced to store a chain with a hole and then serve that hole to a peer as though it were complete. |
 | **`re_offering_the_current_tip_is_accepted_as_a_no_op`** | Peers re-offer freely — there is no acknowledgement telling them to stop — so this must neither error nor duplicate. |
 | **`an_owner_whose_chunks_are_held_but_whose_log_is_not_still_counts`** | Guards a real bug this suite caught: the owner list was derived from the segment table alone, so a host storing chunks but no segments reported zero bytes and its quota was blind to the bulk of what it held. |
-| **`red_team_segments_count_against_the_pledge_like_any_other_foreign_byte`** | `would_exceed_pledge` reads `stats().bytes`, and `bytes` summed the chunk blobs alone. Log segments live in their own table and counted for nothing, so `held` stayed at zero however many arrived: **every `StoreSegment` passed the quota, for ever**, on any host whose pledge exceeded one segment. No account and no invitation were needed — a throwaway device key completes the handshake, and a self-signed envelope of random bytes is indistinguishable from a real one because nobody can decrypt either. About 1,280 frames put 10 GiB on the disk; there is no segment-removal API and redb does not shrink, so it was not reclaimable, and `itsanas status` reads the same field so the operator watched a disk fill with no cause. A running byte total per chain now feeds the quota, backfilled once on open for vaults that predate it. |
+| **`red_team_segments_count_against_the_pledge_like_any_other_foreign_byte`** | `would_exceed_pledge` read `stats().bytes` (now `held_bytes`, the same number kept as a running total), and `bytes` summed the chunk blobs alone. Log segments live in their own table and counted for nothing, so `held` stayed at zero however many arrived: **every `StoreSegment` passed the quota, for ever**, on any host whose pledge exceeded one segment. No account and no invitation were needed — a throwaway device key completes the handshake, and a self-signed envelope of random bytes is indistinguishable from a real one because nobody can decrypt either. About 1,280 frames put 10 GiB on the disk; there is no segment-removal API and redb does not shrink, so it was not reclaimable, and `itsanas status` reads the same field so the operator watched a disk fill with no cause. A running byte total per chain now feeds the quota, backfilled once on open for vaults that predate it. |
 | **`two_owners_chunks_do_not_collide_even_at_the_same_address`** | Chunk ids are blinded per user so a collision should not happen, but correctness must not depend on that. |
 | **`one_owners_segments_are_never_served_under_another_owners_name`** | Owner scoping is real, not incidental. |
 | **`resuming_after_an_unknown_segment_returns_nothing_rather_than_everything`** | An unrecognised resume point must not cause the whole chain to be re-sent. |
@@ -715,6 +715,9 @@ about reading.
 | `stats_account_for_every_owner` | Quota accounting sums correctly. |
 | `a_chunk_round_trips_without_the_vault_ever_holding_a_key` | The basic path. |
 | `everything_survives_reopening` | Durable across a restart. |
+| **`red_team_the_held_total_is_the_walk_after_every_kind_of_write`** | The pledge reads `held_bytes`, a running total, instead of walking every blob under the storing lock (3.4 s per refused offer at 50,000 chunks on the laptop, about 1 µs now). The total must equal the walk after puts for two owners, re-puts of a held address at a larger and a *smaller* size (the file on disk is kept, so indexing the offered length would let a peer store 8 MiB and have 1 byte counted), deletes repeated and of nothing, a segment, and a clean reopen. Fails when a delete skips the total, a put indexes `sealed.len()`, or a re-put does not subtract the old row. |
+| **`red_team_a_crash_between_a_blob_and_its_row_is_rebuilt_at_open`** | A blob is written, then indexed; a crash between the two leaves a blob nobody counts, or a row for a blob gone. A vault not closed cleanly is rebuilt from its directories at the next open, rows removed as well as added. Fails when the unclean mark is ignored or stale rows are kept. |
+| `a_vault_from_before_the_total_is_totalled_at_open` | An upgraded vault has index rows and no total; reading it as 0 would hand the pledge back in full. Fails when a missing total is not rebuilt. |
 
 ---
 
@@ -788,7 +791,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (48)
+# `itsanas-net` — two-node tests (49)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -829,6 +832,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_release_rests_on_two_real_peers_and_notices_when_one_stops_holding`** | The test this repository did not have, and the reason three defects in the release path were found by hand on a Raspberry Pi and none by 683 tests. Every other release test writes the holder ledger directly — a device that never spoke to anything — and reads it back, which is sound for testing the *choice* and useless for testing the release: a release never fails on the choice, it fails on the provenance of the evidence. Here two real hosts take a copy over two real sockets, the release decides from what those exchanges left behind, one host then throws the chunk away, and the next round has to notice — which no audit could, because a challenge is checked against a local copy this device released. Fails when the ledger sweep is removed. |
 | **`the_side_that_dialled_ends_up_hosting_too`** | The reciprocal half, and the test that decides whether somebody behind a router they do not control can take part at all. Only one of the two nodes runs a server, which is the same asymmetry NAT produces. Before `host_for` existed the dialling side could only give its data away; now its vault grows. Fails if the offer is emptied. |
 | **`the_owner_learns_who_is_holding_after_a_reciprocal_round`** | Taking the chunks is half of it. An owner that does not record where its copies went cannot audit them and will keep asking somebody to hold what is already held. Measured through `under_replicated`, before and after. |
+| **`red_team_a_vault_already_at_its_pledge_takes_nothing_more_on`** | `host_for` reads the vault's running total; if it forgot what is held, a full host would be given a whole pledge of room again every round. A vault holding 1 MiB for a stranger on a 1 MiB pledge takes nothing. Fails when `held_bytes` returns 0. |
 | `a_pledge_of_nothing_takes_nothing_on` | Hosting stays opt-in over the new path: a node that offered no space must not have its disk filled by a peer that asked nicely. Fails when the pledge is ignored. |
 | **`a_host_stores_a_strangers_data_and_cannot_read_a_byte_of_it`** | Alice's whole corpus pushed to Bob's node, then every byte Bob holds scanned for Alice's canary. |
 | **`a_host_relays_one_device_to_another_that_it_never_met`** | The architecture's whole reason for existing, over a socket: the Pi pushes and powers off, the VM pulls the Pi's work from a host it has never met. |

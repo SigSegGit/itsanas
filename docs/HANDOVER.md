@@ -9,16 +9,29 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.3b
-TITLE: a store the host will refuse costs no walk of its vault: a running total of chunk bytes
+NEXT: 8.3d
+TITLE: the LAN beacon stops grouping an account's machines: a per-beacon nonce and keyed tag, no clock
 WRITTEN-AT: 2026-09-30
-BASE: 9787dda
+BASE: 0d4cd98
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 3b: the pledge reads a running total** (branch
+`step/8.3b-chunk-bytes-total`). `Vault::held_bytes` = `vault_totals`
+`chunk_bytes` (changed in the same transaction as each `vault_chunks` row)
+plus `CHAIN_BYTES`; read by `would_exceed_pledge`, `host_for` and
+`Node::held_for_others`. A put indexes the size **on disk** (a re-put keeps
+the old file; indexing `sealed.len()` let a peer's 1-byte re-put hide 8 MiB).
+An `open` mark, set at open and cleared on a clean `Drop`, makes the next open
+rebuild index and total from the directories after a crash. Measured: 3.4 s
+per refused offer at 50k chunks, ~1 µs now (ROADMAP). **Verified:** four
+tests, seven sabotages red. **Not verified:** a real kill mid-write (the crash
+is simulated); a daemon killed by the Task Scheduler walks once per restart.
+`itsanas status` still walks, on purpose.
 
 **2026-09-30, 3a: every setter keeps the split** (branch
 `step/8.3a-pledge-keeps-split`). `Node::check_split` (`itsanas-node`
@@ -2908,8 +2921,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       enforcement: a rebuilt client skips it, which is 1c's job, deferred by
       §8 0.
 
-   b. **A store the host will refuse costs no walk of its vault.**
-      `would_exceed_pledge` (`crates/itsanas-net/src/service.rs` ~445) reads
+   b. ✅ **A store the host will refuse costs no walk of its vault.** Built
+      2026-09-30 (see §0); the original text follows. `would_exceed_pledge` (`crates/itsanas-net/src/service.rs` ~445) reads
       `Vault::stats()` (`crates/itsanas-store/src/vault.rs` ~586), which lists
       every owner's blobs and stats each file, under the storing lock -- so a
       peer spamming offers it knows are refused delays honest stores. Segment
@@ -2923,7 +2936,27 @@ Detail and measurements are in ROADMAP.md; this is the map.
       update on delete. Not enforcement: same rule, cheaper to ask.
    c. Chunk-size sequences fingerprint files (ROADMAP; not decided, costs
       disk on every host -- a question for Nicolas before code).
-   d. The LAN beacon groups an account's machines.
+   d. **The LAN beacon stops grouping an account's machines.** Checked
+      2026-09-30: `owner_tag` (`crates/itsanas-discover/src/beacon.rs` ~87)
+      is `blake3::derive_key(OWNER_TAG_DOMAIN, user_id)`, the same 32 bytes
+      from every machine of an account for ever, so a listener groups them and
+      anyone holding a user id recognises it (ROADMAP, "The LAN beacon groups
+      an account's machines"). Not by clock rotation: the comment there and
+      §6 ("the sender's clock decides nothing in discovery") rule it out, a
+      Pi 4 boots in 1970. Instead split the 32-byte field into a fresh random
+      16-byte nonce and a 16-byte `keyed_hash(account key, nonce)`, where the
+      key is derived from the account's `UserKeys` (so only its own machines
+      can compute it), and bump `BEACON_VERSION` to 2. Readers of the tag:
+      `crates/itsanas-cli/src/discovery.rs` ~212 (`mine`) and the dial order
+      in `crates/itsanas-discover/src/neighbours.rs` (`dial_order(owner)`,
+      own machines first) -- both must take the key, not a user id. Decide
+      and write down what a v1 beacon from a not-yet-upgraded machine does
+      (heard as a stranger is safe; the dial order degrades only). Red-team
+      test expected: two beacons from one device carry different tag fields,
+      and a household member still recognises both; sabotage by a fixed
+      nonce (tags equal) and by an unkeyed hash (a stranger holding the user
+      id recognises it). §6's `red_team_the_user_id_never_appears_on_the_wire`
+      must stay green.
 4. **Verification at a terabyte.** Within a differing bucket, ask only about
    chunks with no fresh record for that peer (DESIGN.md §6.5). Today the budget
    buys about 3 MB of change a day at 1 TB.
