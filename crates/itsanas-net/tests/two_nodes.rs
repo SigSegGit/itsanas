@@ -100,6 +100,61 @@ fn with_server<T>(
     })
 }
 
+/// A `Relay` that counts how often it was asked.
+struct CountingRelay(std::sync::atomic::AtomicUsize);
+
+impl itsanas_net::Relay for CountingRelay {
+    fn presences_for(&self, _caller: itsanas_crypto::DeviceId) -> Option<Vec<Vec<u8>>> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Some(Vec::new())
+    }
+}
+
+/// A machine not yet upgraded to protocol 6 does not know `Presences`; asking
+/// it anyway costs a refusal per round, and an older peer that misparses the
+/// unknown request drops the connection the round still needed. The client
+/// must not ask. The control half proves the counter counts: a v6 service is
+/// asked exactly once.
+#[test]
+fn red_team_a_peer_speaking_protocol_5_is_never_asked_for_presences() {
+    use itsanas_net::protocol::PROTOCOL_WITH_PRESENCES;
+    let host = node(&alice(), 75);
+    let me = node(&alice(), 76);
+
+    for (version, expected) in [
+        (PROTOCOL_WITH_PRESENCES, 1),
+        (PROTOCOL_WITH_PRESENCES - 1, 0),
+    ] {
+        let relay = CountingRelay(std::sync::atomic::AtomicUsize::new(0));
+        let server = PeerServer::bind("127.0.0.1:0").expect("bind loopback");
+        let address = server.local_addr().expect("local address");
+        let shutdown = AtomicBool::new(false);
+        let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+            .with_relay(&relay)
+            .speaking_at_most(version);
+
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let _ = server.serve_until(&service, &host.device, &shutdown);
+            });
+            let _stop = StopOnDrop(&shutdown, address);
+
+            let mut client =
+                PeerClient::connect(address, &me.device, me.store.owner(), None).expect("connect");
+            let answer = client.presences().expect("presences");
+            assert_eq!(
+                relay.0.load(Ordering::SeqCst),
+                expected,
+                "a peer speaking protocol {version} was asked for presences {} time(s)",
+                relay.0.load(Ordering::SeqCst)
+            );
+            if expected == 0 {
+                assert_eq!(answer, None, "an old peer's silence must read as `None`");
+            }
+        });
+    }
+}
+
 #[test]
 fn a_failing_assertion_inside_a_server_scope_fails_rather_than_hangs() {
     // This test passing means it *finished*. There is no assertion that can

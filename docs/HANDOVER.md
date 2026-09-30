@@ -9,16 +9,26 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0o
-TITLE: 0o leftovers: prove a v5 peer is not asked for presences, and test the daemon's relay wiring
+NEXT: 8.0f
+TITLE: A tray icon for the Windows daemon, reading status.snapshot only; first the crate choice against cargo deny and the unsafe gate
 WRITTEN-AT: 2026-09-30
-BASE: b7046a3
+BASE: 92585ff
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0o: a v5 peer is proven not asked** (branch
+`step/8.0o-v5-not-asked`). `PeerService::speaking_at_most(v)` (doc-hidden,
+test use) caps the version admitted to in `Hello`; with a counting `Relay`,
+`two_nodes.rs` proves a v6 service is asked once and a v5 one never. One
+red-team test, sabotaged red. **Judged not worth a test:** the daemon's
+relay wiring (`dial_listed`, ~899) is five lines between two tested pieces
+(the client gate, `Contact::relayed`); testing it needs two full nodes in
+the CLI's tests. 0o stays 🟨 only for that and for phase 3, which waits on
+the fleet. **Next is f, the tray.**
 
 **2026-09-30, 0o: the 2099-clock gap closed** (branch
 `step/8.0o-clock-ahead`). `Contact::relayed` takes `now`; a row whose
@@ -2146,7 +2156,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       checks. The in-process check of 8.1b comes first on every platform and
       is the one that is enforced; the native quota is presentation.
 
-   o. 🟨 **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187). **Remaining, 🟨:** no test that a v5 peer is not asked for presences; the daemon's relay wiring has no test of its own (the 2099-clock gap closed 2026-09-30); phase 3 only if the fleet shows 1 and 2 fall short.
+   o. 🟨 **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187). **Remaining, 🟨:** the daemon's relay wiring has no test of its own (judged not worth two full nodes in the CLI tests; the 2099-clock gap and the v5 test closed 2026-09-30); phase 3 only if the fleet shows 1 and 2 fall short.
       Asked for by Nicolas on 2026-09-17, put on the MVP's path by him on
       2026-09-18 ("I can't get enough machines to work in my own home for a
       decent testing run"), with a constraint he added the same day: **prefer a
@@ -2549,7 +2559,17 @@ Detail and measurements are in ROADMAP.md; this is the map.
       does not say where `provision.ps1 -NoInstall` looks for
       `itsanas.exe` for a second *Windows* account.
 
-   f. **A tray icon for the Windows daemon.** Asked for by Nicolas on
+   f. **A tray icon for the Windows daemon.** **`NEXT` (2026-09-30):** do it
+      in two PRs. First, alone: pick the crates (`tray-icon` + `tao`/`winit`,
+      or `windows`-crate `Shell_NotifyIcon` directly) by running `cargo deny
+      check` with them added and confirming `scripts/check-unsafe.py` still
+      passes (unsafe inside dependencies is allowed, in this workspace not);
+      write the snapshot reader (`status.snapshot` -> state + age) as a pure,
+      tested function in a new `itsanas-tray` crate, with the red-team test
+      below (a snapshot older than two intervals is stale, never healthy).
+      Second: the icon, left-click, right-click menu with the confirmations
+      Nicolas specified. Build it only on Windows (`cfg(windows)`), so the
+      other CI targets stay unaffected. Asked for by Nicolas on
       2026-09-14 after the untitled console: "a minimum of polish", dark or
       following the system theme. Verified facts: no desktop UI exists
       (ROADMAP.md, the table of deferred work, "Tray / desktop GUI"); the
