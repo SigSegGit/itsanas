@@ -975,7 +975,7 @@ fn open_folder(node: &Node) -> Result<Option<(Folder, Option<Watcher>)>> {
 /// mean somebody has to do something, and both are said loudly, because the
 /// alternative -- a line in a log nobody reads -- is how a disk stays unmounted
 /// for a week.
-fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
+pub(crate) fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
     // Counting what other devices wrote since the last pass. On failure the
     // bound from the last pass stays, which is never none: opening the node
     // set one.

@@ -34,6 +34,15 @@ commit or per CI run, which is where the tokens went. Outside major steps, only
 when Nicolas asks. (Nicolas, 2026-09-24; this replaced "only on explicit
 request" from the same day.)
 
+**Subagents, when a job is worth a cold start.** Nicolas's user-level roster
+(`~/.claude/agents/`, registry in its `README.md`, not versioned here):
+`itsanas-redteam` (a step's diff, before Rodin), `itsanas-docs-sweeper` (stale
+restatements after a change), `itsanas-fleet-user` (a persona following the
+docs literally in throwaway HOMEs; its findings become §8 items, as 0q did),
+`itsanas-lead` (between steps: circles, rabbit holes, token drift,
+regressions), `agents-curator` (keeps the roster lean). Platform facts are the
+`integrateur` skill, not an agent. None of them merges, pushes or decides.
+
 ## AI code reviewer (CI)
 
 - Sends **only** `git diff <base>...HEAD`, never the repository, capped at

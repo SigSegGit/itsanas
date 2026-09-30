@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-09-30 07:50 | ~20 min | ~250 k ctx (cumul) · 5 h ~24→~30 % | 8.0q (A-C) | au bout | 🟨 | `sync` écrit dans le dossier ce qu'il reçoit ; `--phrase-file` accepte la grille d'`init` ; message de verrou ; FIRST-STEPS §4 (dossier sur la 2e machine, mots, port) ; appels de `sync_folder` non testés | #195 |
 | 2026-09-30 07:25 | ~20 min | ~215 k ctx (cumul) · 5 h ~20→~24 % | 8.0m (fin) + persona | au bout | 🟨 | Départ qui survit au redémarrage : marqueur `departed`, démon qui sort en 0, `rejoin` ; `ExecStop=` écarté (chaque reboot serait un départ) ; persona Linux 2 machines → §8 q ; bras `start_daemon` non testé | #194 |
 | 2026-09-30 07:10 | ~15 min | ~175 k ctx (cumul) · 5 h 16→~20 % | 8.0i (moitié hermétique) | au bout | 🟨 | Test red-team de 0i dans `check-installers.sh` : deux instances provisionnées dans une HOME jetable, b nettoyée, a intacte ; 2 sabotages rouges ; la synchro réelle de a et les essais humains restent | #193 |
 | 2026-09-30 06:52 | ~15 min | ~156 k ctx (cumul session) · 5 h +13 pts (3→16 %), hebdo 0→3 % | 8.0p (3) + Rodin | au bout | ✅ | Refus sans nom une fois seules des instances nommées ; règle unique dans `itsanas-node` (le drive avait sa copie) ; Rodin : `migrate` n'ignore plus `--home`, `default_home` morte supprimée ; restes nommés dans ROADMAP | #192 |

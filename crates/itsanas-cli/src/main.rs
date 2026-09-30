@@ -750,12 +750,7 @@ fn init(home: &Path, username: &str) -> Result<()> {
     println!("└───────────────────────────────────────────────────────────────┘");
     println!();
 
-    for (index, word) in phrase.as_str().split_whitespace().enumerate() {
-        print!("{:>2}. {:<12}", index + 1, word);
-        if index % 4 == 3 {
-            println!();
-        }
-    }
+    print!("{}", phrase_grid(phrase.as_str()));
     println!();
     println!("This phrase is shown once and is not stored anywhere on this machine.");
     println!();
@@ -907,7 +902,7 @@ fn login(
     };
 
     println!("Choose a passphrase for this machine's keystore.");
-    let mut node = Node::restore(home, &passphrase(true)?, username, phrase.trim())?;
+    let mut node = Node::restore(home, &passphrase(true)?, username, &phrase_words(&phrase))?;
     settle_listen_port(&mut node)?;
 
     println!("Account restored.");
@@ -2479,6 +2474,33 @@ fn leave(home: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The phrase as `init` shows it: numbered, four words a line.
+fn phrase_grid(phrase: &str) -> String {
+    let mut out = String::new();
+    for (index, word) in phrase.split_whitespace().enumerate() {
+        let _ = write!(out, "{:>2}. {:<12}", index + 1, word);
+        if index % 4 == 3 {
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// The 24 words out of whatever a person saved: one line, one word a line, or
+/// the numbered grid `init` printed, copied off the screen. The numbers are
+/// dropped; words are never guessed at, so a wrong word still fails the
+/// checksum rather than restoring some other account.
+fn phrase_words(text: &str) -> String {
+    text.split_whitespace()
+        .filter(|token| {
+            !token.strip_suffix('.').is_some_and(|number| {
+                !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// The file in a node home that says `itsanas leave` ran, and when.
 ///
 /// Why a file and not a stop hook: the service stops at every reboot and
@@ -3004,6 +3026,8 @@ fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
 fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()> {
     refuse_if_departed(home)?;
     let node = open(home)?;
+    // What changed in the folder goes out with this sync, not the next one.
+    sync_folder(&node);
 
     // Configured peers unpinned, as the daemon dials them; the account's other
     // devices from the coordinator pinned, because the coordinator supplies
@@ -3121,8 +3145,27 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
     if !any_succeeded {
         return Err(CliError::Usage("no peer could be reached".to_owned()));
     }
+    // And what came in lands in the folder. Without this a person who ran
+    // `sync` by hand saw "received 201 files" and an empty folder until an
+    // `itsanas scan` no guide names -- found by a persona run of
+    // FIRST-STEPS.md (HANDOVER §8 q). Metadata-only fetched no content.
+    if matches!(scope, session::Scope::Everything) {
+        sync_folder(&node);
+    }
 
     Ok(())
+}
+
+/// The folder half of a sync: the daemon's own reconcile, so the guards of 0l
+/// (a missing marker stops, a mass deletion is held) apply here too.
+fn sync_folder(node: &Node) {
+    let Some(path) = node.config.folder.as_ref() else {
+        return;
+    };
+    match itsanas_folder::Folder::open(path) {
+        Ok(folder) => daemon::reconcile_once(node, &folder, false),
+        Err(error) => eprintln!("itsanas: folder {}: {error}", path.display()),
+    }
 }
 
 fn peer(home: &Path, action: PeerAction) -> Result<()> {
@@ -3384,8 +3427,8 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 mod tests {
     use super::{
         DeviceId, SNAPSHOT, departure_refusal, describe_age, first_free_port, instances_report,
-        looks_like_a_closed_pipe, migrate_unnamed, record_departure, refuse_if_departed, rejoin,
-        resolve_device, sibling_ports, snapshot_status,
+        looks_like_a_closed_pipe, migrate_unnamed, phrase_grid, phrase_words, record_departure,
+        refuse_if_departed, rejoin, resolve_device, sibling_ports, snapshot_status, sync_folder,
     };
 
     /// A node home as `instances` sees one: a keystore and a config, no keys.
@@ -3514,6 +3557,43 @@ mod tests {
 
         rejoin(&home).expect("rejoin");
         assert!(departure_refusal(&home).is_none(), "rejoin did not undo it");
+    }
+
+    /// What a sync pulled must reach the synced folder without a `scan`: the
+    /// file is put in the store as a pull would, and `sync_folder` -- what
+    /// `sync` runs after its rounds -- must write it out.
+    #[test]
+    fn red_team_what_a_sync_pulled_lands_in_the_folder() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let folder = base.path().join("Photos");
+        std::fs::create_dir(&folder).expect("folder");
+        let (mut node, _phrase) =
+            itsanas_node::Node::create(&base.path().join(".itsanas"), "a passphrase", "camille")
+                .expect("create");
+        node.config.folder = Some(folder.clone());
+
+        node.store
+            .write_file("from-the-pi.txt", b"pulled")
+            .expect("pulled");
+        sync_folder(&node);
+
+        assert_eq!(
+            std::fs::read(folder.join("from-the-pi.txt"))
+                .ok()
+                .as_deref(),
+            Some(&b"pulled"[..]),
+            "sync fetched the file and left the folder without it"
+        );
+    }
+
+    /// The grid `init` prints, pasted into `--phrase-file` as it stands, must
+    /// read back as the 24 words -- a person copies what the screen shows.
+    #[test]
+    fn the_phrase_as_init_prints_it_reads_back_as_the_words() {
+        let words: Vec<String> = (1..=24).map(|i| format!("word{i}")).collect();
+        let phrase = words.join(" ");
+        assert_eq!(phrase_words(&phrase_grid(&phrase)), phrase);
+        assert_eq!(phrase_words(&words.join("\n")), phrase, "one word a line");
     }
 
     /// Onto an existing home is onto somebody's node: refused, both untouched.
