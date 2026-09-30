@@ -9,16 +9,34 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0m
-TITLE: Wire `itsanas leave` into the service's own stop, so a restart cannot contradict a recorded departure
+NEXT: 8.0q
+TITLE: First-user friction found by a persona run: sync that leaves the folder empty, the words file, the peer address, the lock message
 WRITTEN-AT: 2026-09-30
-BASE: 011bd3f
+BASE: c61019c
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0m closed: a departure survives a restart** (branch
+`step/8.0m-departed`). **Decision, against the letter of §8 m:** `leave` is
+*not* wired into `ExecStop=`/the task's stop. The service stops at every
+reboot and upgrade, so that would announce a departure each time and have
+the peers re-replicate the whole machine after a restart. The contradiction
+to prevent is the reverse -- a machine that left, restarted by systemd or
+the logon task -- so `leave` now writes `<home>/departed` (unix time),
+`daemon` exits **0** at once when it is there (0, so `Restart=on-failure`
+does not loop), `serve` and `sync` refuse, all naming `itsanas rejoin`,
+which removes it. One red-team test, one sabotage, red. **🟨:** the
+dispatch arm (`start_daemon`) has no test of its own; the tray (item f)
+must show "departed", not "stopped".
+
+A persona run (a subagent following `FIRST-STEPS.md` literally, two
+throwaway HOMEs on the laptop, account created, restored from the words,
+201 files synced both ways, a deletion propagated, a second instance)
+worked end to end and found the friction now in §8 **q**.
 
 **2026-09-30, 0i's red-team test, hermetic** (branch
 `step/8.0i-twin-instances`). `scripts/check-installers.sh` ("two instances,
@@ -1956,7 +1974,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       directory, a ledger with files) writes no deletion to the log; and a
       folder emptied by accident has its deletions held, not replicated.
 
-   m. 🟨 **Count the live copies, and let a machine leave politely.** Parts (1)-(3) built (2026-09-21, 2026-09-28). **Remaining, 🟨:** wire `itsanas leave` into the service's own stop (systemd `ExecStop=`, the Windows scheduled task, the tray of item f) so a restart does not contradict the recorded departure. Asked for
+   m. ✅ **Count the live copies, and let a machine leave politely.** Parts (1)-(3) built (2026-09-21, 2026-09-28); the restart half done 2026-09-30 as a `departed` marker rather than `ExecStop=` (see §0 for why). Asked for
       by Nicolas on 2026-09-17: each instance checks how many copies are live
       and asks for a new one elsewhere; a machine shutting down on purpose
       should first ask for copies, so a graceful exit can be told apart from a
@@ -2391,6 +2409,34 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the refusal without a name. (4) Make `provision.sh`/`clean.sh`/`.ps1`
       refuse `passphrase` too and exclude the file from their `.itsanas-*`
       globs.
+
+   q. **First-user friction, from a persona run of `FIRST-STEPS.md`.** Found
+      2026-09-30 by a subagent playing a Linux user with two machines (two
+      throwaway HOMEs, no coordinator); everything in the goal worked, these
+      are the places a person has to guess, worst first:
+      (A) `itsanas sync` by hand fetches into the store but the synced
+      folder stays empty until `itsanas scan`, which FIRST-STEPS never
+      names -- "it appears on the other" is false without the daemon. Fix
+      in code: end `sync` with the folder reconcile when a folder is
+      configured (read how the daemon's round calls it and reuse that, do
+      not duplicate); red-team test: after `sync` fetched a file, it is in
+      the folder without a `scan`.
+      (B) `login --phrase-file`: the format is unstated, and `init` prints a
+      numbered two-column grid that would not parse if pasted. Accept the
+      grid as printed (strip `N.` tokens) and say in FIRST-STEPS §1/§4 that
+      each machine chooses its own passphrase (`ITSANAS_PASSPHRASE` for
+      scripts). Test: the exact text `init` prints parses back to the words.
+      (C) FIRST-STEPS §4 `peer add 192.168.1.42:9797` does not say how to
+      read machine 1's address and port (9797 is not always it: a second
+      node gets 9798); name the command that prints it. And the store-lock
+      message says "`itsanas serve` is running" when it is the daemon: say
+      "the daemon (or `serve`)" and that CLI writes need it stopped.
+      Lesser, for later: `sync` prints "no other machines found yet" and
+      then syncs with the added peer; `scan` prints one line per file with
+      the summary first; `instances` says "reachable, stopped" which reads
+      as a contradiction; FIRST-STEPS never mentions `--instance` or
+      `instances`; it mixes `pledge` and `space --apply`.
+      Do (A) first, alone if it is not small; (B) and (C) are one PR.
 
    f. **A tray icon for the Windows daemon.** Asked for by Nicolas on
       2026-09-14 after the untitled console: "a minimum of polish", dark or
