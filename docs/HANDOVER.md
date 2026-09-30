@@ -9,16 +9,42 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0f
-TITLE: The tray, second half cut down: provision.ps1 starts scripts/itsanas-tray.ps1 at logon per instance; no destructive menu items yet
+NEXT: 8.3a
+TITLE: pledge and the Android setters keep the split: lowering a pledge under what keep needs is refused, and pledge counts only others' bytes as held
 WRITTEN-AT: 2026-09-30
-BASE: cb91472
+BASE: 6699f6b
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0f cut down: the tray icon starts at logon, per node**
+(branch `step/8.0f-tray-at-logon`). `install/provision.ps1` copies
+`scripts/itsanas-tray.ps1` beside `itsanas.exe` and writes a shortcut in the
+user's Startup folder, `ITSaNAS tray.lnk` or `ITSaNAS tray (NAME).lnk`,
+running `conhost.exe --headless powershell.exe ... -File <installed script>
+[-Instance NAME]`; `-NoTray` skips it. `install/clean.ps1 -Instance NAME`
+removes that literal shortcut; the full clean removes `ITSaNAS tray*.lnk`
+with the programs. **Decision, against §8 f's "a second scheduled task":**
+every task named `ITSaNAS*` is read as a node (`provision.ps1` ~270, "other
+nodes"; `clean.ps1`'s `ITSaNAS-*`), and `ITSaNAS-tray` *is* the task of an
+instance named tray; a shortcut needs no admin either. conhost.exe checked
+to be a GUI-subsystem binary (PE subsystem 2), so Explorer starting it opens
+no console. **Verified:** `check-installers.sh` evaluates the shortcut's
+name and arguments as written in provision.ps1 for two instances and the
+default, then runs `clean.ps1 -Instance zz-check-b -Yes` for real against a
+throwaway Startup folder; sabotaged three ways (no `-Instance`, a glob in
+the clean, one name for all), red each time. The shortcut code, run into the
+scratchpad, wrote the expected target and arguments. **Not verified:**
+provision.ps1 and clean.ps1 were not run on this laptop (real tasks and
+node), so no shortcut exists here and the icon has still never been seen;
+an icon already showing is not stopped by `clean.ps1 -Instance` (it stays
+until logoff or Quit). **No menu item added**: pause, disconnect and
+decommission wait for Nicolas to see the icon. **Next is 8.3a**, not 1c: §8 0
+defers host-side enforcement until the fleet MVP, and 3a is the honest
+client's own check.
 
 **2026-09-30, 1b's pull half: a download is held to the disk ceiling**
 (branch `step/8.1b-pull-bound`). Chosen over 0f's second half by an
@@ -2607,19 +2633,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
    f. 🟨 **A tray icon for the Windows daemon.** First half built 2026-09-30
       as `status --brief` + `scripts/itsanas-tray.ps1` (see §0 for why not a
-      crate). **`NEXT`, cut down on 2026-09-30:** `install/provision.ps1`
-      registers a second scheduled task per instance, at logon of the
-      provisioning user, running `powershell -WindowStyle Hidden -File
-      scripts\itsanas-tray.ps1 -Instance <name>` (the script already takes
-      `-Instance`; copy it beside the binary the way provision installs it),
-      and removes it wherever the daemon's task is removed (`install/clean.ps1`,
-      `itsanas leave`'s printed advice). **No new menu items**: pause,
-      disconnect and decommission wait until Nicolas has seen the icon once
-      and said what it gets wrong. Test expected: `scripts/check-installers.sh`
-      (or a Pester-free parse check like the tray's) proves the task line names
-      the instance and the hidden window; sabotage by dropping `-Instance`.
-      The pause / disconnect / decommission text below stays the
-      specification for later. Original
+      crate); started at logon per node since the same day, through a
+      Startup-folder shortcut rather than a task (see §0 for why), removed
+      per instance by `clean.ps1 -Instance`, checked in
+      `check-installers.sh`. **Left, waiting on Nicolas:** he sees the icon
+      once and says what it gets wrong; then the pause / disconnect /
+      decommission items below, each behind its confirmation. The text
+      below stays the specification for them. Original
       plan, kept for reference: do it in two PRs. First, alone: pick the crates (`tray-icon` + `tao`/`winit`,
       or `windows`-crate `Shell_NotifyIcon` directly) by running `cargo deny
       check` with them added and confirming `scripts/check-unsafe.py` still
@@ -2853,10 +2873,30 @@ Detail and measurements are in ROADMAP.md; this is the map.
    two hosts learn by comparing notes), *identity* (many devices, claiming someone
    else's device, LAN discovery eclipse). Git history was checked for secrets on
    2026-09-14 and is clean.
-3. **The open findings** listed in ROADMAP.md: a refused request still walks the
+3. **The open findings** listed in ROADMAP.md, one per session.
+
+   a. **`pledge` and the Android setters keep the split.** Verified
+      2026-09-30: `pledge` (`crates/itsanas-cli/src/main.rs` ~3033) checks the
+      free disk but not that the configured `keep_bytes` still fits the new
+      pledge -- `keep` does (~2800, `Node::allowed_for` and
+      `split.pledge_needed_for`), so `keep 70G` then `pledge 1G` leaves a
+      node keeping far more than it earns, found by nobody until a
+      coordinator refuses it. It also reads `held` as `vault.stats()?.bytes`,
+      which counts our own account's chunks -- the bug 1b fixed with
+      `Node::held_for_others` (`crates/itsanas-node/src/node.rs` ~355, today
+      private). `Java_fr_ngas_itsanas_Native_setPledge` and `setKeep`
+      (`crates/itsanas-android/src/lib.rs` ~579, ~619) check neither. Put the
+      rule in one place in `itsanas-node` (a `Node` method returning the
+      refusal) and call it from the three setters; keep the message's
+      `space --pledge .. --keep .. --apply` hint. Red-team test expected: a
+      pledge lowered under what the current keep needs is refused and the
+      config is unchanged; sabotage by skipping the check. Not host-side
+      enforcement: a rebuilt client skips it, which is 1c's job, deferred by
+      §8 0.
+
+   Then, in the order written: a refused request still walks the
    whole vault (and, since the listener became concurrent, delays honest stores
-   behind the storing lock); `pledge` and the
-   JNI setters skip the ratio check; chunk-size sequences fingerprint files; the
+   behind the storing lock); chunk-size sequences fingerprint files; the
    LAN beacon groups an account's machines.
 4. **Verification at a terabyte.** Within a differing bucket, ask only about
    chunks with no fresh record for that peer (DESIGN.md §6.5). Today the budget

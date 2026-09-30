@@ -757,6 +757,92 @@ if [ "$twin_ok" -eq 1 ]; then
 fi
 rm -rf "$twin"
 
+# ----------------------------------------- the tray icon, per instance, on Windows
+#
+# HANDOVER §8 0f: provision.ps1 starts scripts/itsanas-tray.ps1 at logon through
+# a Startup shortcut per node, and clean.ps1 -Instance NAME removes that one.
+# provision.ps1 cannot run here (it installs, registers a task, opens a store),
+# so the two expressions that decide the shortcut -- its name and its
+# arguments -- are read out of the script as written and evaluated for
+# instances a, b and the default node. Then clean.ps1 -Instance b -Yes runs for
+# real against a throwaway LOCALAPPDATA, USERPROFILE and Startup folder holding
+# the three shortcuts. The failures this catches: an icon started without
+# -Instance shows the default node's state under another account's name, and
+# a clean that globs takes a sibling's icon away. Instance names are prefixed
+# zz-check- so the task lookup clean.ps1 makes on a Windows machine cannot
+# match a real node. What this cannot see: that the icon draws.
+
+if command -v pwsh >/dev/null 2>&1; then
+    tray=$(mktemp -d)
+    trayroot=$tray
+    command -v cygpath >/dev/null 2>&1 && trayroot=$(cygpath -w "$tray")
+    cat > "$tray/check.ps1" <<'PS'
+param([string]$Repo, [string]$Root)
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Repo 'install/provision.ps1'), [ref]$tokens, [ref]$errors)
+function Get-Right([string]$Name) {
+    $found = @($ast.FindAll({ param($n)
+        $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+        $n.Left.Extent.Text -eq "`$$Name" }, $true))
+    if ($found.Count -ne 1) { throw "provision.ps1 assigns `$$Name $($found.Count) times, expected once" }
+    return $found[0].Right.Extent.Text
+}
+$nameCode = Get-Right 'trayShortcutName'
+$argsCode = Get-Right 'trayArguments'
+$trayInstalled = 'C:\installed\itsanas-tray.ps1'
+$failures = @()
+$startup = Join-Path $Root 'startup'
+New-Item -ItemType Directory -Force -Path $startup, (Join-Path $Root 'local'), (Join-Path $Root 'profile') | Out-Null
+$names = @{}
+foreach ($Instance in @('', 'zz-check-a', 'zz-check-b')) {
+    $name = Invoke-Expression $nameCode
+    $arguments = Invoke-Expression $argsCode
+    $names[$Instance] = $name
+    if ($arguments -notlike '--headless powershell.exe *') { $failures += "icon for '$Instance' is not started through conhost --headless: $arguments" }
+    if ($arguments -notlike "* -File `"$trayInstalled`"*") { $failures += "icon for '$Instance' does not run the installed tray script: $arguments" }
+    if ($Instance -and $arguments -notmatch " -Instance $([regex]::Escape($Instance))$") {
+        $failures += "icon for instance $Instance is started without -Instance $Instance, so it shows another node: $arguments"
+    }
+    if (-not $Instance -and $arguments -match '-Instance') { $failures += "the default node's icon names an instance: $arguments" }
+    Set-Content -LiteralPath (Join-Path $startup $name) -Value 'shortcut'
+}
+if (@($names.Values | Sort-Object -Unique).Count -ne 3) {
+    $failures += "two nodes share one shortcut name, so one provision overwrites the other's icon: $($names.Values -join ', ')"
+}
+$env:LOCALAPPDATA = Join-Path $Root 'local'
+$env:USERPROFILE = Join-Path $Root 'profile'
+$env:ITSANAS_STARTUP_DIR = $startup
+Remove-Item Env:\ITSANAS_HOME -ErrorAction SilentlyContinue
+$out = & pwsh -NoProfile -File (Join-Path $Repo 'install/clean.ps1') -Instance zz-check-b -Yes 2>&1
+if ($LASTEXITCODE -ne 0) { $failures += "clean.ps1 -Instance zz-check-b -Yes failed: $out" }
+if (Test-Path -LiteralPath (Join-Path $startup $names['zz-check-b'])) {
+    $failures += "clean.ps1 -Instance zz-check-b left its icon at logon ($($names['zz-check-b']))"
+}
+foreach ($kept in @('', 'zz-check-a')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $startup $names[$kept]))) {
+        $failures += "clean.ps1 -Instance zz-check-b removed $($names[$kept]), a sibling's icon"
+    }
+}
+$failures
+PS
+    repo=$(pwd)
+    command -v cygpath >/dev/null 2>&1 && repo=$(cygpath -w "$repo")
+    if ! trayout=$(pwsh -NoProfile -File "$trayroot/check.ps1" -Repo "$repo" -Root "$trayroot" 2>&1); then
+        bad "the tray check could not run:"
+        printf '%s\n' "$trayout" | sed 's/^/    /'
+    elif [ -n "$trayout" ]; then
+        printf '%s\n' "$trayout" | while IFS= read -r line; do bad "$line"; done
+        failed=1
+    else
+        say "each node's tray icon starts with its own -Instance; clean.ps1 -Instance b removes only b's"
+    fi
+    rm -rf "$tray"
+else
+    say "pwsh is not here; the tray's logon shortcut was not checked"
+fi
+
 if [ "$failed" -ne 0 ]; then
     echo
     echo "An installer is the one program here that runs on a machine nobody has"
@@ -765,4 +851,4 @@ if [ "$failed" -ne 0 ]; then
     exit 1
 fi
 
-echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs, sudo rule matches, a cleaned instance spares its sibling"
+echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs, sudo rule matches, a cleaned instance spares its sibling, and its tray icon"

@@ -2,6 +2,9 @@
 #
 #   powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File scripts\itsanas-tray.ps1 [-Instance NAME]
 #
+# install/provision.ps1 copies this beside itsanas.exe and starts it at each
+# logon, one Startup-folder shortcut per node; clean.ps1 removes it.
+#
 # It shows what `itsanas status --brief` says and nothing else: healthy only
 # while a daemon holds the store AND wrote a snapshot within two intervals.
 # That rule lives in Rust, tested (red_team_a_silent_daemon_is_stale_never_healthy);

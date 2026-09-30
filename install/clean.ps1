@@ -4,8 +4,8 @@
 
 .DESCRIPTION
     Two scripts install things here — `windows.ps1` puts the programs in place,
-    `provision.ps1` creates the account, the scheduled task and the file holding
-    the passphrase — and until now nothing took them away. Uninstalling meant
+    `provision.ps1` creates the account, the scheduled task, the tray icon's
+    Startup shortcut and the file holding the passphrase — and until now nothing took them away. Uninstalling meant
     remembering six paths, two of them written by a script the person may never
     have read, and one of them a file holding a passphrase.
 
@@ -44,6 +44,11 @@ $ErrorActionPreference = 'Continue'
 $programs = "$env:LOCALAPPDATA\Programs\itsanas"
 $state = "$env:LOCALAPPDATA\itsanas"
 $taskName = 'ITSaNAS'
+# Where provision.ps1 puts the tray icon's logon shortcut: "ITSaNAS tray.lnk"
+# for the default node, "ITSaNAS tray (NAME).lnk" for an instance. The name
+# must stay the one provision.ps1 writes; scripts/check-installers.sh reads it
+# from there and checks this removes that one and no sibling's.
+$startup = if ($env:ITSANAS_STARTUP_DIR) { $env:ITSANAS_STARTUP_DIR } else { [Environment]::GetFolderPath('Startup') }
 
 function Plan([string]$line) { Write-Host "  $line" }
 
@@ -55,6 +60,9 @@ if ($Instance) {
     $taskName = "ITSaNAS-$Instance"
     $files = @("$state\passphrase-$Instance.txt", "$state\run-daemon-$Instance.ps1",
         "$state\daemon-$Instance.log", "$state\daemon-$Instance.log.1")
+    # This instance's icon at logon, by its literal name: a wildcard here would
+    # take a sibling's. An icon already showing stays until logoff or its Quit.
+    if ($startup) { $files += Join-Path $startup "ITSaNAS tray ($Instance).lnk" }
     Write-Host "ITSaNAS clean-up, instance $Instance"
     Write-Host ""
     Write-Host "Only this instance. The programs and every other node on this machine"
@@ -110,6 +118,16 @@ foreach ($file in @("$state\passphrase.txt", "$state\run-daemon.ps1", "$state\sa
 }
 if (Test-Path $state) { Plan "remove the logs in $state" }
 
+# Every node's icon goes: the programs go too, and with them the tray script
+# each shortcut runs.
+$trayLinks = @()
+if ($startup) { $trayLinks = @(Get-ChildItem -LiteralPath $startup -Filter 'ITSaNAS tray*.lnk' -ErrorAction SilentlyContinue) }
+if ($trayLinks.Count -gt 0) {
+    Write-Host ""
+    Write-Host "the tray icons at logon"
+    foreach ($link in $trayLinks) { Plan "remove $($link.FullName)" }
+}
+
 Write-Host ""
 Write-Host "the account"
 if (Test-Path $NodeHome) {
@@ -158,6 +176,9 @@ if (Test-Path $state) {
     Remove-Item $state -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "passphrase, wrapper and logs removed"
 }
+
+foreach ($link in $trayLinks) { Remove-Item -LiteralPath $link.FullName -Force -ErrorAction SilentlyContinue }
+if ($trayLinks.Count -gt 0) { Write-Host "tray icons no longer start at logon" }
 
 if ($PurgeAccount -and (Test-Path $NodeHome)) {
     Remove-Item $NodeHome -Recurse -Force -ErrorAction SilentlyContinue
