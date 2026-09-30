@@ -400,10 +400,12 @@ fn fetch_missing(
             continue;
         }
         match source.fetch(owner, address)? {
-            Some(sealed) => {
-                store.accept_chunk(address, &sealed)?;
-            }
-            None => missing += 1,
+            // Bytes that do not open under their address were never the
+            // chunk. Counting them as fetched adopted the file with a hole in
+            // it, reported the round finished, and let the session move its
+            // markers past the segment -- so nothing would ask again.
+            Some(sealed) if store.accept_chunk(address, &sealed)? => {}
+            Some(_) | None => missing += 1,
         }
     }
 

@@ -735,6 +735,71 @@ fn red_team_a_relay_cannot_poison_a_chunk_on_the_ordinary_pull_path() {
 }
 
 #[test]
+fn red_team_a_relay_that_serves_noise_is_not_written_down_as_a_holder() {
+    // THE ATTACK. The same relay as above, answering an ordinary pull with
+    // noise. Refusing the bytes is not the end of it: the pull used to record
+    // every chunk a peer *answered* as held by it, before anything checked
+    // them, and to adopt the file as if they had arrived. The ledger then
+    // counts a copy on the liar that does not exist, and repair asks the liar
+    // first.
+    let master = alice();
+    let liar = node(&MasterSecret::from_bytes([0xE2; 32]), 83);
+    let author = node(&master, 84);
+    let victim = node(&master, 85);
+
+    let content = a_file_of_many_chunks(43, 128 << 10);
+    let chunks = author
+        .store
+        .write_file("thesis.bin", &content)
+        .expect("write")
+        .chunks;
+    author.store.flush_segment().expect("flush");
+
+    with_server(&liar, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).expect("dial");
+        session::push(&author.store, &mut client).expect("push");
+    });
+    for chunk in &chunks {
+        let sealed = liar
+            .vault
+            .get_chunk(author.store.owner(), chunk)
+            .expect("vault")
+            .expect("held");
+        liar.vault
+            .remove_chunk(author.store.owner(), chunk)
+            .expect("remove");
+        liar.vault
+            .put_chunk(author.store.owner(), chunk, &vec![0x5Cu8; sealed.len()])
+            .expect("substitute");
+    }
+
+    with_server(&liar, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &victim.device, victim.store.owner(), None).expect("dial");
+        let _ = session::round(&victim.store, &victim.vault, &mut client);
+    });
+
+    for chunk in &chunks {
+        assert!(
+            victim
+                .store
+                .remote_holders(chunk)
+                .expect("holders")
+                .iter()
+                .all(|holder| holder.device != liar.store.device_id()),
+            "a relay that answered with noise was recorded as holding the chunk; \
+             the ledger counts a copy that does not exist"
+        );
+    }
+    assert!(
+        victim.store.stat("thesis.bin").expect("stat").is_none(),
+        "the file was adopted although not one of its chunks arrived; the round \
+         read as finished and its markers moved past the segment"
+    );
+}
+
+#[test]
 fn red_team_a_host_cannot_answer_a_repair_request_with_rubbish() {
     // THE ATTACK. A host cannot read what it stores, so the one way it could
     // destroy data is to wait until the owner asks for a chunk back and answer
