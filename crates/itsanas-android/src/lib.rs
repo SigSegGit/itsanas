@@ -482,6 +482,10 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_sync(
                 ));
             }
 
+            // What comes in is held to the disk bound (8.1b); without this the
+            // ceiling is the one opening the node set, which is none.
+            node.bound_writes()?;
+
             let mut reached = 0usize;
             let mut adopted = 0usize;
             let mut sent = 0u64;

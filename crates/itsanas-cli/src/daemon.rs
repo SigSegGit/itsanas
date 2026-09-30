@@ -515,6 +515,11 @@ fn sync_loop(
 
         if let Some((folder, _)) = &folder {
             reconcile_once(node, folder, deep);
+        } else if let Err(error) = node.bound_writes() {
+            // `reconcile_once` refreshes the bound; with no folder nothing
+            // did, and the pulls below would meet the ceiling `Node::open`
+            // sets, which is none (8.1b).
+            eprintln!("itsanas: could not work out this disk's room: {error}");
         }
 
         // Anything a peer pushed into this node's vault while it was serving.
@@ -1276,6 +1281,9 @@ fn report_round(peer: &str, report: &session::RoundReport) {
                 String::new()
             }
         );
+    }
+    if let Some(no_room) = crate::describe_no_room(&report.pull) {
+        println!("{peer}: {no_room}");
     }
     let Ok(mut reported) = REFUSALS_REPORTED.lock() else {
         return;

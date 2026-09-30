@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**869 test functions, 4 of them `#[ignore]`d into the slow job, and 121 of
+**872 test functions, 4 of them `#[ignore]`d into the slow job, and 124 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -757,15 +757,33 @@ device and reaching a different one is refused.
   `MAX_CLOCK_SKEW` ahead no longer blinds the relay (2026-09-30): it is
   refused when relayed and ignored as "the latest" when held.
 
-- **The disk bound (1b) covers what this device writes, not what it pulls.**
-  `Store::accept_chunk`, which `sync` uses to fetch other devices' files,
-  consults no `WriteBudget` -- neither the account bound nor the disk
-  ceiling -- so a device with room for its pledge can still fill that room by
-  downloading the rest of its account (the keeping policy may trim it after;
-  unchecked). And `held` in `Node::disk_room` is the vault's bytes, which
-  may include this account's own chunks if its own heads land there
-  (unverified); that would overstate what is already hosted and loosen the
-  reserve. Both from the `itsanas-redteam` pass on #198.
+- **The disk bound (1b) on pulls: what it covers and what it does not.**
+  Since 2026-09-30 a pull asks `Store::pull_room` per file, before its first
+  chunk, and a file that would take this device past `local_ceiling` is left
+  on the other machines (`Applied::NoRoom`, counted as deferred) -- nothing
+  of it fetched. Only the disk half applies: a pulled file is already in the
+  account. `held` now counts other accounts' bytes only
+  (`Node::held_for_others`): our own devices' pushes land in the vault too,
+  and counted as hosted they loosened the reserve by their own size. What is
+  left, each named by the `itsanas-redteam` pass on this change:
+  - **`itsanas get` of a released file is not bounded, by decision**: it runs
+    in a fresh process whose ceiling is the one `Node::open` sets (none), and
+    a person asking for their own file back should get it, not a refusal
+    worded as "no machine would serve it". Same for `itsanas-drive`.
+  - **A file refused for room freezes the applied-markers** (`session.rs`,
+    `note_all_applied` only after a round with nothing deferred), so every
+    round replays the peers' chains until the disk is freed. Required -- an
+    advanced marker would never retry the file -- and it costs a replay a
+    round; no test drives `NoRoom` through `session::pull` itself.
+  - **The refresh fails open**: the daemon and `itsanas sync` print a
+    `bound_writes` error and pull under the last bound (none if there never
+    was one); Android's sync stops on it instead.
+  - **Chunks are charged in plaintext and again when already here** (dedup),
+    which errs towards refusing; chunks fetched for a file then deferred for
+    a *missing* chunk are on disk and uncounted, as before.
+  - The wiring (daemon loop without a folder, `sync_folder`, Android sync)
+    has no test of its own: the engine and node halves are tested, the three
+    call sites are read, not run.
 
 - **Named instances (0p): what `itsanas migrate` does not do.** It renames
   `~/.itsanas` to `~/.itsanas-<account>` and *prints* the service changes

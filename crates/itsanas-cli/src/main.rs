@@ -2399,6 +2399,30 @@ fn settle_listen_port(node: &mut Node) -> Result<()> {
     Ok(())
 }
 
+/// The line a round prints when files stayed elsewhere for want of room here.
+///
+/// Said apart from "deferred", which usually means a peer is asleep and fixes
+/// itself: this one does not until the disk is freed or the pledge shrinks.
+pub(crate) fn describe_no_room(pull: &itsanas_sync::SyncReport) -> Option<String> {
+    (pull.no_room > 0).then(|| {
+        format!(
+            "{} file(s) left on the other machines: this disk has no room for them \
+             beside what its pledge still owes other people (`itsanas space`)",
+            pull.no_room
+        )
+    })
+}
+
+/// `, N deferred` for a round's summary line, naming the ones kept out for
+/// room; empty when nothing was deferred.
+pub(crate) fn deferred_note(pull: &itsanas_sync::SyncReport) -> String {
+    match (pull.deferred, describe_no_room(pull)) {
+        (0, _) => String::new(),
+        (deferred, None) => format!(", {deferred} deferred"),
+        (deferred, Some(no_room)) => format!(", {deferred} deferred\n  {no_room}"),
+    }
+}
+
 /// The line a round prints when a peer refused what it was offered, if it did.
 ///
 /// Without it a host refusing everything produced the line an idle round
@@ -3167,11 +3191,7 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
                     report.push.segments_accepted,
                     report.pull.adopted,
                     report.pull.conflicted,
-                    if report.pull.deferred > 0 {
-                        format!(", {} deferred", report.pull.deferred)
-                    } else {
-                        String::new()
-                    }
+                    deferred_note(&report.pull)
                 );
                 if let Some(refused) = describe_refusal(&report.push) {
                     println!("  {refused}");
@@ -3229,13 +3249,23 @@ fn finish_sync(node: &Node, scope: session::Scope, refused_by: &[String]) {
 
 /// The folder half of a sync: the daemon's own reconcile, so the guards of 0l
 /// (a missing marker stops, a mass deletion is held) apply here too.
+///
+/// Refreshes the write bound either way, so that what the round then pulls is
+/// held to the disk ceiling (8.1b): `reconcile_once` does it when there is a
+/// folder, and without one the ceiling would be the one `Node::open` sets,
+/// which is none.
 fn sync_folder(node: &Node) {
-    let Some(path) = node.config.folder.as_ref() else {
-        return;
-    };
-    match itsanas_folder::Folder::open(path) {
-        Ok(folder) => daemon::reconcile_once(node, &folder, false),
-        Err(error) => eprintln!("itsanas: folder {}: {error}", path.display()),
+    let folder = node.config.folder.as_ref().map(|path| {
+        itsanas_folder::Folder::open(path)
+            .map_err(|error| eprintln!("itsanas: folder {}: {error}", path.display()))
+    });
+    match folder {
+        Some(Ok(folder)) => daemon::reconcile_once(node, &folder, false),
+        None | Some(Err(())) => {
+            if let Err(error) = node.bound_writes() {
+                eprintln!("itsanas: could not work out this disk's room: {error}");
+            }
+        }
     }
 }
 

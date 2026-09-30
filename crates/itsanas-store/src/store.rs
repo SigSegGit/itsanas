@@ -327,6 +327,45 @@ impl Store {
         Self::refuse_past(path, budget, account, account.saturating_add(incoming))
     }
 
+    /// Whether another device's file of `incoming` bytes fits on this disk,
+    /// before any of its chunks is fetched: `None` if it fits, or the room
+    /// left if it does not.
+    ///
+    /// # Why a pull has its own check
+    ///
+    /// A pull adds nothing to the *account* -- the file is already in it,
+    /// counted in [`WriteBudget::elsewhere`] -- so the account bound does not
+    /// apply. The disk does: what this machine's pledge still owes is space
+    /// promised to other people, and downloading the rest of the account into
+    /// it breaks that promise exactly as writing new files would. Asked per
+    /// file and before the first chunk, because a refusal part-way through
+    /// would leave the chunks already fetched on disk with no index entry to
+    /// count them: the disk fills while the ceiling reads as untouched.
+    ///
+    /// `replacing` says whether the file lands on `path` in place of what is
+    /// there (an update, charged its growth) or beside it (a conflict keeps
+    /// both, so nothing is given back). Measured in plaintext bytes, and
+    /// chunks already here are charged again: both err towards refusing.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn pull_room(&self, path: &str, incoming: u64, replacing: bool) -> Result<Option<u64>> {
+        let Some(ceiling) = self.write_budget()?.and_then(|budget| budget.local_ceiling) else {
+            return Ok(None);
+        };
+        let replaced = if replacing {
+            self.index.get_file(path)?.map_or(0, |entry| entry.size)
+        } else {
+            0
+        };
+        let local = self.index.local_bytes()?.saturating_sub(replaced);
+        if local.saturating_add(incoming) > ceiling {
+            return Ok(Some(ceiling.saturating_sub(local)));
+        }
+        Ok(None)
+    }
+
     /// The account's bytes, not counting what is at `path` now -- a write
     /// there replaces it, so an edit that grows a file by a kilobyte is charged
     /// a kilobyte.
@@ -1329,7 +1368,6 @@ impl Store {
         self.index.coverage(now)
     }
 
-    /// Coarse statistics, cheap enough for a status command.
     /// Bytes of the account's files whose content is on this device.
     ///
     /// # Errors
@@ -1339,6 +1377,7 @@ impl Store {
         self.index.local_bytes()
     }
 
+    /// Coarse statistics, cheap enough for a status command.
     pub fn stats(&self) -> Result<StoreStats> {
         Ok(StoreStats {
             files: self.index.file_count()?,
