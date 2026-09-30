@@ -10,15 +10,34 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0p
-TITLE: Named instances, last third: the ~/.itsanas migration, then refusing an unnamed command
+TITLE: Named instances, last step: refuse a command without --instance or --home once migrated, then Rodin on 0p
 WRITTEN-AT: 2026-09-30
-BASE: 2f8f84b
+BASE: c682ea7
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 0p (2): `itsanas migrate`** (branch `step/8.0p-migrate`).
+`migrate_unnamed` (`crates/itsanas-cli/src/main.rs`) renames `~/.itsanas`
+to `~/.itsanas-<account>` (or `--name NAME`) with one `rename`: keystore,
+config, store and vault all live inside the home, so a copy is never needed
+and would clone an identity. Refused while the store lock is held (daemon
+running), onto an existing home, and for an account name that is not a valid
+instance name (then `--name`). `config::instance_home_in(base, name)` is the
+testable core of `instance_home`. The service is **told, not rewritten**
+(`migration_advice`): Linux disable `itsanas`, move `environment` to
+`<name>.environment`, enable `itsanas@<name>`; Windows unregister task
+`ITSaNAS`, rerun `provision.ps1 -Instance <name>`. Two red-team tests, two
+sabotages (copy keystore+config without the store; drop the existing-home
+check), two red. Trap: the config file is `config`, not `config.toml` --
+my first sabotage copied a name that does not exist and went red for the
+wrong reason. **Not done, 🟨:** the advice is unexercised on a real
+systemd/Task Scheduler (not run on Pi/VM); whether `provision.ps1 -Instance`
+adopts an existing home without re-init is unverified; no Rodin (due with
+(3)).
 
 **2026-09-30, 0p second third: `itsanas instances`, `passphrase` refused by
 the scripts** (branch `step/8.0p-instances`). Sliced again by Nicolas: weekly
@@ -2304,7 +2323,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `red_team_an_instance_name_cannot_leave_the_home_directory` and
       `an_instance_lives_where_provision_sh_puts_it`. **(1) and (4) done
       2026-09-30** (`instances_report`, the scripts' `passphrase` refusal; see
-      §0). **Next: (2) then (3), then Rodin on the whole of 0p.** Original
+      §0). **(2) done 2026-09-30** (`itsanas migrate`, tests
+      `red_team_migration_names_the_node_after_its_account_and_keeps_its_data`,
+      `red_team_migration_never_lands_on_an_existing_home`). **Next: (3)** --
+      in `run()` (`main.rs` ~542), the `(None, None)` arm falls back to
+      `config::default_home()`; once `~/.itsanas` holds no node and some
+      `~/.itsanas-*` does (i.e. `instances_report` finds named homes only),
+      refuse with the list of instances instead of silently creating/opening
+      `~/.itsanas`. Keep `init` on a machine with no node at all working
+      (first install). Red-team test: after a migration, `status` with no
+      `--instance` refuses and names the instance (sabotage: fall back to
+      `default_home`). Test through a `base`-taking helper, as
+      `migrate_unnamed` does -- never by setting `HOME` in a test. **Then
+      Rodin on the whole of 0p.** Original
       plan kept for reference -- (1) `itsanas instances`: glob `~/.itsanas-*` **directories** holding a
       `keystore.bin` (not the `.itsanas-passphrase` file), plus `~/.itsanas`
       itself until migrated; per instance the account (`Config::username`),

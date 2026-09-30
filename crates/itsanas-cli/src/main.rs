@@ -166,6 +166,15 @@ enum Command {
     Whoami,
     /// List the nodes on this machine: account, home, folder, daemon.
     Instances,
+    /// Rename the unnamed node `~/.itsanas` to `~/.itsanas-ACCOUNT`.
+    ///
+    /// Stop its daemon first. The service that started it still points at the
+    /// old home; the command prints what to change.
+    Migrate {
+        /// Instance name to use instead of the account name.
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// List the files this node knows about.
     Ls,
     /// Store a file.
@@ -580,6 +589,7 @@ fn run() -> Result<()> {
             print!("{}", instances_report(&config::user_home()));
             Ok(())
         }
+        Command::Migrate { name } => migrate(name.as_deref()),
         Command::Whoami => whoami(&home),
         Command::Ls => list(&home),
         Command::Put { path, source } => put(&home, &path, &source),
@@ -1473,6 +1483,74 @@ fn instances_report(base: &Path) -> String {
         );
     }
     out
+}
+
+fn migrate(name: Option<&str>) -> Result<()> {
+    let (name, to) = migrate_unnamed(&config::user_home(), name)?;
+    print!("{}", migration_advice(&name, &to));
+    Ok(())
+}
+
+/// Rename `base/.itsanas` to `base/.itsanas-NAME`, NAME the account unless given.
+///
+/// A rename and nothing else: the keystore, config, store and vault all live
+/// inside the home, so one `rename` moves the node whole and atomically, and a
+/// copy would leave two nodes with one identity. Refused while a daemon holds
+/// the store -- renaming under it would leave it writing to a directory that
+/// no longer has the name its service knows -- and refused onto an existing
+/// home, which is somebody's node.
+fn migrate_unnamed(base: &Path, name: Option<&str>) -> Result<(String, PathBuf)> {
+    let from = base.join(".itsanas");
+    if !Node::exists(&from) {
+        return Err(CliError::NoNode(from));
+    }
+    if itsanas_store::Store::is_locked(Node::store_path(&from)) {
+        return Err(CliError::Usage(format!(
+            "a daemon is running on {}; stop it first, then migrate",
+            from.display()
+        )));
+    }
+    let name = match name {
+        Some(name) => name.to_owned(),
+        None => config::Config::load(&Node::config_path(&from))?.username,
+    };
+    let to = config::instance_home_in(base, &name).map_err(|error| {
+        CliError::Usage(format!(
+            "{error}; pick one with `itsanas migrate --name NAME`"
+        ))
+    })?;
+    if to.exists() {
+        return Err(CliError::Usage(format!(
+            "{} already exists; pick another with `itsanas migrate --name NAME`",
+            to.display()
+        )));
+    }
+    std::fs::rename(&from, &to).map_err(|error| CliError::Io {
+        path: from.clone(),
+        source: error,
+    })?;
+    Ok((name, to))
+}
+
+/// What still names the old home after [`migrate_unnamed`], and how to fix it.
+///
+/// Said rather than done: the service files belong to the installer, and the
+/// passphrase file is readable by this account only for a reason.
+fn migration_advice(name: &str, to: &Path) -> String {
+    format!(
+        concat!(
+            "moved to {home}; open it with `itsanas --instance {name}`.\n",
+            "The service that started it still points at ~/.itsanas and would\n",
+            "create an empty node there. Switch it to the instance:\n",
+            "  Linux:   systemctl --user disable --now itsanas\n",
+            "           mv ~/.config/itsanas/environment ~/.config/itsanas/{name}.environment\n",
+            "           systemctl --user enable --now itsanas@{name}\n",
+            "  Windows: Unregister-ScheduledTask ITSaNAS -Confirm:$false\n",
+            "           then run install\\provision.ps1 -Instance {name}\n",
+        ),
+        home = to.display(),
+        name = name,
+    )
 }
 
 fn status(home: &Path) -> Result<()> {
@@ -3204,7 +3282,7 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 mod tests {
     use super::{
         DeviceId, SNAPSHOT, describe_age, first_free_port, instances_report,
-        looks_like_a_closed_pipe, resolve_device, sibling_ports, snapshot_status,
+        looks_like_a_closed_pipe, migrate_unnamed, resolve_device, sibling_ports, snapshot_status,
     };
 
     /// A node home as `instances` sees one: a keystore and a config, no keys.
@@ -3246,6 +3324,58 @@ mod tests {
             out.contains("stopped"),
             "no daemon holds these stores: {out}"
         );
+    }
+
+    /// The migration moves the node whole: the renamed home opens with the same
+    /// passphrase and reads back the file stored before. A migration that made
+    /// the new directory and copied the keystore and config but not the store
+    /// would open fine and have lost every file -- hence the read, not just
+    /// `exists`. And nothing is left at `~/.itsanas`, or a service still
+    /// pointing there would run the same identity twice.
+    #[test]
+    fn red_team_migration_names_the_node_after_its_account_and_keeps_its_data() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let old = base.path().join(".itsanas");
+        {
+            let (node, _phrase) =
+                itsanas_node::Node::create(&old, "a passphrase", "alice").expect("create");
+            node.store
+                .write_file("notes/a.txt", b"kept")
+                .expect("write");
+        }
+
+        let (name, to) = migrate_unnamed(base.path(), None).expect("migrate");
+        assert_eq!(name, "alice");
+        assert_eq!(to, base.path().join(".itsanas-alice"));
+        assert!(!old.exists(), "the old home is still there");
+
+        let node = itsanas_node::Node::open(&to, "a passphrase").expect("open migrated");
+        assert_eq!(node.config.username, "alice");
+        assert_eq!(
+            node.store
+                .read_file("notes/a.txt")
+                .expect("read")
+                .as_deref(),
+            Some(&b"kept"[..]),
+            "the migrated node lost its files"
+        );
+    }
+
+    /// Onto an existing home is onto somebody's node: refused, both untouched.
+    #[test]
+    fn red_team_migration_never_lands_on_an_existing_home() {
+        let base = tempfile::tempdir().expect("temp dir");
+        fake_node(&base.path().join(".itsanas"), "alice", None);
+        fake_node(&base.path().join(".itsanas-alice"), "other", None);
+
+        let error = migrate_unnamed(base.path(), None).expect_err("must refuse");
+        assert!(error.to_string().contains("already exists"), "{error}");
+        assert!(itsanas_node::Node::exists(&base.path().join(".itsanas")));
+        let kept = itsanas_node::config::Config::load(&itsanas_node::Node::config_path(
+            &base.path().join(".itsanas-alice"),
+        ))
+        .expect("config");
+        assert_eq!(kept.username, "other", "the existing home was overwritten");
     }
 
     /// An unmounted disk leaves an empty mount point: the directory exists, the

@@ -584,6 +584,18 @@ pub fn default_home() -> PathBuf {
 /// If `name` is empty, longer than 32 characters, or not lowercase letters,
 /// digits and inner dashes.
 pub fn instance_home(name: &str) -> Result<PathBuf> {
+    instance_home_in(&user_home(), name)
+}
+
+/// [`instance_home`] under `base` rather than the user's home directory.
+///
+/// `base.join(".itsanas-NAME")`, with the same rule, so the migration and its
+/// tests resolve a name exactly as `--instance` does.
+///
+/// # Errors
+///
+/// As [`instance_home`].
+pub fn instance_home_in(base: &Path, name: &str) -> Result<PathBuf> {
     // `~/.itsanas-passphrase` is the default node's passphrase file, so that
     // one name would point an instance at a file.
     let valid = !name.is_empty()
@@ -603,9 +615,7 @@ pub fn instance_home(name: &str) -> Result<PathBuf> {
             name
         )));
     }
-    Ok(dirs_home()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(format!(".itsanas-{name}")))
+    Ok(base.join(format!(".itsanas-{name}")))
 }
 
 /// The directory every node home hangs off: `~/.itsanas` and `~/.itsanas-NAME`.
