@@ -323,25 +323,29 @@ impl Node {
             .iter()
             .filter(|known| known.presence == Presence::Absent)
             .fold(0u64, |total, known| total.saturating_add(known.size));
-        let free = fs4::available_space(&self.home).unwrap_or(0);
+        // `ok()`, not `unwrap_or(0)`: a disk that is really full reads 0, and
+        // that is when the bound matters most -- it must not read as unknown.
+        let free = fs4::available_space(&self.home).ok();
         let held = self.vault.stats()?.bytes;
+        let local = self.store.local_bytes()?;
         self.store.set_write_budget(Some(WriteBudget {
             allowed: Self::allowed_for(
                 &self.config,
                 Self::account_pledge(&self.home, &self.config),
             ),
             elsewhere,
-            disk_room: Self::disk_room(free, self.config.pledge_bytes, held),
+            local_ceiling: Self::disk_room(free, self.config.pledge_bytes, held)
+                .map(|room| local.saturating_add(room)),
         }))?;
         Ok(())
     }
 
-    /// What one write may add to this disk: `free` less what `pledge` still
-    /// owes beyond the `held` bytes already hosted. `None` when `free` is 0,
-    /// which is how an unreadable free space comes back.
+    /// What this disk can take for the account's own files: `free` less what
+    /// `pledge` still owes beyond the `held` bytes already hosted. `None` when
+    /// the free space could not be read; `Some(0)` when it is really 0.
     #[must_use]
-    pub fn disk_room(free: u64, pledge: u64, held: u64) -> Option<u64> {
-        (free > 0).then(|| free.saturating_sub(pledge.saturating_sub(held)))
+    pub fn disk_room(free: Option<u64>, pledge: u64, held: u64) -> Option<u64> {
+        free.map(|free| free.saturating_sub(pledge.saturating_sub(held)))
     }
 
     /// Whether a node already exists at `home`.
@@ -509,7 +513,7 @@ impl Node {
             elsewhere: 0,
             // Set by `bound_writes`, which every writing path calls first:
             // the vault it needs is opened below.
-            disk_room: None,
+            local_ceiling: None,
         }))?;
         let vault = Vault::open(home.join("vault"))?;
 
@@ -861,27 +865,36 @@ mod tests {
     /// leave the CLI, the folder and the phone writing without a bound while
     /// every store test stayed green.
     /// The disk room is the free space less what the pledge still owes: bytes
-    /// already hosted are no longer owed, and an unreadable free space (0)
+    /// already hosted are no longer owed, and an unreadable free space
     /// bounds nothing rather than refusing every write.
     #[test]
     fn red_team_the_disk_room_sets_aside_what_the_pledge_still_owes() {
         const GB: u64 = 1_000_000_000;
         assert_eq!(
-            Node::disk_room(100 * GB, 70 * GB, 20 * GB),
+            Node::disk_room(Some(100 * GB), 70 * GB, 20 * GB),
             Some(50 * GB),
             "free 100, pledged 70 of which 20 already hosted: 50 still owed"
         );
         assert_eq!(
-            Node::disk_room(40 * GB, 70 * GB, 0),
+            Node::disk_room(Some(40 * GB), 70 * GB, 0),
             Some(0),
             "owed exceeds free"
         );
         assert_eq!(
-            Node::disk_room(40 * GB, 10 * GB, 30 * GB),
+            Node::disk_room(Some(40 * GB), 10 * GB, 30 * GB),
             Some(40 * GB),
             "over-hosted owes nothing"
         );
-        assert_eq!(Node::disk_room(0, 70 * GB, 0), None, "unknown free space");
+        assert_eq!(
+            Node::disk_room(None, 70 * GB, 0),
+            None,
+            "unknown free space"
+        );
+        assert_eq!(
+            Node::disk_room(Some(0), 70 * GB, 0),
+            Some(0),
+            "a disk that is really full must bound, not read as unknown"
+        );
     }
 
     #[test]
@@ -902,7 +915,7 @@ mod tests {
             Some(WriteBudget {
                 allowed: 300 * GB,
                 elsewhere: 0,
-                disk_room: None
+                local_ceiling: None
             }),
             "a node pledging 700 GB at 30/70 must be held to the 300 GB that earns"
         );

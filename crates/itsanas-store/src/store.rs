@@ -88,13 +88,17 @@ pub struct WriteBudget {
     /// write that fits. A file that is here *and* counted in this figure is
     /// counted twice, which errs the other way, and only for its size.
     pub elsewhere: u64,
-    /// Bytes one write may add to this machine's disk, if known: the free
-    /// space less what this machine's pledge still owes other people. `None`
-    /// when the free space could not be read -- no bound rather than a
+    /// Most bytes of the account's files this device may hold locally, if
+    /// known: what it held when the budget was set plus the free space less
+    /// what this machine's pledge still owes other people. An absolute
+    /// ceiling rather than a per-write room, so a pass that imports a hundred
+    /// files is bounded by their sum, not each by the same snapshot; and an
+    /// edit is charged its growth, since the file it replaces is not counted.
+    /// `None` when the free space could not be read -- no bound rather than a
     /// refusal of everything. Measured in plaintext bytes, which a sealed
     /// chunk exceeds by its tag and deduplication undercuts; the margin is a
     /// few bytes a chunk, and the owed pledge is the real reserve.
-    pub disk_room: Option<u64>,
+    pub local_ceiling: Option<u64>,
 }
 
 /// What one garbage-collection pass did.
@@ -346,12 +350,16 @@ impl Store {
         // The account may have room and this disk not: what the pledge still
         // owes is space promised to other people, and filling it with our own
         // files breaks that promise the day they send their data.
-        let incoming = total.saturating_sub(account);
-        if let Some(room) = budget.disk_room.filter(|room| incoming > *room) {
+        let local_before = account.saturating_sub(budget.elsewhere);
+        let local_after = total.saturating_sub(budget.elsewhere);
+        if let Some(ceiling) = budget
+            .local_ceiling
+            .filter(|ceiling| local_after > *ceiling)
+        {
             return Err(StoreError::DiskFull {
                 path: path.to_owned(),
-                incoming,
-                room,
+                incoming: total.saturating_sub(account),
+                room: ceiling.saturating_sub(local_before),
             });
         }
         Ok(())
@@ -1322,6 +1330,15 @@ impl Store {
     }
 
     /// Coarse statistics, cheap enough for a status command.
+    /// Bytes of the account's files whose content is on this device.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn local_bytes(&self) -> Result<u64> {
+        self.index.local_bytes()
+    }
+
     pub fn stats(&self) -> Result<StoreStats> {
         Ok(StoreStats {
             files: self.index.file_count()?,

@@ -408,7 +408,7 @@ fn red_team_a_write_past_the_disk_room_is_refused_and_leaves_nothing() {
         .set_write_budget(Some(WriteBudget {
             allowed: u64::MAX,
             elsewhere: 0,
-            disk_room: Some(300 * KIB),
+            local_ceiling: Some(300 * KIB),
         }))
         .unwrap();
 
@@ -419,7 +419,11 @@ fn red_team_a_write_past_the_disk_room_is_refused_and_leaves_nothing() {
 
     match store.write_file("big.bin", &testkit::filler("big-disk", 1024 * 1024)) {
         Err(StoreError::DiskFull { incoming, room, .. }) => {
-            assert_eq!(room, 300 * KIB, "the refusal misstates the room");
+            assert_eq!(
+                room,
+                200 * KIB,
+                "the refusal misstates the room: 300 KiB less the 100 held"
+            );
             assert!(incoming > room, "refused at {incoming}, not past {room}");
         }
         other => panic!(
@@ -439,6 +443,44 @@ fn red_team_a_write_past_the_disk_room_is_refused_and_leaves_nothing() {
     );
 }
 
+/// The ceiling bounds the sum, not each write: a folder pass imports many
+/// files after one `bound_writes`, and a per-write room let a hundred 1 GB
+/// files into 10 GB (found by the `itsanas-redteam` agent). Five 100 KiB
+/// files against 300 KiB: three fit, the fourth is refused. And an edit is
+/// charged its growth -- rewriting a stored file in place still fits.
+#[test]
+fn red_team_many_small_writes_cannot_pass_the_disk_ceiling_together() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([63; 32]), dir.path());
+    store
+        .set_write_budget(Some(WriteBudget {
+            allowed: u64::MAX,
+            elsewhere: 0,
+            local_ceiling: Some(300 * KIB),
+        }))
+        .unwrap();
+
+    for i in 0..3 {
+        store
+            .write_file(
+                &format!("f{i}.bin"),
+                &testkit::filler(&format!("f{i}"), 100 * 1024),
+            )
+            .expect("inside the ceiling");
+    }
+    assert!(
+        matches!(
+            store.write_file("f3.bin", &testkit::filler("f3", 100 * 1024)),
+            Err(StoreError::DiskFull { .. })
+        ),
+        "four 100 KiB files went into 300 KiB: each write was checked alone against a \
+         snapshot, so a pass of small files eats the whole pledge"
+    );
+    store
+        .write_file("f0.bin", &testkit::filler("f0-edited", 100 * 1024))
+        .expect("an edit of the same size is charged its growth, which is nothing");
+}
+
 #[test]
 fn red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log() {
     let dir = tempfile::tempdir().unwrap();
@@ -447,7 +489,7 @@ fn red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log() {
         .set_write_budget(Some(WriteBudget {
             allowed: 600 * KIB,
             elsewhere: 0,
-            disk_room: None,
+            local_ceiling: None,
         }))
         .unwrap();
 
@@ -514,7 +556,7 @@ fn a_write_inside_the_budget_succeeds_and_an_edit_is_charged_only_its_growth() {
         .set_write_budget(Some(WriteBudget {
             allowed: 1024 * KIB,
             elsewhere: 0,
-            disk_room: None,
+            local_ceiling: None,
         }))
         .unwrap();
 
@@ -554,7 +596,7 @@ fn red_team_what_the_account_holds_elsewhere_counts_against_it() {
         .set_write_budget(Some(WriteBudget {
             allowed: 1024 * KIB,
             elsewhere: 900 * KIB,
-            disk_room: None,
+            local_ceiling: None,
         }))
         .unwrap();
 

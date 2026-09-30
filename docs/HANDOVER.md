@@ -9,8 +9,8 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.1c
-TITLE: Bound owners on the host: store for an owner at most an allowance plus k x what its devices proved they hold for us
+NEXT: 8.0o
+TITLE: 0o leftovers: a relayed presence from a clock far ahead, a v5 peer not asked, the daemon relay wiring untested
 WRITTEN-AT: 2026-09-30
 BASE: caf008c
 -->
@@ -21,21 +21,30 @@ whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
 **2026-09-30, 1b closed: the disk half of bounded writes** (branch
-`step/8.1b-disk-bound`). `WriteBudget` gains `disk_room: Option<u64>`;
-`Store::refuse_past` refuses a write adding more than that with the new
-`StoreError::DiskFull { incoming, room }`, on the same path as the account
-bound, so nothing is left behind. `Node::bound_writes` sets it to
+`step/8.1b-disk-bound`). `WriteBudget` gains `local_ceiling: Option<u64>`, the most bytes of the
+account this device may hold locally; `Store::refuse_past` refuses a write
+that would take the local bytes past it with the new `StoreError::DiskFull
+{ incoming, room }`, on the same path as the account bound, so nothing is
+left behind. `Node::bound_writes` sets it to local bytes now +
 `Node::disk_room(free, pledge, held)` = free space (`fs4`, new dependency of
 `itsanas-node`, already in the lock via the CLI) less what the pledge still
-owes beyond the vault's bytes; `None` when the free space reads 0 (unknown),
-and at `Node::open`, whose vault opens later -- every writing path calls
-`bound_writes` first. Measured in plaintext bytes (a few bytes a chunk off).
-Two red-team tests, two sabotages, red. **Skipped 8.0k on purpose:** its
+owes beyond the vault's bytes; `None` only when the free space cannot be
+read (a real 0 bounds everything), and at `Node::open`, whose vault opens
+later -- every writing path calls `bound_writes` first. **The
+`itsanas-redteam` agent broke the first version before merge:** it compared
+each write alone against a per-pass snapshot of the room, so a pass of a
+hundred 1 GB files fit in 10 GB; and it read a full disk (0 free) as
+unknown, i.e. unbounded. Both fixed, each with a test sabotaged red. Its
+other findings are named in `ROADMAP.md` ("The disk bound (1b)"): pulls
+bypass the bound, and `held` may count our own chunks. Three red-team tests,
+four sabotages, red. **Skipped 8.0k on purpose:** its
 agent half (version, CHANGELOG, re-pin FIRST-STEPS) would point the
 documented install at a `v0.2.0` tag that does not exist until Nicolas cuts
 it -- found by the `itsanas-lead` checkpoint. It is now marked "with
 Nicolas". Also from that checkpoint: 0p is 🟨, not ✅, while its service
-advice is unexercised. Trap this time: restoring a sabotage with
+advice is unexercised. **Not 1c next:** §8 0 defers all further
+enforcement until the MVP passes on the fleet, and 1c is host-side
+enforcement; `NEXT` is 0o's leftovers instead. Trap this time: restoring a sabotage with
 `git checkout <file>` wiped the real edit in that file; back up to the
 scratchpad and copy back instead.
 
@@ -2126,7 +2135,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       checks. The in-process check of 8.1b comes first on every platform and
       is the one that is enforced; the native quota is presentation.
 
-   o. ✅ **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187). **Remaining, 🟨:** no test that a v5 peer is not asked for presences; the daemon's relay wiring has no test of its own; the 2099-clock gap (`ROADMAP.md`); phase 3 only if the fleet shows 1 and 2 fall short.
+   o. 🟨 **Reach the network from outside the LAN, with machines that move.** Phases 1 and 2 built (2026-09-29, #182-#187). **Remaining, 🟨:** no test that a v5 peer is not asked for presences; the daemon's relay wiring has no test of its own; the 2099-clock gap (`ROADMAP.md`); phase 3 only if the fleet shows 1 and 2 fall short.
       Asked for by Nicolas on 2026-09-17, put on the MVP's path by him on
       2026-09-18 ("I can't get enough machines to work in my own home for a
       decent testing run"), with a constraint he added the same day: **prefer a
@@ -2702,7 +2711,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       All went red on 2026-09-14, as did the two tests the audit added
       (`red_team_a_node_cannot_grant_itself_a_more_generous_split`,
       `a_quoted_price_parses_back_to_no_less_than_the_price`).
-   b. ✅ **Bound writes on the honest client.** Disk half done 2026-09-30 (see §0). The account half is built
+   b. 🟨 **Bound writes on the honest client.** Disk half done 2026-09-30 (see §0); pulls still unbounded (`ROADMAP.md`, "The disk bound (1b)"). The account half is built
       (§8 0n, 2026-09-28); **left: the disk half** -- refuse when this
       machine's own store plus what its pledge still has to receive would
       exceed the disk. It wants the vault's size, which the store cannot see,
