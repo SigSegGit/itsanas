@@ -556,19 +556,75 @@ pub fn size_argument(bytes: u64) -> String {
     bytes.to_string()
 }
 
-/// Where a node keeps its state, if the user did not say.
-pub fn default_home() -> PathBuf {
-    // Deliberately not the OS config directory: this holds bulk data as well as
-    // settings, and burying gigabytes of chunks in AppData or ~/.config would
-    // surprise people and break backup tooling that treats those as small.
+/// Where a node keeps its state, if the user did not say: `ITSANAS_HOME`,
+/// else [`unnamed_home`] under the user's home directory.
+///
+/// Deliberately not the OS config directory: this holds bulk data as well as
+/// settings, and burying gigabytes of chunks in `AppData` or `~/.config` would
+/// surprise people and break backup tooling that treats those as small.
+///
+/// # Errors
+///
+/// As [`unnamed_home`]: the machine holds named instances only.
+pub fn default_home() -> Result<PathBuf> {
     std::env::var_os("ITSANAS_HOME").map_or_else(
-        || {
-            dirs_home()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".itsanas")
-        },
-        PathBuf::from,
+        || unnamed_home(&user_home()),
+        |home| Ok(PathBuf::from(home)),
     )
+}
+
+/// Every node home under `base`, sorted: `(unnamed)` for `.itsanas`, else NAME.
+///
+/// A home is `.itsanas` or a `.itsanas-NAME` **directory holding a keystore**,
+/// so `~/.itsanas-passphrase` (a file) and a purged home are not listed.
+#[must_use]
+pub fn node_homes(base: &Path) -> Vec<(String, PathBuf)> {
+    let mut homes: Vec<(String, PathBuf)> = std::fs::read_dir(base)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let file_name = entry.file_name();
+            let file_name = file_name.to_str()?;
+            let name = match file_name.strip_prefix(".itsanas") {
+                Some("") => "(unnamed)".to_owned(),
+                Some(rest) => rest.strip_prefix('-')?.to_owned(),
+                None => return None,
+            };
+            let home = entry.path();
+            crate::Node::exists(&home).then_some((name, home))
+        })
+        .collect();
+    homes.sort();
+    homes
+}
+
+/// The home a command gets with neither `--instance` nor `--home`.
+///
+/// `base/.itsanas` while it holds a node, or while the machine has no node at
+/// all (the first `init`). Once only named instances exist -- after `itsanas
+/// migrate`, or on a machine set up with `provision.sh --instance` -- falling
+/// back to `~/.itsanas` would open nothing, or worse, let `init` or `login`
+/// make a second identity beside the real ones for a stale service to start.
+/// So it refuses and names the instances to choose from.
+///
+/// # Errors
+///
+/// When `base` holds named instances and no `.itsanas` node.
+pub fn unnamed_home(base: &Path) -> Result<PathBuf> {
+    let home = base.join(".itsanas");
+    if crate::Node::exists(&home) {
+        return Ok(home);
+    }
+    let named: Vec<String> = node_homes(base).into_iter().map(|(name, _)| name).collect();
+    if named.is_empty() {
+        return Ok(home);
+    }
+    Err(NodeError::Config(format!(
+        "this machine has named instances only ({}); say which with \
+         `--instance NAME` or ITSANAS_INSTANCE",
+        named.join(", ")
+    )))
 }
 
 /// Where the named instance `name` keeps its state: `~/.itsanas-NAME`.
@@ -621,7 +677,7 @@ pub fn instance_home_in(base: &Path, name: &str) -> Result<PathBuf> {
 /// The directory every node home hangs off: `~/.itsanas` and `~/.itsanas-NAME`.
 ///
 /// What `itsanas instances` scans. `.` when neither `HOME` nor `USERPROFILE` is
-/// set, as [`default_home`] does.
+/// set.
 #[must_use]
 pub fn user_home() -> PathBuf {
     dirs_home().unwrap_or_else(|| PathBuf::from("."))

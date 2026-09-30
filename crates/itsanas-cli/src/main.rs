@@ -539,9 +539,9 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<()> {
-    let cli = Cli::parse();
-    let home = match (cli.instance.as_deref(), cli.home) {
+/// Which node a command acts on: `--instance`, else `--home`, else [`config::unnamed_home`].
+fn resolve_home(instance: Option<&str>, home: Option<PathBuf>) -> Result<PathBuf> {
+    Ok(match (instance, home) {
         (Some(name), home) => {
             let named = config::instance_home(name)?;
             // Same refusal as provision.sh: two answers to "which node" is a
@@ -555,8 +555,35 @@ fn run() -> Result<()> {
             }
             named
         }
-        (None, home) => home.unwrap_or_else(config::default_home),
-    };
+        (None, Some(home)) => home,
+        (None, None) => config::unnamed_home(&config::user_home())?,
+    })
+}
+
+fn run() -> Result<()> {
+    let cli = Cli::parse();
+    // These two look at every home on the machine, not at one: resolving a
+    // home first would make them refuse exactly when they are the answer.
+    match &cli.command {
+        Command::Instances => {
+            print!("{}", instances_report(&config::user_home()));
+            return Ok(());
+        }
+        Command::Migrate { name } => {
+            // It moves ~/.itsanas and nothing else; ignoring an explicit home
+            // would migrate a node the user did not name.
+            let unnamed = config::user_home().join(".itsanas");
+            if cli.instance.is_some() || cli.home.as_ref().is_some_and(|home| *home != unnamed) {
+                return Err(CliError::Usage(format!(
+                    "migrate moves {} only; drop --instance / --home (ITSANAS_HOME)",
+                    unnamed.display()
+                )));
+            }
+            return migrate(name.as_deref());
+        }
+        _ => {}
+    }
+    let home = resolve_home(cli.instance.as_deref(), cli.home)?;
 
     match cli.command {
         Command::Init { username } => init(&home, &username),
@@ -585,11 +612,9 @@ fn run() -> Result<()> {
         Command::Invite { uses, days } => invite(&home, uses, days),
         Command::Passphrase { recovery } => change_passphrase(&home, recovery),
         Command::Status => status(&home),
-        Command::Instances => {
-            print!("{}", instances_report(&config::user_home()));
-            Ok(())
+        Command::Instances | Command::Migrate { .. } => {
+            unreachable!("answered before a home is resolved")
         }
-        Command::Migrate { name } => migrate(name.as_deref()),
         Command::Whoami => whoami(&home),
         Command::Ls => list(&home),
         Command::Put { path, source } => put(&home, &path, &source),
@@ -1437,27 +1462,14 @@ fn passphrase_available() -> bool {
 /// store lock `status` already trusts, not the listen port, which another
 /// program may hold.
 fn instances_report(base: &Path) -> String {
-    let mut homes: Vec<(String, PathBuf)> = std::fs::read_dir(base)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let file_name = entry.file_name();
-            let file_name = file_name.to_str()?;
-            let name = match file_name.strip_prefix(".itsanas") {
-                Some("") => "(unnamed)".to_owned(),
-                Some(rest) => rest.strip_prefix('-')?.to_owned(),
-                None => return None,
-            };
-            let home = entry.path();
-            Node::exists(&home).then_some((name, home))
-        })
-        .collect();
-    homes.sort();
+    let homes = config::node_homes(base);
     if homes.is_empty() {
         return format!("no node under {}\n", base.display());
     }
+    instances_lines(homes)
+}
 
+fn instances_lines(homes: Vec<(String, PathBuf)>) -> String {
     let mut out = String::new();
     for (name, home) in homes {
         let config = config::Config::load(&Node::config_path(&home));
@@ -1540,8 +1552,8 @@ fn migration_advice(name: &str, to: &Path) -> String {
     format!(
         concat!(
             "moved to {home}; open it with `itsanas --instance {name}`.\n",
-            "The service that started it still points at ~/.itsanas and would\n",
-            "create an empty node there. Switch it to the instance:\n",
+            "The service that started it still points at ~/.itsanas and will\n",
+            "now refuse to start (named instances only). Switch it over:\n",
             "  Linux:   systemctl --user disable --now itsanas\n",
             "           mv ~/.config/itsanas/environment ~/.config/itsanas/{name}.environment\n",
             "           systemctl --user enable --now itsanas@{name}\n",
@@ -3358,6 +3370,34 @@ mod tests {
                 .as_deref(),
             Some(&b"kept"[..]),
             "the migrated node lost its files"
+        );
+    }
+
+    /// After a migration, a bare command must not fall back to `~/.itsanas`:
+    /// `init` there would make a second identity beside the real one. It
+    /// refuses and names the instance; a machine with no node at all still
+    /// gets `~/.itsanas`, or the first `init` could never run.
+    #[test]
+    fn red_team_after_migration_a_command_without_a_name_refuses() {
+        let base = tempfile::tempdir().expect("temp dir");
+        assert_eq!(
+            itsanas_node::config::unnamed_home(base.path()).expect("empty machine"),
+            base.path().join(".itsanas"),
+            "the first init needs ~/.itsanas"
+        );
+
+        fake_node(&base.path().join(".itsanas"), "alice", None);
+        assert_eq!(
+            itsanas_node::config::unnamed_home(base.path()).expect("unmigrated"),
+            base.path().join(".itsanas")
+        );
+
+        migrate_unnamed(base.path(), None).expect("migrate");
+        let error = itsanas_node::config::unnamed_home(base.path())
+            .expect_err("must refuse after migration");
+        assert!(
+            error.to_string().contains("alice") && error.to_string().contains("--instance"),
+            "the refusal must name the instance and the flag: {error}"
         );
     }
 
