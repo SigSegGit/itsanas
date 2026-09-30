@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 862 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 114 are red-team tests.**
+**Last updated: 2026-09-30 — 863 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 115 are red-team tests.**
 
-**746 of the 862 tests have an entry of their own on this page** — an *entry*,
+**747 of the 863 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -175,7 +175,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 37 |
 | `itsanas-android` unit | 2 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 81 |
+| `itsanas-node` unit | 82 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
@@ -1086,7 +1086,7 @@ to the peer, each turns the matching test red.
 | **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
 | `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
 
-## `config` — settings (24)
+## `config` — settings (25)
 
 | Test | What it proves |
 | --- | --- |
@@ -1105,6 +1105,7 @@ to the peer, each turns the matching test red.
 | **`a_quoted_price_parses_back_to_no_less_than_the_price`** | A refusal names the pledge that would make a request legal and the command that sets it. `format_size` floors to a tenth, so at 30/70 the price of 31 GiB (72.33 GiB) read "72.3 GiB" and pledging exactly that was refused again; and the suggested `--pledge 93.0 GiB` never parsed at all. The quote is now a whole unit rounded up, and this checks it reads back as no less at every remainder — and pins `73G`, the figure the documents use. |
 | **`red_team_an_instance_name_cannot_leave_the_home_directory`** | `itsanas --instance NAME` joins the name onto the home directory, and `install/clean.sh --instance NAME` deletes what it names. A `/`, `\` or `..` let through would open — or erase — a directory that is no instance's. Refused, not cleaned: `../etc`, `a/b`, `..`, uppercase, an edge dash, a space, 33 characters, the empty name, and `passphrase`, because `~/.itsanas-passphrase` is the default node's passphrase file. |
 | `an_instance_lives_where_provision_sh_puts_it` | `provision.sh --instance x` installs into `~/.itsanas-x`; a CLI that mapped the name anywhere else would open an empty home beside the installed node and report a node that is not there. |
+| **`red_team_on_windows_the_profile_wins_over_home`** | `provision.ps1` builds every node home from `$env:USERPROFILE`; `HOME` is not a Windows variable, but Git Bash sets one and some installs make it permanent. Preferring `HOME` there made the CLI and the script name two different `~/.itsanas-NAME`. On Windows the profile wins, elsewhere `HOME`, and an empty value is no home. Sabotaged (HOME first everywhere): red. |
 | `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
 | **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
 | `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |

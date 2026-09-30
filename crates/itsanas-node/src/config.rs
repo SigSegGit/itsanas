@@ -684,15 +684,61 @@ pub fn user_home() -> PathBuf {
 }
 
 fn dirs_home() -> Option<PathBuf> {
-    // Avoids a dependency for something this small. Both variables are set on
-    // every platform this project targets.
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
+    home_from(
+        std::env::var_os("HOME"),
+        std::env::var_os("USERPROFILE"),
+        cfg!(windows),
+    )
+}
+
+/// The user's home directory from `HOME` and `USERPROFILE`.
+///
+/// On Windows, `USERPROFILE` first: it is what `provision.ps1` and
+/// `clean.ps1` build every node home from, while `HOME` is not a Windows
+/// variable at all -- Git Bash sets one, and some installs make it permanent,
+/// pointing elsewhere. Preferring it there made the CLI and the scripts name
+/// two different `~/.itsanas-NAME`. Elsewhere `HOME` is the convention.
+fn home_from(
+    home: Option<std::ffi::OsString>,
+    profile: Option<std::ffi::OsString>,
+    windows: bool,
+) -> Option<PathBuf> {
+    let (first, second) = if windows {
+        (profile, home)
+    } else {
+        (home, profile)
+    };
+    first
+        .filter(|v| !v.is_empty())
+        .or(second.filter(|v| !v.is_empty()))
         .map(PathBuf::from)
 }
 
 #[cfg(test)]
 mod tests {
+    /// provision.ps1 puts `-Instance NAME` under `$env:USERPROFILE`; the CLI
+    /// must look in the same place on Windows even when a `HOME` exists, or
+    /// `itsanas --instance NAME` opens (or `init` creates) a different node.
+    #[test]
+    fn red_team_on_windows_the_profile_wins_over_home() {
+        let home = Some(std::ffi::OsString::from("/c/elsewhere"));
+        let profile = Some(std::ffi::OsString::from("C:\\Users\\sam"));
+        assert_eq!(
+            super::home_from(home.clone(), profile.clone(), true),
+            Some(std::path::PathBuf::from("C:\\Users\\sam")),
+            "the CLI and provision.ps1 would name two different homes"
+        );
+        assert_eq!(
+            super::home_from(home, profile, false),
+            Some(std::path::PathBuf::from("/c/elsewhere"))
+        );
+        assert_eq!(
+            super::home_from(Some("".into()), Some("C:\\Users\\sam".into()), false),
+            Some(std::path::PathBuf::from("C:\\Users\\sam")),
+            "an empty HOME is no home"
+        );
+    }
+
     use super::*;
 
     #[test]
