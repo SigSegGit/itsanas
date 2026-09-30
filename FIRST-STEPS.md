@@ -151,8 +151,8 @@ numbered grid `init` printed, pasted as it is. `login` then asks for a
 passphrase for *this* machine's keystore; it need not be the first machine's
 (`ITSANAS_PASSPHRASE` supplies it to scripts). For `peer add`, use the first
 machine's LAN address and the port it listens on -- 9797, or the next free one
-if another node took it: `itsanas listen`, run there with its daemon stopped,
-prints it. `sync` writes what it received into the folder; the daemon does the
+if another node took it: the `listen` line of `itsanas status` there shows it,
+daemon running or not. `sync` writes what it received into the folder; the daemon does the
 same on its own from then on.
 
 Both machines now hold the same account. Drop a file in the folder on one; it

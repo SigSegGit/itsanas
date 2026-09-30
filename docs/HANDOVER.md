@@ -31,9 +31,9 @@ the missing `itsanas folder` on the second machine (the persona had set it
 without noticing the guide never did), the words file's formats, the
 per-machine passphrase and how to read the port. One red-team test + one
 functional, one sabotage, red. **🟨:** `sync`'s call sites of
-`sync_folder` are one line each and untested; `itsanas listen` needs the
-daemon stopped to print the port -- `status` might be the better answer,
-unchecked.
+`sync_folder` are one line each and untested; FIRST-STEPS points at `status`'s
+`listen` line, which the daemon's snapshot carries (checked in
+`render_status`).
 
 **2026-09-30, 0m closed: a departure survives a restart** (branch
 `step/8.0m-departed`). **Decision, against the letter of §8 m:** `leave` is
@@ -2452,9 +2452,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       as a contradiction; FIRST-STEPS never mentions `--instance` or
       `instances`; it mixes `pledge` and `space --apply`.
       **(A), (B), (C) done 2026-09-30 (see §0).** Next: the lesser items
-      above, one small PR; check first whether `status` (snapshot) prints
-      the listen address, and if so point FIRST-STEPS at it instead of
-      `listen`.
+      above, one small PR.
 
    f. **A tray icon for the Windows daemon.** Asked for by Nicolas on
       2026-09-14 after the untitled console: "a minimum of polish", dark or
