@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 890 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 140 are red-team tests.**
+**Last updated: 2026-09-30 — 891 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 141 are red-team tests.**
 
-**774 of the 890 tests have an entry of their own on this page** — an *entry*,
+**775 of the 891 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -153,7 +153,7 @@ guarantee and is not one.
 
 | Binary | Tests |
 | --- | --- |
-| `itsanas-crypto` unit | 65 (1 `#[ignore]`d) |
+| `itsanas-crypto` unit | 66 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
@@ -281,7 +281,7 @@ against a dependency surfaces even when nobody has pushed for a month.
 
 ---
 
-# `itsanas-crypto` — unit tests (65)
+# `itsanas-crypto` — unit tests (66)
 
 ## `secret` — secret hygiene (4)
 
@@ -312,7 +312,7 @@ against a dependency surfaces even when nobody has pushed for a month.
 | `parsing_rejects_bad_input` | Empty, non-hex, too-short and too-long inputs are all refused rather than being silently padded or truncated into a valid-looking identifier. |
 | `hex_rendering_is_lowercase_and_zero_padded` | Encoding is canonical. Without this, `0x05` could render as `5` and produce a 63-character identifier that fails to round trip. |
 
-## `identity` — identity and signatures (17)
+## `identity` — identity and signatures (18)
 
 | Test | What it proves |
 | --- | --- |
@@ -327,6 +327,7 @@ against a dependency surfaces even when nobody has pushed for a month.
 | `domain_prefix_is_unambiguous` | `("ab", "c")` and `("a", "bc")` hash differently. Catches the classic concatenation ambiguity that makes domain separation decorative. |
 | `one_users_signature_does_not_verify_under_another` | Alice's signature fails under Bob's key. Basic, and the thing that stops a host forging log entries. |
 | `chunk_ids_deduplicate_within_a_user_but_not_across_users` | One user gets a stable address for identical content (deduplication works) while two users get unrelated addresses for the *same* content (a host cannot tell they hold the same file). |
+| **`red_team_two_accounts_sealing_one_file_share_no_sealed_bytes`** | Two hosts of two accounts compare what they hold: the same 4 KiB file sealed by two accounts shares no 16-byte run of sealed bytes and no address, while one account's seal is byte-stable (the vacuity guard). Equal sealed bytes would let two hosts prove two people hold one file, and a host with a candidate copy confirm it. Sabotaged by a convergent seal (unblinded address, one root and one owner for all accounts): red. The chunk-size sequence still links them; that is ROADMAP's fingerprint, not this test. |
 | `chunk_id_does_not_expose_the_plaintext_hash` | The chunk id is not the raw content hash. Otherwise a host holding a guess of the plaintext could confirm it by hashing — a confirmation-of-file attack. |
 | `diffie_hellman_agrees_in_both_directions` | X25519 agreement is symmetric, the prerequisite for wrapping keys to another user. |
 | `device_keys_are_independent_of_the_user_master` | Device keys are independently random and restorable from their seed, so revoking a stolen laptop never requires rotating the user's identity. |

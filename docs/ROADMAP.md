@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**890 test functions, 4 of them `#[ignore]`d into the slow job, and 140 of
+**891 test functions, 4 of them `#[ignore]`d into the slow job, and 141 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1572,6 +1572,51 @@ same pull (a concurrent write of identical content), because the record is
 "present afterwards", not "accepted from this peer" -- a narrow window, not
 reproduced; and noise on a chunk several files share is fetched and refused
 once per file in a round.
+
+**The confidentiality surface, by hand -- 2026-09-30 (HANDOVER §8 2b).**
+What a host learns, alone or comparing notes with another host. Read, not
+fuzzed: `SealContext` and `seal_chunk`, `SegmentEnvelope`, every `Request` and
+`Response` and the `PeerService::handle` that answers them. Each attack, what
+stops it, and the test:
+
+| Attack | Stopped by | Test |
+| --- | --- | --- |
+| Two hosts of two accounts match equal chunk addresses | address keyed on the account's blinding key | `chunk_ids_deduplicate_within_a_user_but_not_across_users` |
+| Two hosts of two accounts match equal sealed bytes | per-account root and owner in the seal's key and nonce | ✅ **newly tested**: `red_team_two_accounts_sealing_one_file_share_no_sealed_bytes` |
+| Confirm a guessed file from its address | address is not the content hash | `chunk_id_does_not_expose_the_plaintext_hash` |
+| Read a path or a byte of content on a host | sealed chunk and sealed segment body | `the_sealed_body_does_not_leak_the_path_in_plaintext`, `the_hosts_hold_everything_and_can_read_none_of_it` |
+| Learn from a repair request which chunks exist only on hosts | asked only of peers the ledger records as holders | `red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost` |
+| Two accounts' identical files matched by chunk sizes | nothing | ⬜ **open**, the fingerprint above (§8 3c, Nicolas) |
+| **A stranger reads any account's metadata from any host** | nothing | ⬜ **open**, below |
+| Operation count per publish | nothing: `first_sequence`..`last_sequence` in the clear | ⬜ **by design**, `validate_chain` needs them |
+| Size and time of each edit | nothing: body length, chunk count and when they arrive | ⬜ **by design**, ARCHITECTURE §8 |
+| An error a peer provokes echoes a local path | refusal texts are fixed strings or `put_segment`'s errors, none of which carries a path (`StoreError::Io` is not returned there) | read, no test |
+
+**Open, named, not fixed: reads are not scoped to the account.** `handle`
+answers `Heads`, `Segments`, `Chunk`, `HaveChunks` and `ChunkSummary` for
+whatever `owner` the request names, and TLS proves only a device key that
+anybody can generate (`itsanas-tls` asks no client certificate). So anyone
+who knows an account's user id -- and every host of that account does --
+reads from any host of it the device list, every envelope (operation counts,
+body sizes, cadence), which addresses exist, and the sealed chunks. Contents
+stay sealed; the metadata ARCHITECTURE §8 concedes to *hosts* is conceded to
+*everyone*. Not a one-function fix: the only rule a host could apply is "a
+device of that account", and a brand-new device recovering an account has
+signed nothing yet. It needs the account device roster that HANDOVER §10
+question 7 asks about; one roster would close both.
+
+**Two hosts of one account** hold byte-identical chunks under identical
+addresses and see the same user id in every request: they can tell they hold
+the same account's data, which is what replication and audits need. Blinding
+hides content equality *across* accounts, not account identity from hosts.
+
+**Not tested here, named:** the two residues of the integrity pass. The
+has_chunk race in `session.rs` `kept` needs a second writer injected between
+the fetch and the check, and no seam exists for that -- not a five-line test.
+Repeated fetches of one noisy chunk shared by several files cost one
+chunk-sized download per file per round; the simulator counts no fetches, so
+the test needs a counter first, and the cost is bounded by chunk size times
+files.
 
 **And the thing the sweep could not check.** Three of the eight surfaces —
 losing data through the store and garbage collector, secrets in the repository
