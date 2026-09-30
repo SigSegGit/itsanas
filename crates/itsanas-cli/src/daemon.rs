@@ -73,7 +73,7 @@ use std::{
 };
 
 use itsanas_crypto::DeviceId;
-use itsanas_discover::Lan;
+use itsanas_discover::{HouseholdKey, Lan};
 use itsanas_folder::{Folder, Watcher, watch};
 use itsanas_net::{PeerClient, PeerServer, PeerService, Pledge, session};
 use itsanas_node::contact::{Contact, SharedBoard};
@@ -331,6 +331,10 @@ pub fn run(
     // Shared with the serving thread, which owns the server for its lifetime.
     let witness = server.witness();
 
+    // Derived from the account's master secret, which only its own machines
+    // hold; see `itsanas_discover::beacon`. Never sent.
+    let household = HouseholdKey::of(&node.user);
+
     std::thread::scope(|scope| {
         // If the sync loop panics, the scope joins the listener thread, the
         // listener waits on a shutdown flag the panic skipped, and the process
@@ -357,7 +361,7 @@ pub fn run(
                 discovery::run(
                     lan,
                     &node.device,
-                    node.store.owner(),
+                    &household,
                     bound.port(),
                     &neighbourhood,
                     shutdown,
@@ -840,7 +844,7 @@ fn one_round(
     dial_listed(node, shutdown, neighbourhood, contact, &mut reached, scope);
 
     let mut strangers_dialled = 0usize;
-    for candidate in neighbourhood.dial_order(node.store.owner()) {
+    for candidate in neighbourhood.dial_order(&HouseholdKey::of(&node.user)) {
         if shutdown.load(Ordering::Relaxed) {
             break;
         }

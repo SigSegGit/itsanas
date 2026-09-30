@@ -29,9 +29,9 @@ use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use itsanas_crypto::{DeviceKeys, UserId};
+use itsanas_crypto::DeviceKeys;
 
-use crate::beacon::{Announcement, BEACON_LEN};
+use crate::beacon::{Announcement, BEACON_LEN, HouseholdKey};
 use crate::error::{DiscoverError, Result};
 
 /// The UDP port announcements are sent to and heard on.
@@ -201,8 +201,15 @@ impl Lan {
     /// A send failure is returned rather than swallowed, but a caller in a
     /// daemon loop should log and continue: an interface that is down while a
     /// laptop moves between networks is the normal case, not a fault.
-    pub fn announce(&self, keys: &DeviceKeys, owner: UserId, service_port: u16) -> Result<()> {
-        let packet = Announcement::seal(keys, owner, service_port, now_unix());
+    pub fn announce(
+        &self,
+        keys: &DeviceKeys,
+        household: &HouseholdKey,
+        service_port: u16,
+    ) -> Result<()> {
+        // A fresh nonce per send, not per daemon: two sends of one machine
+        // must not carry one tag, or a listener groups them again.
+        let packet = Announcement::seal(keys, household, service_port, now_unix())?;
         for target in &self.targets {
             self.socket.send_to(&packet, target)?;
         }
@@ -254,16 +261,21 @@ impl Lan {
 mod tests {
     use std::net::Ipv4Addr;
 
-    use itsanas_crypto::ID_LEN;
+    use itsanas_crypto::{MasterSecret, UserKeys};
 
     use super::*;
+    use crate::neighbours::Neighbours;
 
     fn loopback(port: u16) -> SocketAddr {
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)
     }
 
-    fn owner() -> UserId {
-        UserId::from_bytes([3u8; ID_LEN])
+    fn account() -> UserKeys {
+        UserKeys::derive(&MasterSecret::from_bytes([3u8; 32]))
+    }
+
+    fn owner() -> HouseholdKey {
+        HouseholdKey::of(&account())
     }
 
     /// A listener on an ephemeral loopback port, and a sender aimed at it.
@@ -284,7 +296,7 @@ mod tests {
         let (listener, sender) = pair();
         let keys = DeviceKeys::generate().unwrap();
 
-        sender.announce(&keys, owner(), 9797).unwrap();
+        sender.announce(&keys, &owner(), 9797).unwrap();
 
         let (heard, from) = listener
             .receive(Duration::from_secs(5))
@@ -292,9 +304,78 @@ mod tests {
             .expect("the announcement did not arrive");
 
         assert_eq!(heard.device, keys.device_id());
-        assert_eq!(heard.owner_tag, crate::beacon::owner_tag(owner()));
+        assert!(heard.is_mine(&owner()));
         assert_eq!(heard.port, 9797);
         assert!(from.is_loopback());
+    }
+
+    #[test]
+    fn red_team_an_upgraded_listener_still_learns_a_not_yet_upgraded_sender() {
+        // THE FAILURE: the household upgrades the laptop first. The Pi, still
+        // on the old build, keeps sending version 1. If the laptop refused it,
+        // the two would be blind to each other on the LAN for as long as the
+        // upgrade takes -- and "discovery silently does nothing" is the one
+        // symptom nobody reports.
+        //
+        // Over a real socket, the way the daemon hears it: the laptop learns
+        // the Pi's device and port and will dial it, among the strangers,
+        // because an unkeyed tag proves nothing about whose it is. If this
+        // fails, a mixed fleet loses discovery instead of only its grouping.
+        let (listener, sender) = pair();
+        let pi = DeviceKeys::generate().unwrap();
+        let old = Announcement::seal_v1(&pi, account().user_id(), 9797, 0);
+        sender.socket.send_to(&old, sender.targets[0]).unwrap();
+
+        let (heard, from) = listener
+            .receive(Duration::from_secs(5))
+            .unwrap()
+            .expect("the version 1 announcement did not arrive or was refused");
+        assert_eq!(heard.device, pi.device_id());
+        assert_eq!(heard.port, 9797);
+        assert!(heard.owner_tag.is_legacy());
+
+        let mut table = Neighbours::default();
+        table.record(&heard, from, now_unix());
+        let order = table.dial_order(&owner());
+        assert_eq!(order.len(), 1, "the old machine is not dialled at all");
+        assert_eq!(order[0].device, pi.device_id());
+        assert_eq!(order[0].address, SocketAddr::new(from, 9797));
+        assert!(
+            !order[0].mine,
+            "a version 1 tag, which anyone holding the user id forges, sorted as ours"
+        );
+    }
+
+    #[test]
+    fn two_accounts_on_one_machine_hear_each_other_and_keep_apart() {
+        // Named instances: two daemons of two accounts on one laptop. Each must
+        // learn the other's device and port -- they host for each other -- and
+        // neither may read the other as one of its own machines, which only
+        // the account's key now decides. The broadcast half of sharing the
+        // port is `two_nodes_on_one_machine_both_hear_the_discovery_port`.
+        let first = Lan::bind_to(loopback(0), Vec::new()).unwrap();
+        let second = Lan::bind_to(loopback(0), Vec::new()).unwrap();
+        let to_first = Lan::bind_to(loopback(0), vec![first.local_addr().unwrap()]).unwrap();
+        let to_second = Lan::bind_to(loopback(0), vec![second.local_addr().unwrap()]).unwrap();
+
+        let (a_keys, b_keys) = (
+            DeviceKeys::generate().unwrap(),
+            DeviceKeys::generate().unwrap(),
+        );
+        let a = HouseholdKey::of(&UserKeys::derive(&MasterSecret::from_bytes([0xA1; 32])));
+        let b = HouseholdKey::of(&UserKeys::derive(&MasterSecret::from_bytes([0xB2; 32])));
+        to_second.announce(&a_keys, &a, 9801).unwrap();
+        to_first.announce(&b_keys, &b, 9802).unwrap();
+
+        let (at_second, _) = second.receive(Duration::from_secs(5)).unwrap().unwrap();
+        let (at_first, _) = first.receive(Duration::from_secs(5)).unwrap().unwrap();
+        assert_eq!(
+            (at_second.device, at_second.port),
+            (a_keys.device_id(), 9801)
+        );
+        assert_eq!((at_first.device, at_first.port), (b_keys.device_id(), 9802));
+        assert!(at_second.is_mine(&a) && !at_second.is_mine(&b));
+        assert!(at_first.is_mine(&b) && !at_first.is_mine(&a));
     }
 
     #[test]
@@ -331,7 +412,7 @@ mod tests {
         let (listener, sender) = pair();
         let keys = DeviceKeys::generate().unwrap();
 
-        let mut packet = Announcement::seal(&keys, owner(), 9797, now_unix());
+        let mut packet = Announcement::seal(&keys, &owner(), 9797, now_unix()).unwrap();
         packet[100] ^= 0x40;
         sender.socket.send_to(&packet, sender.targets[0]).unwrap();
 
@@ -349,7 +430,9 @@ mod tests {
         let (listener, sender) = pair();
         let keys = DeviceKeys::generate().unwrap();
 
-        let mut packet = Announcement::seal(&keys, owner(), 9797, now_unix()).to_vec();
+        let mut packet = Announcement::seal(&keys, &owner(), 9797, now_unix())
+            .unwrap()
+            .to_vec();
         packet.extend_from_slice(&[0xAA; 64]);
         sender.socket.send_to(&packet, sender.targets[0]).unwrap();
 
@@ -412,7 +495,10 @@ mod tests {
         // non-sharing socket fails. Where a broadcast cannot leave, hearing is
         // not checkable, and this says so rather than passing on silence or
         // failing on something that is not the property under test.
-        match Lan::announcer(port).unwrap().announce(&keys, owner(), 9797) {
+        match Lan::announcer(port)
+            .unwrap()
+            .announce(&keys, &owner(), 9797)
+        {
             Ok(()) => {}
             Err(DiscoverError::Io(error))
                 if matches!(

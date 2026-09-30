@@ -350,6 +350,15 @@ impl UserKeys {
         &self.audit_order
     }
 
+    /// This account's key for recognising its own machines' LAN beacons.
+    ///
+    /// Derived on demand rather than held, like the master secret it comes
+    /// from; see [`kdf::CTX_USER_LAN_TAG`]. It must never be sent anywhere.
+    #[must_use]
+    pub fn lan_tag_key(&self) -> SymmetricKey {
+        kdf::derive(kdf::CTX_USER_LAN_TAG, self.master.expose())
+    }
+
     /// Derive a shared secret with another user, for wrapping keys to them.
     ///
     /// # Errors

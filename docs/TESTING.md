@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 881 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 132 are red-team tests.**
+**Last updated: 2026-09-30 — 888 test functions across 27 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 138 are red-team tests.**
 
-**765 of the 881 tests have an entry of their own on this page** — an *entry*,
+**772 of the 888 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -167,7 +167,7 @@ guarantee and is not one.
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 108 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 15 |
-| `itsanas-discover` unit | 36 |
+| `itsanas-discover` unit | 43 |
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
@@ -218,8 +218,14 @@ are the answer to that.
 | **`red_team_a_host_that_keeps_discarding_stops_getting_free_uploads`** | The follow-up attack: keep doing it, and let the owner's own repair drain their uplink forever. |
 | **`red_team_a_host_that_keeps_discarding_stops_costing_bandwidth`** | The rule underneath it. |
 | **`red_team_a_host_that_threw_the_data_away_stops_counting_as_a_holder`** | Accept everything, delete it, keep claiming the space. Free, undetectable without audits, and fatal to the replication guarantee. |
-| **`red_team_the_user_id_never_appears_on_the_wire`** | Sit on a café or hotel network and listen. A user id is a public key; broadcasting it every thirty seconds would tell the room whose machine this is. The announcement carries a keyed tag instead. |
-| **`red_team_a_stranger_cannot_compute_the_tag_without_knowing_the_user_id`** | Claiming to be one of the victim's own machines buys priority in their dial order. A guessable tag would hand that over for free; a keyed derivation means you must already know who you are targeting. |
+| **`red_team_the_user_id_never_appears_on_the_wire`** | Sit on a café or hotel network and listen. A user id is a public key; broadcasting it every thirty seconds would tell the room whose machine this is. Neither it, nor the household key, nor the version 1 tag of it is in a version 2 packet. |
+| **`red_team_two_beacons_of_one_account_carry_unlinkable_tags`** | Listen and group. Version 1 sent one tag per account for ever, so anyone could tell which machines belong together. Two beacons of one machine, and of two machines of one account, now carry unrelated tag fields (neither half repeats) and the household still recognises each. Sabotaged with a fixed nonce: red. |
+| **`red_team_a_stranger_holding_the_user_id_cannot_recognise_the_tag`** | A user id is public. Version 1's tag was a hash of it, so knowing who you are was enough to pick out your machines. Recognising a version 2 tag needs the account's master secret: another account's key does not, an unkeyed hash does not match, a hash keyed on the user id does not match. Sabotaged with an unkeyed hash and with the user id as the key: red. |
+| **`red_team_a_tag_lifted_onto_another_device_is_not_recognised`** | Copy a household member's tag into a beacon signed by your own minted device and sort to the front of their dial order. The device is inside the keyed hash, so the copy fails. Sabotaged by dropping the device from the hash: red. A whole beacon replayed from another address still reads as "mine"; that costs one dial, which TLS device pinning refuses. |
+| **`red_team_a_version_1_beacon_is_still_heard_and_never_counted_as_mine`** | Two failures at once. Refuse version 1 and an upgrade makes the household blind to its not-yet-upgraded machines on the LAN; count its unkeyed tag as ours and the old format is a downgrade path back to the forgeable tag. Sabotaged with a version check accepting only 2, and with a legacy tag read as ours: red. |
+| **`red_team_an_upgraded_listener_still_learns_a_not_yet_upgraded_sender`** | The mixed fleet over a real socket: a version 1 Pi's beacon reaches an upgraded laptop, which records its device and port and dials it among the strangers. Sabotaged with a version check accepting only 2: red. |
+| **`red_team_a_copied_tag_does_not_sort_a_stranger_among_my_machines`** | The copied-tag attack at the layer the daemon dials from: the table checks each tag against the device it stored. Sabotaged by checking against any stored device: red, while every beacon-level test stayed green. Found by `itsanas-redteam`. |
+| **`red_team_a_replayed_version_1_beacon_does_not_demote_an_upgraded_machine`** | Nothing in a beacon is fresh, so an old version 1 beacon of an upgraded laptop, replayed, replaced its version 2 tag and dropped it among the strangers, its silence no longer reported. A device heard on version 2 keeps its tag. Sabotaged by removing that rule: red. Found by `itsanas-redteam`. |
 | **`red_team_grinding_one_account_is_cut_off_after_a_few_attempts`** | The escrow blob is fetchable by anyone with a username, because a machine recovering from nothing has nothing to prove with. Grinding it is the attack, and the rate limit is the only defence — the single job a central component does better than a distributed one. |
 | **`red_team_flooding_invented_names_cannot_reset_a_real_account_counter`** | The limiter is a table a stranger writes into. Evicting to make room would let an attacker clear their own counter. |
 | **`red_team_reconnecting_does_not_reset_the_escrow_attempt_budget`** | A per-connection budget is no budget: reconnecting costs a handshake and buys a fresh one. |
@@ -1290,7 +1296,7 @@ destructive if wrong.
 
 ---
 
-# `itsanas-discover` — serverless local discovery (36)
+# `itsanas-discover` — serverless local discovery (43)
 
 The only parser in the project fed unsolicited packets by anybody, with no
 handshake in front of it. Everything else sits behind TLS and behind a peer that
@@ -1298,7 +1304,7 @@ has already proved which device it is, so this crate is tested the way a network
 edge has to be: every corruption, every truncation, and the failure modes of the
 hardware it will actually run on.
 
-## `beacon` — the announcement (14)
+## `beacon` — the announcement (17)
 
 | Test | What it proves |
 | --- | --- |
@@ -1309,21 +1315,26 @@ hardware it will actually run on.
 | **`a_signature_from_another_domain_does_not_verify_here`** | Domain separation checked rather than assumed: a signature the device made for the peer protocol must not be replayable as a presence announcement. |
 | **`an_ancient_clock_still_produces_a_valid_announcement`** | A Raspberry Pi 4 has no real-time clock and announces itself believing it is 1970. It must still be findable, or a machine that just came back is invisible until NTP runs. |
 | **`red_team_the_user_id_never_appears_on_the_wire`** | See **Red-team tests** above. |
-| **`red_team_a_stranger_cannot_compute_the_tag_without_knowing_the_user_id`** | See **Red-team tests** above. |
-| `the_tag_is_stable_so_a_household_keeps_recognising_itself` | The tag is deliberately not rotated on a clock: a Pi 4 has no RTC and boots in 1970, and a daily tag would make its own household treat it as a stranger exactly when it came back from a power cut. |
-| `the_layout_is_exactly_as_documented` | The wire format is a compatibility commitment. If it drifts, an older build on another machine stops finding this one and the symptom is "discovery silently does nothing". |
-| `an_unknown_version_is_refused_not_guessed_at` | No optimistic reinterpretation of a future format, whose fields may mean something else entirely at these offsets. |
+| **`red_team_two_beacons_of_one_account_carry_unlinkable_tags`** | See **Red-team tests** above. |
+| **`red_team_a_stranger_holding_the_user_id_cannot_recognise_the_tag`** | See **Red-team tests** above. |
+| **`red_team_a_tag_lifted_onto_another_device_is_not_recognised`** | See **Red-team tests** above. |
+| **`red_team_a_version_1_beacon_is_still_heard_and_never_counted_as_mine`** | See **Red-team tests** above. |
+| `the_household_recognises_itself_whatever_its_clock_says` | No clock is in the tag: a Pi 4 has no RTC and boots in 1970, and a tag rotated on time would make its own household treat it as a stranger exactly when it came back from a power cut. Checked at clocks 0, 2023 and `u64::MAX`. |
+| `the_layout_is_exactly_as_documented` | The wire format is a compatibility commitment. If it drifts, an older build on another machine stops finding this one and the symptom is "discovery silently does nothing". Version 2 changed byte 8 and the meaning of bytes 9..41 on purpose and kept the 147 bytes and every other offset; a version 1 packet is checked to be the same size. |
+| `an_unknown_version_is_refused_not_guessed_at` | No optimistic reinterpretation of a future format, whose fields may mean something else entirely at these offsets. Versions 0, 3 and 255 are refused; 1 and 2 are read. |
 | `foreign_traffic_is_discarded_on_the_magic_rather_than_the_signature` | Sharing a port with something else costs one comparison, not a signature check per packet. |
 | `a_zero_port_is_refused` | An announcement nothing can serve is either a bug or bait for a connection that cannot succeed. |
 | `an_announcement_round_trips` | The basic path. |
 
-## `neighbours` — the bounded table (12)
+## `neighbours` — the bounded table (14)
 
 | Test | What it proves |
 | --- | --- |
 | **`a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address`** | Why the *receiver's* clock decides and the sender's is ignored. Superseding by sender clock would leave a rebooted Pi pinned to a stale address until NTP ran — exactly when someone is waiting for it to come back. |
 | **`the_table_never_grows_past_its_capacity`** | A device id is a free keypair, so anyone on the network can mint valid announcements without limit. Unbounded means an out-of-memory kill on the Pi, triggered by a stranger. |
 | **`a_flood_of_strangers_cannot_evict_a_known_peer`** | The eviction attack. Without protection, a flood pushes the Pi out of every table and the household stops syncing while every node believes discovery is working. |
+| **`red_team_a_copied_tag_does_not_sort_a_stranger_among_my_machines`** | See **Red-team tests** above. |
+| **`red_team_a_replayed_version_1_beacon_does_not_demote_an_upgraded_machine`** | See **Red-team tests** above. |
 | **`own_devices_are_dialled_before_strangers`** | Reaching your own machines is what makes a folder appear; a stranger is a hosting candidate and can wait. |
 | `a_table_full_of_protected_devices_refuses_a_stranger_rather_than_forgetting_one` | The bound is never satisfied by discarding something known real. |
 | `the_oldest_unprotected_entry_is_the_one_evicted` | Eviction is least-recently-heard, not arbitrary. |
@@ -1334,7 +1345,7 @@ hardware it will actually run on.
 | `a_new_device_is_recorded_with_the_address_it_was_heard_from` | The address comes from the datagram, never from the packet. |
 | `a_capacity_of_zero_is_treated_as_one_rather_than_never_recording` | A misconfiguration degrades rather than silently disabling discovery. |
 
-## `lan` — the socket (10)
+## `lan` — the socket (12)
 
 | Test | What it proves |
 | --- | --- |
@@ -1347,6 +1358,8 @@ hardware it will actually run on.
 | `foreign_traffic_on_the_port_is_reported_as_foreign_not_as_a_failure` | A busy network must not flood the log and hide the failure that matters. |
 | `a_broadcasting_socket_asks_the_kernel_for_broadcast` | Without `SO_BROADCAST` nothing reaches 255.255.255.255 and every send still reports success. |
 | **`two_nodes_on_one_machine_both_hear_the_discovery_port`** | Replaces a test that asserted the opposite. Two accounts on one machine bind UDP 21037 together (`SO_REUSEADDR`) and both hear one real broadcast. The refusal it replaces did not stop the second node: it ran with discovery silently off. Sound only because discovery never sends unicast, which reaches one socket of several. **On a machine that cannot send a broadcast at all** — the macOS CI runner answers "No route to host" — only the shared bind is checked, and the test says so on stderr; hearing is checked on Linux and Windows. |
+| **`red_team_an_upgraded_listener_still_learns_a_not_yet_upgraded_sender`** | See **Red-team tests** above. |
+| `two_accounts_on_one_machine_hear_each_other_and_keep_apart` | Named instances of two accounts on one machine learn each other's device and port over real sockets, and neither reads the other as its own: only the account's key decides that now. |
 | `the_announce_interval_is_not_expensive_to_leave_running` | An acceptance criterion, not a preference: the first version that keeps a laptop awake gets uninstalled. Under half a megabyte a day, and one lost packet never forgets a peer. |
 
 ---

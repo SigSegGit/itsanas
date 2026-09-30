@@ -9,16 +9,31 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.3d
-TITLE: the LAN beacon stops grouping an account's machines: a per-beacon nonce and keyed tag, no clock
+NEXT: 8.2a
+TITLE: red-team the integrity surface by hand: what a hostile peer can make this node believe
 WRITTEN-AT: 2026-09-30
-BASE: 0d4cd98
+BASE: edba361
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-09-30, 3d: the LAN beacon is version 2** (branch
+`step/8.3d-beacon-keyed-tag`). Tag field = 16 B random nonce + 16 B
+`keyed_hash(UserKeys::lan_tag_key, nonce || device)`, 147 B kept, no clock.
+The daemon already held `Node::user`, so no redesign. `parse` reads v1 and v2;
+v1 is `OwnerTag::Legacy`: dialled, never "mine". **§8 3d was wrong** ("v1 heard
+as a stranger is safe"): `parse` refused every version but its own. Verified:
+seven new red-team tests, one plain; eight sabotages red (fixed nonce, unkeyed
+hash, key = user id, device out of the hash, v2-only check, legacy read as
+mine; from `itsanas-redteam`: a replayed v1 beacon demoting a v2 machine, now
+refused, and the table checking the wrong device). **Not verified:** a real v1
+build against a v2 one (a test helper builds the old layout); a v1 build refuses
+v2, so an old machine hears nobody and is found only by being dialled. Named, not fixed:
+a replayed v2 beacon reads as "mine" (one dial, TLS pinning refuses). Next is
+8.2a: all other open §8 items are host-side or wait on Nicolas.
 
 **2026-09-30, 3b: the pledge reads a running total** (branch
 `step/8.3b-chunk-bytes-total`). `Vault::held_bytes` = `vault_totals`
@@ -1880,7 +1895,8 @@ Each of these has a test that fails if it is:
 | The vault takes no keys in any constructor | "A host cannot read what it stores" is structural, not a matter of nobody having written the call | `vault.rs` has no key parameter anywhere |
 | Symlinks are skipped, never followed | A link to `~/.ssh` inside the folder would upload a private key | `symlinks_are_skipped_rather_than_followed` |
 | Completing a handshake earns a peer nothing | Device keys are free keypairs, so authenticating identifies a peer and vouches for nothing. Treating it as trust turns the anti-flood measure into the flood's best tool | `red_team_a_flood_of_authenticating_strangers_cannot_take_over_the_table`, `red_team_a_peer_that_only_answered_the_phone_has_earned_nothing` |
-| The user id is never broadcast, only a keyed tag of it | A user id is a public key; announcing it every 30 seconds on a café network tells the room whose machine this is | `red_team_the_user_id_never_appears_on_the_wire` |
+| The user id is never broadcast; the beacon's tag is a fresh nonce and a hash keyed on the account's secret, over nonce and device, with no clock in it | A user id is a public key; announcing it every 30 seconds on a café network tells the room whose machine this is. A tag derived from it alone (version 1) let anyone group an account's machines and anyone holding the id recognise them; a tag rotated on a clock strands a Pi booted in 1970 | `red_team_the_user_id_never_appears_on_the_wire`; `red_team_two_beacons_of_one_account_carry_unlinkable_tags`; `red_team_a_stranger_holding_the_user_id_cannot_recognise_the_tag` |
+| A version 1 beacon is still read, and never counted as ours | Refusing it makes an upgrade split the household on the LAN; trusting its unkeyed tag makes the old format a downgrade path to a forgeable one | `red_team_an_upgraded_listener_still_learns_a_not_yet_upgraded_sender`; `red_team_a_version_1_beacon_is_still_heard_and_never_counted_as_mine` |
 | A replay of the vault happens only when a marker says work is outstanding | Unconditional replay turned the daemon's per-round cost from "the new segments" into "the whole chain, times the peers"; never replaying means deferred work is silently never retried | `a_round_that_deferred_nothing_does_not_replay_the_chain_next_time` |
 | Claims are kept in both key orders, written in one transaction, and an older file is repaired on open | A lookup by account used to walk every claim in the directory, so one member's question cost O(devices in the whole network) and the coordinator's work grew with the square of the fleet -- 2.58 ms per lookup at 3000 devices, against ~8 µs now. Denormalised, and only defensible because a device can never change owner, so an index row is written once and never moves. Reading a pre-index file as "this account has no devices" would tell every member their machines were gone | `the_index_and_the_claims_never_disagree_whatever_is_done_to_them`; `a_directory_written_before_the_index_existed_is_repaired_on_open`; `red_team_one_accounts_range_cannot_reach_into_the_next_accounts_devices` |
 | The holder ledger is kept in both key orders, written in one transaction | The two questions asked of it are range scans under opposite prefixes; one ordering makes the other a full table walk. Denormalised, and only defensible because every write and every removal touches both | `the_two_orderings_never_disagree_whatever_is_done_to_the_ledger` |
@@ -2900,7 +2916,25 @@ Detail and measurements are in ROADMAP.md; this is the map.
    downgrade past a later defence), *confidentiality* (convergent ciphertext, what
    two hosts learn by comparing notes), *identity* (many devices, claiming someone
    else's device, LAN discovery eclipse). Git history was checked for secrets on
-   2026-09-14 and is clean.
+   2026-09-14 and is clean. *Identity* was examined by hand on 2026-09-15
+   (ROADMAP, "The identity surface, examined 2026-09-15"; §8 0g); integrity and
+   confidentiality remain.
+
+   a. **Integrity, by hand: what a hostile peer can make this node believe.**
+      Chosen 2026-09-30 as `NEXT` because every other open §8 item is
+      host-side enforcement (1c, deferred by 0), or waits on Nicolas (0c, 0f's
+      menu, 0i, 0k, 3c, 5). Not yet read for this: start from where a pulled
+      segment is opened and applied -- `crates/itsanas-store/src/oplog.rs`
+      (segments, `VersionVector`, ~66-125) and the merge in
+      `crates/itsanas-store/src/catalogue.rs` (`CausalOrder`, ~64-93) -- and
+      where a pulled chunk is checked against its address
+      (`UserKeys::open_chunk`, `crates/itsanas-crypto/src/identity.rs`).
+      Attacks to try, each as a red-team test that fails today or a named
+      reason it cannot: a segment replayed from an older state; a version
+      vector that wins over, or resurrects, a deletion; a chunk whose bytes do
+      not match its id; a peer serving a prefix (compare §9 "Tail
+      truncation", deliberately open -- do not re-find it). One finding per
+      PR; the survey's list goes in ROADMAP "What an adversarial sweep found".
 3. **The open findings** listed in ROADMAP.md, one per session.
 
    a. ✅ **`pledge` and the Android setters keep the split.** Built
@@ -2938,7 +2972,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
       update on delete. Not enforcement: same rule, cheaper to ask.
    c. Chunk-size sequences fingerprint files (ROADMAP; not decided, costs
       disk on every host -- a question for Nicolas before code).
-   d. **The LAN beacon stops grouping an account's machines.** Checked
+   d. ✅ **The LAN beacon stops grouping an account's machines.** Built
+      2026-09-30 (see §0). **Corrected:** this item said a v1 beacon "heard
+      as a stranger is safe". It was not, and no test ran it: `parse`
+      refused any version other than `BEACON_VERSION`, so a plain bump would
+      have made v1 and v2 machines blind to each other during an upgrade.
+      Built instead: `parse` reads 1 and 2, v1 comes back `OwnerTag::Legacy`
+      (dialled, never "mine"), `seal` writes 2 only: a per-beacon nonce and
+      a hash keyed on the account over nonce and device, no clock. The original text follows. Checked
       2026-09-30: `owner_tag` (`crates/itsanas-discover/src/beacon.rs` ~87)
       is `blake3::derive_key(OWNER_TAG_DOMAIN, user_id)`, the same 32 bytes
       from every machine of an account for ever, so a listener groups them and
@@ -2953,7 +2994,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       in `crates/itsanas-discover/src/neighbours.rs` (`dial_order(owner)`,
       own machines first) -- both must take the key, not a user id. Decide
       and write down what a v1 beacon from a not-yet-upgraded machine does
-      (heard as a stranger is safe; the dial order degrades only). Red-team
+      (see the correction above). Red-team
       test expected: two beacons from one device carry different tag fields,
       and a household member still recognises both; sabotage by a fixed
       nonce (tags equal) and by an unkeyed hash (a stranger holding the user
