@@ -128,6 +128,14 @@ fn red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_w
                 .is_none(),
             "the client sent the claim anyway"
         );
+        // The Android app has no `device forget` to type: it reads the ids
+        // out of this refusal to put a withdraw button beside each.
+        let named = coordinator::cap_named(&refused).expect("not read as the limit's refusal");
+        assert_eq!(
+            named.len(),
+            nodes.len(),
+            "the phone would not be offered every device: {named:?}"
+        );
     });
 }
 

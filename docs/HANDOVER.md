@@ -9,16 +9,34 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.2e
-TITLE: the Android app can withdraw a device, so an Android-only account at the cap is not stuck
+NEXT: 8.4
+TITLE: verification at a terabyte -- within a differing bucket, ask only about chunks with no fresh record for that peer
 WRITTEN-AT: 2026-10-01
-BASE: a7defef
+BASE: e901434
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-01, 2e: the Android app lists and withdraws devices** (branch
+`step/8.2e-android-devices`). Settings, "This account's devices": the
+coordinator's list, this phone marked, Withdraw beside the others, a
+confirmation saying the consequence. Joining at the 5-device limit opens that
+screen on the ids the refusal named (`coordinator::cap_named`), so an
+all-phone account whose phones are lost frees a slot from the new one. Core
+shared with the CLI: `coordinator::withdraw_device` (refuses the device
+asking); phone rule: only a full id the listing shows. Also: `setLimits` saves
+pledge and keep as a pair (raising both was refused), split refusals in the
+phone's words, a test holding `Native.kt` to the JNI exports.
+`itsanas-redteam` found 3, fixed and tested: stale remembered ids in a
+complete list, a partial refusal miscounted, a negative pledge taken as
+positive. Verified: 7 Rust tests, 11 sabotages red, APK built by hand.
+**Not verified:** no screen opened, Kotlin untested (no CI job runs the app);
+the node lock is held across the coordinator dials of `withdraw` (redteam,
+suspected, not measured). Trap: Git Bash heredocs ate a `\` in a Python
+edit script again -- write scripts with the Write tool.
 
 **2026-10-01, 2c: one refused chain no longer stalls a pull** (branch
 `step/8.2c-refused-chain`). `session::pull_scoped` only: `keep_chain` keeps a
@@ -47,21 +65,7 @@ lists nothing. Verified: 10 tests, 10 code sabotages red, the gate red three
 ways, the CLI path by hand both ways. Not done: Android has no withdraw;
 withdrawn rows still unbounded. Next is 2c.
 
-**2026-09-30, 2b: confidentiality surface red-teamed by hand** (branch
-`step/8.2b-confidentiality-redteam`). Table in ROADMAP "The confidentiality
-surface, by hand". One new red-team test, sabotaged red by a convergent seal:
-two accounts sealing one file share no sealed bytes. **Found, named, not
-fixed:** reads are not scoped to the account -- any device key (anyone can
-make one) reads any account's envelopes, addresses and sealed chunks from any
-host, given the user id; the fix is the roster of §10 question 7. By design:
-op counts, sizes, cadence. **Not tested:** the has_chunk race in `kept` (no
-seam for a second writer) and repeated fetches of a shared noisy chunk (the
-simulator counts no fetches); the path-echo answer is from reading. §10
-gains question 7 (the #207 re-signing hole). Next, 2c: still agent-doable,
-client-side, not enforcement. Trap: `sabotage.py` with `cargo test -q`
-reports "the build itself refused it" for a test that failed; drop `-q`.
-
-Older §0 entries, 2026-09-14 to 2026-09-30 (2a and before), moved verbatim
+Older §0 entries, 2026-09-14 to 2026-09-30 (2b and before), moved verbatim
 to [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md): history, not instructions.
 The rules that still bind are in §3, §4b and §11.
 
@@ -1387,7 +1391,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
       deferred, the round says so; sabotage by propagating the error again.
       Do not hide the failure: a chain refused must still be visible.
 
-   e. **The Android app can withdraw a device.** Open from 2d: at the cap
+   e. ✅ **The Android app can withdraw a device.** Built 2026-10-01 (see §0;
+      ROADMAP "At most 5 live devices per account"). Open from it: the
+      Kotlin screens untested; the node lock held across the dials of
+      `withdrawDevice`; `complete` is not false when the coordinator's list
+      is truncated at `MAX_PEERS_RETURNED`. Original text follows.
+      Open from 2d: at the cap
       (`MAX_DEVICES_PER_ACCOUNT` = 5, `crates/itsanas-coord/src/claim.rs`
       ~106) the refusal tells the person to run `itsanas device forget <id>`
       (`crates/itsanas-node/src/coordinator.rs` ~257), and an account whose
@@ -1471,6 +1480,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
 4. **Verification at a terabyte.** Within a differing bucket, ask only about
    chunks with no fresh record for that peer (DESIGN.md §6.5). Today the budget
    buys about 3 MB of change a day at 1 TB.
+   Chosen as `NEXT` on 2026-10-01: §8 2 is finished, 3c waits on Nicolas, and
+   this needs nobody. Not yet read for this beyond locating it: the sweep is
+   `sweep` in `crates/itsanas-net/src/session.rs` (~244), narrowed to the
+   buckets the 256-bucket summary names (`Reconciled::Buckets`, ~612);
+   freshness is `holders::REFRESH_AFTER` / `LIVE_FOR`
+   (`crates/itsanas-store/src/holders.rs` ~470-500). DESIGN.md §6.5 has the
+   table to beat (1 differing chunk at 1 TB lists 2.1 MB) and names the
+   second cost: `sweep` pages the whole live-chunk index even for one bucket.
+   Watch the agreement rule (§6.7, ~593): a chunk not asked about must not
+   lose its fresh record. Red-team test expected: one changed chunk in a
+   bucket of many fresh ones lists only the stale ones; sabotage by asking
+   about the whole bucket again (the count goes back up); and a chunk the
+   peer silently dropped is still found within `LIVE_FOR`.
 5. **A real phone**, and a release signing key for the APK that Nicolas holds
    (v0.1.0 ships with the development key).
 

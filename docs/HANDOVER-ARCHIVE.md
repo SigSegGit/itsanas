@@ -11,6 +11,20 @@ both.
 
 ---
 
+**2026-09-30, 2b: confidentiality surface red-teamed by hand** (branch
+`step/8.2b-confidentiality-redteam`). Table in ROADMAP "The confidentiality
+surface, by hand". One new red-team test, sabotaged red by a convergent seal:
+two accounts sealing one file share no sealed bytes. **Found, named, not
+fixed:** reads are not scoped to the account -- any device key (anyone can
+make one) reads any account's envelopes, addresses and sealed chunks from any
+host, given the user id; the fix is the roster of §10 question 7. By design:
+op counts, sizes, cadence. **Not tested:** the has_chunk race in `kept` (no
+seam for a second writer) and repeated fetches of a shared noisy chunk (the
+simulator counts no fetches); the path-echo answer is from reading. §10
+gains question 7 (the #207 re-signing hole). Next, 2c: still agent-doable,
+client-side, not enforcement. Trap: `sabotage.py` with `cargo test -q`
+reports "the build itself refused it" for a test that failed; drop `-q`.
+
 **2026-09-30, 2a: integrity surface red-teamed by hand** (branch
 `step/8.2a-integrity-redteam`). Table of attacks, defences and tests in ROADMAP
 "The integrity surface, by hand". Two holes fixed, one named: a chunk refused by

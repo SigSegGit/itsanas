@@ -155,4 +155,22 @@ object Account {
         Native.setPledge(bytes)
         Unit
     }
+
+    /**
+     * Pledge and keep in one call. Saved one after the other, raising both
+     * was refused: the new keep was checked against the old pledge.
+     */
+    suspend fun setLimits(pledge: Long, keep: Long?) = withContext(Dispatchers.IO) {
+        Native.setLimits(pledge, keep ?: 0L)
+        Unit
+    }
+
+    suspend fun devices(): DeviceList = withContext(Dispatchers.IO) {
+        DeviceAnswers.list(Native.devices())
+    }
+
+    /** Withdraw a device; answers the sentence to show. */
+    suspend fun withdrawDevice(id: String): String = withContext(Dispatchers.IO) {
+        org.json.JSONObject(Native.withdrawDevice(id)).getString("said")
+    }
 }

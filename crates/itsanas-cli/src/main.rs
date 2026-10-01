@@ -2159,7 +2159,7 @@ fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
     if let DeviceCommand::Forget { device } = what
         && let Ok(wanted) = device.parse::<DeviceId>()
     {
-        return withdraw(&node, wanted, mine);
+        return withdraw(&node, wanted);
     }
 
     // Every enrolled device where the coordinator can say so, and the
@@ -2214,19 +2214,15 @@ fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
             Ok(())
         }
 
-        DeviceCommand::Forget { device } => withdraw(&node, resolve_device(device, &listed)?, mine),
+        DeviceCommand::Forget { device } => withdraw(&node, resolve_device(device, &listed)?),
     }
 }
 
 /// `itsanas device forget`, once the device is known.
-fn withdraw(node: &Node, wanted: DeviceId, mine: DeviceId) -> Result<()> {
-    if wanted == mine {
-        return Err(CliError::Usage(
-            "that is this machine. Withdrawing it from here would leave a node running and unlisted; run this from another device of the account.".to_owned(),
-        ));
-    }
-
-    coordinator::forget_device(node, wanted, itsanas_discover::now_unix())?;
+fn withdraw(node: &Node, wanted: DeviceId) -> Result<()> {
+    // The rule against withdrawing this machine is in `withdraw_device`, so
+    // the Android app applies the same one.
+    coordinator::withdraw_device(node, wanted, itsanas_discover::now_unix())?;
     println!("withdrew {wanted}");
     println!("  Nothing will dial it through the coordinator again, and the");
     println!("  withdrawal is final for that device id. To use that machine");
