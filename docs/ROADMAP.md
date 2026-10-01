@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**911 test functions, 4 of them `#[ignore]`d into the slow job, and 155 of
+**917 test functions, 4 of them `#[ignore]`d into the slow job, and 155 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1053,6 +1053,18 @@ deletion removed it from both. Both folders ended byte-identical.
   which size-and-mtime comparison cannot see.
 - **Conflicts keep both.** A local edit colliding with an incoming one moves the
   local version aside rather than overwriting it.
+- **A pass names the files it touched, and a move reads as one move**
+  (2026-10-01, `tests/reports.rs`). `itsanas scan` lists every file, `itsanas
+  sync` and the daemon's log every deletion and conflict, then the first
+  `LINES_IN_A_LOG` (20) renames, imports and exports, and count the rest. A
+  deletion and an addition of the same non-empty bytes in one pass, one of
+  each, with no other live file holding those bytes, are reported as `mv from
+  -> to` -- here or on another device -- and counted once as "renamed". Recognised only: the log still carries a delete and
+  a create, and a file renamed *and* edited in one pass, or one of two identical
+  copies, still reads as a deletion and an addition, because the bytes do not
+  say which became which. ⬜ Not on Android: the app shows no per-file report.
+  ⬜ Paths are printed raw: a file name holding a newline could forge a line
+  in the log (older than this, suspected by `itsanas-redteam`, not tested).
 - **Symlinks are skipped, never followed** — a link inside the folder pointing
   at `~/.ssh` would otherwise quietly upload a private key.
 - **Atomic writes.** A torn file in a synced folder is worse than a missing one:

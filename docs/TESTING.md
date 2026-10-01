@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-01 — 911 test functions across 28 binaries, 4 of them
+**Last updated: 2026-10-01 — 917 test functions across 29 binaries, 4 of them
 `#[ignore]`d, plus 2 doctests. 155 are red-team tests.**
 
-**795 of the 911 tests have an entry of their own on this page** — an *entry*,
+**801 of the 917 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -172,6 +172,7 @@ guarantee and is not one.
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
+| `itsanas-folder` reports (`tests/reports.rs`) | 6 |
 | `itsanas-cli` unit | 40 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
@@ -1444,6 +1445,28 @@ hostile *host*, and a hostile host is somebody who joined.
 
 ---
 
+# `itsanas-folder` — what a pass tells the person reading it (`tests/reports.rs`) (6)
+
+The store's view of a rename is a deletion and an addition, and that is what
+replicates; nothing here changes it. What changes is the report `itsanas scan`,
+`itsanas sync` and the daemon print: they name the files, and a move reads as
+one move instead of "a file was lost and an unknown one appeared" -- the line
+that sends somebody to restore a file they only moved. Functional tests: no
+data or key is touched, each was sabotaged anyway (2026-10-01, seven sabotages,
+each turned its test red). The last two tests come from the `itsanas-redteam`
+pass on the diff: both were ways for the report to hide a deletion.
+
+| Test | Why it exists |
+|---|---|
+| `a_file_renamed_in_the_folder_is_reported_as_one_rename` | A file moved into a subdirectory comes out as one `mv` line and "1 renamed" in the summary, not "1 in, 1 deleted locally"; the store still deleted the old path and holds the new one, byte for byte. Sabotage: no pairing, or the summary counting the pair twice. |
+| `a_rename_made_on_another_device_is_reported_as_one_rename` | The same for a move another device made: the old file leaves this disk, the new one arrives, the report says it was renamed elsewhere. Sabotage: no pairing. |
+| `only_an_unambiguous_move_of_the_same_bytes_is_called_a_rename` | Two identical copies deleted and one created, a file renamed *and* edited, and an empty file swapped for another empty one: none is called a rename, because the bytes do not say which file became which. Sabotage: pair the first candidate, or pair empty files. |
+| `a_log_names_the_first_files_and_counts_the_rest` | The daemon's log names at most `LINES_IN_A_LOG` files and counts the rest in a last line, so a first pass over a full library does not flood it and nothing vanishes without a number; `scan` lists every one. Sabotage: drop the "and N more" line. |
+| `deleting_one_of_two_copies_is_a_deletion_not_a_rename` | `a` and `c` hold the same bytes; `a` deleted and `c` copied to `b` is one gone and one come with those bytes, but `a` was a distinct file: the report names its deletion, not `mv a -> b`. A pair counts only when the new path is the only live one with its bytes. Sabotage: ignore the other live copy. |
+| `a_bounded_log_still_names_every_deletion_and_conflict` | Thirty imports, a peer's deletion and a conflict in one pass: the bounded log names the deletion and the conflict and bounds only the imports. Before, the bound cut from the tail and both fell into "N more". Sabotage: one list cut as a whole. |
+
+---
+
 # `itsanas-folder` — storage that vanished (`tests/storage_vanished.rs`) (6)
 
 The failure this file is about is not exotic and it destroys data on every
@@ -1737,7 +1760,10 @@ concurrent edits and the delete/edit race. Still outstanding:
 - **Rename detection** does not re-upload chunk data. Deduplication already makes
   a rename cheap in bytes — the chunks are identical, so nothing is re-stored —
   but the operation log currently records it as a delete plus a create rather
-  than as a rename, which costs a log entry and loses the user's intent.
+  than as a rename, which costs a log entry. ✅ The user's intent is no longer
+  lost in what they read: since 2026-10-01 a folder pass recognises a move of
+  the same bytes, here or on another device, and reports it as one rename
+  (`tests/reports.rs`). ⬜ The log itself still carries two operations.
 - **File watching**, once M7 gives it a daemon to live in: dropped `notify`
   events under load are covered by the periodic rescan, and that rescan needs a
   test that removes events deliberately.

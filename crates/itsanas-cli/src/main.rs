@@ -2771,20 +2771,9 @@ fn scan(home: &Path, deep: bool) -> Result<()> {
     let report = folder.reconcile(&node.store, deep)?;
 
     println!("{}", report.summary());
-    for path in &report.imported {
-        println!("  in   {path}");
-    }
-    for path in &report.exported {
-        println!("  out  {path}");
-    }
-    for path in &report.removed_from_store {
-        println!("  del  {path} (deleted here, will be deleted everywhere)");
-    }
-    for path in &report.deleted_from_disk {
-        println!("  rm   {path} (deleted elsewhere, removed from this folder)");
-    }
-    for (original, sibling) in &report.kept_both {
-        println!("  !!   {original} conflicted — your version kept as {sibling}");
+    // Every file, unbounded: somebody typed `scan` to see them.
+    for line in report.lines(None) {
+        println!("{line}");
     }
     for (path, why) in &report.failed {
         eprintln!("  err  {path}: {why}");

@@ -11,6 +11,33 @@ both.
 
 ---
 
+**2026-10-01, 2c: one refused chain no longer stalls a pull** (branch
+`step/8.2c-refused-chain`). `session::pull_scoped` only: `keep_chain` keeps a
+chain's genuine prefix when `put_segment` refuses a segment, `apply_per_chain`
+leaves out a chain failing `validate_chain` or `open_segment` and applies the
+others; `SyncReport::refused_chains` (new field, `absorb` to sum) is printed by
+`itsanas sync` and the daemon. No protocol or `validate_chain` change. Worse
+than §8 said: a stranger's free key signing one segment under a user id
+stalled that account's pull on every node, every round. Verified: 3 tests,
+4 sabotages red; a marker condition I added turned nothing red and was
+removed. Not done (ROADMAP "One refused chain"): `fetch_only`, `drain_vault`,
+budgeted `keeping::round`; refresh stage not end to end. Over the 20-point
+cap, so no `itsanas-redteam` pass. Next: 2e, Android withdraw.
+
+**2026-10-01, 2d: at most 5 live devices per account** (branch
+`step/8.2d-device-cap`; Nicolas's decision of 2026-09-30, §6). One constant,
+`MAX_DEVICES_PER_ACCOUNT` (`itsanas-coord` `claim.rs`), enforced in
+`Directory::claim` (inside the write transaction, nothing written on refusal)
+and in `coordinator::register_with` before signing. Re-signing a live device
+takes no slot, a withdrawal frees one, a withdrawn device stays out, an
+account above 5 keeps its devices. `check-bargain.py` now also holds four
+documents to the number (no new gate, so no `ci.yml` change). `itsanas-redteam`
+found a permanent lockout (all five machines lost, the new one could neither
+register nor `forget`): fixed, refusals carry full ids and `forget <full id>`
+lists nothing. Verified: 10 tests, 10 code sabotages red, the gate red three
+ways, the CLI path by hand both ways. Not done: Android has no withdraw;
+withdrawn rows still unbounded. Next is 2c.
+
 **2026-09-30, 2b: confidentiality surface red-teamed by hand** (branch
 `step/8.2b-confidentiality-redteam`). Table in ROADMAP "The confidentiality
 surface, by hand". One new red-team test, sabotaged red by a convergent seal:
