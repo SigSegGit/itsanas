@@ -2111,13 +2111,18 @@ mod tests {
         let prober = {
             let (path, stop) = (path.clone(), stop.clone());
             std::thread::spawn(move || {
+                // A poller, not a spin: the tray asks every few seconds. A
+                // probe in a tight loop holds the lock nearly all the time
+                // (on Linux an open never finds it free), which no caller
+                // does; 5 ms apart is still far denser than the tray.
                 while !stop.load(std::sync::atomic::Ordering::Relaxed) {
                     let _ = Index::is_locked(&path);
+                    std::thread::sleep(std::time::Duration::from_millis(5));
                 }
             })
         };
         let mut failed = 0;
-        for _ in 0..40 {
+        for _ in 0..100 {
             match Index::open(&path, test_audit_key()) {
                 Ok(index) => drop(index),
                 Err(StoreError::Locked(_)) => failed += 1,
@@ -2128,7 +2133,7 @@ mod tests {
         prober.join().expect("prober");
         assert_eq!(
             failed, 0,
-            "{failed} of 40 opens met a status probe's lock and gave up: a daemon \
+            "{failed} of 100 opens met a status probe's lock and gave up: a daemon \
              starting at logon beside the tray stays down"
         );
 

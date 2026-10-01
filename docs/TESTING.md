@@ -543,7 +543,7 @@ something nobody looked at, and disagreeing for a reason that is not data.
 
 | Test | What it proves |
 | --- | --- |
-| **`red_team_an_open_racing_a_lock_probe_still_opens`** | `Index::is_locked` (what `status` and the tray ask) probes by opening, which takes the exclusive lock for an instant; a daemon starting in that instant failed with `Locked` and stayed down. `Index::open` now waits out a lock for up to `LOCK_PATIENCE` (2 s). A thread probing in a loop while 40 opens run: none fails; a lock held for good is still `Locked`. Sabotaged (patience 0): red, 30 of 40 opens gave up. |
+| **`red_team_an_open_racing_a_lock_probe_still_opens`** | `Index::is_locked` (what `status` and the tray ask) probes by opening, which takes the exclusive lock for an instant; a daemon starting in that instant failed with `Locked` and stayed down. `Index::open` now waits out a lock for up to `LOCK_PATIENCE` (2 s). A thread probing every 5 ms while 100 opens run: none fails; a lock held for good is still `Locked`. A probe spinning with no pause starved every open on Linux CI (a load no caller makes; the tray polls every few seconds). Sabotaged (patience 0): red, 78 of 100 opens gave up. |
 | **`two_files_sharing_a_chunk_both_hold_it`** | Deleting one of two files that share a chunk does not take the other's data with it. |
 | **`a_file_that_repeats_a_chunk_counts_each_occurrence`** | A file of ten identical blocks references one chunk ten times. Getting this wrong frees live data on the first delete. |
 | **`a_chunk_can_be_resurrected_before_it_is_collected`** | Restoring identical content before GC runs takes the chunk out of the collection queue, so GC does not delete a blob that is live again. |
