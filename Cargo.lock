@@ -749,6 +749,7 @@ dependencies = [
 name = "itsanas-coord"
 version = "0.1.0"
 dependencies = [
+ "itsanas-coord",
  "itsanas-crypto",
  "itsanas-tls",
  "itsanas-wire",

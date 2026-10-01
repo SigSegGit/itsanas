@@ -12,9 +12,12 @@
 //! anyone who steals its database. Escrow is therefore opt-in, and withdrawing
 //! it is one command.
 
+use std::fmt::Write as _;
 use std::net::{SocketAddr, ToSocketAddrs};
 
-use itsanas_coord::claim::{ClaimedPresence, MAX_ADDRESS_LEN, NodeClaim, Presence, SignedPresence};
+use itsanas_coord::claim::{
+    ClaimedPresence, MAX_ADDRESS_LEN, MAX_DEVICES_PER_ACCOUNT, NodeClaim, Presence, SignedPresence,
+};
 use itsanas_coord::directory::Registration;
 use itsanas_coord::invitation::{Invitation, SECRET_LEN, Secret};
 use itsanas_coord::protocol::{EnrolledDevice, Request, Response};
@@ -170,6 +173,14 @@ pub fn decode_secret(text: &str) -> Result<Secret> {
 /// A coordinator that admits openly ignores the code; one that admits by
 /// invitation refuses without it, unless this account is already a member.
 pub fn register_with(node: &Node, invite: Option<&Secret>, now: u64) -> Result<()> {
+    // Before anything is signed: an account with no room is told which of its
+    // devices to choose from here, on the machine being enrolled, rather than
+    // by whatever a coordinator of unknown version says. The coordinator
+    // refuses too (`Directory::claim`), and that is the bound that holds.
+    if let Some(live) = live_devices_seen(node) {
+        room_for(node.store.device_id(), &live)?;
+    }
+
     let mut client = dial(node)?;
 
     let registration = Registration {
@@ -207,6 +218,77 @@ pub fn register_with(node: &Node, invite: Option<&Secret>, now: u64) -> Result<(
         Response::Refused(why) => Err(CliError::Usage(why)),
         other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
     }
+}
+
+/// Refuse to enrol `this` on an account whose live devices are `live`, when
+/// `live` already holds [`MAX_DEVICES_PER_ACCOUNT`] others.
+///
+/// `this` among them is a re-signing -- `itsanas register` run again, a new
+/// pledge -- and takes no slot. An account already above the bound (enrolled
+/// before it existed) is refused the same way and told its real count; its
+/// devices are not touched.
+///
+/// # Errors
+///
+/// When there is no room, naming the devices and the command that frees one.
+pub fn room_for(this: DeviceId, live: &[(DeviceId, String)]) -> Result<()> {
+    if live.iter().any(|(device, _)| *device == this) || live.len() < MAX_DEVICES_PER_ACCOUNT {
+        return Ok(());
+    }
+    let mut out = format!(
+        "this account already has {} live devices and the limit is {MAX_DEVICES_PER_ACCOUNT}:\n",
+        live.len()
+    );
+    for (device, address) in live {
+        let address = if address.is_empty() {
+            "no address"
+        } else {
+            address
+        };
+        // Writing to a `String` cannot fail.
+        // The full id: this machine is not enrolled, so a short one could not
+        // be resolved against a listing it is refused (see `named` in
+        // `itsanas-coord`'s directory).
+        let _ = writeln!(out, "  {device}  {address}");
+    }
+    out.push_str(concat!(
+        "This machine was not enrolled and nothing was sent. Those devices keep working.\n",
+        "To add this one, withdraw one of them -- from this machine too, with the full id:\n",
+        "  itsanas device forget <id>\n",
+        "which frees its slot, then run `itsanas register` here again.",
+    ));
+    Err(CliError::Usage(out))
+}
+
+/// The account's live devices as far as this machine can tell before it is
+/// enrolled, or `None` when there is nothing to check.
+///
+/// `Devices` is answered only to a device whose own claim is live, so an
+/// answer means this is a re-signing and takes no slot: `None`, whatever the
+/// list holds. Not "is this device in the list": the list is truncated at
+/// `MAX_PEERS_RETURNED`, silent devices last, so a long-silent device of an
+/// account enrolled above the bound can be missing from its own list
+/// (found by `itsanas-redteam`). A machine not enrolled yet is refused
+/// `Devices` and falls back to `ClaimedPeers` -- every claim owner-signed and
+/// checked here, but only the devices heard from within the presence window.
+/// So this count can be short and never long (short of a coordinator
+/// replaying claims, which is denial of service it can do anyway); the
+/// coordinator's own count is the one that binds.
+fn live_devices_seen(node: &Node) -> Option<Vec<(DeviceId, String)>> {
+    let owner = node.store.owner();
+    if let Ok(mut client) = dial(node)
+        && let Ok(Response::Devices(_)) = client.ask(&Request::Devices { user: owner })
+    {
+        return None;
+    }
+    let mut client = dial(node).ok()?;
+    let read = located(&mut client, &node.config, &node.device, owner, false).ok()?;
+    Some(
+        read.claimed
+            .into_iter()
+            .map(|row| (row.presence.presence.device, row.presence.presence.address))
+            .collect(),
+    )
 }
 
 /// The address to publish for this device.

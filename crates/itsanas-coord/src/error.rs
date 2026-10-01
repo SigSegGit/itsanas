@@ -45,6 +45,25 @@ pub enum CoordError {
 
     #[error("device {0} is not claimed by any registered account")]
     UnclaimedDevice(String),
+
+    /// A live claim for a new device on an account already at
+    /// [`crate::MAX_DEVICES_PER_ACCOUNT`].
+    ///
+    /// Carries the devices so the refusal is something a person can act on:
+    /// it reaches every client as `Response::Refused` text, including clients
+    /// older than the bound, which know nothing of it and print what they are
+    /// given. The command named is `forget`, which every client has.
+    #[error(
+        "this account already has {live} live devices and the limit is {limit}: {devices}. \
+         Its devices keep working; to add this one, withdraw one of them with \
+         `itsanas device forget <id>`, from any machine of the account, this one included, \
+         which frees its slot"
+    )]
+    TooManyDevices {
+        live: usize,
+        limit: usize,
+        devices: String,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, CoordError>;

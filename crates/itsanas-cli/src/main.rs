@@ -111,7 +111,10 @@ enum DeviceCommand {
     /// Takes the full device id or the twelve-character short form -- the short
     /// form because that is what the error naming a dead device prints, and
     /// asking somebody to go and find the long one is asking them to do work
-    /// the program can do.
+    /// the program can do. Also answers to `withdraw`, the word every message
+    /// about it uses; `forget` stays the name because clients older than the
+    /// alias are told to type it by the coordinator.
+    #[command(visible_alias = "withdraw")]
     Forget {
         /// The device to withdraw.
         device: String,
@@ -2146,6 +2149,19 @@ fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
     let node = open(home)?;
     let mine = node.store.device_id();
 
+    // A full id needs no listing, and a machine that is not enrolled is
+    // refused one. Asking first locked an account out for good: five machines
+    // lost or reinstalled, the five slots held by their old ids, and the new
+    // machine -- the only one left -- refused `register` for want of a slot
+    // and refused `forget` for want of being enrolled (found by
+    // `itsanas-redteam`). The coordinator takes a withdrawal signed by the
+    // account from any connection, so nothing here needs to be enrolled.
+    if let DeviceCommand::Forget { device } = what
+        && let Ok(wanted) = device.parse::<DeviceId>()
+    {
+        return withdraw(&node, wanted, mine);
+    }
+
     // Every enrolled device where the coordinator can say so, and the
     // reachable ones where it is too old to. The reachable list leaves out a
     // machine silent for a week, which is the lost laptop somebody came here
@@ -2198,26 +2214,27 @@ fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
             Ok(())
         }
 
-        DeviceCommand::Forget { device } => {
-            let wanted = resolve_device(device, &listed)?;
-
-            if wanted == mine {
-                return Err(CliError::Usage(
-                    "that is this machine. Withdrawing it from here would leave a node running and unlisted; run this from another device of the account.".to_owned(),
-                ));
-            }
-
-            coordinator::forget_device(&node, wanted, itsanas_discover::now_unix())?;
-            println!("withdrew {wanted}");
-            println!("  Nothing will dial it through the coordinator again, and the");
-            println!("  withdrawal is final for that device id. To use that machine");
-            println!("  again, remove its node directory and `itsanas login` on it:");
-            println!("  it comes back as a new device.");
-            println!("  A thief who also has its passphrase holds the account's master");
-            println!("  key and can read what it stores; withdrawing cannot undo that.");
-            Ok(())
-        }
+        DeviceCommand::Forget { device } => withdraw(&node, resolve_device(device, &listed)?, mine),
     }
+}
+
+/// `itsanas device forget`, once the device is known.
+fn withdraw(node: &Node, wanted: DeviceId, mine: DeviceId) -> Result<()> {
+    if wanted == mine {
+        return Err(CliError::Usage(
+            "that is this machine. Withdrawing it from here would leave a node running and unlisted; run this from another device of the account.".to_owned(),
+        ));
+    }
+
+    coordinator::forget_device(node, wanted, itsanas_discover::now_unix())?;
+    println!("withdrew {wanted}");
+    println!("  Nothing will dial it through the coordinator again, and the");
+    println!("  withdrawal is final for that device id. To use that machine");
+    println!("  again, remove its node directory and `itsanas login` on it:");
+    println!("  it comes back as a new device.");
+    println!("  A thief who also has its passphrase holds the account's master");
+    println!("  key and can read what it stores; withdrawing cannot undo that.");
+    Ok(())
 }
 
 /// What `status` says this node publishes.

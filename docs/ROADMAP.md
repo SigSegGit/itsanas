@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**891 test functions, 4 of them `#[ignore]`d into the slow job, and 141 of
+**901 test functions, 4 of them `#[ignore]`d into the slow job, and 148 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1668,6 +1668,59 @@ reach the peer protocol, so a withdrawn machine on the same LAN still syncs.
 The escrow container carries the lodging machine's device seed beside the
 master secret — no extra exposure, since the master secret already outranks
 it, but the restore discards it and it need not be there.
+
+### At most 5 live devices per account — 2026-09-30
+
+Decided by Nicolas: "5 max". `MAX_DEVICES_PER_ACCOUNT` in
+`crates/itsanas-coord/src/claim.rs`; `scripts/check-bargain.py` holds every
+document to it. Before this, any holder of the master secret could mint device
+ids for free and each became a live claim the coordinator kept and handed every
+machine of the account to dial.
+
+- **On the coordinator** (`Directory::claim`), the bound a rebuilt client
+  cannot remove: a live claim for a device it has no claim for is refused when
+  the account already has that many live ones, and nothing is written
+  (`red_team_a_sixth_device_is_refused_and_nothing_is_written`). The count is
+  read inside the write transaction, and redb runs one write transaction at a
+  time, so two enrolments racing for the last slot should not both pass; no
+  test races them. A withdrawn
+  device frees its slot and stays out
+  (`red_team_a_withdrawn_slot_lets_one_more_in_and_the_withdrawn_device_stays_out`);
+  re-signing a live device takes none
+  (`red_team_re_signing_a_live_device_on_a_full_account_takes_no_slot`).
+- **On the machine being enrolled** (`coordinator::register_with`), before
+  anything is signed, naming the devices to choose from
+  (`red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_would_not`).
+  Its count can be short: a machine not enrolled yet cannot ask `Devices` and
+  sees only the devices heard from within the week (`ClaimedPeers`). The
+  coordinator's count is the one that binds.
+- **Mixed versions.** The refusal is `Response::Refused` text, which every
+  client prints, and names `itsanas device forget`, which every client has
+  (`red_team_a_client_older_than_the_bound_is_refused_in_words_on_the_wire`).
+  An account above the bound keeps its devices and cannot add one
+  (`an_account_already_above_the_bound_keeps_its_devices_and_cannot_add_one`).
+
+- **A full account whose machines were all lost was locked out for good**
+  (found by `itsanas-redteam` before merge). The new machine, not enrolled,
+  was refused `register` for want of a slot and `device forget` for want of
+  being enrolled, because `forget` listed the account's devices first. Now
+  the refusals carry full ids and `forget` with a full id lists nothing; the
+  coordinator always took a withdrawal signed by the account from any
+  connection
+  (`red_team_a_new_machine_of_a_full_account_whose_machines_are_all_lost_can_free_a_slot`;
+  the CLI half checked by hand both ways, not by a test).
+
+**Not closed by this:** the Android app has no withdraw, so an Android-only
+account at the bound is told to run a command it does not have; withdrawn
+rows are never removed, so the bound caps live devices, not rows (5 live and
+any number withdrawn, as before); a device silent for more than a week
+re-registering through a coordinator older than `Devices` reads only
+`ClaimedPeers` and can be refused by its own client on an account at the
+bound. Reads are still not scoped to the account (any device
+key reads any account's envelopes, see "The confidentiality surface, by hand"),
+and a thief with the master secret can still fill the slots, as they could
+already withdraw every device. The bounded roster is what HANDOVER §10 question
+7's option 2 (an account device roster) would be built on; it is not built.
 
 ### The have/missing sweep was going to kill the process before it cost bandwidth
 

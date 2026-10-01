@@ -9,7 +9,10 @@ pub mod server;
 pub mod service;
 
 pub use accounting::{Assessment, DeviceContribution, MemberState, Split, Standing, assess};
-pub use claim::{Departure, NodeClaim, Presence, SignedClaim, SignedDeparture, SignedPresence};
+pub use claim::{
+    Departure, MAX_DEVICES_PER_ACCOUNT, NodeClaim, Presence, SignedClaim, SignedDeparture,
+    SignedPresence,
+};
 pub use directory::{
     Account, Admission, Directory, LodgedInvitation, Registration, SignedRegistration,
 };
