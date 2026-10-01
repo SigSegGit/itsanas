@@ -93,6 +93,10 @@ pub struct SyncReport {
     pub deferred: usize,
     /// Of `deferred`, the files left elsewhere because this disk had no room.
     pub no_room: usize,
+    /// Device chains left out of this round because a segment on them failed
+    /// its signature, its chain or its seal. Said apart from `deferred`: a
+    /// sleeping peer fixes itself, a refused chain waits for an honest copy.
+    pub refused_chains: usize,
 }
 
 impl SyncReport {
@@ -109,6 +113,31 @@ impl SyncReport {
                 self.no_room += 1;
             }
         }
+    }
+
+    /// Add `other`'s counts to this one.
+    ///
+    /// Destructured field by field so that a counter added later fails to
+    /// compile here instead of being dropped when per-chain reports are summed.
+    pub const fn absorb(&mut self, other: &Self) {
+        let Self {
+            adopted,
+            already_known,
+            superseded,
+            conflicted,
+            deletes_lost,
+            deferred,
+            no_room,
+            refused_chains,
+        } = *other;
+        self.adopted += adopted;
+        self.already_known += already_known;
+        self.superseded += superseded;
+        self.conflicted += conflicted;
+        self.deletes_lost += deletes_lost;
+        self.deferred += deferred;
+        self.no_room += no_room;
+        self.refused_chains += refused_chains;
     }
 
     /// Whether anything still needs another round.

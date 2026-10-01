@@ -2431,13 +2431,31 @@ pub(crate) fn describe_no_room(pull: &itsanas_sync::SyncReport) -> Option<String
 }
 
 /// `, N deferred` for a round's summary line, naming the ones kept out for
-/// room; empty when nothing was deferred.
+/// room and any chain refused; empty when there is nothing to say.
 pub(crate) fn deferred_note(pull: &itsanas_sync::SyncReport) -> String {
-    match (pull.deferred, describe_no_room(pull)) {
+    let mut note = match (pull.deferred, describe_no_room(pull)) {
         (0, _) => String::new(),
         (deferred, None) => format!(", {deferred} deferred"),
         (deferred, Some(no_room)) => format!(", {deferred} deferred\n  {no_room}"),
+    };
+    if let Some(refused) = describe_refused_chains(pull) {
+        note.push_str("\n  ");
+        note.push_str(&refused);
     }
+    note
+}
+
+/// The line a round prints when a peer served a device chain that failed its
+/// checks. The other chains were applied; this one was not, and quietly
+/// leaving it out would read as a finished sync.
+pub(crate) fn describe_refused_chains(pull: &itsanas_sync::SyncReport) -> Option<String> {
+    (pull.refused_chains > 0).then(|| {
+        format!(
+            "{} device chain(s) from this peer refused: a segment failed its signature, \
+             chain or seal check; those devices' changes wait for an honest copy",
+            pull.refused_chains
+        )
+    })
 }
 
 /// The line a round prints when a peer refused what it was offered, if it did.
@@ -3543,6 +3561,26 @@ mod tests {
         record_departure, refuse_if_departed, rejoin, resolve_device, set_pledge, sibling_ports,
         snapshot_status, sync_folder,
     };
+
+    /// `itsanas sync` names a refused chain on its summary line, and says
+    /// nothing extra when there is none. Sabotage: drop the push of
+    /// `describe_refused_chains` in `deferred_note` -- the round then reads as
+    /// a finished sync with one device's changes silently left out.
+    #[test]
+    fn a_refused_chain_is_said_on_the_sync_line() {
+        let quiet = itsanas_sync::SyncReport::default();
+        assert_eq!(super::deferred_note(&quiet), "");
+
+        let refused = itsanas_sync::SyncReport {
+            refused_chains: 1,
+            ..itsanas_sync::SyncReport::default()
+        };
+        let line = super::deferred_note(&refused);
+        assert!(
+            line.contains("1 device chain(s) from this peer refused"),
+            "a refused chain left no trace on the sync line: {line:?}"
+        );
+    }
 
     /// `itsanas pledge` lowered under what `keep` needs is refused and the
     /// node file is left as it was. Sabotage: drop the `check_split` call in

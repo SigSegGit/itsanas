@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**901 test functions, 4 of them `#[ignore]`d into the slow job, and 148 of
+**904 test functions, 4 of them `#[ignore]`d into the slow job, and 150 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1559,10 +1559,9 @@ device roster to check `envelope.device` against.
 refused twice (`open_segment`'s owner check, then the AEAD) and no test can
 tell the two apart; a body moved under a *new* segment id fails the AEAD and
 has no test of its own; a chain served out of order is refused by
-`validate_chain` as a break, which stops the round rather than reordering it;
-**a hostile host can stall a round** by serving any segment that fails any
-check above, because one bad segment errors the whole pull -- the same as
-before this pass, now with one more way in; a version vector that wins over or
+`validate_chain` as a break, which refuses that chain rather than reordering
+it; a hostile host stalling a round with one segment that fails any check
+above is fixed on the ordinary pull by §8 2c (next paragraph); a version vector that wins over or
 resurrects a delete needs the owner's log key, which is the identity surface,
 not this one; a coordinator is not in the integrity path for data (it hands
 out addresses; TLS pins device keys) and was not re-read; tail truncation is
@@ -1572,6 +1571,25 @@ same pull (a concurrent write of identical content), because the record is
 "present afterwards", not "accepted from this peer" -- a narrow window, not
 reproduced; and noise on a chunk several files share is fetched and refused
 once per file in a round.
+
+**One refused chain no longer stalls a pull -- 2026-10-01 (HANDOVER §8 2c).**
+`session::pull_scoped` takes and applies each device chain on its own: a
+segment `put_segment` refuses drops the rest of that chain and keeps its
+genuine prefix (`keep_chain`), and a chain that fails `validate_chain` or
+whose body does not open is left out (`apply_per_chain`); the other chains
+are applied, `SyncReport::refused_chains` counts the chains left out, and
+`itsanas sync` and the daemon print it. The forgery needs no compromised
+host: a free device key signing a segment under someone's user id is kept by
+any vault (signature, not membership) and was enough to stop that account's
+pull on every node that fetched it, round after round. Tests:
+`red_team_one_forged_chain_does_not_stall_the_pull_of_the_others`,
+`red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call`.
+Named, not done, one line each:
+- `fetch_only`, `drain_vault` and the budgeted path of `keeping::round` (strict `refresh`) still fail whole on one bad chain.
+- The refresh stage is tested on `keep_chain` directly, not end to end: no test server can serve a tampered segment.
+- A refused chain stays in the vault: relayed onward, re-opened and re-refused on every content round; no quarantine.
+- The report counts chains, it does not name the device.
+- Keeping strangers' segments out of an account at all is the roster of HANDOVER §10 question 7.
 
 **The confidentiality surface, by hand -- 2026-09-30 (HANDOVER §8 2b).**
 What a host learns, alone or comparing notes with another host. Read, not

@@ -9,16 +9,29 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.2c
-TITLE: a hostile host cannot stall a whole pull with one refused segment
+NEXT: 8.2e
+TITLE: the Android app can withdraw a device, so an Android-only account at the cap is not stuck
 WRITTEN-AT: 2026-10-01
-BASE: b21b445
+BASE: a7defef
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-01, 2c: one refused chain no longer stalls a pull** (branch
+`step/8.2c-refused-chain`). `session::pull_scoped` only: `keep_chain` keeps a
+chain's genuine prefix when `put_segment` refuses a segment, `apply_per_chain`
+leaves out a chain failing `validate_chain` or `open_segment` and applies the
+others; `SyncReport::refused_chains` (new field, `absorb` to sum) is printed by
+`itsanas sync` and the daemon. No protocol or `validate_chain` change. Worse
+than §8 said: a stranger's free key signing one segment under a user id
+stalled that account's pull on every node, every round. Verified: 3 tests,
+4 sabotages red; a marker condition I added turned nothing red and was
+removed. Not done (ROADMAP "One refused chain"): `fetch_only`, `drain_vault`,
+budgeted `keeping::round`; refresh stage not end to end. Over the 20-point
+cap, so no `itsanas-redteam` pass. Next: 2e, Android withdraw.
 
 **2026-10-01, 2d: at most 5 live devices per account** (branch
 `step/8.2d-device-cap`; Nicolas's decision of 2026-09-30, §6). One constant,
@@ -48,21 +61,7 @@ gains question 7 (the #207 re-signing hole). Next, 2c: still agent-doable,
 client-side, not enforcement. Trap: `sabotage.py` with `cargo test -q`
 reports "the build itself refused it" for a test that failed; drop `-q`.
 
-**2026-09-30, 2a: integrity surface red-teamed by hand** (branch
-`step/8.2a-integrity-redteam`). Table of attacks, defences and tests in ROADMAP
-"The integrity surface, by hand". Two holes fixed, one named: a chunk refused by
-`accept_chunk` counted as fetched (`itsanas-sync` `fetch_missing`), so the file
-was adopted with a hole and the round read as finished; and a relay answering
-noise was recorded as a holder (`session.rs` `kept`). Three red-team tests, three
-sabotages red. **Named, not fixed:** a host re-signs a lifted segment body under
-its own key and it opens (the seal omits the device), replaying the owner's own
-ops and undoing releases. A version check was written, then withdrawn after
-`itsanas-redteam` showed it stalls peers on a keystore-replaced node. The fix is
-a protocol change. **Not verified:** the
-has_chunk race in `kept` and repeated fetches of a shared noisy chunk (named in
-ROADMAP). Next, 8.2b: confidentiality, the last §8 2 surface.
-
-Older §0 entries, 2026-09-14 to 2026-09-30 (3d and before), moved verbatim
+Older §0 entries, 2026-09-14 to 2026-09-30 (2a and before), moved verbatim
 to [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md): history, not instructions.
 The rules that still bind are in §3, §4b and §11.
 
@@ -1371,8 +1370,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
       withdraw in the Android app; a cap on withdrawn rows (5 live, any
       number withdrawn); the re-sign corner named in ROADMAP.
 
-   c. **A hostile host cannot stall a whole pull with one refused segment.**
-      Named by 2a (ROADMAP "The integrity surface, by hand", "Not examined or
+   c. ✅ **A hostile host cannot stall a whole pull with one refused segment.**
+      Built 2026-10-01 on `pull_scoped` only (see §0; ROADMAP "One refused
+      chain no longer stalls a pull" lists what is left). Original text
+      follows. Named by 2a (ROADMAP "The integrity surface, by hand", "Not examined or
       not tested here"): one segment that fails any check -- signature,
       `open`, `validate_chain` -- errors the whole pull, so one bad host
       stops a round that honest segments from other devices' chains could
@@ -1385,6 +1386,23 @@ Detail and measurements are in ROADMAP.md; this is the map.
       A's chain and genuine ones on device B's; B's file is adopted, A's is
       deferred, the round says so; sabotage by propagating the error again.
       Do not hide the failure: a chain refused must still be visible.
+
+   e. **The Android app can withdraw a device.** Open from 2d: at the cap
+      (`MAX_DEVICES_PER_ACCOUNT` = 5, `crates/itsanas-coord/src/claim.rs`
+      ~106) the refusal tells the person to run `itsanas device forget <id>`
+      (`crates/itsanas-node/src/coordinator.rs` ~257), and an account whose
+      machines are all phones has no CLI. The withdrawal itself is already
+      in `itsanas-node`: `coordinator::forget_device(node, device, now)`
+      (~1030), which the CLI's `device forget` (`crates/itsanas-cli/src/main.rs`
+      ~2221) calls. Missing: a `Java_fr_ngas_itsanas_Native_forgetDevice`
+      beside `register` (`crates/itsanas-android/src/lib.rs` ~720) taking a
+      full device id, a way for the app to list the account's devices with
+      full ids (not yet read: whether `status` or `register`'s refusal already
+      carries them), the Kotlin button under `android/app`, and the refusal
+      text naming the app on Android. Red-team test expected: the native call
+      refuses an abbreviated or unknown id and withdraws nothing; sabotage by
+      accepting a prefix. Client-side, needs nobody but a phone for the by-hand
+      check (§8 5).
 3. **The open findings** listed in ROADMAP.md, one per session.
 
    a. ✅ **`pledge` and the Android setters keep the split.** Built

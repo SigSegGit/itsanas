@@ -22,10 +22,10 @@
 //! which costs nothing to track and is correct after a crash.
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use itsanas_crypto::{ChunkId, DeviceId, UserId};
-use itsanas_store::{SegmentEnvelope, Store, Vault, summary};
+use itsanas_store::{SegmentEnvelope, Store, StoreError, Vault, summary};
 use itsanas_sync::{ChunkSource, SyncReport, apply_segments};
 
 use crate::{
@@ -905,11 +905,32 @@ pub fn refresh(
     vault: &Vault,
     client: &mut PeerClient,
 ) -> Result<Vec<SegmentEnvelope>> {
+    refresh_chains(store, vault, client, Tolerate::Nothing).map(|(fetched, _)| fetched)
+}
+
+/// Whether a segment that fails its checks ends the call or only its chain.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tolerate {
+    /// Any refusal is an error, as [`refresh`] has always answered.
+    Nothing,
+    /// A refused segment drops the rest of that device's chain for this call;
+    /// the other devices' chains are still taken. See [`pull_scoped`].
+    RefusedChains,
+}
+
+/// [`refresh`], also returning the devices whose chain was refused part-way.
+fn refresh_chains(
+    store: &Store,
+    vault: &Vault,
+    client: &mut PeerClient,
+    tolerate: Tolerate,
+) -> Result<(Vec<SegmentEnvelope>, BTreeSet<DeviceId>)> {
     let owner = store.owner();
     let mine = store.device_id();
 
     let heads = client.heads(owner)?;
     let mut fetched: Vec<SegmentEnvelope> = Vec::new();
+    let mut refused = BTreeSet::new();
 
     for head in heads {
         if head.device == mine {
@@ -930,17 +951,94 @@ pub fn refresh(
 
         let segments = client.segments(owner, head.device, local_head, MAX_SEGMENTS_PER_REQUEST)?;
 
-        for envelope in &segments {
-            // Retained so this node can relay them onwards, and so the next
-            // pull has a resume point. put_segment verifies the signature and
-            // refuses a chain with a hole.
-            vault.put_segment(envelope)?;
+        let (kept, was_refused) = keep_chain(vault, segments, tolerate)?;
+        if was_refused {
+            refused.insert(head.device);
         }
-
-        fetched.extend(segments);
+        fetched.extend(kept);
     }
 
-    Ok(fetched)
+    Ok((fetched, refused))
+}
+
+/// Put one device's segments into the vault, oldest first.
+///
+/// Retained so this node can relay them onwards, and so the next pull has a
+/// resume point. `put_segment` verifies the signature and refuses a chain with
+/// a hole. Under [`Tolerate::RefusedChains`] that refusal keeps the prefix
+/// already taken, drops the rest of this chain, and says so; anything else
+/// (the vault's own disk failing) is still an error.
+fn keep_chain(
+    vault: &Vault,
+    segments: Vec<SegmentEnvelope>,
+    tolerate: Tolerate,
+) -> Result<(Vec<SegmentEnvelope>, bool)> {
+    let mut kept = Vec::with_capacity(segments.len());
+    for envelope in segments {
+        match vault.put_segment(&envelope) {
+            Ok(_) => kept.push(envelope),
+            Err(error) if tolerate == Tolerate::RefusedChains && refuses_segment(&error) => {
+                return Ok((kept, true));
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok((kept, false))
+}
+
+/// Whether `put_segment` refused the segment itself, as opposed to failing.
+const fn refuses_segment(error: &StoreError) -> bool {
+    matches!(
+        error,
+        StoreError::SegmentSignature { .. } | StoreError::SegmentChainBroken { .. }
+    )
+}
+
+/// Apply `segments` one device chain at a time, leaving out a chain that does
+/// not verify instead of failing the whole call.
+///
+/// # Why per chain
+///
+/// `apply_segments` verifies every chain before applying it and answers the
+/// first failure with an error for the whole call. A host -- or any stranger
+/// with a free device key, since `put_segment` checks a signature and not
+/// membership of the account -- could then serve one segment that fails, and
+/// stop every honest chain it also serves from being applied, round after
+/// round, because the segment is kept in the vault and replayed. So each chain
+/// is checked here first (`validate_chain`, then every body opened) and a
+/// chain that fails is counted in `refused_chains` and skipped. The engine
+/// checks it again; that second walk costs a decrypt per segment, kilobytes.
+///
+/// Errors while *applying* a chain that verified -- a disk, a chunk source --
+/// still end the call, as before: those are not a host's word to refuse.
+fn apply_per_chain(
+    store: &Store,
+    segments: &[SegmentEnvelope],
+    source: &dyn ChunkSource,
+    refused: &mut BTreeSet<DeviceId>,
+) -> itsanas_sync::Result<SyncReport> {
+    let mut chains: BTreeMap<DeviceId, Vec<SegmentEnvelope>> = BTreeMap::new();
+    for envelope in segments {
+        chains
+            .entry(envelope.device)
+            .or_default()
+            .push(envelope.clone());
+    }
+
+    let mut total = SyncReport::default();
+    for (device, chain) in chains {
+        let verifies = itsanas_store::validate_chain(&chain).is_ok()
+            && chain
+                .iter()
+                .all(|envelope| store.open_segment(envelope).is_ok());
+        if !verifies {
+            refused.insert(device);
+            continue;
+        }
+        let (report, _) = apply_segments(store, &chain, source)?;
+        total.absorb(&report);
+    }
+    Ok(total)
 }
 
 /// Fetch and merge everything the peer has, at `scope`.
@@ -968,7 +1066,9 @@ pub fn pull_scoped(
     let owner = store.owner();
     let mine = store.device_id();
 
-    let mut fetched = refresh(store, vault, client)?;
+    // A refused chain is left out, not fatal: see `apply_per_chain`. The set
+    // spans both stages so one device is counted once.
+    let (mut fetched, mut refused) = refresh_chains(store, vault, client, Tolerate::RefusedChains)?;
 
     // A round that can move content applies from the **vault**, not from what
     // this round happened to fetch.
@@ -1016,7 +1116,10 @@ pub fn pull_scoped(
     }
 
     if fetched.is_empty() {
-        return Ok(SyncReport::default());
+        return Ok(SyncReport {
+            refused_chains: refused.len(),
+            ..SyncReport::default()
+        });
     }
 
     let peer = client.peer_device();
@@ -1025,12 +1128,12 @@ pub fn pull_scoped(
             client: RefCell::new(client),
             served: RefCell::new(Vec::new()),
         };
-        let outcome = apply_segments(store, &fetched, &source);
+        let outcome = apply_per_chain(store, &fetched, &source, &mut refused);
         let served = kept(store, source.served.into_inner());
         (outcome, served)
     } else {
         (
-            apply_segments(store, &fetched, &itsanas_sync::EmptySource),
+            apply_per_chain(store, &fetched, &itsanas_sync::EmptySource, &mut refused),
             Vec::new(),
         )
     };
@@ -1043,10 +1146,18 @@ pub fn pull_scoped(
         store.record_holders(&served, &peer)?;
     }
 
-    let (report, _) = outcome.map_err(|error| NetError::Refused(error.to_string()))?;
+    let mut report = outcome.map_err(|error| NetError::Refused(error.to_string()))?;
+    report.refused_chains = refused.len();
 
     // Only a round that finished everything may move the markers. One deferral
     // and they stay where they are, so the next content round replays.
+    //
+    // A refused chain does not hold them: it is not needed. Any content round
+    // that fetched something new has `has_unapplied` true and replays the whole
+    // vault, and one that fetched nothing replays anyway, so the refused chain
+    // is looked at -- and reported -- on every content round regardless. A
+    // marker condition was written for it and sabotage showed no test, and no
+    // path, could tell it was there.
     if scope.moves_content() && report.deferred == 0 {
         store.note_all_applied(vault)?;
     }
@@ -1303,6 +1414,70 @@ mod tests {
 
     fn nothing() -> RoundReport {
         RoundReport::default()
+    }
+
+    /// Three genuine segments on one chain, signed by `seed`'s device.
+    fn a_chain(seed: u8) -> Vec<SegmentEnvelope> {
+        use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
+        use itsanas_store::{LogEntry, Operation, VersionVector};
+
+        let user = UserKeys::derive(&MasterSecret::from_bytes([0xC2; 32]));
+        let device = DeviceKeys::from_seed(&SecretBytes::new([seed; 32]));
+        let mut previous = None;
+        (1..=3)
+            .map(|sequence| {
+                let entry = LogEntry {
+                    sequence,
+                    recorded_unix: 0,
+                    operation: Operation::Remove {
+                        path: format!("gone-{sequence}"),
+                        version: VersionVector::default(),
+                    },
+                };
+                let envelope = SegmentEnvelope::create(
+                    user.oplog_root(),
+                    user.user_id(),
+                    &device,
+                    previous,
+                    vec![entry],
+                )
+                .expect("segment");
+                previous = Some(envelope.segment_id);
+                envelope
+            })
+            .collect()
+    }
+
+    #[test]
+    fn red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call() {
+        // THE ATTACK, at the first door a pull opens: a host whose code serves
+        // a tampered segment in the middle of one device's chain. `put_segment`
+        // refuses it, and that refusal used to end `refresh` with an error, so
+        // the chains of every other device the host also served were never
+        // taken. A modified host is not something the honest test server can
+        // play, so this checks the per-chain step directly.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let vault = Vault::open(dir.path().join("vault")).expect("vault");
+
+        let mut chain = a_chain(0x31);
+        chain[1].sealed_body[0] ^= 0xFF;
+
+        let (kept, refused) =
+            keep_chain(&vault, chain.clone(), Tolerate::RefusedChains).expect(concat!(
+                "one forged segment ended the whole refresh: every other device's ",
+                "chain on this host is stalled behind it"
+            ));
+        assert!(refused, "the forged chain was taken silently, not reported");
+        assert_eq!(
+            kept,
+            vec![chain[0].clone()],
+            "the genuine prefix before the forgery should be kept, nothing after it"
+        );
+
+        // And the strict door `refresh` keeps for its other callers still says no.
+        let other = tempfile::tempdir().expect("temp dir");
+        let strict = Vault::open(other.path().join("vault")).expect("vault");
+        assert!(keep_chain(&strict, chain, Tolerate::Nothing).is_err());
     }
 
     #[test]
