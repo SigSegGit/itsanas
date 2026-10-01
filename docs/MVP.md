@@ -283,6 +283,7 @@ for a verdict that may not exist:
       Peers already known keep syncing. New machines cannot be found.
     1 machine(s) known, none reachable this round.
     folder: 1 in, 0 out, 0 deleted locally, 0 deleted remotely, 0 conflicts
+      in   <the file written during the outage>
 
 That is the honest pass for machine 1: it **says** it is cut off, names what is
 degraded rather than only reporting an error, and the file written during the

@@ -12,13 +12,36 @@ contract.
 NEXT: 8.4
 TITLE: verification at a terabyte -- within a differing bucket, ask only about chunks with no fresh record for that peer
 WRITTEN-AT: 2026-10-01
-BASE: e901434
+BASE: bb93699
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-01, folder reports name files and recognise a rename** (branch
+`step/folder-reports-renames`; not a §8 step, the second "not timid on
+features" PR, chosen over §8 4 because every user reads these lines every
+day and a move shown as "1 deleted locally" sends people to restore files
+they only moved, while 4 matters only past a few hundred GB).
+`ReconcileReport` gains two rename lists, here and elsewhere (one deletion
+and one addition of the same non-empty bytes in one pass, unambiguous only),
+`summary` counts a rename once, `lines(limit)` names every file; `itsanas
+scan` prints all, `sync` and the daemon every deletion and conflict, then
+the first `LINES_IN_A_LOG` (20) others, and count the rest. Report only: the
+store and the log still do delete + create. `itsanas-redteam` found two ways
+the report hid a deletion -- a log bound cutting deletions and conflicts
+into "N more", and one of two identical copies deleted shown as `mv` -- both
+fixed and tested; it suspects (older, untested) that a file name holding a
+newline can forge a log line. Verified: 6 functional tests, 7 sabotages red.
+**Not verified:** no CLI run by hand; Android shows no per-file report.
+Others named and left: §8 4; a "listed only" phone mode (ROADMAP M12); the
+tray showing the folder's state; `fetch_only`/`drain_vault`/budgeted
+`keeping::round` still failing whole on one refused chain. Traps: Python
+`write_text` on Windows writes CRLF (use `write_bytes`);
+`check-catalogue.sh` reads any backticked snake_case name in a doc as a test
+name.
 
 **2026-10-01, 2e: the Android app lists and withdraws devices** (branch
 `step/8.2e-android-devices`). Settings, "This account's devices": the
@@ -38,34 +61,7 @@ the node lock is held across the coordinator dials of `withdraw` (redteam,
 suspected, not measured). Trap: Git Bash heredocs ate a `\` in a Python
 edit script again -- write scripts with the Write tool.
 
-**2026-10-01, 2c: one refused chain no longer stalls a pull** (branch
-`step/8.2c-refused-chain`). `session::pull_scoped` only: `keep_chain` keeps a
-chain's genuine prefix when `put_segment` refuses a segment, `apply_per_chain`
-leaves out a chain failing `validate_chain` or `open_segment` and applies the
-others; `SyncReport::refused_chains` (new field, `absorb` to sum) is printed by
-`itsanas sync` and the daemon. No protocol or `validate_chain` change. Worse
-than §8 said: a stranger's free key signing one segment under a user id
-stalled that account's pull on every node, every round. Verified: 3 tests,
-4 sabotages red; a marker condition I added turned nothing red and was
-removed. Not done (ROADMAP "One refused chain"): `fetch_only`, `drain_vault`,
-budgeted `keeping::round`; refresh stage not end to end. Over the 20-point
-cap, so no `itsanas-redteam` pass. Next: 2e, Android withdraw.
-
-**2026-10-01, 2d: at most 5 live devices per account** (branch
-`step/8.2d-device-cap`; Nicolas's decision of 2026-09-30, §6). One constant,
-`MAX_DEVICES_PER_ACCOUNT` (`itsanas-coord` `claim.rs`), enforced in
-`Directory::claim` (inside the write transaction, nothing written on refusal)
-and in `coordinator::register_with` before signing. Re-signing a live device
-takes no slot, a withdrawal frees one, a withdrawn device stays out, an
-account above 5 keeps its devices. `check-bargain.py` now also holds four
-documents to the number (no new gate, so no `ci.yml` change). `itsanas-redteam`
-found a permanent lockout (all five machines lost, the new one could neither
-register nor `forget`): fixed, refusals carry full ids and `forget <full id>`
-lists nothing. Verified: 10 tests, 10 code sabotages red, the gate red three
-ways, the CLI path by hand both ways. Not done: Android has no withdraw;
-withdrawn rows still unbounded. Next is 2c.
-
-Older §0 entries, 2026-09-14 to 2026-09-30 (2b and before), moved verbatim
+Older §0 entries, 2026-09-14 to 2026-10-01 (2c and before), moved verbatim
 to [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md): history, not instructions.
 The rules that still bind are in §3, §4b and §11.
 
@@ -1073,7 +1069,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       and `--instance` doc fixes and the `USERPROFILE` code fix.** Left,
       one small PR: `sync` exits 0 when every offer was refused (make it
       non-zero, or at least a closing warning); `scan`/`sync` folder lines
-      name no files and show a rename as delete + add; `instances` says
+      naming files and a rename as one (✅ 2026-10-01, `tests/reports.rs`); `instances` says
       "reachable, stopped" (say "folder reachable; daemon stopped");
       `install/android.md` has no step for entering the laptop's address
       and port, nor Doze / LAN-only notes; install/README "Two accounts"

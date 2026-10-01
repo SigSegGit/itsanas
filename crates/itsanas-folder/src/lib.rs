@@ -32,6 +32,7 @@ pub mod watch;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
     path::{Path, PathBuf},
     time::UNIX_EPOCH,
 };
@@ -70,7 +71,28 @@ pub struct ReconcileReport {
     /// will find them missing again. `itsanas folder --confirm` is what says
     /// they really are meant to go.
     pub held_deletions: usize,
+    /// Files moved or renamed in this folder, as `(from, to)`.
+    ///
+    /// Recognised, not performed: the store still saw a deletion of `from`
+    /// and an import of `to`, and both stay listed in `removed_from_store`
+    /// and `imported` -- that is what replicates. This only says that the
+    /// two are one gesture, so that a person reading the report sees
+    /// "renamed" instead of a file lost and an unknown one appearing. Only
+    /// an unambiguous pair counts: one path gone and one come with the same
+    /// non-empty bytes, and no other live path holding them.
+    pub renamed_here: Vec<(String, String)>,
+    /// Files another device moved or renamed, as `(from, to)`, out of
+    /// `deleted_from_disk` and `exported` in the same way.
+    pub renamed_elsewhere: Vec<(String, String)>,
 }
+
+/// How many file lines [`ReconcileReport::lines`] gives before it stops
+/// naming files, when the caller asks for a bound.
+///
+/// The daemon and `itsanas sync` print the report into a log on every pass;
+/// the first pass over an existing photo library would otherwise write ten
+/// thousand lines into it. `itsanas scan` asks for every line.
+pub const LINES_IN_A_LOG: usize = 20;
 
 impl ReconcileReport {
     /// Whether anything actually moved.
@@ -84,16 +106,116 @@ impl ReconcileReport {
     }
 
     /// A one-line summary for a log.
+    ///
+    /// A recognised rename counts once, as a rename, and not also as one file
+    /// in and one deleted: "1 in, 1 deleted locally" for a renamed file reads
+    /// as a loss to anyone who does not know the two are the same bytes.
     #[must_use]
     pub fn summary(&self) -> String {
-        format!(
+        let here = self.renamed_here.len();
+        let elsewhere = self.renamed_elsewhere.len();
+        let mut line = format!(
             "{} in, {} out, {} deleted locally, {} deleted remotely, {} conflicts",
-            self.imported.len(),
-            self.exported.len(),
-            self.removed_from_store.len(),
-            self.deleted_from_disk.len(),
+            self.imported.len().saturating_sub(here),
+            self.exported.len().saturating_sub(elsewhere),
+            self.removed_from_store.len().saturating_sub(here),
+            self.deleted_from_disk.len().saturating_sub(elsewhere),
             self.kept_both.len()
-        )
+        );
+        if here + elsewhere > 0 {
+            let _ = write!(line, ", {} renamed", here + elsewhere);
+        }
+        line
+    }
+
+    /// One line per file this pass touched, naming it and what happened to
+    /// it, renames as one line rather than a deletion and an addition.
+    ///
+    /// `limit` bounds the number of routine lines (renames, imports,
+    /// exports); the ones past it are counted in a last line rather than
+    /// dropped silently. Deletions and conflicts come first and are never
+    /// bounded. Failures are not included:
+    /// they go to standard error, where a caller already sends them.
+    #[must_use]
+    pub fn lines(&self, limit: Option<usize>) -> Vec<String> {
+        let moved_from_here: BTreeSet<&str> = self
+            .renamed_here
+            .iter()
+            .map(|(from, _)| from.as_str())
+            .collect();
+        let moved_to_here: BTreeSet<&str> = self
+            .renamed_here
+            .iter()
+            .map(|(_, to)| to.as_str())
+            .collect();
+        let moved_from_elsewhere: BTreeSet<&str> = self
+            .renamed_elsewhere
+            .iter()
+            .map(|(from, _)| from.as_str())
+            .collect();
+        let moved_to_elsewhere: BTreeSet<&str> = self
+            .renamed_elsewhere
+            .iter()
+            .map(|(_, to)| to.as_str())
+            .collect();
+
+        // Deletions and conflicts first, and never cut: a log that named
+        // twenty imports and counted a deletion among "7 more" would hide the
+        // one line somebody needs to read. The bound is for the routine ones.
+        let mut urgent = Vec::new();
+        for (original, sibling) in &self.kept_both {
+            urgent.push(format!(
+                "  !!   {original} conflicted -- your version kept as {sibling}"
+            ));
+        }
+        for path in &self.removed_from_store {
+            if !moved_from_here.contains(path.as_str()) {
+                urgent.push(format!(
+                    "  del  {path} (deleted here, will be deleted everywhere)"
+                ));
+            }
+        }
+        for path in &self.deleted_from_disk {
+            if !moved_from_elsewhere.contains(path.as_str()) {
+                urgent.push(format!(
+                    "  rm   {path} (deleted elsewhere, removed from this folder)"
+                ));
+            }
+        }
+
+        let mut routine = Vec::new();
+        for (from, to) in &self.renamed_here {
+            routine.push(format!(
+                "  mv   {from} -> {to} (renamed here, renamed everywhere)"
+            ));
+        }
+        for (from, to) in &self.renamed_elsewhere {
+            routine.push(format!(
+                "  mv   {from} -> {to} (renamed elsewhere, renamed here)"
+            ));
+        }
+        for path in &self.imported {
+            if !moved_to_here.contains(path.as_str()) {
+                routine.push(format!("  in   {path}"));
+            }
+        }
+        for path in &self.exported {
+            if !moved_to_elsewhere.contains(path.as_str()) {
+                routine.push(format!("  out  {path}"));
+            }
+        }
+
+        if let Some(limit) = limit
+            && routine.len() > limit
+        {
+            let more = routine.len() - limit;
+            routine.truncate(limit);
+            routine.push(format!(
+                "  ... and {more} more (`itsanas scan` lists them all)"
+            ));
+        }
+        urgent.extend(routine);
+        urgent
     }
 
     /// Whether this pass refused to write deletions it found.
@@ -240,12 +362,31 @@ impl Folder {
             report.held_deletions = count;
         }
 
+        let mut contents = Contents::default();
         for path in paths {
-            if let Err(error) = self.reconcile_one(store, &path, deep, hold.is_some(), &mut report)
-            {
+            if let Err(error) = self.reconcile_one(
+                store,
+                &path,
+                deep,
+                hold.is_some(),
+                &mut report,
+                &mut contents,
+            ) {
                 // One unreadable file must not stop the rest of the folder.
                 report.failed.push((path, error.to_string()));
             }
+        }
+        if contents.could_pair() {
+            // How many live paths carry each content after the pass. Read
+            // only when there is a pair to judge, so an ordinary pass pays
+            // nothing for it.
+            let mut live: BTreeMap<[u8; 32], usize> = BTreeMap::new();
+            for (_, entry) in store.entries()? {
+                *live.entry(entry.content_hash).or_default() += 1;
+            }
+            report.renamed_here = pair_renames(&contents.gone_here, &contents.came_here, &live);
+            report.renamed_elsewhere =
+                pair_renames(&contents.gone_elsewhere, &contents.came_elsewhere, &live);
         }
 
         // One segment per pass, rather than one per file: a folder of ten
@@ -351,6 +492,7 @@ impl Folder {
         deep: bool,
         hold_deletions: bool,
         report: &mut ReconcileReport,
+        contents: &mut Contents,
     ) -> Result<()> {
         let ledger = store.local_state(path)?;
         let entry = store.stat(path).ok().flatten();
@@ -374,6 +516,9 @@ impl Folder {
             Decision::Import => {
                 Self::import(store, path, &real)?;
                 report.imported.push(path.to_owned());
+                if let Some(hash) = disk_hash {
+                    contents.came_here.push((path.to_owned(), hash));
+                }
             }
 
             Decision::RemoveFromStore => {
@@ -387,17 +532,26 @@ impl Folder {
                 store.remove_file(path)?;
                 store.clear_local_state(path)?;
                 report.removed_from_store.push(path.to_owned());
+                if let Some(hash) = ledger_hash {
+                    contents.gone_here.push((path.to_owned(), hash));
+                }
             }
 
             Decision::Export => {
                 self.export(store, path, &real)?;
                 report.exported.push(path.to_owned());
+                if let Some(hash) = store_hash {
+                    contents.came_elsewhere.push((path.to_owned(), hash));
+                }
             }
 
             Decision::DeleteFromDisk => {
                 self.delete_from_disk(&real)?;
                 store.clear_local_state(path)?;
                 report.deleted_from_disk.push(path.to_owned());
+                if let Some(hash) = ledger_hash {
+                    contents.gone_elsewhere.push((path.to_owned(), hash));
+                }
             }
 
             Decision::KeepBoth => {
@@ -674,6 +828,81 @@ impl Folder {
 
         Ok(())
     }
+}
+
+/// The content each touched path had, kept for one pass so that a deletion
+/// and an addition of the same bytes can be told apart from two unrelated
+/// changes.
+#[derive(Default)]
+struct Contents {
+    /// Removed from the store because the user deleted it here: the bytes the
+    /// ledger says this device last had.
+    gone_here: Vec<(String, [u8; 32])>,
+    /// Imported from disk.
+    came_here: Vec<(String, [u8; 32])>,
+    /// Removed from disk because another device deleted it.
+    gone_elsewhere: Vec<(String, [u8; 32])>,
+    /// Written out because another device added it.
+    came_elsewhere: Vec<(String, [u8; 32])>,
+}
+
+impl Contents {
+    /// Whether anything went and anything came on the same side.
+    fn could_pair(&self) -> bool {
+        (!self.gone_here.is_empty() && !self.came_here.is_empty())
+            || (!self.gone_elsewhere.is_empty() && !self.came_elsewhere.is_empty())
+    }
+}
+
+/// The blake3 hash of no bytes at all.
+///
+/// Every empty file has it, so an empty file deleted and an unrelated empty
+/// file created would otherwise read as a rename.
+fn is_empty_content(hash: &[u8; 32]) -> bool {
+    hash == blake3::hash(b"").as_bytes()
+}
+
+/// Pair each path that went with the path that came carrying the same bytes.
+///
+/// Only an unambiguous pair counts: exactly one path gone and exactly one
+/// path come with those bytes, and not empty. Two identical copies deleted
+/// and one added is a deletion and something else, and saying which copy
+/// "became" the new one would be a guess printed as a fact. A file renamed
+/// *and* edited in one pass has different bytes and stays a deletion and an
+/// addition: nothing here reads names or similarity, only content.
+///
+/// And the new path must be the only live one with those bytes. If another
+/// file still holds them, deleting one copy and making another is not a move
+/// of anything -- `mv a -> b` would hide that `a`, a distinct file, was
+/// deleted. `live` counts the live paths per content after the pass.
+fn pair_renames(
+    gone: &[(String, [u8; 32])],
+    came: &[(String, [u8; 32])],
+    live: &BTreeMap<[u8; 32], usize>,
+) -> Vec<(String, String)> {
+    let mut gone_by_content: BTreeMap<[u8; 32], Vec<&str>> = BTreeMap::new();
+    for (path, hash) in gone {
+        gone_by_content.entry(*hash).or_default().push(path);
+    }
+    let mut came_by_content: BTreeMap<[u8; 32], Vec<&str>> = BTreeMap::new();
+    for (path, hash) in came {
+        came_by_content.entry(*hash).or_default().push(path);
+    }
+
+    let mut pairs = Vec::new();
+    for (hash, from) in &gone_by_content {
+        if is_empty_content(hash) || live.get(hash).copied().unwrap_or(0) > 1 {
+            continue;
+        }
+        if let ([from], Some([to])) = (
+            from.as_slice(),
+            came_by_content.get(hash).map(Vec::as_slice),
+        ) {
+            pairs.push(((*from).to_owned(), (*to).to_owned()));
+        }
+    }
+    pairs.sort();
+    pairs
 }
 
 /// Sibling naming, borrowed from the sync engine so the rules cannot drift.

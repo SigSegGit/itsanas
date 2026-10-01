@@ -1007,8 +1007,11 @@ pub(crate) fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
         Ok(report) => {
             if report.changed_anything() {
                 println!("folder: {}", report.summary());
-                for (original, sibling) in &report.kept_both {
-                    println!("  conflict: {original} — your version kept as {sibling}");
+                // Named, so that a log says which files moved and a rename
+                // reads as one, but bounded: a first pass over a full
+                // library would otherwise flood it.
+                for line in report.lines(Some(itsanas_folder::LINES_IN_A_LOG)) {
+                    println!("{line}");
                 }
             }
             if report.held_anything() {
