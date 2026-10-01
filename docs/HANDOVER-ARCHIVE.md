@@ -11,6 +11,20 @@ both.
 
 ---
 
+**2026-09-30, 2a: integrity surface red-teamed by hand** (branch
+`step/8.2a-integrity-redteam`). Table of attacks, defences and tests in ROADMAP
+"The integrity surface, by hand". Two holes fixed, one named: a chunk refused by
+`accept_chunk` counted as fetched (`itsanas-sync` `fetch_missing`), so the file
+was adopted with a hole and the round read as finished; and a relay answering
+noise was recorded as a holder (`session.rs` `kept`). Three red-team tests, three
+sabotages red. **Named, not fixed:** a host re-signs a lifted segment body under
+its own key and it opens (the seal omits the device), replaying the owner's own
+ops and undoing releases. A version check was written, then withdrawn after
+`itsanas-redteam` showed it stalls peers on a keystore-replaced node. The fix is
+a protocol change. **Not verified:** the
+has_chunk race in `kept` and repeated fetches of a shared noisy chunk (named in
+ROADMAP). Next, 8.2b: confidentiality, the last §8 2 surface.
+
 **2026-09-30, 3d: the LAN beacon is version 2** (branch
 `step/8.3d-beacon-keyed-tag`). Tag field = 16 B random nonce + 16 B
 `keyed_hash(UserKeys::lan_tag_key, nonce || device)`, 147 B kept, no clock.

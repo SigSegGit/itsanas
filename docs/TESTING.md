@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-01 — 901 test functions across 28 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 148 are red-team tests.**
+**Last updated: 2026-10-01 — 904 test functions across 28 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 150 are red-team tests.**
 
-**785 of the 901 tests have an entry of their own on this page** — an *entry*,
+**788 of the 904 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -162,8 +162,8 @@ guarantee and is not one.
 | `itsanas-store` integration (`tests/store.rs`) | 45 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
-| `itsanas-net` unit | 42 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 50 |
+| `itsanas-net` unit | 43 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 51 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 113 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
@@ -172,7 +172,7 @@ guarantee and is not one.
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
-| `itsanas-cli` unit | 39 |
+| `itsanas-cli` unit | 40 |
 | `itsanas-android` unit | 3 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 86 |
@@ -732,7 +732,7 @@ about reading.
 
 ---
 
-# `itsanas-net` — unit tests (42)
+# `itsanas-net` — unit tests (43)
 
 ## `protocol` — messages and challenges (12)
 
@@ -791,18 +791,19 @@ and is catalogued with that crate.
 
 ---
 
-## `session` — what a round establishes (5)
+## `session` — what a round establishes, and what one forged chain may not stop (6)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_a_peer_that_only_answered_the_phone_has_earned_nothing`** | See **Red-team tests** above. |
 | **`red_team_a_failed_round_earns_nothing`** | See **Red-team tests** above. |
+| **`red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call`** | The refresh stage of §8 2c, which the honest test server cannot play: a tampered segment in the middle of one device's chain is refused by `put_segment`, the genuine prefix before it is kept, the rest of that chain dropped and the refusal reported -- not an error that ends the pull for every other device's chain. The strict `refresh` other callers use still errors. Sabotaged (the tolerated refusal turned off): red. |
 | `a_peer_that_already_held_our_data_has_earned_it` | The steady state of a host that has been storing for weeks: nothing to send, nothing to fetch, and still the most valuable peer this node knows. Requiring fresh transfer would demote every long-standing host to stranger the moment it caught up. |
 | `a_peer_that_accepted_our_data_has_earned_it` / `a_peer_that_served_us_our_own_work_has_earned_it` | The two ways a peer proves it is real: it stored something, or it gave us something of ours. |
 
 ---
 
-# `itsanas-net` — two-node tests (50)
+# `itsanas-net` — two-node tests (51)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -816,6 +817,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost`** | An attack that repair itself introduced. Asking a peer "do you have chunk X?" tells it this node does not. The ids are blinded so nothing about the content leaks — but *which chunks now exist only on hosts* is precisely the list to delete to destroy somebody's data, and the first version asked every peer it connected to, strangers the discovery loop had just dialled included. A peer is now asked only about chunks the ledger already records it as holding, which discloses nothing it did not tell this node itself. |
 | **`what_doctor_finds_is_what_repair_fixes_first`** | Two detectors that ignored each other. `doctor` knows every local loss in one pass; the daemon's sampling scan needs fifty-five days to reach a given chunk on a terabyte store. Somebody running `doctor` because a file would not open therefore learned the answer and had no way to act on it. They now share a queue, and a loss `doctor` found is repaired in the next round rather than eventually. |
 | **`a_disk_that_quietly_lost_a_block_gets_it_back_from_a_host`** | The half of repair that pushing cannot do. `push` restores *replication* by offering a peer what the peer lacks; it can put nothing back on **this** disk, and a chunk missing here is the one failure the placement ledger was built to survive. A dropped block, an inode lost to a power cut, a partial restore: the file is unreadable, the bytes are on three other machines, and until now nothing reached for them and the only cure was a human running `doctor` and knowing what to do next. |
+| **`red_team_one_forged_chain_does_not_stall_the_pull_of_the_others`** | §8 2c, end to end. A host keeps, beside an account's genuine chain, one it made up: a free device key signing a segment under the victim's user id, its body sealed under another account's key. The signature verifies so the vault keeps it; the body does not open, and that used to fail the whole pull -- the genuine file never arrived, on this round or any later one, because the forged segment is replayed from the vault. Now the genuine file is adopted, the round reports `refused_chains: 1`, and does so again on the next round while new honest work still arrives. Sabotaged (the refused chain propagated again; the count reported as 0): red. |
 | **`red_team_a_relay_that_serves_noise_is_not_written_down_as_a_holder`** | Same liar, over the real transport. The pull recorded every chunk a peer *answered* as held by it before anything checked the bytes, so the ledger counted a copy that does not exist and repair would ask the liar first; and the file was adopted. Now only chunks on this disk afterwards are recorded, and the file stays absent. |
 | **`red_team_a_relay_cannot_poison_a_chunk_on_the_ordinary_pull_path`** | The same attack as the repair one, through the door the repair defence did not cover. `accept_chunk` verifies; a second method wrote peer bytes unverified and argued that a chunk which fails to open is caught later by `read_file`. It is not caught later, and the reasoning against it had already been written fifteen lines away: noise under a real address makes `has_chunk` true, so nothing looks for the real bytes — not the repair scan, which checks presence, and not `doctor`, whose recorded loss the next scan clears because the blob is now there. That path is every chunk of every sync. |
 | **`red_team_a_host_cannot_answer_a_repair_request_with_rubbish`** | A host cannot read what it stores, so its one route to destroying data is to wait for a repair request and answer with noise. Written unverified, those bytes would make `has_chunk` true, the scan would stop looking, no other peer would ever be asked, and a **recoverable** loss would become permanent — strictly worse than refusing to answer. The bytes are opened and re-addressed before anything is written, and a host that answers with something else loses that record. |
@@ -889,7 +891,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (39)
+# `itsanas-cli` — unit tests (40)
 
 ## `bench` — measuring this machine (4)
 
@@ -929,7 +931,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pledge that keeps the split (25)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word, a pledge that keeps the split and a refused chain said (26)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -962,6 +964,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_what_a_sync_pulled_lands_in_the_folder`** | `itsanas sync` by hand fetched into the store and left the synced folder empty until an `itsanas scan` no guide names (found by a persona run of FIRST-STEPS, HANDOVER §8 q). A file put in the store as a pull would must be written out by `sync_folder`, which `sync` runs after its rounds. Sabotaged (it returns at once): red. |
 | `the_phrase_as_init_prints_it_reads_back_as_the_words` | `init` prints the words as a numbered grid; a person pastes that into `--phrase-file`. The numbers are dropped, words are never guessed at, and one word a line works too. |
 | **`red_team_an_empty_mount_point_is_not_a_reachable_folder`** | An unmounted disk leaves an empty mount point; `instances` must say UNREACHABLE unless 0l's `.itsanas-folder` marker is there, never trust `is_dir` alone. |
+| `a_refused_chain_is_said_on_the_sync_line` | `itsanas sync`'s summary names a device chain the peer served and this node refused (§8 2c), and adds nothing when there is none; without it the round reads as a finished sync with one device's changes left out. Sabotaged (the line dropped from `deferred_note`): red. |
 | **`red_team_pledge_under_what_keep_needs_is_refused_and_saves_nothing`** | `itsanas pledge 1M` on a node keeping 20 GiB is refused with the `space --pledge .. --keep .. --apply` command, and neither the node file nor the node in memory changes; with no keep the same pledge goes through, so the setter is not one that refuses everything (HANDOVER §8 3a). Sabotaged (the `check_split` call in `set_pledge` dropped, or moved below the assignment; `check_split` always `Ok`): red. |
 
 # `itsanas-policy` — when to sync, and how much (23)

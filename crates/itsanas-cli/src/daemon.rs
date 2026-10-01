@@ -1289,6 +1289,9 @@ fn report_round(peer: &str, report: &session::RoundReport) {
     if let Some(no_room) = crate::describe_no_room(&report.pull) {
         println!("{peer}: {no_room}");
     }
+    if let Some(refused) = crate::describe_refused_chains(&report.pull) {
+        println!("{peer}: {refused}");
+    }
     let Ok(mut reported) = REFUSALS_REPORTED.lock() else {
         return;
     };

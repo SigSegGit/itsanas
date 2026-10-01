@@ -800,6 +800,113 @@ fn red_team_a_relay_that_serves_noise_is_not_written_down_as_a_holder() {
 }
 
 #[test]
+fn red_team_one_forged_chain_does_not_stall_the_pull_of_the_others() {
+    // THE ATTACK (§8 2c). A host serves the account's genuine chain from one
+    // device and, beside it, a chain it made up: a fresh device key -- free,
+    // anybody mints one -- signing a segment under the victim's user id whose
+    // body is sealed under a key that is not the account's. The signature
+    // verifies, so the vault keeps it; the body does not open. `apply_segments`
+    // answered that with an error for the whole pull, so the genuine file was
+    // never adopted, and since the forged segment stays in the vault and is
+    // replayed, every later round failed the same way. One stranger, one
+    // segment, an account's sync stopped on every node that pulled from it.
+    //
+    // What must happen instead: the genuine chain is applied, the forged one is
+    // left out, and the round says a chain was refused.
+    use itsanas_store::{LogEntry, Operation, SegmentEnvelope, VersionVector};
+
+    let master = alice();
+    let liar = node(&MasterSecret::from_bytes([0xE3; 32]), 86);
+    let author = node(&master, 87);
+    let victim = node(&master, 88);
+
+    let content = a_file_of_many_chunks(47, 64 << 10);
+    author
+        .store
+        .write_file("honest.bin", &content)
+        .expect("write");
+    author.store.flush_segment().expect("flush");
+
+    with_server(&liar, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).expect("dial");
+        session::push(&author.store, &mut client).expect("push");
+    });
+
+    // The forgery, under the victim's account id and a key nobody in it holds.
+    let stranger = DeviceKeys::from_seed(&SecretBytes::new([0x01; 32]));
+    let wrong_root = UserKeys::derive(&MasterSecret::from_bytes([0xE4; 32]));
+    let forged = SegmentEnvelope::create(
+        wrong_root.oplog_root(),
+        author.store.owner(),
+        &stranger,
+        None,
+        vec![LogEntry {
+            sequence: 1,
+            recorded_unix: 0,
+            operation: Operation::Remove {
+                path: "honest.bin".to_owned(),
+                version: VersionVector::default(),
+            },
+        }],
+    )
+    .expect("forge");
+    liar.vault
+        .put_segment(&forged)
+        .expect("a host checks the signature, not membership, so it keeps this");
+
+    for attempt in ["first", "second"] {
+        if attempt == "second" {
+            // New honest work, so the second round has something new to
+            // apply beside the forged chain that is still in the vault: the
+            // refusal is said again, not once and then forgotten, and the new
+            // file still arrives.
+            author
+                .store
+                .write_file("later.bin", b"written after the first round")
+                .expect("write");
+            author.store.flush_segment().expect("flush");
+            with_server(&liar, Pledge::gigabytes(1), |address| {
+                let mut client =
+                    PeerClient::connect(address, &author.device, author.store.owner(), None)
+                        .expect("dial");
+                session::push(&author.store, &mut client).expect("push");
+            });
+        }
+        let report = with_server(&liar, Pledge::gigabytes(1), |address| {
+            let mut client =
+                PeerClient::connect(address, &victim.device, victim.store.owner(), None)
+                    .expect("dial");
+            session::round(&victim.store, &victim.vault, &mut client)
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "the {attempt} round failed outright ({error}): one forged chain stalls \
+                 every honest chain the same host serves"
+            )
+        });
+
+        assert_eq!(
+            report.pull.refused_chains, 1,
+            "the {attempt} round left a chain out without saying so"
+        );
+        assert_eq!(
+            victim
+                .store
+                .read_file("honest.bin")
+                .expect("read")
+                .as_deref(),
+            Some(content.as_slice()),
+            "the genuine device's file was not adopted beside the forged chain"
+        );
+    }
+    assert!(
+        victim.store.read_file("later.bin").expect("read").is_some(),
+        "honest work written after the forgery was not adopted"
+    );
+}
+
+#[test]
 fn red_team_a_host_cannot_answer_a_repair_request_with_rubbish() {
     // THE ATTACK. A host cannot read what it stores, so the one way it could
     // destroy data is to wait until the owner asks for a chunk back and answer
