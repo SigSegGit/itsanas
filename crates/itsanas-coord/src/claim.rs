@@ -87,6 +87,24 @@ pub const DEPARTURE_DOMAIN: &str = "itsanas v1 node departure";
 /// confusion.
 pub const MAX_CLOCK_SKEW: u64 = 3600;
 
+/// How many live devices one account may have enrolled at once.
+///
+/// Decided by Nicolas on 2026-09-30: "5 max". A withdrawn device frees its
+/// slot; re-signing the claim of a device already live (a new pledge, a
+/// re-run of `itsanas register`) takes none. Enforced twice: by the client
+/// before it signs a claim for a new device, so the refusal names the devices
+/// to choose from, and by [`crate::Directory::claim`], which is the bound a
+/// rebuilt client cannot remove.
+///
+/// Why a bound at all: every keystore holds the master secret, so whoever
+/// holds it can mint device ids for free, and before this every one of them
+/// became a live claim the coordinator stored, listed and handed to every
+/// other machine of the account to dial. An account above the bound -- one
+/// enrolled before it existed -- keeps every device it has; it just cannot
+/// add one until enough are withdrawn. `scripts/check-bargain.py` reads this
+/// line and checks every document that states the number.
+pub const MAX_DEVICES_PER_ACCOUNT: usize = 5;
+
 /// A user's statement that a device is theirs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeClaim {

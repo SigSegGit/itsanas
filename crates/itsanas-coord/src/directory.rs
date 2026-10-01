@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     accounting::DeviceContribution,
-    claim::{SignedClaim, SignedDeparture, SignedPresence},
+    claim::{MAX_DEVICES_PER_ACCOUNT, SignedClaim, SignedDeparture, SignedPresence},
     error::{CoordError, Result},
     invitation::{self, Secret, SignedInvitation},
 };
@@ -275,6 +275,9 @@ pub struct Directory {
     /// See [`Directory::play_old`].
     #[cfg(feature = "hostile")]
     plays_old: std::sync::atomic::AtomicBool,
+    /// See [`Directory::bound_devices`].
+    #[cfg(any(test, feature = "hostile"))]
+    unbounded: std::sync::atomic::AtomicBool,
 }
 
 impl Directory {
@@ -300,6 +303,8 @@ impl Directory {
             db,
             #[cfg(feature = "hostile")]
             plays_old: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(any(test, feature = "hostile"))]
+            unbounded: std::sync::atomic::AtomicBool::new(false),
         };
         directory.rebuild_owner_index_if_missing()?;
         Ok(directory)
@@ -572,6 +577,23 @@ impl Directory {
                 None => None,
             };
 
+            // Only a live claim for a device with no claim here takes a slot.
+            // A device already live is re-signing (a new pledge, `register`
+            // run again) and holds its slot already; a withdrawn one is
+            // refused below whatever the count; a withdrawal takes nothing.
+            if existing.is_none() && !signed.claim.revoked && self.bounds_devices() {
+                let index = txn.open_table(CLAIMS_BY_OWNER)?;
+                let live = live_claims_in(&index, &claims, signed.claim.owner)?;
+                if live.len() >= MAX_DEVICES_PER_ACCOUNT {
+                    // Returning drops `txn` uncommitted: nothing is written.
+                    return Err(CoordError::TooManyDevices {
+                        live: live.len(),
+                        limit: MAX_DEVICES_PER_ACCOUNT,
+                        devices: named(&live),
+                    });
+                }
+            }
+
             changed = match &existing {
                 None => true,
                 Some(existing) => {
@@ -702,27 +724,34 @@ impl Directory {
         let txn = self.db.begin_read()?;
         let index = txn.open_table(CLAIMS_BY_OWNER)?;
         let claims = txn.open_table(CLAIMS)?;
+        live_claims_in(&index, &claims, user)
+    }
 
-        let first = owner_device_key(user, DeviceId::from_bytes([0x00; 32]));
-        let last = owner_device_key(user, DeviceId::from_bytes([0xff; 32]));
-
-        let mut out = Vec::new();
-        for row in index.range(first.as_slice()..=last.as_slice())? {
-            let (key, _) = row?;
-            let device = &key.value()[32..];
-            let Some(value) = claims.get(device)? else {
-                // The index names a device the claims table does not hold. That
-                // cannot happen through `claim`, which writes both in one
-                // transaction; skipping rather than failing keeps a damaged
-                // file readable, and `live_claims` would skip it too.
-                continue;
-            };
-            let signed: SignedClaim = postcard::from_bytes(value.value())?;
-            if !signed.claim.revoked {
-                out.push(signed);
-            }
+    /// Whether [`Self::claim`] applies [`MAX_DEVICES_PER_ACCOUNT`].
+    ///
+    /// Always, except where a test has turned it off to play a coordinator
+    /// built before the bound existed ([`Self::bound_devices`]).
+    fn bounds_devices(&self) -> bool {
+        #[cfg(any(test, feature = "hostile"))]
+        {
+            !self.unbounded.load(std::sync::atomic::Ordering::Relaxed)
         }
-        Ok(out)
+        #[cfg(not(any(test, feature = "hostile")))]
+        {
+            true
+        }
+    }
+
+    /// Play a coordinator older than [`MAX_DEVICES_PER_ACCOUNT`]: with `false`,
+    /// any number of devices is admitted. For two kinds of test only -- that a
+    /// client refuses a sixth device on its own, and that an account enrolled
+    /// above the bound before it existed keeps working. Nothing built to run
+    /// has it.
+    #[cfg(any(test, feature = "hostile"))]
+    #[doc(hidden)]
+    pub fn bound_devices(&self, bound: bool) {
+        self.unbounded
+            .store(!bound, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// The current claim for a device.
@@ -1145,6 +1174,58 @@ struct UsageRecord {
 }
 
 /// Fold one observation into a smoothed per-mille average.
+/// Every live claim of `user`, read through the owner index.
+///
+/// One function for [`Directory::live_claims_of`] and for the device bound in
+/// [`Directory::claim`], so "a device of the account" means one thing to the
+/// address book and to the count: a withdrawn device is not one.
+fn live_claims_in(
+    index: &impl ReadableTable<&'static [u8], ()>,
+    claims: &impl ReadableTable<&'static [u8], &'static [u8]>,
+    user: UserId,
+) -> Result<Vec<SignedClaim>> {
+    let first = owner_device_key(user, DeviceId::from_bytes([0x00; 32]));
+    let last = owner_device_key(user, DeviceId::from_bytes([0xff; 32]));
+
+    let mut out = Vec::new();
+    for row in index.range(first.as_slice()..=last.as_slice())? {
+        let (key, _) = row?;
+        let device = &key.value()[32..];
+        let Some(value) = claims.get(device)? else {
+            // The index names a device the claims table does not hold. That
+            // cannot happen through `claim`, which writes both in one
+            // transaction; skipping rather than failing keeps a damaged
+            // file readable, and `live_claims` would skip it too.
+            continue;
+        };
+        let signed: SignedClaim = postcard::from_bytes(value.value())?;
+        if !signed.claim.revoked {
+            out.push(signed);
+        }
+    }
+    Ok(out)
+}
+
+/// The full ids of `live`, for a refusal a person reads. Full, not the short
+/// form: the machine reading this is not enrolled, so it cannot list the
+/// account's devices to resolve a short id, and when every machine of a full
+/// account was lost or reinstalled it is the only machine there is -- the
+/// full id is what lets it run `itsanas device forget` at all. At most a
+/// screenful: an account enrolled far above the bound before it existed would
+/// otherwise put an unbounded list into one wire message.
+fn named(live: &[SignedClaim]) -> String {
+    const SHOWN: usize = MAX_DEVICES_PER_ACCOUNT + 3;
+    let mut out: Vec<String> = live
+        .iter()
+        .take(SHOWN)
+        .map(|claim| claim.claim.device.to_string())
+        .collect();
+    if live.len() > SHOWN {
+        out.push(format!("and {} more", live.len() - SHOWN));
+    }
+    out.join(", ")
+}
+
 fn fold(current: u16, seen: bool) -> u16 {
     let observation: u64 = if seen { 1000 } else { 0 };
     let smoothed = (u64::from(current) * (1000 - SMOOTHING_ALPHA_PER_MILLE)
@@ -2036,6 +2117,208 @@ mod tests {
         ] {
             assert!(validate_username(bad).is_err(), "{bad:?} was accepted");
         }
+    }
+
+    /// A claim of `owner` on device `seed`, live or withdrawn, at `at`.
+    fn signed(owner: &UserKeys, seed: u8, at: u64, revoked: bool) -> SignedClaim {
+        NodeClaim {
+            owner: owner.user_id(),
+            device: device(seed).device_id(),
+            pledged_bytes: if revoked { 0 } else { 1024 },
+            issued_unix: at,
+            revoked,
+        }
+        .sign(owner)
+    }
+
+    /// An account with exactly [`MAX_DEVICES_PER_ACCOUNT`] live devices,
+    /// seeds 1 to 5.
+    fn a_full_account(directory: &Directory) -> UserKeys {
+        let owner = user(40);
+        register(directory, "nicolas", &owner);
+        for seed in 1..=u8::try_from(MAX_DEVICES_PER_ACCOUNT).expect("small") {
+            directory
+                .claim(&signed(&owner, seed, NOW, false), NOW)
+                .expect("a device under the bound is admitted");
+        }
+        owner
+    }
+
+    /// THE DECISION (Nicolas, 2026-09-30): five live devices per account. A
+    /// sixth is refused on the coordinator, which is the half a rebuilt client
+    /// cannot remove, and the refusal writes nothing: no claim, no index row
+    /// that `rebuild_owner_index_if_missing` would later count. The message
+    /// names the devices and the command, because it reaches clients older
+    /// than the bound as plain text and is all they will show.
+    #[test]
+    fn red_team_a_sixth_device_is_refused_and_nothing_is_written() {
+        let (_dir, directory) = directory();
+        let owner = a_full_account(&directory);
+        let before = directory.enrolled_counts().expect("counts");
+
+        let refused = directory.claim(&signed(&owner, 6, NOW + 1, false), NOW + 1);
+
+        let Err(CoordError::TooManyDevices {
+            live,
+            limit,
+            devices,
+        }) = refused
+        else {
+            panic!("a sixth device was not refused as one too many: {refused:?}");
+        };
+        assert_eq!((live, limit), (5, MAX_DEVICES_PER_ACCOUNT));
+        assert!(
+            devices.contains(&device(1).device_id().to_string()),
+            "the refusal does not give the full ids an unenrolled machine needs: {devices}"
+        );
+        let text = CoordError::TooManyDevices {
+            live,
+            limit,
+            devices,
+        }
+        .to_string();
+        assert!(
+            text.contains("itsanas device forget <id>"),
+            "the refusal does not say how to free a slot: {text}"
+        );
+        assert!(
+            directory
+                .claim_for(device(6).device_id())
+                .expect("read")
+                .is_none(),
+            "the refused device was written anyway, and the address book will list it"
+        );
+        assert_eq!(
+            directory.enrolled_counts().expect("counts"),
+            before,
+            "a refused claim changed the claims or the index"
+        );
+        assert_eq!(
+            directory
+                .live_claims_of(owner.user_id())
+                .expect("live")
+                .len(),
+            5
+        );
+    }
+
+    /// A withdrawal frees its slot, and exactly one: the device it frees
+    /// cannot be brought back into it by replaying its own old live claim,
+    /// which the master secret on every keystore would make trivial.
+    #[test]
+    fn red_team_a_withdrawn_slot_lets_one_more_in_and_the_withdrawn_device_stays_out() {
+        let (_dir, directory) = directory();
+        let owner = a_full_account(&directory);
+        let replay = signed(&owner, 3, NOW + 5, false);
+
+        directory
+            .claim(&signed(&owner, 3, NOW + 1, true), NOW + 1)
+            .expect("withdraw device 3");
+        directory
+            .claim(&signed(&owner, 6, NOW + 2, false), NOW + 2)
+            .expect("the freed slot admits a new device");
+        assert!(
+            matches!(
+                directory.claim(&signed(&owner, 7, NOW + 3, false), NOW + 3),
+                Err(CoordError::TooManyDevices { .. })
+            ),
+            "one withdrawal let two devices in"
+        );
+
+        // The withdrawn device, re-signed after its withdrawal: refused, still
+        // withdrawn, and not counted as live on the way.
+        assert!(
+            directory.claim(&replay, NOW + 5).is_err(),
+            "a withdrawn device came back"
+        );
+        assert!(
+            directory
+                .claim_for(device(3).device_id())
+                .expect("read")
+                .is_some_and(|claim| claim.claim.revoked),
+            "the replay resurrected the withdrawn device"
+        );
+        assert_eq!(
+            directory
+                .live_claims_of(owner.user_id())
+                .expect("live")
+                .len(),
+            5
+        );
+    }
+
+    /// Re-signing a device already live -- a new pledge, `itsanas register`
+    /// run twice -- is not a new device. Counting it would lock a full account
+    /// out of changing any pledge.
+    #[test]
+    fn red_team_re_signing_a_live_device_on_a_full_account_takes_no_slot() {
+        let (_dir, directory) = directory();
+        let owner = a_full_account(&directory);
+
+        let changed = directory
+            .claim(&signed(&owner, 2, NOW + 1, false), NOW + 1)
+            .expect("a full account can still re-sign one of its own devices");
+        assert!(changed, "the newer claim was not kept");
+        assert_eq!(
+            directory
+                .live_claims_of(owner.user_id())
+                .expect("live")
+                .len(),
+            5
+        );
+    }
+
+    /// An account enrolled above the bound before it existed is not broken:
+    /// every device stays live and can re-sign, it simply cannot add another,
+    /// and it is told how many it has.
+    #[test]
+    fn an_account_already_above_the_bound_keeps_its_devices_and_cannot_add_one() {
+        let (_dir, directory) = directory();
+        let owner = user(41);
+        register(&directory, "nicolas", &owner);
+        directory.bound_devices(false);
+        for seed in 1..=7 {
+            directory
+                .claim(&signed(&owner, seed, NOW, false), NOW)
+                .expect("an older coordinator admitted seven");
+        }
+        directory.bound_devices(true);
+
+        assert_eq!(
+            directory
+                .live_claims_of(owner.user_id())
+                .expect("live")
+                .len(),
+            7
+        );
+        directory
+            .claim(&signed(&owner, 4, NOW + 1, false), NOW + 1)
+            .expect("a device of an account above the bound can still re-sign");
+        let refused = directory.claim(&signed(&owner, 8, NOW + 2, false), NOW + 2);
+        assert!(
+            matches!(refused, Err(CoordError::TooManyDevices { live: 7, .. })),
+            "an eighth device was not refused with the real count: {refused:?}"
+        );
+        assert_eq!(
+            directory
+                .live_claims_of(owner.user_id())
+                .expect("live")
+                .len(),
+            7
+        );
+    }
+
+    /// The bound is per account: one member's full roster says nothing about
+    /// anybody else's.
+    #[test]
+    fn a_full_account_does_not_stop_another_account_enrolling() {
+        let (_dir, directory) = directory();
+        let _full = a_full_account(&directory);
+        let other = user(42);
+        register(&directory, "mandarine", &other);
+        directory
+            .claim(&signed(&other, 9, NOW, false), NOW)
+            .expect("another account's first device");
     }
 
     #[test]

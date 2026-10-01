@@ -10,7 +10,7 @@ use itsanas_coord::claim::{NodeClaim, Presence};
 use itsanas_coord::directory::Registration;
 use itsanas_coord::protocol::{MAX_PEERS_RETURNED, Request, Response};
 use itsanas_coord::server::{CoordClient, CoordServer};
-use itsanas_coord::{COORD_VERSION, Directory};
+use itsanas_coord::{COORD_VERSION, Directory, MAX_DEVICES_PER_ACCOUNT};
 use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
 
 const NOW: u64 = 1_700_000_000;
@@ -785,11 +785,60 @@ fn red_team_a_stranger_cannot_list_another_member_s_devices() {
     });
 }
 
+/// MIXED VERSIONS. A client older than the device bound sends a sixth claim
+/// as it always did and reads `Refused` as it always has; it must get there
+/// at once, with text that names the devices and the command, rather than a
+/// closed connection it would retry or a `Done` that lies.
+#[test]
+fn red_team_a_client_older_than_the_bound_is_refused_in_words_on_the_wire() {
+    with_coordinator(|address, directory| {
+        let nicolas = user(1);
+        let mut first = enrolled_member(address, "nicolas", &nicolas, &device(1));
+        for seed in 2..=u8::try_from(MAX_DEVICES_PER_ACCOUNT).expect("small") {
+            claim_device(&mut first, &nicolas, &device(seed), false, NOW);
+        }
+
+        let sixth = device(6);
+        let mut client = dial(address, &sixth, &nicolas);
+        let started = std::time::Instant::now();
+        let answer = client
+            .ask(&Request::Claim(Box::new(
+                NodeClaim {
+                    owner: nicolas.user_id(),
+                    device: sixth.device_id(),
+                    pledged_bytes: 1 << 30,
+                    issued_unix: NOW,
+                    revoked: false,
+                }
+                .sign(&nicolas),
+            )))
+            .expect("the coordinator answers rather than hanging up");
+
+        let Response::Refused(why) = answer else {
+            panic!("a sixth device was not refused: {answer:?}");
+        };
+        assert!(
+            why.contains(&device(1).device_id().to_string())
+                && why.contains("itsanas device forget"),
+            "the refusal an old client prints does not say what to do: {why}"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "the refusal stalled"
+        );
+        assert!(directory.claim_for(sixth.device_id()).unwrap().is_none());
+    });
+}
+
 #[test]
 fn the_peer_list_is_bounded_however_many_devices_a_user_enrols() {
     // A member with a thousand devices must not be a way to make the
-    // coordinator send a thousand records to anybody who asks.
-    with_coordinator(|address, _| {
+    // coordinator send a thousand records to anybody who asks. Since
+    // 2026-09-30 nobody can enrol more than `MAX_DEVICES_PER_ACCOUNT`, so this
+    // plays a coordinator older than that bound: an account enrolled then
+    // keeps its forty devices, and the list cap is what still protects askers.
+    with_coordinator(|address, directory| {
+        directory.bound_devices(false);
         let nicolas = user(1);
         let first = device(1);
         let mut client = dial(address, &first, &nicolas);

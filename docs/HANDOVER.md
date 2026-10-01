@@ -11,14 +11,28 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.2c
 TITLE: a hostile host cannot stall a whole pull with one refused segment
-WRITTEN-AT: 2026-09-30
-BASE: 4ee55cb
+WRITTEN-AT: 2026-10-01
+BASE: b21b445
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-01, 2d: at most 5 live devices per account** (branch
+`step/8.2d-device-cap`; Nicolas's decision of 2026-09-30, §6). One constant,
+`MAX_DEVICES_PER_ACCOUNT` (`itsanas-coord` `claim.rs`), enforced in
+`Directory::claim` (inside the write transaction, nothing written on refusal)
+and in `coordinator::register_with` before signing. Re-signing a live device
+takes no slot, a withdrawal frees one, a withdrawn device stays out, an
+account above 5 keeps its devices. `check-bargain.py` now also holds four
+documents to the number (no new gate, so no `ci.yml` change). `itsanas-redteam`
+found a permanent lockout (all five machines lost, the new one could neither
+register nor `forget`): fixed, refusals carry full ids and `forget <full id>`
+lists nothing. Verified: 10 tests, 10 code sabotages red, the gate red three
+ways, the CLI path by hand both ways. Not done: Android has no withdraw;
+withdrawn rows still unbounded. Next is 2c.
 
 **2026-09-30, 2b: confidentiality surface red-teamed by hand** (branch
 `step/8.2b-confidentiality-redteam`). Table in ROADMAP "The confidentiality
@@ -1958,6 +1972,7 @@ Each of these has a test that fails if it is:
 | The sender's clock decides nothing in discovery | A Pi 4 has no RTC and boots in 1970; superseding by sender clock strands it at a stale address | `a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address` |
 | The split is a value, and the one that grants entitlement is the coordinator's | It was `CONTRIBUTION_RATIO = 3`, and a constant cannot express 30/70 without becoming a fraction, which is where an `f64` wants to go. Two splits now exist and they are not the same thing: a node's configuration field decides only what that machine refuses its own owner, and the one `assess` is handed decides what the network grants. A `split` field on `DeviceContribution` would let a member widen their own entitlement by editing a text file. The node's field may only be stricter than `Split::DEFAULT`: `itsanas keep` is the one live enforcement, and a generous split would turn it off | `red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`; `red_team_a_node_cannot_grant_itself_a_more_generous_split`; `red_team_a_split_with_a_zero_part_is_refused_rather_than_dividing_by_zero` |
 | A withdrawal is final for its device id and wins whatever the signing clocks say | Every keystore holds the master secret, so a claim signed after a withdrawal proves nothing about who signed it; and a signer's clock is an opinion. Timestamp ordering let a stolen machine re-enrol and let a slow clock cancel a withdrawal. A reused machine logs in afresh and gets a new device id | `red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back`; `red_team_a_withdrawal_signed_on_a_slow_clock_still_withdraws`; `a_later_enrolment_does_not_supersede_a_withdrawal` |
+| An account has at most `MAX_DEVICES_PER_ACCOUNT` live devices -- 5, decided by Nicolas on 2026-09-30 ("5 max") | Enforced on the coordinator, the bound a rebuilt client cannot remove, and on the enrolling client so the refusal names the devices. A withdrawal frees its slot; re-signing a live device takes none; an account above the bound is never cut down, it only cannot add one. Raising it, or counting re-signings, is a decision for Nicolas | `red_team_a_sixth_device_is_refused_and_nothing_is_written`; `red_team_a_withdrawn_slot_lets_one_more_in_and_the_withdrawn_device_stays_out`; `red_team_re_signing_a_live_device_on_a_full_account_takes_no_slot`; `red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_would_not` |
 | Coordinator messages are appended, never inserted | postcard numbers variants by position; the peer protocol already lost a week to it | `red_team_coordinator_messages_keep_their_wire_numbers` |
 | Streaming boundaries match slice boundaries exactly | Otherwise one file stored via two paths dedups against nothing | `streaming_and_slicing_agree_on_every_boundary` |
 | Published test identities are refused by `Store::open` | Their phrases are in the docs | `the_published_test_identities_are_refused_...` |
@@ -2991,6 +3006,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
       any error message or log line a peer can provoke echo a path. Cap: ~5
       tests, one PR.
 
+   d. ✅ **At most 5 live devices per account.** Built 2026-10-01 (see §0;
+      ROADMAP "At most 5 live devices per account"). Decided by Nicolas on
+      2026-09-30, verbatim: « Il faut limiter le nombre d'appareils par
+      compte. 5 max me semble bien. » Lettered d and placed before c because
+      it was decided after c was written and went first. Open from it: a
+      withdraw in the Android app; a cap on withdrawn rows (5 live, any
+      number withdrawn); the re-sign corner named in ROADMAP.
+
    c. **A hostile host cannot stall a whole pull with one refused segment.**
       Named by 2a (ROADMAP "The integrity surface, by hand", "Not examined or
       not tested here"): one segment that fails any check -- signature,
@@ -3175,6 +3198,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
    would also scope reads to the account (ROADMAP "The confidentiality
    surface, by hand"), but it is a new signed object to distribute, keep and
    revoke, and a keystore-replaced device must be added to it. Which one?
+   Since 2026-10-01 (§8 2d) an account has at most 5 live devices, enforced
+   by the coordinator: option 2's roster would be at most five entries, a
+   bounded object to sign and ship. That prepares it; nothing of it is built.
 
 ## 11. Working style Nicolas expects
 

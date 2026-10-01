@@ -51,6 +51,18 @@ has actually happened is still worth more than the comment nobody read.
 Historical mentions are allowed where a document explains what the number used
 to be, which several deliberately do. They are listed by file and phrase below,
 so that adding one is a decision rather than an accident.
+
+The device bound, since 2026-09-30
+----------------------------------
+
+The other number of the bargain a member is told: at most
+`MAX_DEVICES_PER_ACCOUNT` live devices per account (Nicolas: "5 max"). It is
+here rather than in a gate of its own for the same reason the split is -- one
+constant in the code, restated in the files a new member reads -- and because
+a new `check-*` script needs a `ci.yml` step, which only Nicolas can add.
+Checked: the constant is read out of `claim.rs`; every file in
+`STATES_THE_DEVICE_BOUND` says `at most N live devices`; and no document or
+installer states a different number of live devices, in digits or in words.
 """
 
 import io
@@ -102,6 +114,72 @@ OFFERING = re.compile(r'offering (\d+) GiB earns (\d+) GiB')
 EARNS_YOU = re.compile(r'you offer\s+(\d+)\.0 GiB\s*\n\s*that earns you\s+(\d+\.\d) GiB')
 CONTRIBUTES = re.compile(r'contributes (\d+) (GB|TB) and earns (\d+) GB')
 DIVIDED = re.compile(r'effective contribution ÷ \d+\s*$', re.M)
+
+# `pub const MAX_DEVICES_PER_ACCOUNT: usize = 5;`
+DEVICE_BOUND = re.compile(r'pub const MAX_DEVICES_PER_ACCOUNT: usize = (\d+);')
+
+# The files that tell a member how many machines an account may have.
+STATES_THE_DEVICE_BOUND = (
+    'FIRST-STEPS.md',
+    'docs/QUICKSTART.md',
+    'docs/ROADMAP.md',
+    'install/README.md',
+)
+
+NUMBER_WORDS = {
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6,
+    'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10, 'twelve': 12,
+}
+
+# "at most 5 live devices", "5 live devices per account", "**at most five
+# live devices**": a number of live devices the reader is told is the limit.
+A_DEVICE_BOUND = re.compile(
+    r'at\s+most\s+\**(\d+|[a-z]+)\s+live\s+devices'
+    r'|\b(\d+|[a-z]+)\s+live\s+devices\s+per\s+account',
+    re.I,
+)
+
+
+def check_device_bound(problems):
+    """The device bound in `claim.rs` against every document; how many matched."""
+    found = DEVICE_BOUND.search(read('crates/itsanas-coord/src/claim.rs'))
+    if not found:
+        problems.append(
+            'cannot find `MAX_DEVICES_PER_ACCOUNT` in claim.rs, so the device '
+            'bound is checked against nothing; fix the pattern in this script'
+        )
+        return 0
+    bound = int(found.group(1))
+    for name in STATES_THE_DEVICE_BOUND:
+        if not any(
+            value(match) == bound for match in A_DEVICE_BOUND.finditer(read(name))
+        ):
+            problems.append(
+                '%s tells a member how many devices an account may have and never '
+                'says "at most %d live devices"' % (name, bound)
+            )
+    matched = 0
+    # The whole text, not line by line: prose wraps, and "at most 5 live" at
+    # the end of one line with "devices" on the next is the common case.
+    for name, text in documents():
+        for match in A_DEVICE_BOUND.finditer(text):
+            stated = value(match)
+            if stated is None:
+                continue
+            matched += 1
+            if stated != bound:
+                problems.append(
+                    '%s:%d states %s live devices per account; the code allows %d'
+                    % (name, text.count('\n', 0, match.start()) + 1,
+                       match.group(1) or match.group(2), bound)
+                )
+    return matched
+
+
+def value(match):
+    """The number a device-bound match states, or None for a word that is not one."""
+    text = (match.group(1) or match.group(2)).lower()
+    return int(text) if text.isdigit() else NUMBER_WORDS.get(text)
 
 # Code comments that quote the refusal, alongside the documents.
 EXAMPLES_IN_CODE = ('crates/itsanas-coord/src/accounting.rs',)
@@ -249,6 +327,8 @@ def main():
                         % (name, number, left, right, split)
                     )
 
+    bounds = check_device_bound(problems)
+
     # The documents carry worked examples today. If none match, a pattern has
     # drifted from the prose and everything above is checking nothing.
     if examples == 0:
@@ -269,7 +349,8 @@ def main():
 
     print(
         'bargain: the code ships a %s split, all %d documents that state it '
-        'agree, and %d worked examples recompute' % (split, len(STATES_THE_BARGAIN), examples)
+        'agree, and %d worked examples recompute; %d statements of the device '
+        'bound agree with the code' % (split, len(STATES_THE_BARGAIN), examples, bounds)
     )
     return 0
 

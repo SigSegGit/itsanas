@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-09-30 — 891 test functions across 27 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 141 are red-team tests.**
+**Last updated: 2026-10-01 — 901 test functions across 28 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 148 are red-team tests.**
 
-**775 of the 891 tests have an entry of their own on this page** — an *entry*,
+**785 of the 901 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -165,8 +165,8 @@ guarantee and is not one.
 | `itsanas-net` unit | 42 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 50 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 108 (1 `#[ignore]`d) |
-| `itsanas-coord` integration (`tests/coordinator.rs`) | 15 |
+| `itsanas-coord` unit | 113 (1 `#[ignore]`d) |
+| `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
 | `itsanas-discover` unit | 43 |
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
@@ -178,6 +178,7 @@ guarantee and is not one.
 | `itsanas-node` unit | 86 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
+| `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -1008,7 +1009,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (95)
+# `itsanas-node` — a node on disk (99)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1601,6 +1602,31 @@ Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, five in
 | `nothing_answering_anywhere_is_still_an_error` | Trying several addresses must still fail when none answers, rather than returning the last error as success or hanging on an empty list. |
 
 ---
+
+# `itsanas-coord` — five live devices per account (6)
+
+Decided by Nicolas on 2026-09-30. Five unit tests in `directory.rs` and one
+integration test in `tests/coordinator.rs`. `MAX_DEVICES_PER_ACCOUNT` in
+`claim.rs`; `Directory::bound_devices(false)` plays a coordinator older than
+the bound, behind `cfg(test)` and the `hostile` feature.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_sixth_device_is_refused_and_nothing_is_written`** | A sixth live claim is refused as `TooManyDevices`, naming the five and `itsanas device forget <id>`, and neither table changes: a written claim would be listed to every machine of the account. Sabotaged on the count (`if false`) and on the command in the message. |
+| **`red_team_a_withdrawn_slot_lets_one_more_in_and_the_withdrawn_device_stays_out`** | One withdrawal frees one slot, not two; the withdrawn device's live claim re-signed after it is refused, stays withdrawn and is not counted. Sabotaged by counting withdrawn claims as live. |
+| **`red_team_re_signing_a_live_device_on_a_full_account_takes_no_slot`** | A new claim for a device already live (a pledge change, `register` again) is kept on a full account. Counting it would lock a full account out of every pledge change. Sabotaged by counting every live claim. |
+| `an_account_already_above_the_bound_keeps_its_devices_and_cannot_add_one` | Seven devices enrolled by an older coordinator stay live and can re-sign; an eighth is refused with the real count. The bound is not applied backwards. |
+| `a_full_account_does_not_stop_another_account_enrolling` | The count is per account, read through the owner index range. |
+| **`red_team_a_client_older_than_the_bound_is_refused_in_words_on_the_wire`** | Mixed versions: a sixth claim sent as any client sends it gets `Response::Refused` at once, with the device ids and `itsanas device forget` in the text an old client prints, and nothing written. Not a hang-up an old client would retry, not a `Done`. |
+
+# `itsanas-node` five devices (`tests/five_devices.rs`) — the client's half of the bound (4)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_would_not`** | Against a coordinator that would admit it, a sixth machine of the account refuses before it signs, names the five devices it read from `ClaimedPeers`, and the coordinator holds no claim for it. Sabotaged by ignoring the client's check, and by not reading `ClaimedPeers` on a machine not yet enrolled. |
+| **`red_team_a_machine_of_a_full_account_can_register_again`** | `itsanas register` on a live device of a full account succeeds: `Devices` answers only a live device, so an answer means a re-signing and the client does not count (not "am I in the list": the list is truncated, silent devices last, which `itsanas-redteam` showed could refuse a long-silent device of an account above the bound). A regression guard; the "already live" rule of `room_for` is sabotaged red in the next test but one. |
+| **`red_team_a_new_machine_of_a_full_account_whose_machines_are_all_lost_can_free_a_slot`** | Found by `itsanas-redteam`: five machines lost or reinstalled hold the five slots, and the new machine is the only one left and is not enrolled. It is refused, the coordinator's refusal carries full device ids (a short one cannot be resolved by a machine refused `Devices`), a withdrawal by full id is accepted from it, and the freed slot takes it. Sabotaged by short ids in the refusal. The CLI half -- `itsanas device forget <full id>` no longer lists first -- was checked by hand against a real coordinator both ways (refused "only an enrolled device" without the change), not by a test. |
+| `room_is_counted_in_live_devices_and_a_device_already_live_needs_none` | `coordinator::room_for` alone: four leave room, five do not, and a device among the five always has room. |
 
 # `itsanas-coord` — departures (2)
 
