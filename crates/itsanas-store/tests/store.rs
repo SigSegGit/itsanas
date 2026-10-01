@@ -409,6 +409,7 @@ fn red_team_a_write_past_the_disk_room_is_refused_and_leaves_nothing() {
             allowed: u64::MAX,
             elsewhere: 0,
             local_ceiling: Some(300 * KIB),
+            folder_copy: itsanas_store::FolderCopy::None,
         }))
         .unwrap();
 
@@ -457,6 +458,7 @@ fn red_team_many_small_writes_cannot_pass_the_disk_ceiling_together() {
             allowed: u64::MAX,
             elsewhere: 0,
             local_ceiling: Some(300 * KIB),
+            folder_copy: itsanas_store::FolderCopy::None,
         }))
         .unwrap();
 
@@ -481,6 +483,59 @@ fn red_team_many_small_writes_cannot_pass_the_disk_ceiling_together() {
         .expect("an edit of the same size is charged its growth, which is nothing");
 }
 
+/// A pull writes the file twice when a folder is synced: the store's chunks
+/// and the folder's plaintext. With the folder on the home's volume, a pull
+/// of X under a room of X would put 2X on the disk, the second X out of what
+/// the pledge owes other people; so both copies are charged, and the bytes
+/// pulled since the budget was set count twice as well. With the folder on
+/// another volume, that volume's free space bounds the folder copy.
+#[test]
+fn red_team_a_pull_charges_the_folder_copy_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([64; 32]), dir.path());
+    let budget = |folder_copy| WriteBudget {
+        allowed: u64::MAX,
+        elsewhere: 0,
+        local_ceiling: Some(100 * KIB),
+        folder_copy,
+    };
+    let same = itsanas_store::FolderCopy::SameVolume { local_then: 0 };
+    store.set_write_budget(Some(budget(same))).unwrap();
+    assert!(
+        store
+            .pull_room("big.bin", 100 * KIB, false)
+            .unwrap()
+            .is_some(),
+        "a pull of X under a room of X was let in: with the folder's copy it \
+         puts 2X on the disk"
+    );
+    assert_eq!(store.pull_room("half.bin", 50 * KIB, false).unwrap(), None);
+
+    store
+        .write_file("here.bin", &testkit::filler("here", 25 * 1024))
+        .expect("inside the ceiling");
+    assert_eq!(
+        store.pull_room("a.bin", 25 * KIB, false).unwrap(),
+        None,
+        "25 KiB already here (50 with its folder copy) and 25 more (50) fill 100 exactly"
+    );
+    assert!(
+        store.pull_room("b.bin", 26 * KIB, false).unwrap().is_some(),
+        "the bytes pulled since the budget was set were charged once, not twice"
+    );
+
+    store
+        .set_write_budget(Some(budget(itsanas_store::FolderCopy::OtherVolume {
+            local_then: 0,
+            room: 10 * KIB,
+        })))
+        .unwrap();
+    assert!(
+        store.pull_room("c.bin", 20 * KIB, false).unwrap().is_some(),
+        "the folder's volume has 10 KiB free and the pull was let in: the export fails half-written"
+    );
+}
+
 #[test]
 fn red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log() {
     let dir = tempfile::tempdir().unwrap();
@@ -490,6 +545,7 @@ fn red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log() {
             allowed: 600 * KIB,
             elsewhere: 0,
             local_ceiling: None,
+            folder_copy: itsanas_store::FolderCopy::None,
         }))
         .unwrap();
 
@@ -557,6 +613,7 @@ fn a_write_inside_the_budget_succeeds_and_an_edit_is_charged_only_its_growth() {
             allowed: 1024 * KIB,
             elsewhere: 0,
             local_ceiling: None,
+            folder_copy: itsanas_store::FolderCopy::None,
         }))
         .unwrap();
 
@@ -597,6 +654,7 @@ fn red_team_what_the_account_holds_elsewhere_counts_against_it() {
             allowed: 1024 * KIB,
             elsewhere: 900 * KIB,
             local_ceiling: None,
+            folder_copy: itsanas_store::FolderCopy::None,
         }))
         .unwrap();
 

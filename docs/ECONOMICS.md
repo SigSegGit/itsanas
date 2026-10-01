@@ -316,7 +316,10 @@ starts at once instead of after the seven days a silence takes to be noticed,
 and the coordinator records the departure apart from a silence
 (`a_departure_is_recorded_apart_from_a_silence`). It does **not** keep serving
 while copies are taken — that is `evict`'s notice period — and nothing reads the
-recorded departures yet.
+recorded departures yet. Leaving is not withdrawing: the device keeps its
+claim, and so its slot among the account's five
+(`red_team_a_departed_device_keeps_its_slot`); `itsanas leave` ends by saying
+to run `itsanas device forget <id>` from another device to free it.
 
 ---
 

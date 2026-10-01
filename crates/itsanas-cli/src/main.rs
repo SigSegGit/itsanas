@@ -322,8 +322,10 @@ enum Command {
     ///
     /// Run it with the daemon stopped: one process at a time holds a node's
     /// state. It does not wait for the repair, which is the peers' work.
-    /// Afterwards `daemon` exits at once, and `serve` and `sync` refuse,
-    /// until `itsanas rejoin`.
+    /// Afterwards `daemon` exits at once, and `serve`, `sync` and `register`
+    /// refuse, until `itsanas rejoin`. The device keeps its claim, and so its
+    /// slot among the account's 5: `itsanas device forget <id>`, run from
+    /// another device, frees it.
     Leave,
     /// Undo `leave` on this machine: the daemon may start again.
     Rejoin,
@@ -554,6 +556,7 @@ fn main() -> ExitCode {
 
 /// Which node a command acts on: `--instance`, else `--home`, else [`config::unnamed_home`].
 fn resolve_home(instance: Option<&str>, home: Option<PathBuf>) -> Result<PathBuf> {
+    let explicit = instance.is_none() && home.is_some();
     Ok(match (instance, home) {
         (Some(name), home) => {
             let named = config::instance_home(name)?;
@@ -571,6 +574,36 @@ fn resolve_home(instance: Option<&str>, home: Option<PathBuf>) -> Result<PathBuf
         (None, Some(home)) => home,
         (None, None) => config::unnamed_home(&config::user_home())?,
     })
+    .and_then(|chosen| {
+        // An explicit `--home` is the user's answer; only a derived one can
+        // be the wrong guess between HOME and USERPROFILE.
+        if explicit {
+            return Ok(chosen);
+        }
+        refuse_stranded(
+            chosen,
+            &config::user_home(),
+            config::other_user_home().as_deref(),
+        )
+    })
+}
+
+/// Refuse a derived home that holds no node when the other home variable's
+/// does: see [`config::stranded_node`].
+fn refuse_stranded(chosen: PathBuf, base: &Path, other: Option<&Path>) -> Result<PathBuf> {
+    match config::stranded_node(&chosen, base, other) {
+        None => Ok(chosen),
+        Some(there) => Err(CliError::Usage(format!(
+            "no node in {}, but there is one in {} (made when the other of HOME and \
+             USERPROFILE named the home). Use it with `--home {}`, or move that directory \
+             to {} with the daemon stopped. Running `init` or `login` here would make a \
+             second identity.",
+            chosen.display(),
+            there.display(),
+            there.display(),
+            chosen.display()
+        ))),
+    }
 }
 
 fn run() -> Result<()> {
@@ -1559,8 +1592,10 @@ fn migration_advice(name: &str, to: &Path) -> String {
     format!(
         concat!(
             "moved to {home}; open it with `itsanas --instance {name}`.\n",
-            "The service that started it still points at ~/.itsanas and will\n",
-            "now refuse to start (named instances only). Switch it over:\n",
+            "The service that started it still points at ~/.itsanas: it will now\n",
+            "fail at every start (named instances only), and systemd's Restart=\n",
+            "or the logon task will keep restarting it until you disable it.\n",
+            "Switch it over:\n",
             "  Linux:   systemctl --user disable --now itsanas\n",
             "           mv ~/.config/itsanas/environment ~/.config/itsanas/{name}.environment\n",
             "           systemctl --user enable --now itsanas@{name}\n",
@@ -1808,6 +1843,9 @@ fn coordinator_address(node: &Node) -> String {
 
 /// Register this account and device, and optionally lodge a recovery container.
 fn register(home: &Path, recovery: bool, withdraw: bool, invite: Option<&str>) -> Result<()> {
+    // `register` also announces this device's address: after `leave` that
+    // would hand the peers, told it was gone, a fresh address to dial.
+    refuse_if_departed(home)?;
     let node = open(home)?;
     let now = itsanas_discover::now_unix();
 
@@ -2581,6 +2619,16 @@ fn leave(home: &Path) -> Result<()> {
     }
     record_departure(home, itsanas_discover::now_unix())?;
     println!("the daemon will not start here again until `itsanas rejoin`");
+    if node.config.coordinator.is_some() {
+        // Leaving is not withdrawing: the claim stays live, so this device
+        // still takes one of the account's 5 slots. Said here, because the
+        // next person to hit the limit will not think of this machine.
+        println!(
+            "this device still holds one of the account's {} device slots; to free it, run \
+             `itsanas device forget {me}` from another device of the account",
+            itsanas_coord::claim::MAX_DEVICES_PER_ACCOUNT
+        );
+    }
     Ok(())
 }
 
@@ -3543,8 +3591,8 @@ mod tests {
     use super::{
         DeviceId, SNAPSHOT, brief_status, departure_refusal, describe_age, first_free_port,
         instances_report, looks_like_a_closed_pipe, migrate_unnamed, phrase_grid, phrase_words,
-        record_departure, refuse_if_departed, rejoin, resolve_device, set_pledge, sibling_ports,
-        snapshot_status, sync_folder,
+        record_departure, refuse_if_departed, register, rejoin, resolve_device, set_pledge,
+        sibling_ports, snapshot_status, sync_folder,
     };
 
     /// `itsanas sync` names a refused chain on its summary line, and says
@@ -3708,6 +3756,37 @@ mod tests {
         );
     }
 
+    /// A derived home with no node, when the other of HOME / USERPROFILE holds
+    /// one at the same place, is refused with `--home` named: `init` there
+    /// would mint a second identity beside the real one.
+    #[test]
+    fn red_team_a_node_under_the_other_home_variable_is_not_shadowed() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let (profile, home) = (base.path().join("profile"), base.path().join("home"));
+        fake_node(&home.join(".itsanas"), "alice", None);
+        let chosen = profile.join(".itsanas");
+
+        let refused = super::refuse_stranded(chosen.clone(), &profile, Some(&home))
+            .expect_err("a second identity could be made beside the node under HOME");
+        let text = refused.to_string();
+        assert!(
+            text.contains("--home") && text.contains(&home.join(".itsanas").display().to_string()),
+            "the refusal must name the node and the flag: {text}"
+        );
+        assert_eq!(
+            super::refuse_stranded(chosen.clone(), &profile, None).expect("no other home"),
+            chosen
+        );
+    }
+
+    /// The service left on ~/.itsanas after `migrate` fails at each start;
+    /// the advice must say it keeps restarting, or nobody disables it.
+    #[test]
+    fn migration_advice_says_the_old_unit_restart_loops() {
+        let text = super::migration_advice("alice", std::path::Path::new("/h/.itsanas-alice"));
+        assert!(text.contains("keep restarting"), "{text}");
+    }
+
     /// A machine that ran `leave` must not come back by itself: systemd's
     /// `Restart=` or the logon task would start the daemon, and its peers,
     /// told it was gone, would meet it again. After the departure the daemon's
@@ -3730,6 +3809,25 @@ mod tests {
 
         rejoin(&home).expect("rejoin");
         assert!(departure_refusal(&home).is_none(), "rejoin did not undo it");
+    }
+
+    /// `register` publishes this device's address as well as its claim. After
+    /// `leave` it must refuse before touching the network, or a departed
+    /// node hands the peers that were told it had gone a fresh address to
+    /// dial -- the return `leave` exists to prevent.
+    #[test]
+    fn red_team_a_departed_node_cannot_register_again() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        record_departure(&home, itsanas_discover::now_unix()).expect("record");
+
+        let refused = register(&home, false, false, None)
+            .expect_err("a departed node registered and announced itself");
+        assert!(
+            refused.to_string().contains("itsanas rejoin"),
+            "register reached the node (or the network) instead of naming rejoin: {refused}"
+        );
     }
 
     /// What a sync pulled must reach the synced folder without a `scan`: the

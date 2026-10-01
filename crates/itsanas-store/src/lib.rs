@@ -89,7 +89,7 @@ pub use oplog::{
 };
 pub use reliability::{FAILURES_BEFORE_PAUSE, PROBATION_CEILING, Reliability};
 pub use store::{
-    GcReport, IntegrityReport, Release, ReleaseReport, Store, StoreStats, WriteBudget,
+    FolderCopy, GcReport, IntegrityReport, Release, ReleaseReport, Store, StoreStats, WriteBudget,
 };
 pub use vault::{Vault, VaultStats};
 pub use version::{CausalOrder, VersionVector};

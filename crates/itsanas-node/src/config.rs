@@ -703,15 +703,60 @@ fn home_from(
     profile: Option<std::ffi::OsString>,
     windows: bool,
 ) -> Option<PathBuf> {
+    let (first, second) = ranked(home, profile, windows);
+    first.or(second)
+}
+
+/// `HOME` and `USERPROFILE` in the order [`home_from`] tries them, empty ones
+/// dropped.
+fn ranked(
+    home: Option<std::ffi::OsString>,
+    profile: Option<std::ffi::OsString>,
+    windows: bool,
+) -> (Option<PathBuf>, Option<PathBuf>) {
     let (first, second) = if windows {
         (profile, home)
     } else {
         (home, profile)
     };
-    first
-        .filter(|v| !v.is_empty())
-        .or(second.filter(|v| !v.is_empty()))
-        .map(PathBuf::from)
+    let set = |v: Option<std::ffi::OsString>| v.filter(|v| !v.is_empty()).map(PathBuf::from);
+    (set(first), set(second))
+}
+
+/// The home directory the variable [`user_home`] did *not* choose names, if it
+/// is set and differs.
+///
+/// A node made while the other variable won -- by a build that preferred
+/// `HOME` on Windows, or from a Git Bash whose `HOME` points elsewhere -- lives
+/// there, and [`stranded_node`] looks for it.
+#[must_use]
+pub fn other_user_home() -> Option<PathBuf> {
+    let (first, second) = ranked(
+        std::env::var_os("HOME"),
+        std::env::var_os("USERPROFILE"),
+        cfg!(windows),
+    );
+    let first = first.unwrap_or_else(|| PathBuf::from("."));
+    second.filter(|second| *second != first)
+}
+
+/// A node at the same place under `other` when `chosen`, under `base`, holds
+/// none.
+///
+/// # Why this exists
+///
+/// On Windows the CLI prefers `USERPROFILE` over `HOME`; a node created when
+/// `HOME` won sits in `HOME/.itsanas` and is invisible from `USERPROFILE`.
+/// Proceeding would have `init` or `login` mint a second identity beside it,
+/// and every other command report "no node" over a machine that has one. The
+/// caller refuses instead and names the path.
+#[must_use]
+pub fn stranded_node(chosen: &Path, base: &Path, other: Option<&Path>) -> Option<PathBuf> {
+    if crate::Node::exists(chosen) {
+        return None;
+    }
+    let there = other?.join(chosen.strip_prefix(base).ok()?);
+    crate::Node::exists(&there).then_some(there)
 }
 
 #[cfg(test)]
@@ -740,6 +785,32 @@ mod tests {
     }
 
     use super::*;
+
+    /// A node under the variable that lost (`HOME` on Windows) is found when
+    /// the chosen home holds none, and only then.
+    #[test]
+    fn red_team_a_node_under_the_other_home_variable_is_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let (profile, home) = (dir.path().join("profile"), dir.path().join("home"));
+        let keystore = |base: &Path| {
+            std::fs::create_dir_all(base.join(".itsanas")).unwrap();
+            std::fs::write(base.join(".itsanas").join("keystore.bin"), b"k").unwrap();
+        };
+        keystore(&home);
+        let chosen = profile.join(".itsanas");
+        assert_eq!(
+            stranded_node(&chosen, &profile, Some(&home)),
+            Some(home.join(".itsanas")),
+            "the node under HOME was not seen: `init` would mint a second identity"
+        );
+        assert_eq!(stranded_node(&chosen, &profile, None), None);
+        keystore(&profile);
+        assert_eq!(
+            stranded_node(&chosen, &profile, Some(&home)),
+            None,
+            "a node where the CLI looks is the node; the other is not a reason to refuse"
+        );
+    }
 
     #[test]
     fn red_team_an_instance_name_cannot_leave_the_home_directory() {

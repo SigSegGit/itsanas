@@ -544,6 +544,7 @@ fn a_file_over_the_budget_is_refused_left_on_disk_and_blocks_nothing_else() {
             allowed: 100,
             elsewhere: 0,
             local_ceiling: None,
+            folder_copy: itsanas_store::FolderCopy::None,
         }))
         .unwrap();
     write_disk(node.folder.root(), "small.txt", &[1; 10]);
