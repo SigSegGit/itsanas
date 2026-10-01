@@ -15,11 +15,13 @@
 use std::fmt::Write as _;
 use std::net::{SocketAddr, ToSocketAddrs};
 
-use itsanas_coord::claim::{
-    ClaimedPresence, MAX_ADDRESS_LEN, MAX_DEVICES_PER_ACCOUNT, NodeClaim, Presence, SignedPresence,
-};
+use itsanas_coord::claim::{ClaimedPresence, MAX_ADDRESS_LEN, NodeClaim, Presence, SignedPresence};
+// Re-exported for a shell that does not depend on the coordinator crate (the
+// Android app) and has to say the limit and carry an invitation code.
+pub use itsanas_coord::claim::MAX_DEVICES_PER_ACCOUNT;
 use itsanas_coord::directory::Registration;
-use itsanas_coord::invitation::{Invitation, SECRET_LEN, Secret};
+pub use itsanas_coord::invitation::Secret;
+use itsanas_coord::invitation::{Invitation, SECRET_LEN};
 use itsanas_coord::protocol::{EnrolledDevice, Request, Response};
 use itsanas_coord::server::CoordClient;
 use itsanas_crypto::{DeviceId, DeviceKeys, KdfParams, Keystore, UserId};
@@ -1046,6 +1048,56 @@ pub fn forget_device(node: &Node, device: DeviceId, now: u64) -> Result<()> {
         Response::Refused(why) => Err(CliError::Usage(why)),
         other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
     }
+}
+
+/// Withdraw `wanted` from this account, from this machine, refusing this
+/// machine itself.
+///
+/// The one rule both shells apply before [`forget_device`]: the command line's
+/// `itsanas device forget` and the Android app's withdraw button call this, so
+/// a phone cannot withdraw itself where a laptop could not.
+///
+/// # Errors
+///
+/// When `wanted` is this machine -- withdrawing it from itself would leave a
+/// node running and unlisted, dialled by nobody -- and as [`forget_device`].
+pub fn withdraw_device(node: &Node, wanted: DeviceId, now: u64) -> Result<()> {
+    if wanted == node.store.device_id() {
+        return Err(CliError::Usage(
+            "that is this device. Withdrawing it from itself would leave it running and \
+             unlisted; withdraw it from another device of the account."
+                .to_owned(),
+        ));
+    }
+    forget_device(node, wanted, now)
+}
+
+/// The devices a refusal for want of a slot names, or `None` when `error` is
+/// not that refusal.
+///
+/// Both refusals -- [`room_for`]'s, on this machine, and the coordinator's
+/// `TooManyDevices`, which reaches a client as text -- name every live device
+/// by its full id, so a machine that is not enrolled can withdraw one without
+/// a listing it would be refused. A shell with no command line (the Android
+/// app) reads them from here to put a withdraw button beside each, instead of
+/// showing a command it does not have. Only full ids are returned: a short
+/// form is never something to withdraw by.
+#[must_use]
+pub fn cap_named(error: &NodeError) -> Option<Vec<DeviceId>> {
+    let text = error.to_string();
+    if !text.contains("live devices and the limit is") {
+        return None;
+    }
+    let mut named: Vec<DeviceId> = Vec::new();
+    for word in text.split(|c: char| !c.is_ascii_hexdigit()) {
+        if word.len() == 2 * itsanas_crypto::ID_LEN
+            && let Ok(device) = word.parse::<DeviceId>()
+            && !named.contains(&device)
+        {
+            named.push(device);
+        }
+    }
+    Some(named)
 }
 
 /// Seal this node's identity under `passphrase` and lodge it with the

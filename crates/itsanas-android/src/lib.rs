@@ -39,6 +39,8 @@
 //! calling the same code the command line calls.
 #![allow(unsafe_code)]
 
+mod devices;
+
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -56,6 +58,7 @@ use jni::sys::{jboolean, jlong, jstring};
 static NODE: Mutex<Option<Node>> = Mutex::new(None);
 
 /// Anything an entry point can fail at, in the words the caller will see.
+#[derive(Debug)]
 enum Failure {
     /// The node is not open. Distinct from every other failure because it is
     /// the one a shell can fix by itself.
@@ -610,7 +613,7 @@ fn set_keep(
     only: &str,
 ) -> Result<String, Failure> {
     Node::check_split(&node.config, node.config.pledge_bytes, keep)
-        .map_err(|refusal| Failure::Usage(refusal.to_string()))?;
+        .map_err(|refusal| phone_split(&refusal))?;
 
     node.config.keep_bytes = keep;
     node.config.keep_order = order;
@@ -646,11 +649,69 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_setPledge(
 /// the CLI's `pledge` refuses it.
 fn set_pledge(node: &mut Node, bytes: u64) -> Result<String, Failure> {
     Node::check_split(&node.config, bytes, node.config.keep_bytes)
-        .map_err(|refusal| Failure::Usage(refusal.to_string()))?;
+        .map_err(|refusal| phone_split(&refusal))?;
 
     node.config.pledge_bytes = bytes;
     node.save_config()?;
     Ok(serde_json::json!({ "pledgeBytes": node.config.pledge_bytes }).to_string())
+}
+
+/// Set the pledge and how much to keep here together, checked as a pair.
+///
+/// The settings screen saves both at once. Saved one after the other, raising
+/// both was refused: the new keep was checked against the old pledge, and the
+/// person was told to raise a pledge they had just raised. `bytes` of zero or
+/// less for `keep` means no limit.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_setLimits(
+    mut env: JNIEnv,
+    _class: JClass,
+    pledge: jlong,
+    keep: jlong,
+) -> jstring {
+    answer(&mut env, move || {
+        let mut guard = NODE
+            .lock()
+            .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
+        let node = guard.as_mut().ok_or(Failure::Closed)?;
+        set_limits(node, pledge, keep)
+    })
+}
+
+/// [`Java_fr_ngas_itsanas_Native_setLimits`] without the JNI. Takes the
+/// JVM's signed longs so the sign is checked where a test reaches it: a
+/// negative pledge read as its absolute value would offer space nobody asked
+/// to give (found by `itsanas-redteam`).
+fn set_limits(node: &mut Node, pledge: i64, keep: i64) -> Result<String, Failure> {
+    let pledge = u64::try_from(pledge)
+        .map_err(|_| Failure::Usage(format!("a pledge cannot be negative ({pledge} bytes)")))?;
+    let keep = (keep > 0).then(|| keep.unsigned_abs());
+    Node::check_split(&node.config, pledge, keep).map_err(|refusal| phone_split(&refusal))?;
+
+    node.config.pledge_bytes = pledge;
+    node.config.keep_bytes = keep;
+    node.save_config()?;
+    Ok(serde_json::json!({
+        "pledgeBytes": node.config.pledge_bytes,
+        "keepBytes": node.config.keep_bytes,
+    })
+    .to_string())
+}
+
+/// A split refusal in the phone's words.
+///
+/// `SplitRefusal`'s own `Display` ends with `itsanas space --pledge ... --apply`,
+/// a command the phone does not have; this names the field on the settings
+/// screen instead, with the same figures.
+fn phone_split(refusal: &itsanas_node::node::SplitRefusal) -> Failure {
+    use itsanas_node::config::format_size;
+    Failure::Usage(format!(
+        "keeping {} on this phone needs at least {} in \"Space you offer other people\", \
+         and this phone offers {}. Raise that, or keep less here.",
+        format_size(refusal.keep),
+        format_size(refusal.needed),
+        format_size(refusal.pledge),
+    ))
 }
 
 /// Point this node at a coordinator, so it can be reached from off the network.
@@ -728,39 +789,49 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_register(
         let invite = invite?;
         let invite = invite.trim().to_owned();
 
-        let mut guard = NODE
-            .lock()
-            .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
-        let node = guard.as_mut().ok_or(Failure::Closed)?;
-
-        if node.config.coordinator.is_none() {
-            return Err(Failure::Usage(
-                "no coordinator is configured. Set one first, with the address \
-                 whoever invited you gave you."
-                    .to_owned(),
-            ));
-        }
-
-        let now = itsanas_discover::now_unix();
         let secret = if invite.is_empty() {
             None
         } else {
             Some(itsanas_node::coordinator::decode_secret(&invite)?)
         };
-        itsanas_node::coordinator::register_with(node, secret.as_ref(), now)?;
-
-        let listen = node.config.listen.clone();
-        // An address that could not be published does not undo the enrolment,
-        // exactly as on the command line: the device is a member, it is simply
-        // not reachable yet, and saying so is more useful than failing.
-        let announced = itsanas_node::coordinator::announce(node, &listen, now).ok();
-
-        Ok(serde_json::json!({
-            "username": node.config.username,
-            "coordinator": node.config.coordinator,
-            "announced": announced,
+        with_node(|node| {
+            devices::register(node, secret.as_ref(), itsanas_discover::now_unix())
+                .map(|answer| answer.to_string())
         })
-        .to_string())
+    })
+}
+
+/// The account's devices, this phone marked, as the coordinator lists them.
+///
+/// See `devices::list` for when the list is partial and says so.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_devices(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    answer(&mut env, || {
+        with_node(|node| devices::list(node).map(|answer| answer.to_string()))
+    })
+}
+
+/// Withdraw one of the account's devices by its full id, freeing its slot.
+///
+/// Never this phone, and only a device the account's listing shows: see
+/// `devices::withdraw`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_withdrawDevice(
+    mut env: JNIEnv,
+    _class: JClass,
+    device: JString,
+) -> jstring {
+    let device = text(&mut env, &device, "the device id");
+
+    answer(&mut env, move || {
+        let device = device?;
+        with_node(|node| {
+            devices::withdraw(node, &device, itsanas_discover::now_unix())
+                .map(|answer| answer.to_string())
+        })
     })
 }
 
@@ -967,6 +1038,84 @@ mod tests {
         assert!(
             set_pledge(&mut node, 1024 * 1024).is_ok(),
             "a small pledge with no keep refused"
+        );
+    }
+
+    /// The settings screen saves pledge and keep together. Raising both is
+    /// accepted in one call (saved one after the other, the new keep was
+    /// checked against the old pledge and refused), and a pair that does not
+    /// fit is refused in words naming the screen's field, not a command the
+    /// phone does not have; a negative pledge is refused. Sabotage: check the
+    /// keep against the old pledge; word the refusal with `SplitRefusal`'s own
+    /// `Display`; take the pledge's absolute value.
+    #[test]
+    fn red_team_the_phone_saves_pledge_and_keep_as_a_pair_and_says_so_in_its_words() {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        let (mut node, _phrase) = Node::create(&home, "a long passphrase", "nicolas").unwrap();
+        node.config.pledge_bytes = 50 * GIB;
+        node.config.keep_bytes = Some(20 * GIB);
+        node.save_config().unwrap();
+
+        let gib = |n: i64| n * 1024 * 1024 * 1024;
+        set_limits(&mut node, gib(500), gib(200))
+            .expect("raising pledge and keep together was refused");
+        assert_eq!(
+            (node.config.pledge_bytes, node.config.keep_bytes),
+            (500 * GIB, Some(200 * GIB))
+        );
+
+        assert!(
+            set_limits(&mut node, -gib(5), 0).is_err(),
+            "a negative pledge was taken as a positive one"
+        );
+        let Err(refused) = set_limits(&mut node, gib(1), gib(200)) else {
+            panic!("1 GiB offered earned a 200 GiB keep");
+        };
+        let said = refused.message();
+        assert!(
+            !said.contains("itsanas ") && said.contains("Space you offer"),
+            "the phone was told something it cannot act on: {said}"
+        );
+        assert_eq!(
+            node.config.pledge_bytes,
+            500 * GIB,
+            "a refused pair still changed the pledge"
+        );
+    }
+
+    /// Every `external fun` in `Native.kt` has an entry point here, and every
+    /// entry point here is declared there. A name on one side only compiles
+    /// on both and fails on the phone, at the first tap, with
+    /// `UnsatisfiedLinkError` -- and no CI job runs the app. Sabotage: rename
+    /// `Java_fr_ngas_itsanas_Native_withdrawDevice`.
+    #[test]
+    fn every_kotlin_native_call_has_its_rust_entry_point_and_back() {
+        let kotlin = include_str!("../../../android/app/src/main/java/fr/ngas/itsanas/Native.kt");
+        let rust = include_str!("lib.rs");
+        let mut declared: Vec<&str> = kotlin
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("external fun "))
+            .filter_map(|rest| rest.split('(').next())
+            .collect();
+        let mut exported: Vec<&str> = rust
+            .lines()
+            .filter_map(|line| {
+                line.trim()
+                    .strip_prefix("pub extern \"system\" fn Java_fr_ngas_itsanas_Native_")
+            })
+            .filter_map(|rest| rest.split('(').next())
+            .collect();
+        declared.sort_unstable();
+        exported.sort_unstable();
+        assert!(
+            declared.contains(&"withdrawDevice"),
+            "Native.kt was not read: {declared:?}"
+        );
+        assert_eq!(
+            declared, exported,
+            "Kotlin and Rust disagree on the native calls"
         );
     }
 

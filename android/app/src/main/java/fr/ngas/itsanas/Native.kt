@@ -47,6 +47,21 @@ object Native {
     external fun setPledge(bytes: Long): String
 
     /**
+     * Pledge and keep together, checked as a pair. [keep] of zero or less
+     * means no limit.
+     */
+    external fun setLimits(pledge: Long, keep: Long): String
+
+    /** The account's devices, this phone marked. */
+    external fun devices(): String
+
+    /**
+     * Withdraw one of the account's devices by its full id. Refused for this
+     * phone, and for an id the account's listing does not show.
+     */
+    external fun withdrawDevice(id: String): String
+
+    /**
      * Point this node at a coordinator. [device] may be empty, meaning "trust
      * whatever answers at that address".
      */
@@ -55,7 +70,8 @@ object Native {
     /**
      * Enrol this account and device with the configured coordinator. [invite]
      * may be empty; an invite-only coordinator needs a code the first time and
-     * never again.
+     * never again. At the device limit this answers rather than throws:
+     * `atCap` true, the devices to choose from, and what to say.
      */
     external fun register(invite: String): String
 

@@ -20,7 +20,7 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** |
 | M8 Three-device bring-up | — | ⬜ not started |
 | M11 A catalogue of known-but-absent files | `itsanas-store` | ✅ **done** |
-| M12 Android shell | `android/`, `crates/itsanas-android` | 🟨 **the app exists, runs, and can now join** — 1354 lines of Kotlin over **18** JNI calls matching `Native.kt` exactly. This row said "shell not written" until 2026-09-16, which was wrong and was repeated to Nicolas as fact; the app was committed 2026-09-07. The real gap was narrower: no coordinator, no `register`. Both were added on 2026-09-16 (`setCoordinator`, `register`), which meant lifting the coordinator client out of the CLI **binary** into `itsanas-node` so something other than the CLI could reach it. Still missing: **local discovery**, so a phone on the same wifi does not find peers by itself, and the APK is **debug-signed** — sideload only, never Play |
+| M12 Android shell | `android/`, `crates/itsanas-android` | 🟨 **the app exists, runs, and can now join** — 1723 lines of Kotlin over **21** JNI calls matching `Native.kt` exactly (a test holds them to it since 2026-10-01). This row said "shell not written" until 2026-09-16, which was wrong and was repeated to Nicolas as fact; the app was committed 2026-09-07. The real gap was narrower: no coordinator, no `register`. Both were added on 2026-09-16 (`setCoordinator`, `register`), which meant lifting the coordinator client out of the CLI **binary** into `itsanas-node` so something other than the CLI could reach it. Still missing: **local discovery**, so a phone on the same wifi does not find peers by itself, and the APK is **debug-signed** — sideload only, never Play |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion |
 | M10 Pack files | `itsanas-store` | ⬜ decided by M9, scheduled after M6 |
 | M13 One-click install | `install/` | 🟨 six scripts; run end to end on Windows, Linux x86-64, **Linux aarch64 (the Freebox VM)** and macOS in CI, and on a **Raspberry Pi 4B on an SSD** by hand — `linux.sh`, `coordinator.sh` and the new `provision.sh`, which takes a freshly imaged machine to a running node in one command. No phone |
@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**904 test functions, 4 of them `#[ignore]`d into the slow job, and 150 of
+**911 test functions, 4 of them `#[ignore]`d into the slow job, and 155 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1474,7 +1474,8 @@ honest stores by as much. The running total for chunks would make both cheap.
 
 ✅ **`itsanas pledge` and the Android setters keep the split** (2026-09-30,
 HANDOVER §8 3a). `keep`, `pledge`, `space --apply` and the phone's `setKeep` /
-`setPledge` all ask `Node::check_split` before saving, so `keep 70G` then
+`setPledge` (and, since 2026-10-01, `setLimits`, which the settings screen
+calls to save both as a pair) all ask `Node::check_split` before saving, so `keep 70G` then
 `pledge 1G` is refused with the `space --pledge .. --keep .. --apply` command
 and the file is left as it was; `pledge` counts only other accounts' bytes as
 hosted (`Node::held_for_others`). Tested through `set_pledge` / `set_keep`,
@@ -1728,9 +1729,21 @@ machine of the account to dial.
   (`red_team_a_new_machine_of_a_full_account_whose_machines_are_all_lost_can_free_a_slot`;
   the CLI half checked by hand both ways, not by a test).
 
-**Not closed by this:** the Android app has no withdraw, so an Android-only
-account at the bound is told to run a command it does not have; withdrawn
-rows are never removed, so the bound caps live devices, not rows (5 live and
+- **The Android app withdraws a device** (2026-10-01, HANDOVER §8 2e), so an
+  account whose machines are all phones is not stuck at the bound. Settings,
+  "This account's devices": the coordinator's list with this phone marked, a
+  Withdraw button beside every other device, and a confirmation that says
+  the consequence (final for that device, its slot freed, what it already
+  holds not erased). Joining at the bound opens that screen on the devices
+  the refusal named instead of naming `itsanas device forget`. Same core as
+  the CLI (`coordinator::withdraw_device`, which refuses the device asking),
+  plus a phone rule: only a full id the listing shows
+  (`red_team_the_phone_withdraws_only_a_listed_full_id_and_never_itself`,
+  `red_team_an_all_phone_account_at_the_limit_can_free_a_slot_from_the_phone`).
+  **Not verified:** no screen was opened; the Kotlin compiles
+  (`scripts/build-apk.sh debug`, by hand) and nothing runs it.
+
+**Not closed by this:** withdrawn rows are never removed, so the bound caps live devices, not rows (5 live and
 any number withdrawn, as before); a device silent for more than a week
 re-registering through a coordinator older than `Devices` reads only
 `ClaimedPeers` and can be refused by its own client on an account at the

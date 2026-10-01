@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-01 — 904 test functions across 28 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 150 are red-team tests.**
+**Last updated: 2026-10-01 — 911 test functions across 28 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 155 are red-team tests.**
 
-**788 of the 904 tests have an entry of their own on this page** — an *entry*,
+**795 of the 911 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-cli` unit | 40 |
-| `itsanas-android` unit | 3 |
+| `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 86 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -1140,10 +1140,14 @@ to the peer, each turns the matching test red.
 | **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
 | `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |
 
-# `itsanas-android` — the JNI boundary (3)
+# `itsanas-android` — the JNI boundary (10)
 
-`src/lib.rs`. The only crate that relaxes the unsafe lint, and the only one
-whose contract is with another language. What is tested here is deliberately
+`src/lib.rs` and `src/devices.rs`. The only crate that relaxes the unsafe
+lint, and the only one whose contract is with another language. The device
+tests run against a real coordinator in-process (`itsanas-coord`, dev-only,
+`hostile` for `bound_devices`). **The Kotlin is not tested anywhere**: no CI
+job builds or runs the app; `scripts/build-apk.sh` was run by hand on
+2026-10-01 and compiled it, and the screens were not opened. What is tested here is deliberately
 thin: the behaviour underneath belongs to the crates that own it, and repeating
 it through a JNI call would test the same thing twice. What cannot be tested
 anywhere else is the *shape* — field names Kotlin parses by string, and a
@@ -1157,6 +1161,13 @@ from a host over a real socket, and one of them opened.
 | --- | --- |
 | **`a_plan_is_reported_with_the_names_kotlin_reads`** | The field names are a contract with another language, and a rename here fails silently over there — the application would show an empty reason and no interval, and nothing would say why. |
 | **`asking_a_closed_node_says_so_rather_than_crashing`** | Every entry point can be called before an account is open, because Android restarts a process whenever it likes. It has to answer with a sentence a person can act on, not with a panic crossing into the JVM. |
+| **`red_team_the_phone_saves_pledge_and_keep_as_a_pair_and_says_so_in_its_words`** | `set_limits`, the body of `setLimits`, which the settings screen now calls: raising pledge and keep together is accepted (saved one after the other, the new keep was checked against the old pledge and refused); a pair that does not fit is refused naming the screen's field, not `itsanas space`; a negative pledge is refused rather than read as its absolute value (found by `itsanas-redteam`). Sabotaged three ways (keep checked against the old pledge; `SplitRefusal`'s own words; `unsigned_abs`): red. |
+| **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
+| **`red_team_the_phone_withdraws_only_a_listed_full_id_and_never_itself`** | `devices::withdraw` against a coordinator: an abbreviated id, an id that is no device of the account (the coordinator would file it as withdrawn for ever), another account's device and this phone itself are all refused with nothing withdrawn; the listed full id withdraws exactly that device. Sabotaged three ways (resolve a prefix against the listing; drop the self check in `coordinator::withdraw_device`, shared with the CLI; drop the listing check): red. |
+| **`red_team_an_all_phone_account_at_the_limit_can_free_a_slot_from_the_phone`** | Five phones enrolled and never heard from again; the sixth, not enrolled, sees none of them. Joining answers `atCap` with all five full ids and words naming the screen, not a command; withdrawing one from the unenrolled phone works (what the refusal named counts as shown); joining again takes the slot. Sabotaged two ways (the refusal returned as an error; what it named not remembered): red. |
+| **`red_team_a_device_withdrawn_elsewhere_is_not_offered_from_an_old_refusal`** | Found by `itsanas-redteam`: remembered ids were merged into a complete listing too, so a device withdrawn from another machine kept a Withdraw button. Refused at the limit, then one device withdrawn elsewhere and the phone enrolled by another path: the list is the coordinator's, the withdrawn device absent. Sabotaged by merging regardless: red. |
+| **`red_team_a_refusal_naming_only_some_devices_says_so`** | Found by `itsanas-redteam`: an account above the limit (ten devices, enrolled with the bound off) is named only eight by the coordinator, "and 2 more"; the phone said "already has 8". It now answers `partial` and says the rest are named next time, guessing no count. Sabotaged by `partial = false`: red. |
+| `the_list_marks_this_phone_among_the_account_s_devices` | The devices screen's list: both devices of the account, this phone marked once, `complete` true when enrolled. |
 | **`red_team_the_phone_s_setters_keep_the_split`** | `set_pledge` and `set_keep`, the bodies of `setPledge` and `setKeep`, refuse a pledge under what keep needs and a keep the pledge does not earn, and leave the node file and the node in memory (a process-wide mutex, saved by the next setter) as they were; with no keep, both go through. Reaches the two functions, **not the JNI shims** that lock the node and call them -- those are covered only by reading. Sabotaged five ways (either call dropped; either call moved below its assignments; `check_split` always `Ok`): red. |
 
 # `itsanas-drive` — the account as a folder (9)
@@ -1626,7 +1637,7 @@ the bound, behind `cfg(test)` and the `hostile` feature.
 
 | Test | What it proves |
 | --- | --- |
-| **`red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_would_not`** | Against a coordinator that would admit it, a sixth machine of the account refuses before it signs, names the five devices it read from `ClaimedPeers`, and the coordinator holds no claim for it. Sabotaged by ignoring the client's check, and by not reading `ClaimedPeers` on a machine not yet enrolled. |
+| **`red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_would_not`** | Against a coordinator that would admit it, a sixth machine of the account refuses before it signs, names the five devices it read from `ClaimedPeers`, and the coordinator holds no claim for it. Sabotaged by ignoring the client's check, and by not reading `ClaimedPeers` on a machine not yet enrolled. Also: `coordinator::cap_named` reads all five full ids back out of the refusal, which is how the Android app puts a Withdraw button beside each (sabotaged by matching 12-character words: red). |
 | **`red_team_a_machine_of_a_full_account_can_register_again`** | `itsanas register` on a live device of a full account succeeds: `Devices` answers only a live device, so an answer means a re-signing and the client does not count (not "am I in the list": the list is truncated, silent devices last, which `itsanas-redteam` showed could refuse a long-silent device of an account above the bound). A regression guard; the "already live" rule of `room_for` is sabotaged red in the next test but one. |
 | **`red_team_a_new_machine_of_a_full_account_whose_machines_are_all_lost_can_free_a_slot`** | Found by `itsanas-redteam`: five machines lost or reinstalled hold the five slots, and the new machine is the only one left and is not enrolled. It is refused, the coordinator's refusal carries full device ids (a short one cannot be resolved by a machine refused `Devices`), a withdrawal by full id is accepted from it, and the freed slot takes it. Sabotaged by short ids in the refusal. The CLI half -- `itsanas device forget <full id>` no longer lists first -- was checked by hand against a real coordinator both ways (refused "only an enrolled device" without the change), not by a test. |
 | `room_is_counted_in_live_devices_and_a_device_already_live_needs_none` | `coordinator::room_for` alone: four leave room, five do not, and a device among the five always has room. |

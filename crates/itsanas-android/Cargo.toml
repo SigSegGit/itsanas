@@ -22,6 +22,10 @@ jni = "0.21.1"
 serde_json = "1.0.145"
 
 [dev-dependencies]
+# A real coordinator, in-process, for the device screen's tests: what a phone
+# withdraws is decided by what the coordinator lists and refuses. `hostile`
+# for `bound_devices`, to enrol an account above the limit as an old one was.
+itsanas-coord = { version = "0.1.0", path = "../itsanas-coord", features = ["hostile"] }
 tempfile = "3.23.0"
 
 # Deliberately NOT `workspace = true`.

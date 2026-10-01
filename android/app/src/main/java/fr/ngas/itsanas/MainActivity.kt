@@ -587,6 +587,11 @@ private fun Settings(
     var coordinatorDevice by remember { mutableStateOf("") }
     var inviteCode by remember { mutableStateOf("") }
     var joined by remember { mutableStateOf<String?>(null) }
+    // Open with the refusal's words and devices when joining hit the limit,
+    // with nothing when opened from the button.
+    var devicesOpen by remember { mutableStateOf(false) }
+    var refusedAtCap by remember { mutableStateOf<String?>(null) }
+    var namedAtCap by remember { mutableStateOf<List<Device>>(emptyList()) }
     var keepGiB by remember {
         mutableStateOf(status?.keepBytes?.let { (it / (1024 * 1024 * 1024)).toString() } ?: "")
     }
@@ -663,6 +668,15 @@ private fun Settings(
                                 Account.setCoordinator(address, device)
                             }
                             val answer = JSONObject(Account.register(invite))
+                            if (answer.optBoolean("atCap")) {
+                                // Not an error: the account is full, and the
+                                // way out is on the screen this opens.
+                                joined = null
+                                refusedAtCap = answer.getString("said")
+                                namedAtCap = DeviceAnswers.devices(answer.getJSONArray("devices"))
+                                devicesOpen = true
+                                return@launch
+                            }
                             val where = answer.optString("coordinator", address)
                             // `announced` is null when the address could not be
                             // published. The device is still a member, so this
@@ -686,6 +700,11 @@ private fun Settings(
                 joined?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall)
                 }
+                TextButton({
+                    refusedAtCap = null
+                    namedAtCap = emptyList()
+                    devicesOpen = true
+                }) { Text("This account's devices") }
 
                 Text("Machines to sync with", style = MaterialTheme.typography.titleSmall)
                 status?.peers?.forEach { address ->
@@ -776,9 +795,11 @@ private fun Settings(
                             try {
                                 val keep = keepGiB.toLongOrNull()
                                     ?.times(1024L * 1024 * 1024)
-                                Account.setKeep(keep, "newest", emptyList())
-                                Account.setPledge(
-                                    (pledgeGiB.toLongOrNull() ?: 0L) * 1024 * 1024 * 1024
+                                // Together: one after the other, raising both
+                                // was refused against the old pledge.
+                                Account.setLimits(
+                                    (pledgeGiB.toLongOrNull() ?: 0L) * 1024 * 1024 * 1024,
+                                    keep,
                                 )
                                 onChanged()
                             } catch (error: Throwable) {
@@ -802,6 +823,18 @@ private fun Settings(
             }
         },
     )
+
+    if (devicesOpen) {
+        DevicesDialog(
+            refused = refusedAtCap,
+            named = namedAtCap,
+            onClose = {
+                devicesOpen = false
+                onChanged()
+            },
+            complain = complain,
+        )
+    }
 }
 
 /** The name a picked document has, or something usable if it will not say. */
