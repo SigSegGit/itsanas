@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**917 test functions, 4 of them `#[ignore]`d into the slow job, and 155 of
+**926 test functions, 4 of them `#[ignore]`d into the slow job, and 163 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -778,6 +778,11 @@ device and reaching a different one is refused.
   - **The refresh fails open**: the daemon and `itsanas sync` print a
     `bound_writes` error and pull under the last bound (none if there never
     was one); Android's sync stops on it instead.
+  - **A pull into a synced folder writes two copies** (store + folder):
+    charged both since 2026-10-01 when the folder shares the home's volume,
+    and bounded by the folder volume's free space when it does not
+    (`FolderCopy`, `red_team_a_pull_charges_the_folder_copy_too`). A volume
+    mounted inside a folder on Windows reads as the same drive: charged twice.
   - **Chunks are charged in plaintext and again when already here** (dedup),
     which errs towards refusing; chunks fetched for a file then deferred for
     a *missing* chunk are on disk and uncounted, as before.
@@ -1359,6 +1364,28 @@ files rather than being a new class of problem.
 Three limits that are fine at the size this runs at today and are not fine at
 the size it is aimed at. Written with the number where each one breaks, because
 a limit described in words gets rediscovered as a surprise.
+
+### Named by the final verification pass, not fixed — 2026-10-01
+
+The `itsanas-redteam` pass over the autonomous run of 2026-09-30/10-01 found
+eight; five were fixed with red-team tests (PR of 2026-10-01). These three are
+open, each with the scenario that hurts:
+
+- **The vault rebuild after an unclean exit holds every blob in one map.**
+  `Vault::open` walks every owner's blobs into a `BTreeMap` (64-byte key + 8
+  bytes each) before it writes: about 16 million entries, 1.2 GB of RAM plus
+  map overhead, for a terabyte hosted in 64 KiB chunks. On a 4 GB Pi after a
+  power cut the open fails or swaps, `Node::open` fails, and the service
+  crash-loops. Streaming the rebuild in batches is the fix.
+- **The relay orders presences by the device's own clock on the behind
+  side** (DESIGN §6 clock rule): a Pi rebooted with no RTC into 1970 announces
+  presences dated before the one held for it, and stays relay-blind until its
+  clock passes the held value -- i.e. until NTP comes back.
+- **Android's cap-named ids live in process memory and come from the
+  coordinator's text** (`coordinator::cap_named`). A hostile coordinator can
+  name arbitrary ids and the app offers Withdraw buttons for them; withdrawing
+  still needs the account's signature, so the harm is a person withdrawing a
+  device they did not mean to, on a coordinator's word.
 
 ### Filenames across three operating systems — 2026-09-16
 

@@ -2202,6 +2202,44 @@ mod tests {
         );
     }
 
+    /// `itsanas leave` is not a withdrawal: the departed device keeps its
+    /// claim, so it still holds one of the 5 slots and a sixth device is
+    /// still refused. Freeing the slot is `itsanas device forget <id>` from
+    /// another device. Pinned here because a coordinator that freed slots on
+    /// departure would let a stolen keystore re-enrol after one `leave`, and
+    /// one that does not must say so to the person at the limit.
+    #[test]
+    fn red_team_a_departed_device_keeps_its_slot() {
+        let (_dir, directory) = directory();
+        let owner = a_full_account(&directory);
+        directory
+            .depart(
+                &crate::claim::Departure {
+                    device: device(3).device_id(),
+                    at_unix: NOW + 1,
+                }
+                .sign(&device(3)),
+                NOW + 1,
+            )
+            .expect("a departure is recorded");
+
+        assert!(
+            directory
+                .claim_for(device(3).device_id())
+                .expect("read")
+                .is_some_and(|claim| !claim.claim.revoked),
+            "leaving withdrew the claim: the docs promise it stays"
+        );
+        assert!(
+            matches!(
+                directory.claim(&signed(&owner, 6, NOW + 2, false), NOW + 2),
+                Err(CoordError::TooManyDevices { live: 5, .. })
+            ),
+            "a departure freed a slot: `leave` says the slot is kept until \
+             `itsanas device forget`"
+        );
+    }
+
     /// A withdrawal frees its slot, and exactly one: the device it frees
     /// cannot be brought back into it by replaying its own old live claim,
     /// which the master secret on every keystore would make trivial.

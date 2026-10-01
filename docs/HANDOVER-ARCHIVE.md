@@ -11,6 +11,24 @@ both.
 
 ---
 
+**2026-10-01, 2e: the Android app lists and withdraws devices** (branch
+`step/8.2e-android-devices`). Settings, "This account's devices": the
+coordinator's list, this phone marked, Withdraw beside the others, a
+confirmation saying the consequence. Joining at the 5-device limit opens that
+screen on the ids the refusal named (`coordinator::cap_named`), so an
+all-phone account whose phones are lost frees a slot from the new one. Core
+shared with the CLI: `coordinator::withdraw_device` (refuses the device
+asking); phone rule: only a full id the listing shows. Also: `setLimits` saves
+pledge and keep as a pair (raising both was refused), split refusals in the
+phone's words, a test holding `Native.kt` to the JNI exports.
+`itsanas-redteam` found 3, fixed and tested: stale remembered ids in a
+complete list, a partial refusal miscounted, a negative pledge taken as
+positive. Verified: 7 Rust tests, 11 sabotages red, APK built by hand.
+**Not verified:** no screen opened, Kotlin untested (no CI job runs the app);
+the node lock is held across the coordinator dials of `withdraw` (redteam,
+suspected, not measured). Trap: Git Bash heredocs ate a `\` in a Python
+edit script again -- write scripts with the Write tool.
+
 **2026-10-01, 2c: one refused chain no longer stalls a pull** (branch
 `step/8.2c-refused-chain`). `session::pull_scoped` only: `keep_chain` keeps a
 chain's genuine prefix when `put_segment` refuses a segment, `apply_per_chain`

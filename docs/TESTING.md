@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-01 — 917 test functions across 29 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 155 are red-team tests.**
+**Last updated: 2026-10-01 — 926 test functions across 29 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 163 are red-team tests.**
 
-**801 of the 917 tests have an entry of their own on this page** — an *entry*,
+**810 of the 926 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,14 +158,14 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 158 |
-| `itsanas-store` integration (`tests/store.rs`) | 45 (1 `#[ignore]`d) |
+| `itsanas-store` unit | 160 |
+| `itsanas-store` integration (`tests/store.rs`) | 46 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
 | `itsanas-net` unit | 43 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 51 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 113 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 114 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
 | `itsanas-discover` unit | 43 |
 | `itsanas-policy` unit | 23 |
@@ -173,10 +173,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 40 |
+| `itsanas-cli` unit | 43 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 86 |
+| `itsanas-node` unit | 88 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -425,7 +425,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (138, plus the 20 vault tests below)
+# `itsanas-store` — unit tests (139, plus the 21 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -539,10 +539,11 @@ something nobody looked at, and disagreeing for a reason that is not data.
 | `an_empty_blob_is_storable_and_distinguishable_from_a_missing_one` | Zero-length content is not confused with absence. |
 | `total_bytes_counts_stored_bytes` | Size accounting is correct. |
 
-## `index` — transactional metadata (11)
+## `index` — transactional metadata (12)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_an_open_racing_a_lock_probe_still_opens`** | `Index::is_locked` (what `status` and the tray ask) probes by opening, which takes the exclusive lock for an instant; a daemon starting in that instant failed with `Locked` and stayed down. `Index::open` now waits out a lock for up to `LOCK_PATIENCE` (2 s). A thread probing every 5 ms while 100 opens run: none fails; a lock held for good is still `Locked`. A probe spinning with no pause starved every open on Linux CI (a load no caller makes; the tray polls every few seconds). Sabotaged (patience 0): red, 78 of 100 opens gave up. |
 | **`two_files_sharing_a_chunk_both_hold_it`** | Deleting one of two files that share a chunk does not take the other's data with it. |
 | **`a_file_that_repeats_a_chunk_counts_each_occurrence`** | A file of ten identical blocks references one chunk ten times. Getting this wrong frees live data on the first delete. |
 | **`a_chunk_can_be_resurrected_before_it_is_collected`** | Restoring identical content before GC runs takes the chunk out of the collection queue, so GC does not delete a blob that is live again. |
@@ -595,7 +596,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (45)
+# `itsanas-store` — integration tests (46)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -608,6 +609,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 | **`one_users_store_cannot_be_opened_with_another_users_keys`** | Sealing is bound to the owner, not merely to the directory. |
 | **`red_team_a_write_past_the_budget_leaves_no_chunk_no_entry_and_no_log`** | A 1 MiB file offered to an account with 344 KiB left, through `write_file`, so nothing asks its size first and the refusal can only come part-way through the stream -- after chunks were sealed and stored. It must be refused with the account, the limit and the total it would have reached, and leave no blob, no index entry and no log entry behind. A folder pass retries a refused file every round, so debris here is a disk filling with the first part of the same file again and again. Sabotaged twice: without the in-stream check the file is accepted; without the clean-up the blobs stay. (HANDOVER §8 0n.) |
 | **`red_team_a_write_past_the_disk_room_is_refused_and_leaves_nothing`** | The account may have room while the disk has not: what this machine's pledge still owes is space promised to others. A 1 MiB write against a 300 KiB local ceiling (100 KiB already held) is refused as `DiskFull` with the numbers and leaves no chunk and no index entry; a 100 KiB write inside it succeeds, so a store that refuses everything cannot pass. Sabotaged (the disk check never fires): red. (HANDOVER §8 1b.) |
+| **`red_team_a_pull_charges_the_folder_copy_too`** | A pull writes the file twice when a folder is synced: the store's chunks and the folder's plaintext. The ceiling charged one, so a pull of X under a room of X put 2X on the disk. With the folder on the home's volume a 100 KiB pull under 100 KiB of room is refused and 50 KiB fits; bytes pulled since the budget was set count twice too (25 here + 25 fits, + 26 does not); with the folder on another volume, its free space bounds the pull. Sabotaged twice (charged once; other volume ignored): red. |
 | **`red_team_many_small_writes_cannot_pass_the_disk_ceiling_together`** | The disk bound is a ceiling on the account's local bytes, not a room each write is checked against alone: a folder pass imports many files after one `bound_writes`, and the first version let a hundred 1 GB files into 10 GB of room (found by the `itsanas-redteam` agent before merge). Five 100 KiB files against 300 KiB: three fit, the fourth is refused; an edit in place is charged its growth. Sabotaged (per-write room again): red. |
 | **`a_write_inside_the_budget_succeeds_and_an_edit_is_charged_only_its_growth`** | Keeps the test above from passing on a store that refuses everything, and pins what is charged: growing a 600 KiB file to 700 KiB in a 1 MiB account succeeds (the old version is not counted twice), 400 KiB more is refused naming 700 KiB held, and deleting the file makes the room back. Sabotaged on the replaced-size subtraction and on the cached-total adjustments of `put_file` and `remove_file`. `release_file`'s adjustment is the same line as `remove_file`'s and was broken with it; no test isolates it. |
 | **`red_team_what_the_account_holds_elsewhere_counts_against_it`** | A phone keeping 2 GB of a 40 GB account holds 2 GB locally. Counting only that would let it write 38 GB past what the account may hold: bytes known only from other devices' logs count too. |
@@ -702,7 +704,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (20 of the store's unit tests)
+# `itsanas-store` — the vault (21 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -710,6 +712,7 @@ about reading.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_held_bytes_for_one_owner_needs_no_walk`** | `Node::held_for_others` runs on every reconcile pass and called `stats_for`, two walks of our own blobs each time. `held_bytes_for` reads a per-owner running total (the vault_owner_chunk_bytes table, changed in the chunk's own transaction) plus the owner's chain rows. It equals the walk after puts and a removal, keeps its answer when a blob file is deleted behind the vault's back (so it did not walk), and an unclean open rebuilds it from the disk. Sabotaged twice (`stats_for` again; the rebuild not writing the per-owner rows): red. |
 | **`a_segment_with_a_bad_signature_is_refused_before_it_is_stored`** | A host that stored unverified envelopes would be a convenient way to attribute garbage to someone else's device. |
 | **`a_segment_that_does_not_continue_the_chain_is_refused`** | Otherwise a host can be induced to store a chain with a hole and then serve that hole to a peer as though it were complete. |
 | **`re_offering_the_current_tip_is_accepted_as_a_no_op`** | Peers re-offer freely — there is no acknowledgement telling them to stop — so this must neither error nor duplicate. |
@@ -892,7 +895,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (40)
+# `itsanas-cli` — unit tests (43)
 
 ## `bench` — measuring this machine (4)
 
@@ -932,7 +935,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word, a pledge that keeps the split and a refused chain said (26)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable (29)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -962,6 +965,9 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_migration_never_lands_on_an_existing_home`** | A `~/.itsanas-<account>` that already exists is somebody's node: the migration refuses and both homes stay as they were. |
 | **`red_team_after_migration_a_command_without_a_name_refuses`** | With neither `--instance` nor `--home`, a machine holding only named instances refuses and names them, instead of falling back to `~/.itsanas` where `init` would make a second identity and a stale `itsanas.service` would start it. A machine with no node at all still gets `~/.itsanas`, or the first `init` could never run. Sabotaged (always fall back): red. |
 | **`red_team_a_departed_node_stays_departed_until_it_rejoins`** | After `itsanas leave` the home holds a `departed` file; the daemon exits 0 at once (so `Restart=on-failure` and the logon task do not loop), `serve` and `sync` refuse, each naming `itsanas rejoin`, and `rejoin` undoes it. Otherwise systemd would bring back a machine its peers were told had gone. Sabotaged (the check reads another file): red. |
+| **`red_team_a_departed_node_cannot_register_again`** | `register` publishes this device's address as well as its claim; after `itsanas leave` it ran unguarded, so a departed node could hand the peers that were told it had gone a fresh address. It now refuses first, naming `itsanas rejoin`. Sabotaged (guard removed): red. |
+| **`red_team_a_node_under_the_other_home_variable_is_not_shadowed`** | On Windows the CLI prefers `USERPROFILE`; a node made when `HOME` won is invisible there, and `init`/`login` would mint a second identity. A derived home with no node, when the other variable's home holds one at the same place, is refused with the path and `--home` named; an explicit `--home` is never second-guessed. Sabotaged (`stranded_node` never finding): red. |
+| `migration_advice_says_the_old_unit_restart_loops` | After `migrate` the old unit still points at `~/.itsanas`, fails at each start and is restarted by `Restart=` or the logon task until disabled; the advice says so. Sabotaged (sentence softened): red. |
 | **`red_team_what_a_sync_pulled_lands_in_the_folder`** | `itsanas sync` by hand fetched into the store and left the synced folder empty until an `itsanas scan` no guide names (found by a persona run of FIRST-STEPS, HANDOVER §8 q). A file put in the store as a pull would must be written out by `sync_folder`, which `sync` runs after its rounds. Sabotaged (it returns at once): red. |
 | `the_phrase_as_init_prints_it_reads_back_as_the_words` | `init` prints the words as a numbered grid; a person pastes that into `--phrase-file`. The numbers are dropped, words are never guessed at, and one word a line works too. |
 | **`red_team_an_empty_mount_point_is_not_a_reachable_folder`** | An unmounted disk leaves an empty mount point; `instances` must say UNREACHABLE unless 0l's `.itsanas-folder` marker is there, never trust `is_dir` alone. |
@@ -1013,7 +1019,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (99)
+# `itsanas-node` — a node on disk (101)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1080,7 +1086,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk (20)
+## `node` — identity on disk (21)
 
 | Test | What it proves |
 | --- | --- |
@@ -1089,6 +1095,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does`** | `itsanas passphrase` re-seals the keystore without regenerating anything — same account, same device id — the old passphrase stops working, and the pending file is renamed over the keystore rather than left beside it. |
 | **`red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns`** | Every write goes through `node.store`, and the store refuses nothing it has not been told about. Opening a node pledging 700 GB must hold writes to the 300 GB that earns at 30/70, and a node pledging nothing to the joining allowance, as `keep` does. Sabotaged on the wiring in `Node::assemble` and on the allowance floor: without either, the CLI, the folder and the phone would write unbounded while every store test stayed green. |
 | **`red_team_the_disk_room_sets_aside_what_the_pledge_still_owes`** | `Node::disk_room`: free space less what the pledge still owes beyond what is already hosted; owed past free leaves 0, over-hosting owes nothing, an unreadable free space bounds nothing rather than refusing every write, and a disk that really reads 0 free bounds everything (the `itsanas-redteam` agent found 0 read as unknown). Sabotaged (the owed pledge ignored): red. |
+| **`red_team_a_folder_beside_the_home_is_charged_on_its_volume`** | `bound_writes` tells the store where a pull's folder copy lands: none without a folder, `SameVolume` for a folder on the home's disk (so `pull_room` charges both copies), `OtherVolume` with that volume's free space otherwise; unsure counts as the same volume. Sabotaged (folder never reported): red. |
 | **`red_team_our_own_chunks_in_the_vault_do_not_count_as_hosted`** | Our other devices push to this vault too. `held`, what the pledge has already been paid, must count only other accounts' bytes: 40 000 bytes of our own chunks count 0, 10 000 of a stranger's count 10 000. Counted as hosted, our own backlog shrank the reserve by its own size. And asking must not create a vault directory for us, which made a fresh node list itself among the accounts it hosts (found by the `itsanas-redteam` agent). Sabotaged twice (`held_for_others` returning the whole vault; the owners guard removed): red. |
 | **`red_team_files_this_machine_has_not_downloaded_count_against_its_writes`** | A phone knows most of its account only from the laptop's log in its vault. A 300 000-byte file written on the laptop and never downloaded must reach the phone's write bound as `elsewhere`, or the phone writes as though the account were the sliver it keeps. Sabotaged on the `Absent` filter in `bound_writes`. |
 | **`red_team_a_machine_that_lends_nothing_writes_by_what_the_account_lends`** | The rule this step first shipped, caught by Rodin before it merged: the bound read *this machine's* pledge. A laptop pledging nothing -- the default -- in an account whose Pi lends 700 GB must be held to the 300 GB the account earns, on opening and again after the refresh every writer calls; it was being held to the joining allowance for the whole account. Sabotaged on both. |
@@ -1117,7 +1124,7 @@ to the peer, each turns the matching test red.
 | **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
 | `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
 
-## `config` — settings (25)
+## `config` — settings (26)
 
 | Test | What it proves |
 | --- | --- |
@@ -1136,6 +1143,7 @@ to the peer, each turns the matching test red.
 | **`a_quoted_price_parses_back_to_no_less_than_the_price`** | A refusal names the pledge that would make a request legal and the command that sets it. `format_size` floors to a tenth, so at 30/70 the price of 31 GiB (72.33 GiB) read "72.3 GiB" and pledging exactly that was refused again; and the suggested `--pledge 93.0 GiB` never parsed at all. The quote is now a whole unit rounded up, and this checks it reads back as no less at every remainder — and pins `73G`, the figure the documents use. |
 | **`red_team_an_instance_name_cannot_leave_the_home_directory`** | `itsanas --instance NAME` joins the name onto the home directory, and `install/clean.sh --instance NAME` deletes what it names. A `/`, `\` or `..` let through would open — or erase — a directory that is no instance's. Refused, not cleaned: `../etc`, `a/b`, `..`, uppercase, an edge dash, a space, 33 characters, the empty name, and `passphrase`, because `~/.itsanas-passphrase` is the default node's passphrase file. |
 | `an_instance_lives_where_provision_sh_puts_it` | `provision.sh --instance x` installs into `~/.itsanas-x`; a CLI that mapped the name anywhere else would open an empty home beside the installed node and report a node that is not there. |
+| **`red_team_a_node_under_the_other_home_variable_is_found`** | `stranded_node` finds a node at the same place under the other of `HOME` / `USERPROFILE` only when the chosen home holds none, and not without another home. The check behind the CLI's refusal to mint a second identity. Sabotaged (never found): red. |
 | **`red_team_on_windows_the_profile_wins_over_home`** | `provision.ps1` builds every node home from `$env:USERPROFILE`; `HOME` is not a Windows variable, but Git Bash sets one and some installs make it permanent. Preferring `HOME` there made the CLI and the script name two different `~/.itsanas-NAME`. On Windows the profile wins, elsewhere `HOME`, and an empty value is no home. Sabotaged (HOME first everywhere): red. |
 | `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
 | **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
@@ -1665,7 +1673,7 @@ the bound, behind `cfg(test)` and the `hostile` feature.
 | **`red_team_a_new_machine_of_a_full_account_whose_machines_are_all_lost_can_free_a_slot`** | Found by `itsanas-redteam`: five machines lost or reinstalled hold the five slots, and the new machine is the only one left and is not enrolled. It is refused, the coordinator's refusal carries full device ids (a short one cannot be resolved by a machine refused `Devices`), a withdrawal by full id is accepted from it, and the freed slot takes it. Sabotaged by short ids in the refusal. The CLI half -- `itsanas device forget <full id>` no longer lists first -- was checked by hand against a real coordinator both ways (refused "only an enrolled device" without the change), not by a test. |
 | `room_is_counted_in_live_devices_and_a_device_already_live_needs_none` | `coordinator::room_for` alone: four leave room, five do not, and a device among the five always has room. |
 
-# `itsanas-coord` — departures (2)
+# `itsanas-coord` — departures (3)
 
 A device leaving on purpose tells the coordinator, which records it apart from a
 silence for a regulation that does not exist yet. Nothing reads the record today.
@@ -1673,6 +1681,7 @@ silence for a regulation that does not exist yet. Nothing reads the record today
 | Test | What it proves |
 | --- | --- |
 | **`red_team_a_departure_notice_from_another_device_is_refused`** | A history anybody can write about somebody else is worthless to the regulation it is kept for. Two ways in, both refused with nothing recorded: a genuine notice delivered over another device's connection (a replay), and a notice naming a device and signed by another key (a forgery). Then the device itself is heard, so the refusals are not an accident of a broken path. |
+| **`red_team_a_departed_device_keeps_its_slot`** | `itsanas leave` is not a withdrawal: on a full account, the departed device keeps its live claim and a sixth device is still refused with `TooManyDevices`. Freeing the slot is `itsanas device forget <id>` from another device, which `leave` now prints. Sabotaged (departure deleting the claim): red. |
 | `a_departure_is_recorded_apart_from_a_silence` | The only reason to record departures is to keep them apart from silences: a device that stopped announcing without a word has none on record. Recording one changes nothing else yet — the device's last presence stands. |
 
 # `itsanas-coord` — claims, directory, accounting (64)

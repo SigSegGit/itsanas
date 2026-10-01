@@ -741,6 +741,7 @@ fn ceiling(device: &itsanas_sync::sim::SimDevice, bytes: Option<u64>) {
             allowed: u64::MAX,
             elsewhere: 0,
             local_ceiling: bytes,
+            folder_copy: itsanas_store::FolderCopy::None,
         }))
         .unwrap();
 }

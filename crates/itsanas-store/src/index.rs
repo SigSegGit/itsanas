@@ -238,6 +238,12 @@ pub struct Index {
 /// always answers "not locked".
 pub const INDEX_FILE: &str = "index.redb";
 
+/// How long [`Index::open`] waits out a lock before reporting
+/// [`StoreError::Locked`]: far longer than an [`Index::is_locked`] probe holds
+/// it, short enough that a command beside a running daemon still answers at
+/// once to a person.
+pub const LOCK_PATIENCE: std::time::Duration = std::time::Duration::from_secs(2);
+
 impl Index {
     /// Whether another process already holds this index.
     ///
@@ -279,14 +285,33 @@ impl Index {
     /// installation the same order, which is the property being removed.
     pub fn open(path: impl AsRef<Path>, audit_key: SymmetricKey) -> Result<Self> {
         let path = path.as_ref();
-        let db = Database::create(path).map_err(|error| match error {
-            // redb takes an exclusive lock on the file. Reporting that as a
-            // generic database error leaves the operator staring at "cannot
-            // acquire lock" with no idea which of their own processes is
-            // holding it, so it gets its own variant and its own advice.
-            redb::DatabaseError::DatabaseAlreadyOpen => StoreError::Locked(path.to_owned()),
-            other => StoreError::from(other),
-        })?;
+        // `is_locked` probes by opening, which holds the same exclusive lock
+        // for an instant. A daemon starting in that instant -- the tray polls
+        // `status --brief` while the logon task starts the daemon -- would
+        // fail with `Locked` and stay down. A probe lets go within
+        // milliseconds and a running daemon never does, so a short retry
+        // tells the two apart: `Locked` is reported once the lock has been
+        // held for `LOCK_PATIENCE`.
+        let started = std::time::Instant::now();
+        let db = loop {
+            match Database::create(path) {
+                Ok(db) => break db,
+                Err(redb::DatabaseError::DatabaseAlreadyOpen)
+                    if started.elapsed() < LOCK_PATIENCE =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                // redb takes an exclusive lock on the file. Reporting that as
+                // a generic database error leaves the operator staring at
+                // "cannot acquire lock" with no idea which of their own
+                // processes is holding it, so it gets its own variant and its
+                // own advice.
+                Err(redb::DatabaseError::DatabaseAlreadyOpen) => {
+                    return Err(StoreError::Locked(path.to_owned()));
+                }
+                Err(other) => return Err(StoreError::from(other)),
+            }
+        };
 
         // Create every table up front. redb returns an error when a read
         // transaction opens a table that has never been written, so a fresh
@@ -2070,6 +2095,57 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let index = Index::open(dir.path().join("index.redb"), test_audit_key()).expect("open");
         (dir, index)
+    }
+
+    /// `is_locked` takes the lock for an instant; an open landing in that
+    /// instant -- the daemon starting at logon while the tray polls -- must
+    /// wait it out, not fail with `Locked` and leave the node down. A lock
+    /// really held still reads as `Locked`, once `LOCK_PATIENCE` has passed.
+    #[test]
+    fn red_team_an_open_racing_a_lock_probe_still_opens() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join(INDEX_FILE);
+        drop(Index::open(&path, test_audit_key()).expect("create"));
+
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let prober = {
+            let (path, stop) = (path.clone(), stop.clone());
+            std::thread::spawn(move || {
+                // A poller, not a spin: the tray asks every few seconds. A
+                // probe in a tight loop holds the lock nearly all the time
+                // (on Linux an open never finds it free), which no caller
+                // does; 5 ms apart is still far denser than the tray.
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = Index::is_locked(&path);
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            })
+        };
+        let mut failed = 0;
+        for _ in 0..100 {
+            match Index::open(&path, test_audit_key()) {
+                Ok(index) => drop(index),
+                Err(StoreError::Locked(_)) => failed += 1,
+                Err(other) => panic!("open failed for another reason: {other}"),
+            }
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        prober.join().expect("prober");
+        assert_eq!(
+            failed, 0,
+            "{failed} of 100 opens met a status probe's lock and gave up: a daemon \
+             starting at logon beside the tray stays down"
+        );
+
+        let held = Index::open(&path, test_audit_key()).expect("open");
+        assert!(
+            matches!(
+                Index::open(&path, test_audit_key()),
+                Err(StoreError::Locked(_))
+            ),
+            "a lock held for good must still be reported, after the wait"
+        );
+        drop(held);
     }
 
     fn chunk(byte: u8) -> ChunkId {

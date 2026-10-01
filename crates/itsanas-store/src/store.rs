@@ -99,6 +99,30 @@ pub struct WriteBudget {
     /// chunk exceeds by its tag and deduplication undercuts; the margin is a
     /// few bytes a chunk, and the owed pledge is the real reserve.
     pub local_ceiling: Option<u64>,
+    /// Where a pulled file's second copy lands: see [`FolderCopy`].
+    pub folder_copy: FolderCopy,
+}
+
+/// The synced folder's copy of a pulled file, which [`Store::pull_room`]
+/// must charge too.
+///
+/// A pull writes a file twice when a folder is configured: its chunks into the
+/// store, then the plaintext into the folder (`export`). The ceiling counted
+/// the first only, so a pull of X under a room of X put 2X on the disk -- the
+/// second X out of space the pledge owes other people.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FolderCopy {
+    /// No synced folder: a pull writes the store's copy only.
+    #[default]
+    None,
+    /// The folder shares the store's volume: each byte pulled lands twice on
+    /// the disk the ceiling measures. `local_then` is the store's local bytes
+    /// when the budget was set, so the bytes pulled since can be charged
+    /// twice too.
+    SameVolume { local_then: u64 },
+    /// The folder is on another volume, which had `room` bytes free when the
+    /// budget was set: the folder's copy is charged there.
+    OtherVolume { local_then: u64, room: u64 },
 }
 
 /// What one garbage-collection pass did.
@@ -351,7 +375,7 @@ impl Store {
     ///
     /// If the index cannot be read.
     pub fn pull_room(&self, path: &str, incoming: u64, replacing: bool) -> Result<Option<u64>> {
-        let Some(ceiling) = self.write_budget()?.and_then(|budget| budget.local_ceiling) else {
+        let Some(budget) = self.write_budget()? else {
             return Ok(None);
         };
         let replaced = if replacing {
@@ -360,10 +384,34 @@ impl Store {
             0
         };
         let local = self.index.local_bytes()?.saturating_sub(replaced);
-        if local.saturating_add(incoming) > ceiling {
-            return Ok(Some(ceiling.saturating_sub(local)));
+        match budget.folder_copy {
+            FolderCopy::SameVolume { local_then } => {
+                // Every byte pulled since the budget was set, and this file,
+                // twice: the store's copy and the folder's.
+                let Some(ceiling) = budget.local_ceiling else {
+                    return Ok(None);
+                };
+                let room = ceiling.saturating_sub(local_then);
+                let spent = local.saturating_sub(local_then).saturating_mul(2);
+                if spent.saturating_add(incoming.saturating_mul(2)) > room {
+                    return Ok(Some(room.saturating_sub(spent) / 2));
+                }
+                Ok(None)
+            }
+            FolderCopy::OtherVolume { local_then, room } => {
+                let spent = local.saturating_sub(local_then);
+                if spent.saturating_add(incoming) > room {
+                    return Ok(Some(room.saturating_sub(spent)));
+                }
+                Ok(Self::past_ceiling(budget.local_ceiling, local, incoming))
+            }
+            FolderCopy::None => Ok(Self::past_ceiling(budget.local_ceiling, local, incoming)),
         }
-        Ok(None)
+    }
+
+    fn past_ceiling(ceiling: Option<u64>, local: u64, incoming: u64) -> Option<u64> {
+        let ceiling = ceiling?;
+        (local.saturating_add(incoming) > ceiling).then(|| ceiling.saturating_sub(local))
     }
 
     /// The account's bytes, not counting what is at `path` now -- a write

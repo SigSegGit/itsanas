@@ -12,13 +12,34 @@ contract.
 NEXT: 8.4
 TITLE: verification at a terabyte -- within a differing bucket, ask only about chunks with no fresh record for that peer
 WRITTEN-AT: 2026-10-01
-BASE: bb93699
+BASE: 4133283
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**Autonomous run 2026-09-30/10-01 ended** with the PR below. What waits on
+Nicolas is §10 (decisions only he takes) and the three findings it named
+without fixing (ROADMAP "Named by the final verification pass"). NEXT is §8 4.
+
+**2026-10-01, final fixes of the run's verification pass** (branch
+`step/final-redteam-fixes`; not a §8 step). Five findings of an
+`itsanas-redteam` pass over `8701222..main`, each re-read in the code first:
+`register` refuses after `leave` (Android has no `leave`, so its half did not
+hold); `leave` keeps the claim and its slot and says to run `itsanas device
+forget <id>` elsewhere; a derived home with no node is refused when the other
+of HOME/USERPROFILE holds one (`config::stranded_node`), and `migrate`'s advice
+says the old unit restart-loops; `Index::open` waits out a lock for up to 2 s
+(`LOCK_PATIENCE`) so an `is_locked` probe cannot keep a starting daemon down;
+`held_for_others` reads a per-owner running total (table vault_owner_chunk_bytes)
+instead of two walks; a pull charges the synced folder's copy too
+(`FolderCopy`: twice on the home's volume, the folder volume's free space
+otherwise). Verified: 9 tests, 11 sabotages red. **Not verified:** no CLI run
+by hand; the Windows drive-prefix comparison runs only in CI; a command beside
+a running daemon now takes 2 s to say `Locked`. Trap: a Python edit script
+run through `runpy` executes its module-level code twice.
 
 **2026-10-01, folder reports name files and recognise a rename** (branch
 `step/folder-reports-renames`; not a §8 step, the second "not timid on
@@ -43,25 +64,7 @@ tray showing the folder's state; `fetch_only`/`drain_vault`/budgeted
 `check-catalogue.sh` reads any backticked snake_case name in a doc as a test
 name.
 
-**2026-10-01, 2e: the Android app lists and withdraws devices** (branch
-`step/8.2e-android-devices`). Settings, "This account's devices": the
-coordinator's list, this phone marked, Withdraw beside the others, a
-confirmation saying the consequence. Joining at the 5-device limit opens that
-screen on the ids the refusal named (`coordinator::cap_named`), so an
-all-phone account whose phones are lost frees a slot from the new one. Core
-shared with the CLI: `coordinator::withdraw_device` (refuses the device
-asking); phone rule: only a full id the listing shows. Also: `setLimits` saves
-pledge and keep as a pair (raising both was refused), split refusals in the
-phone's words, a test holding `Native.kt` to the JNI exports.
-`itsanas-redteam` found 3, fixed and tested: stale remembered ids in a
-complete list, a partial refusal miscounted, a negative pledge taken as
-positive. Verified: 7 Rust tests, 11 sabotages red, APK built by hand.
-**Not verified:** no screen opened, Kotlin untested (no CI job runs the app);
-the node lock is held across the coordinator dials of `withdraw` (redteam,
-suspected, not measured). Trap: Git Bash heredocs ate a `\` in a Python
-edit script again -- write scripts with the Write tool.
-
-Older §0 entries, 2026-09-14 to 2026-10-01 (2c and before), moved verbatim
+Older §0 entries, 2026-09-14 to 2026-10-01 (2e and before), moved verbatim
 to [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md): history, not instructions.
 The rules that still bind are in §3, §4b and §11.
 

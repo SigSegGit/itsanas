@@ -104,6 +104,18 @@ const CHUNK_BYTES: &str = "chunk_bytes";
 /// 1 while a process has the vault open; 0 after a clean drop.
 const OPEN: &str = "open";
 
+/// `owner` → the sum of that owner's `vault_chunks` values.
+///
+/// [`CHUNK_BYTES`] split by owner, so "how much of this vault is ours" -- read
+/// by `Node::bound_writes` on every reconcile pass -- is one lookup instead of
+/// a walk of our own blobs. Same discipline as the total: changed in the
+/// transaction that changes the row, rebuilt with it after an unclean open.
+const OWNER_CHUNK_BYTES: TableDefinition<'_, &[u8], u64> =
+    TableDefinition::new("vault_owner_chunk_bytes");
+/// Set once [`OWNER_CHUNK_BYTES`] has been built: a vault from before it has
+/// rows and a total but no split, and needs one rebuild.
+const OWNER_TOTALS: &str = "owner_totals";
+
 /// Bytes in a `owner ‖ device` key.
 const CHAIN_KEY_LEN: usize = 64;
 
@@ -252,6 +264,7 @@ impl Vault {
             let _ = txn.open_table(HEADS)?;
             let _ = txn.open_table(CHUNKS)?;
             let _ = txn.open_table(TOTALS)?;
+            let _ = txn.open_table(OWNER_CHUNK_BYTES)?;
         }
         txn.commit()?;
 
@@ -337,6 +350,13 @@ impl Vault {
             let total = totals.get(CHUNK_BYTES)?.map_or(0, |total| total.value());
             let total = total.saturating_sub(old.unwrap_or(0)).saturating_add(size);
             totals.insert(CHUNK_BYTES, total)?;
+            let mut per_owner = txn.open_table(OWNER_CHUNK_BYTES)?;
+            let key = owner.as_bytes().as_slice();
+            let mine = per_owner.get(key)?.map_or(0, |total| total.value());
+            per_owner.insert(
+                key,
+                mine.saturating_sub(old.unwrap_or(0)).saturating_add(size),
+            )?;
         }
         txn.commit()?;
         unsure.defuse();
@@ -368,6 +388,10 @@ impl Vault {
                 let mut totals = txn.open_table(TOTALS)?;
                 let total = totals.get(CHUNK_BYTES)?.map_or(0, |total| total.value());
                 totals.insert(CHUNK_BYTES, total.saturating_sub(old))?;
+                let mut per_owner = txn.open_table(OWNER_CHUNK_BYTES)?;
+                let key = owner.as_bytes().as_slice();
+                let mine = per_owner.get(key)?.map_or(0, |total| total.value());
+                per_owner.insert(key, mine.saturating_sub(old))?;
             }
         }
         txn.commit()?;
@@ -393,6 +417,29 @@ impl Vault {
         for row in txn.open_table(CHAIN_BYTES)?.iter()? {
             let (_, bytes) = row?;
             held = held.saturating_add(bytes.value());
+        }
+        Ok(held)
+    }
+
+    /// What this vault holds for one owner -- chunks and segments -- without
+    /// walking it.
+    ///
+    /// Equal to [`Self::stats_for`]`.bytes`, from two running totals: the
+    /// owner's row in `vault_owner_chunk_bytes` and their chains' rows in
+    /// `vault_chain_bytes` (one per device). `stats_for` walks the owner's
+    /// blob directory and stays the answer for `status`.
+    pub fn held_bytes_for(&self, owner: UserId) -> Result<u64> {
+        let txn = self.db.begin_read()?;
+        let key = owner.as_bytes();
+        let mut held = txn
+            .open_table(OWNER_CHUNK_BYTES)?
+            .get(key.as_slice())?
+            .map_or(0, |total| total.value());
+        for row in txn.open_table(CHAIN_BYTES)?.iter()? {
+            let (chain, bytes) = row?;
+            if chain.value().starts_with(key.as_slice()) {
+                held = held.saturating_add(bytes.value());
+            }
         }
         Ok(held)
     }
@@ -460,7 +507,7 @@ impl Vault {
         let txn = self.db.begin_read()?;
         let totals = txn.open_table(TOTALS)?;
         let unclean = totals.get(OPEN)?.is_some_and(|open| open.value() != 0);
-        let untotalled = totals.get(CHUNK_BYTES)?.is_none();
+        let untotalled = totals.get(CHUNK_BYTES)?.is_none() || totals.get(OWNER_TOTALS)?.is_none();
         drop(totals);
         drop(txn);
         if !unclean && !untotalled {
@@ -496,11 +543,25 @@ impl Vault {
                 table.remove(key.as_slice())?;
             }
             let mut total = 0u64;
+            let mut per_owner: std::collections::BTreeMap<[u8; 32], u64> =
+                std::collections::BTreeMap::new();
             for (key, size) in &on_disk {
                 table.insert(key.as_slice(), *size)?;
                 total = total.saturating_add(*size);
+                let mut owner = [0u8; 32];
+                owner.copy_from_slice(&key[..32]);
+                let entry = per_owner.entry(owner).or_default();
+                *entry = entry.saturating_add(*size);
             }
-            txn.open_table(TOTALS)?.insert(CHUNK_BYTES, total)?;
+            let mut totals = txn.open_table(TOTALS)?;
+            totals.insert(CHUNK_BYTES, total)?;
+            totals.insert(OWNER_TOTALS, 1)?;
+            // Rewritten whole: an owner whose blobs are all gone keeps no row.
+            let mut owners = txn.open_table(OWNER_CHUNK_BYTES)?;
+            owners.retain(|_, _| false)?;
+            for (owner, bytes) in &per_owner {
+                owners.insert(owner.as_slice(), *bytes)?;
+            }
         }
         txn.commit()?;
         Ok(())
@@ -1413,6 +1474,68 @@ mod tests {
         }
         let vault = Vault::open(dir.path()).unwrap();
         assert_total_is_the_walk(&vault, "a failed write and a clean close");
+    }
+
+    #[test]
+    fn red_team_held_bytes_for_one_owner_needs_no_walk() {
+        // `Node::held_for_others` reads this on every reconcile pass; it was
+        // `stats_for`, two walks of the owner's blobs each time. It must equal
+        // the walk while nothing goes behind the vault's back, and -- the
+        // proof that it does not walk -- keep its answer when a blob file is
+        // deleted under it, until an unclean open rebuilds from the disk.
+        let dir = tempfile::tempdir().unwrap();
+        let (ours, theirs) = (UserId::from_bytes([1; 32]), UserId::from_bytes([2; 32]));
+        let vault = Vault::open(dir.path()).unwrap();
+        for (seed, owner, size) in [(1u8, ours, 4000usize), (2, ours, 1000), (3, theirs, 500)] {
+            vault
+                .put_chunk(owner, &ChunkId::from_bytes([seed; 32]), &vec![seed; size])
+                .unwrap();
+        }
+        vault
+            .remove_chunk(ours, &ChunkId::from_bytes([2; 32]))
+            .unwrap();
+        assert_eq!(vault.held_bytes_for(ours).unwrap(), 4000);
+        assert_eq!(
+            vault.held_bytes_for(ours).unwrap(),
+            vault.stats_for(ours).unwrap().bytes,
+            "the running total drifted from the disk"
+        );
+        assert_eq!(vault.held_bytes_for(theirs).unwrap(), 500);
+
+        let blob = dir.path().join("owners").join(ours.to_hex());
+        for entry in walkdir_files(&blob) {
+            std::fs::remove_file(entry).unwrap();
+        }
+        assert_eq!(
+            vault.held_bytes_for(ours).unwrap(),
+            4000,
+            "held_bytes_for walked the blobs: every reconcile pass pays for it"
+        );
+
+        vault.abandon();
+        let vault = Vault::open(dir.path()).unwrap();
+        assert_eq!(
+            vault.held_bytes_for(ours).unwrap(),
+            0,
+            "an unclean open did not rebuild the per-owner total from the disk"
+        );
+        assert_eq!(vault.held_bytes_for(theirs).unwrap(), 500);
+    }
+
+    fn walkdir_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    out.push(path);
+                }
+            }
+        }
+        out
     }
 
     #[test]

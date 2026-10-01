@@ -34,7 +34,7 @@ use itsanas_crypto::{
     DeviceKeys, KdfParams, Keystore, MasterSecret, SecretBytes, UserKeys,
     is_published_test_identity,
 };
-use itsanas_store::{Presence, Store, Vault, WriteBudget};
+use itsanas_store::{FolderCopy, Presence, Store, Vault, WriteBudget};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -398,8 +398,26 @@ impl Node {
             elsewhere,
             local_ceiling: Self::disk_room(free, self.config.pledge_bytes, held)
                 .map(|room| local.saturating_add(room)),
+            folder_copy: self.folder_copy(local),
         }))?;
         Ok(())
+    }
+
+    /// Where a pull's folder copy lands, for [`Store::pull_room`].
+    ///
+    /// Unsure counts as the same volume: charging the home's disk twice errs
+    /// towards refusing, never towards filling the space the pledge owes.
+    fn folder_copy(&self, local_then: u64) -> FolderCopy {
+        let Some(folder) = &self.config.folder else {
+            return FolderCopy::None;
+        };
+        if same_volume(&self.home, folder).unwrap_or(true) {
+            return FolderCopy::SameVolume { local_then };
+        }
+        match fs4::available_space(existing_ancestor(folder)) {
+            Ok(room) => FolderCopy::OtherVolume { local_then, room },
+            Err(_) => FolderCopy::SameVolume { local_then },
+        }
     }
 
     /// Bytes this vault holds for *other* accounts: what counts against the
@@ -411,9 +429,9 @@ impl Node {
     /// as hosted, they shrank what the pledge still owes and so loosened the
     /// reserve by exactly the size of our own backlog.
     ///
-    /// Only asks about our own account if the vault already has it:
-    /// `stats_for` opens the owner's blob directory, creating it, and a vault
-    /// with a directory for us then lists us among the accounts it hosts.
+    /// Two running totals, no walk: this runs on every reconcile pass. It
+    /// opens no blob directory either, so asking does not make the vault list
+    /// us among the accounts it hosts.
     ///
     /// # Errors
     ///
@@ -422,10 +440,9 @@ impl Node {
         // The running total, equal to `stats().bytes` without the walk.
         let all = self.vault.held_bytes()?;
         let owner = self.store.owner();
-        if !self.vault.owners()?.contains(&owner) {
-            return Ok(all);
-        }
-        let ours = self.vault.stats_for(owner)?.bytes;
+        // A running total, not `stats_for`: this runs on every reconcile
+        // pass, and `stats_for` walks every one of our blobs twice.
+        let ours = self.vault.held_bytes_for(owner)?;
         Ok(all.saturating_sub(ours))
     }
 
@@ -603,6 +620,7 @@ impl Node {
             // Set by `bound_writes`, which every writing path calls first:
             // the vault it needs is opened below.
             local_ceiling: None,
+            folder_copy: FolderCopy::None,
         }))?;
         let vault = Vault::open(home.join("vault"))?;
 
@@ -698,6 +716,47 @@ pub mod zeroize_phrase {
             f.write_str("Phrase(redacted)")
         }
     }
+}
+
+/// The nearest ancestor of `path` that exists: a folder not created yet
+/// still has a volume, its parent's.
+fn existing_ancestor(path: &Path) -> &Path {
+    path.ancestors()
+        .find(|candidate| candidate.exists())
+        .unwrap_or(path)
+}
+
+/// Whether `a` and `b` are on one volume; `None` when that cannot be told.
+#[cfg(unix)]
+fn same_volume(a: &Path, b: &Path) -> Option<bool> {
+    use std::os::unix::fs::MetadataExt;
+    let device = |path: &Path| {
+        std::fs::metadata(existing_ancestor(path))
+            .ok()
+            .map(|m| m.dev())
+    };
+    Some(device(a)? == device(b)?)
+}
+
+/// Whether `a` and `b` are on one volume; `None` when that cannot be told.
+///
+/// By drive (the path prefix after canonicalising). A volume mounted in a
+/// folder of another reads as the same: that errs towards charging twice.
+#[cfg(windows)]
+fn same_volume(a: &Path, b: &Path) -> Option<bool> {
+    let prefix = |path: &Path| {
+        std::fs::canonicalize(existing_ancestor(path))
+            .ok()?
+            .components()
+            .next()
+            .map(|first| first.as_os_str().to_ascii_lowercase())
+    };
+    Some(prefix(a)? == prefix(b)?)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn same_volume(_: &Path, _: &Path) -> Option<bool> {
+    None
 }
 
 #[cfg(test)]
@@ -1004,7 +1063,8 @@ mod tests {
             Some(WriteBudget {
                 allowed: 300 * GB,
                 elsewhere: 0,
-                local_ceiling: None
+                local_ceiling: None,
+                folder_copy: FolderCopy::None,
             }),
             "a node pledging 700 GB at 30/70 must be held to the 300 GB that earns"
         );
@@ -1100,6 +1160,30 @@ mod tests {
                 .map(|budget| budget.allowed),
             Some(300 * GB),
             "the refresh before a write fell back to this machine's own pledge"
+        );
+    }
+
+    /// `bound_writes` must tell the store that a pull also writes the synced
+    /// folder: a folder beside the home is on its volume, so the pull is
+    /// charged twice (`red_team_a_pull_charges_the_folder_copy_too`).
+    #[test]
+    fn red_team_a_folder_beside_the_home_is_charged_on_its_volume() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        let (mut node, _phrase) = Node::create(&home, PASSPHRASE, "nicolas").unwrap();
+        node.bound_writes().unwrap();
+        assert_eq!(
+            node.store.write_budget().unwrap().map(|b| b.folder_copy),
+            Some(FolderCopy::None)
+        );
+        node.config.folder = Some(dir.path().join("Documents"));
+        node.bound_writes().unwrap();
+        assert!(
+            matches!(
+                node.store.write_budget().unwrap().map(|b| b.folder_copy),
+                Some(FolderCopy::SameVolume { .. })
+            ),
+            "a pull into a folder on the home's disk was charged once"
         );
     }
 
