@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**939 test functions, 4 of them `#[ignore]`d into the slow job, and 173 of
+**954 test functions, 4 of them `#[ignore]`d into the slow job, and 186 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1900,6 +1900,24 @@ only about chunks with no record for that peer younger than `REFRESH_AFTER`,
 and reads only those buckets' ranges of the index; the full walk, due every
 `REFRESH_AFTER`, still asks about everything and is what finds a chunk the peer
 dropped silently. Arithmetic in `docs/DESIGN.md` §6.5.
+
+**Hosts bound accounts (2026-10-04, HANDOVER §8 1c, first part).** Until
+then a host bounded only itself, so a client that pledged nothing was served
+until every host was full. Peer protocol 7: a device presents its account's
+claim (`Request::Claim`), the host answers with its own, and `ClaimBook`
+(`itsanas-node/src/owners.rs`) admits a store only within
+`room_earned(pledged)` -- `room_earned(proved)` once this host's audit has
+paused one of the account's devices -- with what goes beyond what proof earns
+drawn from one share, 3/10 of the host's pledge, for all accounts. The pull
+path (`host_for_bounded`) is held to it too. Proof is the account's devices'
+holder records in this node's ledger (`holder_counts`) times the mean size of
+this node's chunks: an estimate, never the peer's word. **Open:** a pledge is
+self-signed and nothing yet tests the space it claims; a withdrawn device
+re-signs a live claim (every node holds the account key; hosts never read the
+coordinator's withdrawals); an account can keep its paused device away from
+a host; the book is in memory, so a host restart forgets every claim until
+devices present them again (they do, every round); `admits` reads the
+reliability of each of an account's devices per offer, at most five.
 
 **The walk itself no longer lists an idle account (2026-10-04, HANDOVER §8
 4c).** It listed 537 MB per peer every three and a half days at a terabyte,

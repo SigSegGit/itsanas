@@ -32,7 +32,7 @@ pub use itsanas_wire as wire;
 
 pub use error::{NetError, Result};
 pub use protocol::{Head, PROTOCOL_VERSION, Request, Response, challenge_holds, challenge_proof};
-pub use service::{PeerService, Pledge, Relay};
+pub use service::{Owners, PeerService, Pledge, Relay, UPDATE_REQUIRED};
 pub use session::{
     AuditReport, CHALLENGES_PER_ROUND, HostReport, PushReport, RoundReport, Scope, audit,
     drain_vault, fetch_only, host_for, pull, pull_scoped, push, push_scoped, refresh, round,

@@ -1368,6 +1368,30 @@ impl Store {
         self.index.held_summary()
     }
 
+    /// About how many bytes of this node's data `device` is recorded as
+    /// holding: its holder records, counted in one lookup, times the mean
+    /// size of this node's own chunks.
+    ///
+    /// An estimate, said so: the ledger counts chunks, not bytes, and a
+    /// device holding only this node's largest chunks is credited the mean.
+    /// What a host uses it for -- how much an account has proved it hosts
+    /// here (§8 1c) -- is bounded by records this node wrote itself after a
+    /// peer accepted a chunk or answered for it, never by anything the peer
+    /// says about its size.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn bytes_held_by(&self, device: &DeviceId) -> Result<u64> {
+        let records = self.index.held_by(device)?;
+        if records == 0 {
+            return Ok(0);
+        }
+        let chunks = self.index.live_chunk_count()?.max(1);
+        let mean = self.local_bytes()? / chunks;
+        Ok(records.saturating_mul(mean))
+    }
+
     /// How many chunks are live, without listing them.
     ///
     /// # Errors

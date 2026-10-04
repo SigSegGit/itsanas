@@ -57,8 +57,8 @@ use crate::{
     error::{NetError, Result},
     protocol::{
         Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_CHUNK_SUMMARY,
-        PROTOCOL_WITH_DROP_NOTICES, PROTOCOL_WITH_LEAVING, PROTOCOL_WITH_PRESENCES, Request,
-        Response,
+        PROTOCOL_WITH_CLAIMS, PROTOCOL_WITH_DROP_NOTICES, PROTOCOL_WITH_LEAVING,
+        PROTOCOL_WITH_PRESENCES, Request, Response,
     },
     service::PeerService,
 };
@@ -656,6 +656,34 @@ impl PeerClient {
             _ => Err(NetError::UnexpectedResponse {
                 expected: "presences",
             }),
+        }
+    }
+
+    /// Present this device's account claim, so a host that bounds what it
+    /// stores per account (§8 1c) will store for it.
+    ///
+    /// `Ok(Some(claim))`: the host took it and answered with its own claim,
+    /// which the caller holds the host to when pulling its chunks
+    /// ([`crate::session::host_for_bounded`]). `Ok(None)`: the host is older
+    /// than [`PROTOCOL_WITH_CLAIMS`] (not asked), bounds nobody, or took it
+    /// without answering with its own. A refusal is an error, because the
+    /// stores that follow will be refused too and the operator should read
+    /// why once, not once per chunk.
+    ///
+    /// # Errors
+    ///
+    /// If the host refused the claim, or the connection failed.
+    pub fn present_claim(&mut self, claim: Vec<u8>) -> Result<Option<Vec<u8>>> {
+        if self.spoken < PROTOCOL_WITH_CLAIMS {
+            return Ok(None);
+        }
+        match self.request(&Request::Claim { claim })? {
+            Response::Claim(theirs) if theirs.len() <= crate::protocol::MAX_CLAIM_BYTES => {
+                Ok(Some(theirs))
+            }
+            Response::Stored { .. } => Ok(None),
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
         }
     }
 

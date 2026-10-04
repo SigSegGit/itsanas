@@ -10,15 +10,40 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.1c
-TITLE: bound owners on the host by proved hosting, attributed through NodeClaim
+TITLE: test the space a claim pledges (the host probes it), and read withdrawals
 WRITTEN-AT: 2026-10-04
-BASE: d1ad488
+BASE: d578b20
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-04, §8 1c first part: hosts bound accounts** (branch
+`ccr-c9f4329d-v9cnbp`; the agents PR #219 merged first). Rule decided by
+Nicolas the same day: credit immediately on the space offered, 30/70;
+contradicted, 30/70 of what is proved; no claim, no storing. Built: peer
+protocol 7, `Request::Claim` answered with the host's own claim
+(`Response::Claim`, so a machine behind a router can bound what it pulls);
+`Node::claim_bytes` signs a fresh claim per connection (no file);
+`itsanas_net::Owners` injected like `Relay`; `ClaimBook`
+(`crates/itsanas-node/src/owners.rs`); `holder_counts` table in the index
+(`Index::held_by`, `Store::bytes_held_by` = records x mean chunk size);
+`host_for_bounded` gates the hosting pull; `Vault::held_bytes_for` is a range.
+Verified: 15 tests (13 red-team), 17 sabotages red, acceptance-local passes.
+
+Rodin on the plan: the claim is self-signed (every node holds the account
+key), so "not contradicted" means "nobody looked" -- hence the shared 3/10
+share for credit on promises. The `redteam` agent on the code, all fixed but
+3: the pull path skipped the bound; "proven" was a flag one audit set, which
+re-opened the host to a petabyte claim (now bytes); the book could be
+squatted (evicts empty accounts); `verify(now)` would refuse everything on a
+1970 clock; per-store cost (cached total, owner range). **Named, not fixed:**
+a withdrawn device re-signs; an account can keep a paused device away; the
+book is in memory. Trap: the pull-path gate first broke reciprocal hosting
+behind NAT -- the NATed side is never dialled, so never learned the peer's
+claim; the two-way `Claim` exists for that.
 
 **2026-10-04, §8 4c: the ledger walk no longer lists an idle account**
 (branch `ccr-c9f4329d-v9cnbp`). Owner: a due walk against a peer that
@@ -1239,7 +1264,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
    - **Writing consults it since 2026-09-28** (0n): a write past what the
      pledge earns is refused, on the honest client. Before, `write_stream` and
      the folder import accepted any amount.
-   - **Hosts bound themselves, not owners.** `would_exceed_pledge`
+   - **Hosts bound themselves, not owners** -- until 2026-10-04, see 1c
+     below and §0. The original text: `would_exceed_pledge`
      (`crates/itsanas-net/src/service.rs`) stops a host exceeding its own
      pledge; nothing limits what one owner stores on a host, so a rebuilt client
      that pledges nothing is served until every host is full.
@@ -1310,6 +1336,22 @@ Detail and measurements are in ROADMAP.md; this is the map.
       second test that a write inside the limit still succeeds keeps the
       first from passing on a store that refuses everything.
    c. **Bound owners on the host — the part a rebuilt client cannot delete.**
+      **First part ✅ 2026-10-04 (see §0).** Remaining, in order, each with a
+      red-team test: (i) **test the space a claim pledges** -- today a pledge
+      is believed until this host's own audits pause a device, and a host
+      only audits devices it pushed to; give the host a way to contradict a
+      claim it has not tested (offer the claiming device chunks of its own
+      when the account's held bytes pass what proof earns, and treat a
+      `PledgeFull` refusal while the claim shows room as a contradiction --
+      `Store::note_peer_full` already records refusals); (ii) read the
+      coordinator's withdrawals (`ClaimedPeers` rows are already checked by
+      `verify_for`, `contact.rs`) so a withdrawn device that re-signs is
+      refused; (iii) keep the book on disk, or a restart re-opens every
+      account's share until it presents again. Expected red-team tests: a
+      claim of a terabyte from a device that refuses a gigabyte loses its
+      credit (sabotage: ignore `PledgeFull`); a device the coordinator lists
+      as withdrawn stores nothing (sabotage: skip the list). The plan as it
+      stood:
       In `service.rs` `StoreChunk` and `StoreSegment`: a host stores for owner O
       at most an allowance plus `k ×` the bytes of this host's own data that O's
       devices have **proved** they hold (a passed storage challenge, as

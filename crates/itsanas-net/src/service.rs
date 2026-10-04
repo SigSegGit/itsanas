@@ -80,6 +80,50 @@ pub trait Relay: Sync {
     fn presences_for(&self, caller: DeviceId) -> Option<Vec<Vec<u8>>>;
 }
 
+/// How a host decides how much it stores for one account (§8 1c).
+///
+/// A trait for the reason [`Relay`] is one: the claims are the coordinator's
+/// types, which this crate does not depend on, and the rule is the node's.
+/// Before this existed a host bounded only *itself* -- its own pledge -- so a
+/// rebuilt client that pledged nothing was served until every host was full.
+pub trait Owners: Sync {
+    /// Take a claim `caller` presented ([`Request::Claim`]). `Err` carries
+    /// the reason for the refusal, for the peer's log.
+    ///
+    /// # Errors
+    ///
+    /// When the claim does not check out for `caller`.
+    fn present(
+        &self,
+        caller: DeviceId,
+        claim: &[u8],
+        vault: &Vault,
+    ) -> std::result::Result<(), String>;
+
+    /// Whether `caller` may store `incoming` more bytes for `owner` here.
+    /// `Err` is the refusal sent back. Called under the storing lock.
+    ///
+    /// # Errors
+    ///
+    /// When the account has no room left on this host, or `caller` never
+    /// presented a claim for it.
+    fn admits(
+        &self,
+        caller: DeviceId,
+        owner: UserId,
+        incoming: u64,
+        store: &Store,
+        vault: &Vault,
+        host_pledge: u64,
+    ) -> std::result::Result<(), String>;
+}
+
+/// What a host that bounds accounts answers a device that has presented no
+/// claim: one that predates [`crate::protocol::PROTOCOL_WITH_CLAIMS`], or a
+/// client that left it out to escape the bound.
+pub const UPDATE_REQUIRED: &str =
+    "this host stores only for devices that present their account's claim: update ITSaNAS";
+
 /// What a node that keeps no book answers [`Request::Presences`] with.
 pub const NO_BOOK: &str = "this node relays no presences";
 
@@ -96,6 +140,10 @@ pub struct PeerService<'a> {
     vault: &'a Vault,
     pledge: Pledge,
     relay: Option<&'a dyn Relay>,
+    owners: Option<&'a dyn Owners>,
+    /// This host's own claim, encoded, sent back to a device that presents
+    /// one ([`Request::Claim`]).
+    own_claim: Option<Vec<u8>>,
     /// The newest protocol this service admits to in `Hello`.
     protocol: u16,
     /// Held across "is there room" and "store it".
@@ -126,6 +174,8 @@ impl<'a> PeerService<'a> {
             vault,
             pledge,
             relay: None,
+            owners: None,
+            own_claim: None,
             protocol: PROTOCOL_VERSION,
             storing: std::sync::Mutex::new(()),
         }
@@ -148,6 +198,44 @@ impl<'a> PeerService<'a> {
     pub fn with_relay(mut self, relay: &'a dyn Relay) -> Self {
         self.relay = Some(relay);
         self
+    }
+
+    /// Bound what this host stores per account by `owners` (§8 1c). Without
+    /// it only the host's own pledge applies, as before.
+    #[must_use]
+    pub fn with_owners(mut self, owners: &'a dyn Owners) -> Self {
+        self.owners = Some(owners);
+        self
+    }
+
+    /// Answer a presented claim with `claim`, this host's own, so the
+    /// presenting device can bound what it pulls from this host.
+    #[must_use]
+    pub fn claiming(mut self, claim: Vec<u8>) -> Self {
+        self.own_claim = Some(claim);
+        self
+    }
+
+    /// `Some(refusal)` if `owners` does not let `caller` store `incoming`
+    /// more bytes for `owner`. Under the storing lock, beside the pledge.
+    fn refused_for_owner(
+        &self,
+        caller: DeviceId,
+        owner: UserId,
+        incoming: usize,
+    ) -> Option<Response> {
+        let owners = self.owners?;
+        owners
+            .admits(
+                caller,
+                owner,
+                incoming as u64,
+                self.store,
+                self.vault,
+                self.pledge.bytes,
+            )
+            .err()
+            .map(Response::Refused)
     }
 
     /// This node's device identity.
@@ -218,6 +306,9 @@ impl<'a> PeerService<'a> {
                 if self.would_exceed_pledge(sealed.len())? {
                     return Ok(Response::Refused(PLEDGE_EXHAUSTED.to_owned()));
                 }
+                if let Some(refusal) = self.refused_for_owner(caller, *owner, sealed.len()) {
+                    return Ok(refusal);
+                }
                 self.vault.put_chunk(*owner, address, sealed)?;
                 Ok(Response::Stored { accepted: true })
             }
@@ -226,6 +317,11 @@ impl<'a> PeerService<'a> {
                 let _storing = self.storing_lock();
                 if self.would_exceed_pledge(envelope.sealed_body.len())? {
                     return Ok(Response::Refused(PLEDGE_EXHAUSTED.to_owned()));
+                }
+                if let Some(refusal) =
+                    self.refused_for_owner(caller, envelope.owner, envelope.sealed_body.len())
+                {
+                    return Ok(refusal);
                 }
                 // A rejected segment is the peer's problem, not ours: refuse it
                 // and say why, rather than failing the connection.
@@ -305,6 +401,8 @@ impl<'a> PeerService<'a> {
 
             Request::Presences => Ok(self.presences(caller)),
 
+            Request::Claim { claim } => Ok(self.claim(caller, claim)),
+
             Request::Hosted { chunks } => {
                 // A claim, recorded and then checked. The storage challenges
                 // this node already runs are what turn it into evidence: a peer
@@ -315,6 +413,22 @@ impl<'a> PeerService<'a> {
                 self.store.record_holders(chunks, &caller)?;
                 Ok(Response::Stored { accepted: true })
             }
+        }
+    }
+
+    /// Take the claim `caller` presented, if this host bounds accounts.
+    fn claim(&self, caller: DeviceId, claim: &[u8]) -> Response {
+        match self.owners {
+            // A host that bounds nobody has no use for it, and says so the
+            // same way it says it took it: nothing for a peer to act on.
+            None => Response::Stored { accepted: false },
+            Some(owners) => match owners.present(caller, claim, self.vault) {
+                Ok(()) => match &self.own_claim {
+                    Some(own) => Response::Claim(own.clone()),
+                    None => Response::Stored { accepted: true },
+                },
+                Err(why) => Response::Refused(why),
+            },
         }
     }
 
@@ -1183,5 +1297,122 @@ mod tests {
             }
             other => panic!("expected presences, got {other:?}"),
         }
+    }
+
+    /// Lets one device store, after it presented the claim `b"ok"`.
+    struct Gate {
+        allowed: std::sync::Mutex<Option<DeviceId>>,
+    }
+
+    impl Owners for Gate {
+        fn present(
+            &self,
+            caller: DeviceId,
+            claim: &[u8],
+            _vault: &Vault,
+        ) -> std::result::Result<(), String> {
+            if claim != b"ok" {
+                return Err("bad claim".to_owned());
+            }
+            *self.allowed.lock().unwrap() = Some(caller);
+            Ok(())
+        }
+        fn admits(
+            &self,
+            caller: DeviceId,
+            _owner: UserId,
+            _incoming: u64,
+            _store: &Store,
+            _vault: &Vault,
+            _host_pledge: u64,
+        ) -> std::result::Result<(), String> {
+            match *self.allowed.lock().unwrap() {
+                Some(allowed) if allowed == caller => Ok(()),
+                _ => Err(UPDATE_REQUIRED.to_owned()),
+            }
+        }
+    }
+
+    #[test]
+    fn red_team_a_host_that_bounds_accounts_asks_before_every_store() {
+        // §8 1c. The bound is worth nothing if one of the two store verbs skips
+        // it, or if the claim is credited to a device other than the one TLS
+        // proved. Sabotages: skip the gate in `StoreChunk`; pass a fixed device
+        // to `present`.
+        let node = node(&alice(), 1);
+        let gate = Gate {
+            allowed: std::sync::Mutex::new(None),
+        };
+        let service = service(&node).with_owners(&gate);
+        let (them, other) = (
+            DeviceId::from_bytes([0x31; 32]),
+            DeviceId::from_bytes([0x32; 32]),
+        );
+        let store = Request::StoreChunk {
+            owner: node.store.owner(),
+            address: itsanas_crypto::ChunkId::from_bytes([9; 32]),
+            sealed: vec![1; 10],
+        };
+
+        assert_eq!(
+            service.handle(&store, them).unwrap(),
+            Response::Refused(UPDATE_REQUIRED.to_owned()),
+            "a chunk was stored by a device that presented no claim"
+        );
+        assert_eq!(
+            service
+                .handle(
+                    &Request::Claim {
+                        claim: b"ok".to_vec()
+                    },
+                    them
+                )
+                .unwrap(),
+            Response::Stored { accepted: true }
+        );
+        assert_eq!(
+            service.handle(&store, them).unwrap(),
+            Response::Stored { accepted: true }
+        );
+        assert_eq!(
+            service.handle(&store, other).unwrap(),
+            Response::Refused(UPDATE_REQUIRED.to_owned()),
+            "a claim presented by one device let another store"
+        );
+
+        node.store.write_file("a.txt", b"segment").unwrap();
+        let envelope = node.store.flush_segment().unwrap().expect("a segment");
+        assert_eq!(
+            service
+                .handle(
+                    &Request::StoreSegment {
+                        envelope: Box::new(envelope),
+                    },
+                    other
+                )
+                .unwrap(),
+            Response::Refused(UPDATE_REQUIRED.to_owned()),
+            "a segment was stored by a device that presented no claim"
+        );
+
+        // Two-way: a host that knows its own claim answers with it, so a
+        // dialling machine behind a router can hold this host to the same
+        // rule when it pulls this host's chunks.
+        let answering = super::PeerService::new(&node.store, &node.vault, Pledge::gigabytes(1))
+            .with_owners(&gate)
+            .claiming(b"mine".to_vec());
+        assert_eq!(
+            answering
+                .handle(
+                    &Request::Claim {
+                        claim: b"ok".to_vec()
+                    },
+                    them
+                )
+                .unwrap(),
+            Response::Claim(b"mine".to_vec()),
+            "a host answered a claim without its own, so a machine that is never \
+             dialled can never learn whose the hosts it pulls for are"
+        );
     }
 }

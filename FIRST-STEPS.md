@@ -127,9 +127,14 @@ towards it says `refused ... its pledge is full or zero`.
 itsanas space --pledge 100G --keep 30G --apply
 ```
 
-**This bargain is enforced by your own client, not yet by the network.** A
-modified client can ignore it and nothing will notice — fine among your own
-machines, not yet fine among strangers. See `docs/ECONOMICS.md` §1.
+**This bargain is enforced by your own client and, since 2026-10-04, by each
+host:** a host stores for your account at most three sevenths of what your
+devices' claims pledge. The pledge is still your account's own word, so a
+modified client can claim space it does not have; each host lends on such
+promises only a shared 30 % of its own pledge. Fine among your own machines,
+not yet among strangers. See `docs/ECONOMICS.md` §1. **Every machine must run
+the same version:** a host now refuses to store for a device that does not
+present its claim.
 
 ### 3. Point it at a folder, and run it
 
@@ -278,8 +283,10 @@ Stated plainly, because a version number invites the opposite assumption:
   100 MB a day budget; nothing has been measured at that size, and each machine
   now reads a slice of its disk every round to keep its summary honest. The
   arithmetic is in `docs/DESIGN.md` §6.5 rather than in a reassurance.
-- **Not yet safe among strangers.** The 30/70 storage bargain is enforced by
-  the honest client only; a rebuilt client can take more than it gives.
+- **Not yet safe among strangers.** Hosts now hold each account to 30/70 of
+  the pledge its devices claim, but the claim is the account's own word: a
+  rebuilt client can still claim space it does not have, inside the 30 % of
+  each host lent on promises.
   `docs/ROADMAP.md` lists what an adversarial sweep found and did not fix.
 - **Not a backup.** Two copies on machines you know is not an archive, and
   nothing here is off-site by default.

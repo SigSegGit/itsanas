@@ -258,14 +258,7 @@ pub fn run(
     // others are (`Request::Presences`). The round owns the book; the listener
     // answers from the copy each round leaves here.
     let board = SharedBoard::default();
-    let service = PeerService::new(
-        &node.store,
-        &node.vault,
-        Pledge {
-            bytes: node.config.pledge_bytes,
-        },
-    )
-    .with_relay(&board);
+    let service = peer_service(node, &board);
 
     install_signal_handler()?;
     let shutdown = &SHUTDOWN;
@@ -706,9 +699,35 @@ fn report_keeping(peer: &str, keeping: &crate::keeping::KeepingReport) {
 /// a favour, and a failure here must not cost this node the sync it came for.
 /// Nothing here is fatal, including a peer too old to understand the question,
 /// which answers `Refused`.
+/// What the listener answers with: this node's store and vault, its pledge,
+/// the relay board, and the per-account bound with this node's own claim.
+fn peer_service<'a>(node: &'a Node, board: &'a SharedBoard) -> PeerService<'a> {
+    PeerService::new(
+        &node.store,
+        &node.vault,
+        Pledge {
+            bytes: node.config.pledge_bytes,
+        },
+    )
+    .with_relay(board)
+    // Whose each device is and what it offers, as its claim said (§8 1c).
+    .with_owners(owners())
+    .claiming(node.claim_bytes(itsanas_discover::now_unix()))
+}
+
+/// The claims this daemon's peers presented (§8 1c), shared by the listener,
+/// which takes them, and the hosting pull, which is held to them as offers
+/// are. One per process: a node runs one daemon.
+fn owners() -> &'static itsanas_node::owners::ClaimBook {
+    static OWNERS: std::sync::OnceLock<itsanas_node::owners::ClaimBook> =
+        std::sync::OnceLock::new();
+    OWNERS.get_or_init(itsanas_node::owners::ClaimBook::new)
+}
+
 fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
     let pledge = Pledge::bytes(node.config.pledge_bytes);
-    match session::host_for(&node.vault, client, pledge) {
+    let bound: (&dyn itsanas_net::Owners, &itsanas_store::Store) = (owners(), &node.store);
+    match session::host_for_bounded(&node.vault, client, pledge, Some(bound)) {
         // A peer that wanted nothing has nothing to say, and saying it every
         // five minutes would fill a journal with silence. A peer that wanted
         // something always leaves a line, even when the answer was "already
@@ -732,6 +751,9 @@ fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
             }
             if report.already_held > 0 {
                 let _ = write!(line, "; {} already held", report.already_held);
+            }
+            if let Some(why) = &report.bounded {
+                let _ = write!(line, "; took no more: {why}");
             }
             if report.pledge_full {
                 line.push_str("; this node is full");
@@ -1145,6 +1167,7 @@ fn sync_once(
         }
     };
     let answered = client.peer_device();
+    present_claim(node, peer, &mut client);
 
     // Make the peer prove it still holds what the ledger says it took, a
     // handful of chunks per round. Without this the ledger is a list of
@@ -1272,6 +1295,26 @@ fn sync_once(
         earned_trust,
         relayed,
     })
+}
+
+/// Tell a host whose this device is and what it offers, before offering it
+/// anything (§8 1c). A refusal is said once here rather than once per chunk.
+///
+/// The host answers with its own claim, kept in this daemon's book: a machine
+/// behind a router is never dialled, so this is the only way it learns whose
+/// the hosts it pulls for are, and what they offer.
+pub(crate) fn present_claim(node: &Node, peer: &str, client: &mut PeerClient) {
+    match client.present_claim(node.claim_bytes(itsanas_discover::now_unix())) {
+        Ok(Some(theirs)) => {
+            if let Err(why) = owners().take(client.peer_device(), &theirs, &node.vault) {
+                println!("{peer}: its own claim does not check out ({why}); not hosting for it");
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            println!("{peer}: refused this device's claim ({error}); it will store nothing here");
+        }
+    }
 }
 
 /// Bind the peer listener, and say what to do when the port is taken.

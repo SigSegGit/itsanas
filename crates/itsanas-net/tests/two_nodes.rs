@@ -3544,3 +3544,69 @@ fn red_team_a_host_that_lost_a_blob_behind_its_index_is_caught_by_the_next_due_w
 fn chunks_victim(author: &Node) -> ChunkId {
     all_live_chunks(&author.store)[0]
 }
+
+/// A host's bound that refuses every account: what a peer with no claim, or
+/// one past its share, meets.
+struct RefuseAll;
+
+impl itsanas_net::Owners for RefuseAll {
+    fn present(
+        &self,
+        _caller: itsanas_crypto::DeviceId,
+        _claim: &[u8],
+        _vault: &Vault,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    fn admits(
+        &self,
+        _caller: itsanas_crypto::DeviceId,
+        _owner: itsanas_crypto::UserId,
+        _incoming: u64,
+        _store: &Store,
+        _vault: &Vault,
+        _host_pledge: u64,
+    ) -> Result<(), String> {
+        Err(itsanas_net::UPDATE_REQUIRED.to_owned())
+    }
+}
+
+#[test]
+fn red_team_a_peer_refused_on_push_cannot_be_hosted_by_being_pulled() {
+    // Found by the redteam agent on §8 1c: the per-account bound sat on
+    // `StoreChunk` and `StoreSegment`, and the hosting pull -- the peer names
+    // the owner and the chunks, this node fetches them into its vault -- was
+    // checked against this node's own pledge only. A client refused on push
+    // offered the same chunks here. Sabotage: skip the bound in
+    // `host_for_bounded`.
+    let reachable = node(&MasterSecret::from_bytes([0xA3; 32]), 42);
+    let dialler = node(&MasterSecret::from_bytes([0xB3; 32]), 43);
+    reachable
+        .store
+        .write_file(
+            "theirs.bin",
+            &itsanas_testkit::filler("bounded", 400 * 1024),
+        )
+        .unwrap();
+    reachable.store.flush_segment().unwrap();
+
+    with_server(&reachable, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &dialler.device, dialler.store.owner(), None).unwrap();
+        let bound: (&dyn itsanas_net::Owners, &Store) = (&RefuseAll, &dialler.store);
+        let report = session::host_for_bounded(
+            &dialler.vault,
+            &mut client,
+            Pledge::gigabytes(1),
+            Some(bound),
+        )
+        .unwrap();
+        assert!(report.wanted > 0, "fixture: the peer wanted nothing held");
+        assert_eq!(
+            report.taken, 0,
+            "a peer the bound refuses was hosted anyway, by being pulled"
+        );
+        assert!(report.bounded.is_some(), "the refusal was not reported");
+    });
+    assert_eq!(dialler.vault.stats().unwrap().bytes, 0);
+}

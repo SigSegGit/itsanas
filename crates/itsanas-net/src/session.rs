@@ -981,7 +981,7 @@ impl ChunkSource for SelectedChunks<'_> {
 }
 
 /// What one round of hosting for a peer did./// What one round of hosting for a peer did.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HostReport {
     /// How many chunks the peer asked this node to hold.
     pub wanted: usize,
@@ -992,6 +992,9 @@ pub struct HostReport {
     pub bytes_taken: u64,
     /// Whether the pledge, not the peer, is what limited this round.
     pub pledge_full: bool,
+    /// Why the per-account bound (§8 1c) stopped this round taking more, if
+    /// it did.
+    pub bounded: Option<String>,
 }
 
 impl HostReport {
@@ -1034,6 +1037,29 @@ impl HostReport {
 const PER_ROUND: u32 = 32;
 
 pub fn host_for(vault: &Vault, client: &mut PeerClient, pledge: Pledge) -> Result<HostReport> {
+    host_for_bounded(vault, client, pledge, None)
+}
+
+/// [`host_for`], with the per-account bound a host applies to what it is
+/// offered (§8 1c) applied to what it pulls as well.
+///
+/// Found by the redteam agent: the bound sat on `StoreChunk` and
+/// `StoreSegment`, and this path -- the peer naming the owner and the chunks,
+/// this node fetching them into its vault -- reached `put_chunk` checked only
+/// against this node's own pledge. A client refused on push offered the same
+/// chunks here instead. The peer is the device this connection proved, and it
+/// is held to the claim it presented when it last dialled this node; one that
+/// never did is not hosted for.
+///
+/// # Errors
+///
+/// As [`host_for`].
+pub fn host_for_bounded(
+    vault: &Vault,
+    client: &mut PeerClient,
+    pledge: Pledge,
+    bound: Option<(&dyn crate::Owners, &Store)>,
+) -> Result<HostReport> {
     let mut report = HostReport::default();
 
     // The same total the host's `StoreChunk` check reads, so both paths
@@ -1069,6 +1095,19 @@ pub fn host_for(vault: &Vault, client: &mut PeerClient, pledge: Pledge) -> Resul
         let size = sealed.len() as u64;
         if size > room {
             report.pledge_full = true;
+            break;
+        }
+        if let Some((owners, store)) = bound
+            && let Err(why) = owners.admits(
+                client.peer_device(),
+                owner,
+                size,
+                store,
+                vault,
+                pledge.bytes,
+            )
+        {
+            report.bounded = Some(why);
             break;
         }
 

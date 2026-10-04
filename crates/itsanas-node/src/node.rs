@@ -255,6 +255,26 @@ fn missing_node(home: &Path) -> NodeError {
 }
 
 impl Node {
+    /// This device's claim, signed now with the account key and carrying
+    /// this machine's current pledge, encoded for [`itsanas_net::PeerClient::present_claim`].
+    ///
+    /// Signed afresh at every connection rather than kept in a file: every
+    /// node holds the account key (the claim is how a host learns whose this
+    /// device is and what it offers, §8 1c), and a stored claim would carry a
+    /// pledge the operator has since changed.
+    #[must_use]
+    pub fn claim_bytes(&self, now: u64) -> Vec<u8> {
+        let claim = itsanas_coord::claim::NodeClaim {
+            owner: self.store.owner(),
+            device: self.store.device_id(),
+            pledged_bytes: self.config.pledge_bytes,
+            issued_unix: now,
+            revoked: false,
+        }
+        .sign(&self.user);
+        postcard::to_stdvec(&claim).unwrap_or_default()
+    }
+
     fn keystore_path(home: &Path) -> PathBuf {
         home.join("keystore.bin")
     }

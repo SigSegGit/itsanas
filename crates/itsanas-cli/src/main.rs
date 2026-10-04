@@ -3140,13 +3140,16 @@ fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
     let server = PeerServer::bind(address)?;
     let bound = server.local_addr()?;
 
+    let owners = itsanas_node::owners::ClaimBook::new();
     let service = PeerService::new(
         &node.store,
         &node.vault,
         Pledge {
             bytes: node.config.pledge_bytes,
         },
-    );
+    )
+    .with_owners(&owners)
+    .claiming(node.claim_bytes(itsanas_discover::now_unix()));
 
     println!("serving on {bound}");
     println!("  user id  {}", node.store.owner());
@@ -3230,6 +3233,7 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
                     continue;
                 }
             };
+        daemon::present_claim(&node, target, &mut client);
 
         // The same path the daemon takes, including the choice of what a
         // device short of room keeps. It used to be the daemon's alone, so
