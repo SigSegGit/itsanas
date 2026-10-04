@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-04 — 938 test functions across 29 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 172 are red-team tests.**
+**Last updated: 2026-10-04 — 939 test functions across 29 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 173 are red-team tests.**
 
-**822 of the 938 tests have an entry of their own on this page** — an *entry*,
+**823 of the 939 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,7 +158,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 165 |
+| `itsanas-store` unit | 166 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
@@ -425,7 +425,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (141, plus the 24 vault tests below)
+# `itsanas-store` — unit tests (141, plus the 25 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -707,7 +707,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (24 of the store's unit tests)
+# `itsanas-store` — the vault (25 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -740,6 +740,7 @@ about reading.
 ---
 | **`red_team_a_blob_lost_behind_the_index_is_found_within_one_pass`** | §8 4c. The summary an owner compares is read from the vault's index, and since 4c an agreeing summary re-stamps records without asking: a blob gone from the disk behind the index left the summary agreeing for ever. One pass of `Vault::check_disk` removes the row, the summary changes, and the pledge stops counting the bytes. Sabotaged by keeping the row. |
 | **`red_team_the_disk_check_resumes_where_it_stopped_after_a_restart`** | The check's cursor is on disk: a daemon restarted more often than a pass takes must not check the first rows for ever. A blob lost at the end is found after a reopen. Sabotaged by not keeping the cursor. |
+| **`red_team_one_disk_check_call_holds_at_most_one_batch`** | Found by the CI reviewer on #218: the slice a round owes is 190 477 rows at a terabyte on an hourly policy, 12 MB of keys in one `Vec` on a 17 MiB machine. One call examines at most `MAX_CHECK_BATCH` and the daemon loops. Sabotaged by dropping the cap. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
 # `itsanas-net` — unit tests (44)

@@ -124,6 +124,15 @@ const OWNER_TOTALS: &str = "owner_totals";
 const CHECK_CURSOR: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("vault_check_cursor");
 const CHECK_CURSOR_KEY: &str = "chunks";
 
+/// Most rows one call to [`Vault::check_disk`] or `Store::check_disk`
+/// examines, whatever it is asked for.
+///
+/// The slice a round needs grows with the account and the interval: 190 477
+/// rows at a terabyte on an hourly policy, 12 MB of keys in one `Vec` on a
+/// machine whose measured peak is 17 MiB. Found by the CI reviewer. The daemon
+/// calls again until its slice is done; memory stays at one batch.
+pub const MAX_CHECK_BATCH: usize = 4096;
+
 /// What one slice of [`Vault::check_disk`] found.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DiskCheck {
@@ -511,15 +520,18 @@ impl Vault {
     /// the chunk missing and sends it again. The bytes leave the totals in the
     /// same transaction, so the pledge stops counting what is not there.
     ///
-    /// The daemon sizes `limit` so a whole pass fits in `REFRESH_AFTER`
-    /// ([`crate::holders::rows_per_round`]). The cursor wraps: a call that
-    /// reaches the last row starts the next one from the first.
+    /// The daemon sizes its slice so a whole pass fits in `REFRESH_AFTER`
+    /// ([`crate::holders::rows_per_round`]) and calls this until the slice is
+    /// done; one call examines at most [`MAX_CHECK_BATCH`] rows. The cursor
+    /// wraps: a call that reaches the last row starts the next one from the
+    /// first.
     ///
     /// # Errors
     ///
     /// If the index cannot be read or written.
     pub fn check_disk(&self, limit: usize) -> Result<DiskCheck> {
         let mut check = DiskCheck::default();
+        let limit = limit.min(MAX_CHECK_BATCH);
         if limit == 0 {
             return Ok(check);
         }
@@ -1853,6 +1865,26 @@ mod tests {
              never reached"
         );
         assert!(!vault.chunks_for(owner).unwrap().contains(&chunks[2]));
+    }
+
+    #[test]
+    fn red_team_one_disk_check_call_holds_at_most_one_batch() {
+        // A slice of 190 477 rows asked for in one call was 12 MB of keys at
+        // once on a Pi. Sabotage: drop the cap.
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        for index in 0..(MAX_CHECK_BATCH + 10) {
+            let mut id = [0u8; 32];
+            id[..8].copy_from_slice(&(index as u64).to_be_bytes());
+            vault
+                .put_chunk(owner, &ChunkId::from_bytes(id), &[1])
+                .unwrap();
+        }
+        assert_eq!(
+            vault.check_disk(usize::MAX).unwrap().checked,
+            MAX_CHECK_BATCH,
+            "one call held more than a batch of keys in memory"
+        );
     }
 
     #[test]

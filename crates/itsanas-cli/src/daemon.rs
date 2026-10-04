@@ -948,10 +948,23 @@ fn dial_listed(
 /// the round: a check that cannot run is said, and the next round tries again.
 fn check_disks(node: &Node, interval: Duration, own_cursor: &mut Option<itsanas_crypto::ChunkId>) {
     let every = interval.as_secs();
-    match node.vault.chunk_rows().and_then(|rows| {
-        node.vault
-            .check_disk(itsanas_store::holders::rows_per_round(rows, every))
-    }) {
+    // In batches: one call holds at most `MAX_CHECK_BATCH` keys, however large
+    // the slice this round owes.
+    let vault_pass = node.vault.chunk_rows().and_then(|rows| {
+        let mut owed = itsanas_store::holders::rows_per_round(rows, every);
+        let mut total = itsanas_store::DiskCheck::default();
+        while owed > 0 {
+            let check = node.vault.check_disk(owed)?;
+            total.checked += check.checked;
+            total.removed += check.removed;
+            if check.checked == 0 {
+                break;
+            }
+            owed = owed.saturating_sub(check.checked);
+        }
+        Ok(total)
+    });
+    match vault_pass {
         Ok(check) if check.removed > 0 => println!(
             "vault: {} chunk(s) held for others were no longer on this disk; their owners \
              will send them again",
@@ -960,14 +973,23 @@ fn check_disks(node: &Node, interval: Duration, own_cursor: &mut Option<itsanas_
         Ok(_) => {}
         Err(error) => eprintln!("itsanas: could not check the vault against the disk: {error}"),
     }
-    match node.store.live_chunk_count().and_then(|rows| {
-        node.store.check_disk(
-            own_cursor.as_ref(),
-            itsanas_store::holders::rows_per_round(rows, every),
-        )
-    }) {
-        Ok((missing, next)) => {
+    let own_pass = node.store.live_chunk_count().and_then(|rows| {
+        let mut owed = itsanas_store::holders::rows_per_round(rows, every);
+        let mut missing = 0usize;
+        while owed > 0 {
+            let batch = owed.min(itsanas_store::MAX_CHECK_BATCH);
+            let (lost, next) = node.store.check_disk(own_cursor.as_ref(), batch)?;
+            missing += lost;
             *own_cursor = next;
+            owed -= batch;
+            if own_cursor.is_none() {
+                break;
+            }
+        }
+        Ok((missing, ()))
+    });
+    match own_pass {
+        Ok((missing, ())) => {
             if missing > 0 {
                 println!(
                     "{missing} chunk(s) of this account are no longer on this disk; \

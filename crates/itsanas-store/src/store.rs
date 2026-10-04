@@ -980,6 +980,7 @@ impl Store {
         after: Option<&ChunkId>,
         limit: usize,
     ) -> Result<(usize, Option<ChunkId>)> {
+        let limit = limit.min(crate::vault::MAX_CHECK_BATCH);
         let (page, next) = self.index.live_chunks_page(after, limit)?;
         let (present, missing): (Vec<ChunkId>, Vec<ChunkId>) = page
             .into_iter()
