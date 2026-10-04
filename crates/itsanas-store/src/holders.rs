@@ -496,6 +496,26 @@ pub const CONFIRMED_FOR: u64 = 14 * 24 * 60 * 60;
 /// bandwidth proving nothing.
 pub const LIVE_FOR: u64 = REFRESH_AFTER * 2;
 
+/// How many rows a rolling disk check examines each round so that a whole pass
+/// over `rows` takes at most [`REFRESH_AFTER`] when a round comes every
+/// `interval_secs`.
+///
+/// Derived, not fixed: the first plan said 16 384 a round, which is right for
+/// a terabyte at five minutes and wrong for a policy that rounds every hour
+/// on battery, where the same slice takes forty-two days a pass. Rounded up,
+/// so a pass never runs late by a remainder; at least one row while there are
+/// any. Integer arithmetic, like everything else that counts copies.
+#[must_use]
+pub fn rows_per_round(rows: u64, interval_secs: u64) -> usize {
+    if rows == 0 {
+        return 0;
+    }
+    let needed = (u128::from(rows) * u128::from(interval_secs.max(1)))
+        .div_ceil(u128::from(REFRESH_AFTER))
+        .clamp(1, u128::from(rows));
+    usize::try_from(needed).unwrap_or(usize::MAX)
+}
+
 // Checked by the compiler rather than by a test, because it is a relation
 // between two constants and nothing about it can be true at runtime and false
 // at compile time. A test would run later, in one configuration, and could be
@@ -620,5 +640,33 @@ mod tests {
             target: 3,
         };
         assert_eq!(plenty.shortfall(), 0);
+    }
+
+    #[test]
+    fn a_disk_check_pass_fits_in_the_refresh_window_at_any_interval() {
+        // A terabyte is about sixteen million chunks. At five minutes a round
+        // that is 15 874 rows; at an hour, twelve times that -- a fixed slice
+        // would take forty-two days a pass on a battery policy.
+        assert_eq!(rows_per_round(16_000_000, 300), 15_874);
+        assert_eq!(rows_per_round(16_000_000, 3_600), 190_477);
+        for (rows, every) in [
+            (16_000_000u64, 300u64),
+            (16_000_000, 3_600),
+            (7, 300),
+            (1, 1),
+        ] {
+            let slice = rows_per_round(rows, every) as u64;
+            let rounds = rows.div_ceil(slice);
+            assert!(
+                rounds * every <= REFRESH_AFTER + every,
+                "{rows} rows every {every} s take {rounds} rounds"
+            );
+        }
+        assert_eq!(rows_per_round(0, 300), 0);
+        assert_eq!(
+            rows_per_round(3, 1_000_000_000),
+            3,
+            "never more than there is"
+        );
     }
 }

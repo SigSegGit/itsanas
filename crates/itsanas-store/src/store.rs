@@ -959,6 +959,37 @@ impl Store {
         Ok(found)
     }
 
+    /// Check up to `limit` live chunks against the disk, after `after`, and
+    /// return how many were missing and where the next call should start
+    /// (`None`: the pass reached the end, start again from the top; a slice
+    /// that ends exactly on the last chunk still returns a cursor, and the next
+    /// call finds nothing after it and returns `None`).
+    ///
+    /// The same test as [`Self::missing_locally`], recorded in the same loss
+    /// queue, but walked in order from a cursor the caller keeps rather than
+    /// drawn at random: the daemon has to cover every chunk once per
+    /// `REFRESH_AFTER`, because since §8 4c a peer of this account believes
+    /// this node's summary ([`Self::held_summary`]) without asking, and a
+    /// random draw at a terabyte would take weeks to land on a given chunk.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read or written.
+    pub fn check_disk(
+        &self,
+        after: Option<&ChunkId>,
+        limit: usize,
+    ) -> Result<(usize, Option<ChunkId>)> {
+        let (page, next) = self.index.live_chunks_page(after, limit)?;
+        let (present, missing): (Vec<ChunkId>, Vec<ChunkId>) = page
+            .into_iter()
+            .partition(|address| self.blobs.contains(address));
+        // One transaction for the slice: thousands of rows a round, on an SD
+        // card, are not thousands of commits.
+        self.index.settle_losses(&present, &missing, now_unix())?;
+        Ok((missing.len(), next))
+    }
+
     /// Chunks already known to be missing from this disk, worst problem first.
     ///
     /// Written by whoever found them — `doctor` in one exhaustive pass, the
@@ -1255,6 +1286,17 @@ impl Store {
         self.index.record_holders(chunks, device, now_unix())
     }
 
+    /// [`Self::record_holders`] at a given time: what a round re-stamping
+    /// agreeing buckets uses, so every record it writes carries the same
+    /// "now" the round decided freshness by.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn record_holders_at(&self, chunks: &[ChunkId], device: &DeviceId, now: u64) -> Result<()> {
+        self.index.record_holders(chunks, device, now)
+    }
+
     /// Every other device known to hold `chunk`.
     pub fn remote_holders(&self, chunk: &ChunkId) -> Result<Vec<Holder>> {
         self.index.remote_holders(chunk)
@@ -1312,6 +1354,26 @@ impl Store {
     /// If the index cannot be read.
     pub fn chunk_summary(&self) -> Result<Vec<crate::summary::Digest>> {
         self.index.chunk_summary()
+    }
+
+    /// The summary a peer of the same account is answered with: the live
+    /// chunks less the ones known to be missing from this disk. See
+    /// [`Index::held_summary`].
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn held_summary(&self) -> Result<Vec<crate::summary::Digest>> {
+        self.index.held_summary()
+    }
+
+    /// How many chunks are live, without listing them.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn live_chunk_count(&self) -> Result<u64> {
+        self.index.live_chunk_count()
     }
 
     /// One page of the chunks this device holds, in chunk order.

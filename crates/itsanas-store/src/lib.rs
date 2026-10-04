@@ -91,5 +91,5 @@ pub use reliability::{FAILURES_BEFORE_PAUSE, PROBATION_CEILING, Reliability};
 pub use store::{
     FolderCopy, GcReport, IntegrityReport, Release, ReleaseReport, Store, StoreStats, WriteBudget,
 };
-pub use vault::{Vault, VaultStats};
+pub use vault::{DiskCheck, Vault, VaultStats};
 pub use version::{CausalOrder, VersionVector};

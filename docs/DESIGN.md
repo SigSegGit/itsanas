@@ -647,11 +647,33 @@ whatever the records say, and is due at most `REFRESH_AFTER` after the last one
 -- inside `LIVE_FOR`, the window in which repair counts that record anyway.
 Tested by
 `red_team_a_chunk_the_peer_silently_dropped_is_found_by_the_next_full_walk`.
-The audit and the peer's own drop notice still apply as before. The full walk
-itself still lists the whole account once every `REFRESH_AFTER` per peer: at a
-terabyte, 537 MB every three and a half days, about 150 MB a day averaged --
-**over the budget on its own**, and the next number to beat. Against a full
-peer the walk now skips what that peer has no record for.
+The audit and the peer's own drop notice still apply as before. Against a full
+peer the walk skips what that peer has no record for.
+
+**The walk itself, since §8 4c (2026-10-04).** It used to list the whole
+account once every `REFRESH_AFTER` per peer: at a terabyte, 537 MB every three
+and a half days, about 150 MB a day averaged -- over the budget on its own. A
+due walk against a peer that summarises now lists only the buckets the summary
+says differ, in full (no freshness filter: it is the only listing left), and
+re-stamps the records of every chunk in the agreeing buckets locally. Each
+agreeing bucket's digest is recomputed from the very rows being re-stamped and
+compared with the peer's first, so a chunk written after the summary is listed
+rather than recorded as held. An idle due walk therefore costs the 8 KB
+summary; a peer that differs everywhere (a smaller budget) costs what it did.
+
+What makes that safe is the host's half: a summary is read from an index, and
+`HaveChunks` from the files, so a disk that lost a blob behind its index kept
+agreeing. Every daemon round now checks a slice of its vault's index against
+the disk (`Vault::check_disk`) and removes rows whose blob is gone, and a slice
+of its own chunks (`Store::check_disk`), recording losses that the summary it
+gives its own account then leaves out (`Store::held_summary`). Each slice is
+`rows × interval / REFRESH_AFTER`, rounded up (`holders::rows_per_round`), so a
+pass fits in `REFRESH_AFTER` at any interval: at a terabyte and five minutes,
+15 874 file lookups a round. What it gives up: a host that keeps the ids and
+replays an old summary is believed past `REFRESH_AFTER`, and the storage audit
+is the only witness against it (`docs/HANDOVER.md` §10 8, decided). A host too
+old to run the check, or one running `itsanas serve` rather than the daemon, is
+believed the same way about a disk that lost files.
 
 **And the local cost is not the wire cost.** A narrowed round reads only the
 named buckets' ranges of the index -- the bucket is the first byte of the id,

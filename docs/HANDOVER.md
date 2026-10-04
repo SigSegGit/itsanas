@@ -9,16 +9,40 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.4c
-TITLE: an agreeing bucket re-stamps its records, and the host checks its index against its disk
+NEXT: 8.1c
+TITLE: bound owners on the host by proved hosting, attributed through NodeClaim
 WRITTEN-AT: 2026-10-04
-BASE: 42b7be2
+BASE: d1ad488
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-04, §8 4c: the ledger walk no longer lists an idle account**
+(branch `ccr-c9f4329d-v9cnbp`). Owner: a due walk against a peer that
+summarises lists only the differing buckets, in full, and re-stamps the
+agreeing ones locally (`restamp_agreeing`, `session.rs`), after recomputing
+each bucket's digest from the rows it re-stamps (`summary::bucket_digest`).
+Host: every daemon round runs `check_disks` (`daemon.rs`):
+`Vault::check_disk` removes index rows whose blob is gone, cursor kept on disk
+in a table of its own; `Store::check_disk` records own losses in one
+transaction, and the own-account summary is `Store::held_summary` (live less
+losses). Slice: `holders::rows_per_round` = rows × interval / REFRESH_AFTER,
+rounded up. Verified: 9 tests (6 red-team), 6 sabotages red; `cargo test -p
+itsanas-store -p itsanas-net` green.
+
+Rodin on the plan, three fixed before code: the summary-then-re-stamp race
+(digest recomputed per bucket); own-account peers answer from the store index,
+not the vault (held summary + ordered store pass, the random repair scan takes
+~27 days a pass at 1 TB); a fixed 16 384-row slice is wrong at any other
+interval. **Named, not fixed (ROADMAP):** an older host, or `itsanas serve`
+alone, never checks its disk and is believed; one bucket of ids in memory per
+due walk (20 MB at 10 TB); ~16 000 file lookups a round at 1 TB, never timed;
+the service's switch to `held_summary` has no end-to-end test (unit-tested
+in the store). Trap: my hand arithmetic said 15 873 rows a round, the code
+said 15 874 -- the test caught me, the code was right.
 
 **2026-10-04, §8 4b: a full peer is not re-sent what it refused** (branch
 `step/8.4b-refused-reoffer`). `ask` stops offering at the first
@@ -1293,6 +1317,16 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the owner-signed `NodeClaim`, never the unauthenticated `Hello` field. Tests:
       a peer hosting nothing is refused past the allowance; a peer that hosts and
       passes audits keeps being served.
+      What is there, verified 2026-10-04: the gate is `would_exceed_pledge`
+      in `StoreChunk` / `StoreSegment` (`crates/itsanas-net/src/service.rs`,
+      `handle`, ~180-215), which knows the caller's `DeviceId` (TLS) and
+      nothing about its owner; `PeerService` already takes an injected
+      `Relay` for presences (8.0o 2b.3), the model for handing it the
+      daemon's checked `NodeClaim`s; proof of hosting lives in this host's
+      own ledger (`Store::holder_evidence`, `HolderEvidence::proved`, and
+      `Store::reliability`). Decide before code: whether a device with no
+      claim this host can check gets the allowance or nothing (the bargain
+      is a §6 decision, so the merge goes to Nicolas).
    d. `ECONOMICS.md` §1 back to ✅ built when (c) lands — it is 🟨 today and
       correctly so. Its §8 constants row, the catalogue rows and the counts in
       README, ROADMAP and TESTING were all done in (a).
@@ -1472,7 +1506,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
    b. ✅ **Stop re-offering a peer the chunks it refused.** Built
    2026-10-04 (see §0).
 
-   c. **The full walk itself.** It lists the whole account per peer every
+   c. ✅ **The full walk itself.** Built 2026-10-04 (see §0). The plan as it
+   stood: It lists the whole account per peer every
    `REFRESH_AFTER`: 537 MB every 3.5 days at 1 TB, about 150 MB a day, over
    budget on its own. Decided (§10 8): an agreeing bucket re-stamps its
    records, **and the host checks its index against its disk**, built
