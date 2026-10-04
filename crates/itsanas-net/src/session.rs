@@ -241,101 +241,157 @@ pub fn round_scoped(
 /// `only` narrows it to the buckets a summary said the two sides disagree
 /// about; `None` means all of them, which is what happens against a peer too
 /// old to summarise and on the periodic full walk of the ledger.
+///
+/// # What a narrowed round asks
+///
+/// Not the whole bucket. A bucket at a terabyte holds some sixty-five thousand
+/// chunks and costs 2.1 MB to list, so one saved photograph cost 2.1 MB a peer
+/// and the 100 MB/day budget bought about three megabytes of change a day
+/// (`docs/DESIGN.md` §6.5). Within a named bucket only the chunks with **no
+/// fresh record for this peer** are asked about: the new ones, and the ones it
+/// last confirmed more than [`holders::REFRESH_AFTER`] ago. A chunk it confirmed
+/// within that window is taken at its word until the next full walk.
+///
+/// What that gives up, stated: a peer that silently drops a chunk it recently
+/// confirmed is not caught by a narrowed round. It is caught by the full walk,
+/// which asks about everything whatever the records say and is due at most
+/// [`holders::REFRESH_AFTER`] after the last one -- inside
+/// [`holders::LIVE_FOR`], the window in which repair would have counted that
+/// record anyway -- and by the audit, and by the peer's own drop notice. A
+/// chunk not asked about keeps its record and loses nothing.
+///
+/// [`holders::REFRESH_AFTER`]: itsanas_store::holders::REFRESH_AFTER
+/// [`holders::LIVE_FOR`]: itsanas_store::holders::LIVE_FOR
 fn sweep(
     store: &Store,
     client: &mut PeerClient,
     report: &mut PushReport,
     only: Option<&[u8]>,
 ) -> Result<()> {
+    let Some(buckets) = only else {
+        return walk(store, client, report, None, None);
+    };
+
+    // Each bucket is a contiguous range of the index, because its number is the
+    // first byte of the id. Reading only those ranges is what makes one
+    // differing bucket cost one bucket of disk reads: the first version paged
+    // the whole live-chunk index and filtered, so one saved file walked every
+    // row this device holds, on an SD card, every round.
+    let mut buckets = buckets.to_vec();
+    buckets.sort_unstable();
+    buckets.dedup();
+    for bucket in buckets {
+        walk(store, client, report, Some(bucket), bucket_floor(bucket))?;
+    }
+    Ok(())
+}
+
+/// The id just below `bucket`, as an exclusive start for a page of the index.
+///
+/// `None` for bucket 0, which starts at the beginning. The id itself belongs to
+/// the previous bucket, so skipping it -- `after` is exclusive -- can only ever
+/// skip a chunk this walk would have filtered out anyway.
+fn bucket_floor(bucket: u8) -> Option<ChunkId> {
+    let below = bucket.checked_sub(1)?;
+    let mut bytes = [0xFF; itsanas_crypto::ID_LEN];
+    bytes[0] = below;
+    Some(ChunkId::from_bytes(bytes))
+}
+
+/// Page through the index from `after`, asking the peer about what is found.
+///
+/// With `bucket`, stops at the end of that bucket and asks only about chunks
+/// with no fresh record for this peer; without, walks everything and asks
+/// about all of it.
+fn walk(
+    store: &Store,
+    client: &mut PeerClient,
+    report: &mut PushReport,
+    bucket: Option<u8>,
+    after: Option<ChunkId>,
+) -> Result<()> {
+    let peer = client.peer_device();
+    let mut cursor = after;
+    loop {
+        let (mut page, next) = store.live_chunks_page(cursor.as_ref(), MAX_HAVE_BATCH)?;
+        let mut finished = next.is_none();
+
+        if let Some(bucket) = bucket {
+            // Pages are in id order, so the first chunk past the bucket ends it.
+            if let Some(past) = page
+                .iter()
+                .position(|chunk| !summary::in_bucket(chunk, bucket))
+            {
+                page.truncate(past);
+                finished = true;
+            }
+            page = store.without_fresh_record(&page, &peer)?;
+        }
+
+        if !page.is_empty() {
+            ask(store, client, report, &page)?;
+        }
+
+        match next {
+            Some(next) if !finished => cursor = Some(next),
+            _ => break,
+        }
+    }
+    Ok(())
+}
+
+/// One have/missing exchange over `batch`: send what the peer lacks, and
+/// correct the ledger from its answer in both directions.
+fn ask(
+    store: &Store,
+    client: &mut PeerClient,
+    report: &mut PushReport,
+    batch: &[ChunkId],
+) -> Result<()> {
     let owner = store.owner();
     let peer = client.peer_device();
 
-    let wanted: Option<[bool; summary::BUCKETS]> = only.map(|buckets| {
-        let mut table = [false; summary::BUCKETS];
-        for bucket in buckets {
-            table[usize::from(*bucket)] = true;
-        }
-        table
-    });
+    report.chunks_asked_about += batch.len();
+    let missing = client.missing_chunks(owner, batch.to_vec())?;
+    let wanted: BTreeSet<ChunkId> = missing.iter().copied().collect();
 
-    let mut cursor: Option<ChunkId> = None;
-    loop {
-        let (page, next) = store.live_chunks_page(cursor.as_ref(), MAX_HAVE_BATCH)?;
-        if page.is_empty() {
-            break;
-        }
+    // What the peer did *not* ask for, it already has. That answer costs
+    // nothing extra — it is the same round trip that decides what to send —
+    // and it is what makes the placement ledger converge on every sync
+    // rather than only recording chunks this node happened to upload. A
+    // node restored from its recovery phrase learns where its data lives by
+    // asking, instead of re-uploading everything to find out.
+    let mut confirmed: Vec<ChunkId> = batch
+        .iter()
+        .filter(|address| !wanted.contains(address))
+        .copied()
+        .collect();
 
-        let filtered: Vec<ChunkId> = match &wanted {
-            // A lookup rather than a scan of the bucket list per chunk: at a
-            // terabyte and a full disagreement that difference is four billion
-            // comparisons a round, on a Raspberry Pi.
-            Some(wanted) => page
-                .iter()
-                .copied()
-                .filter(|chunk| wanted[usize::from(summary::bucket_of(chunk))])
-                .collect(),
-            None => page.clone(),
+    // And what it *did* ask for, it does not have -- whatever this node's
+    // ledger says. Free, exact, and immediate: the same round trip that
+    // decides what to send also withdraws every record this peer has
+    // outgrown, which matters now that a device with a storage budget lets
+    // go of content on purpose. Waiting for the audit to notice would mean
+    // sixteen chunks per round against an account of millions.
+    store.forget_holders(&missing, &peer)?;
+
+    for address in missing {
+        let Some(sealed) = store.blobs().get(&address)? else {
+            // Collected between listing and sending. Not an error.
+            continue;
         };
 
-        if filtered.is_empty() {
-            match next {
-                Some(next) => {
-                    cursor = Some(next);
-                    continue;
-                }
-                None => break,
-            }
-        }
-
-        let batch = filtered.as_slice();
-        report.chunks_asked_about += batch.len();
-        let missing = client.missing_chunks(owner, batch.to_vec())?;
-        let wanted: BTreeSet<ChunkId> = missing.iter().copied().collect();
-
-        // What the peer did *not* ask for, it already has. That answer costs
-        // nothing extra — it is the same round trip that decides what to send —
-        // and it is what makes the placement ledger converge on every sync
-        // rather than only recording chunks this node happened to upload. A
-        // node restored from its recovery phrase learns where its data lives by
-        // asking, instead of re-uploading everything to find out.
-        let mut confirmed: Vec<ChunkId> = batch
-            .iter()
-            .filter(|address| !wanted.contains(address))
-            .copied()
-            .collect();
-
-        // And what it *did* ask for, it does not have -- whatever this node's
-        // ledger says. Free, exact, and immediate: the same round trip that
-        // decides what to send also withdraws every record this peer has
-        // outgrown, which matters now that a device with a storage budget lets
-        // go of content on purpose. Waiting for the audit to notice would mean
-        // sixteen chunks per round against an account of millions.
-        store.forget_holders(&missing, &peer)?;
-
-        for address in missing {
-            let Some(sealed) = store.blobs().get(&address)? else {
-                // Collected between listing and sending. Not an error.
-                continue;
-            };
-
-            report.chunks_offered += 1;
-            let len = sealed.len() as u64;
-            if report.record(client.store_chunk(owner, address, sealed)?) {
-                report.chunks_accepted += 1;
-                report.bytes_sent = report.bytes_sent.saturating_add(len);
-                confirmed.push(address);
-            }
-        }
-
-        report.holders_recorded += confirmed.len();
-        store.record_holders(&confirmed, &peer)?;
-
-        match next {
-            Some(next) => cursor = Some(next),
-            None => break,
+        report.chunks_offered += 1;
+        let len = sealed.len() as u64;
+        if report.record(client.store_chunk(owner, address, sealed)?) {
+            report.chunks_accepted += 1;
+            report.bytes_sent = report.bytes_sent.saturating_add(len);
+            confirmed.push(address);
         }
     }
 
+    report.holders_recorded += confirmed.len();
+    store.record_holders(&confirmed, &peer)?;
     Ok(())
 }
 

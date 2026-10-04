@@ -1508,21 +1508,7 @@ impl Index {
         // The read is a separate transaction on purpose: a stale answer here
         // makes a round write a timestamp it did not have to, which is the
         // harmless direction.
-        let stale_before = now.saturating_sub(holders::REFRESH_AFTER);
-        let due: Vec<ChunkId> = {
-            let txn = self.db.begin_read()?;
-            let holders_table = txn.open_table(HOLDERS)?;
-            let mut due = Vec::new();
-            for chunk in chunks {
-                let fresh = holders_table
-                    .get(holders::key(chunk, device).as_slice())?
-                    .is_some_and(|value| value.value() >= stale_before);
-                if !fresh {
-                    due.push(*chunk);
-                }
-            }
-            due
-        };
+        let due = self.without_fresh_record(chunks, device, now)?;
 
         // Contact is always recorded: it is one row, and it is what every
         // liveness question in this crate reads.
@@ -1540,6 +1526,37 @@ impl Index {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// Of `chunks`, the ones with no record for `device` younger than
+    /// [`holders::REFRESH_AFTER`], in the order given.
+    ///
+    /// One rule, two readers. `record_holders` writes back only these, so a
+    /// round that changes nothing writes nothing. And a push narrowed to the
+    /// buckets a summary named asks the peer only about these: a chunk the
+    /// peer confirmed within that window is not asked about again until the
+    /// next full walk of the ledger, which is due exactly when such a record
+    /// stops being fresh. Two definitions of "fresh" would let a record age
+    /// out in the gap between them, unasked and unstamped.
+    pub fn without_fresh_record(
+        &self,
+        chunks: &[ChunkId],
+        device: &DeviceId,
+        now: u64,
+    ) -> Result<Vec<ChunkId>> {
+        let stale_before = now.saturating_sub(holders::REFRESH_AFTER);
+        let txn = self.db.begin_read()?;
+        let holders_table = txn.open_table(HOLDERS)?;
+        let mut out = Vec::new();
+        for chunk in chunks {
+            let fresh = holders_table
+                .get(holders::key(chunk, device).as_slice())?
+                .is_some_and(|value| value.value() >= stale_before);
+            if !fresh {
+                out.push(*chunk);
+            }
+        }
+        Ok(out)
     }
 
     /// Drop many records for one device, in one transaction.

@@ -3186,3 +3186,161 @@ fn a_peer_that_never_agrees_still_gets_its_ledger_walked() {
          sides agree"
     );
 }
+
+/// Every chunk the author's index holds, in id order.
+fn all_live_chunks(store: &Store) -> Vec<ChunkId> {
+    let mut out = Vec::new();
+    let mut cursor = None;
+    loop {
+        let (page, next) = store.live_chunks_page(cursor.as_ref(), 1024).unwrap();
+        out.extend(page);
+        match next {
+            Some(next) => cursor = Some(next),
+            None => return out,
+        }
+    }
+}
+
+#[test]
+fn red_team_a_change_asks_only_about_what_the_peer_has_not_confirmed() {
+    // The cost that kept a terabyte out of budget after the summary existed.
+    // The summary names the buckets where the two sides differ, and the round
+    // then listed every chunk in them: at a terabyte a bucket is sixty-five
+    // thousand chunks and 2.1 MB, so one saved photograph cost 2.1 MB per peer
+    // and the 100 MB/day budget bought three megabytes of change a day.
+    //
+    // Within a named bucket, a chunk the peer confirmed holding within
+    // REFRESH_AFTER is not asked about again. Here: after a full first round,
+    // one new file must cost exactly its own new chunks, even though other,
+    // already-confirmed chunks share their buckets.
+    let author = node(&alice(), 99);
+    let host = node(&MasterSecret::from_bytes([0xD5; 32]), 100);
+
+    for index in 0..48 {
+        let payload = itsanas_testkit::filler(&format!("crowd-{index}"), 128 * 1024);
+        author
+            .store
+            .write_file(&format!("crowd-{index}.bin"), &payload)
+            .unwrap();
+    }
+    author.store.flush_segment().unwrap();
+    let before: std::collections::BTreeSet<_> =
+        all_live_chunks(&author.store).into_iter().collect();
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).unwrap();
+
+        let first = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(
+            first.chunks_asked_about,
+            before.len(),
+            "the first round is a full walk"
+        );
+
+        author
+            .store
+            .write_file(
+                "late.bin",
+                &itsanas_testkit::filler("late-crowd", 1024 * 1024),
+            )
+            .unwrap();
+        author.store.flush_segment().unwrap();
+        let fresh: Vec<_> = all_live_chunks(&author.store)
+            .into_iter()
+            .filter(|chunk| !before.contains(chunk))
+            .collect();
+        assert!(!fresh.is_empty(), "the new file added no chunk");
+
+        // The fixture has to put confirmed chunks in the new chunks' buckets,
+        // or asking about the whole bucket and asking about the new chunks
+        // would be the same number and this test would prove nothing.
+        let crowd = before
+            .iter()
+            .filter(|old| {
+                fresh.iter().any(|new| {
+                    itsanas_store::summary::bucket_of(new) == itsanas_store::summary::bucket_of(old)
+                })
+            })
+            .count();
+        assert!(
+            crowd > 0,
+            "no confirmed chunk shares a bucket with the change"
+        );
+
+        let third = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(
+            third.chunks_asked_about,
+            fresh.len(),
+            "a change of {} chunks asked about {} -- the {crowd} chunks the peer \
+             confirmed in the same buckets were listed again, which is what \
+             costs 2.1 MB a bucket at a terabyte",
+            fresh.len(),
+            third.chunks_asked_about
+        );
+        assert!(
+            third.chunks_accepted > 0,
+            "the new file never reached the host"
+        );
+    });
+}
+
+#[test]
+fn red_team_a_chunk_the_peer_silently_dropped_is_found_by_the_next_full_walk() {
+    // What narrowing gives up, and the bound on it. A narrowed round takes a
+    // fresh record at its word, so a peer that throws away a chunk it recently
+    // confirmed -- and says nothing -- is not caught by it. The full walk of the
+    // ledger asks about everything whatever the records say, and it is due
+    // REFRESH_AFTER after the last one, inside LIVE_FOR. If the freshness
+    // filter ever reaches the full walk too, a silent drop is never found by
+    // the sweep at all, and the author counts a copy that does not exist until
+    // an audit happens to land on that one chunk.
+    let author = node(&alice(), 101);
+    let host = node(&MasterSecret::from_bytes([0xD6; 32]), 102);
+
+    for index in 0..6 {
+        let payload = itsanas_testkit::filler(&format!("drop-{index}"), 128 * 1024);
+        author
+            .store
+            .write_file(&format!("drop-{index}.bin"), &payload)
+            .unwrap();
+    }
+    author.store.flush_segment().unwrap();
+    let victim = all_live_chunks(&author.store)[0];
+    let peer = host.device.device_id();
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).unwrap();
+        session::push(&author.store, &mut client).unwrap();
+
+        assert!(
+            host.vault
+                .remove_chunk(author.store.owner(), &victim)
+                .unwrap(),
+            "the host was not holding what it acknowledged"
+        );
+
+        // The accepted cost: a narrowed round does not ask about it.
+        let narrowed = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(
+            narrowed.chunks_offered, 0,
+            "the narrowed round asked about a fresh record"
+        );
+
+        // REFRESH_AFTER later the walk is due. Simulated by moving the stamp
+        // back rather than the clock forward.
+        author.store.note_ledger_walk(&peer, 0).unwrap();
+        let full = session::push(&author.store, &mut client).unwrap();
+        assert!(
+            full.chunks_offered >= 1,
+            "the full walk did not ask about a chunk the peer silently dropped: \
+             the freshness filter reached the walk that exists to bound it"
+        );
+    });
+
+    assert!(
+        host.vault.has_chunk(author.store.owner(), &victim).unwrap(),
+        "the dropped chunk was not put back"
+    );
+}
