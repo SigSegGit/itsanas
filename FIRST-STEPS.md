@@ -271,7 +271,7 @@ Stated plainly, because a version number invites the opposite assumption:
 
 - **Not tested at scale.** Three machines and two accounts, all belonging to one
   person. Nothing here has met a stranger.
-- **Not proven at a terabyte.** A quiet round costs one hash and a change lists
+- **Not proven at a terabyte.** A quiet round costs 8 KB and a change lists
   about its own chunks, but the full ledger walk every three and a half days
   lists the whole account: about 150 MB a day averaged at that size, over the
   100 MB budget, idle or not. The arithmetic is in `docs/DESIGN.md` §6.5 rather

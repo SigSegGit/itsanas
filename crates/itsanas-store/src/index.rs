@@ -75,6 +75,8 @@ const HOLDERS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holders")
 ///
 /// One row per peer, against sixteen million reads per round for a terabyte.
 const LEDGER_REFRESHED: TableDefinition<'_, &[u8], u64> = TableDefinition::new("ledger_refreshed");
+/// When each peer last refused a chunk because its pledge was full.
+const PEER_FULL: TableDefinition<'_, &[u8], u64> = TableDefinition::new("peer_full");
 
 /// Device → the head of that device's chain when it was last applied with
 /// nothing left over.
@@ -331,6 +333,7 @@ impl Index {
             let _ = txn.open_table(RELIABILITY)?;
             let _ = txn.open_table(DEVICE_SEEN)?;
             let _ = txn.open_table(LEDGER_REFRESHED)?;
+            let _ = txn.open_table(PEER_FULL)?;
             let _ = txn.open_table(HOLDINGS)?;
             let _ = txn.open_table(PROBES)?;
             let _ = txn.open_table(LOSSES)?;
@@ -925,6 +928,27 @@ impl Index {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// Record that `device` refused a chunk at `now` because its pledge was
+    /// full.
+    pub fn note_peer_full(&self, device: &DeviceId, now: u64) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(PEER_FULL)?
+                .insert(device.as_bytes().as_slice(), now)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// When `device` last refused a chunk for a full pledge, if ever.
+    pub fn peer_full_since(&self, device: &DeviceId) -> Result<Option<u64>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(PEER_FULL)?;
+        Ok(table
+            .get(device.as_bytes().as_slice())?
+            .map(|value| value.value()))
     }
 
     /// A summary of the chunks this device holds, for reconciling with a peer.
@@ -1553,6 +1577,26 @@ impl Index {
                 .get(holders::key(chunk, device).as_slice())?
                 .is_some_and(|value| value.value() >= stale_before);
             if !fresh {
+                out.push(*chunk);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Of `chunks`, the ones `device` has any holder record for, fresh or not,
+    /// in the order given.
+    ///
+    /// What a push asks a full peer about: the chunks it is recorded as
+    /// holding, to keep those records honest, and nothing it would only refuse.
+    pub fn with_record(&self, chunks: &[ChunkId], device: &DeviceId) -> Result<Vec<ChunkId>> {
+        let txn = self.db.begin_read()?;
+        let holders_table = txn.open_table(HOLDERS)?;
+        let mut out = Vec::new();
+        for chunk in chunks {
+            if holders_table
+                .get(holders::key(chunk, device).as_slice())?
+                .is_some()
+            {
                 out.push(*chunk);
             }
         }

@@ -594,8 +594,8 @@ round: 32 bytes per 64 KiB of account, or one two-thousandth of the account per
 round per peer. At 10 GB that was 5 MB a round — 1.4 GB a day against a single
 peer — and at 1 TB half a gigabyte a round, which is not a cost, it is a
 refusal. **That is gone.** §6.7 replaced it with a 256-bucket set summary: two
-sides that agree spend one hash, whatever the account weighs, and an idle round
-now lists nothing at all.
+sides that agree exchange 8 KB of bucket digests, whatever the account weighs,
+and an idle round now lists nothing at all.
 
 What is left is what a *change* costs. The summary names the buckets that
 differ; what is asked *within* them decides the bill, and that went through
@@ -632,7 +632,11 @@ measured** at a terabyte: the arithmetic is the claim. **And only against a peer
 that takes what it is offered.** A peer with a storage budget smaller than the
 account holds no record for what it refused, so every such chunk is stale,
 asked about, and offered again with its bytes, every round; `ask` does not stop
-at a refusal. Read in the code, not measured, and named in `docs/ROADMAP.md`.
+at a refusal. **Fixed 2026-10-04:** a round stops offering at the first
+refusal for a full pledge, and for `FULL_RETRY` (an hour) after it asks that
+peer only about chunks it is recorded as holding and offers nothing; then one
+ordinary round probes, about 32 KB and one chunk. Tested by
+`red_team_a_full_peer_is_not_sent_what_it_refused_round_after_round`.
 
 **What that gives up, and the bound on it.** A narrowed round takes a fresh
 record at its word, so a peer that silently drops a chunk it confirmed recently
@@ -646,7 +650,8 @@ Tested by
 The audit and the peer's own drop notice still apply as before. The full walk
 itself still lists the whole account once every `REFRESH_AFTER` per peer: at a
 terabyte, 537 MB every three and a half days, about 150 MB a day averaged --
-**over the budget on its own**, and the next number to beat.
+**over the budget on its own**, and the next number to beat. Against a full
+peer the walk now skips what that peer has no record for.
 
 **And the local cost is not the wire cost.** A narrowed round reads only the
 named buckets' ranges of the index -- the bucket is the first byte of the id,
@@ -699,9 +704,12 @@ sorted. It is also the contract: hashing in any other order would make two
 honest machines disagree for ever, and the failure would look exactly like data
 loss.
 
-A round then sends one hash. If the two agree there is nothing more to say and
-**nothing is listed at all** — thirty-two bytes, whether the account is a
-megabyte or a terabyte. If they disagree, the disagreement is *located*, and the
+A round then compares one hash. If the two agree there is nothing more to say
+and **nothing is listed at all**. On the wire that is the 256 bucket digests,
+8 KB, whatever the account weighs -- not the thirty-two bytes this paragraph
+said until 2026-10-04: the host answers every digest so the asker can locate a
+difference, and nothing sends the root alone first. 8 KB a round is 2.4 MB a
+day per peer. If they disagree, the disagreement is *located*, and the
 ordinary have/missing exchange runs over the named buckets only.
 
 **A differing hash is a question, not a verdict.** It says "somewhere in this

@@ -1361,6 +1361,34 @@ impl Store {
         self.index.without_fresh_record(chunks, device, now_unix())
     }
 
+    /// Of `chunks`, the ones `device` has any record for. See
+    /// [`Index::with_record`].
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn with_record(&self, chunks: &[ChunkId], device: &DeviceId) -> Result<Vec<ChunkId>> {
+        self.index.with_record(chunks, device)
+    }
+
+    /// Record that `device` refused a chunk for a full pledge at `now`.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn note_peer_full(&self, device: &DeviceId, now: u64) -> Result<()> {
+        self.index.note_peer_full(device, now)
+    }
+
+    /// When `device` last refused a chunk for a full pledge, if ever.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn peer_full_since(&self, device: &DeviceId) -> Result<Option<u64>> {
+        self.index.peer_full_since(device)
+    }
+
     pub fn forget_holders(&self, chunks: &[ChunkId], device: &DeviceId) -> Result<()> {
         self.index.forget_holders(chunks, device)
     }

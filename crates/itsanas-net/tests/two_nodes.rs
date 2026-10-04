@@ -3344,3 +3344,76 @@ fn red_team_a_chunk_the_peer_silently_dropped_is_found_by_the_next_full_walk() {
         "the dropped chunk was not put back"
     );
 }
+
+#[test]
+fn red_team_a_full_peer_is_not_sent_what_it_refused_round_after_round() {
+    // A host whose pledge is smaller than the account refuses what does not
+    // fit, and a refusal leaves no holder record -- so every following round
+    // found those chunks unconfirmed, asked about them, and sent their bytes to
+    // be refused again. Against a phone holding a slice of a terabyte that is
+    // the whole unheld remainder uploaded every five minutes.
+    //
+    // Three things must hold: a round stops offering at the first refusal; the
+    // next round, inside FULL_RETRY, sends nothing and asks only about what the
+    // peer is recorded as holding; and once FULL_RETRY has passed, a round
+    // offers again, or a peer whose owner raised its pledge never gets more.
+    let author = node(&alice(), 103);
+    let host = node(&MasterSecret::from_bytes([0xD7; 32]), 104);
+
+    for index in 0..8 {
+        let payload = itsanas_testkit::filler(&format!("full-{index}"), 128 * 1024);
+        author
+            .store
+            .write_file(&format!("full-{index}.bin"), &payload)
+            .unwrap();
+    }
+    author.store.flush_segment().unwrap();
+    let peer = host.device.device_id();
+
+    with_server(&host, Pledge::bytes(256 * 1024), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).unwrap();
+
+        let first = session::push(&author.store, &mut client).unwrap();
+        assert!(
+            first.chunks_accepted > 0,
+            "the fixture's pledge took nothing"
+        );
+        assert_eq!(
+            first.refusal,
+            Some(Refusal::PledgeFull),
+            "the host never filled up"
+        );
+        assert_eq!(
+            first.chunks_offered,
+            first.chunks_accepted + 1,
+            "the round kept sending chunks after the host said it was full: \
+             every one of them is bytes on the wire to be refused"
+        );
+
+        let second = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(
+            (second.chunks_offered, second.bytes_sent),
+            (0, 0),
+            "a host that refused for a full pledge was sent chunks again on the \
+             next round"
+        );
+        assert!(
+            second.chunks_asked_about <= first.chunks_accepted,
+            "the full host was asked about {} chunks, more than the {} it holds: \
+             at a terabyte that is every chunk it lacks, every round",
+            second.chunks_asked_about,
+            first.chunks_accepted
+        );
+
+        // FULL_RETRY later. Simulated by moving the stamp back.
+        author.store.note_peer_full(&peer, 0).unwrap();
+        author.store.note_ledger_walk(&peer, 0).unwrap();
+        let retry = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(
+            retry.chunks_offered, 1,
+            "once FULL_RETRY has passed the round must probe with one offer, or a \
+             host given more room is never offered anything again"
+        );
+    });
+}
