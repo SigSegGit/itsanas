@@ -31,7 +31,7 @@
 use std::path::{Path, PathBuf};
 
 use itsanas_crypto::{ChunkId, DeviceId, ObjectId, UserId};
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 
 use crate::{
     blob::BlobStore,
@@ -115,6 +115,33 @@ const OWNER_CHUNK_BYTES: TableDefinition<'_, &[u8], u64> =
 /// Set once [`OWNER_CHUNK_BYTES`] has been built: a vault from before it has
 /// rows and a total but no split, and needs one rebuild.
 const OWNER_TOTALS: &str = "owner_totals";
+
+/// Where the rolling disk check ([`Vault::check_disk`]) stopped: the last
+/// `vault_chunks` key it examined, under [`CHECK_CURSOR_KEY`].
+///
+/// Kept on disk because a daemon restarted more often than one pass takes
+/// would otherwise start from the top every time and never reach the end.
+const CHECK_CURSOR: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("vault_check_cursor");
+const CHECK_CURSOR_KEY: &str = "chunks";
+
+/// Most rows one call to [`Vault::check_disk`] or `Store::check_disk`
+/// examines, whatever it is asked for.
+///
+/// The slice a round needs grows with the account and the interval: 190 477
+/// rows at a terabyte on an hourly policy, 12 MB of keys in one `Vec` on a
+/// machine whose measured peak is 17 MiB. Found by the CI reviewer. The daemon
+/// calls again until its slice is done; memory stays at one batch.
+pub const MAX_CHECK_BATCH: usize = 4096;
+
+/// What one slice of [`Vault::check_disk`] found.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DiskCheck {
+    /// Index rows examined.
+    pub checked: usize,
+    /// Rows whose blob was no longer on disk, now removed from the index and
+    /// the totals.
+    pub removed: usize,
+}
 
 /// Bytes in a `owner ‖ device` key.
 const CHAIN_KEY_LEN: usize = 64;
@@ -265,6 +292,7 @@ impl Vault {
             let _ = txn.open_table(CHUNKS)?;
             let _ = txn.open_table(TOTALS)?;
             let _ = txn.open_table(OWNER_CHUNK_BYTES)?;
+            let _ = txn.open_table(CHECK_CURSOR)?;
         }
         txn.commit()?;
 
@@ -463,6 +491,142 @@ impl Vault {
             }
         }
         Ok(out)
+    }
+
+    /// How many chunk rows the index holds, for every owner: what one pass of
+    /// [`Self::check_disk`] has to cover.
+    pub fn chunk_rows(&self) -> Result<u64> {
+        let txn = self.db.begin_read()?;
+        Ok(txn.open_table(CHUNKS)?.len()?)
+    }
+
+    /// Check up to `limit` index rows against the disk, from where the last
+    /// call stopped, and remove each row whose blob is gone.
+    ///
+    /// # Why the index has to be checked against the disk
+    ///
+    /// The summary an owner compares ([`Self::chunk_summary`]) is read from the
+    /// index; `HaveChunks` is answered from the blob files. Until §8 4c the
+    /// owner's full walk asked `HaveChunks` about everything every
+    /// `REFRESH_AFTER`, so a blob that vanished from this disk behind the
+    /// index -- a bad sector, a careless `rm`, a restored backup -- was noticed
+    /// within that time. Since 4c an owner whose summary agrees with this one
+    /// re-stamps its records without asking, and the index is the only thing
+    /// it hears. Without this check an honest host that lost files would keep
+    /// counting as a copy of them for as long as it kept agreeing.
+    ///
+    /// Removing the row is what makes the loss visible: the summary of that
+    /// owner's bucket changes, the owner's next round lists the bucket, finds
+    /// the chunk missing and sends it again. The bytes leave the totals in the
+    /// same transaction, so the pledge stops counting what is not there.
+    ///
+    /// The daemon sizes its slice so a whole pass fits in `REFRESH_AFTER`
+    /// ([`crate::holders::rows_per_round`]) and calls this until the slice is
+    /// done; one call examines at most [`MAX_CHECK_BATCH`] rows. The cursor
+    /// wraps: a call that reaches the last row starts the next one from the
+    /// first.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read or written.
+    pub fn check_disk(&self, limit: usize) -> Result<DiskCheck> {
+        let mut check = DiskCheck::default();
+        let limit = limit.min(MAX_CHECK_BATCH);
+        if limit == 0 {
+            return Ok(check);
+        }
+
+        let (rows, reached_end) = {
+            let txn = self.db.begin_read()?;
+            let cursor = txn
+                .open_table(CHECK_CURSOR)?
+                .get(CHECK_CURSOR_KEY)?
+                .map(|value| value.value().to_vec());
+            let table = txn.open_table(CHUNKS)?;
+            let mut rows: Vec<[u8; 64]> = Vec::with_capacity(limit.min(1 << 16));
+            let range = match &cursor {
+                Some(after) => table.range::<&[u8]>((
+                    std::ops::Bound::Excluded(after.as_slice()),
+                    std::ops::Bound::Unbounded,
+                ))?,
+                None => table.range::<&[u8]>(..)?,
+            };
+            let mut reached_end = true;
+            for row in range {
+                if rows.len() == limit {
+                    reached_end = false;
+                    break;
+                }
+                let (key, _) = row?;
+                if let Ok(key) = <[u8; 64]>::try_from(key.value()) {
+                    rows.push(key);
+                }
+            }
+            (rows, reached_end)
+        };
+
+        let mut gone: Vec<[u8; 64]> = Vec::new();
+        let mut owner_blobs: Option<(UserId, BlobStore)> = None;
+        for key in &rows {
+            check.checked += 1;
+            let mut owner_bytes = [0u8; 32];
+            owner_bytes.copy_from_slice(&key[..32]);
+            let owner = UserId::from_bytes(owner_bytes);
+            let Some(address) = chunk_from_key(key) else {
+                continue;
+            };
+            if owner_blobs.as_ref().is_none_or(|(held, _)| *held != owner) {
+                owner_blobs = Some((owner, self.blobs_for(owner)?));
+            }
+            if let Some((_, blobs)) = &owner_blobs
+                && !blobs.contains(&address)
+            {
+                gone.push(*key);
+            }
+        }
+
+        // Under the writes lock, and each row re-checked inside it: a put that
+        // landed between the read above and here has written its blob first,
+        // so a row whose file exists now is kept.
+        let _writing = self.chunk_writes();
+        let txn = self.db.begin_write()?;
+        {
+            let mut table = txn.open_table(CHUNKS)?;
+            let mut totals = txn.open_table(TOTALS)?;
+            let mut per_owner = txn.open_table(OWNER_CHUNK_BYTES)?;
+            for key in &gone {
+                let mut owner_bytes = [0u8; 32];
+                owner_bytes.copy_from_slice(&key[..32]);
+                let owner = UserId::from_bytes(owner_bytes);
+                let Some(address) = chunk_from_key(key) else {
+                    continue;
+                };
+                if self.blobs_for(owner)?.contains(&address) {
+                    continue;
+                }
+                let Some(old) = table.remove(key.as_slice())?.map(|old| old.value()) else {
+                    continue;
+                };
+                check.removed += 1;
+                let total = totals.get(CHUNK_BYTES)?.map_or(0, |total| total.value());
+                totals.insert(CHUNK_BYTES, total.saturating_sub(old))?;
+                let mine = per_owner
+                    .get(owner_bytes.as_slice())?
+                    .map_or(0, |total| total.value());
+                per_owner.insert(owner_bytes.as_slice(), mine.saturating_sub(old))?;
+            }
+            let mut cursor = txn.open_table(CHECK_CURSOR)?;
+            match rows.last() {
+                Some(last) if !reached_end => {
+                    cursor.insert(CHECK_CURSOR_KEY, last.as_slice())?;
+                }
+                _ => {
+                    cursor.remove(CHECK_CURSOR_KEY)?;
+                }
+            }
+        }
+        txn.commit()?;
+        Ok(check)
     }
 
     /// A summary of what this vault holds for one owner.
@@ -1617,5 +1781,127 @@ mod tests {
                 .unwrap(),
             b"bytes"
         );
+    }
+
+    /// Three chunks for one owner, ids in key order.
+    fn three_chunks(vault: &Vault, owner: UserId) -> [ChunkId; 3] {
+        let chunks = [
+            ChunkId::from_bytes([0x10; 32]),
+            ChunkId::from_bytes([0x20; 32]),
+            ChunkId::from_bytes([0x30; 32]),
+        ];
+        for (index, chunk) in chunks.iter().enumerate() {
+            vault
+                .put_chunk(owner, chunk, &vec![u8::try_from(index).unwrap(); 1000])
+                .unwrap();
+        }
+        chunks
+    }
+
+    /// Lose a blob the way a disk does: the file goes, the index row stays.
+    fn lose_behind_the_index(vault: &Vault, owner: UserId, chunk: &ChunkId) {
+        let path = vault.blobs_for(owner).unwrap().path_of(chunk);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn red_team_a_blob_lost_behind_the_index_is_found_within_one_pass() {
+        // §8 4c. An owner whose summary agrees with this host's re-stamps its
+        // records without asking, and the summary is read from the index, not
+        // the disk. A blob that vanished behind the index left the summary
+        // agreeing for ever: the owner counted a copy this host could not
+        // serve. Sabotage: keep the row when the blob is missing.
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        let chunks = three_chunks(&vault, owner);
+        let before = vault.chunk_summary(owner).unwrap();
+        let held = vault.held_bytes_for(owner).unwrap();
+
+        lose_behind_the_index(&vault, owner, &chunks[1]);
+        assert_eq!(
+            vault.chunk_summary(owner).unwrap(),
+            before,
+            "fixture: the index alone should not have noticed"
+        );
+
+        let mut removed = 0;
+        for _ in 0..3 {
+            removed += vault.check_disk(1).unwrap().removed;
+        }
+        assert_eq!(removed, 1, "one pass of the check missed the lost blob");
+        assert_ne!(
+            vault.chunk_summary(owner).unwrap(),
+            before,
+            "the summary still says the lost chunk is here: its owner keeps counting this \
+             host as a copy it cannot serve"
+        );
+        assert_eq!(vault.chunks_for(owner).unwrap(), vec![chunks[0], chunks[2]]);
+        assert_eq!(
+            vault.held_bytes_for(owner).unwrap(),
+            held - 1000,
+            "the pledge still counts bytes that are not on the disk"
+        );
+    }
+
+    #[test]
+    fn red_team_the_disk_check_resumes_where_it_stopped_after_a_restart() {
+        // A daemon restarted more often than a pass takes would otherwise check
+        // the first rows for ever and never reach the last. Sabotage: do not
+        // keep the cursor on disk.
+        let dir = tempfile::tempdir().unwrap();
+        let owner = keys(1).user_id();
+        let chunks = {
+            let vault = Vault::open(dir.path()).unwrap();
+            let chunks = three_chunks(&vault, owner);
+            lose_behind_the_index(&vault, owner, &chunks[2]);
+            assert_eq!(vault.check_disk(2).unwrap().removed, 0);
+            chunks
+        };
+        let vault = Vault::open(dir.path()).unwrap();
+        assert_eq!(
+            vault.check_disk(2).unwrap().removed,
+            1,
+            "after a restart the check started from the top again, and the last row was \
+             never reached"
+        );
+        assert!(!vault.chunks_for(owner).unwrap().contains(&chunks[2]));
+    }
+
+    #[test]
+    fn red_team_one_disk_check_call_holds_at_most_one_batch() {
+        // A slice of 190 477 rows asked for in one call was 12 MB of keys at
+        // once on a Pi. Sabotage: drop the cap.
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        for index in 0..(MAX_CHECK_BATCH + 10) {
+            let mut id = [0u8; 32];
+            id[..8].copy_from_slice(&(index as u64).to_be_bytes());
+            vault
+                .put_chunk(owner, &ChunkId::from_bytes(id), &[1])
+                .unwrap();
+        }
+        assert_eq!(
+            vault.check_disk(usize::MAX).unwrap().checked,
+            MAX_CHECK_BATCH,
+            "one call held more than a batch of keys in memory"
+        );
+    }
+
+    #[test]
+    fn the_disk_check_keeps_every_row_whose_blob_is_there() {
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        three_chunks(&vault, owner);
+        let before = vault.chunk_summary(owner).unwrap();
+        let check = vault.check_disk(100).unwrap();
+        assert_eq!(
+            check,
+            DiskCheck {
+                checked: 3,
+                removed: 0
+            }
+        );
+        assert_eq!(vault.chunk_summary(owner).unwrap(), before);
+        assert_eq!(vault.chunk_rows().unwrap(), 3);
     }
 }

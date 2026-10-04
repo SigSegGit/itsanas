@@ -259,8 +259,12 @@ impl<'a> PeerService<'a> {
                 // is holding for somebody else. Any other set and the summary
                 // would disagree with the exchange that follows it, which is
                 // the one way this mechanism can be worse than none.
+                // `held_summary`, not `chunk_summary`: since §8 4c an agreeing
+                // bucket re-stamps holder records without asking, so this node
+                // must not say it holds a chunk its own disk is known to have
+                // lost. The vault's index is kept honest by its rolling check.
                 let digests = if *owner == self.store.owner() {
-                    self.store.chunk_summary()?
+                    self.store.held_summary()?
                 } else {
                     self.vault.chunk_summary(*owner)?
                 };

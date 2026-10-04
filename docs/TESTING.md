@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-04 — 929 test functions across 29 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 166 are red-team tests.**
+**Last updated: 2026-10-04 — 939 test functions across 29 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 173 are red-team tests.**
 
-**813 of the 929 tests have an entry of their own on this page** — an *entry*,
+**823 of the 939 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,12 +158,12 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 160 |
-| `itsanas-store` integration (`tests/store.rs`) | 46 (1 `#[ignore]`d) |
+| `itsanas-store` unit | 166 |
+| `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
-| `itsanas-net` unit | 43 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 54 |
+| `itsanas-net` unit | 44 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 56 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 114 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
@@ -425,7 +425,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (139, plus the 21 vault tests below)
+# `itsanas-store` — unit tests (141, plus the 25 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -440,7 +440,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 | `counters_saturate_rather_than_wrapping` | A wrap would turn a peer that failed four billion challenges into a trusted one. |
 | `a_paused_peer_explains_itself_and_a_healthy_one_says_nothing` | The message names the way back. |
 
-## `holders` — the placement ledger's key layout (7)
+## `holders` — the placement ledger's key layout (8)
 
 | Test | What it proves |
 | --- | --- |
@@ -450,6 +450,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 | `a_chunk_held_only_here_is_flagged_as_the_only_copy` | The alert condition is distinguishable from an ordinary shortfall: everything else is background work, this one is a disk failure away from loss. |
 | `a_chunk_held_more_widely_than_its_target_has_no_shortfall` | Saturating rather than wrapping. An underflow here would ask the repair loop for four billion pushes. |
 | `a_key_round_trips_through_its_two_halves` / `a_key_of_the_wrong_length_is_refused_rather_than_guessed_at` | The encoding, and that a key written by something else is refused rather than reinterpreted. |
+| `a_disk_check_pass_fits_in_the_refresh_window_at_any_interval` | §8 4c: `rows_per_round` sizes the rolling disk check so a whole pass fits in `REFRESH_AFTER` at any round interval -- 15 874 rows a round for sixteen million chunks at five minutes, 190 477 at an hour, never more rows than exist. The first plan's fixed 16 384 would take forty-two days a pass on an hourly policy. |
 
 ## `index` — the placement ledger (17)
 
@@ -491,7 +492,7 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | `recording_a_batch_matches_recording_one_at_a_time` | A sync round commits once rather than once per chunk, which on an SD card is most of the time spent. |
 | `recording_an_empty_batch_does_nothing_rather_than_opening_a_transaction` | A quiet round costs no write. |
 
-## `summary` — do we hold the same chunks? (5)
+## `summary` — do we hold the same chunks? (6)
 
 `src/summary.rs`. One hash instead of one identifier per chunk. The tests are
 about the two ways a reconciliation can be worse than none: agreeing about
@@ -504,6 +505,7 @@ something nobody looked at, and disagreeing for a reason that is not data.
 | **`order_within_a_bucket_is_part_of_the_contract`** | Both sides scan a table keyed by chunk id, so both are sorted. If one ever were not, two honest machines would disagree for ever and it would look exactly like data loss. |
 | `an_empty_set_has_a_defined_answer_on_both_sides` | Two nodes holding nothing agree without a special case, and one holding nothing does not accidentally agree with one holding something. |
 | **`a_summary_of_a_different_length_is_all_disagreement`** | Comparing the overlap would report agreement about a part nobody looked at, which is the one answer a reconciliation must never give. |
+| `one_bucket_hashed_alone_equals_its_place_in_the_summary` | `bucket_digest` over one bucket's chunks equals that bucket's digest in `buckets`, and chunks of other buckets in the slice change nothing: what lets a due walk re-check each bucket from the rows it re-stamps. |
 
 ## `chunker` — content-defined chunking (18)
 
@@ -596,7 +598,7 @@ moment the sync engine starts materialising files.
 
 ---
 
-# `itsanas-store` — integration tests (46)
+# `itsanas-store` — integration tests (47)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -633,6 +635,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 | `a_non_default_chunker_still_round_trips` | The tuning knob does not produce unreadable data. |
 
 ---
+| **`red_team_a_node_does_not_tell_its_own_account_it_holds_what_its_disk_lost`** | Found by Rodin on the 4c plan: a machine answers its own account's summary from its index, so a Pi whose disk lost a blob kept agreeing with the laptop, which re-stamped it as a copy. `Store::check_disk` records the loss and `held_summary` leaves it out, while `chunk_summary` -- the set this node wants held -- keeps it. Sabotaged by counting losses in `held_summary`. |
 
 # `itsanas-sync` — unit tests (12)
 
@@ -704,7 +707,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (21 of the store's unit tests)
+# `itsanas-store` — the vault (25 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -735,8 +738,12 @@ about reading.
 | `a_vault_from_before_the_total_is_totalled_at_open` | An upgraded vault has index rows and no total; reading it as 0 would hand the pledge back in full. Fails when a missing total is not rebuilt. |
 
 ---
+| **`red_team_a_blob_lost_behind_the_index_is_found_within_one_pass`** | §8 4c. The summary an owner compares is read from the vault's index, and since 4c an agreeing summary re-stamps records without asking: a blob gone from the disk behind the index left the summary agreeing for ever. One pass of `Vault::check_disk` removes the row, the summary changes, and the pledge stops counting the bytes. Sabotaged by keeping the row. |
+| **`red_team_the_disk_check_resumes_where_it_stopped_after_a_restart`** | The check's cursor is on disk: a daemon restarted more often than a pass takes must not check the first rows for ever. A blob lost at the end is found after a reopen. Sabotaged by not keeping the cursor. |
+| **`red_team_one_disk_check_call_holds_at_most_one_batch`** | Found by the CI reviewer on #218: the slice a round owes is 190 477 rows at a terabyte on an hourly policy, 12 MB of keys in one `Vec` on a 17 MiB machine. One call examines at most `MAX_CHECK_BATCH` and the daemon loops. Sabotaged by dropping the cap. |
+| `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (43)
+# `itsanas-net` — unit tests (44)
 
 ## `protocol` — messages and challenges (12)
 
@@ -795,7 +802,7 @@ and is catalogued with that crate.
 
 ---
 
-## `session` — what a round establishes, and what one forged chain may not stop (6)
+## `session` — what a round establishes, and what one forged chain may not stop (7)
 
 | Test | What it proves |
 | --- | --- |
@@ -806,8 +813,9 @@ and is catalogued with that crate.
 | `a_peer_that_accepted_our_data_has_earned_it` / `a_peer_that_served_us_our_own_work_has_earned_it` | The two ways a peer proves it is real: it stored something, or it gave us something of ours. |
 
 ---
+| **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (54)
+# `itsanas-net` — two-node tests (56)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -870,6 +878,8 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 ---
 
 ---
+| **`red_team_an_idle_due_walk_lists_nothing_and_keeps_the_records_fresh`** | §8 4c, the number the step exists for: a due walk listed the whole account per peer, 537 MB every 3.5 days at a terabyte. Against an agreeing real host, with every record aged and the walk due, it now asks about zero chunks, re-stamps every one, leaves every record fresh and stamps the walk. Sabotaged by listing everything on a due walk, and by skipping the re-stamp. |
+| **`red_team_a_host_that_lost_a_blob_behind_its_index_is_caught_by_the_next_due_walk`** | The downside §10 8 names, closed: a host's blob deleted behind its index, one pass of its disk check, and the owner's due walk lists the bucket that now differs, offers the chunk again and puts it back -- without listing the whole account. Sabotaged by the check keeping the row. |
 
 # `itsanas-cli` — crash consistency (1, `#[ignore]`d)
 

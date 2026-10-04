@@ -838,6 +838,40 @@ impl Index {
         Ok(())
     }
 
+    /// Record `missing` as lost and forget any loss among `present`, in one
+    /// transaction. Writes only when something changes, so a pass over a
+    /// healthy disk commits nothing.
+    pub fn settle_losses(&self, present: &[ChunkId], missing: &[ChunkId], now: u64) -> Result<()> {
+        let recovered: Vec<&ChunkId> = {
+            let txn = self.db.begin_read()?;
+            let table = txn.open_table(LOSSES)?;
+            let mut out = Vec::new();
+            for chunk in present {
+                if table.get(chunk.as_bytes().as_slice())?.is_some() {
+                    out.push(chunk);
+                }
+            }
+            out
+        };
+        if recovered.is_empty() && missing.is_empty() {
+            return Ok(());
+        }
+        let txn = self.db.begin_write()?;
+        {
+            let mut table = txn.open_table(LOSSES)?;
+            for chunk in recovered {
+                table.remove(chunk.as_bytes().as_slice())?;
+            }
+            for chunk in missing {
+                if table.get(chunk.as_bytes().as_slice())?.is_none() {
+                    table.insert(chunk.as_bytes().as_slice(), now)?;
+                }
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
     /// Forget a loss, because the chunk is back or was never really gone.
     pub fn clear_loss(&self, chunk: &ChunkId) -> Result<()> {
         let txn = self.db.begin_write()?;
@@ -957,6 +991,66 @@ impl Index {
     /// and therefore already in the order the summary requires. See
     /// [`crate::summary`] for what it is for and why the ordering is a
     /// contract rather than a detail.
+    /// How many chunks are live: what one pass of the daemon's disk check has
+    /// to cover.
+    pub fn live_chunk_count(&self) -> Result<u64> {
+        let txn = self.db.begin_read()?;
+        Ok(txn.open_table(CHUNK_REFS)?.len()?)
+    }
+
+    /// The summary of what this node can actually serve of its own account:
+    /// the live chunks less the ones known to be missing from disk.
+    ///
+    /// What a peer of the same account is answered with. Since §8 4c an
+    /// agreeing summary re-stamps holder records without a `HaveChunks`, so a
+    /// summary that kept counting a chunk the disk lost would keep this node
+    /// counted as its copy. [`Self::chunk_summary`] stays the set this node
+    /// *wants* held, which is what it compares against others.
+    ///
+    /// A merge of two sorted tables, so the cost is the live set's plus the
+    /// losses', with no lookup per chunk.
+    pub fn held_summary(&self) -> Result<Vec<crate::summary::Digest>> {
+        let txn = self.db.begin_read()?;
+        let refs = txn.open_table(CHUNK_REFS)?;
+        let losses = txn.open_table(LOSSES)?;
+
+        let mut failed: Option<StoreError> = None;
+        let mut lost = losses.iter()?.peekable();
+        let digests = crate::summary::buckets(refs.iter()?.filter_map(|row| {
+            let outcome = row
+                .map_err(StoreError::from)
+                .and_then(|(key, _)| ChunkId::from_slice(key.value()).map_err(StoreError::from));
+            let chunk = match outcome {
+                Ok(chunk) => chunk,
+                Err(error) => {
+                    failed.get_or_insert(error);
+                    return None;
+                }
+            };
+            // Advance the losses past everything below this chunk.
+            while let Some(next) = lost.peek() {
+                match next {
+                    Ok((key, _)) if key.value() < chunk.as_bytes().as_slice() => {
+                        lost.next();
+                    }
+                    Ok(_) => break,
+                    Err(_) => {
+                        if let Some(Err(error)) = lost.next() {
+                            failed.get_or_insert(StoreError::from(error));
+                        }
+                    }
+                }
+            }
+            let is_lost = matches!(lost.peek(), Some(Ok((key, _))) if key.value() == chunk.as_bytes().as_slice());
+            (!is_lost).then_some(chunk)
+        }));
+
+        match failed {
+            Some(error) => Err(error),
+            None => Ok(digests),
+        }
+    }
+
     pub fn chunk_summary(&self) -> Result<Vec<crate::summary::Digest>> {
         let txn = self.db.begin_read()?;
         let refs = txn.open_table(CHUNK_REFS)?;

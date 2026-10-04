@@ -510,6 +510,10 @@ fn sync_loop(
         eprintln!("itsanas: {why}");
     }
     board.replace(contact.board());
+    // Where this process's pass over its own chunks stands. In memory: losing
+    // it at a restart costs a pass started again, and the vault, whose rows
+    // other people's rounds rely on, keeps its cursor on disk.
+    let mut own_check: Option<itsanas_crypto::ChunkId> = None;
 
     while !shutdown.load(Ordering::Relaxed) {
         let deep = Instant::now() >= next_deep;
@@ -556,6 +560,7 @@ fn sync_loop(
             );
             next_sync = Instant::now() + interval;
             board.replace(contact.board());
+            check_disks(node, interval, &mut own_check);
             if let Err(error) = contact.save(&book) {
                 eprintln!("itsanas: could not keep the address book: {error}");
             }
@@ -930,6 +935,70 @@ fn dial_listed(
             if outcome.earned_trust {
                 neighbourhood.confirm(outcome.device);
             }
+        }
+    }
+}
+
+/// Check a slice of the vault's index and of this node's own chunks against
+/// the disk, sized so each completes a pass within `REFRESH_AFTER`.
+///
+/// Since §8 4c a peer whose summary agrees with this node's is re-stamped
+/// without being asked, so a summary has to stop counting a blob the disk has
+/// lost, or this node keeps counting as a copy it cannot serve. Never fails
+/// the round: a check that cannot run is said, and the next round tries again.
+fn check_disks(node: &Node, interval: Duration, own_cursor: &mut Option<itsanas_crypto::ChunkId>) {
+    let every = interval.as_secs();
+    // In batches: one call holds at most `MAX_CHECK_BATCH` keys, however large
+    // the slice this round owes.
+    let vault_pass = node.vault.chunk_rows().and_then(|rows| {
+        let mut owed = itsanas_store::holders::rows_per_round(rows, every);
+        let mut total = itsanas_store::DiskCheck::default();
+        while owed > 0 {
+            let check = node.vault.check_disk(owed)?;
+            total.checked += check.checked;
+            total.removed += check.removed;
+            if check.checked == 0 {
+                break;
+            }
+            owed = owed.saturating_sub(check.checked);
+        }
+        Ok(total)
+    });
+    match vault_pass {
+        Ok(check) if check.removed > 0 => println!(
+            "vault: {} chunk(s) held for others were no longer on this disk; their owners \
+             will send them again",
+            check.removed
+        ),
+        Ok(_) => {}
+        Err(error) => eprintln!("itsanas: could not check the vault against the disk: {error}"),
+    }
+    let own_pass = node.store.live_chunk_count().and_then(|rows| {
+        let mut owed = itsanas_store::holders::rows_per_round(rows, every);
+        let mut missing = 0usize;
+        while owed > 0 {
+            let batch = owed.min(itsanas_store::MAX_CHECK_BATCH);
+            let (lost, next) = node.store.check_disk(own_cursor.as_ref(), batch)?;
+            missing += lost;
+            *own_cursor = next;
+            owed -= batch;
+            if own_cursor.is_none() {
+                break;
+            }
+        }
+        Ok((missing, ()))
+    });
+    match own_pass {
+        Ok((missing, ())) => {
+            if missing > 0 {
+                println!(
+                    "{missing} chunk(s) of this account are no longer on this disk; \
+                     repair will fetch them from their holders"
+                );
+            }
+        }
+        Err(error) => {
+            eprintln!("itsanas: could not check this node's chunks against the disk: {error}");
         }
     }
 }

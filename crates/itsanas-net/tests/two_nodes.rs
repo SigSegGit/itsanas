@@ -20,7 +20,7 @@ use itsanas_store::{AtRisk, ChunkerConfig, Store, Vault};
 
 /// One machine: its own store, and a vault for other people's data.
 struct Node {
-    _dir: tempfile::TempDir,
+    dir: tempfile::TempDir,
     store: Store,
     vault: Vault,
     device: DeviceKeys,
@@ -39,7 +39,7 @@ fn node(master: &MasterSecret, device_seed: u8) -> Node {
     let vault = Vault::open(dir.path().join("vault")).expect("vault");
 
     Node {
-        _dir: dir,
+        dir,
         store,
         vault,
         device,
@@ -3416,4 +3416,131 @@ fn red_team_a_full_peer_is_not_sent_what_it_refused_round_after_round() {
              host given more room is never offered anything again"
         );
     });
+}
+
+/// Six files pushed in full to `host`, the round that also stamps the walk.
+fn pushed_to(author: &Node, address: std::net::SocketAddr, tag: &str) -> Vec<ChunkId> {
+    for index in 0..6 {
+        let payload = itsanas_testkit::filler(&format!("{tag}-{index}"), 128 * 1024);
+        author
+            .store
+            .write_file(&format!("{tag}-{index}.bin"), &payload)
+            .unwrap();
+    }
+    author.store.flush_segment().unwrap();
+    let mut client =
+        PeerClient::connect(address, &author.device, author.store.owner(), None).unwrap();
+    session::push(&author.store, &mut client).unwrap();
+    all_live_chunks(&author.store)
+}
+
+/// `REFRESH_AFTER` later, without waiting for it: the walk is due and every
+/// record is old. Moving the stamps back rather than the clock forward.
+fn age_everything(author: &Node, peer: &itsanas_crypto::DeviceId, chunks: &[ChunkId]) {
+    author.store.forget_holders(chunks, peer).unwrap();
+    author.store.record_holders_at(chunks, peer, 1).unwrap();
+    author.store.note_ledger_walk(peer, 0).unwrap();
+}
+
+#[test]
+fn red_team_an_idle_due_walk_lists_nothing_and_keeps_the_records_fresh() {
+    // §8 4c, the number the step exists for. A due walk used to list the whole
+    // account per peer every REFRESH_AFTER: 537 MB every three and a half days
+    // at a terabyte, about 150 MB a day, over the 100 MB budget on its own.
+    // Against a peer whose summary agrees it must now list nothing and still
+    // leave every record fresh. Sabotages: list everything on a due walk (the
+    // count comes back); skip the re-stamp (the records age out).
+    let author = node(&alice(), 105);
+    let host = node(&MasterSecret::from_bytes([0xD8; 32]), 106);
+    let peer = host.device.device_id();
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let chunks = pushed_to(&author, address, "idle");
+        age_everything(&author, &peer, &chunks);
+
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).unwrap();
+        let due = session::push(&author.store, &mut client).unwrap();
+        assert_eq!(
+            due.chunks_asked_about, 0,
+            "an idle due walk listed {} chunks: at a terabyte that is the 537 MB per peer \
+             this step removes",
+            due.chunks_asked_about
+        );
+        assert_eq!(due.holders_restamped, chunks.len());
+
+        let now = itsanas_store::now_unix();
+        for chunk in &chunks {
+            assert!(
+                author.store.holder_evidence(chunk, now).unwrap().fresh >= 1,
+                "a chunk the agreeing host holds was left with a stale record: in LIVE_FOR \
+                 repair counts it as gone and copies it again"
+            );
+        }
+        assert!(
+            !author.store.ledger_walk_due(&peer, now).unwrap(),
+            "the walk was not stamped, so every round would be a due walk"
+        );
+    });
+}
+
+#[test]
+fn red_team_a_host_that_lost_a_blob_behind_its_index_is_caught_by_the_next_due_walk() {
+    // The downside §10 8 names, and why the host checks its index against its
+    // disk. The host's summary is read from its index; a blob gone from its
+    // disk behind the index left that summary agreeing, and since 4c an
+    // agreeing summary is believed without asking. The rolling check removes
+    // the row, the summary changes, and the owner's due walk lists the bucket,
+    // finds the chunk missing and sends it again. Sabotage: the check keeps the
+    // row.
+    let author = node(&alice(), 107);
+    let host = node(&MasterSecret::from_bytes([0xD9; 32]), 108);
+    let peer = host.device.device_id();
+
+    with_server(&host, Pledge::gigabytes(1), |address| {
+        let chunks = pushed_to(&author, address, "lost");
+        let victim = chunks[0];
+        let owner = author.store.owner();
+        let blobs = itsanas_store::BlobStore::open(
+            host.dir
+                .path()
+                .join("vault")
+                .join("owners")
+                .join(owner.to_hex()),
+        )
+        .unwrap();
+        std::fs::remove_file(blobs.path_of(&victim)).unwrap();
+        assert!(!host.vault.has_chunk(owner, &victim).unwrap());
+
+        // One pass of the host's rolling check.
+        let rows = host.vault.chunk_rows().unwrap();
+        host.vault
+            .check_disk(usize::try_from(rows).unwrap() + 1)
+            .unwrap();
+
+        age_everything(&author, &peer, &chunks);
+        let mut client = PeerClient::connect(address, &author.device, owner, None).unwrap();
+        let due = session::push(&author.store, &mut client).unwrap();
+        assert!(
+            due.chunks_offered >= 1,
+            "the due walk believed the host's summary about a chunk it no longer has: the \
+             author counts a copy that does not exist"
+        );
+        assert!(
+            due.chunks_asked_about < chunks.len(),
+            "the walk listed the whole account to find one lost chunk"
+        );
+    });
+
+    assert!(
+        host.vault
+            .has_chunk(author.store.owner(), &chunks_victim(&author))
+            .unwrap(),
+        "the lost chunk was not sent again"
+    );
+}
+
+/// The first live chunk, the one the test above loses.
+fn chunks_victim(author: &Node) -> ChunkId {
+    all_live_chunks(&author.store)[0]
 }

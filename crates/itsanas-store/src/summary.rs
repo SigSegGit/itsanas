@@ -80,12 +80,7 @@ pub type Digest = [u8; 32];
 #[must_use]
 pub fn buckets(chunks: impl IntoIterator<Item = ChunkId>) -> Vec<Digest> {
     let mut hashers: Vec<blake3::Hasher> = (0..BUCKETS)
-        .map(|bucket| {
-            let mut hasher = blake3::Hasher::new();
-            hasher.update(DOMAIN.as_bytes());
-            hasher.update(&[u8::try_from(bucket).unwrap_or(0)]);
-            hasher
-        })
+        .map(|bucket| bucket_hasher(u8::try_from(bucket).unwrap_or(0)))
         .collect();
 
     for chunk in chunks {
@@ -98,6 +93,29 @@ pub fn buckets(chunks: impl IntoIterator<Item = ChunkId>) -> Vec<Digest> {
         .into_iter()
         .map(|hasher| *hasher.finalize().as_bytes())
         .collect()
+}
+
+fn bucket_hasher(bucket: u8) -> blake3::Hasher {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(DOMAIN.as_bytes());
+    hasher.update(&[bucket]);
+    hasher
+}
+
+/// The digest of one bucket, from that bucket's chunks **in ascending order**.
+///
+/// Equal to `buckets(all)[bucket]` when `chunks` are exactly the members of
+/// `all` that fall in `bucket`. What lets a round check one bucket against a
+/// peer's digest from the very rows it is about to act on, rather than from a
+/// summary computed earlier. Chunks outside the bucket are ignored, so a
+/// caller that read one row too many cannot change the answer.
+#[must_use]
+pub fn bucket_digest(bucket: u8, chunks: &[ChunkId]) -> Digest {
+    let mut hasher = bucket_hasher(bucket);
+    for chunk in chunks.iter().filter(|chunk| in_bucket(chunk, bucket)) {
+        hasher.update(chunk.as_bytes().as_slice());
+    }
+    *hasher.finalize().as_bytes()
 }
 
 /// One hash standing for the whole set.
@@ -209,5 +227,22 @@ mod tests {
         let sorted = vec![chunk(5, 1), chunk(5, 2), chunk(5, 3)];
         let shuffled = vec![chunk(5, 3), chunk(5, 1), chunk(5, 2)];
         assert_ne!(root(&buckets(sorted)), root(&buckets(shuffled)));
+    }
+
+    #[test]
+    fn one_bucket_hashed_alone_equals_its_place_in_the_summary() {
+        // What lets a round re-check a bucket from the rows it is about to
+        // re-stamp. A chunk of another bucket in the slice must not change it.
+        let all = vec![chunk(4, 1), chunk(5, 1), chunk(5, 2), chunk(9, 0)];
+        let whole = buckets(all.clone());
+        for bucket in [4u8, 5, 9, 200] {
+            assert_eq!(
+                super::bucket_digest(bucket, &all),
+                whole[usize::from(bucket)],
+                "bucket {bucket}"
+            );
+        }
+        assert_ne!(super::bucket_digest(5, &[chunk(5, 1)]), whole[5]);
+        let _ = BUCKETS;
     }
 }

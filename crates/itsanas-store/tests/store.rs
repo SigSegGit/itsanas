@@ -1896,3 +1896,65 @@ fn the_chunks_a_device_holds_can_be_paged_without_walking_the_directories() {
          never be offered what a replay still needs"
     );
 }
+
+/// Every live chunk, in id order.
+fn live(store: &Store) -> Vec<ChunkId> {
+    let mut out = Vec::new();
+    let mut cursor = None;
+    loop {
+        let (page, next) = store.live_chunks_page(cursor.as_ref(), 1024).unwrap();
+        out.extend(page);
+        match next {
+            Some(next) => cursor = Some(next),
+            None => return out,
+        }
+    }
+}
+
+#[test]
+fn red_team_a_node_does_not_tell_its_own_account_it_holds_what_its_disk_lost() {
+    // §8 4c, found by Rodin on the plan. A machine answers a summary for its own
+    // account from its index, and since 4c an agreeing summary re-stamps holder
+    // records without a `HaveChunks`. So a Pi of the same account whose disk lost
+    // a blob kept agreeing, and the laptop kept counting it as a copy. The disk
+    // check records the loss; the summary served to the account must leave it
+    // out. Sabotage: count lost chunks in `held_summary`.
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_for(&MasterSecret::from_bytes([0x4C; 32]), dir.path());
+    store
+        .write_file("photo.bin", &testkit::filler("held", 512 * 1024))
+        .unwrap();
+    store.flush_segment().unwrap();
+    let chunks = live(&store);
+    assert!(
+        chunks.len() > 1,
+        "fixture: one chunk proves nothing about the rest"
+    );
+    assert_eq!(
+        store.held_summary().unwrap(),
+        store.chunk_summary().unwrap()
+    );
+
+    let lost = chunks[0];
+    fs::remove_file(store.blobs().path_of(&lost)).unwrap();
+    let (missing, next) = store.check_disk(None, chunks.len() + 1).unwrap();
+    assert_eq!(
+        (missing, next),
+        (1, None),
+        "one pass of the check missed the loss"
+    );
+    assert_eq!(store.loss_count().unwrap(), 1, "repair was not told");
+
+    let kept: Vec<ChunkId> = chunks[1..].to_vec();
+    assert_eq!(
+        store.held_summary().unwrap(),
+        itsanas_store::summary::buckets(kept),
+        "the summary this node gives its own account still counts a chunk its disk lost: \
+         the account's other machines re-stamp it as a copy and stop looking"
+    );
+    assert_eq!(
+        store.chunk_summary().unwrap(),
+        itsanas_store::summary::buckets(chunks),
+        "the set this node wants held must not shrink because it lost a copy"
+    );
+}

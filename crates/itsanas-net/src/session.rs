@@ -69,6 +69,13 @@ pub struct PushReport {
     /// so a test can hold it to zero, because an optimisation nothing measures
     /// is an optimisation nobody notices losing.
     pub chunks_asked_about: usize,
+    /// Holder records re-stamped without the wire, because the peer's summary
+    /// of their bucket agreed with this device's on a due walk (§8 4c).
+    ///
+    /// Counted apart from [`Self::holders_recorded`], which is what the peer
+    /// said: this is what the summary implied, and a test that wants to know
+    /// which of the two kept a record fresh has to be able to tell.
+    pub holders_restamped: usize,
     /// Offers the peer refused, chunks and segments together.
     ///
     /// Counted apart from "not accepted", which also covers a segment the peer
@@ -267,10 +274,11 @@ fn sweep(
     client: &mut PeerClient,
     report: &mut PushReport,
     only: Option<&[u8]>,
+    thorough: bool,
     full: &mut Full,
 ) -> Result<()> {
     let Some(buckets) = only else {
-        return walk(store, client, report, None, None, full);
+        return walk(store, client, report, None, None, true, full);
     };
 
     // Each bucket is a contiguous range of the index, because its number is the
@@ -288,6 +296,7 @@ fn sweep(
             report,
             Some(bucket),
             bucket_floor(bucket),
+            !thorough,
             full,
         )?;
     }
@@ -319,12 +328,14 @@ struct Full {
     yes: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk(
     store: &Store,
     client: &mut PeerClient,
     report: &mut PushReport,
     bucket: Option<u8>,
     after: Option<ChunkId>,
+    only_unconfirmed: bool,
     full: &mut Full,
 ) -> Result<()> {
     let peer = client.peer_device();
@@ -342,7 +353,12 @@ fn walk(
                 page.truncate(past);
                 finished = true;
             }
-            page = store.without_fresh_record(&page, &peer)?;
+            // Not on a due walk: there a differing bucket is asked about in
+            // full, because the agreeing ones are about to be taken on the
+            // summary's word and this is the only listing left (§8 4c).
+            if only_unconfirmed {
+                page = store.without_fresh_record(&page, &peer)?;
+            }
         }
 
         // A full peer would refuse what it lacks, so asking about chunks it has
@@ -431,6 +447,79 @@ fn ask(
     Ok(())
 }
 
+/// Re-stamp, without the wire, the records of every bucket the peer's summary
+/// agrees with; return the buckets that turned out not to agree after all.
+///
+/// # Why each bucket is hashed again here
+///
+/// The verdict came from this device's summary, computed before this function
+/// reads a single row. A chunk written in between lands in a bucket that
+/// "agreed", and re-stamping it would record the peer as holding a chunk it
+/// has never seen -- a copy believed for `LIVE_FOR`. Found by Rodin on the
+/// plan. So each bucket's digest is recomputed from exactly the rows about to
+/// be re-stamped and compared with the peer's; a bucket that no longer
+/// matches is handed back to be listed instead. It costs nothing the walk
+/// was not already paying: the rows are read either way.
+///
+/// What this believes, stated: the peer's digest. A host that replays an old
+/// summary is believed past `REFRESH_AFTER` (decided, `docs/HANDOVER.md` §10
+/// 8); the host's own disk check (`Vault::check_disk`) is what keeps an
+/// honest host's summary true, and the storage audit is the only witness
+/// against a dishonest one.
+fn restamp_agreeing(
+    store: &Store,
+    peer: &DeviceId,
+    theirs: &[summary::Digest],
+    differing: &[u8],
+    now: u64,
+    report: &mut PushReport,
+) -> Result<Vec<u8>> {
+    let mut relist = Vec::new();
+    if theirs.len() != summary::BUCKETS {
+        // Not the same dialect: nothing agrees, so everything is listed.
+        return Ok((0..=u8::MAX).collect());
+    }
+    for bucket in 0..=u8::MAX {
+        if differing.contains(&bucket) {
+            continue;
+        }
+        let chunks = bucket_chunks(store, bucket)?;
+        if summary::bucket_digest(bucket, &chunks) != theirs[usize::from(bucket)] {
+            relist.push(bucket);
+            continue;
+        }
+        let stale = store.without_fresh_record(&chunks, peer)?;
+        report.holders_restamped += stale.len();
+        store.record_holders_at(&stale, peer, now)?;
+    }
+    Ok(relist)
+}
+
+/// Every live chunk of one bucket, in id order: one contiguous range of the
+/// index. At a terabyte about sixty-five thousand ids, 2 MB, and never more
+/// than one bucket at a time.
+fn bucket_chunks(store: &Store, bucket: u8) -> Result<Vec<ChunkId>> {
+    let mut out = Vec::new();
+    let mut cursor = bucket_floor(bucket);
+    loop {
+        let (page, next) = store.live_chunks_page(cursor.as_ref(), MAX_HAVE_BATCH)?;
+        let end = page
+            .iter()
+            .position(|chunk| !summary::in_bucket(chunk, bucket));
+        match end {
+            Some(end) => {
+                out.extend_from_slice(&page[..end]);
+                return Ok(out);
+            }
+            None => out.extend(page),
+        }
+        match next {
+            Some(next) => cursor = Some(next),
+            None => return Ok(out),
+        }
+    }
+}
+
 /// How long a peer that refused a chunk for a full pledge is treated as full.
 ///
 /// While it is, a round asks it only about chunks it is recorded as holding and
@@ -446,10 +535,12 @@ const FULL_RETRY: u64 = 60 * 60;
 
 /// What a summary exchange concluded.
 enum Reconciled {
-    /// The two sides hold the same set. Nothing to list.
-    Identical,
-    /// They differ, in these buckets of the chunk id space.
-    Buckets(Vec<u8>),
+    /// The two sides hold the same set. Nothing to list. Carries the peer's
+    /// digests, which a due walk checks bucket by bucket before re-stamping.
+    Identical(Vec<summary::Digest>),
+    /// They differ, in these buckets of the chunk id space; the peer's digests
+    /// beside them.
+    Buckets(Vec<u8>, Vec<summary::Digest>),
     /// The peer is too old to be asked, so nothing is known and everything is
     /// listed — which is what every round did before this existed.
     Unknown,
@@ -471,10 +562,11 @@ fn reconcile(store: &Store, client: &mut PeerClient, owner: UserId) -> Result<Re
 
     let ours = store.chunk_summary()?;
     if summary::root(&ours) == summary::root(&theirs) {
-        return Ok(Reconciled::Identical);
+        return Ok(Reconciled::Identical(theirs));
     }
 
-    Ok(Reconciled::Buckets(summary::differing(&ours, &theirs)))
+    let differing = summary::differing(&ours, &theirs);
+    Ok(Reconciled::Buckets(differing, theirs))
 }
 
 /// Ask this peer about chunks it is recorded as holding that this device no
@@ -702,34 +794,55 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
     // for: knowing where your data is, and being able to make room.
     let due = store.ledger_walk_due(&peer, now)?;
 
-    let only = match reconcile(store, client, owner)? {
-        // Nothing to send and nothing owed to the ledger: the round is over,
-        // and it cost one hash.
-        Reconciled::Identical if !due => {
-            report.holders_recorded += refresh_released(store, client, &peer)?;
-            return Ok(report);
-        }
-        // A due walk covers everything, whatever the summary said about where
-        // the two sides differ.
-        _ if due => None,
-        // An unanswerable peer means nothing is known, so everything is listed.
-        Reconciled::Identical | Reconciled::Unknown => None,
-        Reconciled::Buckets(buckets) => Some(buckets),
-    };
-
+    let reconciled = reconcile(store, client, owner)?;
     let mut full = Full {
         now,
         yes: store
             .peer_full_since(&peer)?
             .is_some_and(|since| since >= now.saturating_sub(FULL_RETRY)),
     };
-    sweep(store, client, &mut report, only.as_deref(), &mut full)?;
 
-    // The clock restarts only after a walk that really was full: a round that
-    // listed a few buckets has said nothing about the rest, so claiming it had
-    // would be the same rot by a slower route.
-    if only.is_none() {
-        store.note_ledger_walk(&peer, now)?;
+    match reconciled {
+        // Nothing to send and nothing owed to the ledger: the round is over,
+        // and it cost one hash.
+        Reconciled::Identical(_) if !due => {
+            report.holders_recorded += refresh_released(store, client, &peer)?;
+            return Ok(report);
+        }
+        // A due walk against a peer that summarises (§8 4c). The buckets it
+        // agrees about are re-stamped here without a word on the wire; only
+        // the ones it differs about are listed, in full. Before 4c this listed
+        // the whole account per peer every REFRESH_AFTER: 537 MB every three
+        // and a half days at a terabyte, over the 100 MB/day budget by itself.
+        Reconciled::Identical(theirs) if due => {
+            let relist = restamp_agreeing(store, &peer, &theirs, &[], now, &mut report)?;
+            sweep(store, client, &mut report, Some(&relist), true, &mut full)?;
+            store.note_ledger_walk(&peer, now)?;
+        }
+        Reconciled::Buckets(differing, theirs) if due => {
+            let mut relist = restamp_agreeing(store, &peer, &theirs, &differing, now, &mut report)?;
+            relist.extend_from_slice(&differing);
+            sweep(store, client, &mut report, Some(&relist), true, &mut full)?;
+            store.note_ledger_walk(&peer, now)?;
+        }
+        // An unanswerable peer means nothing is known, so everything is listed;
+        // that is also its due walk.
+        Reconciled::Unknown | Reconciled::Identical(_) => {
+            sweep(store, client, &mut report, None, false, &mut full)?;
+            store.note_ledger_walk(&peer, now)?;
+        }
+        // Not due: only the differing buckets, and within them only what the
+        // peer has not confirmed lately (§8 4a).
+        Reconciled::Buckets(differing, _) => {
+            sweep(
+                store,
+                client,
+                &mut report,
+                Some(&differing),
+                false,
+                &mut full,
+            )?;
+        }
     }
 
     report.holders_recorded += refresh_released(store, client, &peer)?;
@@ -1557,6 +1670,72 @@ mod tests {
                 envelope
             })
             .collect()
+    }
+
+    #[test]
+    fn red_team_a_chunk_written_after_the_summary_is_not_restamped() {
+        // Found by Rodin on the 4c plan. The verdict "this bucket agrees" comes
+        // from a summary taken before the re-stamp reads its rows; a chunk
+        // written in between would be recorded as held by a peer that has
+        // never seen it -- a copy believed for LIVE_FOR. Sabotage: re-stamp
+        // without recomputing the bucket's digest.
+        use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open_for_testing(
+            dir.path(),
+            UserKeys::derive(&MasterSecret::from_bytes([0xB7; 32])),
+            DeviceKeys::from_seed(&SecretBytes::new([0xB8; 32])),
+            itsanas_store::ChunkerConfig::default(),
+        )
+        .unwrap();
+        store
+            .write_file("before.bin", &itsanas_testkit::filler("before", 256 * 1024))
+            .unwrap();
+        // What an agreeing peer said, a moment before the write below.
+        let theirs = store.chunk_summary().unwrap();
+        let before: BTreeSet<ChunkId> = store
+            .live_chunks_page(None, 10_000)
+            .unwrap()
+            .0
+            .into_iter()
+            .collect();
+
+        store
+            .write_file("after.bin", &itsanas_testkit::filler("after", 256 * 1024))
+            .unwrap();
+        let late: Vec<ChunkId> = store
+            .live_chunks_page(None, 10_000)
+            .unwrap()
+            .0
+            .into_iter()
+            .filter(|chunk| !before.contains(chunk))
+            .collect();
+        assert!(!late.is_empty(), "fixture: the second write added nothing");
+
+        let peer = DeviceId::from_bytes([0x77; 32]);
+        let mut report = PushReport::default();
+        let relist = restamp_agreeing(&store, &peer, &theirs, &[], 1_000, &mut report).unwrap();
+
+        for chunk in &late {
+            assert!(
+                store.with_record(&[*chunk], &peer).unwrap().is_empty(),
+                "a chunk written after the summary was recorded as held by a peer that has \
+                 never seen it"
+            );
+            assert!(
+                relist.contains(&summary::bucket_of(chunk)),
+                "the bucket the late chunk landed in was not handed back to be listed"
+            );
+        }
+        assert_eq!(
+            report.holders_restamped,
+            before
+                .iter()
+                .filter(|chunk| !relist.contains(&summary::bucket_of(chunk)))
+                .count(),
+            "the buckets that still agree must be re-stamped, or the step saves nothing"
+        );
     }
 
     #[test]

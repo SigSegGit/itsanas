@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**929 test functions, 4 of them `#[ignore]`d into the slow job, and 166 of
+**939 test functions, 4 of them `#[ignore]`d into the slow job, and 173 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1899,15 +1899,24 @@ terabyte, so one saved photograph cost 2.1 MB a peer. A narrowed round now asks
 only about chunks with no record for that peer younger than `REFRESH_AFTER`,
 and reads only those buckets' ranges of the index; the full walk, due every
 `REFRESH_AFTER`, still asks about everything and is what finds a chunk the peer
-dropped silently. Arithmetic in `docs/DESIGN.md` §6.5. **Still over budget at a
-terabyte:** that full walk lists 537 MB per peer every three and a half days,
-about 150 MB a day averaged. Narrowing the walk itself -- asking only what the
-peer has not confirmed within `LIVE_FOR`, or a tree summary -- is the next lever
-and is not built. The cheapest one is a trust decision rather than an
-optimisation: an agreeing bucket hash confirms every chunk in it, so the walk
-could re-stamp those records locally and list only the differing buckets; the
-price is that a replayed summary would be believed past `REFRESH_AFTER`, with
-the audit the only check left (HANDOVER §8 4b).
+dropped silently. Arithmetic in `docs/DESIGN.md` §6.5.
+
+**The walk itself no longer lists an idle account (2026-10-04, HANDOVER §8
+4c).** It listed 537 MB per peer every three and a half days at a terabyte,
+about 150 MB a day. A due walk now lists only the buckets where the peer's
+summary differs and re-stamps the agreeing ones locally, after recomputing each
+bucket's digest from the rows it re-stamps; every daemon round checks a slice
+of the vault's index and of its own chunks against the disk, so a summary stops
+counting a blob that is gone. Tested by
+`red_team_an_idle_due_walk_lists_nothing_and_keeps_the_records_fresh` and
+`red_team_a_host_that_lost_a_blob_behind_its_index_is_caught_by_the_next_due_walk`.
+**Not measured at size.** The price, decided: a replayed summary is believed
+past `REFRESH_AFTER`, with the audit the only check left. **Ceilings named, not
+fixed:** a host on an older version, or running `itsanas serve` alone, does
+not check its disk and is believed the same way; a due walk holds one bucket
+of ids in memory at a time -- 2 MB at a terabyte, about 20 MB at ten, past the
+17 MiB peak measured on a Pi; and the disk check costs about 16 000 file
+lookups a round at a terabyte on an SD card, never timed.
 
 **A peer with a smaller budget was re-offered what it refused, bytes and all,
 every round -- fixed 2026-10-04 (HANDOVER §8 4b).** A round now stops at the

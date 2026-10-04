@@ -271,11 +271,13 @@ Stated plainly, because a version number invites the opposite assumption:
 
 - **Not tested at scale.** Three machines and two accounts, all belonging to one
   person. Nothing here has met a stranger.
-- **Not proven at a terabyte.** A quiet round costs 8 KB and a change lists
-  about its own chunks, but the full ledger walk every three and a half days
-  lists the whole account: about 150 MB a day averaged at that size, over the
-  100 MB budget, idle or not. The arithmetic is in `docs/DESIGN.md` §6.5 rather
-  than in a reassurance.
+- **Not proven at a terabyte.** A quiet round costs 8 KB, a change lists about
+  its own chunks, and since 2026-10-04 the ledger walk every three and a half
+  days lists only the buckets where the peer's summary differs, re-stamping the
+  rest without the wire. By arithmetic an idle terabyte is now inside the
+  100 MB a day budget; nothing has been measured at that size, and each machine
+  now reads a slice of its disk every round to keep its summary honest. The
+  arithmetic is in `docs/DESIGN.md` §6.5 rather than in a reassurance.
 - **Not yet safe among strangers.** The 30/70 storage bargain is enforced by
   the honest client only; a rebuilt client can take more than it gives.
   `docs/ROADMAP.md` lists what an adversarial sweep found and did not fix.
