@@ -34,14 +34,16 @@ commit or per CI run, which is where the tokens went. Outside major steps, only
 when Nicolas asks. (Nicolas, 2026-09-24; this replaced "only on explicit
 request" from the same day.)
 
-**Subagents, when a job is worth a cold start.** Nicolas's user-level roster
-(`~/.claude/agents/`, registry in its `README.md`, not versioned here):
-`itsanas-redteam` (a step's diff, before Rodin), `itsanas-docs-sweeper` (stale
-restatements after a change), `itsanas-fleet-user` (a persona following the
-docs literally in throwaway HOMEs; its findings become §8 items, as 0q did),
-`itsanas-lead` (between steps: circles, rabbit holes, token drift,
-regressions), `agents-curator` (keeps the roster lean). Platform facts are the
-`integrateur` skill, not an agent. None of them merges, pushes or decides.
+**Subagents, when a job is worth a cold start.** Versioned in
+[`.claude/agents/`](.claude/agents/README.md), shared with itsaresume, so
+cloud sessions have them too: `locator` (before code: exact places and
+names, so the main context stops reading large files blind), `redteam` (the
+finished diff, before push; Rodin has had the plan), `docs-sweeper` (after
+the code is final: catalogue, counts, stale prose, gates), `persona-user`
+(the docs followed literally, before a release). None of them merges, pushes
+or decides. Nicolas's user-level roster in `~/.claude/agents/` is superseded
+by these where names overlap; `itsanas-lead` and `agents-curator` were
+judged redundant with Rodin on 2026-10-04.
 
 ## AI code reviewer (CI)
 
