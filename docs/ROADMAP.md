@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**928 test functions, 4 of them `#[ignore]`d into the slow job, and 165 of
+**929 test functions, 4 of them `#[ignore]`d into the slow job, and 166 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1872,7 +1872,8 @@ has changed", and paid in full for it every five minutes.
 
 **A round now asks for a summary first**: one hash over the chunk id space,
 split into 256 buckets. Agreement ends the exchange — the ordinary round costs
-about a hundred bytes whatever the account weighs. Disagreement names the
+8 KB of bucket digests whatever the account weighs (written as "about a hundred
+bytes" here until 2026-10-04; the host sends all 256 digests). Disagreement names the
 buckets that differ and only those are listed, so the cost follows the
 *difference* rather than the size. That is the property that makes this
 affordable at a scale nobody has arbitrated.
@@ -1908,14 +1909,17 @@ could re-stamp those records locally and list only the differing buckets; the
 price is that a replayed summary would be believed past `REFRESH_AFTER`, with
 the audit the only check left (HANDOVER §8 4b).
 
-**A peer with a smaller budget is re-offered what it refused, bytes and all,
-every round.** Read in the code on 2026-10-04, not measured. A host that refuses
+**A peer with a smaller budget was re-offered what it refused, bytes and all,
+every round -- fixed 2026-10-04 (HANDOVER §8 4b).** A round now stops at the
+first pledge refusal, and for an hour (`FULL_RETRY`) asks that peer only about
+what it is recorded as holding; then one ordinary round probes. What it was: A host that refuses
 a chunk (`Offer::Refused`) leaves no record for it, so the next round finds it
 stale, asks about it, and sends it again; `ask` in
 `itsanas-net/src/session.rs` does not stop at the first refusal and nothing
 remembers one. Against a phone holding a slice of a large account that is the
 whole unheld remainder uploaded and refused every five minutes -- far above
-anything the listing costs. No test covers it.
+anything the listing costs. Now tested by
+`red_team_a_full_peer_is_not_sent_what_it_refused_round_after_round`.
 
 **What a round still costs locally, stated because "one hash on the wire" hides
 it.** A quiet round performs two O(account) scans of the local index — one to

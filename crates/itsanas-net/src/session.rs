@@ -267,9 +267,10 @@ fn sweep(
     client: &mut PeerClient,
     report: &mut PushReport,
     only: Option<&[u8]>,
+    full: &mut Full,
 ) -> Result<()> {
     let Some(buckets) = only else {
-        return walk(store, client, report, None, None);
+        return walk(store, client, report, None, None, full);
     };
 
     // Each bucket is a contiguous range of the index, because its number is the
@@ -281,7 +282,14 @@ fn sweep(
     buckets.sort_unstable();
     buckets.dedup();
     for bucket in buckets {
-        walk(store, client, report, Some(bucket), bucket_floor(bucket))?;
+        walk(
+            store,
+            client,
+            report,
+            Some(bucket),
+            bucket_floor(bucket),
+            full,
+        )?;
     }
     Ok(())
 }
@@ -303,12 +311,21 @@ fn bucket_floor(bucket: u8) -> Option<ChunkId> {
 /// With `bucket`, stops at the end of that bucket and asks only about chunks
 /// with no fresh record for this peer; without, walks everything and asks
 /// about all of it.
+/// Whether the peer is full, and when "now" is, for one round's walks.
+struct Full {
+    now: u64,
+    /// Set at the start of the round from the last refusal, and the moment a
+    /// refusal arrives during it.
+    yes: bool,
+}
+
 fn walk(
     store: &Store,
     client: &mut PeerClient,
     report: &mut PushReport,
     bucket: Option<u8>,
     after: Option<ChunkId>,
+    full: &mut Full,
 ) -> Result<()> {
     let peer = client.peer_device();
     let mut cursor = after;
@@ -328,8 +345,15 @@ fn walk(
             page = store.without_fresh_record(&page, &peer)?;
         }
 
+        // A full peer would refuse what it lacks, so asking about chunks it has
+        // no record for buys nothing. What it is recorded as holding is still
+        // asked, on the same rules: that is what keeps those records honest.
+        if full.yes {
+            page = store.with_record(&page, &peer)?;
+        }
+
         if !page.is_empty() {
-            ask(store, client, report, &page)?;
+            ask(store, client, report, &page, full)?;
         }
 
         match next {
@@ -347,6 +371,7 @@ fn ask(
     client: &mut PeerClient,
     report: &mut PushReport,
     batch: &[ChunkId],
+    full: &mut Full,
 ) -> Result<()> {
     let owner = store.owner();
     let peer = client.peer_device();
@@ -376,6 +401,11 @@ fn ask(
     store.forget_holders(&missing, &peer)?;
 
     for address in missing {
+        // The peer said it is full. Every further offer is a chunk's bytes on
+        // the wire to be refused, which is what this stops.
+        if full.yes {
+            break;
+        }
         let Some(sealed) = store.blobs().get(&address)? else {
             // Collected between listing and sending. Not an error.
             continue;
@@ -383,10 +413,16 @@ fn ask(
 
         report.chunks_offered += 1;
         let len = sealed.len() as u64;
-        if report.record(client.store_chunk(owner, address, sealed)?) {
+        let offer = client.store_chunk(owner, address, sealed)?;
+        let pledge_full = matches!(offer, Offer::Refused(Refusal::PledgeFull));
+        if report.record(offer) {
             report.chunks_accepted += 1;
             report.bytes_sent = report.bytes_sent.saturating_add(len);
             confirmed.push(address);
+        }
+        if pledge_full {
+            store.note_peer_full(&peer, full.now)?;
+            full.yes = true;
         }
     }
 
@@ -394,6 +430,19 @@ fn ask(
     store.record_holders(&confirmed, &peer)?;
     Ok(())
 }
+
+/// How long a peer that refused a chunk for a full pledge is treated as full.
+///
+/// While it is, a round asks it only about chunks it is recorded as holding and
+/// offers it nothing. Without this a full peer was asked about every chunk it
+/// lacked and sent each one's bytes, refused, every round: against a phone
+/// holding a tenth of a terabyte that is fifteen million ids -- 480 MB -- and
+/// the bytes behind them, every five minutes. Once this has passed, the next
+/// round is ordinary and serves as the probe: it asks one page of what the peer
+/// lacks and offers until the first refusal, so finding out whether the peer
+/// has room again costs about 32 KB and one chunk, an hour. A peer whose owner
+/// raised its pledge waits at most this long to be offered more.
+const FULL_RETRY: u64 = 60 * 60;
 
 /// What a summary exchange concluded.
 enum Reconciled {
@@ -668,7 +717,13 @@ pub fn push_scoped(store: &Store, client: &mut PeerClient, scope: Scope) -> Resu
         Reconciled::Buckets(buckets) => Some(buckets),
     };
 
-    sweep(store, client, &mut report, only.as_deref())?;
+    let mut full = Full {
+        now,
+        yes: store
+            .peer_full_since(&peer)?
+            .is_some_and(|since| since >= now.saturating_sub(FULL_RETRY)),
+    };
+    sweep(store, client, &mut report, only.as_deref(), &mut full)?;
 
     // The clock restarts only after a walk that really was full: a round that
     // listed a few buckets has said nothing about the rest, so claiming it had

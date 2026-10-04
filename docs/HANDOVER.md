@@ -9,16 +9,28 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.4b
-TITLE: stop re-offering a peer the chunks it refused, bytes and all, every round
+NEXT: 8.4c
+TITLE: an agreeing bucket re-stamps its records, and the host checks its index against its disk
 WRITTEN-AT: 2026-10-04
-BASE: a7fe166
+BASE: 42b7be2
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-04, §8 4b: a full peer is not re-sent what it refused** (branch
+`step/8.4b-refused-reoffer`). `ask` stops offering at the first
+`Refusal::PledgeFull` and stamps the peer (index table `peer_full`); for
+`FULL_RETRY` (1 h, `session.rs`) a round asks that peer only about chunks it
+has a record for (`Index::with_record`) and offers nothing; then one ordinary
+round probes. Verified: 1 red-team test, 4 sabotages red. Also corrected: the
+summary is 256 digests, 8 KB a round on the wire, not "thirty-two bytes"
+(DESIGN §6.7, ROADMAP, FIRST-STEPS). §10 8 decided under Nicolas's delegation
+("if it is a no-brainer, do it"): yes, *with* the host-side disk check, see 4c.
+**Not verified:** nothing measured at size; a peer whose pledge grows waits up
+to an hour.
 
 **2026-10-04, §8 4a: a change asks only about what the peer has not
 confirmed** (branch `step/8.4a-narrowed-sweep`). Within a bucket the summary
@@ -38,24 +50,7 @@ round (now §8 4b). **Not verified:** nothing measured at size; disk cost on an
 SD card. Trap: the first fixture put no confirmed chunk in the new chunks'
 buckets, and its guard assertion is what said so.
 
-**2026-10-01, final fixes of the run's verification pass** (branch
-`step/final-redteam-fixes`; not a §8 step). Five findings of an
-`itsanas-redteam` pass over `8701222..main`, each re-read in the code first:
-`register` refuses after `leave` (Android has no `leave`, so its half did not
-hold); `leave` keeps the claim and its slot and says to run `itsanas device
-forget <id>` elsewhere; a derived home with no node is refused when the other
-of HOME/USERPROFILE holds one (`config::stranded_node`), and `migrate`'s advice
-says the old unit restart-loops; `Index::open` waits out a lock for up to 2 s
-(`LOCK_PATIENCE`) so an `is_locked` probe cannot keep a starting daemon down;
-`held_for_others` reads a per-owner running total (table vault_owner_chunk_bytes)
-instead of two walks; a pull charges the synced folder's copy too
-(`FolderCopy`: twice on the home's volume, the folder volume's free space
-otherwise). Verified: 9 tests, 11 sabotages red. **Not verified:** no CLI run
-by hand; the Windows drive-prefix comparison runs only in CI; a command beside
-a running daemon now takes 2 s to say `Locked`. Trap: a Python edit script
-run through `runpy` executes its module-level code twice.
-
-Older §0 entries, 2026-09-14 to 2026-10-01 (the folder-reports entry and before), moved verbatim
+Older §0 entries, 2026-09-14 to 2026-10-01 (the final-fixes entry and before), moved verbatim
 to [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md): history, not instructions.
 The rules that still bind are in §3, §4b and §11.
 
@@ -1474,31 +1469,34 @@ Detail and measurements are in ROADMAP.md; this is the map.
    record for that peer.** Built 2026-10-04 (see §0). A change of D chunks now
    lists about D, against a peer that takes what it is offered.
 
-   b. **Stop re-offering a peer the chunks it refused.** Read in code
-   2026-10-04, not measured: `StoreChunk` carries the bytes and the host
-   answers `Refused(PLEDGE_EXHAUSTED)` only after receiving them
-   (`crates/itsanas-net/src/service.rs`, the `StoreChunk` arm); a refusal
-   leaves no holder record, so the next round finds the chunk stale, asks
-   about it and sends it again; `ask` in `session.rs` keeps going after the
-   first `Offer::Refused` and nothing remembers one. Against a phone holding a
-   slice of a large account, that is the unheld remainder uploaded every five
-   minutes. First write the test that measures it: a host with
-   `Pledge` smaller than the account, two rounds, assert the second round's
-   `chunks_offered` (and `bytes_sent`) is zero or bounded. Then the fix,
-   smallest first: stop offering in a round after the first pledge refusal
-   (the host said it is full; `PushReport::refusal` already carries why), and
-   decide whether a refusal should be remembered across rounds (a per-peer
-   "full since" stamp, reset when the peer's free space grows) -- the first
-   alone still asks about every unheld chunk every round, 32 bytes each.
-   Watch placement: refusing to offer must not stop a chunk reaching *another*
-   peer. Red-team test expected: the second round sends no bytes to a full
-   host; sabotage by removing the stop, the bytes come back.
+   b. ✅ **Stop re-offering a peer the chunks it refused.** Built
+   2026-10-04 (see §0).
 
    c. **The full walk itself.** It lists the whole account per peer every
    `REFRESH_AFTER`: 537 MB every 3.5 days at 1 TB, about 150 MB a day, over
-   budget on its own. The cheap lever is a trust decision, §10 8: an agreeing
-   bucket hash confirms every chunk in it, so the walk could re-stamp those
-   records locally and list only differing buckets. Waits on Nicolas.
+   budget on its own. Decided (§10 8): an agreeing bucket re-stamps its
+   records, **and the host checks its index against its disk**, built
+   together -- one without the other is the downside §10 8 names.
+   (i) Host side, `crates/itsanas-store/src/vault.rs`: the summary
+   (`Vault::chunk_summary`, ~472) reads the `CHUNKS` table while `HaveChunks`
+   reads the blob file (`service.rs` `chunk`, ~421), and the index is
+   realigned with the disk only after an unclean close
+   (`reconcile_chunks_if_needed`, ~506). Add a rolling check: each service
+   round, a slice of `CHUNKS` rows (cursor kept in `TOTALS` or a new table) is
+   checked with `blobs.contains`; a row with no file is removed (and its
+   bytes from the totals), so the summary changes and the owner's next round
+   lists that bucket. Size the slice so a full pass takes at most
+   `REFRESH_AFTER` at 1 TB (~55 rows/s; a few thousand per five-minute
+   round). (ii) Owner side, `push_scoped` in `session.rs`: on a due walk,
+   list only the differing buckets (with no freshness filter inside them) and
+   re-stamp, without the wire, the records of chunks in agreeing buckets
+   (a new `Index::restamp_bucket(device, bucket, now)` over `live_chunks_page`
+   ranges, writing only rows older than `REFRESH_AFTER`). Red-team tests
+   expected: a host that loses a blob file with its index intact is found
+   within one pass of the check (sabotage: skip the check, the summary still
+   agrees); an idle due walk lists zero chunks and leaves the records fresh
+   (sabotage: list everything again, the count comes back); against a
+   peer with a smaller budget nothing changes (every bucket differs).
 
 5. **A real phone**, and a release signing key for the APK that Nicolas holds
    (v0.1.0 ships with the development key).
@@ -1606,7 +1604,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
    by the coordinator: option 2's roster would be at most five entries, a
    bounded object to sign and ship. That prepares it; nothing of it is built.
 
-8. **May an agreeing bucket hash re-stamp holder records?** (§8 4c.) Today
+8. ✅ **May an agreeing bucket hash re-stamp holder records?** (§8 4c.) **Decided 2026-10-04, yes, with the host-side check**, under Nicolas's delegation for no-brainers once the downside was closed: the summary is read from the vault index, `HaveChunks` from the file, so an honest host whose disk lost files kept agreeing; the rolling check makes its summary as good as the walk. A dishonest host gains nothing: `HaveChunks` was self-reported too. The question as it stood: Today
    records are re-stamped only by a listing, and the full walk that lists
    everything every `REFRESH_AFTER` costs about 150 MB a day per peer at a
    terabyte, over the 100 MB criterion. If yes: the walk lists only the

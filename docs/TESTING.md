@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-04 — 928 test functions across 29 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 165 are red-team tests.**
+**Last updated: 2026-10-04 — 929 test functions across 29 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 166 are red-team tests.**
 
-**812 of the 928 tests have an entry of their own on this page** — an *entry*,
+**813 of the 929 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -163,7 +163,7 @@ guarantee and is not one.
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
 | `itsanas-net` unit | 43 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 53 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 54 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 114 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
@@ -807,7 +807,7 @@ and is catalogued with that crate.
 
 ---
 
-# `itsanas-net` — two-node tests (53)
+# `itsanas-net` — two-node tests (54)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -846,6 +846,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_round_that_has_nothing_to_say_says_it_in_one_hash`** | The cost that made a terabyte impossible: a round asked its peer about every chunk it held, every time — a two-thousandth of the account per round, a hundred and forty gigabytes a day at a terabyte, to learn what is almost always "nothing has changed". Asserts the idle round lists **zero** chunks, that a change lists a slice rather than the account, and that the periodic ledger walk still happens — because a round that never touches the ledger lets every record age out of countable in silence, and `release` destroys local data on the strength of them. Fails when the reconciliation is bypassed. |
 | **`red_team_a_change_asks_only_about_what_the_peer_has_not_confirmed`** | Listing a named bucket whole cost 2.1 MB per bucket at a terabyte, so one saved photograph cost 2.1 MB a peer and the 100 MB/day budget bought three megabytes of change a day. After a full round, a new file must ask about exactly its own new chunks, though confirmed chunks share their buckets (the fixture asserts they do). Red when the freshness filter is removed, and when a bucket's range starts past its first chunk. |
 | **`red_team_a_chunk_the_peer_silently_dropped_is_found_by_the_next_full_walk`** | What narrowing gives up, and its bound: a narrowed round does not ask about a chunk the peer confirmed recently and then threw away in silence; the full walk, due every `REFRESH_AFTER` (inside `LIVE_FOR`), must, and puts it back. Red when the freshness filter reaches the full walk -- the drop would then go unseen by the sweep for good. |
+| **`red_team_a_full_peer_is_not_sent_what_it_refused_round_after_round`** | A refusal leaves no holder record, so a host with a smaller pledge was asked about every chunk it lacked and sent each one's bytes, refused, every round -- the unheld remainder of a terabyte every five minutes against a phone. Asserts the round stops at the first refusal, the next round sends nothing and asks only about what the host is recorded as holding, and after `FULL_RETRY` one round probes again. Red when any of the four is removed: the in-round stop, the remembered refusal, the record filter, the retry. |
 | **`a_peer_that_never_agrees_still_gets_its_ledger_walked`** | The defect a review found in the first reconciliation, and the one that would have reached a person as "ITSaNAS says my data is nowhere and refuses to free any space". The freshness guard was consulted only in the branch where the two sides *agree* — and a peer whose storage budget is smaller than the account disagrees on every round, by design, so the walk was never due, never performed and never stamped. Fourteen days later `coverage` reports no copies and `release` refuses, on an account where nothing has gone wrong. Fails when the guard goes back inside the arm. |
 | **`a_file_this_device_never_downloaded_can_be_fetched_when_it_is_asked_for`** | The capability the storage budget rests on, and which did not exist when the budget shipped: a device lists a file it does not hold, and opening it goes and gets it — that one file, not the account. Without this, `keep` produces files that are visible and unopenable, and a phone client is a browser for things you cannot read. |
 | **`a_file_this_device_made_and_released_can_be_fetched_back_from_a_host`** | The worse half of the same defect, and the one that only showed itself once the listing was fixed: opening a released file still answered "no such file" while two hosts held it. `apply_segments` skips a device's own chain, on the reasoning that its own state already reflects it — untrue the moment content can be released. A listed file that cannot be opened looks like corruption; a file that is not listed looks like a device that has not synced. Fails when the replay mode is put back to `OthersOnly`. |
