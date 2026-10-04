@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.4
-TITLE: verification at a terabyte -- within a differing bucket, ask only about chunks with no fresh record for that peer
-WRITTEN-AT: 2026-10-01
-BASE: 4133283
+NEXT: 8.4b
+TITLE: stop re-offering a peer the chunks it refused, bytes and all, every round
+WRITTEN-AT: 2026-10-04
+BASE: a7fe166
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,9 +20,23 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**Autonomous run 2026-09-30/10-01 ended** with the PR below. What waits on
-Nicolas is §10 (decisions only he takes) and the three findings it named
-without fixing (ROADMAP "Named by the final verification pass"). NEXT is §8 4.
+**2026-10-04, §8 4a: a change asks only about what the peer has not
+confirmed** (branch `step/8.4a-narrowed-sweep`). Within a bucket the summary
+names, `sweep` (`crates/itsanas-net/src/session.rs`, now `sweep`/`walk`/`ask`/
+`bucket_floor`) asks only about chunks with no record for that peer younger
+than `REFRESH_AFTER` (`Index::without_fresh_record`, the same rule
+`record_holders` writes by), and reads only those buckets' index ranges. The
+full walk, due every `REFRESH_AFTER`, still asks about everything. Verified: 2
+red-team tests, 3 sabotages red (filter removed, filter in the full walk,
+bucket range starting past its first chunk); `cargo test -p itsanas-net -p
+itsanas-store` green. **Found doing the arithmetic:** FIRST-STEPS said an idle
+terabyte costs 600 KB a day; the full walk lists 537 MB per peer every 3.5
+days, about 150 MB a day, over budget -- already false before this change,
+corrected. **Found by Rodin, read in code, not measured:** a peer with a
+smaller budget is re-offered every chunk it refused, with the bytes, every
+round (now §8 4b). **Not verified:** nothing measured at size; disk cost on an
+SD card. Trap: the first fixture put no confirmed chunk in the new chunks'
+buckets, and its guard assertion is what said so.
 
 **2026-10-01, final fixes of the run's verification pass** (branch
 `step/final-redteam-fixes`; not a §8 step). Five findings of an
@@ -41,30 +55,7 @@ by hand; the Windows drive-prefix comparison runs only in CI; a command beside
 a running daemon now takes 2 s to say `Locked`. Trap: a Python edit script
 run through `runpy` executes its module-level code twice.
 
-**2026-10-01, folder reports name files and recognise a rename** (branch
-`step/folder-reports-renames`; not a §8 step, the second "not timid on
-features" PR, chosen over §8 4 because every user reads these lines every
-day and a move shown as "1 deleted locally" sends people to restore files
-they only moved, while 4 matters only past a few hundred GB).
-`ReconcileReport` gains two rename lists, here and elsewhere (one deletion
-and one addition of the same non-empty bytes in one pass, unambiguous only),
-`summary` counts a rename once, `lines(limit)` names every file; `itsanas
-scan` prints all, `sync` and the daemon every deletion and conflict, then
-the first `LINES_IN_A_LOG` (20) others, and count the rest. Report only: the
-store and the log still do delete + create. `itsanas-redteam` found two ways
-the report hid a deletion -- a log bound cutting deletions and conflicts
-into "N more", and one of two identical copies deleted shown as `mv` -- both
-fixed and tested; it suspects (older, untested) that a file name holding a
-newline can forge a log line. Verified: 6 functional tests, 7 sabotages red.
-**Not verified:** no CLI run by hand; Android shows no per-file report.
-Others named and left: §8 4; a "listed only" phone mode (ROADMAP M12); the
-tray showing the folder's state; `fetch_only`/`drain_vault`/budgeted
-`keeping::round` still failing whole on one refused chain. Traps: Python
-`write_text` on Windows writes CRLF (use `write_bytes`);
-`check-catalogue.sh` reads any backticked snake_case name in a doc as a test
-name.
-
-Older §0 entries, 2026-09-14 to 2026-10-01 (2e and before), moved verbatim
+Older §0 entries, 2026-09-14 to 2026-10-01 (the folder-reports entry and before), moved verbatim
 to [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md): history, not instructions.
 The rules that still bind are in §3, §4b and §11.
 
@@ -1476,22 +1467,39 @@ Detail and measurements are in ROADMAP.md; this is the map.
       nonce (tags equal) and by an unkeyed hash (a stranger holding the user
       id recognises it). §6's `red_team_the_user_id_never_appears_on_the_wire`
       must stay green.
-4. **Verification at a terabyte.** Within a differing bucket, ask only about
-   chunks with no fresh record for that peer (DESIGN.md §6.5). Today the budget
-   buys about 3 MB of change a day at 1 TB.
-   Chosen as `NEXT` on 2026-10-01: §8 2 is finished, 3c waits on Nicolas, and
-   this needs nobody. Not yet read for this beyond locating it: the sweep is
-   `sweep` in `crates/itsanas-net/src/session.rs` (~244), narrowed to the
-   buckets the 256-bucket summary names (`Reconciled::Buckets`, ~612);
-   freshness is `holders::REFRESH_AFTER` / `LIVE_FOR`
-   (`crates/itsanas-store/src/holders.rs` ~470-500). DESIGN.md §6.5 has the
-   table to beat (1 differing chunk at 1 TB lists 2.1 MB) and names the
-   second cost: `sweep` pages the whole live-chunk index even for one bucket.
-   Watch the agreement rule (§6.7, ~593): a chunk not asked about must not
-   lose its fresh record. Red-team test expected: one changed chunk in a
-   bucket of many fresh ones lists only the stale ones; sabotage by asking
-   about the whole bucket again (the count goes back up); and a chunk the
-   peer silently dropped is still found within `LIVE_FOR`.
+4. **Verification at a terabyte.** The criterion: under 100 MB a day to verify
+   under a terabyte (DESIGN.md §6.5). Not met yet; three steps.
+
+   a. ✅ **Within a differing bucket, ask only about chunks with no fresh
+   record for that peer.** Built 2026-10-04 (see §0). A change of D chunks now
+   lists about D, against a peer that takes what it is offered.
+
+   b. **Stop re-offering a peer the chunks it refused.** Read in code
+   2026-10-04, not measured: `StoreChunk` carries the bytes and the host
+   answers `Refused(PLEDGE_EXHAUSTED)` only after receiving them
+   (`crates/itsanas-net/src/service.rs`, the `StoreChunk` arm); a refusal
+   leaves no holder record, so the next round finds the chunk stale, asks
+   about it and sends it again; `ask` in `session.rs` keeps going after the
+   first `Offer::Refused` and nothing remembers one. Against a phone holding a
+   slice of a large account, that is the unheld remainder uploaded every five
+   minutes. First write the test that measures it: a host with
+   `Pledge` smaller than the account, two rounds, assert the second round's
+   `chunks_offered` (and `bytes_sent`) is zero or bounded. Then the fix,
+   smallest first: stop offering in a round after the first pledge refusal
+   (the host said it is full; `PushReport::refusal` already carries why), and
+   decide whether a refusal should be remembered across rounds (a per-peer
+   "full since" stamp, reset when the peer's free space grows) -- the first
+   alone still asks about every unheld chunk every round, 32 bytes each.
+   Watch placement: refusing to offer must not stop a chunk reaching *another*
+   peer. Red-team test expected: the second round sends no bytes to a full
+   host; sabotage by removing the stop, the bytes come back.
+
+   c. **The full walk itself.** It lists the whole account per peer every
+   `REFRESH_AFTER`: 537 MB every 3.5 days at 1 TB, about 150 MB a day, over
+   budget on its own. The cheap lever is a trust decision, §10 8: an agreeing
+   bucket hash confirms every chunk in it, so the walk could re-stamp those
+   records locally and list only differing buckets. Waits on Nicolas.
+
 5. **A real phone**, and a release signing key for the APK that Nicolas holds
    (v0.1.0 ships with the development key).
 
@@ -1597,6 +1605,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
    Since 2026-10-01 (§8 2d) an account has at most 5 live devices, enforced
    by the coordinator: option 2's roster would be at most five entries, a
    bounded object to sign and ship. That prepares it; nothing of it is built.
+
+8. **May an agreeing bucket hash re-stamp holder records?** (§8 4c.) Today
+   records are re-stamped only by a listing, and the full walk that lists
+   everything every `REFRESH_AFTER` costs about 150 MB a day per peer at a
+   terabyte, over the 100 MB criterion. If yes: the walk lists only the
+   buckets that differ and re-stamps the rest locally, so an idle terabyte
+   really costs a hash a round. The price: a host that replays an old summary
+   is believed past `REFRESH_AFTER` -- today for at most that long -- and only
+   the storage audit (sixteen chunks a round) can contradict it, so a host that
+   threw data away and replays its old hash keeps counting as a copy until the
+   audit lands on a missing chunk. If no: 4c needs a tree summary or a longer
+   walk interval, both slower to build and the second a weaker freshness
+   rule.
 
 ## 11. Working style Nicolas expects
 

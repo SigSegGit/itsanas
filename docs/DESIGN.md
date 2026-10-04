@@ -597,46 +597,63 @@ refusal. **That is gone.** §6.7 replaced it with a 256-bucket set summary: two
 sides that agree spend one hash, whatever the account weighs, and an idle round
 now lists nothing at all.
 
-What is left is what a *change* costs, and at a terabyte it is still the
-binding constraint:
+What is left is what a *change* costs. The summary names the buckets that
+differ; what is asked *within* them decides the bill, and that went through
+two versions.
 
-| Chunks that differ | Buckets named | Listed, at 1 TB |
+**Until 2026-10-04 a named bucket was listed whole.** A bucket is a
+two-hundred-and-fifty-sixth of the id space, so at 16.8 million chunks it holds
+about 65,500 of them and cost 2.1 MB to list. Chunk ids are hashes and therefore
+uniform, so *D* differing chunks name `256·(1−(255/256)^D)` buckets:
+
+| Chunks that differ | Buckets named | Listed whole, at 1 TB |
 | --- | --- | --- |
 | 1 | 1 | 2.1 MB |
 | ~50 (3 MB of files) | 48 | 100 MB |
 | 100 (6 MB) | 83 | 174 MB |
 | 1 000 (64 MB) | 251 | 527 MB |
 
-A bucket is a two-hundred-and-fifty-sixth of the id space, so at 16.8 million
-chunks it holds about 65,500 of them and costs 2.1 MB to list. Chunk ids are
-hashes and therefore uniform, so *D* differing chunks name
-`256·(1−(255/256)^D)` buckets — which reaches every bucket at about a thousand.
+At 1 TB that budget bought roughly three megabytes of change a day against one
+peer. The figure that had been sitting in `MVP.md` -- **129 MB/day** -- is a
+*disk-write* measurement on a Raspberry Pi, a different quantity in the same
+unit, and for a week it read as though the budget were met.
 
-**So, plainly: at 1 TB the budget buys roughly three megabytes of change a day
-against one peer.** An idle terabyte is free — a hash and sixteen challenges,
-about 600 KB a day, sixty times inside the budget. A terabyte where somebody
-saved a photograph is not. At 10 GB the same arithmetic gives 21 KB a bucket
-and the budget is never in danger; the constraint appears somewhere between
-those two, and where exactly depends on how much changes rather than on how
-much is stored.
+**Now, within a named bucket, only the chunks with no fresh record for that
+peer are asked about** (`sweep` in `itsanas-net/src/session.rs`): the new ones,
+and the ones the peer last confirmed more than `REFRESH_AFTER` ago. A change of
+*D* chunks lists those *D*, 32 bytes each, plus whatever in the same buckets the
+peer confirmed between two full walks and has not been asked about since --
+bounded by what changed in the last three and a half days, not by the size of
+the account. One saved photograph at a terabyte lists its own chunks rather
+than 2.1 MB; the 100 MB/day budget now covers about three million listed chunks
+a day, which is far more change than the link could carry anyway. Tested by
+`red_team_a_change_asks_only_about_what_the_peer_has_not_confirmed`. **Not
+measured** at a terabyte: the arithmetic is the claim. **And only against a peer
+that takes what it is offered.** A peer with a storage budget smaller than the
+account holds no record for what it refused, so every such chunk is stale,
+asked about, and offered again with its bytes, every round; `ask` does not stop
+at a refusal. Read in the code, not measured, and named in `docs/ROADMAP.md`.
 
-This is written here as a number rather than a reassurance because the figure
-that was sitting in `MVP.md` — **129 MB/day** — is a *disk-write* measurement on
-a Raspberry Pi, a different quantity in the same unit and the same order of
-magnitude, occupying the place where this answer should have been. It was there
-for a week and it reads as though the budget were met.
+**What that gives up, and the bound on it.** A narrowed round takes a fresh
+record at its word, so a peer that silently drops a chunk it confirmed recently
+is not caught by it. That is a step back, stated as one: before, the drop made
+its bucket differ and the very next round asked about it; now it waits for the
+walk. The full walk of the ledger asks about everything,
+whatever the records say, and is due at most `REFRESH_AFTER` after the last one
+-- inside `LIVE_FOR`, the window in which repair counts that record anyway.
+Tested by
+`red_team_a_chunk_the_peer_silently_dropped_is_found_by_the_next_full_walk`.
+The audit and the peer's own drop notice still apply as before. The full walk
+itself still lists the whole account once every `REFRESH_AFTER` per peer: at a
+terabyte, 537 MB every three and a half days, about 150 MB a day averaged --
+**over the budget on its own**, and the next number to beat.
 
-**The fix is known and not built,** and it is the same one this section named
-before the summary existed: ask only about the chunks with no fresh ledger
-record for that peer, which the ledger already knows, instead of every chunk in
-a named bucket. The summary decides *where* to look; nothing yet narrows *what*
-is asked within it. See `docs/ROADMAP.md`.
-
-**And the local cost is not the wire cost.** `sweep` pages the whole live-chunk
-index and filters to the named buckets (`itsanas-net/src/session.rs`), so a
-single differing bucket still walks every row this device holds. The network
-saving is real and the disk read is not: at a terabyte on an SD card that is
-the number to watch next, and it has not been measured.
+**And the local cost is not the wire cost.** A narrowed round reads only the
+named buckets' ranges of the index -- the bucket is the first byte of the id,
+so each one is contiguous -- plus one ledger lookup per row read. It used to
+page the whole live-chunk index and filter. Two O(account) scans remain on
+every round that differs, described in `docs/ROADMAP.md`: the summary itself
+and `refresh_released`. None of this has been measured on an SD card.
 
 
 ### 6.6 Why not sample random blocks inside a chunk
@@ -699,9 +716,9 @@ going soft.
 §6.5 has the table: past about a thousand differing chunks every bucket is
 named and the round is the full listing again, plus the summary. A flat table of
 256 buckets cannot do better — following the *logarithm* of the difference needs
-a tree, and that is not built. Nor does it help the disk: `sweep` still pages
-the whole live-chunk index and filters to the named buckets, so one differing
-bucket still walks every row this device holds.
+a tree, and that is not built. What is asked within a named bucket is §6.5's
+business: only the chunks with no fresh record for that peer, read from that
+bucket's range of the index alone.
 
 **A malformed summary is an error, not a shortcut.** A wrong-length answer was
 briefly treated as "compare what overlaps", which would have reported agreement

@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**926 test functions, 4 of them `#[ignore]`d into the slow job, and 163 of
+**928 test functions, 4 of them `#[ignore]`d into the slow job, and 165 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1891,6 +1891,31 @@ Three things it deliberately does not do:
 * **It does not assume the peer can answer.** Below `PROTOCOL_WITH_CHUNK_SUMMARY`,
   or on any unexpected answer, the round lists everything exactly as before. An
   optimisation that can break a sync is not one.
+
+**Within a named bucket, only what the peer has not confirmed lately is asked
+(2026-10-04).** Listing a named bucket whole cost 2.1 MB per bucket at a
+terabyte, so one saved photograph cost 2.1 MB a peer. A narrowed round now asks
+only about chunks with no record for that peer younger than `REFRESH_AFTER`,
+and reads only those buckets' ranges of the index; the full walk, due every
+`REFRESH_AFTER`, still asks about everything and is what finds a chunk the peer
+dropped silently. Arithmetic in `docs/DESIGN.md` §6.5. **Still over budget at a
+terabyte:** that full walk lists 537 MB per peer every three and a half days,
+about 150 MB a day averaged. Narrowing the walk itself -- asking only what the
+peer has not confirmed within `LIVE_FOR`, or a tree summary -- is the next lever
+and is not built. The cheapest one is a trust decision rather than an
+optimisation: an agreeing bucket hash confirms every chunk in it, so the walk
+could re-stamp those records locally and list only the differing buckets; the
+price is that a replayed summary would be believed past `REFRESH_AFTER`, with
+the audit the only check left (HANDOVER §8 4b).
+
+**A peer with a smaller budget is re-offered what it refused, bytes and all,
+every round.** Read in the code on 2026-10-04, not measured. A host that refuses
+a chunk (`Offer::Refused`) leaves no record for it, so the next round finds it
+stale, asks about it, and sends it again; `ask` in
+`itsanas-net/src/session.rs` does not stop at the first refusal and nothing
+remembers one. Against a phone holding a slice of a large account that is the
+whole unheld remainder uploaded and refused every five minutes -- far above
+anything the listing costs. No test covers it.
 
 **What a round still costs locally, stated because "one hash on the wire" hides
 it.** A quiet round performs two O(account) scans of the local index — one to

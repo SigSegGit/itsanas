@@ -1347,6 +1347,20 @@ impl Store {
         self.index.holdings_page(device, after, limit)
     }
 
+    /// Of `chunks`, the ones `device` has not confirmed holding within
+    /// [`crate::holders::REFRESH_AFTER`]. See [`Index::without_fresh_record`].
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn without_fresh_record(
+        &self,
+        chunks: &[ChunkId],
+        device: &DeviceId,
+    ) -> Result<Vec<ChunkId>> {
+        self.index.without_fresh_record(chunks, device, now_unix())
+    }
+
     pub fn forget_holders(&self, chunks: &[ChunkId], device: &DeviceId) -> Result<()> {
         self.index.forget_holders(chunks, device)
     }

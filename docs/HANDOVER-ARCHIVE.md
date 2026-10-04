@@ -11,6 +11,29 @@ both.
 
 ---
 
+**2026-10-01, folder reports name files and recognise a rename** (branch
+`step/folder-reports-renames`; not a §8 step, the second "not timid on
+features" PR, chosen over §8 4 because every user reads these lines every
+day and a move shown as "1 deleted locally" sends people to restore files
+they only moved, while 4 matters only past a few hundred GB).
+`ReconcileReport` gains two rename lists, here and elsewhere (one deletion
+and one addition of the same non-empty bytes in one pass, unambiguous only),
+`summary` counts a rename once, `lines(limit)` names every file; `itsanas
+scan` prints all, `sync` and the daemon every deletion and conflict, then
+the first `LINES_IN_A_LOG` (20) others, and count the rest. Report only: the
+store and the log still do delete + create. `itsanas-redteam` found two ways
+the report hid a deletion -- a log bound cutting deletions and conflicts
+into "N more", and one of two identical copies deleted shown as `mv` -- both
+fixed and tested; it suspects (older, untested) that a file name holding a
+newline can forge a log line. Verified: 6 functional tests, 7 sabotages red.
+**Not verified:** no CLI run by hand; Android shows no per-file report.
+Others named and left: §8 4; a "listed only" phone mode (ROADMAP M12); the
+tray showing the folder's state; `fetch_only`/`drain_vault`/budgeted
+`keeping::round` still failing whole on one refused chain. Traps: Python
+`write_text` on Windows writes CRLF (use `write_bytes`);
+`check-catalogue.sh` reads any backticked snake_case name in a doc as a test
+name.
+
 **2026-10-01, 2e: the Android app lists and withdraws devices** (branch
 `step/8.2e-android-devices`). Settings, "This account's devices": the
 coordinator's list, this phone marked, Withdraw beside the others, a

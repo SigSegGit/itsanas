@@ -271,9 +271,11 @@ Stated plainly, because a version number invites the opposite assumption:
 
 - **Not tested at scale.** Three machines and two accounts, all belonging to one
   person. Nothing here has met a stranger.
-- **Not proven at a terabyte.** An idle account of that size costs about 600 KB
-  a day to verify; one that changes costs roughly 2 MB per differing bucket, and
-  the arithmetic is in `docs/DESIGN.md` §6.5 rather than in a reassurance.
+- **Not proven at a terabyte.** A quiet round costs one hash and a change lists
+  about its own chunks, but the full ledger walk every three and a half days
+  lists the whole account: about 150 MB a day averaged at that size, over the
+  100 MB budget, idle or not. The arithmetic is in `docs/DESIGN.md` §6.5 rather
+  than in a reassurance.
 - **Not yet safe among strangers.** The 30/70 storage bargain is enforced by
   the honest client only; a rebuilt client can take more than it gives.
   `docs/ROADMAP.md` lists what an adversarial sweep found and did not fix.
