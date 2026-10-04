@@ -2200,7 +2200,10 @@ mod tests {
         assert_eq!(index.reference_count(&chunk(1)).unwrap(), 1);
         assert_eq!(index.reference_count(&chunk(2)).unwrap(), 1);
         assert_eq!(index.reference_count(&chunk(3)).unwrap(), 0);
-        assert!(index.unreferenced_chunks().unwrap().is_empty());
+        assert_eq!(
+            index.unreferenced_chunks().unwrap(),
+            [] as [(itsanas_crypto::ChunkId, u64); 0]
+        );
     }
 
     #[test]
@@ -2343,8 +2346,14 @@ mod tests {
         index.forget_chunk(&chunk(9)).unwrap();
 
         assert_eq!(index.reference_count(&chunk(9)).unwrap(), 0);
-        assert!(index.unreferenced_chunks().unwrap().is_empty());
-        assert!(index.referenced_chunks().unwrap().is_empty());
+        assert_eq!(
+            index.unreferenced_chunks().unwrap(),
+            [] as [(itsanas_crypto::ChunkId, u64); 0]
+        );
+        assert_eq!(
+            index.referenced_chunks().unwrap(),
+            [] as [itsanas_crypto::ChunkId; 0]
+        );
     }
 
     // -------------------------------------------------------------- holders
@@ -2433,11 +2442,9 @@ mod tests {
                 .is_empty(),
             "a device that holds nothing was asked something"
         );
-        assert!(
-            index
-                .chunks_to_challenge(&device(7), &[])
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            index.chunks_to_challenge(&device(7), &[]).unwrap(),
+            [] as [itsanas_crypto::ChunkId; 0]
         );
     }
 
@@ -3268,7 +3275,10 @@ mod tests {
         index.put_file("a", &entry(&[1])).unwrap();
         index.remove_file("a", &tombstone()).unwrap();
 
-        assert!(index.under_replicated(3, 1).unwrap().is_empty());
+        assert_eq!(
+            index.under_replicated(3, 1).unwrap(),
+            [] as [holders::AtRisk; 0]
+        );
     }
 
     #[test]
@@ -3284,7 +3294,10 @@ mod tests {
         index.forget_chunk(&chunk(1)).unwrap();
 
         assert_eq!(index.holder_records().unwrap(), 0);
-        assert!(index.remote_holders(&chunk(1)).unwrap().is_empty());
+        assert_eq!(
+            index.remote_holders(&chunk(1)).unwrap(),
+            [] as [holders::Holder; 0]
+        );
     }
 
     #[test]

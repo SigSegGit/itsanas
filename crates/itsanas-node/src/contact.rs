@@ -1294,7 +1294,10 @@ mod tests {
         let path = Contact::path(home.path());
         std::fs::write(&path, [0xff; 3]).expect("write");
         let (contact, warning) = Contact::load(&path, me());
-        assert!(contact.candidates().is_empty());
+        assert_eq!(
+            contact.candidates(),
+            [] as [(itsanas_crypto::DeviceId, std::string::String); 0]
+        );
         assert!(
             warning.is_some(),
             "a damaged book was dropped without a word"

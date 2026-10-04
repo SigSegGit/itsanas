@@ -335,7 +335,10 @@ mod tests {
     fn the_neighbourhood_is_empty_until_something_is_heard() {
         let hood = Neighbourhood::new();
         assert!(hood.is_empty());
-        assert!(hood.dial_order(&owner()).is_empty());
+        assert_eq!(
+            hood.dial_order(&owner()),
+            [] as [itsanas_discover::Candidate; 0]
+        );
     }
 
     /// One round of the daemon's dialling rule, without the sockets.
