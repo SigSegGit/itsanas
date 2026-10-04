@@ -300,11 +300,24 @@ struct InFlight<'a>(&'a AtomicUsize);
 
 impl<'a> InFlight<'a> {
     fn take(count: &'a AtomicUsize) -> Option<Self> {
-        let taken = count
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
-                (current < MAX_PROBES_IN_FLIGHT).then_some(current + 1)
-            })
-            .is_ok();
+        // A compare-exchange loop rather than `fetch_update`: Rust 1.99
+        // deprecated that name for `try_update`, which the MSRV (1.88) does
+        // not have, and CI denies warnings on the newest stable.
+        let mut current = count.load(Ordering::SeqCst);
+        let taken = loop {
+            if current >= MAX_PROBES_IN_FLIGHT {
+                break false;
+            }
+            match count.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break true,
+                Err(seen) => current = seen,
+            }
+        };
         // `then`, not `then_some`: `then_some` takes its argument by value, so
         // the guard would be *constructed* even when no slot was taken -- and
         // dropped an instant later, giving back a slot that was never held.

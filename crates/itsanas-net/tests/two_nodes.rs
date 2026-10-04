@@ -1460,7 +1460,7 @@ fn a_sync_round_records_which_peer_now_holds_this_nodes_data() {
         .expect("write")
         .chunks;
     laptop.store.flush_segment().expect("flush");
-    assert!(!chunks.is_empty());
+    assert_ne!(chunks, [] as [itsanas_crypto::ChunkId; 0]);
 
     for chunk in &chunks {
         assert!(
@@ -1794,7 +1794,10 @@ fn a_metadata_round_makes_the_file_listable_before_it_is_downloaded() {
     });
 
     // The index still holds nothing — no half-written state.
-    assert!(phone.store.list().expect("list").is_empty());
+    assert_eq!(
+        phone.store.list().expect("list"),
+        [] as [std::string::String; 0]
+    );
 
     let known = itsanas_store::catalogue(&phone.store, &phone.vault)
         .expect("catalogue")
@@ -2468,12 +2471,9 @@ fn a_paused_host_that_starts_answering_again_is_sent_data_again() {
 
     // Throughout, the log kept flowing, which is what keeps a paused peer able
     // to relay for devices that have done nothing wrong.
-    assert!(
-        !host
-            .vault
-            .heads_for(owner.store.owner())
-            .expect("heads")
-            .is_empty()
+    assert_ne!(
+        host.vault.heads_for(owner.store.owner()).expect("heads"),
+        [] as [(itsanas_crypto::DeviceId, itsanas_crypto::ObjectId, u64); 0]
     );
 }
 

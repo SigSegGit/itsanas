@@ -274,7 +274,7 @@ mod tests {
             }],
             "repair did not send the chunk to the one node that should hold it"
         );
-        assert!(plan.at_risk.is_empty());
+        assert_eq!(plan.at_risk, [] as [crate::repair::AtRisk; 0]);
     }
 
     #[test]
@@ -482,7 +482,7 @@ mod tests {
 
         let plan = plan(&swarm, owner, &census, FLOOR, &BTreeSet::new());
 
-        assert!(plan.pushes.is_empty());
+        assert_eq!(plan.pushes, [] as [crate::repair::Push; 0]);
         assert!(
             plan.has_critical(),
             "zero copies and nowhere to send is critical"

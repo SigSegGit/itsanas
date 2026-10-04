@@ -348,7 +348,7 @@ fn a_local_delete_racing_a_remote_edit_brings_the_file_back() {
 
     let report = node.folder.reconcile(&node.store, false).unwrap();
 
-    assert!(report.removed_from_store.is_empty());
+    assert_eq!(report.removed_from_store, [] as [std::string::String; 0]);
     assert_eq!(
         read_disk(node.folder.root(), "a.txt").unwrap(),
         b"edited elsewhere",
@@ -526,7 +526,10 @@ fn an_unreadable_file_does_not_stop_the_rest_of_the_folder() {
     let report = node.folder.reconcile(&node.store, false).unwrap();
 
     assert_eq!(report.imported.len(), 2);
-    assert!(report.failed.is_empty());
+    assert_eq!(
+        report.failed,
+        [] as [(std::string::String, std::string::String); 0]
+    );
     assert_eq!(node.store.list().unwrap().len(), 2);
 }
 

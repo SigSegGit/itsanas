@@ -2425,7 +2425,10 @@ mod tests {
         .sign(&owner);
         assert!(directory.claim(&revoked, NOW + 100).unwrap());
 
-        assert!(directory.live_claims().unwrap().is_empty());
+        assert_eq!(
+            directory.live_claims().unwrap(),
+            [] as [crate::claim::SignedClaim; 0]
+        );
     }
 
     #[test]

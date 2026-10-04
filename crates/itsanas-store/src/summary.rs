@@ -189,7 +189,7 @@ mod tests {
         assert_eq!(empty.len(), BUCKETS);
         assert_eq!(root(&empty), root(&buckets(Vec::new())));
         assert_ne!(root(&empty), root(&buckets(vec![chunk(0, 0)])));
-        assert!(differing(&empty, &empty).is_empty());
+        assert_eq!(differing(&empty, &empty), [] as [u8; 0]);
     }
 
     #[test]

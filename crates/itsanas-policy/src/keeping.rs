@@ -393,7 +393,7 @@ mod tests {
         let files = [file("a", u64::MAX, 1, false), file("b", u64::MAX, 2, false)];
         let choice = choose(&files, &Keeping::everything());
         assert_eq!(choice.keep.len(), 2);
-        assert!(choice.leave.is_empty());
+        assert_eq!(choice.leave, [] as [(usize, Left); 0]);
         assert!(Keeping::everything().is_everything());
     }
 
@@ -453,7 +453,7 @@ mod tests {
     #[test]
     fn an_empty_choice_asks_for_nothing() {
         let choice = Choice::default();
-        assert!(choice.to_fetch(&[]).is_empty());
-        assert!(choice.to_release(&[]).is_empty());
+        assert_eq!(choice.to_fetch(&[]), [] as [usize; 0]);
+        assert_eq!(choice.to_release(&[]), [] as [usize; 0]);
     }
 }

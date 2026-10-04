@@ -549,13 +549,19 @@ mod tests {
     fn an_empty_swarm_places_nothing_rather_than_panicking() {
         let set = NodeSet::new(Vec::new()).unwrap();
         assert!(set.is_empty());
-        assert!(set.replicas_for(user(1), &chunk(1), 3).is_empty());
+        assert_eq!(
+            set.replicas_for(user(1), &chunk(1), 3),
+            [] as [itsanas_crypto::DeviceId; 0]
+        );
         assert!(!set.holds(&device(1), user(1), &chunk(1), 3));
     }
 
     #[test]
     fn asking_for_zero_replicas_returns_none() {
-        assert!(swarm(5).replicas_for(user(1), &chunk(1), 0).is_empty());
+        assert_eq!(
+            swarm(5).replicas_for(user(1), &chunk(1), 0),
+            [] as [itsanas_crypto::DeviceId; 0]
+        );
     }
 
     #[test]

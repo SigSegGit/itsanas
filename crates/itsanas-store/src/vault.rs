@@ -1007,7 +1007,10 @@ mod tests {
             vault.put_segment(&forged).is_err(),
             "a segment with a broken signature was accepted for storage"
         );
-        assert!(vault.heads_for(user.user_id()).unwrap().is_empty());
+        assert_eq!(
+            vault.heads_for(user.user_id()).unwrap(),
+            [] as [(itsanas_crypto::DeviceId, itsanas_crypto::ObjectId, u64); 0]
+        );
     }
 
     #[test]
@@ -1105,11 +1108,11 @@ mod tests {
         assert_eq!(served[0].segment_id, second.segment_id);
 
         // Resuming after the tip yields nothing.
-        assert!(
+        assert_eq!(
             vault
                 .segments_for(user.user_id(), dev.device_id(), Some(third.segment_id), 10)
-                .unwrap()
-                .is_empty()
+                .unwrap(),
+            [] as [crate::oplog::SegmentEnvelope; 0]
         );
     }
 
@@ -1212,7 +1215,10 @@ mod tests {
                 .is_empty(),
             "Alice's segments were served as Bob's"
         );
-        assert!(vault.heads_for(bob.user_id()).unwrap().is_empty());
+        assert_eq!(
+            vault.heads_for(bob.user_id()).unwrap(),
+            [] as [(itsanas_crypto::DeviceId, itsanas_crypto::ObjectId, u64); 0]
+        );
     }
 
     #[test]

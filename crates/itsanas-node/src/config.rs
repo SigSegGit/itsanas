@@ -1088,7 +1088,7 @@ listen = 0.0.0.0:9797
         // Listening publicly is safe because the transport authenticates both
         // ends; what must stay zero is what the node gives away.
         assert_eq!(config.pledge_bytes, 0);
-        assert!(config.peers.is_empty());
+        assert_eq!(config.peers, [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -1160,8 +1160,8 @@ listen = 0.0.0.0:9797
 
     #[test]
     fn formatting_never_panics_at_the_extremes() {
-        assert!(!format_size(u64::MAX).is_empty());
-        assert!(!format_size(1).is_empty());
+        assert_ne!(format_size(u64::MAX), "");
+        assert_ne!(format_size(1), "");
     }
 
     #[test]
