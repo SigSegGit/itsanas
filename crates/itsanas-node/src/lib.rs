@@ -28,6 +28,7 @@ pub mod coordinator;
 pub mod error;
 pub mod keeping;
 pub mod node;
+pub mod owners;
 
 pub use config::Config;
 pub use error::{NodeError, Result};

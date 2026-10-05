@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-04 — 939 test functions across 29 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 173 are red-team tests.**
+**Last updated: 2026-10-04 — 954 test functions across 29 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 186 are red-team tests.**
 
-**823 of the 939 tests have an entry of their own on this page** — an *entry*,
+**838 of the 954 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,12 +158,12 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 166 |
+| `itsanas-store` unit | 167 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
-| `itsanas-net` unit | 44 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 56 |
+| `itsanas-net` unit | 45 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 57 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 114 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
@@ -176,7 +176,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 43 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 88 |
+| `itsanas-node` unit | 100 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -425,7 +425,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (141, plus the 25 vault tests below)
+# `itsanas-store` — unit tests (142, plus the 25 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -452,7 +452,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 | `a_key_round_trips_through_its_two_halves` / `a_key_of_the_wrong_length_is_refused_rather_than_guessed_at` | The encoding, and that a key written by something else is refused rather than reinterpreted. |
 | `a_disk_check_pass_fits_in_the_refresh_window_at_any_interval` | §8 4c: `rows_per_round` sizes the rolling disk check so a whole pass fits in `REFRESH_AFTER` at any round interval -- 15 874 rows a round for sixteen million chunks at five minutes, 190 477 at an hour, never more rows than exist. The first plan's fixed 16 384 would take forty-two days a pass on an hourly policy. |
 
-## `index` — the placement ledger (17)
+## `index` — the placement ledger (18)
 
 Where this node's data actually went. This is what replaced the coordinator's
 signed node-set epoch: an owner who already keeps a log of their own chunks can
@@ -491,6 +491,7 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | `holders_are_kept_apart_by_chunk` / `a_recorded_holder_comes_back` | The basic paths. |
 | `recording_a_batch_matches_recording_one_at_a_time` | A sync round commits once rather than once per chunk, which on an SD card is most of the time spent. |
 | `recording_an_empty_batch_does_nothing_rather_than_opening_a_transaction` | A quiet round costs no write. |
+| **`red_team_the_holder_count_follows_the_ledger_through_every_path`** | §8 1c reads how much an account proved it hosts from `holder_counts`, kept in the transaction that writes each holder row. Record, refresh, every forget path and `forget_device` move it exactly; a refresh is not counted twice; another device's count does not move. Sabotaged by dropping the decrement in `forget_holders`. |
 
 ## `summary` — do we hold the same chunks? (6)
 
@@ -743,7 +744,7 @@ about reading.
 | **`red_team_one_disk_check_call_holds_at_most_one_batch`** | Found by the CI reviewer on #218: the slice a round owes is 190 477 rows at a terabyte on an hourly policy, 12 MB of keys in one `Vec` on a 17 MiB machine. One call examines at most `MAX_CHECK_BATCH` and the daemon loops. Sabotaged by dropping the cap. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (44)
+# `itsanas-net` — unit tests (45)
 
 ## `protocol` — messages and challenges (12)
 
@@ -762,7 +763,7 @@ about reading.
 | **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 
-## `service` — what a peer may obtain (23)
+## `service` — what a peer may obtain (24)
 
 | Test | What it proves |
 | --- | --- |
@@ -788,6 +789,7 @@ about reading.
 | `the_segment_limit_is_clamped_to_the_protocol_maximum` | Limits are applied. |
 | `a_node_that_keeps_no_book_says_so` | §8 0o 2b.3 (c): a `PeerService` built without `with_relay` answers `Request::Presences` with `NO_BOOK`, which `PeerClient::presences` reads as "cannot tell", not as an error. |
 | **`red_team_presences_are_answered_to_the_device_tls_proved_and_no_other`** | `Request::Presences` carries nothing: who may ask is the device the connection proved, handed to the book as `caller`. The member gets its rows; any other device gets `NOT_YOURS`. Sabotaged by asking the book about a fixed device instead of the caller. |
+| **`red_team_a_host_that_bounds_accounts_asks_before_every_store`** | §8 1c: with `with_owners`, both `StoreChunk` and `StoreSegment` ask the bound, a claim is credited to the device TLS proved, never another, and a host answers it with its own claim (`claiming`) so a machine that is never dialled can bound what it pulls. Sabotaged four ways: skip the gate on chunks, on segments, credit a fixed device, answer without the host's claim. |
 | `an_answer_never_exceeds_what_the_receiver_accepts` | The client refuses a padded answer whole, so the service trims its own to `MAX_RELAYED_ROWS` rows of at most `MAX_RELAYED_ROW_BYTES`: a book past the bounds costs rows, never the answer. |
 
 ## `transport` — binding and serving (2)
@@ -815,7 +817,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (56)
+# `itsanas-net` — two-node tests (57)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -880,6 +882,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 ---
 | **`red_team_an_idle_due_walk_lists_nothing_and_keeps_the_records_fresh`** | §8 4c, the number the step exists for: a due walk listed the whole account per peer, 537 MB every 3.5 days at a terabyte. Against an agreeing real host, with every record aged and the walk due, it now asks about zero chunks, re-stamps every one, leaves every record fresh and stamps the walk. Sabotaged by listing everything on a due walk, and by skipping the re-stamp. |
 | **`red_team_a_host_that_lost_a_blob_behind_its_index_is_caught_by_the_next_due_walk`** | The downside §10 8 names, closed: a host's blob deleted behind its index, one pass of its disk check, and the owner's due walk lists the bucket that now differs, offers the chunk again and puts it back -- without listing the whole account. Sabotaged by the check keeping the row. |
+| **`red_team_a_peer_refused_on_push_cannot_be_hosted_by_being_pulled`** | Found by the redteam agent on §8 1c: the bound sat on `StoreChunk` and `StoreSegment`, and the hosting pull -- the peer naming owner and chunks, this node fetching them -- was checked against this node's pledge only. `host_for_bounded` asks the same bound before each chunk; against a bound that refuses, nothing is taken and the refusal is reported. Sabotaged by skipping it. |
 
 # `itsanas-cli` — crash consistency (1, `#[ignore]`d)
 
@@ -1032,7 +1035,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (101)
+# `itsanas-node` — a node on disk (113)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1124,6 +1127,30 @@ here reads a peer's clock or trusts the coordinator's order.
 | `a_created_node_reopens_with_the_same_identity` | Reopening does not orphan the data. |
 | `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
 | **`red_team_a_pledge_under_what_keep_needs_is_refused`** | `Node::check_split`, the one rule `keep`, `pledge`, `space --apply` and the phone's setters ask: a 1 MiB pledge for a 20 GiB keep is refused, naming the pledge that earns it (which is then accepted) and the command `itsanas space --pledge 47G --keep 20G --apply`; a keep inside the joining allowance, or no keep, needs no pledge; a stricter 20/80 split in the node's config refuses what 30/70 allows. Sabotaged (`check_split` always `Ok`; `allowed_for` reading `Split::DEFAULT`): red. |
+
+## `owners` — what a host stores for each account (12)
+
+§8 1c (2026-10-04). A host used to bound only itself, so a client that pledged
+nothing was served until every host was full. Now a device presents its
+account's signed claim; the host holds at most three sevenths of the account's
+claimed pledge for it, or of what it has proved it hosts once its offer is
+contradicted; and what goes beyond what proof earns comes out of one share,
+3/10 of the host's pledge, for every account together.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_device_that_presents_no_claim_stores_nothing`** | A rebuilt client leaves the claim out and says it is old; it is told to update. Sabotaged by admitting a caller the book does not know. |
+| **`red_team_a_claim_for_another_device_is_refused`** | A claim presented by a device other than the one it names lends nothing. Sabotaged by dropping the device check. |
+| **`red_team_an_account_stores_at_most_three_sevenths_of_its_pledge`** | The 30/70 bargain held by the host: pledge 700, 299 stored, one more byte taken, two refused with the numbers. Sabotaged by no allowance. |
+| **`red_team_a_giant_self_signed_claim_takes_at_most_the_share_lent_on_promises`** | Found by Rodin on the plan: every node holds its account key, so a petabyte pledge costs nothing to sign. It takes at most the share. Sabotaged by skipping the share. |
+| **`red_team_one_passed_audit_does_not_open_the_host_to_a_giant_claim`** | Found by the redteam agent on the first version, which exempted an account from the share once one device had passed one audit. Proof is counted in bytes the account's devices hold for this host. Sabotaged by counting a passed audit as a petabyte of proof. |
+| **`red_team_throwaway_accounts_share_one_quota_lent_on_promises`** | Immediate credit renews with every new account; two of them share one quota. Sabotaged by skipping the share. |
+| `a_newcomer_stores_at_once_and_earns_more_by_hosting` | Nicolas's rule: the space offered gives credit at once, inside the share, and hosting this host's chunks earns room past it at the same ratio. |
+| **`red_team_a_contradicted_account_keeps_only_what_it_proved`** | Nicolas's rule for a contradicted offer: a paused device makes the allowance `room_earned(proved)`, so cheating never earns more than playing straight. Sabotaged by ignoring the pause. |
+| **`red_team_a_withdrawn_device_is_forgotten_and_a_sixth_is_refused`** | A withdrawal presented to the host forgets the device; a sixth device adds nothing. Sabotaged twice: keep the withdrawn device, drop the five-device limit. |
+| **`red_team_a_device_cannot_store_under_another_accounts_name`** | A device stores only for the account its claim names -- the host's own included, whose devices are exempt. Sabotaged by dropping the check. |
+| **`red_team_empty_claims_cannot_lock_newcomers_out`** | Found by the redteam agent: free keys fill the book with claims that store nothing. A full book forgets one whose account holds nothing here. Sabotaged by refusing when full. |
+| `a_claim_is_checked_for_its_signer_not_its_date` | Found by the redteam agent: a host on a Pi with no clock reads 1970 and would refuse every claim. `verify_origin`, as for presences. Sabotaged by checking the date (ten tests go red). |
 
 ## `keeping` — a round on a device short of room (3)
 

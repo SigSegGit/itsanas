@@ -44,6 +44,18 @@ it says so. Where it is forced by arithmetic, the arithmetic is shown.
 > network. Found by an adversarial sweep that asked "what does a rebuilt client
 > get away with?"; the fix is the bilateral ledger in §3, which is specified and
 > not written.
+>
+> **2026-10-04, hosts bound accounts (§8 1c, first part).** A device now
+> presents its account's signed claim before storing, and a host holds for an
+> account at most three sevenths of the pledges its devices claim -- of what
+> they have proved they host for it, once its audits contradict the offer.
+> Credit on the claim alone is immediate (Nicolas's rule) but shared: what goes
+> beyond what proof earns comes, for every account together, out of 3/10 of
+> the host's pledge. Still 🟨: the claim is signed with the account key every
+> node holds, so the pledge is the account's own word until a host tests it,
+> and nothing tests it yet beyond this host's own audits; a withdrawn device
+> re-signs a live claim; a client without claims is refused, so every machine
+> updates together (`PROTOCOL_WITH_CLAIMS`, peer protocol 7).
 
 > **Lend seven parts to keep three.**
 

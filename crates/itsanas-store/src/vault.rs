@@ -463,11 +463,19 @@ impl Vault {
             .open_table(OWNER_CHUNK_BYTES)?
             .get(key.as_slice())?
             .map_or(0, |total| total.value());
-        for row in txn.open_table(CHAIN_BYTES)?.iter()? {
-            let (chain, bytes) = row?;
-            if chain.value().starts_with(key.as_slice()) {
-                held = held.saturating_add(bytes.value());
-            }
+        // A range over this owner's chains: the key starts with the owner, so
+        // this costs the owner's devices, not every chain the vault holds. It
+        // runs on every offer a host weighs against an account's share.
+        let mut low = [0u8; CHAIN_KEY_LEN];
+        low[..32].copy_from_slice(key.as_slice());
+        let mut high = [0xFFu8; CHAIN_KEY_LEN];
+        high[..32].copy_from_slice(key.as_slice());
+        for row in txn
+            .open_table(CHAIN_BYTES)?
+            .range(low.as_slice()..=high.as_slice())?
+        {
+            let (_, bytes) = row?;
+            held = held.saturating_add(bytes.value());
         }
         Ok(held)
     }

@@ -32,7 +32,7 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 6;
+pub const PROTOCOL_VERSION: u16 = 7;
 
 /// The oldest version this node will still talk to.
 ///
@@ -104,6 +104,20 @@ pub const PROTOCOL_WITH_LEAVING: u16 = 5;
 /// A peer at 5 does not know the request and would close the connection on
 /// it, so it is not asked: the coordinator stays the only source, as before.
 pub const PROTOCOL_WITH_PRESENCES: u16 = 6;
+
+/// The first version in which a device presents its owner's claim
+/// ([`Request::Claim`]) before asking a host to store anything.
+///
+/// A host that bounds what it stores per account (§8 1c) refuses `StoreChunk`
+/// and `StoreSegment` from a device that has not presented one, so a peer
+/// below this version can sync and read but no longer store on such a host.
+/// That is the flag day Nicolas accepted on 2026-10-04: otherwise a modified
+/// client escapes every bound by claiming to be old.
+pub const PROTOCOL_WITH_CLAIMS: u16 = 7;
+
+/// Largest encoded claim a host reads. A `SignedClaim` is two ids, three
+/// integers, a flag and a signature: under 200 bytes.
+pub const MAX_CLAIM_BYTES: usize = 512;
 
 /// Most rows one [`Response::Presences`] carries.
 ///
@@ -279,6 +293,22 @@ pub enum Request {
     ///
     /// Appended last: postcard numbers variants by position.
     Presences,
+
+    /// "This is my account's word that I am its machine, and what I offer."
+    ///
+    /// An encoded `itsanas_coord::claim::SignedClaim`, as bytes so this crate
+    /// need not know the coordinator's types. The host checks that it names
+    /// the device TLS proved, is signed by the account it names and is not a
+    /// withdrawal, and from then on bounds what it stores for that account
+    /// by the pledge in it (§8 1c). Answered [`Response::Claim`] with the
+    /// host's own claim, so the dialling side can hold the host to the same
+    /// rule when it pulls the host's chunks into its vault: a machine behind
+    /// a router is never dialled, and would otherwise never learn whose the
+    /// peers it hosts for are. `Stored { accepted: false }` from a host that
+    /// bounds nobody.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Claim { claim: Vec<u8> },
 }
 
 /// What a peer answers.
@@ -320,6 +350,11 @@ pub enum Response {
     ///
     /// Appended last: postcard numbers variants by position.
     Presences(Vec<Vec<u8>>),
+    /// The answering host's own claim, encoded, in reply to
+    /// [`Request::Claim`]. At most [`MAX_CLAIM_BYTES`].
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Claim(Vec<u8>),
 }
 
 /// How far one device's chain has advanced, as a peer reports it.
@@ -382,6 +417,7 @@ impl Request {
             Self::Dropped { chunks, .. } | Self::Hosted { chunks, .. } => {
                 !chunks.is_empty() && chunks.len() <= MAX_HAVE_BATCH
             }
+            Self::Claim { claim } => !claim.is_empty() && claim.len() <= MAX_CLAIM_BYTES,
             Self::HaveChunks { addresses, .. } => {
                 !addresses.is_empty() && addresses.len() <= MAX_HAVE_BATCH
             }
@@ -471,6 +507,9 @@ mod tests {
             Request::ChunkSummary { owner: user() },
             Request::Leaving,
             Request::Presences,
+            Request::Claim {
+                claim: vec![1, 2, 3],
+            },
         ]
     }
 
@@ -499,6 +538,7 @@ mod tests {
             Request::ChunkSummary { .. } => {}
             Request::Leaving => {}
             Request::Presences => {}
+            Request::Claim { .. } => {}
         }
     }
 
@@ -538,6 +578,7 @@ mod tests {
             Response::ChallengeProof([8; 32]),
             Response::Refused("no such user".to_owned()),
             Response::Presences(vec![vec![1, 2, 3], Vec::new()]),
+            Response::Claim(vec![4, 5]),
         ];
 
         for response in responses {
@@ -677,6 +718,7 @@ mod tests {
             Request::ChunkSummary { .. } => 11,
             Request::Leaving => 12,
             Request::Presences => 13,
+            Request::Claim { .. } => 14,
         }
     }
 
@@ -694,6 +736,7 @@ mod tests {
             Response::WantHosted { .. } => 8,
             Response::Refused(_) => 9,
             Response::Presences(_) => 10,
+            Response::Claim(_) => 11,
         }
     }
 
@@ -736,6 +779,7 @@ mod tests {
             },
             Response::Refused(String::new()),
             Response::Presences(Vec::new()),
+            Response::Claim(Vec::new()),
         ];
         let numbered: std::collections::BTreeSet<u8> =
             responses.iter().map(response_number).collect();

@@ -117,6 +117,35 @@ pub struct HolderOrderings {
 /// [`holders::audit_tag`].
 const HOLDINGS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holdings_by_device");
 
+/// `device` → how many holder records name it: how much of this node's data
+/// that device is recorded as holding, in one lookup (§8 1c).
+///
+/// A host deciding how much to store for an account needs what that account's
+/// devices hold for it, on every offer; counting `HOLDINGS` rows would be a
+/// range scan per chunk stored. Kept in the transaction that adds or removes
+/// the row it counts, like the vault's byte totals, so the two cannot drift
+/// while running; built once from `HOLDINGS` for a store written before it.
+const HOLDER_COUNTS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holder_counts");
+/// Set in `META` once `HOLDER_COUNTS` has been built.
+const HOLDER_COUNTS_BUILT: &str = "holder_counts_built";
+
+/// Add `delta` to `device`'s count, never below zero.
+fn bump(counts: &mut redb::Table<'_, &[u8], u64>, device: &DeviceId, delta: i64) -> Result<()> {
+    let key = device.as_bytes().as_slice();
+    let now = counts.get(key)?.map_or(0, |value| value.value());
+    let next = if delta >= 0 {
+        now.saturating_add(delta.unsigned_abs())
+    } else {
+        now.saturating_sub(delta.unsigned_abs())
+    };
+    if next == 0 {
+        counts.remove(key)?;
+    } else {
+        counts.insert(key, next)?;
+    }
+    Ok(())
+}
+
 /// Chunks this node's files need whose bytes are not on this disk.
 ///
 /// A queue, not a cache. Two things find local loss and they used to ignore
@@ -335,6 +364,7 @@ impl Index {
             let _ = txn.open_table(LEDGER_REFRESHED)?;
             let _ = txn.open_table(PEER_FULL)?;
             let _ = txn.open_table(HOLDINGS)?;
+            let _ = txn.open_table(HOLDER_COUNTS)?;
             let _ = txn.open_table(PROBES)?;
             let _ = txn.open_table(LOSSES)?;
         }
@@ -346,8 +376,52 @@ impl Index {
             local_bytes: Mutex::new(None),
         };
         index.rebuild_holdings_if_stale()?;
+        index.build_holder_counts_if_missing()?;
         index.drop_superseded_tables()?;
         Ok(index)
+    }
+
+    /// Count `HOLDINGS` rows per device, once, for a store written before
+    /// `HOLDER_COUNTS` existed. One pass over the table, on the first open.
+    fn build_holder_counts_if_missing(&self) -> Result<()> {
+        let built = {
+            let txn = self.db.begin_read()?;
+            txn.open_table(META)?.get(HOLDER_COUNTS_BUILT)?.is_some()
+        };
+        if built {
+            return Ok(());
+        }
+        let mut counts: BTreeMap<DeviceId, u64> = BTreeMap::new();
+        {
+            let txn = self.db.begin_read()?;
+            for row in txn.open_table(HOLDINGS)?.iter()? {
+                let (key, _) = row?;
+                if let Some((device, _)) = holders::split_by_device(key.value()) {
+                    *counts.entry(device).or_default() += 1;
+                }
+            }
+        }
+        let txn = self.db.begin_write()?;
+        {
+            let mut table = txn.open_table(HOLDER_COUNTS)?;
+            table.retain(|_, _| false)?;
+            for (device, count) in &counts {
+                table.insert(device.as_bytes().as_slice(), *count)?;
+            }
+            txn.open_table(META)?
+                .insert(HOLDER_COUNTS_BUILT, [1u8].as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// How many of this node's chunks `device` is recorded as holding.
+    pub fn held_by(&self, device: &DeviceId) -> Result<u64> {
+        let txn = self.db.begin_read()?;
+        Ok(txn
+            .open_table(HOLDER_COUNTS)?
+            .get(device.as_bytes().as_slice())?
+            .map_or(0, |value| value.value()))
     }
 
     /// Tables an older version wrote that nothing reads any more.
@@ -1244,6 +1318,7 @@ impl Index {
             // chunk that no longer exists anywhere and should not.
             let mut holders = txn.open_table(HOLDERS)?;
             let mut holdings = txn.open_table(HOLDINGS)?;
+            let mut counts = txn.open_table(HOLDER_COUNTS)?;
             let doomed: Vec<Vec<u8>> = holders
                 .range(
                     holders::range_start(chunk).as_slice()..=holders::range_end(chunk).as_slice(),
@@ -1256,6 +1331,10 @@ impl Index {
                 if let Some((chunk, device)) = holders::split(&key) {
                     let tag = holders::audit_tag(&self.audit_key, &chunk);
                     holdings.remove(holders::by_device(&device, &tag, &chunk).as_slice())?;
+                    if holders.remove(key.as_slice())?.is_some() {
+                        bump(&mut counts, &device, -1)?;
+                    }
+                    continue;
                 }
                 holders.remove(key.as_slice())?;
             }
@@ -1636,9 +1715,15 @@ impl Index {
                 .insert(device.as_bytes().as_slice(), now)?;
             let mut holders = txn.open_table(HOLDERS)?;
             let mut holdings = txn.open_table(HOLDINGS)?;
+            let mut counts = txn.open_table(HOLDER_COUNTS)?;
             for chunk in &due {
                 let tag = holders::audit_tag(&self.audit_key, chunk);
-                holders.insert(holders::key(chunk, device).as_slice(), now)?;
+                if holders
+                    .insert(holders::key(chunk, device).as_slice(), now)?
+                    .is_none()
+                {
+                    bump(&mut counts, device, 1)?;
+                }
                 holdings.insert(holders::by_device(device, &tag, chunk).as_slice(), now)?;
             }
         }
@@ -1711,9 +1796,15 @@ impl Index {
         {
             let mut holders = txn.open_table(HOLDERS)?;
             let mut holdings = txn.open_table(HOLDINGS)?;
+            let mut counts = txn.open_table(HOLDER_COUNTS)?;
             for chunk in chunks {
                 let tag = holders::audit_tag(&self.audit_key, chunk);
-                holders.remove(holders::key(chunk, device).as_slice())?;
+                if holders
+                    .remove(holders::key(chunk, device).as_slice())?
+                    .is_some()
+                {
+                    bump(&mut counts, device, -1)?;
+                }
                 holdings.remove(holders::by_device(device, &tag, chunk).as_slice())?;
             }
         }
@@ -1730,8 +1821,13 @@ impl Index {
         let txn = self.db.begin_write()?;
         {
             let tag = holders::audit_tag(&self.audit_key, chunk);
-            txn.open_table(HOLDERS)?
-                .remove(holders::key(chunk, device).as_slice())?;
+            if txn
+                .open_table(HOLDERS)?
+                .remove(holders::key(chunk, device).as_slice())?
+                .is_some()
+            {
+                bump(&mut txn.open_table(HOLDER_COUNTS)?, device, -1)?;
+            }
             txn.open_table(HOLDINGS)?
                 .remove(holders::by_device(device, &tag, chunk).as_slice())?;
         }
@@ -1765,6 +1861,8 @@ impl Index {
             }
 
             dropped = doomed.len();
+            txn.open_table(HOLDER_COUNTS)?
+                .remove(device.as_bytes().as_slice())?;
             for chunk in doomed {
                 let tag = holders::audit_tag(&self.audit_key, &chunk);
                 holders.remove(holders::key(&chunk, device).as_slice())?;
@@ -3493,5 +3591,48 @@ mod tests {
         let (_dir, index) = index();
         index.record_holders(&[], &device(7), 5).unwrap();
         assert_eq!(index.holder_records().unwrap(), 0);
+    }
+
+    #[test]
+    fn red_team_the_holder_count_follows_the_ledger_through_every_path() {
+        // §8 1c reads how much an account proved it hosts from this count, on
+        // every offer. A path that adds or removes a holder row without it
+        // lets the proof drift from the ledger -- upward is credit nobody
+        // earned. Sabotage: drop the decrement in `forget_holders`.
+        let (_dir, index) = index();
+        let (d, other) = (device(1), device(2));
+        let chunks = [chunk(1), chunk(2), chunk(3), chunk(4)];
+        index.record_holders(&chunks, &d, 100).unwrap();
+        index.record_holders(&chunks[..1], &other, 100).unwrap();
+        assert_eq!(index.held_by(&d).unwrap(), 4);
+
+        // A refresh rewrites rows and must not count them twice.
+        index
+            .record_holders(&chunks, &d, 100 + holders::REFRESH_AFTER + 1)
+            .unwrap();
+        assert_eq!(
+            index.held_by(&d).unwrap(),
+            4,
+            "a refresh was counted as new"
+        );
+
+        index.forget_holders(&chunks[..1], &d).unwrap();
+        index.forget_holders(&chunks[..1], &d).unwrap();
+        assert_eq!(
+            index.held_by(&d).unwrap(),
+            3,
+            "a forget was not counted, or twice"
+        );
+        index.forget_holder(&chunks[1], &d).unwrap();
+        assert_eq!(index.held_by(&d).unwrap(), 2);
+        index.forget_chunk(&chunks[2]).unwrap();
+        assert_eq!(index.held_by(&d).unwrap(), 1);
+        assert_eq!(index.forget_device(&d).unwrap(), 1);
+        assert_eq!(index.held_by(&d).unwrap(), 0);
+        assert_eq!(
+            index.held_by(&other).unwrap(),
+            1,
+            "another device's count moved"
+        );
     }
 }
