@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-05 — 978 test functions across 30 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 202 are red-team tests.**
+**Last updated: 2026-10-05 — 980 test functions across 30 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 203 are red-team tests.**
 
-**862 of the 978 tests have an entry of their own on this page** — an *entry*,
+**864 of the 980 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -165,7 +165,7 @@ guarantee and is not one.
 | `itsanas-net` unit | 45 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 57 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 117 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 119 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
 | `itsanas-discover` unit | 43 |
 | `itsanas-policy` unit | 23 |
@@ -1721,6 +1721,17 @@ the bound, behind `cfg(test)` and the `hostile` feature.
 | `an_account_already_above_the_bound_keeps_its_devices_and_cannot_add_one` | Seven devices enrolled by an older coordinator stay live and can re-sign; an eighth is refused with the real count. The bound is not applied backwards. |
 | `a_full_account_does_not_stop_another_account_enrolling` | The count is per account, read through the owner index range. |
 | **`red_team_a_client_older_than_the_bound_is_refused_in_words_on_the_wire`** | Mixed versions: a sixth claim sent as any client sends it gets `Response::Refused` at once, with the device ids and `itsanas device forget` in the text an old client prints, and nothing written. Not a hang-up an old client would retry, not a `Done`. |
+
+# `itsanas-coord` — forgetting an account (2)
+
+Added 2026-10-05, after a test account named `mandarine` held its name for
+good and nothing could free it. `Directory::forget_account`, run by
+`itsanas-coordinator --forget-account NAME` with the coordinator stopped.
+
+| Test | What it proves |
+|---|---|
+| **`a_forgotten_account_frees_its_name_and_its_live_devices`** | The name can be registered again under another key, and the old account's live claim, escrow and id lookup are gone, so the coordinator hands out nothing of it. Forgetting a name nobody holds answers "none" rather than failing. |
+| **`red_team_forgetting_an_account_keeps_its_withdrawals_final`** | A withdrawal is final for its device id (HANDOVER §6). If forgetting erased it, the same keys registering again would bring a stolen, withdrawn machine back with a fresh live claim. Sabotaged by dropping withdrawals with the rest: red. |
 
 # `itsanas-node` five devices (`tests/five_devices.rs`) — the client's half of the bound (4)
 

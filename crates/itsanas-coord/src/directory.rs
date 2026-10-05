@@ -108,6 +108,17 @@ const INVITATIONS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("inv
 /// has not been written: keeping them apart now is what leaves it free.
 const DEPARTURES: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("departures");
 
+/// What [`Directory::forget_account`] removed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Forgotten {
+    /// The account's id.
+    pub user: UserId,
+    /// Devices whose live claim, presence and availability were removed.
+    pub devices: usize,
+    /// Withdrawn devices, kept so they stay withdrawn.
+    pub withdrawals_kept: usize,
+}
+
 /// A member's account, as the coordinator holds it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
@@ -531,6 +542,79 @@ impl Directory {
         drop(by_id);
         drop(txn);
         self.account(&name)
+    }
+
+    /// Forget the account registered under `username`, so the name can be
+    /// registered again -- by anyone, under any key. For the operator, with
+    /// the coordinator stopped: a test account left behind otherwise holds
+    /// its name for ever, and the only other way out was editing this file
+    /// by hand.
+    ///
+    /// Removes the account, its escrow, its usage, and its devices' live
+    /// claims, presences and availability. **Keeps every withdrawal**, with
+    /// its index row: a withdrawal is final for its device id (HANDOVER §6),
+    /// and the same keys registering again must not bring a withdrawn
+    /// machine back. Departures are kept for the same reason.
+    ///
+    /// `None` when no account has that name.
+    ///
+    /// # Errors
+    ///
+    /// The database's.
+    pub fn forget_account(&self, username: &str) -> Result<Option<Forgotten>> {
+        let txn = self.db.begin_write()?;
+        let forgotten = {
+            let mut accounts = txn.open_table(ACCOUNTS)?;
+            let account: Account = match accounts.get(username)? {
+                Some(value) => postcard::from_bytes(value.value())?,
+                None => return Ok(None),
+            };
+            let owner = account.user.id;
+            let mut index = txn.open_table(CLAIMS_BY_OWNER)?;
+            let mut claims = txn.open_table(CLAIMS)?;
+            let mut presence = txn.open_table(PRESENCE)?;
+            let mut availability = txn.open_table(AVAILABILITY)?;
+            let first = owner_device_key(owner, DeviceId::from_bytes([0x00; 32]));
+            let last = owner_device_key(owner, DeviceId::from_bytes([0xff; 32]));
+            let mut devices = Vec::new();
+            for row in index.range(first.as_slice()..=last.as_slice())? {
+                let (key, _) = row?;
+                devices.push(key.value().to_vec());
+            }
+            let mut forgotten = Forgotten {
+                user: owner,
+                devices: 0,
+                withdrawals_kept: 0,
+            };
+            for key in devices {
+                let device = &key[32..];
+                let revoked = match claims.get(device)? {
+                    Some(value) => {
+                        postcard::from_bytes::<SignedClaim>(value.value())?
+                            .claim
+                            .revoked
+                    }
+                    None => false,
+                };
+                if revoked {
+                    forgotten.withdrawals_kept += 1;
+                    continue;
+                }
+                claims.remove(device)?;
+                index.remove(key.as_slice())?;
+                presence.remove(device)?;
+                availability.remove(device)?;
+                forgotten.devices += 1;
+            }
+            txn.open_table(ESCROW)?
+                .remove(owner.as_bytes().as_slice())?;
+            txn.open_table(USAGE)?.remove(owner.as_bytes().as_slice())?;
+            txn.open_table(BY_ID)?.remove(owner.as_bytes().as_slice())?;
+            accounts.remove(username)?;
+            forgotten
+        };
+        txn.commit()?;
+        Ok(Some(forgotten))
     }
 
     /// Turn escrow on or off for a member.
@@ -1989,6 +2073,76 @@ mod tests {
         assert_eq!(
             directory.account("nicolas").unwrap().unwrap().user.id,
             user(1).user_id()
+        );
+    }
+
+    #[test]
+    fn a_forgotten_account_frees_its_name_and_its_live_devices() {
+        // A test account must not hold its name for ever: forgetting it lets
+        // the name be registered under another key, and leaves nothing of
+        // its live devices behind to be handed out as addresses or claims.
+        let (_dir, directory) = directory();
+        let old = user(50);
+        register(&directory, "mandarine", &old);
+        directory
+            .claim(&signed(&old, 1, NOW, false), NOW)
+            .expect("claim");
+        directory
+            .put_escrow(old.user_id(), b"sealed")
+            .expect("escrow");
+
+        let forgotten = directory.forget_account("mandarine").unwrap().unwrap();
+        assert_eq!((forgotten.devices, forgotten.withdrawals_kept), (1, 0));
+        assert!(directory.account_of(old.user_id()).unwrap().is_none());
+        assert_eq!(directory.live_claims_of(old.user_id()).unwrap().len(), 0);
+        assert!(
+            directory
+                .claim_for(device(1).device_id())
+                .unwrap()
+                .is_none()
+        );
+        assert!(directory.escrow("mandarine").unwrap().is_none());
+
+        register(&directory, "mandarine", &user(51));
+        assert_eq!(
+            directory.account("mandarine").unwrap().unwrap().user.id,
+            user(51).user_id(),
+            "the name must be free for a new key once forgotten"
+        );
+        assert!(directory.forget_account("nobody").unwrap().is_none());
+    }
+
+    #[test]
+    fn red_team_forgetting_an_account_keeps_its_withdrawals_final() {
+        // A withdrawal is final for its device id (§6). If forgetting erased
+        // it, the same keys registering again would bring a stolen, withdrawn
+        // machine back with a fresh live claim.
+        let (_dir, directory) = directory();
+        let owner = user(52);
+        register(&directory, "gone", &owner);
+        directory
+            .claim(&signed(&owner, 2, NOW, false), NOW)
+            .expect("claim");
+        directory
+            .claim(&signed(&owner, 2, NOW + 1, true), NOW + 1)
+            .expect("withdraw");
+
+        let forgotten = directory.forget_account("gone").unwrap().unwrap();
+        assert_eq!(forgotten.withdrawals_kept, 1);
+
+        register(&directory, "gone", &owner);
+        let back = directory.claim(&signed(&owner, 2, NOW + 2, false), NOW + 2);
+        assert!(
+            !matches!(back, Ok(true)),
+            "a withdrawn device came back after its account was forgotten"
+        );
+        assert!(
+            directory
+                .claim_for(device(2).device_id())
+                .unwrap()
+                .unwrap()
+                .claim
+                .revoked
         );
     }
 
