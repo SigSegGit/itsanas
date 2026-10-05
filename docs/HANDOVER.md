@@ -11,8 +11,8 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.1c
 TITLE: test the space a claim pledges (the host probes it), and read withdrawals
-WRITTEN-AT: 2026-10-04
-BASE: d578b20
+WRITTEN-AT: 2026-10-05
+BASE: 911fcb3
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,8 +20,8 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**2026-10-04, §8 1c first part: hosts bound accounts** (branch
-`ccr-c9f4329d-v9cnbp`; the agents PR #219 merged first). Rule decided by
+**2026-10-04, §8 1c first part: hosts bound accounts** (merged as
+#220 on 2026-10-05; the agents PR #219 merged first). Rule decided by
 Nicolas the same day: credit immediately on the space offered, 30/70;
 contradicted, 30/70 of what is proved; no claim, no storing. Built: peer
 protocol 7, `Request::Claim` answered with the host's own claim
@@ -31,7 +31,12 @@ protocol 7, `Request::Claim` answered with the host's own claim
 (`crates/itsanas-node/src/owners.rs`); `holder_counts` table in the index
 (`Index::held_by`, `Store::bytes_held_by` = records x mean chunk size);
 `host_for_bounded` gates the hosting pull; `Vault::held_bytes_for` is a range.
-Verified: 15 tests (13 red-team), 17 sabotages red, acceptance-local passes.
+Verified: 16 tests (14 red-team), 18 sabotages red, acceptance-local passes.
+Re-verified 2026-10-05 before merging, sabotage by sabotage: one defence --
+`standing` counts only *unpaused* devices' records as proof -- turned no test
+red; `red_team_a_device_paused_for_its_audits_proves_nothing` now does.
+(`scripts/sabotage.py` labels a `cargo test -q` failure "the build itself
+refused it": read the test name by hand before believing either way.)
 
 Rodin on the plan: the claim is self-signed (every node holds the account
 key), so "not contradicted" means "nobody looked" -- hence the shared 3/10
