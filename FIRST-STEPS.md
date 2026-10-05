@@ -90,6 +90,10 @@ it cannot read anything.
 sudo sh install/coordinator.sh --check     # look first
 ```
 
+A test account holds its username until the operator frees it: stop the
+coordinator, run `itsanas-coordinator --state <its state dir> --forget-account
+NAME`, start it again. Withdrawn devices stay withdrawn.
+
 ---
 
 ## After the install

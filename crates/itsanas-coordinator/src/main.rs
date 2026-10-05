@@ -95,6 +95,16 @@ struct Cli {
     /// Pass it, register, and restart without it.
     #[arg(long, requires = "invite_only")]
     admit_first: bool,
+
+    /// Forget the account registered under this username, then exit.
+    ///
+    /// Frees the name for anyone to register again -- a test account would
+    /// otherwise hold it for ever. Its devices' live claims and addresses go
+    /// with it; its withdrawals stay, so a withdrawn machine stays withdrawn.
+    /// Stop the running coordinator first: the directory is opened
+    /// exclusively, and this refuses while another process holds it.
+    #[arg(long, value_name = "USERNAME")]
+    forget_account: Option<String>,
 }
 
 fn main() -> ExitCode {
@@ -128,6 +138,20 @@ fn run() -> Result<(), String> {
 
     let directory = Directory::open(cli.state.join("directory.redb"))
         .map_err(|error| format!("could not open the directory: {error}"))?;
+
+    if let Some(name) = &cli.forget_account {
+        let forgotten = directory
+            .forget_account(name)
+            .map_err(|error| format!("could not forget {name:?}: {error}"))?
+            .ok_or_else(|| format!("no account is registered as {name:?}"))?;
+        println!("forgot {name:?} ({})", forgotten.user);
+        println!(
+            "  {} device(s) removed, {} withdrawal(s) kept",
+            forgotten.devices, forgotten.withdrawals_kept
+        );
+        println!("  the name is free; its holder's data on hosts is not touched");
+        return Ok(());
+    }
 
     let server = CoordServer::bind(&cli.listen)
         .map_err(|error| format!("could not listen on {}: {error}", cli.listen))?;
