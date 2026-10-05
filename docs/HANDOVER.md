@@ -10,15 +10,32 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.1c
-TITLE: test the space a claim pledges (the host probes it), and read withdrawals
+TITLE: read the coordinator's withdrawals, so a withdrawn device that re-signs stores nothing
 WRITTEN-AT: 2026-10-05
-BASE: 911fcb3
+BASE: 55a2093
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-05, §8 1c (i): a pledge the host tested and found short counts
+for what was proved** (branch `ccr-dc079ac8-rqnbeq`). #220 (1c first part)
+and #221 (its missing paused-proof test) merged first. The test already ran:
+the push path offers every dialled device what it lacks and stamps a
+`PledgeFull` refusal (`note_peer_full`); the bound never read it. Now
+`standing` (`crates/itsanas-node/src/owners.rs`) counts a device refused
+within `FULL_RETRY` (made `pub` in `session.rs`) for `min(pledged, proved)`,
+per device, not as a contradiction: siblings keep their pledges and an honest
+full device earns at the same ratio. Verified: 3 tests (1 red-team), 4
+sabotages red; `cargo test -p itsanas-node` green. **Named, not fixed:** a
+device this host never dials (behind a router) is never tested -- it still
+gets credit on its promise, bounded only by the 3/10 share; and when such a
+device pulls this host's chunks itself (`take_on_hosting`), running out of
+room there is never reported back to this host. No Rodin: 1c's plan had his pass (AGENTS.md, once per major step). Trap:
+`scripts/sabotage.py` says "the build itself refused it" for any `cargo test
+-q` failure; read the red test's name by hand.
 
 **2026-10-04, §8 1c first part: hosts bound accounts** (merged as
 #220 on 2026-10-05; the agents PR #219 merged first). Rule decided by
@@ -74,37 +91,7 @@ the service's switch to `held_summary` has no end-to-end test (unit-tested
 in the store). Trap: my hand arithmetic said 15 873 rows a round, the code
 said 15 874 -- the test caught me, the code was right.
 
-**2026-10-04, §8 4b: a full peer is not re-sent what it refused** (branch
-`step/8.4b-refused-reoffer`). `ask` stops offering at the first
-`Refusal::PledgeFull` and stamps the peer (index table `peer_full`); for
-`FULL_RETRY` (1 h, `session.rs`) a round asks that peer only about chunks it
-has a record for (`Index::with_record`) and offers nothing; then one ordinary
-round probes. Verified: 1 red-team test, 4 sabotages red. Also corrected: the
-summary is 256 digests, 8 KB a round on the wire, not "thirty-two bytes"
-(DESIGN §6.7, ROADMAP, FIRST-STEPS). §10 8 decided under Nicolas's delegation
-("if it is a no-brainer, do it"): yes, *with* the host-side disk check, see 4c.
-**Not verified:** nothing measured at size; a peer whose pledge grows waits up
-to an hour.
-
-**2026-10-04, §8 4a: a change asks only about what the peer has not
-confirmed** (branch `step/8.4a-narrowed-sweep`). Within a bucket the summary
-names, `sweep` (`crates/itsanas-net/src/session.rs`, now `sweep`/`walk`/`ask`/
-`bucket_floor`) asks only about chunks with no record for that peer younger
-than `REFRESH_AFTER` (`Index::without_fresh_record`, the same rule
-`record_holders` writes by), and reads only those buckets' index ranges. The
-full walk, due every `REFRESH_AFTER`, still asks about everything. Verified: 2
-red-team tests, 3 sabotages red (filter removed, filter in the full walk,
-bucket range starting past its first chunk); `cargo test -p itsanas-net -p
-itsanas-store` green. **Found doing the arithmetic:** FIRST-STEPS said an idle
-terabyte costs 600 KB a day; the full walk lists 537 MB per peer every 3.5
-days, about 150 MB a day, over budget -- already false before this change,
-corrected. **Found by Rodin, read in code, not measured:** a peer with a
-smaller budget is re-offered every chunk it refused, with the bytes, every
-round (now §8 4b). **Not verified:** nothing measured at size; disk cost on an
-SD card. Trap: the first fixture put no confirmed chunk in the new chunks'
-buckets, and its guard assertion is what said so.
-
-Older §0 entries, 2026-09-14 to 2026-10-01 (the final-fixes entry and before), moved verbatim
+Older §0 entries, 2026-09-14 to 2026-10-04 (the §8 4b entry and before), moved verbatim
 to [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md): history, not instructions.
 The rules that still bind are in §3, §4b and §11.
 
@@ -1341,7 +1328,23 @@ Detail and measurements are in ROADMAP.md; this is the map.
       second test that a write inside the limit still succeeds keeps the
       first from passing on a store that refuses everything.
    c. **Bound owners on the host — the part a rebuilt client cannot delete.**
-      **First part ✅ 2026-10-04 (see §0).** Remaining, in order, each with a
+      **First part ✅ 2026-10-04 (see §0). (i) ✅ 2026-10-05 (see §0).**
+      **Next, (ii), cold:** `ClaimBook::take` (`owners.rs`) accepts any live
+      claim the account key signed, and every node holds that key, so a device
+      its owner withdrew re-signs and stores. The coordinator's withdrawals
+      already reach the daemon: `coordinator::contact` returns
+      `contacted.claimed` (`ClaimedPeers` rows, checked by `verify_for` in
+      `crates/itsanas-cli/src/contact.rs`), read into `Contact` in
+      `daemon.rs::one_round` -- but only for *this* account's devices. A host
+      needs other accounts' withdrawals: find whether the coordinator can be
+      asked per device (a `CoordRequest` that exists, or one to append --
+      §6, appended never inserted), cache the answer in the book, and refuse
+      in `take`/`admits`. Red-team test: a device the coordinator lists as
+      withdrawn stores nothing even with a fresh live claim (sabotage: skip
+      the list); and a coordinator that is down must not refuse every
+      device (fail open, stated, or closed, decided -- if it is a judgement
+      call, it is Nicolas's). Then (iii).
+      The original list, each with a
       red-team test: (i) **test the space a claim pledges** -- today a pledge
       is believed until this host's own audits pause a device, and a host
       only audits devices it pushed to; give the host a way to contradict a

@@ -531,7 +531,7 @@ fn bucket_chunks(store: &Store, bucket: u8) -> Result<Vec<ChunkId>> {
 /// lacks and offers until the first refusal, so finding out whether the peer
 /// has room again costs about 32 KB and one chunk, an hour. A peer whose owner
 /// raised its pledge waits at most this long to be offered more.
-const FULL_RETRY: u64 = 60 * 60;
+pub const FULL_RETRY: u64 = 60 * 60;
 
 /// What a summary exchange concluded.
 enum Reconciled {

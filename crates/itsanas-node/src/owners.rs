@@ -19,8 +19,13 @@
 //!   `room_earned(proved)`, the same ratio applied to what the account's
 //!   devices are recorded as holding for this host
 //!   ([`Store::bytes_held_by`]), so cheating never earns more than playing
-//!   straight. Contradicted, today, means this host's own audit paused one of
-//!   the account's devices.
+//!   straight. Contradicted means this host's own audit paused one of the
+//!   account's devices.
+//! * **A pledge this host tested and found short counts for what was proved**
+//!   (§8 1c (i)): a device that refused this host's own chunks for a full
+//!   pledge within `FULL_RETRY` adds `min(pledged, proved)` to its account's
+//!   pledge instead of what it claimed. The push path is the test: it offers
+//!   every device it dials what that device lacks.
 //!
 //! # Why a ceiling for the whole host (Rodin, on the plan; redteam, on the code)
 //!
@@ -302,22 +307,64 @@ fn standing(
         proved: 0,
         contradicted: false,
     };
+    let now = now_unix();
     for (device, held) in book.iter().filter(|(_, held)| held.owner == owner) {
-        standing.pledged = standing.pledged.saturating_add(held.pledged);
         let record = store
             .reliability(device)
             .map_err(|error| error.to_string())?;
         standing.contradicted |= record.paused;
         // Records this host wrote itself, for a device its audits have not
         // paused. Never a flag: one passed audit proves one chunk.
-        if !record.paused {
-            let bytes = store
+        let proved = if record.paused {
+            0
+        } else {
+            store
                 .bytes_held_by(device)
-                .map_err(|error| error.to_string())?;
-            standing.proved = standing.proved.saturating_add(bytes);
-        }
+                .map_err(|error| error.to_string())?
+        };
+        standing.proved = standing.proved.saturating_add(proved);
+        standing.pledged =
+            standing
+                .pledged
+                .saturating_add(if refused_lately(store, device, now)? {
+                    // Tested and found short (§8 1c (i)): it offers what it holds.
+                    held.pledged.min(proved)
+                } else {
+                    held.pledged
+                });
     }
     Ok(standing)
+}
+
+/// Whether `device` refused this host's own chunks for a full pledge within
+/// [`FULL_RETRY`](itsanas_net::session::FULL_RETRY).
+///
+/// The one test a host can put a claim to. The claim is self-signed, so its
+/// pledge says what the device would like to be credited with; the push path
+/// offers the device this host's chunks every round it dials it and stamps a
+/// `PledgeFull` refusal (`Store::note_peer_full`). A device so stamped has
+/// been asked for room and said it has none: its pledge counts here for what
+/// it proved it holds for this host, and no more. Not a sanction -- an honest
+/// device full of other accounts' data earns at the same ratio, and its
+/// siblings keep their pledges -- and not for ever: the push path probes
+/// again after the same window, and a refusal older than it no longer counts.
+///
+/// What this cannot test, stated: a device this host never dials. One behind
+/// a router presents its claim, stores, and is offered nothing; its credit is
+/// still a promise, bounded only by the share lent on promises.
+fn refused_lately(store: &Store, device: &DeviceId, now: u64) -> Result<bool, String> {
+    Ok(store
+        .peer_full_since(device)
+        .map_err(|error| error.to_string())?
+        .is_some_and(|since| since >= now.saturating_sub(itsanas_net::session::FULL_RETRY)))
+}
+
+/// The host's clock, as the push path stamps refusals with it. Zero on a
+/// clock before 1970, which makes every refusal recent -- the cautious side.
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
 }
 
 /// What this host holds, for every account in the book, beyond what its
@@ -619,6 +666,81 @@ mod tests {
                 .is_err_and(|why| why.starts_with(CONTRADICTED)),
             "a device paused for failing audits was still credited with what it no longer holds: {stored:?}"
         );
+    }
+
+    /// Now, as the host's clock reads it: what `note_peer_full` is stamped
+    /// with on the push path.
+    fn now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    }
+
+    #[test]
+    fn red_team_a_terabyte_claim_from_a_device_that_refused_this_host_loses_its_credit() {
+        // §8 1c (i). The claim is self-signed, so its pledge is a promise this
+        // host can test only one way: by offering the device its own chunks.
+        // The push path does that every round it dials the device, and a
+        // `PledgeFull` refusal is stamped (`note_peer_full`). A device that
+        // claims a terabyte and refuses this host's data has been tested and
+        // found to offer less than it said; it keeps only what it proved.
+        // Sabotage: ignore the refusal.
+        let host = host();
+        let mallory = account(0xEE);
+        present(&host, &mallory, 0x66, 1 << 40);
+        assert_eq!(
+            admits(&host, device(0x66), mallory.user_id(), 1),
+            Ok(()),
+            "fixture: an untested terabyte claim should get credit at once"
+        );
+        host.store.note_peer_full(&device(0x66), now()).unwrap();
+        let refused = admits(&host, device(0x66), mallory.user_id(), 1);
+        assert!(
+            refused
+                .as_ref()
+                .is_err_and(|why| why.starts_with(ACCOUNT_FULL)),
+            "a device that refused this host's chunks for a full pledge was still \
+             credited with the terabyte it claimed: {refused:?}"
+        );
+    }
+
+    #[test]
+    fn a_device_that_refused_this_host_keeps_what_it_proved_and_its_siblings_pledges() {
+        // Not a sanction: an honest device that is full of other accounts'
+        // data is credited here with what it holds for this host, the same
+        // ratio, and the account's other devices keep their own pledges. The
+        // red-team test above must not pass on a book that refuses everything.
+        let host = host();
+        let alice = account(0xA1);
+        present(&host, &alice, 0x11, 1 << 40);
+        let earned = Split::DEFAULT.room_earned(hosts_for_the_host(&host, device(0x11)));
+        assert!(earned > 0, "fixture: the device proved nothing");
+        host.store.note_peer_full(&device(0x11), now()).unwrap();
+        assert_eq!(admits(&host, device(0x11), alice.user_id(), earned), Ok(()));
+        assert!(
+            admits(&host, device(0x11), alice.user_id(), earned + 1).is_err(),
+            "a full device was credited past what it proved"
+        );
+        present(&host, &alice, 0x12, 700);
+        assert_eq!(
+            admits(&host, device(0x12), alice.user_id(), earned + 300),
+            Ok(()),
+            "one full device took its siblings' pledges with it"
+        );
+    }
+
+    #[test]
+    fn a_refusal_older_than_the_retry_no_longer_counts() {
+        // A device whose owner raised its pledge, or that freed room, is
+        // probed again after `FULL_RETRY`; until it refuses again its claim
+        // is what it was. Otherwise one full afternoon is a life sentence.
+        let host = host();
+        let alice = account(0xA1);
+        present(&host, &alice, 0x11, 700);
+        let long_ago = now() - itsanas_net::session::FULL_RETRY - 1;
+        host.store.note_peer_full(&device(0x11), long_ago).unwrap();
+        assert_eq!(admits(&host, device(0x11), alice.user_id(), 300), Ok(()));
     }
 
     #[test]
