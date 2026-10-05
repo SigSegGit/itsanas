@@ -2094,7 +2094,7 @@ mod tests {
         let forgotten = directory.forget_account("mandarine").unwrap().unwrap();
         assert_eq!((forgotten.devices, forgotten.withdrawals_kept), (1, 0));
         assert!(directory.account_of(old.user_id()).unwrap().is_none());
-        assert!(directory.live_claims_of(old.user_id()).unwrap().is_empty());
+        assert_eq!(directory.live_claims_of(old.user_id()).unwrap().len(), 0);
         assert!(
             directory
                 .claim_for(device(1).device_id())
