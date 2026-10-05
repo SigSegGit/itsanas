@@ -1109,7 +1109,6 @@ fn answer_about<E>(
 ///
 /// No coordinator configured, one not pinned ([`pinned`]), or none
 /// answering, is [`Verdict::NoAnswer`](crate::owners::Verdict::NoAnswer).
-#[must_use]
 pub fn asker(node: &Node) -> crate::owners::Asker {
     let config = node.config.clone();
     let device = DeviceKeys::from_seed(&node.device.seed());

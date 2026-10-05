@@ -1097,7 +1097,7 @@ mod tests {
         let own = account(0x01);
         presents(&host, &own, 0x31, 0);
         assert_eq!(admits(&host, device(0x31), own.user_id(), 1 << 30), Ok(()));
-        assert!(host.book.due(own.user_id(), 8).is_empty());
+        assert_eq!(host.book.due(own.user_id(), 8), Vec::new());
     }
 
     #[test]
