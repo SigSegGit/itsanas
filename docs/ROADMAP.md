@@ -1644,7 +1644,7 @@ stops it, and the test:
 | Confirm a guessed file from its address | address is not the content hash | `chunk_id_does_not_expose_the_plaintext_hash` |
 | Read a path or a byte of content on a host | sealed chunk and sealed segment body | `the_sealed_body_does_not_leak_the_path_in_plaintext`, `the_hosts_hold_everything_and_can_read_none_of_it` |
 | Learn from a repair request which chunks exist only on hosts | asked only of peers the ledger records as holders | `red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost` |
-| Two accounts' identical files matched by chunk sizes | nothing | ⬜ **open**, the fingerprint above (§8 3c, Nicolas) |
+| Two accounts' identical files matched by chunk sizes | nothing | ⬜ **open**, the fingerprint above; decided 2026-10-05: pad, after measuring the cost (HANDOVER §8 3c) |
 | **A stranger reads any account's metadata from any host** | nothing | ⬜ **open**, below |
 | Operation count per publish | nothing: `first_sequence`..`last_sequence` in the clear | ⬜ **by design**, `validate_chain` needs them |
 | Size and time of each edit | nothing: body length, chunk count and when they arrive | ⬜ **by design**, ARCHITECTURE §8 |

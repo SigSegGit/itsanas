@@ -239,6 +239,9 @@ people who discover this are the ones who lose files.
 
 ### Bilateral, not global ⬜ **specified only**
 
+> **Decided 2026-10-05 (Nicolas):** bilateral, with occasional checks
+> against the coordinator so ledgers cannot drift unseen. Not built.
+
 Two members who host for each other each keep one number per counterparty:
 
 ```
