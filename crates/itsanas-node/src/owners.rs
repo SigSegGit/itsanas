@@ -42,11 +42,25 @@
 //! then opened the whole host to a petabyte claim. Proof is now counted in
 //! bytes, never in a flag.
 //!
-//! What this does not bound, stated: a device its account withdrew can sign a
-//! fresh live claim, because every node holds the account key and this host
-//! never reads the coordinator's withdrawals; and an account can keep a
-//! paused device from presenting here, so the contradiction this host sees is
-//! the one its own audits find among the devices that came.
+//! # Withdrawals, from the coordinator (§8 1c (ii))
+//!
+//! Every node holds the account key, so a device its owner withdrew signs
+//! itself a fresh live claim. Only the coordinator knows of the withdrawal,
+//! and there it is final. So a device of another account stores here only
+//! once this host has asked the coordinator about it ([`ClaimBook::due`],
+//! [`ClaimBook::note`]) and been answered with a live claim, within
+//! [`STANDING_FOR`]. **No answer means no storing** -- Nicolas, 2026-10-05,
+//! asked whether a coordinator that is down should let devices through:
+//! "Refuse". It matches the coordinator's place (it can refuse a member,
+//! never admit one), and its cost is stated: a newcomer is asked about when
+//! it presents (or waits for the round), every account but this host's own stops storing here
+//! while the coordinator is unreachable for longer than [`STANDING_FOR`], and
+//! a host with no coordinator configured, or one not pinned by its device id,
+//! stores only for its own account.
+//!
+//! What this does not bound, stated: an account can keep a paused device from
+//! presenting here, so the contradiction this host sees is the one its own
+//! audits find among the devices that came.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -81,15 +95,64 @@ pub const ACCOUNT_FULL: &str = "this account has stored here what its pledge ear
 /// What a host answers when the share lent on promises is used up.
 pub const UNPROVEN_FULL: &str =
     "this host lends no more on promises alone: host something for it to earn more";
+/// How long a coordinator's word that a device is live lets it store here.
+/// [`ClaimBook::due`] asks again after half of it, ageing confirmations
+/// first, so a coordinator that answers every round lets none lapse while
+/// the round can reach them all (`coordinator::STANDING_PER_ROUND`, 768 an
+/// hour at the default interval).
+pub const STANDING_FOR: Duration = Duration::from_secs(2 * 60 * 60);
+
+/// What a host answers a device the coordinator says was withdrawn.
+pub const WITHDRAWN: &str = "the coordinator says this device was withdrawn by its account";
+/// What a host answers a device of another account it has not confirmed
+/// with the coordinator lately.
+pub const UNCONFIRMED: &str = "this host has not confirmed this device with the coordinator \
+     lately; it stores here once it has (the next round, if the coordinator answers)";
+
 /// What a host answers an account whose offer its audits contradicted.
 pub const CONTRADICTED: &str = "a device of this account failed this host's storage audits; \
      it stores here only what its devices have proved they hold for this host";
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct Held {
     owner: UserId,
     pledged: u64,
     issued: u64,
+    /// The claim as presented, for asking the coordinator about it.
+    claim: Vec<u8>,
+    standing: Standing,
+    /// When it first presented here, which orders who is asked about first.
+    presented: Instant,
+    /// When the coordinator was last asked about it, and whether it answered
+    /// that it holds nothing for it -- which backs the next question off.
+    asked: Option<(Instant, bool)>,
+}
+
+/// What the coordinator last said about a device, as far as this host knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Standing {
+    /// Never asked, or asked and not answered with a live claim.
+    Unconfirmed,
+    /// Answered with a live claim at this instant.
+    Live(Instant),
+    /// Answered with a withdrawal. Final, as it is on the coordinator.
+    Withdrawn,
+}
+
+/// What one answer of the coordinator's means for one device
+/// ([`ClaimBook::verdict`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    /// The coordinator holds a live claim for it under its account.
+    Live,
+    /// The coordinator holds its withdrawal.
+    Withdrawn,
+    /// The coordinator holds nothing for it under its account, or answered
+    /// with a claim that does not check out. Not live from now.
+    Unenrolled,
+    /// No answer: down, unreachable, or older than the question. What the
+    /// device had stays until it lapses.
+    NoAnswer,
 }
 
 #[derive(Debug, Default)]
@@ -98,12 +161,49 @@ struct Lent {
     counted: Option<Instant>,
 }
 
+/// Asks the coordinator about one presented claim, there and then.
+pub type Asker = Box<dyn Fn(&SignedClaim) -> Verdict + Send + Sync>;
+
+/// Most questions [`ClaimBook::take`] puts to the coordinator a minute.
+///
+/// Asking on presentation is what lets a newcomer store on its first round
+/// instead of the host's next one; bounding it is what keeps that from being
+/// an amplifier: a device costs nothing to make, and without a bound every
+/// connection of a flood of them would be a connection to the coordinator.
+/// Past it a device waits for the host's round ([`ClaimBook::due`]).
+pub const ASKS_PER_MINUTE: usize = 30;
+
+/// Most inline questions in flight at once. Each holds a connection's thread
+/// for a round trip to the coordinator, which is up to its I/O timeout when
+/// it is slow; past this a device waits for the host's round (redteam).
+pub const ASKING_AT_ONCE: usize = 4;
+
+/// How long a device the coordinator said it holds nothing for waits before
+/// it is asked about again. Device keys are free: without this, junk devices
+/// presented once are asked about every round, for ever, ahead of real ones
+/// (redteam).
+pub const ASK_AGAIN_AFTER: Duration = Duration::from_secs(60 * 60);
+
 /// The claims this host has checked, by device.
-#[derive(Debug)]
 pub struct ClaimBook {
     claims: Mutex<BTreeMap<DeviceId, Held>>,
     lent: Mutex<Lent>,
     capacity: usize,
+    /// This host's own account, whose devices are never asked about, and
+    /// how to ask about the others when they present.
+    asking: Option<(UserId, Asker)>,
+    asked: Mutex<std::collections::VecDeque<Instant>>,
+    in_flight: std::sync::atomic::AtomicUsize,
+}
+
+impl std::fmt::Debug for ClaimBook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClaimBook")
+            .field("claims", &self.lock().len())
+            .field("capacity", &self.capacity)
+            .field("asking", &self.asking.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Default for ClaimBook {
@@ -113,7 +213,7 @@ impl Default for ClaimBook {
 }
 
 /// What one account has here, as the rule reads it.
-struct Standing {
+struct Account {
     pledged: u64,
     proved: u64,
     contradicted: bool,
@@ -133,7 +233,39 @@ impl ClaimBook {
             claims: Mutex::new(BTreeMap::new()),
             lent: Mutex::new(Lent::default()),
             capacity,
+            asking: None,
+            asked: Mutex::new(std::collections::VecDeque::new()),
+            in_flight: std::sync::atomic::AtomicUsize::new(0),
         }
+    }
+
+    /// Ask `asker` about a device of another account than `own` when it
+    /// presents a claim this book has not confirmed, up to
+    /// [`ASKS_PER_MINUTE`]. Without it a device waits for [`ClaimBook::due`].
+    #[must_use]
+    pub fn asking(mut self, own: UserId, asker: Asker) -> Self {
+        self.asking = Some((own, asker));
+        self
+    }
+
+    /// Whether one more question fits in the last minute's budget, counted
+    /// if it does.
+    fn may_ask(&self) -> bool {
+        let mut asked = self
+            .asked
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while asked
+            .front()
+            .is_some_and(|at| at.elapsed() >= Duration::from_secs(60))
+        {
+            asked.pop_front();
+        }
+        if asked.len() >= ASKS_PER_MINUTE {
+            return false;
+        }
+        asked.push_back(Instant::now());
+        true
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<DeviceId, Held>> {
@@ -168,12 +300,22 @@ impl ClaimBook {
             book.remove(&caller);
             return Err("this device was withdrawn by its account".to_owned());
         }
+        let mut standing = Standing::Unconfirmed;
+        let mut presented = Instant::now();
+        let mut asked = None;
         match book.get(&caller) {
             Some(held) if held.owner != claim.owner => {
                 return Err("this device is already claimed by another account".to_owned());
             }
+            Some(held) if held.standing == Standing::Withdrawn => {
+                return Err(WITHDRAWN.to_owned());
+            }
             Some(held) if held.issued > claim.issued_unix => return Ok(()),
-            Some(_) => {}
+            Some(held) => {
+                standing = held.standing;
+                presented = held.presented;
+                asked = held.asked;
+            }
             None => {
                 let siblings = book
                     .values()
@@ -204,9 +346,116 @@ impl ClaimBook {
                 owner: claim.owner,
                 pledged: claim.pledged_bytes,
                 issued: claim.issued_unix,
+                claim: bytes.to_vec(),
+                standing,
+                presented,
+                asked,
             },
         );
+        drop(book);
+        // Asked outside the lock: it is a round trip to the coordinator, and
+        // every other connection's `admits` waits on this lock.
+        if let Some((own, asker)) = &self.asking {
+            // Asked again at half of `STANDING_FOR`, as `due` does, so a withdrawal
+            // reaches this host within the hour whichever comes first.
+            let confirmed =
+                matches!(standing, Standing::Live(at) if at.elapsed() < STANDING_FOR / 2);
+            // Only a device never asked about: the rest wait for the round,
+            // which asks oldest first, so presenting again buys nothing.
+            if claim.owner != *own && !confirmed && asked.is_none() && self.may_ask() {
+                use std::sync::atomic::Ordering;
+                if self.in_flight.fetch_add(1, Ordering::AcqRel) < ASKING_AT_ONCE {
+                    let verdict = asker(&signed);
+                    self.in_flight.fetch_sub(1, Ordering::AcqRel);
+                    self.note(caller, verdict);
+                } else {
+                    self.in_flight.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+        }
         Ok(())
+    }
+
+    /// Up to `at_most` devices of other accounts than `own` to ask the
+    /// coordinator about, with the claim each presented, most pressing first.
+    ///
+    /// First, confirmations past half of [`STANDING_FOR`], oldest first:
+    /// those are real devices about to be refused. Then devices never
+    /// answered, by when they presented. Last, devices the coordinator said
+    /// it holds nothing for, once [`ASK_AGAIN_AFTER`] has passed. A withdrawn
+    /// device is never asked again. Never in id order: ids are free to grind,
+    /// and a book read in id order let eight junk devices take every round's
+    /// questions for ever (redteam).
+    #[must_use]
+    pub fn due(&self, own: UserId, at_most: usize) -> Vec<(DeviceId, Vec<u8>)> {
+        let book = self.lock();
+        let mut due: Vec<((u8, Instant), DeviceId)> = book
+            .iter()
+            .filter(|(_, held)| held.owner != own)
+            .filter_map(|(device, held)| {
+                let key = match (held.standing, held.asked) {
+                    (Standing::Live(at), _) if at.elapsed() >= STANDING_FOR / 2 => (0, at),
+                    (Standing::Unconfirmed, None | Some((_, false))) => (1, held.presented),
+                    (Standing::Unconfirmed, Some((at, true)))
+                        if at.elapsed() >= ASK_AGAIN_AFTER =>
+                    {
+                        (2, at)
+                    }
+                    // Withdrawn for good, confirmed lately, or disowned lately.
+                    _ => return None,
+                };
+                Some((key, *device))
+            })
+            .collect();
+        due.sort_unstable();
+        due.into_iter()
+            .take(at_most)
+            .filter_map(|(_, device)| book.get(&device).map(|held| (device, held.claim.clone())))
+            .collect()
+    }
+
+    /// What the coordinator answered about `device`, heard now.
+    pub fn note(&self, device: DeviceId, verdict: Verdict) {
+        self.note_at(device, verdict, Instant::now());
+    }
+
+    fn note_at(&self, device: DeviceId, verdict: Verdict, at: Instant) {
+        let mut book = self.lock();
+        let Some(held) = book.get_mut(&device) else {
+            return;
+        };
+        held.asked = Some((at, verdict == Verdict::Unenrolled));
+        held.standing = match (held.standing, verdict) {
+            (Standing::Withdrawn, _) | (_, Verdict::Withdrawn) => Standing::Withdrawn,
+            (_, Verdict::Live) => Standing::Live(at),
+            (_, Verdict::Unenrolled) => Standing::Unconfirmed,
+            (kept, Verdict::NoAnswer) => kept,
+        };
+    }
+
+    /// Read the coordinator's answer to [`Request::Standing`] about the
+    /// claim `presented`, checked: a claim it hands back must be signed by
+    /// the account, for the device and the account asked about. Anything
+    /// else is [`Verdict::Unenrolled`] -- a coordinator can refuse a member,
+    /// never vouch for one.
+    ///
+    /// [`Request::Standing`]: itsanas_coord::protocol::Request::Standing
+    #[must_use]
+    pub fn verdict(presented: &SignedClaim, answer: Option<&SignedClaim>) -> Verdict {
+        match answer {
+            Some(held)
+                if held.verify_origin().is_ok()
+                    && held.claim.owner == presented.claim.owner
+                    && held.claim.device == presented.claim.device =>
+            {
+                if held.claim.revoked {
+                    Verdict::Withdrawn
+                } else {
+                    Verdict::Live
+                }
+            }
+            _ => Verdict::Unenrolled,
+        }
     }
 
     /// Whether `caller` may store `incoming` more bytes for `owner` on the
@@ -235,6 +484,11 @@ impl ClaimBook {
         // the bargain is between accounts.
         if owner == store.owner() {
             return Ok(());
+        }
+        match held.standing {
+            Standing::Withdrawn => return Err(WITHDRAWN.to_owned()),
+            Standing::Live(at) if at.elapsed() < STANDING_FOR => {}
+            Standing::Live(_) | Standing::Unconfirmed => return Err(UNCONFIRMED.to_owned()),
         }
 
         let standing = standing(&book, owner, store)?;
@@ -301,8 +555,8 @@ fn standing(
     book: &BTreeMap<DeviceId, Held>,
     owner: UserId,
     store: &Store,
-) -> Result<Standing, String> {
-    let mut standing = Standing {
+) -> Result<Account, String> {
+    let mut standing = Account {
         pledged: 0,
         proved: 0,
         contradicted: false,
@@ -467,7 +721,14 @@ mod tests {
         postcard::to_stdvec(&signed).unwrap()
     }
 
+    /// Present a claim and have the coordinator confirm it, as a round does.
     fn present(host: &Host, account: &UserKeys, seed: u8, pledged: u64) {
+        presents(host, account, seed, pledged);
+        host.book.note(device(seed), Verdict::Live);
+    }
+
+    /// Present a claim, with no word from the coordinator yet.
+    fn presents(host: &Host, account: &UserKeys, seed: u8, pledged: u64) {
         host.book
             .take(
                 device(seed),
@@ -475,6 +736,10 @@ mod tests {
                 &host.vault,
             )
             .unwrap();
+    }
+
+    fn signed(bytes: &[u8]) -> SignedClaim {
+        postcard::from_bytes(bytes).unwrap()
     }
 
     /// Put `bytes` of `owner`'s data in the host's vault.
@@ -741,6 +1006,286 @@ mod tests {
         let long_ago = now() - itsanas_net::session::FULL_RETRY - 1;
         host.store.note_peer_full(&device(0x11), long_ago).unwrap();
         assert_eq!(admits(&host, device(0x11), alice.user_id(), 300), Ok(()));
+    }
+
+    #[test]
+    fn red_team_a_device_the_coordinator_says_was_withdrawn_stores_nothing() {
+        // §8 1c (ii). Every node holds the account key, so a withdrawn device
+        // signs itself a fresh live claim; the coordinator's withdrawal is the
+        // only word against it, and it is final. Sabotage: skip the verdict.
+        let host = host();
+        let alice = account(0xA1);
+        present(&host, &alice, 0x11, 700);
+        assert_eq!(admits(&host, device(0x11), alice.user_id(), 1), Ok(()));
+        host.book.note(device(0x11), Verdict::Withdrawn);
+        assert_eq!(
+            admits(&host, device(0x11), alice.user_id(), 1),
+            Err(WITHDRAWN.to_owned()),
+            "a device the coordinator says was withdrawn still stored here"
+        );
+        let resigned = postcard::to_stdvec(
+            &NodeClaim {
+                owner: alice.user_id(),
+                device: device(0x11),
+                pledged_bytes: 700,
+                issued_unix: NOW + 1_000,
+                revoked: false,
+            }
+            .sign(&alice),
+        )
+        .unwrap();
+        assert_eq!(
+            host.book.take(device(0x11), &resigned, &host.vault),
+            Err(WITHDRAWN.to_owned()),
+            "a later live claim brought a withdrawn device back"
+        );
+        host.book.note(device(0x11), Verdict::Live);
+        assert_eq!(
+            admits(&host, device(0x11), alice.user_id(), 1),
+            Err(WITHDRAWN.to_owned()),
+            "a later answer undid a withdrawal, which is final"
+        );
+    }
+
+    #[test]
+    fn red_team_no_word_from_the_coordinator_means_no_storing() {
+        // Nicolas, 2026-10-05: a device this host has not confirmed with the
+        // coordinator stores nothing here, and neither does one whose
+        // confirmation has lapsed while the coordinator does not answer.
+        // Otherwise a withdrawn device stores wherever the coordinator is out
+        // of reach. Sabotage: admit an unconfirmed device; never let a
+        // confirmation lapse.
+        let host = host();
+        let alice = account(0xA1);
+        presents(&host, &alice, 0x11, 700);
+        assert_eq!(
+            admits(&host, device(0x11), alice.user_id(), 1),
+            Err(UNCONFIRMED.to_owned()),
+            "a device nobody asked the coordinator about stored here"
+        );
+        let long_ago = Instant::now()
+            .checked_sub(STANDING_FOR + Duration::from_secs(1))
+            .expect("a monotonic clock older than two hours");
+        host.book.note_at(device(0x11), Verdict::Live, long_ago);
+        host.book.note(device(0x11), Verdict::NoAnswer);
+        assert_eq!(
+            admits(&host, device(0x11), alice.user_id(), 1),
+            Err(UNCONFIRMED.to_owned()),
+            "a confirmation outlived STANDING_FOR while the coordinator was silent"
+        );
+    }
+
+    #[test]
+    fn a_silent_coordinator_keeps_a_fresh_confirmation_and_an_empty_answer_ends_it() {
+        let host = host();
+        let alice = account(0xA1);
+        present(&host, &alice, 0x11, 700);
+        host.book.note(device(0x11), Verdict::NoAnswer);
+        assert_eq!(admits(&host, device(0x11), alice.user_id(), 1), Ok(()));
+        host.book.note(device(0x11), Verdict::Unenrolled);
+        assert_eq!(
+            admits(&host, device(0x11), alice.user_id(), 1),
+            Err(UNCONFIRMED.to_owned())
+        );
+    }
+
+    #[test]
+    fn this_hosts_own_devices_need_no_word_from_the_coordinator() {
+        // A household keeps replicating to itself with the coordinator down,
+        // or with none configured: the bargain is between accounts.
+        let host = host();
+        let own = account(0x01);
+        presents(&host, &own, 0x31, 0);
+        assert_eq!(admits(&host, device(0x31), own.user_id(), 1 << 30), Ok(()));
+        assert_eq!(host.book.due(own.user_id(), 8), Vec::new());
+    }
+
+    #[test]
+    fn due_names_the_unconfirmed_and_the_ageing_and_never_the_withdrawn() {
+        let host = host();
+        let alice = account(0xA1);
+        presents(&host, &alice, 0x11, 700);
+        present(&host, &alice, 0x12, 700);
+        presents(&host, &alice, 0x13, 700);
+        host.book.note(device(0x13), Verdict::Withdrawn);
+        let due: Vec<DeviceId> = host
+            .book
+            .due(host.store.owner(), 8)
+            .into_iter()
+            .map(|(device, _)| device)
+            .collect();
+        assert_eq!(due, vec![device(0x11)]);
+        let ageing = Instant::now()
+            .checked_sub(STANDING_FOR / 2)
+            .expect("a monotonic clock older than an hour");
+        host.book.note_at(device(0x12), Verdict::Live, ageing);
+        assert_eq!(host.book.due(host.store.owner(), 8).len(), 2);
+        assert_eq!(host.book.due(host.store.owner(), 1).len(), 1, "unbounded");
+    }
+
+    #[test]
+    fn red_team_junk_devices_do_not_take_every_question_from_a_real_one() {
+        // Found by the redteam agent: device keys are free, and the round
+        // asked about the book in id order, eight a round. Twenty junk
+        // devices the coordinator does not know, presented first, then one
+        // real device: the round must reach the real one. Sabotage: no
+        // back-off for a device answered `Unenrolled`.
+        let host = host();
+        for seed in 0x40..0x54u8 {
+            presents(&host, &account(seed), seed, 1);
+            host.book.note(device(seed), Verdict::Unenrolled);
+        }
+        let bob = account(0xB2);
+        presents(&host, &bob, 0x22, 700);
+        let due: Vec<DeviceId> = host
+            .book
+            .due(host.store.owner(), 8)
+            .into_iter()
+            .map(|(device, _)| device)
+            .collect();
+        assert_eq!(
+            due,
+            vec![device(0x22)],
+            "junk the coordinator already disowned was asked about again ahead of a real device"
+        );
+    }
+
+    #[test]
+    fn red_team_a_flood_of_newcomers_does_not_let_a_real_confirmation_lapse() {
+        // A confirmation past half its life is a real device about to be
+        // refused; it goes before every never-asked newcomer, however many.
+        // Sabotage: order `due` by id, or by presentation alone.
+        let host = host();
+        // The newcomers present first, so ordering by presentation alone
+        // would put the real device last.
+        for seed in 0x40..0x54u8 {
+            presents(&host, &account(seed), seed, 1);
+        }
+        let bob = account(0xB2);
+        present(&host, &bob, 0xF0, 700);
+        let ageing = Instant::now()
+            .checked_sub(STANDING_FOR / 2)
+            .expect("a monotonic clock older than an hour");
+        host.book.note_at(device(0xF0), Verdict::Live, ageing);
+        let due = host.book.due(host.store.owner(), 1);
+        assert_eq!(
+            due.first().map(|(device, _)| *device),
+            Some(device(0xF0)),
+            "newcomers were asked about before a live device whose confirmation was ageing"
+        );
+    }
+
+    #[test]
+    fn red_team_a_coordinator_cannot_vouch_with_a_claim_for_another_device_or_account() {
+        // The answer is checked like any claim: a coordinator that answers
+        // with a live claim of another device, or a forged one, confirms
+        // nothing. Sabotage: drop either check in `verdict`.
+        let alice = account(0xA1);
+        let presented = signed(&claim(&alice, 0x11, 700, false));
+        let other_device = signed(&claim(&alice, 0x12, 700, false));
+        let other_account = signed(&claim(&account(0xB2), 0x11, 700, false));
+        let mut forged = signed(&claim(&alice, 0x11, 700, true));
+        forged.claim.revoked = false;
+        for (answer, what) in [
+            (&other_device, "another device"),
+            (&other_account, "another account"),
+            (&forged, "a forged claim"),
+        ] {
+            assert_eq!(
+                ClaimBook::verdict(&presented, Some(answer)),
+                Verdict::Unenrolled,
+                "a coordinator vouched with {what}"
+            );
+        }
+        assert_eq!(
+            ClaimBook::verdict(&presented, Some(&signed(&claim(&alice, 0x11, 1, true)))),
+            Verdict::Withdrawn
+        );
+        assert_eq!(
+            ClaimBook::verdict(&presented, Some(&presented)),
+            Verdict::Live
+        );
+        assert_eq!(ClaimBook::verdict(&presented, None), Verdict::Unenrolled);
+    }
+
+    #[test]
+    fn a_device_is_asked_about_when_it_presents_so_it_stores_on_its_first_round() {
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = asked.clone();
+        let own = account(0x01).user_id();
+        let book = ClaimBook::new().asking(
+            own,
+            Box::new(move |_| {
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Verdict::Live
+            }),
+        );
+        let host = host_of(book);
+        let alice = account(0xA1);
+        presents(&host, &alice, 0x11, 700);
+        assert_eq!(admits(&host, device(0x11), alice.user_id(), 1), Ok(()));
+        presents(&host, &alice, 0x11, 700);
+        presents(&host, &account(0x01), 0x31, 0);
+        assert_eq!(
+            asked.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "asked again about a confirmed device, or about this host's own"
+        );
+    }
+
+    #[test]
+    fn red_team_presenting_again_does_not_buy_another_question() {
+        // One junk device presenting on every connection would otherwise spend
+        // the whole minute's budget on itself. Answered once, it waits for the
+        // round's back-off. Sabotage: ask whenever it is not confirmed.
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = asked.clone();
+        let book = ClaimBook::new().asking(
+            account(0x01).user_id(),
+            Box::new(move |_| {
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Verdict::Unenrolled
+            }),
+        );
+        let host = host_of(book);
+        for _ in 0..10 {
+            presents(&host, &account(0xEE), 0x66, 1);
+        }
+        assert_eq!(
+            asked.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "a device the coordinator disowned bought a question with every presentation"
+        );
+    }
+
+    #[test]
+    fn red_team_a_flood_of_presentations_does_not_become_a_flood_of_questions() {
+        // Device keys are free, so asking on every presentation would make
+        // this host an amplifier against its coordinator. Sabotage: no budget.
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = asked.clone();
+        let book = ClaimBook::new().asking(
+            account(0x01).user_id(),
+            Box::new(move |_| {
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Verdict::Unenrolled
+            }),
+        );
+        let host = host_of(book);
+        let flood = u8::try_from(ASKS_PER_MINUTE).expect("a small budget") + 20;
+        for seed in 0..flood {
+            presents(
+                &host,
+                &account(0x80u8.wrapping_add(seed)),
+                0x80u8.wrapping_add(seed),
+                1,
+            );
+        }
+        assert_eq!(
+            asked.load(std::sync::atomic::Ordering::Relaxed),
+            ASKS_PER_MINUTE,
+            "every presentation became a question to the coordinator"
+        );
     }
 
     #[test]

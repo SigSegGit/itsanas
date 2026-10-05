@@ -711,22 +711,60 @@ fn peer_service<'a>(node: &'a Node, board: &'a SharedBoard) -> PeerService<'a> {
     )
     .with_relay(board)
     // Whose each device is and what it offers, as its claim said (§8 1c).
-    .with_owners(owners())
+    .with_owners(owners(node))
     .claiming(node.claim_bytes(itsanas_discover::now_unix()))
 }
 
 /// The claims this daemon's peers presented (§8 1c), shared by the listener,
 /// which takes them, and the hosting pull, which is held to them as offers
-/// are. One per process: a node runs one daemon.
-fn owners() -> &'static itsanas_node::owners::ClaimBook {
+/// are. One per process: a node runs one daemon. Asks the coordinator about a
+/// device of another account when it presents (§8 1c (ii)).
+fn owners(node: &Node) -> &'static itsanas_node::owners::ClaimBook {
     static OWNERS: std::sync::OnceLock<itsanas_node::owners::ClaimBook> =
         std::sync::OnceLock::new();
-    OWNERS.get_or_init(itsanas_node::owners::ClaimBook::new)
+    OWNERS.get_or_init(|| {
+        itsanas_node::owners::ClaimBook::new().asking(node.store.owner(), coordinator::asker(node))
+    })
+}
+
+/// Ask the coordinator about the devices whose confirmation is ageing or
+/// missing (§8 1c (ii)). Said only when it changes something: a withdrawal,
+/// or a coordinator that would not answer while devices waited.
+fn check_standing(node: &Node) {
+    match coordinator::standing(node, owners(node)) {
+        Ok(report) => {
+            if report.unpinned {
+                println!(
+                    "coordinator: not pinned, so its word about other accounts' devices is not \
+                     taken and they store nothing here; pin it with \
+                     `itsanas coordinator <host:port> --device <id>`"
+                );
+            }
+            if report.withdrawn > 0 {
+                println!(
+                    "coordinator: {} device(s) presenting here were withdrawn by their account; \
+                     they store nothing here",
+                    report.withdrawn
+                );
+            }
+            if report.unanswered > 0 {
+                println!(
+                    "coordinator: did not answer for {} device(s) of other accounts; until it \
+                     does they store nothing here",
+                    report.unanswered
+                );
+            }
+        }
+        Err(error) => println!(
+            "coordinator: could not confirm the devices of other accounts ({error}); \
+             until it can they store nothing here"
+        ),
+    }
 }
 
 fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
     let pledge = Pledge::bytes(node.config.pledge_bytes);
-    let bound: (&dyn itsanas_net::Owners, &itsanas_store::Store) = (owners(), &node.store);
+    let bound: (&dyn itsanas_net::Owners, &itsanas_store::Store) = (owners(node), &node.store);
     match session::host_for_bounded(&node.vault, client, pledge, Some(bound)) {
         // A peer that wanted nothing has nothing to say, and saying it every
         // five minutes would fill a journal with silence. A peer that wanted
@@ -842,6 +880,13 @@ fn one_round(
                 Err(error) => outage.failed(&error.to_string()),
             }
         }
+    }
+
+    // The devices of other accounts this node hosts for, confirmed with the
+    // coordinator before they store (§8 1c (ii)). After the contact above, so
+    // a coordinator that just answered is the one asked.
+    if !shutdown.load(Ordering::Relaxed) {
+        check_standing(node);
     }
 
     // Configured peers next: somebody typed those in, so they are
@@ -1306,7 +1351,7 @@ fn sync_once(
 pub(crate) fn present_claim(node: &Node, peer: &str, client: &mut PeerClient) {
     match client.present_claim(node.claim_bytes(itsanas_discover::now_unix())) {
         Ok(Some(theirs)) => {
-            if let Err(why) = owners().take(client.peer_device(), &theirs, &node.vault) {
+            if let Err(why) = owners(node).take(client.peer_device(), &theirs, &node.vault) {
                 println!("{peer}: its own claim does not check out ({why}); not hosting for it");
             }
         }

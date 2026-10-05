@@ -237,6 +237,25 @@ pub enum Request {
         /// The user whose devices to list.
         user: UserId,
     },
+
+    /// "Is the device this claim names still enrolled?" (HANDOVER §8 1c (ii).)
+    ///
+    /// A host bounds what it stores for an account by the claims its devices
+    /// present, and every node holds the account key, so a device its owner
+    /// withdrew can sign itself a fresh live claim. Only the coordinator knows
+    /// of the withdrawal, and it is final there. Answered
+    /// [`Response::Standing`] with the coordinator's own claim for that
+    /// device, which the host checks against the account's key.
+    ///
+    /// **Carries the claim, not a device id**, so the caller must already
+    /// hold one the owner signed: a host learns whether a device it has met
+    /// was withdrawn, never whose a device it has not met is. A claim that
+    /// does not verify is refused.
+    ///
+    /// Appended last: postcard numbers variants by position, and a
+    /// coordinator older than this hangs up on it -- which a host reads as no
+    /// answer, and stores nothing for that device (Nicolas, 2026-10-05).
+    Standing(Box<SignedClaim>),
 }
 
 /// One enrolled device, as [`Response::Devices`] lists it.
@@ -323,6 +342,11 @@ pub enum Response {
     /// its owner's claim. Appended last, for the reason given on
     /// [`Request::ClaimedPeers`].
     ClaimedPeers(Vec<ClaimedPresence>),
+
+    /// The coordinator's claim for the device a [`Request::Standing`] named,
+    /// or `None` when it holds none for that device under that account.
+    /// Appended last.
+    Standing(Option<Box<SignedClaim>>),
 }
 
 impl Request {
@@ -359,6 +383,7 @@ impl Request {
             Self::Depart(_) => "depart",
             Self::SignedPeers { .. } => "signed-peers",
             Self::ClaimedPeers { .. } => "claimed-peers",
+            Self::Standing(_) => "standing",
         }
     }
 }
@@ -407,6 +432,17 @@ mod tests {
             .is_open()
         );
         assert!(!Request::PutEscrow { blob: None }.is_open());
+        let owner =
+            itsanas_crypto::UserKeys::derive(&itsanas_crypto::MasterSecret::from_bytes([9; 32]));
+        let claim = crate::claim::NodeClaim {
+            owner: owner.user_id(),
+            device: DeviceId::from_bytes([1; ID_LEN]),
+            pledged_bytes: 0,
+            issued_unix: 0,
+            revoked: false,
+        }
+        .sign(&owner);
+        assert!(!Request::Standing(Box::new(claim)).is_open());
     }
 
     #[test]
@@ -424,9 +460,7 @@ mod tests {
 
     /// One of every message, with the number it is deployed under.
     fn one_of_each_numbered() -> Numbered {
-        use crate::claim::{NodeClaim, Presence};
-        use crate::directory::Registration;
-        use crate::invitation::Invitation;
+        use crate::{claim::NodeClaim, claim::Presence, directory::Registration};
         use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
 
         let owner = UserKeys::derive(&MasterSecret::from_bytes([1; 32]));
@@ -438,7 +472,7 @@ mod tests {
             issued_unix: 0,
         }
         .sign(&owner);
-        let invitation = Invitation {
+        let invitation = crate::invitation::Invitation {
             inviter: user,
             code: [0; 32],
             issued_unix: 0,
@@ -498,6 +532,7 @@ mod tests {
             (12, Request::Depart(Box::new(departure))),
             (13, Request::SignedPeers { user }),
             (14, Request::ClaimedPeers { user }),
+            (15, Request::Standing(Box::new(claim.clone()))),
         ];
         let account = crate::directory::Account {
             username: "a".to_owned(),
@@ -523,6 +558,7 @@ mod tests {
             ),
             (9, Response::Unknown(String::new())),
             (10, Response::SignedPeers(vec![presence])),
+            (12, Response::Standing(Some(Box::new(claim)))),
         ];
         (requests, responses)
     }
@@ -555,7 +591,8 @@ mod tests {
                 | Request::CheckMe
                 | Request::Depart(_)
                 | Request::SignedPeers { .. }
-                | Request::ClaimedPeers { .. } => {}
+                | Request::ClaimedPeers { .. }
+                | Request::Standing(_) => {}
             }
             assert_eq!(
                 postcard::to_stdvec(request).unwrap()[0],
@@ -578,7 +615,8 @@ mod tests {
                 | Response::Reachable { .. }
                 | Response::Unknown(_)
                 | Response::SignedPeers(_)
-                | Response::ClaimedPeers(_) => {}
+                | Response::ClaimedPeers(_)
+                | Response::Standing(_) => {}
             }
             assert_eq!(
                 postcard::to_stdvec(response).unwrap()[0],
