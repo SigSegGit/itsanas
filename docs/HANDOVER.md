@@ -9,16 +9,32 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.1c
-TITLE: keep the claim book on disk, so a restarted host re-asks nothing it knows
+NEXT: 8.3c
+TITLE: chunk sizes fingerprint files -- Nicolas decides (section 10 item 9) before any code
 WRITTEN-AT: 2026-10-05
-BASE: 6078bcb
+BASE: c357d64
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-05, §8 1c (iii) and (d): step 1 closed.** (ii) merged as #223
+(Nicolas merged it: it added a §6 row). (iii) **not built, by decision**:
+the claim book stays in memory; why is in §8 1c, in short no security gain
+(an empty book refuses) against a wall clock that is wrong at boot on a Pi.
+(d): `ECONOMICS.md` §1 is ✅ again -- hosts enforce the bargain -- with what
+a rebuilt client still gets named under it. Docs only, no test changed.
+Next, §8 3c, needs Nicolas's answer to §10 item 9 first; §8 5 needs his
+phone and key. Nothing else in §8 is open. **If §10 item 9 is still
+unanswered, do not wait and do not ask:** take the first open finding in
+ROADMAP "What an adversarial sweep found" that needs no decision, or
+the ceiling that `Instant` ignores a suspended host's sleep (ROADMAP,
+the §8 1c (ii) entry), and say so in §0. Rodin's point,
+kept: everything ✅ here is still untested against a second person (§10
+item 1); that, not padding, is the question that decides the project. Also in this PR's predecessor:
+five `SESSIONS.md` rows (#219-#223) the cloud sessions never wrote.
 
 **2026-10-05, §8 1c (ii): hosts read the coordinator's withdrawals**
 (branch `ccr-dc079ac8-rqnbeq`; (i) merged as #222). Decided by Nicolas the
@@ -107,7 +123,7 @@ The rules that still bind are in §3, §4b and §11.
 
 **Where the truth is:** `docs/ROADMAP.md` "Known ceilings" and "What an
 adversarial sweep found" (open findings, with arithmetic); `docs/ECONOMICS.md`
-§1 (the 30/70 bargain is enforced locally only); `docs/DESIGN.md` §6.5–6.7
+§1 (the 30/70 bargain: each host enforces it since §8 1c, limits named there); `docs/DESIGN.md` §6.5–6.7
 (verification cost against the 100 MB/day budget).
 
 ---
@@ -1338,9 +1354,25 @@ Detail and measurements are in ROADMAP.md; this is the map.
       no index entry, no log segment. Sabotage by removing the check; a
       second test that a write inside the limit still succeeds keeps the
       first from passing on a store that refuses everything.
-   c. **Bound owners on the host — the part a rebuilt client cannot delete.**
+   c. ✅ **Bound owners on the host — the part a rebuilt client cannot delete.**
       **First part ✅ 2026-10-04 (see §0). (i) ✅ 2026-10-05. (ii) ✅
-      2026-10-05 (see §0).** **Next, (iii), cold:** the book is a process
+      2026-10-05 (see §0).** **(iii) judged not worth its table, 2026-10-05.**
+      Security, nothing: since (ii) an empty book confirms nobody, so a
+      restart fails closed, and a withdrawal it forgot is heard again at the
+      first question (with the coordinator down, no other account stores
+      anyway). Availability, minutes: other accounts' devices are refused
+      until re-asked -- 30 a minute inline plus 64 a round, about five
+      minutes for 200 -- and retry on their next round. The fleet is three
+      instances of one account, so today that is nothing. Smaller points:
+      a Pi rebooted with no RTC reads 1970 until NTP, so what the table
+      would hold has to count as lapsed there (it would help after an
+      update, not a reboot); and it is one more persisted state for
+      `Index::open` to read and trust. Left open with it (Rodin): holding
+      standings as wall-clock time is also what would end the ROADMAP
+      ceiling that `Instant` ignores a suspended host's sleep -- that one
+      does not need the table and stays open. Reopen (iii) if a host's
+      logs show those minutes mattering; the plan stays below.
+      The (iii) plan as it stood: the book is a process
       static in `daemon.rs::owners` and a local in `main.rs::serve`; a
       restart empties it. Since (ii) that is no longer a hole -- an empty
       book confirms nobody, so nobody stores until re-asked -- but a cost: a
@@ -1404,8 +1436,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `Store::reliability`). Decide before code: whether a device with no
       claim this host can check gets the allowance or nothing (the bargain
       is a §6 decision, so the merge goes to Nicolas).
-   d. `ECONOMICS.md` §1 back to ✅ built when (c) lands — it is 🟨 today and
-      correctly so. Its §8 constants row, the catalogue rows and the counts in
+   d. ✅ `ECONOMICS.md` §1 back to ✅ built when (c) lands. Done 2026-10-05,
+      with what a rebuilt client still gets named under the heading. Its §8 constants row, the catalogue rows and the counts in
       README, ROADMAP and TESTING were all done in (a).
 
 2. **Finish the red team, one surface per session, by hand.** Three surfaces have
@@ -1544,7 +1576,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
       puts, a re-put of the same address and deletes; sabotage by skipping the
       update on delete. Not enforcement: same rule, cheaper to ask.
    c. Chunk-size sequences fingerprint files (ROADMAP; not decided, costs
-      disk on every host -- a question for Nicolas before code).
+      disk on every host -- a question for Nicolas before code, asked as
+      §10 item 9). Once answered: if padding, find where chunk sizes are
+      cut (`itsanas-store`'s chunker) and measure the disk cost on a real
+      folder before choosing classes; the red-team test is that two
+      different files of one size class store chunk sequences a host cannot
+      tell apart. If accepted, ROADMAP's entry moves to "Known ceilings"
+      with the reasoning, and DESIGN says what blinded addressing does not
+      hide.
    d. ✅ **The LAN beacon stops grouping an account's machines.** Built
       2026-09-30 (see §0). **Corrected:** this item said a v1 beacon "heard
       as a stranger is safe". It was not, and no test ran it: `parse`
@@ -1728,6 +1767,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
    audit lands on a missing chunk. If no: 4c needs a tree summary or a longer
    walk interval, both slower to build and the second a weaker freshness
    rule.
+
+9. **Chunk sizes as a fingerprint (§8 3c).** A host holding a candidate file
+   can recognise it by the sequence of chunk sizes (ROADMAP, "A chunk-size
+   sequence is a fingerprint"). Closed question: **pad** chunks to size
+   classes (closes it; costs disk on every host, how much to be measured
+   before choosing the classes), or **accept** it and document that contents
+   are protected and which-file is not, against a host that already has a
+   candidate.
 
 ## 11. Working style Nicolas expects
 

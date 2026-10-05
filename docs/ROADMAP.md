@@ -1920,8 +1920,9 @@ tested, its credit stays a promise inside the 3/10 share -- and the share is
 first come, first served, so one untested account (or several devices of one,
 none dialled) can take all of it, after which a newcomer stores on that host
 only what it has proved there (AI review on #222); an account can keep its paused device away from
-a host; the book is in memory, so a host restart forgets every claim until
-devices present them again (they do, every round); `admits` reads the
+a host; the book is in memory, by decision (HANDOVER §8 1c (iii)), so a
+host restart forgets every claim until devices present them again (they do,
+every round); `admits` reads the
 reliability of each of an account's devices per offer, at most five.
 
 **Hosts read the coordinator's withdrawals (2026-10-05, HANDOVER §8 1c
@@ -1948,8 +1949,9 @@ confirmed live keeps storing until the next question -- up to an hour after
 its withdrawal, two if the coordinator stops answering; `Instant` does not
 count a suspended machine's sleep on Linux, so a host that slept keeps its
 confirmations for the time it slept; this host's own account is exempt, so
-its own withdrawn devices still replicate to it; the book is in memory (§8
-1c (iii)), so a restart asks again; a flood of new junk devices is asked
+its own withdrawn devices still replicate to it; the book is in memory, by decision
+(HANDOVER §8 1c (iii)), so a restart asks again, about five minutes for 200
+devices of other accounts; a flood of new junk devices is asked
 about once each and delays a real newcomer behind them (bounded by
 `MAX_CLAIMS`, about an hour at 64 a round); a coordinator can withhold the
 answer to cut an account off on every host it serves, the denial of service
