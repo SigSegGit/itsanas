@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-10-05 18:19 | ~40 min (dont ~20 d'attente CI sur #223) | 148 k contexte · 5 h 46→65 %, hebdo 11→14 % | 8.1c (iii), 8.1d | au bout | 🟨 | #223 mené au vert (lignes de journal #219-#223 ajoutées, fusion par Nicolas : ligne §6) ; (iii) décliné par décision écrite (aucun gain de sécurité, minutes de disponibilité) ; ECONOMICS §1 → ✅ avec réserve dans le titre et tests nommés ; Rodin : argument d'horloge gonflé ramené à sa taille, plafond `Instant`/veille relié, consigne si §10.9 reste sans réponse ; docs seules, aucun test | à venir |
 | 2026-10-05 14:45 (PR) | n/d | n/d (session cloud, non journalisée) | 8.1c (ii) | au bout, fusion laissée à Nicolas | 🟨 | Les hôtes lisent les retraits du coordinateur : sans réponse, pas de stockage pour les autres comptes (ligne §6 ajoutée) ; 20 tests (14 red-team), 26 sabotages rouges selon §0 ; ligne de journal ajoutée après coup par la session suivante | #223 |
 | 2026-10-05 05:10 (PR) | n/d | n/d (session cloud, non journalisée) | 8.1c (i) | au bout | 🟨 | Un engagement que l'hôte a testé et trouvé court ne compte que pour ce qui est prouvé ; ligne ajoutée après coup | #222 |
 | 2026-10-05 04:31 (PR) | n/d | n/d (session cloud, non journalisée) | 8.1c | au bout | 🟨 | Test manquant : les records d'un appareil en pause ne prouvent rien ; ligne ajoutée après coup | #221 |

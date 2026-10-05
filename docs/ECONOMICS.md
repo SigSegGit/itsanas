@@ -27,7 +27,7 @@ it says so. Where it is forced by arithmetic, the arithmetic is shown.
 
 ---
 
-## 1. The core exchange 🟨 **enforced locally only**
+## 1. The core exchange ✅ **built: each host enforces it, promises up to 3/10**
 
 > **Correction, 2026-09-11.** This section used to be marked ✅ built. What is
 > built is the *rule* and its *local* enforcement: `itsanas keep`, `itsanas
@@ -60,6 +60,20 @@ it says so. Where it is forced by arithmetic, the arithmetic is shown.
 > coordinator before storing for another account's device, and stores
 > nothing for one it cannot confirm (2026-10-05). A client without claims is refused, so every machine
 > updates together (`PROTOCOL_WITH_CLAIMS`, peer protocol 7).
+>
+> **2026-10-05, back to ✅ (HANDOVER §8 1c).** A rebuilt client no longer
+> keeps what it likes: the hosts that store for it bound it. What it still
+> gets, named rather than hidden: on a host that never dials it, its pledge
+> is a promise, and promises share 3/10 of that host's pledge, first come;
+> a withdrawn device stores up to an hour past its withdrawal (two with the
+> coordinator silent); and the bound is per host -- `accounting::assess`
+> is still called only from its tests, so there is no network-wide
+> standing (that is §3's bilateral ledger, ⬜). Tests:
+> `red_team_an_account_stores_at_most_three_sevenths_of_its_pledge`,
+> `red_team_a_giant_self_signed_claim_takes_at_most_the_share_lent_on_promises`,
+> `red_team_a_terabyte_claim_from_a_device_that_refused_this_host_loses_its_credit`,
+> `red_team_a_withdrawn_device_that_re_signs_stores_nothing_on_a_host`; the
+> rest in ROADMAP, "Known ceilings".
 
 > **Lend seven parts to keep three.**
 
