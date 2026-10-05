@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-04 — 958 test functions across 29 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 188 are red-team tests.**
+**Last updated: 2026-10-05 — 978 test functions across 30 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 202 are red-team tests.**
 
-**842 of the 958 tests have an entry of their own on this page** — an *entry*,
+**862 of the 978 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -165,7 +165,7 @@ guarantee and is not one.
 | `itsanas-net` unit | 45 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 57 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 114 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 117 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
 | `itsanas-discover` unit | 43 |
 | `itsanas-policy` unit | 23 |
@@ -176,10 +176,11 @@ guarantee and is not one.
 | `itsanas-cli` unit | 43 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 104 |
+| `itsanas-node` unit | 117 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
+| `itsanas-node` withdrawals (`tests/withdrawals.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
@@ -1035,14 +1036,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (117)
+# `itsanas-node` — a node on disk (134)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `coordinator` — publishing an address (13)
+## `coordinator` — publishing an address (15)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -1053,6 +1054,8 @@ anything.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_refusal_is_no_answer_rather_than_not_enrolled`** | §8 1c (ii), found by the redteam agent: a `Refused` reply to `Standing` (a rate limit, a caller not served) was read as "not enrolled" and ended every fresh confirmation at once. Only a `Standing` reply is about the device; a refusal is no answer. Sabotaged by mapping `Refused` to `Unenrolled`. |
+| **`red_team_an_unpinned_coordinator_is_not_asked_about_other_accounts`** | `pinned` is false without the coordinator's device id configured: unpinned, whoever is on the path answers "live" by echoing the presented claim. That `standing` and the asker consult it is proved in `tests/withdrawals.rs`. |
 | **`an_unspecified_listen_address_is_not_what_gets_published`** | The address published is the local end of the connection that just reached the coordinator, not `0.0.0.0`. Of this machine's addresses it is the one demonstrably able to talk to the coordinator. Still wrong behind NAT, where only the coordinator can see the address a peer needs; that is a protocol change and is written down in `coordinator.rs`. |
 | **`the_published_port_is_the_listening_one_not_the_one_dialled_from`** | The local end carries an *ephemeral* source port. Taking the port along with the address would publish somewhere nothing listens — a failure that arrives later, elsewhere, and looks like a network fault. |
 | `an_address_somebody_chose_is_left_alone` | Substitution happens only where the configuration said "anywhere". A specific address or a hostname is a decision, and overruling it would break the setups that were configured deliberately. |
@@ -1128,7 +1131,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
 | **`red_team_a_pledge_under_what_keep_needs_is_refused`** | `Node::check_split`, the one rule `keep`, `pledge`, `space --apply` and the phone's setters ask: a 1 MiB pledge for a 20 GiB keep is refused, naming the pledge that earns it (which is then accepted) and the command `itsanas space --pledge 47G --keep 20G --apply`; a keep inside the joining allowance, or no keep, needs no pledge; a stricter 20/80 split in the node's config refuses what 30/70 allows. Sabotaged (`check_split` always `Ok`; `allowed_for` reading `Split::DEFAULT`): red. |
 
-## `owners` — what a host stores for each account (16)
+## `owners` — what a host stores for each account (27)
 
 §8 1c (2026-10-04). A host used to bound only itself, so a client that pledged
 nothing was served until every host was full. Now a device presents its
@@ -1151,6 +1154,17 @@ contradicted; and what goes beyond what proof earns comes out of one share,
 | **`red_team_a_terabyte_claim_from_a_device_that_refused_this_host_loses_its_credit`** | §8 1c (i). The claim is self-signed; the one test a host can put it to is offering the device its own chunks, which the push path does every round it dials it. A device that claims a terabyte and refused for a full pledge (`note_peer_full`) keeps only what it proved. Sabotaged by ignoring the refusal, and by ignoring its date. |
 | `a_device_that_refused_this_host_keeps_what_it_proved_and_its_siblings_pledges` | Not a sanction: a full device earns `room_earned(proved)` at the same ratio, and the account's other devices keep their pledges. Keeps the red-team test above from passing on a book that refuses everything. Red when the full device's pledge counts as nothing, or as its whole claim. |
 | `a_refusal_older_than_the_retry_no_longer_counts` | A refusal older than `FULL_RETRY` -- the window after which the push path probes again -- no longer cuts the claim. Red when any refusal counts, whatever its age. |
+| **`red_team_a_device_the_coordinator_says_was_withdrawn_stores_nothing`** | §8 1c (ii). Every node holds the account key, so a withdrawn device signs itself a fresh live claim. Once the coordinator says it was withdrawn it stores nothing, a later live claim does not bring it back, and a later answer does not undo it: a withdrawal is final, as on the coordinator. Sabotaged three ways: `admits` ignoring it, `take` ignoring it, a `Live` verdict replacing it. |
+| **`red_team_no_word_from_the_coordinator_means_no_storing`** | Nicolas, 2026-10-05: a device of another account this host has not confirmed with the coordinator stores nothing, and neither does one whose confirmation is older than `STANDING_FOR` while the coordinator stays silent. Sabotaged by admitting an unconfirmed device, and by never letting a confirmation lapse. |
+| `a_silent_coordinator_keeps_a_fresh_confirmation_and_an_empty_answer_ends_it` | No answer leaves a fresh confirmation standing, so one missed round is not an outage; an answer with nothing for the device ends it at once. |
+| `this_hosts_own_devices_need_no_word_from_the_coordinator` | A household replicates to itself with the coordinator down or unconfigured, and its own devices are never asked about: the bargain is between accounts. |
+| `due_names_the_unconfirmed_and_the_ageing_and_never_the_withdrawn` | What a round asks the coordinator about: the never-confirmed and those past half of `STANDING_FOR`, never a withdrawn device, at most the number asked for. |
+| **`red_team_junk_devices_do_not_take_every_question_from_a_real_one`** | Found by the redteam agent: the round asked about the book in id order, eight a round, so junk devices (free keys) took every question for ever. Twenty disowned junk devices presented first, then a real one: the round asks about the real one alone. Sabotaged by removing the `ASK_AGAIN_AFTER` back-off. |
+| **`red_team_a_flood_of_newcomers_does_not_let_a_real_confirmation_lapse`** | A confirmation past half of `STANDING_FOR` is asked about before every newcomer, however many presented before it. Sabotaged by id order, and by ordering on presentation alone. |
+| **`red_team_presenting_again_does_not_buy_another_question`** | A device answered once is not asked again inline however often it presents, so one junk device cannot spend the minute's budget. Sabotaged by asking whenever a device is unconfirmed. |
+| **`red_team_a_coordinator_cannot_vouch_with_a_claim_for_another_device_or_account`** | The coordinator's answer is checked like any claim: one for another device, another account, or not signed by the account confirms nothing (`Unenrolled`). A coordinator can refuse a member, never vouch for one. Sabotaged by dropping each of the three checks in `verdict`. |
+| `a_device_is_asked_about_when_it_presents_so_it_stores_on_its_first_round` | With an asker, a device of another account is asked about when it presents, so it stores on its first round rather than the host's next; a confirmed device and this host's own are not asked. Red when presentation does not ask, or asks about this account. |
+| **`red_team_a_flood_of_presentations_does_not_become_a_flood_of_questions`** | Device keys are free: asking on every presentation would make a host an amplifier against its coordinator. Fifty presentations ask `ASKS_PER_MINUTE` (30) questions. Sabotaged by removing the budget. |
 | **`red_team_a_withdrawn_device_is_forgotten_and_a_sixth_is_refused`** | A withdrawal presented to the host forgets the device; a sixth device adds nothing. Sabotaged twice: keep the withdrawn device, drop the five-device limit. |
 | **`red_team_a_device_cannot_store_under_another_accounts_name`** | A device stores only for the account its claim names -- the host's own included, whose devices are exempt. Sabotaged by dropping the check. |
 | **`red_team_empty_claims_cannot_lock_newcomers_out`** | Found by the redteam agent: free keys fill the book with claims that store nothing. A full book forgets one whose account holds nothing here. Sabotaged by refusing when full. |
@@ -1727,6 +1741,27 @@ silence for a regulation that does not exist yet. Nothing reads the record today
 | **`red_team_a_departure_notice_from_another_device_is_refused`** | A history anybody can write about somebody else is worthless to the regulation it is kept for. Two ways in, both refused with nothing recorded: a genuine notice delivered over another device's connection (a replay), and a notice naming a device and signed by another key (a forgery). Then the device itself is heard, so the refusals are not an accident of a broken path. |
 | **`red_team_a_departed_device_keeps_its_slot`** | `itsanas leave` is not a withdrawal: on a full account, the departed device keeps its live claim and a sixth device is still refused with `TooManyDevices`. Freeing the slot is `itsanas device forget <id>` from another device, which `leave` now prints. Sabotaged (departure deleting the claim): red. |
 | `a_departure_is_recorded_apart_from_a_silence` | The only reason to record departures is to keep them apart from silences: a device that stopped announcing without a word has none on record. Recording one changes nothing else yet — the device's last presence stands. |
+
+# `itsanas-coord` — is this device still enrolled? (3)
+
+§8 1c (ii). `Request::Standing` carries a claim the owner signed and is
+answered with the coordinator's own claim for that device, so a host learns of
+a withdrawal it could not otherwise know of. In `service.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_standing_answers_the_withdrawal_not_the_claim_presented`** | A withdrawn device re-signs a live claim and presents it; the coordinator answers with the withdrawal it holds. Sabotaged by echoing the presented claim. |
+| **`red_team_standing_tells_nothing_about_a_device_the_caller_was_not_shown`** | A claim that does not verify is refused, and one signed under another account than the device's own is answered `None`: the question cannot be asked about a device the caller was never shown. Sabotaged by dropping either check. |
+| `standing_answers_a_live_device_with_its_claim_and_an_unknown_one_with_nothing` | The ordinary answers: a live device's claim, and nothing for a device never enrolled. |
+
+# `itsanas-node` withdrawals (`tests/withdrawals.rs`) — the host's half, against a real coordinator (4)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_withdrawn_device_that_re_signs_stores_nothing_on_a_host`** | End to end: a device confirmed live stores; withdrawn from a sibling, it signs a fresh live claim, and a host that meets it asks the coordinator (`coordinator::standing`) and refuses it with `WITHDRAWN`. Sabotaged by `standing` never asking, and by the coordinator echoing the presented claim. |
+| **`red_team_a_host_whose_coordinator_does_not_answer_stores_for_no_other_account`** | Nicolas's rule over a real socket: the coordinator is gone, `standing` fails, and the member's device is refused with `UNCONFIRMED`. Sabotaged by `standing` never asking. |
+| `a_host_that_asks_when_a_device_presents_lets_it_store_on_its_first_round` | The inline asker against a real coordinator: a member presenting for the first time stores in the same connection. Red when the asker never asks. |
+| **`red_team_a_host_whose_coordinator_is_not_pinned_stores_for_no_other_account`** | Found by the redteam agent: unpinned, the withdrawn device on the path answers "live" by echoing its own claim. Neither the round (`report.unpinned`, nothing asked) nor the inline ask asks an unpinned coordinator, and the member is refused `UNCONFIRMED`. Sabotaged by dropping `pinned` from each. |
 
 # `itsanas-coord` — claims, directory, accounting (64)
 

@@ -10,15 +10,45 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.1c
-TITLE: read the coordinator's withdrawals, so a withdrawn device that re-signs stores nothing
+TITLE: keep the claim book on disk, so a restarted host re-asks nothing it knows
 WRITTEN-AT: 2026-10-05
-BASE: 55a2093
+BASE: 6078bcb
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-05, §8 1c (ii): hosts read the coordinator's withdrawals**
+(branch `ccr-dc079ac8-rqnbeq`; (i) merged as #222). Decided by Nicolas the
+same day, asked as a closed question: a coordinator that does not answer
+means **no storing** for other accounts' devices (§6 row). Built:
+coordinator `Request::Standing(claim)` / `Response::Standing(Option<claim>)`
+(appended: request 15, response 12), answered only for a claim the owner
+signed and only with a claim under that account (`service.rs::standing`);
+`ClaimBook` (`owners.rs`) keeps each device's `Standing` (unconfirmed / live
+at an instant / withdrawn, final), asks on presentation through an `Asker`
+(`coordinator::asker`, at most `ASKS_PER_MINUTE` = 30) and each daemon round
+(`coordinator::standing`, 64 due a round, ageing confirmations first,
+`daemon.rs::check_standing`), answers taken only from a pinned coordinator;
+`admits` refuses `WITHDRAWN` / `UNCONFIRMED`; this host's own account is
+exempt. `itsanas serve` asks inline too. Acceptance: host2 and host3 now
+have the coordinator configured; without that line the bench goes red on
+three phases (checked). The `redteam` agent on the diff found four, all
+fixed with a test each: the round read the book in id order, so junk devices
+took every question (now ordered, with `ASK_AGAIN_AFTER`); 8 a round lapsed a
+host with ~100 foreign devices (now 64); an unpinned coordinator's answer was
+believed (now refused, `coordinator::pinned`); a `Refused` ended fresh
+confirmations (now no answer). Verified: 20 tests (14 red-team), 26
+sabotages red, acceptance-local passes. **Named, not fixed** (ROADMAP): a
+confirmed device stores up to an hour past its withdrawal (two with the
+coordinator silent); the inline ask holds that connection's
+thread for a coordinator round trip; a coordinator can withhold answers to
+cut an account off everywhere (the denial of service it always had).
+**Merge left to Nicolas:** the PR adds a §6 row. Trap: the first wiring
+asked only per round, which refused every first contact -- the bench's
+single `sync` caught it before any code was pushed.
 
 **2026-10-05, §8 1c (i): a pledge the host tested and found short counts
 for what was proved** (branch `ccr-dc079ac8-rqnbeq`). #220 (1c first part)
@@ -67,31 +97,7 @@ book is in memory. Trap: the pull-path gate first broke reciprocal hosting
 behind NAT -- the NATed side is never dialled, so never learned the peer's
 claim; the two-way `Claim` exists for that.
 
-**2026-10-04, §8 4c: the ledger walk no longer lists an idle account**
-(branch `ccr-c9f4329d-v9cnbp`). Owner: a due walk against a peer that
-summarises lists only the differing buckets, in full, and re-stamps the
-agreeing ones locally (`restamp_agreeing`, `session.rs`), after recomputing
-each bucket's digest from the rows it re-stamps (`summary::bucket_digest`).
-Host: every daemon round runs `check_disks` (`daemon.rs`):
-`Vault::check_disk` removes index rows whose blob is gone, cursor kept on disk
-in a table of its own; `Store::check_disk` records own losses in one
-transaction, and the own-account summary is `Store::held_summary` (live less
-losses). Slice: `holders::rows_per_round` = rows × interval / REFRESH_AFTER,
-rounded up. Verified: 9 tests (6 red-team), 6 sabotages red; `cargo test -p
-itsanas-store -p itsanas-net` green.
-
-Rodin on the plan, three fixed before code: the summary-then-re-stamp race
-(digest recomputed per bucket); own-account peers answer from the store index,
-not the vault (held summary + ordered store pass, the random repair scan takes
-~27 days a pass at 1 TB); a fixed 16 384-row slice is wrong at any other
-interval. **Named, not fixed (ROADMAP):** an older host, or `itsanas serve`
-alone, never checks its disk and is believed; one bucket of ids in memory per
-due walk (20 MB at 10 TB); ~16 000 file lookups a round at 1 TB, never timed;
-the service's switch to `held_summary` has no end-to-end test (unit-tested
-in the store). Trap: my hand arithmetic said 15 873 rows a round, the code
-said 15 874 -- the test caught me, the code was right.
-
-Older §0 entries, 2026-09-14 to 2026-10-04 (the §8 4b entry and before), moved verbatim
+Older §0 entries, 2026-09-14 to 2026-10-04 (the §8 4c entry and before), moved verbatim
 to [HANDOVER-ARCHIVE.md](HANDOVER-ARCHIVE.md): history, not instructions.
 The rules that still bind are in §3, §4b and §11.
 
@@ -358,6 +364,7 @@ Each of these has a test that fails if it is:
 | The sender's clock decides nothing in discovery | A Pi 4 has no RTC and boots in 1970; superseding by sender clock strands it at a stale address | `a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address` |
 | The split is a value, and the one that grants entitlement is the coordinator's | It was `CONTRIBUTION_RATIO = 3`, and a constant cannot express 30/70 without becoming a fraction, which is where an `f64` wants to go. Two splits now exist and they are not the same thing: a node's configuration field decides only what that machine refuses its own owner, and the one `assess` is handed decides what the network grants. A `split` field on `DeviceContribution` would let a member widen their own entitlement by editing a text file. The node's field may only be stricter than `Split::DEFAULT`: `itsanas keep` is the one live enforcement, and a generous split would turn it off | `red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`; `red_team_a_node_cannot_grant_itself_a_more_generous_split`; `red_team_a_split_with_a_zero_part_is_refused_rather_than_dividing_by_zero` |
 | A withdrawal is final for its device id and wins whatever the signing clocks say | Every keystore holds the master secret, so a claim signed after a withdrawal proves nothing about who signed it; and a signer's clock is an opinion. Timestamp ordering let a stolen machine re-enrol and let a slow clock cancel a withdrawal. A reused machine logs in afresh and gets a new device id | `red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back`; `red_team_a_withdrawal_signed_on_a_slow_clock_still_withdraws`; `a_later_enrolment_does_not_supersede_a_withdrawal` |
+| A host stores for another account's device only once its coordinator has confirmed the device live, within `STANDING_FOR`; no answer means no storing. Decided by Nicolas on 2026-10-05 ("Refuse") | Every node holds its account key, so a withdrawn device signs itself a fresh live claim; the coordinator's withdrawal is the only word against it. Letting devices through while the coordinator is silent would make every outage, and every coordinator that hangs up on the question, a window for withdrawn devices. The cost, accepted: newcomers wait for an answer, other accounts stop storing on a host whose coordinator is down past `STANDING_FOR`, a host with no coordinator stores for its own account only. Consistent with the coordinator's place: it can refuse a member, never admit one | `red_team_no_word_from_the_coordinator_means_no_storing`; `red_team_a_host_whose_coordinator_does_not_answer_stores_for_no_other_account`; `red_team_a_withdrawn_device_that_re_signs_stores_nothing_on_a_host` |
 | An account has at most `MAX_DEVICES_PER_ACCOUNT` live devices -- 5, decided by Nicolas on 2026-09-30 ("5 max") | Enforced on the coordinator, the bound a rebuilt client cannot remove, and on the enrolling client so the refusal names the devices. A withdrawal frees its slot; re-signing a live device takes none; an account above the bound is never cut down, it only cannot add one. Raising it, or counting re-signings, is a decision for Nicolas | `red_team_a_sixth_device_is_refused_and_nothing_is_written`; `red_team_a_withdrawn_slot_lets_one_more_in_and_the_withdrawn_device_stays_out`; `red_team_re_signing_a_live_device_on_a_full_account_takes_no_slot`; `red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_would_not` |
 | Coordinator messages are appended, never inserted | postcard numbers variants by position; the peer protocol already lost a week to it | `red_team_coordinator_messages_keep_their_wire_numbers` |
 | Streaming boundaries match slice boundaries exactly | Otherwise one file stored via two paths dedups against nothing | `streaming_and_slicing_agree_on_every_boundary` |
@@ -1328,8 +1335,24 @@ Detail and measurements are in ROADMAP.md; this is the map.
       second test that a write inside the limit still succeeds keeps the
       first from passing on a store that refuses everything.
    c. **Bound owners on the host — the part a rebuilt client cannot delete.**
-      **First part ✅ 2026-10-04 (see §0). (i) ✅ 2026-10-05 (see §0).**
-      **Next, (ii), cold:** `ClaimBook::take` (`owners.rs`) accepts any live
+      **First part ✅ 2026-10-04 (see §0). (i) ✅ 2026-10-05. (ii) ✅
+      2026-10-05 (see §0).** **Next, (iii), cold:** the book is a process
+      static in `daemon.rs::owners` and a local in `main.rs::serve`; a
+      restart empties it. Since (ii) that is no longer a hole -- an empty
+      book confirms nobody, so nobody stores until re-asked -- but a cost: a
+      host serving 200 devices of other accounts takes about five minutes
+      (30 inline a minute plus 64 a round) to re-confirm them, refusing
+      meanwhile, and forgets
+      every withdrawal it heard. Keep `Held` (owner, pledged, issued, claim
+      bytes, standing as a unix time, not an `Instant`) in a table of the
+      node's index (`itsanas-store/src/index.rs`, beside `peer_full`),
+      written on `take`/`note`, read on open; `MAX_CLAIMS` bounds it. Red-team
+      test: a host reopened from disk refuses a withdrawn device without
+      asking (sabotage: do not read the table); and a confirmation read back
+      still lapses after `STANDING_FOR` measured on the wall clock (decide
+      what a clock that went backwards does -- the cautious side is "lapsed").
+      If (iii) is judged not worth its table, say so here and move to (d).
+      The (ii) plan as it stood, **done:** `ClaimBook::take` (`owners.rs`) accepts any live
       claim the account key signed, and every node holds that key, so a device
       its owner withdrew re-signs and stores. The coordinator's withdrawals
       already reach the daemon: `coordinator::contact` returns

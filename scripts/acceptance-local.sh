@@ -270,6 +270,9 @@ say "C as written: a host of another account holds the data and cannot read it"
 # project was the one the bench could not run.
 HOSTPORT=$((CPORT + 11))
 must node host2 init --username neighbour-host
+# A host stores for another account's device only once its coordinator says
+# the device is live (HANDOVER §8 1c (ii); no answer, no storing).
+must node host2 coordinator "127.0.0.1:$CPORT" --device "$COORD_ID"
 must node host2 pledge 1G
 host_out=$(serving host2 "$HOSTPORT" node m1 sync "127.0.0.1:$HOSTPORT" 2>&1)
 printf '        %s\n' "$(printf '%s\n' "$host_out" | grep -E 'sent|received' | tail -1)"
@@ -307,6 +310,9 @@ say "K: a host that throws the data away stops counting as a holder"
 # one-host bench could see. MVP.md §4 forbids exactly that.
 HOST3PORT=$((CPORT + 13))
 must node host3 init --username spare-host
+# A host stores for another account's device only once its coordinator says
+# the device is live (HANDOVER §8 1c (ii); no answer, no storing).
+must node host3 coordinator "127.0.0.1:$CPORT" --device "$COORD_ID"
 must node host3 pledge 1G
 must node m1 peer add "127.0.0.1:$HOSTPORT"
 must node m1 peer add "127.0.0.1:$HOST3PORT"

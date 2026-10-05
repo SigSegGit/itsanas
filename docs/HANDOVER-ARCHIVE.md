@@ -11,6 +11,30 @@ both.
 
 ---
 
+**2026-10-04, §8 4c: the ledger walk no longer lists an idle account**
+(branch `ccr-c9f4329d-v9cnbp`). Owner: a due walk against a peer that
+summarises lists only the differing buckets, in full, and re-stamps the
+agreeing ones locally (`restamp_agreeing`, `session.rs`), after recomputing
+each bucket's digest from the rows it re-stamps (`summary::bucket_digest`).
+Host: every daemon round runs `check_disks` (`daemon.rs`):
+`Vault::check_disk` removes index rows whose blob is gone, cursor kept on disk
+in a table of its own; `Store::check_disk` records own losses in one
+transaction, and the own-account summary is `Store::held_summary` (live less
+losses). Slice: `holders::rows_per_round` = rows × interval / REFRESH_AFTER,
+rounded up. Verified: 9 tests (6 red-team), 6 sabotages red; `cargo test -p
+itsanas-store -p itsanas-net` green.
+
+Rodin on the plan, three fixed before code: the summary-then-re-stamp race
+(digest recomputed per bucket); own-account peers answer from the store index,
+not the vault (held summary + ordered store pass, the random repair scan takes
+~27 days a pass at 1 TB); a fixed 16 384-row slice is wrong at any other
+interval. **Named, not fixed (ROADMAP):** an older host, or `itsanas serve`
+alone, never checks its disk and is believed; one bucket of ids in memory per
+due walk (20 MB at 10 TB); ~16 000 file lookups a round at 1 TB, never timed;
+the service's switch to `held_summary` has no end-to-end test (unit-tested
+in the store). Trap: my hand arithmetic said 15 873 rows a round, the code
+said 15 874 -- the test caught me, the code was right.
+
 **2026-10-04, §8 4b: a full peer is not re-sent what it refused** (branch
 `step/8.4b-refused-reoffer`). `ask` stops offering at the first
 `Refusal::PledgeFull` and stamps the peer (index table `peer_full`); for

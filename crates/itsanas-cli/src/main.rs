@@ -3140,7 +3140,10 @@ fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
     let server = PeerServer::bind(address)?;
     let bound = server.local_addr()?;
 
-    let owners = itsanas_node::owners::ClaimBook::new();
+    // Asks the coordinator about another account's device when it presents
+    // (§8 1c (ii)); with none configured, only this account stores here.
+    let owners = itsanas_node::owners::ClaimBook::new()
+        .asking(node.store.owner(), coordinator::asker(&node));
     let service = PeerService::new(
         &node.store,
         &node.vault,

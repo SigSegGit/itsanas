@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**958 test functions, 4 of them `#[ignore]`d into the slow job, and 188 of
+**978 test functions, 4 of them `#[ignore]`d into the slow job, and 202 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1919,12 +1919,42 @@ test. **Open:** a device this host never dials (behind a router) is never
 tested, its credit stays a promise inside the 3/10 share -- and the share is
 first come, first served, so one untested account (or several devices of one,
 none dialled) can take all of it, after which a newcomer stores on that host
-only what it has proved there (AI review on #222); a withdrawn device
-re-signs a live claim (every node holds the account key; hosts never read the
-coordinator's withdrawals); an account can keep its paused device away from
+only what it has proved there (AI review on #222); an account can keep its paused device away from
 a host; the book is in memory, so a host restart forgets every claim until
 devices present them again (they do, every round); `admits` reads the
 reliability of each of an account's devices per offer, at most five.
+
+**Hosts read the coordinator's withdrawals (2026-10-05, HANDOVER §8 1c
+(ii)).** Every node holds its account key, so a withdrawn device signed itself
+a fresh live claim and stored. Now a host stores for another account's device
+only once its coordinator has answered `Request::Standing` (coordinator
+request 15, response 12: the presented claim in, the coordinator's own claim
+for that device out) with a live claim, within `STANDING_FOR` (2 h; asked
+again after 1 h). Asked when a device first presents (at most 30 a minute,
+`ASKS_PER_MINUTE`, 4 at once, `ASKING_AT_ONCE`), and each daemon round for up
+to 64 devices due (`coordinator::standing`; 768 an hour at the default
+five-minute round), ageing confirmations first, then newcomers by arrival,
+then devices the coordinator disowned, after an hour (`ASK_AGAIN_AFTER`).
+Answers are taken only from a **pinned** coordinator (`coordinator_device`):
+unpinned, the withdrawn device on the path could echo its own claim as the
+answer. A `Refused` reply is no answer. **No answer, no storing** (Nicolas,
+2026-10-05): a coordinator unpinned, unconfigured, or down for longer than
+`STANDING_FOR`, and a host stores for its own account only. A withdrawal it
+has heard is final in its book. The redteam agent on the first version found
+the id-ordered round (junk devices took every question), the 8-a-round cap
+(a host with ~100 foreign devices let them lapse), the unpinned answer and
+the `Refused` reading; all four fixed, each with a test. **Open:** a device
+confirmed live keeps storing until the next question -- up to an hour after
+its withdrawal, two if the coordinator stops answering; `Instant` does not
+count a suspended machine's sleep on Linux, so a host that slept keeps its
+confirmations for the time it slept; this host's own account is exempt, so
+its own withdrawn devices still replicate to it; the book is in memory (§8
+1c (iii)), so a restart asks again; a flood of new junk devices is asked
+about once each and delays a real newcomer behind them (bounded by
+`MAX_CLAIMS`, about an hour at 64 a round); a coordinator can withhold the
+answer to cut an account off on every host it serves, the denial of service
+it could always do; an inline ask holds a connection's thread for a
+coordinator round trip, up to its I/O timeout.
 
 **The walk itself no longer lists an idle account (2026-10-04, HANDOVER §8
 4c).** It listed 537 MB per peer every three and a half days at a terabyte,

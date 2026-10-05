@@ -55,8 +55,10 @@ it says so. Where it is forced by arithmetic, the arithmetic is shown.
 > node holds, so the pledge is the account's own word until a host tests it.
 > Since 2026-10-05 a host does, on the devices it dials: one that refused its
 > chunks for a full pledge within the hour counts for what it proved, not what
-> it claimed. A device behind a router is never dialled, so never tested; a withdrawn device
-> re-signs a live claim; a client without claims is refused, so every machine
+> it claimed. A device behind a router is never dialled, so never tested. A
+> withdrawn device can no longer re-sign its way back: a host asks the
+> coordinator before storing for another account's device, and stores
+> nothing for one it cannot confirm (2026-10-05). A client without claims is refused, so every machine
 > updates together (`PROTOCOL_WITH_CLAIMS`, peer protocol 7).
 
 > **Lend seven parts to keep three.**

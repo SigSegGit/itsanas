@@ -49,7 +49,10 @@ keystore holds the master secret as well as its device seed, because a node
 signs claims and derives every chunk key. A *stolen* laptop whose passphrase is
 also known — a daemon reads it from a file — is therefore the whole account:
 the thief reads everything and can enrol a new device. Withdrawal stops the
-coordinator handing the old machine out; it does not undo that. The answer is a
+coordinator handing the old machine out, and since 2026-10-05 hosts storing
+for it: a host asks the coordinator before storing for another account's
+device (`Request::Standing`), so the machine's own freshly signed claim is not
+believed. It does not undo the rest. The answer is a
 new account, and identity rotation is not built.
 
 **And finality has a price.** The same thief can withdraw the owner's
