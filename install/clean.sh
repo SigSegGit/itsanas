@@ -144,6 +144,15 @@ say "the programs"
 for name in itsanas itsanas-coordinator itsanas-drive; do
     [ -f "$PREFIX/bin/$name" ] && plan "remove $PREFIX/bin/$name"
 done
+# The one line linux.sh / macos.sh may have added to a login profile, found
+# by its mark so nothing a person wrote is touched.
+PATH_MARK='# added by the ITSaNAS installer'
+PATH_LINE_RE="^export PATH=.* $PATH_MARK\$"
+for profile in "$HOME/.zprofile" "$HOME/.bash_profile" "$HOME/.profile"; do
+    if [ -f "$profile" ] && grep -q -- "$PATH_LINE_RE" "$profile"; then
+        plan "remove the PATH line the installer added to $profile"
+    fi
+done
 [ -d "$HOME/src-itsanas" ] && plan "leave the source checkout at $HOME/src-itsanas (not ours to remove)"
 
 # ------------------------------------------------------------------- the secret
@@ -256,6 +265,17 @@ for name in itsanas itsanas-coordinator itsanas-drive; do
     rm -f "$PREFIX/bin/$name"
 done
 say "programs removed from $PREFIX/bin"
+
+# Rewritten in place (cat >, not mv) so a profile that is a symlink into a
+# dotfiles repository stays one, with its permissions.
+for profile in "$HOME/.zprofile" "$HOME/.bash_profile" "$HOME/.profile"; do
+    [ -f "$profile" ] && grep -q -- "$PATH_LINE_RE" "$profile" || continue
+    kept=$(mktemp)
+    grep -v -- "$PATH_LINE_RE" "$profile" > "$kept" || true
+    cat "$kept" > "$profile"
+    rm -f "$kept"
+    say "PATH line removed from $profile"
+done
 
 for secret in "$HOME/.itsanas-passphrase" "$NODE_HOME/passphrase" "$ENV_DIR/environment" "$ENV_DIR"/*.environment; do
     [ -f "$secret" ] && rm -f "$secret"

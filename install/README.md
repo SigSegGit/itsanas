@@ -159,11 +159,19 @@ and says what the trade is.
 sh install/macos.sh
 ```
 
-Not yet run on a Mac. It handles the things that differ — the Xcode command line
-tools that a fresh Mac lacks and that pop a graphical installer, Rosetta making
-an Apple-silicon machine claim to be x86_64, and a LaunchAgent instead of a
-systemd unit — but until somebody runs it on a Mac, treat the table above as the
-honest statement.
+Run on a real Apple-silicon Mac on 2026-10-05 (tools and Rust probably
+already there) and in CI on every push. It handles the things that differ — the
+Xcode command line tools that a fresh Mac lacks, which it triggers and then
+waits for (at most an hour) so a fresh Mac is one command; Rosetta making an
+Apple-silicon machine claim to be x86_64; a LaunchAgent instead of a systemd
+unit; and `~/.local/bin`, which is on nobody's PATH on a Mac.
+
+**The PATH.** `macos.sh` and `linux.sh` offer to add one line to the login
+profile (`~/.zprofile` for zsh, `~/.bash_profile` or `~/.profile` otherwise),
+ending in `# added by the ITSaNAS installer`, and do it under `--yes`. A second
+run adds nothing, a Debian `~/.profile` that already covers `~/.local/bin` is
+left alone, and `clean.sh --yes` removes that line and nothing else.
+`check-installers.sh` runs all of this in a throwaway HOME.
 
 The LaunchAgent is written and deliberately **not loaded**: same reason as
 Windows. Everything in `~/Library/LaunchAgents` is readable by anything running
