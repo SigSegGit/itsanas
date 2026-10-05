@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-04 — 954 test functions across 29 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 186 are red-team tests.**
+**Last updated: 2026-10-04 — 955 test functions across 29 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 187 are red-team tests.**
 
-**838 of the 954 tests have an entry of their own on this page** — an *entry*,
+**839 of the 955 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -176,7 +176,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 43 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 100 |
+| `itsanas-node` unit | 101 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -1035,7 +1035,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (113)
+# `itsanas-node` — a node on disk (114)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1128,7 +1128,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
 | **`red_team_a_pledge_under_what_keep_needs_is_refused`** | `Node::check_split`, the one rule `keep`, `pledge`, `space --apply` and the phone's setters ask: a 1 MiB pledge for a 20 GiB keep is refused, naming the pledge that earns it (which is then accepted) and the command `itsanas space --pledge 47G --keep 20G --apply`; a keep inside the joining allowance, or no keep, needs no pledge; a stricter 20/80 split in the node's config refuses what 30/70 allows. Sabotaged (`check_split` always `Ok`; `allowed_for` reading `Split::DEFAULT`): red. |
 
-## `owners` — what a host stores for each account (12)
+## `owners` — what a host stores for each account (13)
 
 §8 1c (2026-10-04). A host used to bound only itself, so a client that pledged
 nothing was served until every host was full. Now a device presents its
@@ -1147,6 +1147,7 @@ contradicted; and what goes beyond what proof earns comes out of one share,
 | **`red_team_throwaway_accounts_share_one_quota_lent_on_promises`** | Immediate credit renews with every new account; two of them share one quota. Sabotaged by skipping the share. |
 | `a_newcomer_stores_at_once_and_earns_more_by_hosting` | Nicolas's rule: the space offered gives credit at once, inside the share, and hosting this host's chunks earns room past it at the same ratio. |
 | **`red_team_a_contradicted_account_keeps_only_what_it_proved`** | Nicolas's rule for a contradicted offer: a paused device makes the allowance `room_earned(proved)`, so cheating never earns more than playing straight. Sabotaged by ignoring the pause. |
+| **`red_team_a_device_paused_for_its_audits_proves_nothing`** | A device that hosted, threw the data away and was paused for its audits keeps the records written before the pause (a failed challenge withdraws only the chunk asked about); they earn the account nothing. Sabotaged by counting a paused device's records as proof. Found by sabotage on 2026-10-05: no test failed without the `paused` filter.
 | **`red_team_a_withdrawn_device_is_forgotten_and_a_sixth_is_refused`** | A withdrawal presented to the host forgets the device; a sixth device adds nothing. Sabotaged twice: keep the withdrawn device, drop the five-device limit. |
 | **`red_team_a_device_cannot_store_under_another_accounts_name`** | A device stores only for the account its claim names -- the host's own included, whose devices are exempt. Sabotaged by dropping the check. |
 | **`red_team_empty_claims_cannot_lock_newcomers_out`** | Found by the redteam agent: free keys fill the book with claims that store nothing. A full book forgets one whose account holds nothing here. Sabotaged by refusing when full. |

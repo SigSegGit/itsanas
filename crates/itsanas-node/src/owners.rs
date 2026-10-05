@@ -591,6 +591,37 @@ mod tests {
     }
 
     #[test]
+    fn red_team_a_device_paused_for_its_audits_proves_nothing() {
+        // Host a lot, throw it away, fail the audits: the records the host
+        // wrote before the pause are still on its ledger, because a failed
+        // challenge withdraws only the chunk it asked about. Counting them as
+        // proof would let the cheat keep the credit it was paused for.
+        // Sabotage: count a paused device's records as proof.
+        let host = host();
+        let mallory = account(0xEE);
+        present(&host, &mallory, 0x66, 1 << 30);
+        let recorded = hosts_for_the_host(&host, device(0x66));
+        assert!(
+            recorded > 0,
+            "fixture: the device was recorded as holding nothing"
+        );
+        for _ in 0..FAILURES_BEFORE_PAUSE {
+            host.store.note_audit(&device(0x66), false).unwrap();
+        }
+        assert!(
+            host.store.reliability(&device(0x66)).unwrap().paused,
+            "fixture: the device is not paused"
+        );
+        let stored = admits(&host, device(0x66), mallory.user_id(), 1);
+        assert!(
+            stored
+                .as_ref()
+                .is_err_and(|why| why.starts_with(CONTRADICTED)),
+            "a device paused for failing audits was still credited with what it no longer holds: {stored:?}"
+        );
+    }
+
+    #[test]
     fn red_team_a_withdrawn_device_is_forgotten_and_a_sixth_is_refused() {
         let host = host();
         let alice = account(0xA1);
