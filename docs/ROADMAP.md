@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**955 test functions, 4 of them `#[ignore]`d into the slow job, and 187 of
+**958 test functions, 4 of them `#[ignore]`d into the slow job, and 188 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1911,8 +1911,12 @@ paused one of the account's devices -- with what goes beyond what proof earns
 drawn from one share, 3/10 of the host's pledge, for all accounts. The pull
 path (`host_for_bounded`) is held to it too. Proof is the account's devices'
 holder records in this node's ledger (`holder_counts`) times the mean size of
-this node's chunks: an estimate, never the peer's word. **Open:** a pledge is
-self-signed and nothing yet tests the space it claims; a withdrawn device
+this node's chunks: an estimate, never the peer's word. **Tested since
+2026-10-05 (§8 1c (i)):** a device that refused this host's own chunks for a
+full pledge within `FULL_RETRY` counts for `min(pledged, proved)`, not its
+claim; the push path, which offers every dialled device what it lacks, is the
+test. **Open:** a device this host never dials (behind a router) is never
+tested, its credit stays a promise inside the 3/10 share; a withdrawn device
 re-signs a live claim (every node holds the account key; hosts never read the
 coordinator's withdrawals); an account can keep its paused device away from
 a host; the book is in memory, so a host restart forgets every claim until

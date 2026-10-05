@@ -52,8 +52,10 @@ it says so. Where it is forced by arithmetic, the arithmetic is shown.
 > Credit on the claim alone is immediate (Nicolas's rule) but shared: what goes
 > beyond what proof earns comes, for every account together, out of 3/10 of
 > the host's pledge. Still 🟨: the claim is signed with the account key every
-> node holds, so the pledge is the account's own word until a host tests it,
-> and nothing tests it yet beyond this host's own audits; a withdrawn device
+> node holds, so the pledge is the account's own word until a host tests it.
+> Since 2026-10-05 a host does, on the devices it dials: one that refused its
+> chunks for a full pledge within the hour counts for what it proved, not what
+> it claimed. A device behind a router is never dialled, so never tested; a withdrawn device
 > re-signs a live claim; a client without claims is refused, so every machine
 > updates together (`PROTOCOL_WITH_CLAIMS`, peer protocol 7).
 

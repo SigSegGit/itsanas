@@ -11,6 +11,36 @@ both.
 
 ---
 
+**2026-10-04, §8 4b: a full peer is not re-sent what it refused** (branch
+`step/8.4b-refused-reoffer`). `ask` stops offering at the first
+`Refusal::PledgeFull` and stamps the peer (index table `peer_full`); for
+`FULL_RETRY` (1 h, `session.rs`) a round asks that peer only about chunks it
+has a record for (`Index::with_record`) and offers nothing; then one ordinary
+round probes. Verified: 1 red-team test, 4 sabotages red. Also corrected: the
+summary is 256 digests, 8 KB a round on the wire, not "thirty-two bytes"
+(DESIGN §6.7, ROADMAP, FIRST-STEPS). §10 8 decided under Nicolas's delegation
+("if it is a no-brainer, do it"): yes, *with* the host-side disk check, see 4c.
+**Not verified:** nothing measured at size; a peer whose pledge grows waits up
+to an hour.
+
+**2026-10-04, §8 4a: a change asks only about what the peer has not
+confirmed** (branch `step/8.4a-narrowed-sweep`). Within a bucket the summary
+names, `sweep` (`crates/itsanas-net/src/session.rs`, now `sweep`/`walk`/`ask`/
+`bucket_floor`) asks only about chunks with no record for that peer younger
+than `REFRESH_AFTER` (`Index::without_fresh_record`, the same rule
+`record_holders` writes by), and reads only those buckets' index ranges. The
+full walk, due every `REFRESH_AFTER`, still asks about everything. Verified: 2
+red-team tests, 3 sabotages red (filter removed, filter in the full walk,
+bucket range starting past its first chunk); `cargo test -p itsanas-net -p
+itsanas-store` green. **Found doing the arithmetic:** FIRST-STEPS said an idle
+terabyte costs 600 KB a day; the full walk lists 537 MB per peer every 3.5
+days, about 150 MB a day, over budget -- already false before this change,
+corrected. **Found by Rodin, read in code, not measured:** a peer with a
+smaller budget is re-offered every chunk it refused, with the bytes, every
+round (now §8 4b). **Not verified:** nothing measured at size; disk cost on an
+SD card. Trap: the first fixture put no confirmed chunk in the new chunks'
+buckets, and its guard assertion is what said so.
+
 **2026-10-01, final fixes of the run's verification pass** (branch
 `step/final-redteam-fixes`; not a §8 step). Five findings of an
 `itsanas-redteam` pass over `8701222..main`, each re-read in the code first:
