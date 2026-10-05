@@ -48,7 +48,10 @@ thread for a coordinator round trip; a coordinator can withhold answers to
 cut an account off everywhere (the denial of service it always had).
 **Merge left to Nicolas:** the PR adds a §6 row. Trap: the first wiring
 asked only per round, which refused every first contact -- the bench's
-single `sync` caught it before any code was pushed.
+single `sync` caught it before any code was pushed. Trap: the cloud
+container's clippy is 1.97, CI's is 1.99 (`double_must_use`,
+`assert_is_empty`); `rustup toolchain install 1.99 -c clippy` and `cargo
++1.99 clippy` before pushing.
 
 **2026-10-05, §8 1c (i): a pledge the host tested and found short counts
 for what was proved** (branch `ccr-dc079ac8-rqnbeq`). #220 (1c first part)
