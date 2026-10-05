@@ -1916,7 +1916,10 @@ this node's chunks: an estimate, never the peer's word. **Tested since
 full pledge within `FULL_RETRY` counts for `min(pledged, proved)`, not its
 claim; the push path, which offers every dialled device what it lacks, is the
 test. **Open:** a device this host never dials (behind a router) is never
-tested, its credit stays a promise inside the 3/10 share; a withdrawn device
+tested, its credit stays a promise inside the 3/10 share -- and the share is
+first come, first served, so one untested account (or several devices of one,
+none dialled) can take all of it, after which a newcomer stores on that host
+only what it has proved there (AI review on #222); a withdrawn device
 re-signs a live claim (every node holds the account key; hosts never read the
 coordinator's withdrawals); an account can keep its paused device away from
 a host; the book is in memory, so a host restart forgets every claim until
