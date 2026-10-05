@@ -9,16 +9,27 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.3c
-TITLE: chunk sizes fingerprint files -- Nicolas decides (section 10 item 9) before any code
+NEXT: 8.3e
+TITLE: the macOS installer puts itsanas on the PATH and waits for Apple's tools
 WRITTEN-AT: 2026-10-05
-BASE: c357d64
+BASE: ea05850
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-05, evening: a real Mac, and four of Nicolas's answers.**
+`install/macos.sh --yes --no-service` ran on Mandarine's Apple-silicon Mac
+from the `main` tarball: built (27 s), installed, smoke test PASS, native
+arm64 (§10 item 5). Only the last 80 lines came back, and the run took 29 s,
+so the Command Line Tools and Rust were most likely already there: the
+fresh-Mac path is still unseen. It found one defect a newcomer hits at once:
+`~/.local/bin` is not on the PATH, and the installer only warns. That and
+the tools wait are §8 3e, now NEXT ahead of 3c because the pilot with
+Mandarine is what the project needs most (Rodin, §0 below). Nicolas decided
+§10 items 3, 7 and 9 the same evening (written there). Docs only.
 
 **2026-10-05, §8 1c (iii) and (d): step 1 closed.** (ii) merged as #223
 (Nicolas merged it: it added a §6 row). (iii) **not built, by decision**:
@@ -1575,9 +1586,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Red-team test expected: the total equals the sum over the blobs after
       puts, a re-put of the same address and deletes; sabotage by skipping the
       update on delete. Not enforcement: same rule, cheaper to ask.
-   c. Chunk-size sequences fingerprint files (ROADMAP; not decided, costs
-      disk on every host -- a question for Nicolas before code, asked as
-      §10 item 9). Once answered: if padding, find where chunk sizes are
+   c. Chunk-size sequences fingerprint files (ROADMAP). **Decided
+      2026-10-05: pad, after measuring the cost** (§10 item 9). So: find where chunk sizes are
       cut (`itsanas-store`'s chunker) and measure the disk cost on a real
       folder before choosing classes; the red-team test is that two
       different files of one size class store chunk sequences a host cannot
@@ -1612,6 +1622,27 @@ Detail and measurements are in ROADMAP.md; this is the map.
       nonce (tags equal) and by an unkeyed hash (a stranger holding the user
       id recognises it). §6's `red_team_the_user_id_never_appears_on_the_wire`
       must stay green.
+   e. **The macOS installer puts `itsanas` on the PATH and waits for Apple's
+      tools.** Found on Mandarine's Mac, 2026-10-05 (§10 item 5): after a
+      clean install, `itsanas` is "command not found" -- `install/macos.sh`
+      ~369 only warns that `$BIN_DIR` (`~/.local/bin`) is not on the PATH,
+      and the same for `~/.cargo/bin` ~314. On a Mac whose login shell is
+      zsh, add the export line to `~/.zprofile` (once: check for it first,
+      safe to run twice), asked under `confirm` and done under `--yes`;
+      `--clean` removes exactly that line. Second: when the Command Line
+      Tools are missing, ~236-248 triggers their installer and dies asking
+      for a second run; wait for them instead
+      (`/Library/Developer/CommandLineTools/usr/bin/clang`, bounded, an hour)
+      so a fresh Mac is one command. Check in `scripts/check-installers.sh`
+      (macOS job) that a second run leaves one line, and that `--clean`
+      removes it. Linux (`install/linux.sh`) likely has the same PATH
+      warning: look, and fix it the same way if so.
+   f. **The account device roster** (§10 item 7, option 2, decided
+      2026-10-05). Not yet planned in detail: a signed list of at most five
+      device ids per account, checked when a segment is opened, so a host
+      that re-signs a genuine body under its own key is refused. Plan it
+      cold first: where the roster lives (coordinator, beside the claims),
+      how it reaches a reader, what a keystore-replaced device does.
 4. **Verification at a terabyte.** The criterion: under 100 MB a day to verify
    under a terabyte (DESIGN.md §6.5). Not met yet; three steps.
 
@@ -1690,6 +1721,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
    committed; the APK cannot be upgraded in place across a key change.
 3. **How the bargain is enforced**: bilateral ledgers between hosts, or the
    coordinator computing standings. ECONOMICS.md argues for the first.
+   **Decided 2026-10-05 (Nicolas):** bilateral, essentially, with occasional
+   checks against the coordinator so the ledgers cannot drift unseen.
+   Nothing built; what an "occasional check" compares, and how often, is the
+   first design question of the session that builds ECONOMICS §3.
 4. ✅ **Merging.** Nicolas said on 2026-09-17 that he does not want to be
    handed merges an agent can do: once CI is entirely green, and unless the PR
    touches a decision in §6, the agent merges (`gh pr merge --squash
@@ -1701,6 +1736,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
 5. **Whether `install/macos.sh` works.** It has run on a CI runner and never on
    a Mac. The second person's machine is a Mac, so this is on the critical path
    of the pilot rather than a nicety.
+   🟨 **Ran on Mandarine's Apple-silicon Mac, 2026-10-05**: build, install and
+   smoke test pass (`--yes --no-service`, from the `main` tarball). Not seen:
+   the fresh-Mac path (tools and Rust were most likely present, 29 s in all),
+   the LaunchAgent, an Intel Mac. Found: the PATH (§8 3e).
 6. **`main` is not protected, and the working rules say it is.** Checked on
    2026-09-16: `gh api repos/SigSegGit/itsanas/branches/main/protection` returns
    **404 Branch not protected**. There is no required check and no required
@@ -1751,6 +1790,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
    would also scope reads to the account (ROADMAP "The confidentiality
    surface, by hand"), but it is a new signed object to distribute, keep and
    revoke, and a keystore-replaced device must be added to it. Which one?
+   **Decided 2026-10-05 (Nicolas): option 2, the account device roster.**
    Since 2026-10-01 (§8 2d) an account has at most 5 live devices, enforced
    by the coordinator: option 2's roster would be at most five entries, a
    bounded object to sign and ship. That prepares it; nothing of it is built.
@@ -1775,6 +1815,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
    before choosing the classes), or **accept** it and document that contents
    are protected and which-file is not, against a host that already has a
    candidate.
+   **Decided 2026-10-05 (Nicolas):** close it if the cost is kept in hand --
+   so **pad**, after measuring. The disk cost on a real folder is measured
+   first and the classes chosen from it; if no class set keeps the waste
+   reasonable, that measurement comes back to him before any code.
 
 ## 11. Working style Nicolas expects
 

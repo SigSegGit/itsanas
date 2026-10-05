@@ -53,7 +53,10 @@ sh install/macos.sh
 ```
 
 Handles the Xcode command line tools a fresh Mac lacks. Built and smoke-tested
-on Apple silicon in CI on every push; **never run on an Intel Mac**.
+on Apple silicon in CI on every push, and on a real Apple-silicon Mac on
+2026-10-05; **never run on an Intel Mac**. Until it does it for you, add
+`export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile` and open a new
+terminal, or `itsanas` is not found.
 
 ## Android
 
