@@ -9,16 +9,34 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.3e
-TITLE: the macOS installer puts itsanas on the PATH and waits for Apple's tools
+NEXT: 8.3c
+TITLE: measure the disk cost of padding chunk sizes, then pad
 WRITTEN-AT: 2026-10-05
-BASE: ea05850
+BASE: 1cb786b
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-05, late: §8 3e, the installers put `itsanas` on the PATH.**
+`linux.sh` and `macos.sh` share one `path-line` block (byte-identical,
+compared by `check-installers.sh`): under `confirm` / `--yes` they add
+`export PATH="<bin>:$PATH" # added by the ITSaNAS installer` to the login
+profile (`~/.zprofile` for zsh; `~/.bash_profile` if it exists for bash, else
+`~/.profile`), once; Debian's stock `~/.profile` already covering
+`$HOME/.local/bin` is left alone. `clean.sh` removes exactly lines with that
+mark. `macos.sh` now waits (10 s polls, an hour) for
+`/Library/Developer/CommandLineTools/usr/bin/clang` instead of dying. Tested
+hermetically in `check-installers.sh`, four sabotages red. **Not verified**:
+the wait loop has run nowhere (CI runners have the tools; it needs a fresh
+Mac), and the real CI install job does not assert the second run / clean --
+the hermetic test does. `~/.cargo/bin` stays a warning on purpose: `itsanas`
+does not need cargo to run, and the installer finds it itself. Trap: WSL
+(`wsl.exe -e bash -c ...`) runs `check-installers.sh` fine from this laptop;
+it prints a networking error first and works anyway. NEXT is 3c, which
+Nicolas unblocked (§10 item 9: pad, after measuring).
 
 **2026-10-05, evening: a real Mac, and four of Nicolas's answers.**
 `install/macos.sh --yes --no-service` ran on Mandarine's Apple-silicon Mac
@@ -1622,8 +1640,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       nonce (tags equal) and by an unkeyed hash (a stranger holding the user
       id recognises it). §6's `red_team_the_user_id_never_appears_on_the_wire`
       must stay green.
-   e. **The macOS installer puts `itsanas` on the PATH and waits for Apple's
-      tools.** Found on Mandarine's Mac, 2026-10-05 (§10 item 5): after a
+   e. ✅ **The macOS installer puts `itsanas` on the PATH and waits for Apple's
+      tools.** Built 2026-10-05 (see §0); the original text follows. Found on Mandarine's Mac, 2026-10-05 (§10 item 5): after a
       clean install, `itsanas` is "command not found" -- `install/macos.sh`
       ~369 only warns that `$BIN_DIR` (`~/.local/bin`) is not on the PATH,
       and the same for `~/.cargo/bin` ~314. On a Mac whose login shell is

@@ -757,6 +757,68 @@ if [ "$twin_ok" -eq 1 ]; then
 fi
 rm -rf "$twin"
 
+# ------------------------------------------------- the PATH line, added once
+#
+# HANDOVER §8 3e. On the first real Mac the install succeeded and `itsanas` was
+# "command not found": ~/.local/bin is on nobody's PATH there and the installer
+# only warned. linux.sh and macos.sh now add one marked line to the login
+# profile; this runs that code in a throwaway HOME. A second run must leave one
+# line (a profile that grows a line per install is the next bug report), and
+# clean.sh must remove that line and only that line.
+
+path_block() { sed -n '/^# >>> path-line/,/^# <<< path-line/p' "$1"; }
+if [ -z "$(path_block install/macos.sh)" ]; then
+    bad "install/macos.sh has no path-line block; the PATH fix is gone"
+elif [ "$(path_block install/macos.sh)" != "$(path_block install/linux.sh)" ]; then
+    bad "the path-line block differs between install/linux.sh and install/macos.sh"
+    say "  clean.sh removes one marked line; two versions of how it is written drift apart."
+else
+    ph=$(mktemp -d)
+    path_block install/macos.sh > "$ph/block.sh"
+    printf 'alias ll="ls -l"' > "$ph/.zprofile"   # a person's line, no final newline
+    # shellcheck disable=SC2016
+    out=$(env HOME="$ph" SHELL=/bin/zsh PATH=/usr/bin:/bin sh -c '
+        . "$HOME/block.sh"
+        prof=$(path_profile)
+        add_path_line "$prof" "$HOME/.local/bin"; a=$?
+        add_path_line "$prof" "$HOME/.local/bin"; b=$?
+        echo "$prof $a $b"' 2>&1)
+    lines=$(grep -c 'added by the ITSaNAS installer' "$ph/.zprofile" 2>/dev/null)
+    if [ "$out" != "$ph/.zprofile 0 1" ]; then
+        bad "path-line under zsh: expected '$ph/.zprofile 0 1', got '$out'"
+    elif [ "$lines" != 1 ]; then
+        bad "two installs left $lines PATH lines in ~/.zprofile, not one"
+    elif ! grep -qx 'alias ll="ls -l"' "$ph/.zprofile"; then
+        bad "adding the PATH line glued it onto the person's last line"
+    else
+        say "a second install leaves one PATH line in ~/.zprofile"
+    fi
+    if ! env HOME="$ph" PATH=/usr/bin:/bin timeout 30 sh install/clean.sh --yes \
+            </dev/null >"$ph/out" 2>&1; then
+        bad "clean.sh --yes failed in a throwaway home"
+        sed 's/^/    /' "$ph/out"
+    elif grep -q 'ITSaNAS installer' "$ph/.zprofile"; then
+        bad "clean.sh --yes left the installer's PATH line in ~/.zprofile"
+    elif [ "$(cat "$ph/.zprofile")" != 'alias ll="ls -l"' ]; then
+        bad "clean.sh --yes changed ~/.zprofile beyond the installer's line:"
+        sed 's/^/    /' "$ph/.zprofile"
+    else
+        say "clean.sh removes exactly the installer's PATH line"
+    fi
+    # Debian's stock ~/.profile already puts $HOME/.local/bin on the PATH at
+    # login; a second line would only list it twice.
+    printf '%s\n' 'if [ -d "$HOME/.local/bin" ] ; then PATH="$HOME/.local/bin:$PATH"; fi' > "$ph/.profile"
+    # shellcheck disable=SC2016
+    out=$(env HOME="$ph" SHELL=/bin/sh PATH=/usr/bin:/bin sh -c '
+        . "$HOME/block.sh"; add_path_line "$(path_profile)" "$HOME/.local/bin"; echo $?' 2>&1)
+    if [ "$out" != 1 ] || grep -q 'ITSaNAS installer' "$ph/.profile"; then
+        bad "path-line added a second PATH entry to a Debian ~/.profile (got '$out')"
+    else
+        say "a Debian ~/.profile that already has ~/.local/bin is left alone"
+    fi
+    rm -rf "$ph"
+fi
+
 # ----------------------------------------- the tray icon, per instance, on Windows
 #
 # HANDOVER §8 0f: provision.ps1 starts scripts/itsanas-tray.ps1 at logon through

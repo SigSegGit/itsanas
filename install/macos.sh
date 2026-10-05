@@ -10,8 +10,12 @@
 # **The Command Line Tools are not installed by default and Rust cannot link
 # without them.** A fresh Mac has no `cc`; typing `cc` triggers a graphical
 # prompt, and a script that ignores it leaves the user staring at a dialog they
-# did not ask for while the build fails. So it is checked, and triggered on
-# purpose with an explanation.
+# did not ask for while the build fails. So it is checked, triggered on purpose
+# with an explanation, and waited for: a fresh Mac is one command.
+#
+# **The PATH.** `~/.local/bin` is on nobody's PATH on a Mac. The installer
+# offers to add one marked line to the login profile (`~/.zprofile` for zsh,
+# the default shell), does it under --yes, and `--clean` removes that line.
 #
 # **launchd, not systemd.** A LaunchAgent under ~/Library/LaunchAgents runs in
 # the user's session, which is where a daemon holding the user's keys belongs.
@@ -162,6 +166,55 @@ confirm() {
 
 ORIGINAL_PATH="$PATH"
 
+# >>> path-line: identical in linux.sh and macos.sh; check-installers.sh
+# compares the two copies and runs this one in a throwaway HOME.
+#
+# One line, marked, so `clean.sh` can remove exactly it and nothing a person
+# wrote. Found on the first real Mac (2026-10-05): the install succeeded and
+# `itsanas` was "command not found", because this only warned. A newcomer
+# reads a warning after the fact, if at all.
+PATH_MARK='# added by the ITSaNAS installer'
+
+# The file a new login shell of this user reads: zsh reads ~/.zprofile; bash
+# reads ~/.bash_profile and ignores ~/.profile when that exists; anything else
+# gets ~/.profile, which every POSIX login shell reads.
+path_profile() {
+    case "${SHELL:-}" in
+        */zsh) printf '%s\n' "$HOME/.zprofile" ;;
+        */bash)
+            if [ -f "$HOME/.bash_profile" ]; then
+                printf '%s\n' "$HOME/.bash_profile"
+            else
+                printf '%s\n' "$HOME/.profile"
+            fi ;;
+        *) printf '%s\n' "$HOME/.profile" ;;
+    esac
+}
+
+# add_path_line PROFILE DIR: 0 added, 1 already there, 2 could not write.
+# "Already there" also covers Debian's stock ~/.profile, which puts
+# "$HOME/.local/bin" on the PATH at login if it exists: a second line would
+# only put it there twice.
+add_path_line() {
+    _profile=$1
+    _dir=$2
+    _line="export PATH=\"$_dir:\$PATH\" $PATH_MARK"
+    if [ -f "$_profile" ]; then
+        grep -qxF -- "$_line" "$_profile" && return 1
+        if [ "$_dir" = "$HOME/.local/bin" ] \
+            && grep -qF -- '$HOME/.local/bin' "$_profile"; then
+            return 1
+        fi
+        # A file whose last line has no newline would glue ours onto it.
+        if [ -s "$_profile" ] && [ -n "$(tail -c 1 "$_profile")" ]; then
+            printf '\n' >> "$_profile" || return 2
+        fi
+    fi
+    printf '%s\n' "$_line" >> "$_profile" || return 2
+    return 0
+}
+# <<< path-line
+
 printf '%sITSaNAS installer %s%s\n' "$C_DIM" "$VERSION" "$C_OFF"
 have() { command -v "$1" >/dev/null 2>&1; }
 
@@ -242,10 +295,31 @@ else
         || die "stopping: the command line tools are needed" \
                "Install them with:  xcode-select --install"
     xcode-select --install 2>/dev/null
-    die "finish the graphical installer, then run this again" \
-        "A window should have appeared. It downloads about 1 GB." \
-        "If no window appeared, the tools may be installing already, or you can" \
-        "get them from https://developer.apple.com/download/all/"
+    # Wait rather than die. Dying asked a person on a fresh Mac to notice the
+    # end of a 1 GB download and run the command again; the whole point of
+    # one command is that they do not have to. clang is the last thing the
+    # package puts in place, and the linker Rust needs comes with it. An hour
+    # bounds it: a stalled download should end in a message, not a terminal
+    # that waits for ever.
+    CLT_CLANG=/Library/Developer/CommandLineTools/usr/bin/clang
+    info "A window should have appeared: accept it. It downloads about 1 GB."
+    info "Waiting for it here (at most an hour); nothing to re-run."
+    # Over ssh there is no screen for that window, and the wait would be an
+    # hour of silence. Say so now, not when the hour is up.
+    if [ -n "${SSH_CONNECTION:-}" ]; then
+        warn "this is an ssh session: the window opens on the Mac's own screen, if anyone is logged in there"
+        info "If nobody can click it, stop (Ctrl-C) and install the tools from the Mac itself."
+    fi
+    waited=0
+    until [ -x "$CLT_CLANG" ] && xcode-select -p >/dev/null 2>&1; do
+        [ "$waited" -ge 3600 ] && die "the command line tools did not arrive within an hour" \
+            "If no window appeared, get them from" \
+            "https://developer.apple.com/download/all/ and run this again."
+        sleep 10
+        waited=$((waited + 10))
+        [ $((waited % 60)) -eq 0 ] && info "still waiting ($((waited / 60)) min)"
+    done
+    ok "Xcode command line tools at $(xcode-select -p)"
 fi
 
 # Rust. Compared as integers after an explicit split, for the same reason as
@@ -366,9 +440,21 @@ done
 case ":$PATH:" in
     *":$BIN_DIR:"*) ok "$BIN_DIR is already on your PATH" ;;
     *)
-        warn "$BIN_DIR is not on your PATH"
-        info "Add this to ~/.zprofile and open a new terminal:"
-        info "  export PATH=\"$BIN_DIR:\$PATH\"" ;;
+        PROFILE=$(path_profile)
+        warn "$BIN_DIR is not on your PATH, so \`itsanas\` would be \"command not found\""
+        if confirm "Add it to $PROFILE (one marked line; --clean removes it)?"; then
+            add_path_line "$PROFILE" "$BIN_DIR"
+            case $? in
+                0) ok "added to $PROFILE; open a new terminal to use \`itsanas\`" ;;
+                1) ok "$PROFILE already puts it there; open a new terminal" ;;
+                *) warn "could not write $PROFILE"
+                   info "Add this line to it yourself:"
+                   info "  export PATH=\"$BIN_DIR:\$PATH\"" ;;
+            esac
+        else
+            info "Add this to $PROFILE and open a new terminal:"
+            info "  export PATH=\"$BIN_DIR:\$PATH\""
+        fi ;;
 esac
 
 # ----------------------------------------------------------------- service

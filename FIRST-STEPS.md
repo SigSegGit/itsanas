@@ -24,8 +24,8 @@ ten to forty minutes, mostly compiling.
 curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/v0.1.0/install/linux.sh | ITSANAS_REF=v0.1.0 sh
 ```
 
-Installs a toolchain if there is none, builds, installs to `~/.local/bin`,
-writes a systemd user unit, and finishes by storing a file and reading it back
+Installs a toolchain if there is none, builds, installs to `~/.local/bin`
+(and offers to put it on your PATH in your login profile), writes a systemd user unit, and finishes by storing a file and reading it back
 so you know it works on that machine rather than in principle.
 
 Refuses a 32-bit userland — including the 64-bit Pi running a 32-bit image,
@@ -52,11 +52,12 @@ they actually need.
 sh install/macos.sh
 ```
 
-Handles the Xcode command line tools a fresh Mac lacks. Built and smoke-tested
-on Apple silicon in CI on every push, and on a real Apple-silicon Mac on
-2026-10-05; **never run on an Intel Mac**. Until it does it for you, add
-`export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile` and open a new
-terminal, or `itsanas` is not found.
+Installs the Xcode command line tools a fresh Mac lacks and waits for them
+(at most an hour), then offers to add one marked line to `~/.zprofile` so
+`itsanas` is found in a new terminal (`--clean` removes it). Built and
+smoke-tested on Apple silicon in CI on every push, and on a real Apple-silicon
+Mac on 2026-10-05; **never run on an Intel Mac**, and the wait for the tools
+has not yet been seen on a fresh Mac.
 
 ## Android
 
