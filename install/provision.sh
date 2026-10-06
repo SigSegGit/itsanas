@@ -517,6 +517,25 @@ if [ "$DO_SERVICE" -eq 1 ]; then
     fi
 fi
 
+# --------------------------------------------------------------------- tray
+
+# The tray icon, on a desktop only: scripts/tray-autostart.sh writes nothing on
+# a Pi or a server (no DISPLAY, no WAYLAND_DISPLAY) and says so in one line.
+# Looked for beside this script only when it was run from a path -- piped from
+# the network, `$0` is `sh` and its directory is wherever the person stood
+# (run_clean says why that matters) -- else in the checkout linux.sh keeps.
+TRAY_AUTOSTART=""
+if [ -f "$0" ] && [ -r "$(dirname -- "$0")/../scripts/tray-autostart.sh" ]; then
+    TRAY_AUTOSTART="$(dirname -- "$0")/../scripts/tray-autostart.sh"
+elif [ -r "$HOME/.local/src/itsanas/scripts/tray-autostart.sh" ]; then
+    TRAY_AUTOSTART="$HOME/.local/src/itsanas/scripts/tray-autostart.sh"
+fi
+if [ -n "$TRAY_AUTOSTART" ]; then
+    step "The tray icon"
+    ITSANAS_BIN="$BIN" sh "$TRAY_AUTOSTART" install "$INSTANCE" \
+        || warn "the tray icon was not set up; the node itself is unaffected"
+fi
+
 # -------------------------------------------------------------------- check
 
 step "Does it work here?"

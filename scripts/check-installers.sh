@@ -702,7 +702,7 @@ twin=$(mktemp -d)
 mkdir -p "$twin/home/.local/bin" "$twin/home/.config/systemd/user" "$twin/fake" "$twin/scripts"
 # A copy outside the checkout, so provision finds no scripts/smoke.sh to run
 # against the stub.
-cp install/provision.sh install/clean.sh "$twin/scripts/"
+cp install/provision.sh install/clean.sh scripts/tray-autostart.sh scripts/itsanas-tray.py "$twin/scripts/"
 cat > "$twin/home/.local/bin/itsanas" <<'STUB'
 #!/bin/sh
 case "$1" in
@@ -721,7 +721,7 @@ chmod +x "$twin/home/.local/bin/itsanas" "$twin/fake/systemctl"
 : > "$twin/home/.config/systemd/user/itsanas@.service"
 twin_run() {
     env HOME="$twin/home" PATH="$twin/fake:/usr/bin:/bin" TWIN_LOG="$twin/systemctl.log" \
-        ITSANAS_PASSPHRASE=x XDG_RUNTIME_DIR="$twin" \
+        ITSANAS_PASSPHRASE=x XDG_RUNTIME_DIR="$twin" DISPLAY=:0 ITSANAS_TRAY_OS=Linux \
         timeout 60 sh "$@" </dev/null >"$twin/out" 2>&1
 }
 twin_ok=1
@@ -740,10 +740,10 @@ fi
 if [ "$twin_ok" -eq 1 ]; then
     h="$twin/home"
     for kept in "$h/.itsanas-a/keystore.bin" "$h/.config/itsanas/a.environment" \
-                "$h/.config/systemd/user/itsanas@.service"; do
+                "$h/.config/systemd/user/itsanas@.service" "$h/.config/autostart/itsanas-tray-a.desktop"; do
         [ -e "$kept" ] || { bad "cleaning instance b removed ${kept#"$h"/}, which belongs to a or to both"; twin_ok=0; }
     done
-    for gone in "$h/.itsanas-b" "$h/.config/itsanas/b.environment"; do
+    for gone in "$h/.itsanas-b" "$h/.config/itsanas/b.environment" "$h/.config/autostart/itsanas-tray-b.desktop"; do
         [ -e "$gone" ] && { bad "clean.sh --instance b --purge-account left ${gone#"$h"/}"; twin_ok=0; }
     done
     grep -q 'enable --now itsanas@a' "$twin/systemctl.log" \
@@ -1020,6 +1020,175 @@ else
     say "pwsh is not here; the tray's logon shortcut was not checked"
 fi
 
+# --------------------------------- the tray icon on a Mac and a Linux desktop
+#
+# HANDOVER §8 0w (5). Three trays draw one menu: scripts/itsanas-tray.ps1
+# (Windows), scripts/itsanas-menubar.js (macOS, JXA) and scripts/itsanas-tray.py
+# (Linux desktops). Each prints its menu for a `status --brief` line without
+# opening anything, and the three texts must be identical, state by state: a
+# Sign out that confirms on one platform and not on another, or a Pause that
+# lasts an hour here and forever there, is a person told one thing and given
+# another. Then scripts/tray-autostart.sh writes and removes the login
+# autostart in a throwaway HOME (launchctl and systemctl are loggers), and
+# clean.sh --instance b must take b's icon and leave the default node's.
+# What this cannot see: that the icon draws -- no Mac and no Linux desktop here.
+
+PY=$(command -v python3 || command -v python || true)
+if [ -n "$PY" ]; then
+    if "$PY" -m py_compile scripts/itsanas-tray.py 2>/dev/null; then
+        say "scripts/itsanas-tray.py compiles"
+    else
+        bad "scripts/itsanas-tray.py does not compile"
+    fi
+    rm -rf scripts/__pycache__
+fi
+if command -v node >/dev/null 2>&1; then
+    if node --check scripts/itsanas-menubar.js 2>/dev/null; then
+        say "scripts/itsanas-menubar.js parses as JavaScript"
+    else
+        bad "scripts/itsanas-menubar.js does not parse as JavaScript"
+    fi
+fi
+if command -v pwsh >/dev/null 2>&1; then
+    if pwsh -NoProfile -Command "
+        \$errors = \$null
+        \$null = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/itsanas-tray.ps1'), [ref]\$null, [ref]\$errors)
+        if (\$errors) { \$errors | ForEach-Object { \$_.Message }; exit 1 }
+    "; then
+        say "scripts/itsanas-tray.ps1 parses"
+    else
+        bad "scripts/itsanas-tray.ps1 does not parse"
+    fi
+fi
+
+tray_menu() {  # $1 tray, $2 instance, $3 brief, $4 interval line
+    case "$1" in
+        py) "$PY" scripts/itsanas-tray.py ${2:+"$2"} --describe "$3" --interval "$4" ;;
+        js) node scripts/itsanas-menubar.js ${2:+"$2"} --describe "$3" --interval "$4" ;;
+        ps1) pwsh -NoProfile -File scripts/itsanas-tray.ps1 ${2:+-Instance "$2"} -Describe "$3" -Interval "$4" ;;
+    esac 2>&1 | tr -d '\r'
+}
+if [ -n "$PY" ]; then
+    menus_ok=1
+    others=""
+    command -v node >/dev/null 2>&1 && others="$others js"
+    command -v pwsh >/dev/null 2>&1 && others="$others ps1"
+    for brief in 'healthy 30' 'paused 4000' 'stale 900' 'stopped' 'departed' 'signed-out' ''; do
+        for instance in '' b; do
+            for every in 'every 15 min (set with `itsanas interval`)' 'auto: the daemon'"'"'s own setting'; do
+                reference=$(tray_menu py "$instance" "$brief" "$every")
+                for tray in $others; do
+                    drawn=$(tray_menu "$tray" "$instance" "$brief" "$every")
+                    if [ "$drawn" != "$reference" ]; then
+                        bad "the $tray tray draws another menu than the Linux one for '$brief' (instance '$instance'):"
+                        diff <(printf '%s\n' "$reference") <(printf '%s\n' "$drawn") | sed 's/^/    /'
+                        menus_ok=0
+                    fi
+                done
+            done
+        done
+    done
+    # And the one text they share says what HANDOVER §8 0w promises.
+    healthy=$(tray_menu py b 'healthy 30' 'every 15 min (set with x)')
+    for line in 'icon green' 'item Open the synced folder -> open-folder' \
+                '  item For 1 hour -> itsanas --instance b pause --for 1h [confirm]' \
+                '  item For 8 hours -> itsanas --instance b pause --for 8h [confirm]' \
+                '  item Until I resume -> itsanas --instance b pause [confirm]' \
+                '  item 15 min -> itsanas --instance b interval 15m [checked]' \
+                'item Settings... -> itsanas --instance b settings' \
+                'item Sign out... -> itsanas --instance b signout [confirm]' 'item Quit the icon -> quit'; do
+        printf '%s\n' "$healthy" | grep -qxF -- "$line" \
+            || { bad "the tray menu of a healthy node lacks: $line"; menus_ok=0; }
+    done
+    paused=$(tray_menu py '' 'paused 60' 'auto: x')
+    for line in 'icon blue' 'item Resume syncing -> itsanas resume' '  item Automatic -> itsanas interval auto [checked]'; do
+        printf '%s\n' "$paused" | grep -qxF -- "$line" \
+            || { bad "the tray menu of a paused node lacks: $line"; menus_ok=0; }
+    done
+    if printf '%s\n' "$paused" | grep -q 'Pause syncing'; then
+        bad "a paused node's tray still offers Pause, and no Resume in its place"; menus_ok=0
+    fi
+    signed_out=$(tray_menu py '' 'signed-out' '')
+    if ! printf '%s\n' "$signed_out" | grep -qxF 'item Sign in... -> itsanas signin' \
+        || ! printf '%s\n' "$signed_out" | grep -qxF 'icon grey' \
+        || printf '%s\n' "$signed_out" | grep -qE 'Sync now|Pause|Sign out'; then
+        bad "a signed-out node's tray does not offer Sign in alone, in grey:"
+        printf '%s\n' "$signed_out" | sed 's/^/    /'
+        menus_ok=0
+    fi
+    [ "$menus_ok" -eq 1 ] && say "the three trays draw the same menu, in every state, for $(printf 'py%s' "$others" | tr ' ' ',')"
+else
+    say "python is not here; the trays' menus were not compared"
+fi
+
+traydesk=$(mktemp -d)
+mkdir -p "$traydesk/home" "$traydesk/fake"
+for tool in launchctl systemctl; do
+    printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\nexit 0\n' "$tool" "$traydesk" > "$traydesk/fake/$tool"
+    chmod +x "$traydesk/fake/$tool"
+done
+tray_run() {  # [VAR=value ...] script args...
+    env -u DISPLAY -u WAYLAND_DISPLAY HOME="$traydesk/home" PATH="$traydesk/fake:/usr/bin:/bin" \
+        ITSANAS_BIN=/opt/itsanas/bin/itsanas "$@" </dev/null >"$traydesk/out" 2>&1
+}
+th="$traydesk/home"
+desk_ok=1
+tray_run ITSANAS_TRAY_OS=Linux sh scripts/tray-autostart.sh install b
+if [ -e "$th/.config/autostart/itsanas-tray-b.desktop" ]; then
+    bad "with no DISPLAY and no WAYLAND_DISPLAY (a Pi, a server) a tray autostart was written anyway"; desk_ok=0
+fi
+for name in '' b; do
+    tray_run ITSANAS_TRAY_OS=Linux DISPLAY=:0 sh scripts/tray-autostart.sh install $name \
+        || { bad "tray-autostart.sh install $name failed on a Linux desktop:"; sed 's/^/    /' "$traydesk/out"; desk_ok=0; }
+    tray_run ITSANAS_TRAY_OS=Darwin sh scripts/tray-autostart.sh install $name \
+        || { bad "tray-autostart.sh install $name failed on a Mac:"; sed 's/^/    /' "$traydesk/out"; desk_ok=0; }
+done
+desktop_b="$th/.config/autostart/itsanas-tray-b.desktop"
+agent_b="$th/Library/LaunchAgents/net.itsanas.menubar.b.plist"
+grep -q '^Exec=env ITSANAS_BIN="/opt/itsanas/bin/itsanas" python3 ".*/itsanas-tray.py" b$' "$desktop_b" 2>/dev/null \
+    || { bad "instance b's Linux autostart does not run its own tray with its binary"; desk_ok=0; }
+grep -q '^Exec=.*itsanas-tray.py"$' "$th/.config/autostart/itsanas-tray.desktop" 2>/dev/null \
+    || { bad "the default node's Linux autostart is missing or names an instance"; desk_ok=0; }
+grep -q '<string>b</string>' "$agent_b" 2>/dev/null && grep -q 'itsanas-menubar.js' "$agent_b" \
+    || { bad "instance b's menu-bar LaunchAgent is missing or does not pass b"; desk_ok=0; }
+[ -f "$th/Library/LaunchAgents/net.itsanas.menubar.plist" ] \
+    || { bad "the default node's menu-bar LaunchAgent was not written"; desk_ok=0; }
+[ -f "$th/.local/share/itsanas/itsanas-tray.py" ] && [ -f "$th/.local/share/itsanas/itsanas-menubar.js" ] \
+    || { bad "the tray scripts were not copied out of the checkout"; desk_ok=0; }
+if command -v plutil >/dev/null 2>&1 && ! plutil -lint "$agent_b" >/dev/null 2>&1; then
+    bad "plutil rejects $agent_b"; desk_ok=0
+fi
+# The daemon of an instance named menubar owns net.itsanas.menubar.plist on a
+# Mac (testbed.sh): the default node's menu-bar item must not write over it,
+# and cleaning that instance must not take the default node's item.
+mkdir -p "$traydesk/home2/Library/LaunchAgents"
+daemon_plist="$traydesk/home2/Library/LaunchAgents/net.itsanas.menubar.plist"
+printf '<plist><string>itsanas daemon</string></plist>\n' > "$daemon_plist"
+env HOME="$traydesk/home2" PATH="$traydesk/fake:/usr/bin:/bin" ITSANAS_TRAY_OS=Darwin \
+    sh scripts/tray-autostart.sh install </dev/null >/dev/null 2>&1
+grep -q 'itsanas daemon' "$daemon_plist" \
+    || { bad "the default node's menu-bar item overwrote the LaunchAgent of an instance named menubar"; desk_ok=0; }
+tray_run sh install/clean.sh --yes --instance b \
+    || { bad "clean.sh --instance b failed:"; sed 's/^/    /' "$traydesk/out"; desk_ok=0; }
+for gone in "$desktop_b" "$agent_b"; do
+    [ -e "$gone" ] && { bad "clean.sh --instance b left ${gone#"$th"/}: an icon for a node that is gone"; desk_ok=0; }
+done
+for kept in "$th/.config/autostart/itsanas-tray.desktop" "$th/Library/LaunchAgents/net.itsanas.menubar.plist" \
+            "$th/.local/share/itsanas/itsanas-tray.py"; do
+    [ -e "$kept" ] || { bad "clean.sh --instance b removed ${kept#"$th"/}, which the default node's icon needs"; desk_ok=0; }
+done
+tray_run sh install/clean.sh --yes \
+    || { bad "clean.sh --yes failed:"; sed 's/^/    /' "$traydesk/out"; desk_ok=0; }
+left=$(find "$th/.config/autostart" "$th/Library/LaunchAgents" "$th/.local/share/itsanas" -type f 2>/dev/null)
+if [ -n "$left" ]; then
+    bad "clean.sh --yes left tray files behind, starting an icon for a program that is gone:"
+    printf '%s\n' "$left" | sed 's/^/    /'
+    desk_ok=0
+fi
+[ "$desk_ok" -eq 1 ] && say "tray autostart: written per instance on a Mac and a Linux desktop, none headless, b cleaned alone, all cleaned"
+rm -rf "$traydesk"
+
 if [ "$failed" -ne 0 ]; then
     echo
     echo "An installer is the one program here that runs on a machine nobody has"
@@ -1028,4 +1197,4 @@ if [ "$failed" -ne 0 ]; then
     exit 1
 fi
 
-echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs, sudo rule matches, a cleaned instance spares its sibling, and its tray icon"
+echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs, sudo rule matches, a cleaned instance spares its sibling, and the tray icons on every platform"

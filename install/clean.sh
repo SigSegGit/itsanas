@@ -66,6 +66,54 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# The tray icon's autostart, as scripts/tray-autostart.sh names it: fixed
+# names, so a clean-up needs no checkout. A plist is ours only when it runs the
+# menu-bar script -- net.itsanas.menubar is also the daemon's LaunchAgent of an
+# instance named menubar (install/testbed.sh's naming).
+AUTOSTART_DIR="$HOME/.config/autostart"
+AGENT_DIR="$HOME/Library/LaunchAgents"
+TRAY_SHARE="$HOME/.local/share/itsanas"
+is_tray_agent() { [ -f "$1" ] && grep -q 'itsanas-menubar.js' "$1"; }
+# One node's: $1 is the instance, empty for the default node.
+tray_files() {
+    if [ -f "$AUTOSTART_DIR/itsanas-tray${1:+-$1}.desktop" ]; then
+        printf '%s\n' "$AUTOSTART_DIR/itsanas-tray${1:+-$1}.desktop"
+    fi
+    if is_tray_agent "$AGENT_DIR/net.itsanas.menubar${1:+.$1}.plist"; then
+        printf '%s\n' "$AGENT_DIR/net.itsanas.menubar${1:+.$1}.plist"
+    fi
+}
+# Every node's, and the copies of the scripts they run.
+all_tray_files() {
+    for file in "$AUTOSTART_DIR"/itsanas-tray.desktop "$AUTOSTART_DIR"/itsanas-tray-*.desktop \
+                "$TRAY_SHARE/itsanas-tray.py" "$TRAY_SHARE/itsanas-menubar.js"; do
+        if [ -f "$file" ]; then printf '%s\n' "$file"; fi
+    done
+    for file in "$AGENT_DIR"/net.itsanas.menubar.plist "$AGENT_DIR"/net.itsanas.menubar.*.plist; do
+        if is_tray_agent "$file"; then printf '%s\n' "$file"; fi
+    done
+}
+remove_tray_file() {
+    case "$1" in
+        *.plist) if command -v launchctl >/dev/null 2>&1; then
+                     launchctl bootout "gui/$(id -u)/$(basename "$1" .plist)" >/dev/null 2>&1 || true
+                 fi ;;
+    esac
+    rm -f "$1"
+}
+plan_tray_file() { plan "remove the tray icon's $1"; }
+# Calls $1 on each line of $TRAYS. Not `while read`: piped to sh, standard
+# input is the script itself, so no installer reads it (check-installers.sh).
+each_tray_file() {
+    saved_ifs=$IFS
+    IFS='
+'
+    set -f
+    for file in $TRAYS; do "$1" "$file"; done
+    set +f
+    IFS=$saved_ifs
+}
+
 # One named instance, and nothing that other nodes on this machine share: the
 # programs, the unit template and the other instances stay.
 if [ -n "$INSTANCE" ]; then
@@ -80,6 +128,9 @@ if [ -n "$INSTANCE" ]; then
     SECRET="$ENV_DIR/$INSTANCE.environment"
     # The LaunchAgent install/testbed.sh loads for an instance on a Mac.
     AGENT="$HOME/Library/LaunchAgents/net.itsanas.$INSTANCE.plist"
+    # Instance "menubar": that file may be the default node's menu-bar item.
+    if is_tray_agent "$AGENT"; then AGENT=""; fi
+    TRAYS=$(tray_files "$INSTANCE")
     say "ITSaNAS clean-up, instance $INSTANCE"
     say ""
     say "Only this instance. The programs, the unit template and every other node"
@@ -88,6 +139,7 @@ if [ -n "$INSTANCE" ]; then
     plan "stop and disable $SERVICE"
     [ -f "$SECRET" ] && plan "remove $SECRET"
     [ -f "$AGENT" ] && plan "unload and remove $AGENT"
+    each_tray_file plan_tray_file
     if [ -d "$NODE_HOME" ]; then
         if [ "$PURGE" -eq 1 ]; then
             plan "REMOVE $NODE_HOME - the sealed master secret and every chunk of this instance"
@@ -109,6 +161,7 @@ if [ -n "$INSTANCE" ]; then
         launchctl bootout "gui/$(id -u)/net.itsanas.$INSTANCE" >/dev/null 2>&1 || true
     fi
     rm -f "$SECRET" "$AGENT"
+    each_tray_file remove_tray_file
     if [ "$PURGE" -eq 1 ] && [ -d "$NODE_HOME" ]; then
         rm -rf "$NODE_HOME"
     fi
@@ -142,6 +195,9 @@ say "the service"
 [ -f "$TEMPLATE" ] && plan "remove $TEMPLATE, stopping every itsanas@ instance"
 [ -f "$COORD_UNIT" ] && plan "remove $COORD_UNIT"
 [ -f "$PLIST" ] && plan "remove $PLIST"
+# Every node's: the programs they call go too.
+TRAYS=$(all_tray_files)
+each_tray_file plan_tray_file
 
 # ----------------------------------------------------------------- the programs
 
@@ -266,6 +322,10 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload >/dev/null 2>&1 || true
 fi
 say "service removed"
+if [ -n "$TRAYS" ]; then
+    each_tray_file remove_tray_file
+    say "tray icons removed"
+fi
 
 for name in itsanas itsanas-coordinator itsanas-drive; do
     rm -f "$PREFIX/bin/$name"
