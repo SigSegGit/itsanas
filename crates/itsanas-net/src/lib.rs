@@ -38,5 +38,5 @@ pub use session::{
     drain_vault, fetch_only, host_for, pull, pull_scoped, push, push_scoped, refresh, round,
     round_scoped,
 };
-pub use transport::{IO_TIMEOUT, Offer, PeerClient, PeerServer, Refusal};
+pub use transport::{IO_TIMEOUT, Offer, PEER_SESSION_BUDGET, PeerClient, PeerServer, Refusal};
 pub use wire::{FrameReader, MAX_FRAME_LEN, WIRE_VERSION};

@@ -3610,3 +3610,58 @@ fn red_team_a_peer_refused_on_push_cannot_be_hosted_by_being_pulled() {
     });
     assert_eq!(dialler.vault.stats().unwrap().bytes, 0);
 }
+
+/// A peer that opens a TLS record and then sends one byte a second never trips
+/// the thirty-second read timeout, because no single read waits that long. Until
+/// `PEER_SESSION_BUDGET` the daemon stayed with such a peer for as long as it
+/// kept going -- 45 minutes on a laptop on 2026-10-06, during which none of its
+/// files left and none of its peers' files were written. With a budget, the
+/// connection is cut when the budget runs out, and the round goes on.
+#[test]
+fn red_team_a_peer_that_trickles_cannot_hold_the_caller_past_its_budget() {
+    use std::io::Write as _;
+    use std::time::{Duration, Instant};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let address = listener.local_addr().expect("local address");
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            // A handshake record announcing 16 KiB, then the bytes one at a time.
+            let _ = stream.write_all(&[0x16, 0x03, 0x03, 0x40, 0x00]);
+            for _ in 0..90 {
+                std::thread::sleep(Duration::from_secs(1));
+                if stream.write_all(&[0]).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+
+    let caller = node(&alice(), 1);
+    let (done, outcome) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        let result = PeerClient::connect_within(
+            address,
+            &caller.device,
+            caller.store.owner(),
+            None,
+            Some(Duration::from_secs(2)),
+        );
+        let _ = done.send((result.is_err(), started.elapsed()));
+    });
+
+    let (failed, took) = outcome.recv_timeout(Duration::from_secs(20)).expect(
+        "still talking to a peer that trickles one byte a second, 20 s into a 2 s \
+         budget: one such peer holds a daemon's whole round, and every file in it, \
+         for as long as it likes",
+    );
+    assert!(
+        failed,
+        "a peer that never finished its handshake was accepted"
+    );
+    assert!(
+        took < Duration::from_secs(10),
+        "the budget was 2 s and the caller was held {took:?}"
+    );
+}

@@ -20,6 +20,27 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-06 afternoon, one stalling peer no longer holds a round** (branch
+`fix/peer-session-budget`). In the live test with Mandarine, the laptop's
+`essai` daemon sat 45 minutes on one connection to `sigseg42` (an older
+build, on the same laptop, reached through a VMware adapter): the 30-second
+read timeout never fired, so the round never ended, and nothing was sent or
+written -- not the laptop's new files, not the Mac's. Nicolas's verdict: it
+has to work on a machine full of VMs without anyone switching adapters off.
+Fixed two ways: `PeerClient::connect_within` with `PEER_SESSION_BUDGET`
+(300 s for the whole conversation, handshake included, in
+`itsanas-net/src/transport.rs`; the daemon's `sync_once` uses it, `connect`
+for interactive commands is unchanged); and the daemon writes the folder
+right after the account's own devices, before the hosts of other accounts.
+Red-team: `red_team_a_peer_that_trickles_cannot_hold_the_caller_past_its_budget`
+(a byte a second; sabotaged by ignoring the budget: still held at 20 s,
+red). **Not fixed, still named:** why that older build answered so badly
+(version skew; it is retired by upgrading it), and discovery on virtual
+adapters (the same device "moves" between 192.168.19.1 and 192.168.117.1
+every round): harmless now that a bad path costs at most one budget, still
+noise worth a step. The folder-first reorder has no test of its own: it
+needs the daemon loop, which no test drives.
+
 **2026-10-06 afternoon, the test bed across the internet** (branch
 `step/testbed-announce`). The first deployment worked only on the home
 network: the bed never announced a public address, and the Freebox forwarded

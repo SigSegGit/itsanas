@@ -36,12 +36,13 @@
 //! of an executor in every signature.
 
 use std::{
+    io::{Read, Write},
     net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use itsanas_crypto::{ChunkId, DeviceId, DeviceKeys, ObjectId, UserId};
@@ -68,6 +69,69 @@ use crate::{
 /// Without this a single peer that opens a connection and then says nothing
 /// holds a thread forever, and enough of them exhaust the node.
 pub const IO_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long the daemon gives one peer in a round, everything included.
+///
+/// [`IO_TIMEOUT`] bounds one read or write, not a conversation: a peer that
+/// answers a little at a time, or keeps a slow transfer just alive, holds the
+/// round for as long as it likes, and with it the folder pass and every other
+/// peer. Seen on 2026-10-06: a laptop's daemon spent 45 minutes on one
+/// connection to an older-build node reached through a virtual network adapter, and
+/// nothing it or its peers wrote moved in that time. Cutting a session loses
+/// nothing -- every chunk is acknowledged on its own and the next round goes
+/// on from there -- so the budget is one sync interval: a round with `n`
+/// peers ends within `n` intervals whatever any of them does.
+pub const PEER_SESSION_BUDGET: Duration = Duration::from_secs(300);
+
+/// A socket whose whole conversation, not just each read, has a deadline.
+///
+/// Every read and write is given the smaller of [`IO_TIMEOUT`] and what is left
+/// of the budget, and fails once nothing is. Without a budget it behaves as a
+/// plain socket under [`IO_TIMEOUT`], which is what interactive commands want:
+/// somebody watching `itsanas sync` can stop it themselves.
+#[derive(Debug)]
+pub struct Budgeted {
+    stream: TcpStream,
+    until: Option<Instant>,
+}
+
+impl Budgeted {
+    fn left(&self) -> std::io::Result<Option<Duration>> {
+        let Some(until) = self.until else {
+            return Ok(None);
+        };
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "this peer used up its time for this round; the rest waits for the next",
+            ));
+        }
+        Ok(Some(left.min(IO_TIMEOUT)))
+    }
+}
+
+impl Read for Budgeted {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(limit) = self.left()? {
+            self.stream.set_read_timeout(Some(limit))?;
+        }
+        self.stream.read(buf)
+    }
+}
+
+impl Write for Budgeted {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Some(limit) = self.left()? {
+            self.stream.set_write_timeout(Some(limit))?;
+        }
+        self.stream.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.stream.flush()
+    }
+}
 
 /// What has actually reached this listener, and from where.
 ///
@@ -384,7 +448,7 @@ impl Offer {
 
 /// A connection to a peer, from the asking side.
 pub struct PeerClient {
-    connection: Connection<itsanas_tls::session::ClientStream<TcpStream>>,
+    connection: Connection<itsanas_tls::session::ClientStream<Budgeted>>,
     peer_device: DeviceId,
     /// The version both sides agreed to speak.
     ///
@@ -414,12 +478,30 @@ impl PeerClient {
         owner: UserId,
         expect: Option<DeviceId>,
     ) -> Result<Self> {
+        Self::connect_within(address, device, owner, expect, None)
+    }
+
+    /// [`Self::connect`], with the whole conversation bounded by `budget`,
+    /// handshake included: once it is spent every read and write fails, so a
+    /// peer that stalls cannot hold the caller past it. The daemon passes
+    /// [`PEER_SESSION_BUDGET`].
+    pub fn connect_within(
+        address: impl ToSocketAddrs,
+        device: &DeviceKeys,
+        owner: UserId,
+        expect: Option<DeviceId>,
+        budget: Option<Duration>,
+    ) -> Result<Self> {
         let addresses: Vec<SocketAddr> = address.to_socket_addrs()?.collect();
 
         let stream = connect_to_one_of(&addresses)?;
         stream.set_read_timeout(Some(IO_TIMEOUT))?;
         stream.set_write_timeout(Some(IO_TIMEOUT))?;
         stream.set_nodelay(true)?;
+        let stream = Budgeted {
+            stream,
+            until: budget.map(|budget| Instant::now() + budget),
+        };
 
         let identity = Identity::generate()?;
         let Authenticated { peer, connection } =

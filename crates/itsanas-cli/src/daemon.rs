@@ -550,6 +550,7 @@ fn sync_loop(
                 bound,
                 &mut outage,
                 scope,
+                folder.as_ref().map(|(folder, _)| folder),
             );
             next_sync = Instant::now() + interval;
             board.replace(contact.board());
@@ -821,6 +822,7 @@ fn one_round(
     bound: std::net::SocketAddr,
     outage: &mut Outage,
     scope: PolicyScope,
+    folder: Option<&Folder>,
 ) -> (BTreeSet<DeviceId>, Option<String>) {
     // The coordinator first, and only with a reason: this machine has not
     // published since it started, has moved, or owes its hourly publication
@@ -914,6 +916,15 @@ fn one_round(
     // one that last worked first. Pinned: the coordinator supplies addresses
     // and is not trusted to say who lives at one.
     dial_listed(node, shutdown, neighbourhood, contact, &mut reached, scope);
+
+    // Write out what the account's own machines just sent, now, rather than
+    // after the hosts of other accounts below: those are where the slow and
+    // the older builds are, and on 2026-10-06 a laptop's files waited behind
+    // them for twenty minutes and more. The pass at the end of the round
+    // still catches anything they bring.
+    if let Some(folder) = folder {
+        reconcile_once(node, folder, false);
+    }
 
     let mut strangers_dialled = 0usize;
     for candidate in neighbourhood.dial_order(&HouseholdKey::of(&node.user)) {
@@ -1202,7 +1213,15 @@ fn sync_once(
     ask_presences: bool,
     scope: PolicyScope,
 ) -> Option<Outcome> {
-    let mut client = match PeerClient::connect(peer, &node.device, node.store.owner(), expect) {
+    // Bounded as a whole: one peer that stalls must not hold the round, and
+    // with it the folder pass and every other peer (PEER_SESSION_BUDGET).
+    let mut client = match PeerClient::connect_within(
+        peer,
+        &node.device,
+        node.store.owner(),
+        expect,
+        Some(itsanas_net::transport::PEER_SESSION_BUDGET),
+    ) {
         Ok(client) => client,
         Err(error) => {
             if announce_failure {
