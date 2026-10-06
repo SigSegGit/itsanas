@@ -917,11 +917,9 @@ fn one_round(
     // and is not trusted to say who lives at one.
     dial_listed(node, shutdown, neighbourhood, contact, &mut reached, scope);
 
-    // Write out what the account's own machines just sent, now, rather than
-    // after the hosts of other accounts below: those are where the slow and
-    // the older builds are, and on 2026-10-06 a laptop's files waited behind
-    // them for twenty minutes and more. The pass at the end of the round
-    // still catches anything they bring.
+    // What the account's own machines just sent is written now, not after the
+    // other accounts' hosts below, where the slow and older builds are (a
+    // laptop's files waited 20 min behind them on 2026-10-06).
     if let Some(folder) = folder {
         reconcile_once(node, folder, false);
     }
