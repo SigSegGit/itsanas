@@ -1398,10 +1398,10 @@ runs after #228; wall-clock / runner-minutes, baseline 6.5 / 25):
 | --- | --- | --- | --- | --- |
 | a comment in `itsanas-crypto` (draft #229, closed) | 15 of 17 -- all but `wire` and `policy`, which do not depend on it | 6.7 | 27.4 | 37398742440 |
 | a comment in `itsanas-placement` (draft #230, closed) | `placement`, `cli` | 3.7 | 16.5 | 37398752533 |
-| docs only (this measurement's own PR) | none | DOCS_WALL | DOCS_MIN | DOCS_RUN |
+| docs only (this measurement's own PR) | none | 1.4 | 2.1 | 37399432250 |
 
 So: a primitive change costs what it did (it should, since it reaches everything). A
-leaf change saves about 40 %. A docs-only PR saves the most. What a leaf still pays
+leaf change saves about 40 %. A docs-only PR drops from 22.9 runner-minutes (#225) to 2.1. What a leaf still pays
 is mostly fixed cost: `itsanas-cli` depends on every crate but two, so any
 change reaching it runs the three installers (about 5 runner-minutes), and
 the Windows test leg spends most of its 2.4 minutes setting up the

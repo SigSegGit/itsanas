@@ -31,7 +31,7 @@ hermetically and checks `ci.yml` obeys it. **The merge rule changed** (see
 (`No warnings anywhere in this run`) passed, because it runs
 `ci_scope.py verify`. Merged as #228, measured right after (ROADMAP
 "Selective CI"): a leaf change 3.7 min / 16.5 runner-min against 6.5 / 25,
-crypto unchanged (it reaches 15 of 17 crates, as it should), docs-only the
+crypto unchanged (it reaches 15 of 17 crates, as it should), docs-only 1.4 / 2.1 (#225 cost 22.9)
 cheapest. Trap: a matrix job skipped by a job-level `if:`
 reports as "Test (${{ matrix.os }})", unexpanded, and the three required
 "Test (...)" checks would never arrive -- hence the per-step gates on `test`.
