@@ -7,6 +7,8 @@
 #     powershell -ExecutionPolicy Bypass -File install\testbed.ps1 -Coordinator HOST:PORT -CoordinatorDevice ID -Invite CODE
 #   Every other machine (asks for the 24 words, hidden):
 #     powershell -ExecutionPolicy Bypass -File install\testbed.ps1 -Coordinator HOST:PORT -CoordinatorDevice ID
+#   A machine that stays at home: forward a port on the box to it and add
+#   -Announce PUBLICNAME:PORT, or a laptop away from home finds nobody.
 #   Unattended: -PhraseFile PATH reads the 24 words from a file you made
 #   readable only by you; the script never deletes your file.
 #   Any time, changes nothing:
@@ -21,6 +23,7 @@ param(
     [string] $Coordinator = '',
     [string] $CoordinatorDevice = '',
     [string] $Invite = '',
+    [string] $Announce = '',
     [string] $PhraseFile = '',
     [switch] $Fresh,
     [switch] $Clean,
@@ -122,6 +125,7 @@ try {
         Instance = $instance; Username = 'essai'; Pledge = '10G'; Keep = '3G'; Folder = $folder
         Coordinator = $Coordinator; CoordinatorDevice = $CoordinatorDevice
     }
+    if ($Announce) { $arguments.Announce = $Announce }
     if ($Invite) { $arguments.Invite = $Invite }
     elseif (Test-Path -LiteralPath (Join-Path $nodeHome 'keystore.bin')) { }
     elseif ($PhraseFile) {

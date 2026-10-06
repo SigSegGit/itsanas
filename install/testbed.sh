@@ -10,6 +10,11 @@
 #
 #     sh install/testbed.sh --coordinator HOST:PORT --coordinator-device ID
 #
+#   A machine that stays at home must be reachable from outside, or a laptop
+#   away from home finds nobody to sync with: forward a port on the box to it
+#   and add --announce PUBLICNAME:PORT (the port as seen from outside).
+#   Machines that move announce nothing; they call out.
+#
 #   Unattended (over SSH, no terminal): --phrase-file PATH reads the 24 words
 #   from a file you made mode 600; the script never deletes your file.
 #
@@ -182,6 +187,7 @@ status() {
 COORDINATOR=""
 COORDINATOR_DEVICE=""
 INVITE=""
+ANNOUNCE=""
 PHRASE_ARG=""
 FRESH=0
 INSTALL=1
@@ -195,9 +201,11 @@ while [ $# -gt 0 ]; do
         --coordinator-device) [ $# -ge 2 ] || die "--coordinator-device needs an id"; COORDINATOR_DEVICE="$2"; shift 2 ;;
         --invite) [ $# -ge 2 ] || die "--invite needs a code"; INVITE="$2"; shift 2 ;;
         --phrase-file) [ $# -ge 2 ] || die "--phrase-file needs a path"; PHRASE_ARG="$2"; shift 2 ;;
+        --announce) [ $# -ge 2 ] || die "--announce needs host:port"; ANNOUNCE="$2"; shift 2 ;;
         --fresh) FRESH=1; shift ;;
         --no-install) INSTALL=0; shift ;;
-        --help|-h) sed -n '2,24p' "$0" 2>/dev/null; exit 0 ;;
+        # The whole comment header, so a line added to it never drops off --help.
+        --help|-h) awk 'NR > 1 && !/^#/ { exit } NR > 1' "$0" 2>/dev/null; exit 0 ;;
         *) die "unknown option: $1" "Run with --help." ;;
     esac
 done
@@ -279,6 +287,7 @@ if [ "$OS" = Linux ]; then
     set -- --instance "$INSTANCE" --username "$ACCOUNT" --pledge "$PLEDGE" --keep "$KEEP" \
         --folder "$FOLDER" --coordinator "$COORDINATOR" --coordinator-device "$COORDINATOR_DEVICE"
     [ -n "$INVITE" ] && set -- "$@" --invite "$INVITE"
+    [ -n "$ANNOUNCE" ] && set -- "$@" --announce "$ANNOUNCE"
     [ -n "$PHRASE_FILE" ] && set -- "$@" --phrase-file "$PHRASE_FILE"
     [ "$INSTALL" -eq 1 ] || set -- "$@" --no-install
     sh "$(sibling provision.sh)" "$@" || die "provisioning failed" "Its output is above."
@@ -305,6 +314,10 @@ elif [ "$OS" = Darwin ]; then
         "The reason is above. Free some space, or tell Nicolas's session to lower --pledge."
     mkdir -p "$FOLDER" && "$BIN" folder "$FOLDER" || die "could not set the synced folder"
     "$BIN" coordinator "$COORDINATOR" --device "$COORDINATOR_DEVICE" || die "could not set the coordinator"
+    # Before register, which is what publishes the address.
+    if [ -n "$ANNOUNCE" ]; then
+        "$BIN" announce "$ANNOUNCE" || die "could not set the announced address to $ANNOUNCE"
+    fi
     if [ -n "$INVITE" ]; then
         "$BIN" register --invite "$INVITE" || die "the coordinator refused this account" \
             "An invitation is good for one account and expires: ask for another."
