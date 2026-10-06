@@ -9,16 +9,36 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0s
-TITLE: the vault on another disk (a NAS) with a guard against a dropped mount; default unchanged
+NEXT: 8.0t
+TITLE: a release that updates itself, signed with Nicolas's key
 WRITTEN-AT: 2026-10-06
-BASE: 6acd1f4
+BASE: 4c7ca3b
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-06 evening, the whole fleet wiped; NEXT is a self-updating
+release.** After the live test (Pi, VM, laptop, Mandarine's Mac all saying
+IT WORKS, files, renames and deletions crossing over the internet once the
+laptop ran #241), Nicolas asked for a clean base everywhere before the next
+version: every account was test data. Done 2026-10-06: the laptop (by the
+session; the admin-only `ITSaNAS` task and the Pi/VM by Nicolas, running
+`wipe-linux.sh` -- the classifier refuses this session stopping services on
+those hosts), Mandarine's Mac (by her, from commands given). **Nothing
+ITSaNAS is installed anywhere now: no node, no binary, no coordinator, no
+directory, no `itsanas-coord` user, no ufw rule.** Kept on purpose: the four
+Freebox forwards (9797 -> Pi, 9798 -> Pi, 9799 -> VM 9797, 9898 -> VM), Rust
+on each machine, SSH and sudoers. Nicolas's private notes
+(`Documents\ITSaNAS`, `TEST-VISUEL.md`, `essai-24-mots.txt`) describe a fleet
+that no longer exists. So the next session starts with a coordinator to
+install (`install/coordinator.sh` on the VM, `--admit-first`) as part of 0t's
+first real run. Traps this time: zsh aborts a whole line on an unmatched
+glob (`setopt nonomatch`); Windows `-Filter 'itsanas.exe.*'` also matches
+`itsanas.exe` itself (the 8.3 wildcard rule) -- the session archived the
+running binary that way; a pasted `*name*` loses its asterisks to markdown.
 
 **2026-10-06 afternoon, one stalling peer no longer holds a round** (branch
 `fix/peer-session-budget`). In the live test with Mandarine, the laptop's
@@ -1389,6 +1409,56 @@ Detail and measurements are in ROADMAP.md; this is the map.
       SSH (sudo without a password, private guide) may be done by the
       session itself.
 
+   t. **A release that updates itself, signed with Nicolas's key.** Asked
+      for by Nicolas on 2026-10-06, after the live test needed every fix
+      carried to every machine by hand. **Decided the same day (closed
+      question): the signing key is Nicolas's, on his PC** -- passphrase-
+      protected, with an offline copy; CI builds, Nicolas signs with one
+      command, nodes verify. Rejected: a key in GitHub Actions (whoever takes
+      the GitHub account owns every member's machine) and building on each
+      machine from signed tags (Rust everywhere, 40 min on a Mac, impossible
+      on Android).
+      Facts checked 2026-10-06: CI uploads one artifact today (ci.yml ~552)
+      and publishes no release; the only tag is `v0.1.0`; the workspace is
+      version `0.1.0`; `ed25519-dalek` is already a dependency of
+      `itsanas-crypto`. To build, in this order:
+      1. A release manifest: version, and per target (x86_64/aarch64 Linux,
+         x86_64 Windows, aarch64/x86_64 macOS) the binary's BLAKE3 hash and
+         size; signed Ed25519 by a release key. The public key is compiled
+         into the binary (`itsanas-crypto`, a constant pinned by a test, like
+         the gear table), and rotation is a signed manifest that names the
+         next key.
+      2. `scripts/sign-release.*` for Nicolas: generate the key once (sealed
+         under a passphrase, the keystore's own scheme), then sign a
+         manifest; nothing secret ever reaches the repository or CI.
+      3. A `release` workflow on a `v*` tag: build the five targets, attach
+         binaries and the unsigned manifest to a GitHub release. Nicolas
+         downloads the manifest, signs it, uploads the signature.
+      4. `itsanas update` and a daemon check (once a day, jittered): fetch
+         the manifest and signature, refuse anything not signed by the pinned
+         key, refuse a version not newer than the running one (no downgrade),
+         download, verify hash and size, swap the binary by rename (the
+         `install/*` rule from #240: never write over a running file), restart
+         through the service manager. An install that is not from a release
+         (built from source) reports and never updates itself.
+      Red-team tests expected: a manifest signed by another key, a valid
+      signature over a modified manifest, an older version signed by the
+      right key (downgrade), a binary whose hash does not match, a truncated
+      download -- each refused with the running binary untouched; sabotage
+      each check. First real run doubles as the fleet's reinstall: the
+      coordinator on the VM, then the Pi, the VM, the laptop and Mandarine's
+      Mac from a signed release, then a second release reaching all of them
+      by itself.
+   u. **Reachable without port forwards: UPnP/NAT-PMP/PCP and IPv6.**
+      Asked for by Nicolas on 2026-10-06 ("make the redirection unnecessary").
+      A home node asks its box to open its port and announces what it got;
+      a node with a global IPv6 address announces it too. Not planned in
+      detail; after 0t. Honest limit, to keep saying: something must be
+      reachable, the coordinator at least -- one forward (or one mapping
+      opened by UPnP), or a coordinator on a public server.
+   v. **A relay for two machines that cannot reach each other** (0o's
+      phase 3): through a reachable member, data still sealed end to end.
+      After 0u, and only if the fleet shows 0u falls short.
    s. **The vault on another disk (a NAS), the default unchanged.** Asked
       for by Nicolas on 2026-10-06, after growing the VM's disk: the VM is
       meant to host for the network from his NAS later, not from its image.
@@ -2239,6 +2309,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
    (§8 6c). Halves the cost of a merge; loses the second full run that catches
    environment breaks the same day rather than at the nightly. **Skip** or
    **keep**.
+
+12. ✅ **Who signs a self-updating release?** (§8 0t.) **Decided 2026-10-06
+   (Nicolas): his key, on his PC**, against a key in CI or per-machine
+   builds from signed tags; reasons in 0t.
 
 ## 11. Working style Nicolas expects
 
