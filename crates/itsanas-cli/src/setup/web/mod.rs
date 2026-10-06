@@ -693,14 +693,13 @@ fn steer(ctx: &Context, request: &Request) -> Response {
         Err(why) => return Response::refuse(400, &why),
     };
     let command = match field(&form, "action") {
-        // TODO(0w (5)): a pause with an end ("for 1 hour", "for 8 hours")
-        // needs the control file's `until` key, built with `itsanas pause
-        // --for`; until then the page offers only "until I resume", and a
-        // duration sent anyway is refused rather than silently ignored.
-        Some("pause") if field(&form, "for").is_none_or(|f| f == "resume") => crate::Command::Pause,
-        Some("pause") => {
-            return Response::refuse(400, "a pause with an end is not available yet");
-        }
+        // A pause with an end ("for 1 hour", "for 8 hours") or until resumed;
+        // the duration goes through the same parser as `itsanas pause --for`.
+        Some("pause") => crate::Command::Pause {
+            duration: field(&form, "for")
+                .filter(|f| *f != "resume")
+                .map(str::to_owned),
+        },
         Some("resume") => crate::Command::Resume,
         Some("sync-now") => crate::Command::SyncNow,
         Some("interval") => crate::Command::Interval {
