@@ -1,0 +1,32 @@
+[package]
+name = "itsanas-release"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Signed ITSaNAS releases: the manifest, its Ed25519 signature, and the tool Nicolas signs with"
+
+[[bin]]
+name = "itsanas-release"
+path = "src/main.rs"
+
+# Every dependency below was already in Cargo.lock, at these versions, before
+# this crate existed: nothing new to audit. sha2 arrives through ed25519-dalek;
+# it is here so a bootstrap installer can check a download with Get-FileHash or
+# shasum, which know SHA-256 and not BLAKE3.
+[dependencies]
+blake3 = "1.8.7"
+clap = { version = "4.5.51", features = ["derive"] }
+ed25519-dalek = { version = "3.0.0", features = ["zeroize"] }
+getrandom = "0.4.3"
+hex = "0.4.3"
+itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+rpassword = "7.4.0"
+sha2 = { version = "0.11.0", default-features = false }
+thiserror = "2.0.20"
+zeroize = "1.9.0"
+
+[lints]
+workspace = true
