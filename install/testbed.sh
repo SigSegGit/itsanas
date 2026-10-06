@@ -204,7 +204,8 @@ while [ $# -gt 0 ]; do
         --announce) [ $# -ge 2 ] || die "--announce needs host:port"; ANNOUNCE="$2"; shift 2 ;;
         --fresh) FRESH=1; shift ;;
         --no-install) INSTALL=0; shift ;;
-        --help|-h) sed -n '2,24p' "$0" 2>/dev/null; exit 0 ;;
+        # The whole comment header, so a line added to it never drops off --help.
+        --help|-h) awk 'NR > 1 && !/^#/ { exit } NR > 1' "$0" 2>/dev/null; exit 0 ;;
         *) die "unknown option: $1" "Run with --help." ;;
     esac
 done
