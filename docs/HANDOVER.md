@@ -1421,7 +1421,16 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Facts checked 2026-10-06: CI uploads one artifact today (ci.yml ~552)
       and publishes no release; the only tag is `v0.1.0`; the workspace is
       version `0.1.0`; `ed25519-dalek` is already a dependency of
-      `itsanas-crypto`. To build, in this order:
+      `itsanas-crypto`. **Requirement, Nicolas 2026-10-06: one click,
+      user-friendly, both ends.** For him: publishing a version is one
+      command or one double-click (a script that asks the passphrase, signs,
+      uploads, and says what it published); generating the key once is the
+      same, and it says where the offline copy goes. For a member: nothing
+      to do -- the daemon updates by itself and says so in the log and the
+      tray; `itsanas update` exists for the impatient. An error says what to
+      do in one line, never a stack of crypto jargon. Judge the step by
+      that, not by the tests alone.
+      To build, in this order:
       1. A release manifest: version, and per target (x86_64/aarch64 Linux,
          x86_64 Windows, aarch64/x86_64 macOS) the binary's BLAKE3 hash and
          size; signed Ed25519 by a release key. The public key is compiled
