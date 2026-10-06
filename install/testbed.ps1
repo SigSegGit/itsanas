@@ -116,7 +116,7 @@ if (Test-Path -LiteralPath $secretFile) {
     $env:ITSANAS_PASSPHRASE = -join ($bytes | ForEach-Object { $_.ToString('x2') })
 }
 
-$phraseFile = $null
+$tempPhraseFile = $null
 try {
     $arguments = @{
         Instance = $instance; Username = 'essai'; Pledge = '10G'; Keep = '3G'; Folder = $folder
@@ -127,7 +127,9 @@ try {
     elseif ($PhraseFile) {
         if (-not (Test-Path -LiteralPath $PhraseFile)) { Die "cannot read $PhraseFile" }
         if (@((Get-Content -LiteralPath $PhraseFile -Raw).Trim() -split '\s+').Count -ne 24) { Die "$PhraseFile does not hold 24 words" }
-        # Not $phraseFile: `finally` removes only the file this script made.
+        # Not $tempPhraseFile: `finally` removes only the file this script made.
+        # PowerShell names are case-insensitive: the temporary file must not be
+        # called $phraseFile, or it erases the -PhraseFile parameter.
         $arguments.PhraseFile = (Resolve-Path -LiteralPath $PhraseFile).Path
     } else {
         Write-Host ""; Write-Host '==> Joining the test account'
@@ -135,22 +137,22 @@ try {
         $words = [System.Net.NetworkCredential]::new('', $secure).Password
         if (@($words.Trim() -split '\s+').Count -ne 24) { Die 'that is not 24 words' @('Copy all of them, in order.') }
         # A file only this account can read, removed in `finally`.
-        $phraseFile = [System.IO.Path]::GetTempFileName()
+        $tempPhraseFile = [System.IO.Path]::GetTempFileName()
         $acl = New-Object System.Security.AccessControl.FileSecurity
         $acl.SetAccessRuleProtection($true, $false)
         $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
             [System.Security.Principal.WindowsIdentity]::GetCurrent().Name, 'FullControl', 'Allow')))
-        Set-Acl -LiteralPath $phraseFile -AclObject $acl
-        Set-Content -LiteralPath $phraseFile -Value $words -NoNewline
+        Set-Acl -LiteralPath $tempPhraseFile -AclObject $acl
+        Set-Content -LiteralPath $tempPhraseFile -Value $words -NoNewline
         $words = $null
-        $arguments.PhraseFile = $phraseFile
+        $arguments.PhraseFile = $tempPhraseFile
     }
 
     Write-Host ""; Write-Host '==> Installing and setting up (provision.ps1)'
     & powershell -NoProfile -ExecutionPolicy Bypass -File $provision @arguments
     if ($LASTEXITCODE -ne 0) { Die 'provisioning failed' @('Its output is above.') }
 } finally {
-    if ($phraseFile) { Remove-Item -LiteralPath $phraseFile -Force -ErrorAction SilentlyContinue }
+    if ($tempPhraseFile) { Remove-Item -LiteralPath $tempPhraseFile -Force -ErrorAction SilentlyContinue }
 }
 
 Write-Host ""; Write-Host "==> Dropping this machine's files into the test folder"

@@ -757,6 +757,27 @@ if [ "$twin_ok" -eq 1 ]; then
 fi
 rm -rf "$twin"
 
+
+# ------------------------------- a PowerShell variable that erases a parameter
+#
+# PowerShell names are case-insensitive. testbed.ps1 shipped with a temporary
+# `$phraseFile = $null` that silently emptied its `-PhraseFile` parameter, so
+# an unattended join fell through to a prompt and hung with no terminal
+# (found deploying on this laptop, 2026-10-06). Text only, so it runs where
+# pwsh does not: any assignment to a parameter's name in another case.
+for script in install/*.ps1; do
+    params=$(sed -n '/^param(/,/^)/p' "$script" | grep -oE '\$[A-Za-z]+' | sort -u)
+    for param in $params; do
+        name=${param#\$}
+        clash=$(grep -niE "^[[:space:]]*\\\$$name[[:space:]]*=" "$script" | grep -vE "\\\$$name[[:space:]]*=" || true)
+        if [ -n "$clash" ]; then
+            bad "$script assigns to a variable that is its -$name parameter in another case; PowerShell treats them as one"
+            printf '%s\n' "$clash" | sed 's/^/       /'
+        fi
+    done
+done
+say "no PowerShell script reassigns a parameter under another case"
+
 # ------------------------------------------ the test bed spares real accounts
 #
 # HANDOVER §8 0r's red-team test: testbed.sh --fresh on a home that holds a

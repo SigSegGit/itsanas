@@ -394,9 +394,23 @@ foreach ($prog in @('itsanas.exe', 'itsanas-coordinator.exe')) {
         )
     }
     # A running daemon holds its own binary open, so a plain copy fails with a
-    # sharing violation. Say which process, rather than "access denied".
+    # sharing violation. Windows still lets a running executable be *renamed*:
+    # move it aside and copy the new one in, so a second node's install (the
+    # test bed, 2026-10-06) does not have to stop every other node on the
+    # machine. The running daemon keeps the old file until its next start.
+    $dest = Join-Path $binDir $prog
+    # Leftovers from earlier runs; one still in use simply stays.
+    Get-ChildItem -LiteralPath $binDir -Filter "$prog.old-*" -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
     try {
-        Copy-Item $src (Join-Path $binDir $prog) -Force
+        try {
+            Copy-Item $src $dest -Force
+        } catch {
+            $aside = "$prog.old-" + (Get-Date -Format 'yyyyMMddHHmmss')
+            Rename-Item -LiteralPath $dest -NewName $aside
+            Copy-Item $src $dest -Force
+            Write-Warn "$prog was running: the old one is now $aside, and running nodes use the new one from their next start"
+        }
     } catch {
         Stop-WithAdvice "could not replace $prog" @(
             "$($_.Exception.Message)",
