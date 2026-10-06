@@ -267,9 +267,11 @@ elif [ -n "$PHRASE_ARG" ]; then
 else
     step "Joining the test account"
     printf '  Paste the 24 words the first machine printed, then Enter (hidden):\n  '
-    stty -echo 2>/dev/null
+    # stty acts on its stdin, and under `curl | sh` that is the pipe: without
+    # </dev/tty the words were echoed in clear on Mandarine's Mac (2026-10-06).
+    stty -echo </dev/tty 2>/dev/null
     read -r WORDS </dev/tty
-    stty echo 2>/dev/null
+    stty echo </dev/tty 2>/dev/null
     printf '\n'
     [ "$(printf '%s\n' "$WORDS" | wc -w | tr -d ' ')" -eq 24 ] || die "that is not 24 words" \
         "Copy all of them, in order, from the first machine's output."
@@ -294,7 +296,23 @@ if [ "$OS" = Linux ]; then
 elif [ "$OS" = Darwin ]; then
     step "Installing (macos.sh)"
     if [ "$INSTALL" -eq 1 ]; then
-        sh "$(sibling macos.sh)" --yes --no-service --no-smoke || die "the installer failed" "Its output is above."
+        # macos.sh builds from a checkout and, unlike linux.sh, never clones one,
+        # so under `curl | sh` it had nothing to build (Mandarine's Mac,
+        # 2026-10-06). Use the checkout this script sits in, or keep one where
+        # linux.sh keeps its own.
+        if [ -f "$HERE/../Cargo.toml" ]; then
+            SRC=$(CDPATH='' cd -- "$HERE/.." && pwd)
+        else
+            SRC="$HOME/.local/src/itsanas"
+            if [ -d "$SRC/.git" ]; then
+                git -C "$SRC" pull -q --ff-only || die "could not update $SRC" "Remove it and run this again."
+            else
+                mkdir -p "$(dirname "$SRC")"
+                git clone -q --depth 1 https://github.com/SigSegGit/itsanas "$SRC" || die "could not clone the source"
+            fi
+        fi
+        sh "$SRC/install/macos.sh" --source "$SRC" --yes --no-service --no-smoke \
+            || die "the installer failed" "Its output is above."
     fi
     [ -x "$BIN" ] || die "no itsanas binary at $BIN after installing"
 
