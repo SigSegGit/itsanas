@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-05 — 980 test functions across 30 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 203 are red-team tests.**
+**Last updated: 2026-10-06 — 981 test functions across 30 binaries, 4 of them
+`#[ignore]`d, plus 2 doctests. 204 are red-team tests.**
 
-**864 of the 980 tests have an entry of their own on this page** — an *entry*,
+**865 of the 981 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -163,7 +163,7 @@ guarantee and is not one.
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
 | `itsanas-net` unit | 45 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 57 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 58 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 119 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
@@ -821,7 +821,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (57)
+# `itsanas-net` — two-node tests (58)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -836,6 +836,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`what_doctor_finds_is_what_repair_fixes_first`** | Two detectors that ignored each other. `doctor` knows every local loss in one pass; the daemon's sampling scan needs fifty-five days to reach a given chunk on a terabyte store. Somebody running `doctor` because a file would not open therefore learned the answer and had no way to act on it. They now share a queue, and a loss `doctor` found is repaired in the next round rather than eventually. |
 | **`a_disk_that_quietly_lost_a_block_gets_it_back_from_a_host`** | The half of repair that pushing cannot do. `push` restores *replication* by offering a peer what the peer lacks; it can put nothing back on **this** disk, and a chunk missing here is the one failure the placement ledger was built to survive. A dropped block, an inode lost to a power cut, a partial restore: the file is unreadable, the bytes are on three other machines, and until now nothing reached for them and the only cure was a human running `doctor` and knowing what to do next. |
 | **`red_team_one_forged_chain_does_not_stall_the_pull_of_the_others`** | §8 2c, end to end. A host keeps, beside an account's genuine chain, one it made up: a free device key signing a segment under the victim's user id, its body sealed under another account's key. The signature verifies so the vault keeps it; the body does not open, and that used to fail the whole pull -- the genuine file never arrived, on this round or any later one, because the forged segment is replayed from the vault. Now the genuine file is adopted, the round reports `refused_chains: 1`, and does so again on the next round while new honest work still arrives. Sabotaged (the refused chain propagated again; the count reported as 0): red. |
+| **`red_team_a_peer_that_trickles_cannot_hold_the_caller_past_its_budget`** | A peer opens a TLS record announcing 16 KiB and sends it one byte a second, so no single read ever reaches the 30-second timeout. Until `PEER_SESSION_BUDGET` (300 s, the daemon's whole conversation with one peer) such a peer held a daemon's round for as long as it kept going: 45 minutes on a laptop on 2026-10-06, with an older-build node behind a VMware adapter, while none of its files left and none of its peers' were written. With a 2 s budget the caller is refused within 10 s. Sabotaged (the budget ignored): still connected after 20 s, red. |
 | **`red_team_a_relay_that_serves_noise_is_not_written_down_as_a_holder`** | Same liar, over the real transport. The pull recorded every chunk a peer *answered* as held by it before anything checked the bytes, so the ledger counted a copy that does not exist and repair would ask the liar first; and the file was adopted. Now only chunks on this disk afterwards are recorded, and the file stays absent. |
 | **`red_team_a_relay_cannot_poison_a_chunk_on_the_ordinary_pull_path`** | The same attack as the repair one, through the door the repair defence did not cover. `accept_chunk` verifies; a second method wrote peer bytes unverified and argued that a chunk which fails to open is caught later by `read_file`. It is not caught later, and the reasoning against it had already been written fifteen lines away: noise under a real address makes `has_chunk` true, so nothing looks for the real bytes — not the repair scan, which checks presence, and not `doctor`, whose recorded loss the next scan clears because the blob is now there. That path is every chunk of every sync. |
 | **`red_team_a_host_cannot_answer_a_repair_request_with_rubbish`** | A host cannot read what it stores, so its one route to destroying data is to wait for a repair request and answer with noise. Written unverified, those bytes would make `has_chunk` true, the scan would stop looking, no other peer would ever be asked, and a **recoverable** loss would become permanent — strictly worse than refusing to answer. The bytes are opened and re-addressed before anything is written, and a host that answers with something else loses that record. |
