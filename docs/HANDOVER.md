@@ -29,9 +29,10 @@ decides, the `changes` job publishes the plan, `check-ci-scope.py` tests it
 hermetically and checks `ci.yml` obeys it. **The merge rule changed** (see
 §4b, under `merge-when-green.sh`): skipped is green only when the last job
 (`No warnings anywhere in this run`) passed, because it runs
-`ci_scope.py verify`. Baseline measured (ROADMAP "Selective CI"); **the
-saving is not**: the first selective runs only exist after this merges, and
-§8 6a is to measure them. Trap: a matrix job skipped by a job-level `if:`
+`ci_scope.py verify`. Merged as #228, measured right after (ROADMAP
+"Selective CI"): a leaf change 3.7 min / 16.5 runner-min against 6.5 / 25,
+crypto unchanged (it reaches 15 of 17 crates, as it should), docs-only 1.4 / 2.1 (#225 cost 22.9)
+cheapest. Trap: a matrix job skipped by a job-level `if:`
 reports as "Test (${{ matrix.os }})", unexpanded, and the three required
 "Test (...)" checks would never arrive -- hence the per-step gates on `test`.
 The same happens if `changes` itself fails: `test` is skipped through `needs`
@@ -1728,13 +1729,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
    then, the same day, "a lot of red-team tests, one file per test type or
    attack surface, then we stop having 40+ minute CIs".
 
-   a. ✅ **Selective CI, by crate** (2026-10-06, see §0 and ROADMAP
-      "Selective CI"). ⬜ Still owed in the next PR, which is itself
-      docs-only and so the first demonstration: run
-      `python scripts/ci-cost.py --runs <ids>` on that PR's run and on one
-      throwaway draft PR touching only a comment in `itsanas-crypto` (close
-      it unmerged), check in each run's summary that the plan is what
-      `check-ci-scope.py` says, and write the numbers in ROADMAP.
+   a. ✅ **Selective CI, by crate** (2026-10-06, #228, see §0), and
+      **measured** the same day on two throwaway drafts (#229 crypto, #230
+      placement, closed) and on its own docs-only follow-up: ROADMAP
+      "Selective CI" has the table. Each run's plan was read from its
+      summary and matched `check-ci-scope.py`.
 
    b. **Red-team tests by attack surface.** Fix the list in
       `docs/TESTING.md` -- suggested: wire/framing, identity & claims,

@@ -1391,9 +1391,22 @@ nightly schedule, a PR labelled `milestone`, and a PR touching `Cargo.lock`,
 `scripts/check-ci-scope.py` tests all of this hermetically, and reads `ci.yml`
 to check each job obeys its gate.
 
-⬜ **The saving is not measured yet.** The numbers above are the baseline;
-the first runs under the new rule can only happen after it merges, and are to
-be written here from `ci-cost.py --runs <ids>`.
+**Measured on 2026-10-06** (`python scripts/ci-cost.py --runs <id>`, the first
+runs after #228; wall-clock / runner-minutes, baseline 6.5 / 25):
+
+| Change | Crates tested | Wall | Runner-min | Run |
+| --- | --- | --- | --- | --- |
+| a comment in `itsanas-crypto` (draft #229, closed) | 15 of 17 -- all but `wire` and `policy`, which do not depend on it | 6.7 | 27.4 | 37398742440 |
+| a comment in `itsanas-placement` (draft #230, closed) | `placement`, `cli` | 3.7 | 16.5 | 37398752533 |
+| docs only (this measurement's own PR) | none | 1.4 | 2.1 | 37399432250 |
+
+So: a primitive change costs what it did (it should, since it reaches everything). A
+leaf change saves about 40 %. A docs-only PR drops from 22.9 runner-minutes (#225) to 2.1. What a leaf still pays
+is mostly fixed cost: `itsanas-cli` depends on every crate but two, so any
+change reaching it runs the three installers (about 5 runner-minutes), and
+the Windows test leg spends most of its 2.4 minutes setting up the
+RAM disk and the toolchain, not testing. The ARM job fell from 5.5 to 1.6
+minutes for the placement change, which is the one big variable cost.
 
 **What it cannot catch, and that is the price.**
 
