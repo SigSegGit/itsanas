@@ -895,22 +895,7 @@ fn one_round(
     // wanted even if they are also on the local network — and being in
     // the configuration is itself the evidence that they are real, so
     // they are confirmed on contact without having to earn it.
-    let mut reached: BTreeSet<DeviceId> = BTreeSet::new();
-    // In the same order as everything else this round dials: the ones that can
-    // answer from where this machine stands, first. A configured peer is
-    // usually a LAN address somebody typed at home, and a round that starts
-    // with those spends its first connect timeouts on them from anywhere else.
-    let mut configured = node.config.peers.clone();
-    coordinator::reachable_first_addresses(&mut configured);
-    for peer in &configured {
-        if shutdown.load(Ordering::Relaxed) {
-            break;
-        }
-        if let Some(outcome) = sync_once(node, peer, None, true, false, scope) {
-            neighbourhood.confirm(outcome.device);
-            reached.insert(outcome.device);
-        }
-    }
+    let mut reached = dial_configured(node, shutdown, neighbourhood, scope);
 
     // The account's devices at the addresses the coordinator last gave, the
     // one that last worked first. Pinned: the coordinator supplies addresses
@@ -970,6 +955,33 @@ fn one_round(
     }
 
     (reached, announced)
+}
+
+/// Sync with every peer in the configuration, and say which answered.
+///
+/// In the same order as everything else a round dials: the ones that can
+/// answer from where this machine stands, first. A configured peer is usually
+/// a LAN address somebody typed at home, and a round that starts with those
+/// spends its first connect timeouts on them from anywhere else.
+fn dial_configured(
+    node: &Node,
+    shutdown: &AtomicBool,
+    neighbourhood: &Neighbourhood,
+    scope: PolicyScope,
+) -> BTreeSet<DeviceId> {
+    let mut reached = BTreeSet::new();
+    let mut configured = node.config.peers.clone();
+    coordinator::reachable_first_addresses(&mut configured);
+    for peer in &configured {
+        if shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+        if let Some(outcome) = sync_once(node, peer, None, true, false, scope) {
+            neighbourhood.confirm(outcome.device);
+            reached.insert(outcome.device);
+        }
+    }
+    reached
 }
 
 /// Dial the account's devices at every address the coordinator gave for them,
