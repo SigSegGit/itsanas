@@ -54,7 +54,12 @@ blake3 builds NEON assembly.
 
 ## Before opening a pull request
 
-Every one of these runs in CI. Running them locally is faster than waiting:
+Every one of these runs in CI. On a pull request, CI tests only the crates
+your change touches and every crate that depends on them; the job summary of
+"What this run tests" says which and why. Label the pull request `milestone`
+to run everything. A change to `Cargo.lock`, a manifest, the toolchain,
+`.config/` or a workflow runs everything anyway. Running them locally is
+faster than waiting:
 
 ```bash
 cargo fmt --all --check
