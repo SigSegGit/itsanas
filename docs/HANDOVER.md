@@ -9,16 +9,25 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0r
-TITLE: run the test bed on real machines (built, not yet run on Nicolas's Windows and Mandarine's Mac)
+NEXT: 8.0s
+TITLE: the vault on another disk (a NAS) with a guard against a dropped mount; default unchanged
 WRITTEN-AT: 2026-10-06
-BASE: 70daa81
+BASE: 6acd1f4
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-06 (midday), NEXT is §8 0s, the vault on another disk.** 0r is
+merged (#235) and waits only on Nicolas running it by hand (his private
+`Documents\ITSaNAS\TEST-VISUEL.md`; the invitation needs a brief stop of the
+Pi's `nicolas` service, which the session's auto mode refused). The VM's disk
+was grown to 42 GB the same morning (`/` 39 GB, 16 GB free, ext4 reserve kept
+at 5 %), so it can join the bed. 0s is next because Nicolas wants the VM to
+host from his NAS later: the vault's path is hard-wired and a dropped mount
+would silently become an empty vault. Planned in §8 0s, nothing built.
 
 **2026-10-06 (morning), §8 0r built: `install/testbed.sh` and
 `install/testbed.ps1`** (branch `step/8.0r-testbed`). One command per machine
@@ -1319,6 +1328,76 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `bonjour` files have crossed both ways. A run on the Pi and the VM over
       SSH (sudo without a password, private guide) may be done by the
       session itself.
+
+   s. **The vault on another disk (a NAS), the default unchanged.** Asked
+      for by Nicolas on 2026-10-06, after growing the VM's disk: the VM is
+      meant to host for the network from his NAS later, not from its image.
+      He does **not** want it set up yet -- he wants the system *able* to
+      run that way, with today's location (`<home>/vault`) staying the
+      default, so no existing node moves.
+
+      **Facts checked 2026-10-06 (`main` at 6acd1f4):**
+      - The vault's place is hard-wired: `Vault::open(home.join("vault"))`,
+        `crates/itsanas-node/src/node.rs` ~645; `main.rs` ~1293 adds up its
+        databases from the same `home.join("vault")`.
+      - `Vault::open` (`crates/itsanas-store/src/vault.rs` ~281) starts with
+        `create_dir_all(&root)` and `Database::create(root.join("vault.redb"))`.
+        On a mount that has dropped, that **silently makes a new, empty vault
+        on the local disk**: every chunk this node hosts looks lost, audits
+        fail, and the owners re-replicate everything -- the vault-side twin of
+        the folder bug `itsanas-folder/tests/storage_vanished.rs` guards
+        (marker `.itsanas-folder`, `scan.rs` ~87, written and checked in
+        `itsanas-folder/src/lib.rs` ~258/276). The vault has no such guard.
+      - Free space is measured on the node's home, not the vault's disk:
+        `fs4::available_space(&node.home)` at `main.rs` ~2991 and ~3120, and
+        `node.rs` ~410. With a vault elsewhere, `space --apply` would accept a
+        pledge the NAS cannot hold, or refuse one it can.
+      - Moving the whole node with `ITSANAS_HOME` works today but puts the
+        keystore and the store's index on the share; not what is wanted.
+      - The vault's own index, `vault.redb`, lives inside the vault directory,
+        so it moves with it. redb relies on a file lock and on `fsync`; on SMB
+        and older NFS both are weaker than on a local disk.
+
+      **To build:**
+      - `Config::vault: Option<PathBuf>` (`crates/itsanas-node/src/config.rs`,
+        modelled on `folder` ~117); `None` = `<home>/vault`, so nothing
+        changes for an existing node. One accessor `Node::vault_path(home,
+        &config)`, used by `node.rs` ~645 **and** `main.rs` ~1293.
+      - `itsanas vault [PATH]` prints or sets it. Setting it while the current
+        vault holds anything is refused, with the manual move spelled out
+        (stop the daemon, move the directory, then set the path) -- no
+        automatic copy of tens of GB in a first version.
+      - A marker `.itsanas-vault` holding the device id, written when a vault
+        is created. Opening a vault whose directory exists without the marker,
+        or with another device's, or whose configured directory is missing,
+        is a **refusal to open**, never a fresh vault: the daemon exits with
+        the reason ("the vault at PATH is not there -- is the disk
+        mounted?"), and systemd's restart brings it back once the mount
+        returns. An existing `<home>/vault` with no marker (every node today)
+        gets one written on first open: only a *configured* path is suspect.
+      - The three `available_space(&node.home)` calls measure the vault's
+        disk for what is pledged and the home's disk for what is kept.
+      - Docs: README / FIRST-STEPS (one paragraph, the command and the
+        lock caveat: a local disk, iSCSI, or NFSv4 with locking; SMB is not
+        supported until measured), ARCHITECTURE, and a line in
+        `install/README.md` that a unit needs `RequiresMountsFor=` on the
+        mount (provision does not write it in this step).
+
+      **Red-team test expected** (in `itsanas-node` or `itsanas-store`,
+      hermetic): a node whose configured vault directory is empty and
+      unmarked (the mount dropped) refuses to open and creates nothing
+      there; with a marker of another device it refuses too; the default
+      `<home>/vault` of an old node opens and gains its marker. Sabotage:
+      skip the marker check (red: an empty vault is created), and write
+      the marker on every open (red: the dropped mount is accepted).
+      A second test: `space --apply` with a vault path measures that path.
+
+      **Done when** a node can run with its vault on another directory,
+      refuses a dropped one, and an existing node is untouched -- CI green.
+      Not in scope: actually moving the VM's vault to the NAS (Nicolas, later),
+      and putting the vault's index on local disk while its blobs live on the
+      share (a larger change to `Vault`; decide after measuring redb on the
+      NAS that will hold it).
 
    f. 🟨 **A tray icon for the Windows daemon.** First half built 2026-09-30
       as `status --brief` + `scripts/itsanas-tray.ps1` (see §0 for why not a
