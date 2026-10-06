@@ -433,7 +433,13 @@ mkdir -p "$BIN_DIR" || die "could not create $BIN_DIR"
 for prog in itsanas itsanas-coordinator; do
     src="$BUILD_DIR/target/release/$prog"
     [ -x "$src" ] || die "$prog was not produced by the build" "Expected $src."
-    cp -f "$src" "$BIN_DIR/$prog" || die "could not copy $prog to $BIN_DIR"
+    # Copy beside it, then rename over it: a new file, not new bytes in the old
+    # one. On Apple silicon `cp -f` over an existing binary keeps its inode, the
+    # kernel keeps the old code signature for it, and the new program is killed
+    # at launch (Mandarine's Mac, 2026-10-06: "the installed binary does not
+    # run"). The rename also leaves a running daemon its old file.
+    cp "$src" "$BIN_DIR/.$prog.new" && mv -f "$BIN_DIR/.$prog.new" "$BIN_DIR/$prog" \
+        || die "could not copy $prog to $BIN_DIR"
     ok "$BIN_DIR/$prog"
 done
 
@@ -530,8 +536,11 @@ fi
 
 step "Checking what was installed"
 INSTALLED_VERSION=$("$BIN_DIR/itsanas" --version 2>/dev/null)
+INSTALLED_STATUS=$?
 [ -n "$INSTALLED_VERSION" ] || die "the installed binary does not run" \
-    "Tried: $BIN_DIR/itsanas --version"
+    "Tried: $BIN_DIR/itsanas --version (exit status $INSTALLED_STATUS;" \
+    "137 means the kernel killed it, usually a stale code signature:" \
+    "  rm -f $BIN_DIR/itsanas, then run this again)"
 ok "$INSTALLED_VERSION"
 
 # `--version` proves the kernel can execute the file and nothing about whether
