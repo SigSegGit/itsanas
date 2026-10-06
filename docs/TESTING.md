@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-06 — 981 test functions across 30 binaries, 4 of them
-`#[ignore]`d, plus 2 doctests. 204 are red-team tests.**
+**Last updated: 2026-10-06 — 995 test functions across 31 binaries, 7 of them
+`#[ignore]`d, plus 2 doctests. 214 are red-team tests.**
 
-**865 of the 981 tests have an entry of their own on this page** — an *entry*,
+**879 of the 995 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 43 |
+| `itsanas-cli` unit | 54 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 117 |
@@ -182,6 +182,7 @@ guarantee and is not one.
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
 | `itsanas-node` withdrawals (`tests/withdrawals.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
+| `itsanas-cli` steering (`tests/steering.rs`) | 3 (3 `#[ignore]`d) |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with
@@ -916,7 +917,26 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — unit tests (43)
+# `itsanas-cli` — the daemon loop, driven (3, `#[ignore]`d)
+
+`tests/steering.rs`. The only tests that run `sync_loop`: each starts the real
+daemon on a throwaway node and reads the snapshot it writes every time round
+its loop -- the stamp says a loop went by, `files` what the store holds. One
+test per way a paused node could still move a file. Ignored because `init`, a
+`login` and the daemon each pay a full Argon2id derivation; the `slow-tests`
+CI job runs them in release (7 s for the three on the laptop). **That job is
+Linux only**, so Windows and macOS rest on one run by hand on Windows
+(2026-10-06); HANDOVER §10 item 13 has the matrix to add.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_paused_daemon_takes_in_no_file_until_resumed`** | A daemon started paused: a file written into the folder is not taken into the store while it loops (two snapshots three seconds apart both say `files 0`), and is after `itsanas resume`. The unit tests in `control` prove the decisions; this proves the loop obeys them -- the CI reviewer's finding on #243: deleting the loop's guard passed every unit test. Sabotaged (`take_in` called while paused): red, with the two below. |
+| **`red_team_a_pause_landing_mid_round_takes_in_no_file`** | A pause asked for while a round is under way. A "peer" the test owns accepts the daemon's connection and says nothing, holding the round open; the pause and a new file arrive; the peer lets go. The folder scans inside and at the end of the round re-read the pause, so the store still holds nothing. Sabotaged (either re-read removed): red. Not covered: `halted` stopping the dials to further peers, which needs a second one. |
+| **`red_team_a_paused_daemon_adopts_nothing_its_own_devices_push`** | The paused node's listener keeps serving, by design, so a second device of the account (restored from the 24 words `init` printed) pushes a file into its vault; the store must not adopt it until `resume`. It asserts the push really sent something -- its first run passed on nothing, because a node with no pledge refuses its own account's push. **The test the first version of this guard needed:** a `match` arm that ignored the vault drain's result while the drain ran anyway. Sabotaged (that version put back): red. |
+
+---
+
+# `itsanas-cli` — unit tests (54)
 
 ## `bench` — measuring this machine (4)
 
@@ -943,6 +963,28 @@ a benchmark that measures a broken path produces a confident wrong number.
 | `the_neighbourhood_is_empty_until_something_is_heard` | No invented peers. |
 | `the_poll_is_short_enough_that_shutdown_feels_immediate` | A Ctrl-C must not wait out an announce interval. |
 
+## `control` — pause, resume, sync now, how often (9)
+
+What a tray, a wizard or a terminal asks of the running daemon, through a file
+in the home (`crates/itsanas-cli/src/control.rs`). The daemon holds the store's
+lock, so nothing else can open it; the file needs no socket and behaves the same
+on every platform. The loop's dispatch on these decisions has no test of its
+own here; `tests/steering.rs` drives the loop for the pause (above). Run end
+to end by hand on 2026-10-06 too: `sync-now` refused while paused, `interval 5s`
+refused, `1m` taken.
+
+| Test | What it proves |
+|---|---|
+| `the_file_round_trips_and_ignores_keys_it_does_not_know` | What is written reads back; a key from a newer tray does not stop an older daemon reading the rest; `paused yes` is refused rather than read as "not paused". |
+| `writing_replaces_the_file_whole_and_a_missing_file_asks_nothing` | No file is "nothing asked"; a write replaces the whole file through a temporary name, and leaves no temporary behind. |
+| **`red_team_a_control_file_cannot_make_the_daemon_dial_in_a_tight_loop`** | `interval 0`, `1` or `29` -- typed, or a tray's bug -- is held at the 30-second floor, so two seconds after a round nothing is due; a huge one is held at a day. Without the floor, a daemon dials every machine of the account every two seconds. Sabotaged (no clamp): red. |
+| **`red_team_one_sync_now_is_one_round_never_a_loop`** | One "sync now" is one round: the same stamp read again is not a second, a stamp already in the file when the daemon starts is not replayed, and a stamp from a clock that went back still counts. Sabotaged (any stamp is a request): red. |
+| **`red_team_a_paused_node_never_runs_a_full_round`** | Paused, a due round, a daemon started paused and a `sync-now` written anyway all give `Publish` -- say where this machine is, move no file -- never `Round`; resuming gives `Round`. Sabotaged (paused runs a round): red. |
+| **`red_team_an_unreadable_control_file_never_resumes_a_paused_node`** | A file that cannot be read keeps the last state understood: the default would be "not paused", resuming a node paused on purpose (a metered link) because a backup tool held the file. Said once, not every two seconds. Sabotaged (fall back to the default): red. |
+| **`red_team_a_control_file_that_grew_still_says_paused`** | The daemon reads the file every two seconds, so one that grew by accident (a log redirected into it) is read only up to 4096 bytes -- the whole lines that fit -- and still says the `paused 1` written first. The first version refused such a file, which every reader then had to guess about, and three guessed "not paused". A multi-byte character split by the limit changes nothing; exactly 4096 bytes is read whole; UTF-16 (PowerShell 5's `Out-File`) is refused rather than read as nothing asked. Sabotaged (refuse past the limit; skip the NUL check): red. |
+| **`red_team_an_unreadable_control_file_at_start_never_syncs`** | At start there is no earlier state to keep: a file that exists and cannot be read starts the daemon paused -- it most likely holds a pause -- rather than syncing over it. Once the file can be read, it decides. Sabotaged (start from "not paused"): red. |
+| `a_person_types_durations_and_learns_the_bounds` | `10m`, `1h`, `90`, `1d`, `auto` parse; `5s` and `2d` are refused with the bounds named rather than clamped to a number nobody typed. |
+
 ## `daemon` — pacing (3)
 
 | Test | What it proves |
@@ -956,7 +998,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable (29)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable (31)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -975,6 +1017,8 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_a_stopped_node_is_never_reported_as_a_running_one`** | `status` prints the snapshot in two different situations — the daemon is holding the store, or nothing is running and this is what a stopped node last said, possibly last week. One sentence for both would make "this node is running" a claim the command cannot support, and that sentence is what a reader uses to decide whether to trust the numbers under it. |
 | **`red_team_a_running_node_is_reported_with_its_age_and_no_passphrase`** | The other half of `an_age_never_reads_as_fresher_than_it_is`: that one checks the arithmetic, this one checks the arm is reachable at all. `snapshot_status` takes a path and nothing else, so it *cannot* prompt -- the guarantee is structural rather than a promise. A regression here is a node whose health is unreadable without the passphrase. |
 | **`red_team_a_silent_daemon_is_stale_never_healthy`** | `itsanas status --brief` is what the Windows tray draws: `healthy` only while a daemon holds the store and its snapshot (now stamped with its interval) is within two intervals; three intervals old is `stale`, no daemon `stopped`, after `leave` `departed`. A green icon over a hung daemon is the failure a tray exists to prevent (HANDOVER §8 f). Sabotaged (age check off): red. |
+| **`red_team_a_setting_never_erases_a_pause_it_cannot_read`** | Over a control file that cannot be read, `interval` and `sync-now` refuse and leave it as it is: starting from the default would write "not paused" over the pause it holds (a tray's "Sync every" resuming a node paused on a metered link). `status --brief` says `unknown`, not `healthy`. `resume` rewrites it. Sabotaged (any command rewrites; `healthy`): red. |
+| `a_paused_node_says_paused_and_a_hung_one_still_says_stale` | `itsanas pause` turns the tray's word to `paused`; a paused daemon silent for three intervals is still `stale`, or a pause would hide a dead daemon behind a calm icon. `resume` asks for a round at once, and `sync-now` with no daemon running refuses rather than saying it was asked. |
 | `a_snapshot_without_a_stamp_is_printed_but_not_dated` | A snapshot written by an older version has no time on its first line. Printing it is right; inventing an age for it is not, because the age is the only thing telling a reader whether to trust the numbers under it. |
 | `a_node_that_has_never_synced_says_so_rather_than_printing_nothing` | A node whose daemon has not finished a round yet has no snapshot. Succeeding with empty output would read as a healthy node with nothing to report, which is the opposite of the truth. |
 | `the_ports_a_node_had_to_skip_are_all_named_not_just_the_first` | The second account on a machine skipped 9797 *and* 9798 and was told only that "9797 is used by another node" — singular, naming one of two. Ports here are handed out without asking, so this line is the only place somebody learns what happened, and counting instances from it counted wrong. |

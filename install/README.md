@@ -506,9 +506,12 @@ powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File scripts\itsanas-tra
 One icon per node: blue while its daemon runs and reported within two
 intervals, yellow when it is silent longer (`stale`) or has not reported
 yet, red when stopped or departed -- exactly what `itsanas status --brief`
-says. Left click opens the synced folder; the right-click menu opens the
-log, restarts the daemon's task, or closes the icon (the daemon keeps
-running).
+says, and a shield while syncing is paused. Left click opens the synced
+folder; the right-click menu opens the log, pauses or resumes syncing (pausing
+says first that nothing is lost and that the machine keeps hosting), asks for
+a round now, sets how often to sync (1 min to 1 h, or automatic), restarts the
+daemon's task, or closes the icon (the daemon keeps running). The four in the
+middle are `itsanas pause`, `resume`, `sync-now` and `interval`.
 
 `provision.ps1` starts it at every logon: it copies the script beside
 `itsanas.exe` (`%LOCALAPPDATA%\Programs\itsanas\bin`) and puts a shortcut

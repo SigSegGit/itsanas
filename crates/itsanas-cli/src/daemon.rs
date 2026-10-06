@@ -81,6 +81,7 @@ use itsanas_policy::{Attention, Conditions, Network, Power, Scope as PolicyScope
 
 use crate::{
     config::format_size,
+    control::{self, Control, Next, Steering},
     coordinator,
     discovery::{self, Neighbourhood},
     error::{CliError, Result},
@@ -469,7 +470,7 @@ fn note_inbound(witness: &itsanas_net::transport::Witness, reach: &mut Reach) {
 #[allow(clippy::too_many_arguments)]
 fn sync_loop(
     node: &Node,
-    interval: Duration,
+    base: Duration,
     scope: PolicyScope,
     shutdown: &AtomicBool,
     neighbourhood: &Neighbourhood,
@@ -486,10 +487,11 @@ fn sync_loop(
         }
     };
 
-    // Sync immediately on start rather than waiting a full interval. A daemon
-    // restarted after a config change should act on it now, and someone
-    // watching the first run should see something happen.
-    let mut next_sync = Instant::now();
+    let mut steering = start_steering(node);
+    // No round yet, so the first is due at once rather than a full interval
+    // from now. A daemon restarted after a config change should act on it
+    // now, and someone watching the first run should see something happen.
+    let mut last_round: Option<Instant> = None;
     let mut next_deep = Instant::now();
     let mut warned_alone = false;
     let mut outage = Outage::new();
@@ -509,39 +511,36 @@ fn sync_loop(
     let mut own_check: Option<itsanas_crypto::ChunkId> = None;
 
     while !shutdown.load(Ordering::Relaxed) {
-        let deep = Instant::now() >= next_deep;
+        for said in steering.refresh(Control::read(&node.home)) {
+            println!("{said}");
+        }
+        let interval = steering.interval(base);
+        // Paused, nothing touches the folder or the store: edits made
+        // meanwhile are found by the first scan after `resume`, and what peers
+        // pushed waits in the vault, where it already is safe.
+        let paused = steering.paused();
+        let deep = !paused && Instant::now() >= next_deep;
         if deep {
             next_deep = Instant::now() + DEEP_SCAN_EVERY;
         }
-
-        if let Some((folder, _)) = &folder {
-            reconcile_once(node, folder, deep);
-        } else if let Err(error) = node.bound_writes() {
-            // `reconcile_once` refreshes the bound; with no folder nothing
-            // did, and the pulls below would meet the ceiling `Node::open`
-            // sets, which is none (8.1b).
-            eprintln!("itsanas: could not work out this disk's room: {error}");
+        if !paused {
+            take_in(node, folder.as_ref(), deep);
         }
 
-        // Anything a peer pushed into this node's vault while it was serving.
-        // Without this a node that never dials anybody — because it has no
-        // peers configured, or because its peers are behind NAT and can only
-        // push — would hold its own data and never look at it.
-        match session::drain_vault(&node.store, &node.vault) {
-            Ok(report) if report.changed_anything() => {
-                println!(
-                    "pushed to us: {} files, {} conflicts",
-                    report.adopted, report.conflicted
-                );
-                if let Some((folder, _)) = &folder {
-                    reconcile_once(node, folder, false);
-                }
+        let next = if scope.connects() {
+            steering.next(Instant::now(), last_round, base)
+        } else {
+            Next::Wait
+        };
+        if next == Next::Publish {
+            paused_round(node, shutdown, &mut contact, bound, &mut outage);
+            board.replace(contact.board());
+            if let Err(error) = contact.save(&book) {
+                eprintln!("itsanas: could not keep the address book: {error}");
             }
-            Ok(_) => {}
-            Err(error) => eprintln!("itsanas: could not apply pushed data: {error}"),
+            last_round = Some(Instant::now());
         }
-
-        if Instant::now() >= next_sync && scope.connects() {
+        if next == Next::Round {
             let (reached, announced) = one_round(
                 node,
                 shutdown,
@@ -552,9 +551,14 @@ fn sync_loop(
                 scope,
                 folder.as_ref().map(|(folder, _)| folder),
             );
-            next_sync = Instant::now() + interval;
+            last_round = Some(Instant::now());
             board.replace(contact.board());
-            check_disks(node, interval, &mut own_check);
+            // A pause asked for during the round: `halted` stopped the dialling,
+            // and nothing after it may touch the folder or the store either.
+            let paused_since_round = control::paused_on_disk(&node.home);
+            if !paused_since_round {
+                check_disks(node, interval, &mut own_check);
+            }
             if let Err(error) = contact.save(&book) {
                 eprintln!("itsanas: could not keep the address book: {error}");
             }
@@ -569,38 +573,110 @@ fn sync_loop(
                 check_reachable(node, published, &mut reach);
             }
 
-            // Say it once, rather than leaving someone watching a silent
-            // terminal wondering whether anything is happening. Silence is the
-            // correct output for a working daemon and the worst possible
-            // output for one that has nobody to talk to.
-            if reached.is_empty() && !warned_alone {
-                warned_alone = true;
-                if node.config.peers.is_empty() && neighbourhood.is_empty() {
-                    println!("no other machines found yet.");
-                    println!(
-                        "  on this network: start the daemon on another machine and it is found"
-                    );
-                    println!("  elsewhere:       itsanas peer add <host:port>");
-                } else {
-                    println!(
-                        "{} machine(s) known, none reachable this round.",
-                        node.config.peers.len() + neighbourhood.len()
-                    );
-                }
-            } else if !reached.is_empty() {
-                warned_alone = false;
-            }
+            say_if_alone(node, neighbourhood, &reached, &mut warned_alone);
 
             // Write out whatever just arrived, rather than making the user
             // wait for the next loop to see their peer's changes.
-            if let Some((folder, _)) = &folder {
+            if let Some((folder, _)) = folder.as_ref().filter(|_| !paused_since_round) {
                 reconcile_once(node, folder, false);
             }
         }
 
         write_snapshot(node, interval);
 
+        let next_sync = last_round.map_or_else(Instant::now, |last| last + interval);
         wait_for_work(folder.as_ref(), next_sync, shutdown);
+    }
+}
+
+/// Take in what changed: the folder (or, with none, the disk's room), then
+/// what peers pushed into the vault. Not called at all while paused -- a
+/// `match` arm that ignored a result computed anyway was the first version of
+/// this guard, and it drained the vault of a paused node (#243's review).
+fn take_in(node: &Node, folder: Option<&(Folder, Option<Watcher>)>, deep: bool) {
+    if let Some((folder, _)) = folder {
+        reconcile_once(node, folder, deep);
+    } else if let Err(error) = node.bound_writes() {
+        // `reconcile_once` refreshes the bound; with no folder nothing
+        // did, and the pulls below would meet the ceiling `Node::open`
+        // sets, which is none (8.1b).
+        eprintln!("itsanas: could not work out this disk's room: {error}");
+    }
+
+    // Anything a peer pushed into this node's vault while it was serving.
+    // Without this a node that never dials anybody — because it has no
+    // peers configured, or because its peers are behind NAT and can only
+    // push — would hold its own data and never look at it.
+    match session::drain_vault(&node.store, &node.vault) {
+        Ok(report) if report.changed_anything() => {
+            println!(
+                "pushed to us: {} files, {} conflicts",
+                report.adopted, report.conflicted
+            );
+            if let Some((folder, _)) = folder {
+                reconcile_once(node, folder, false);
+            }
+        }
+        Ok(_) => {}
+        Err(error) => eprintln!("itsanas: could not apply pushed data: {error}"),
+    }
+}
+
+/// Say it once when a round reached nobody.
+fn say_if_alone(
+    node: &Node,
+    neighbourhood: &Neighbourhood,
+    reached: &BTreeSet<DeviceId>,
+    warned_alone: &mut bool,
+) {
+    // Say it once, rather than leaving someone watching a silent
+    // terminal wondering whether anything is happening. Silence is the
+    // correct output for a working daemon and the worst possible
+    // output for one that has nobody to talk to.
+    if reached.is_empty() && !*warned_alone {
+        *warned_alone = true;
+        if node.config.peers.is_empty() && neighbourhood.is_empty() {
+            println!("no other machines found yet.");
+            println!("  on this network: start the daemon on another machine and it is found");
+            println!("  elsewhere:       itsanas peer add <host:port>");
+        } else {
+            println!(
+                "{} machine(s) known, none reachable this round.",
+                node.config.peers.len() + neighbourhood.len()
+            );
+        }
+    } else if !reached.is_empty() {
+        *warned_alone = false;
+    }
+}
+
+/// What the person asked through `itsanas pause`, `resume`, `sync-now` and
+/// `interval`, from a terminal or a tray, while this process holds the store
+/// (`control.rs`).
+fn start_steering(node: &Node) -> Steering {
+    let (steering, unreadable) = Steering::start(Control::read(&node.home));
+    if let Some(why) = unreadable {
+        eprintln!("itsanas: {why}");
+    }
+    if steering.paused() {
+        println!("syncing is paused (`itsanas resume` to continue); this machine still hosts");
+    }
+    steering
+}
+
+/// A round while paused. The others still need to find this machine: it holds
+/// their data, and answering their audits is what keeps its standing. So it
+/// says where it is, and confirms who it hosts for, and moves no file.
+fn paused_round(
+    node: &Node,
+    shutdown: &AtomicBool,
+    contact: &mut Contact,
+    bound: std::net::SocketAddr,
+    outage: &mut Outage,
+) {
+    publish(node, shutdown, contact, bound, outage);
+    if !shutdown.load(Ordering::Relaxed) {
+        check_standing(node);
     }
 }
 
@@ -832,6 +908,90 @@ fn one_round(
     // during which nobody elsewhere can find this machine. It also fills the
     // book before the book is dialled. Failures here are ordinary: it may be
     // down, and a node whose peers are already known keeps working without it.
+    let announced = publish(node, shutdown, contact, bound, outage);
+
+    // The devices of other accounts this node hosts for, confirmed with the
+    // coordinator before they store (§8 1c (ii)). After the contact above, so
+    // a coordinator that just answered is the one asked.
+    if !shutdown.load(Ordering::Relaxed) {
+        check_standing(node);
+    }
+
+    // Configured peers next: somebody typed those in, so they are
+    // wanted even if they are also on the local network — and being in
+    // the configuration is itself the evidence that they are real, so
+    // they are confirmed on contact without having to earn it.
+    let mut reached = dial_configured(node, shutdown, neighbourhood, scope);
+
+    // The account's devices at the addresses the coordinator last gave, the
+    // one that last worked first. Pinned: the coordinator supplies addresses
+    // and is not trusted to say who lives at one.
+    dial_listed(node, shutdown, neighbourhood, contact, &mut reached, scope);
+
+    // What the account's own machines just sent is written now, not after the
+    // other accounts' hosts below, where the slow and older builds are (a
+    // laptop's files waited 20 min behind them on 2026-10-06).
+    if let Some(folder) = folder.filter(|_| !control::paused_on_disk(&node.home)) {
+        reconcile_once(node, folder, false);
+    }
+
+    let mut strangers_dialled = 0usize;
+    for candidate in neighbourhood.dial_order(&HouseholdKey::of(&node.user)) {
+        if halted(node, shutdown) {
+            break;
+        }
+        if reached.contains(&candidate.device) {
+            continue;
+        }
+
+        // Dialling costs a handshake and a round trip, and minting the
+        // identity that provoked it cost an attacker nothing. Confirmed
+        // peers are always dialled; unconfirmed ones are rationed, so a
+        // flood cannot consume the interval that real syncing needs.
+        let known = neighbourhood.is_confirmed(&candidate.device);
+        if !known {
+            if strangers_dialled >= discovery::NEW_PEERS_PER_ROUND {
+                continue;
+            }
+            strangers_dialled += 1;
+        }
+
+        // A stranger that does not answer is not news — this network is
+        // built out of machines that are usually off. One of your own
+        // machines failing to answer is worth saying.
+        let outcome = sync_once(
+            node,
+            &candidate.address.to_string(),
+            Some(candidate.device),
+            candidate.mine,
+            false,
+            scope,
+        );
+
+        if let Some(outcome) = outcome {
+            reached.insert(outcome.device);
+            // Authenticating proves possession of a keypair that cost
+            // nothing to generate. Only doing something a real host
+            // does — storing our data, or serving us our own work —
+            // earns a place a stranger cannot take.
+            if outcome.earned_trust {
+                neighbourhood.confirm(outcome.device);
+            }
+        }
+    }
+
+    (reached, announced)
+}
+
+/// Tell the coordinator where this machine is, and learn where the account's
+/// others are -- when `contact` says it is due. Returns the address published.
+fn publish(
+    node: &Node,
+    shutdown: &AtomicBool,
+    contact: &mut Contact,
+    bound: std::net::SocketAddr,
+    outage: &mut Outage,
+) -> Option<String> {
     let mut announced: Option<String> = None;
     if node.config.coordinator.is_some() && !shutdown.load(Ordering::Relaxed) {
         let listen = bound.to_string();
@@ -883,78 +1043,14 @@ fn one_round(
             }
         }
     }
+    announced
+}
 
-    // The devices of other accounts this node hosts for, confirmed with the
-    // coordinator before they store (§8 1c (ii)). After the contact above, so
-    // a coordinator that just answered is the one asked.
-    if !shutdown.load(Ordering::Relaxed) {
-        check_standing(node);
-    }
-
-    // Configured peers next: somebody typed those in, so they are
-    // wanted even if they are also on the local network — and being in
-    // the configuration is itself the evidence that they are real, so
-    // they are confirmed on contact without having to earn it.
-    let mut reached = dial_configured(node, shutdown, neighbourhood, scope);
-
-    // The account's devices at the addresses the coordinator last gave, the
-    // one that last worked first. Pinned: the coordinator supplies addresses
-    // and is not trusted to say who lives at one.
-    dial_listed(node, shutdown, neighbourhood, contact, &mut reached, scope);
-
-    // What the account's own machines just sent is written now, not after the
-    // other accounts' hosts below, where the slow and older builds are (a
-    // laptop's files waited 20 min behind them on 2026-10-06).
-    if let Some(folder) = folder {
-        reconcile_once(node, folder, false);
-    }
-
-    let mut strangers_dialled = 0usize;
-    for candidate in neighbourhood.dial_order(&HouseholdKey::of(&node.user)) {
-        if shutdown.load(Ordering::Relaxed) {
-            break;
-        }
-        if reached.contains(&candidate.device) {
-            continue;
-        }
-
-        // Dialling costs a handshake and a round trip, and minting the
-        // identity that provoked it cost an attacker nothing. Confirmed
-        // peers are always dialled; unconfirmed ones are rationed, so a
-        // flood cannot consume the interval that real syncing needs.
-        let known = neighbourhood.is_confirmed(&candidate.device);
-        if !known {
-            if strangers_dialled >= discovery::NEW_PEERS_PER_ROUND {
-                continue;
-            }
-            strangers_dialled += 1;
-        }
-
-        // A stranger that does not answer is not news — this network is
-        // built out of machines that are usually off. One of your own
-        // machines failing to answer is worth saying.
-        let outcome = sync_once(
-            node,
-            &candidate.address.to_string(),
-            Some(candidate.device),
-            candidate.mine,
-            false,
-            scope,
-        );
-
-        if let Some(outcome) = outcome {
-            reached.insert(outcome.device);
-            // Authenticating proves possession of a keypair that cost
-            // nothing to generate. Only doing something a real host
-            // does — storing our data, or serving us our own work —
-            // earns a place a stranger cannot take.
-            if outcome.earned_trust {
-                neighbourhood.confirm(outcome.device);
-            }
-        }
-    }
-
-    (reached, announced)
+/// Stop dialling: the process is ending, or somebody paused syncing during
+/// this round. Read before each machine, so a pause gives the bandwidth back
+/// once the session under way ends rather than when the whole round does.
+fn halted(node: &Node, shutdown: &AtomicBool) -> bool {
+    shutdown.load(Ordering::Relaxed) || control::paused_on_disk(&node.home)
 }
 
 /// Sync with every peer in the configuration, and say which answered.
@@ -973,7 +1069,7 @@ fn dial_configured(
     let mut configured = node.config.peers.clone();
     coordinator::reachable_first_addresses(&mut configured);
     for peer in &configured {
-        if shutdown.load(Ordering::Relaxed) {
+        if halted(node, shutdown) {
             break;
         }
         if let Some(outcome) = sync_once(node, peer, None, true, false, scope) {
@@ -995,7 +1091,7 @@ fn dial_listed(
     scope: PolicyScope,
 ) {
     for (device, address) in contact.candidates() {
-        if shutdown.load(Ordering::Relaxed) || reached.contains(&device) {
+        if halted(node, shutdown) || reached.contains(&device) {
             continue;
         }
         if let Some(outcome) = sync_once(node, &address, Some(device), true, true, scope) {

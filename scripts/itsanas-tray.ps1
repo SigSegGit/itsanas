@@ -16,9 +16,13 @@
 # ships NotifyIcon; nothing is added. (HANDOVER §8 f.)
 #
 # Left click opens the synced folder. Right click: open the folder, open the
-# daemon's log, restart the daemon's task, quit this icon. Pause, disconnect
-# and decommission are not here yet: each needs the confirmation Nicolas
-# specified, and nothing half-done belongs in a menu that stops a daemon.
+# daemon's log, pause or resume syncing, sync now, how often to sync, restart
+# the daemon's task, quit this icon. Pause, sync now and the interval are
+# `itsanas pause|resume|sync-now|interval`, which write a file the running
+# daemon reads (crates/itsanas-cli/src/control.rs); this script holds no logic
+# of its own. Disconnect and decommission are not here yet: each needs the
+# confirmation Nicolas specified, and nothing half-done belongs in a menu that
+# stops a daemon.
 
 param([string]$Instance = '')
 
@@ -71,11 +75,13 @@ function Update-Icon {
     $state, $age = Get-State
     switch ($state) {
         'healthy' { $icon.Icon = [System.Drawing.SystemIcons]::Information }
+        'paused' { $icon.Icon = [System.Drawing.SystemIcons]::Shield }
         'stopped' { $icon.Icon = [System.Drawing.SystemIcons]::Error }
         'departed' { $icon.Icon = [System.Drawing.SystemIcons]::Error }
         default { $icon.Icon = [System.Drawing.SystemIcons]::Warning }
     }
     # A tooltip is capped at 63 characters by Windows.
+    if ($pauseItem) { $pauseItem.Text = if ($state -eq 'paused') { 'Resume syncing' } else { 'Pause syncing' } }
     $text = "${label}: $state$(Format-Age $age)"
     if ($text.Length -gt 63) { $text = $text.Substring(0, 63) }
     $icon.Text = $text
@@ -99,6 +105,40 @@ $menu.Items.Add('Open the log', $null, {
         [System.Windows.Forms.MessageBox]::Show("No log yet at $log", $label) | Out-Null
     }
 }) | Out-Null
+# Pause states its consequences first, as specified (HANDOVER §8 f): it is
+# the one entry here a person can forget they chose.
+$pauseItem = $menu.Items.Add('Pause syncing', $null, {
+    $state, $age = Get-State
+    if ($state -eq 'paused') {
+        Invoke-Itsanas @('resume') | Out-Null
+    } else {
+        $answer = [System.Windows.Forms.MessageBox]::Show(
+            "Pause syncing on this machine?`n`nNothing is lost: what you change here waits until you resume, and what your other machines change waits for you. This machine keeps hosting for the others.",
+            $label, [System.Windows.Forms.MessageBoxButtons]::OKCancel)
+        if ($answer -eq [System.Windows.Forms.DialogResult]::OK) { Invoke-Itsanas @('pause') | Out-Null }
+    }
+    Update-Icon
+})
+$menu.Items.Add('Sync now', $null, {
+    $said = @(Invoke-Itsanas @('sync-now'))
+    if (-not $said) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Not asked: syncing is paused, or no daemon is running for $label.", $label) | Out-Null
+    }
+}) | Out-Null
+$every = New-Object System.Windows.Forms.ToolStripMenuItem('Sync every')
+foreach ($choice in @(@('1 minute', '1m'), @('5 minutes', '5m'), @('15 minutes', '15m'),
+                      @('1 hour', '1h'), @('Automatic', 'auto'))) {
+    # The value rides on the item: GetNewClosure() would capture it, but would
+    # also hide this script's functions from the handler.
+    $item = $every.DropDownItems.Add($choice[0], $null, {
+        param($sender, $click)
+        Invoke-Itsanas @('interval', $sender.Tag) | Out-Null
+    })
+    $item.Tag = $choice[1]
+}
+$menu.Items.Add($every) | Out-Null
+$menu.Items.Add('-') | Out-Null
 $menu.Items.Add('Restart the daemon', $null, {
     try {
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
