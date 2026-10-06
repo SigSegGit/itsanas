@@ -1020,6 +1020,133 @@ else
     say "pwsh is not here; the tray's logon shortcut was not checked"
 fi
 
+# ------------------------------------------- the bootstrap installer's checks
+#
+# install/get.sh is what a tester who cannot compile pastes. Its one defence
+# before a binary lands in ~/.local/bin is the size and SHA-256 check against
+# the release manifest, and a check nobody has seen refuse anything is a check
+# nobody knows works. So it is run here against a fake GitHub: `curl` and
+# `uname` are stubs on the PATH, the "release" is a directory, and HOME and the
+# prefix are throwaway. A good binary must be installed by rename; a truncated
+# one, and one with a byte changed, must be refused with the installed binary
+# left as it was.
+
+getbed=$(mktemp -d)
+mkdir -p "$getbed/stub" "$getbed/rel" "$getbed/home" "$getbed/prefix/bin"
+cat > "$getbed/stub/uname" <<'STUB'
+#!/bin/sh
+case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; *) echo Linux ;; esac
+STUB
+# The stub serves the URL's last path segment from the fake release; the API's
+# answer is release.json. Arguments are read the way get.sh passes them.
+cat > "$getbed/stub/curl" <<'STUB'
+#!/bin/sh
+out=""; url=""
+while [ $# -gt 0 ]; do
+    case "$1" in -o) out=$2; shift 2 ;; -*) shift ;; *) url=$1; shift ;; esac
+done
+case "$url" in */releases/latest) name=release.json ;; *) name=${url##*/} ;; esac
+[ -f "$GETREL/$name" ] || exit 22
+cp "$GETREL/$name" "$out"
+STUB
+chmod 755 "$getbed/stub/uname" "$getbed/stub/curl"
+printf '{\n  "tag_name": "v9.9.9",\n  "draft": false\n}\n' > "$getbed/rel/release.json"
+printf '#!/bin/sh\necho new-release\n' > "$getbed/good"
+bin_name=itsanas-x86_64-unknown-linux-gnu
+if command -v sha256sum >/dev/null 2>&1; then
+    good_sha=$(sha256sum "$getbed/good" | cut -d' ' -f1)
+else
+    good_sha=$(shasum -a 256 "$getbed/good" | cut -d' ' -f1)
+fi
+good_size=$(wc -c < "$getbed/good" | tr -d ' ')
+zero=0000000000000000000000000000000000000000000000000000000000000000
+printf 'itsanas-release 1\nversion 9.9.9\nfile x86_64-unknown-linux-gnu %s %s %s %s\n' \
+    "$bin_name" "$good_size" "$zero" "$good_sha" > "$getbed/rel/manifest.txt"
+
+run_get() {
+    PATH="$getbed/stub:$PATH" HOME="$getbed/home" GETREL="$getbed/rel" \
+        sh install/get.sh --prefix "$getbed/prefix" --no-setup </dev/null 2>&1
+}
+
+printf '#!/bin/sh\necho old-install\n' > "$getbed/prefix/bin/itsanas"
+for bad_kind in truncated altered; do
+    if [ "$bad_kind" = truncated ]; then
+        head -c 5 "$getbed/good" > "$getbed/rel/$bin_name"
+    else
+        sed 's/new-release/new-relEase/' "$getbed/good" > "$getbed/rel/$bin_name"
+    fi
+    out=$(run_get)
+    if printf '%s' "$out" | grep -q 'error:' \
+        && grep -q old-install "$getbed/prefix/bin/itsanas"; then
+        say "get.sh refuses a $bad_kind download and leaves the installed binary alone"
+    else
+        bad "get.sh installed a $bad_kind download, or did not say so:"
+        printf '%s\n' "$out" | tail -3 | sed 's/^/       /'
+    fi
+done
+
+cp "$getbed/good" "$getbed/rel/$bin_name"
+out=$(run_get)
+if grep -q new-release "$getbed/prefix/bin/itsanas" 2>/dev/null \
+    && [ ! -e "$getbed/prefix/bin/.itsanas.new" ]; then
+    say "get.sh installs a release whose size and SHA-256 match, by rename"
+else
+    bad "get.sh did not install a matching release:"
+    printf '%s\n' "$out" | tail -3 | sed 's/^/       /'
+fi
+if [ -n "$(ls -A "$getbed/home")" ]; then
+    bad "get.sh wrote into HOME without a terminal to ask on: $(ls -A "$getbed/home")"
+fi
+rm -rf "$getbed"
+
+# The same two refusals for install/get.ps1, the line a Windows tester pastes.
+# The network is two functions defined before the script runs (a function wins
+# over the cmdlet of the same name). -NoPath always, and only the refusals:
+# the success path adds the install directory to the *user's* PATH in the
+# registry, and on 2026-10-06 a sabotaged get.ps1 run by this very check did
+# exactly that on the developer's machine. -NoPath keeps a broken script away
+# from the registry; running only refusals keeps a broken -NoPath away too.
+if command -v pwsh >/dev/null 2>&1; then
+    psbed=$(mktemp -d)
+    mkdir -p "$psbed/rel" "$psbed/prefix/bin"
+    printf 'MZ pretend windows binary, new-release\n' > "$psbed/good"
+    ps_name=itsanas-x86_64-pc-windows-msvc.exe
+    if command -v sha256sum >/dev/null 2>&1; then
+        ps_sha=$(sha256sum "$psbed/good" | cut -d' ' -f1)
+    else
+        ps_sha=$(shasum -a 256 "$psbed/good" | cut -d' ' -f1)
+    fi
+    printf 'itsanas-release 1\nversion 9.9.9\nfile x86_64-pc-windows-msvc %s %s %s %s\n' \
+        "$ps_name" "$(wc -c < "$psbed/good" | tr -d ' ')" "$zero" "$ps_sha" > "$psbed/rel/manifest.txt"
+    printf 'old-install\n' > "$psbed/prefix/bin/itsanas.exe"
+    for bad_kind in truncated altered; do
+        if [ "$bad_kind" = truncated ]; then
+            head -c 5 "$psbed/good" > "$psbed/rel/$ps_name"
+        else
+            sed 's/new-release/new-relEase/' "$psbed/good" > "$psbed/rel/$ps_name"
+        fi
+        out=$(GETREL="$psbed/rel" GETPREFIX="$psbed/prefix" pwsh -NoProfile -Command '
+            $env:PROCESSOR_ARCHITECTURE = "AMD64"
+            function Invoke-RestMethod { param($Uri, [switch] $UseBasicParsing) [pscustomobject] @{ tag_name = "v9.9.9" } }
+            function Invoke-WebRequest { param($Uri, $OutFile, [switch] $UseBasicParsing)
+                Copy-Item -LiteralPath (Join-Path $env:GETREL ($Uri -split "/")[-1]) -Destination $OutFile }
+            & ./install/get.ps1 -Prefix $env:GETPREFIX -NoSetup -NoPath
+            exit $LASTEXITCODE' 2>&1 </dev/null)
+        status=$?
+        if [ "$status" -ne 0 ] && printf '%s' "$out" | grep -q 'error:' \
+            && grep -q old-install "$psbed/prefix/bin/itsanas.exe" \
+            && [ ! -e "$psbed/prefix/bin/itsanas.exe.new" ]; then
+            say "get.ps1 refuses a $bad_kind download and leaves the installed binary alone"
+        else
+            bad "get.ps1 installed a $bad_kind download, or did not say so (exit $status):"
+            printf '%s\n' "$out" | tail -3 | sed 's/^/       /'
+        fi
+    done
+    rm -rf "$psbed"
+else
+    say "pwsh is not here; get.ps1's download check was not run"
+fi
+
 if [ "$failed" -ne 0 ]; then
     echo
     echo "An installer is the one program here that runs on a machine nobody has"
@@ -1028,4 +1155,4 @@ if [ "$failed" -ne 0 ]; then
     exit 1
 fi
 
-echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs, sudo rule matches, a cleaned instance spares its sibling, and its tray icon"
+echo "installers: parse, no bashisms, all listed, MSRV agrees, 32-bit refused, coordinator re-runs, sudo rule matches, a cleaned instance spares its sibling, its tray icon, and get.sh and get.ps1 refuse a bad download"

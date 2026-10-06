@@ -1,0 +1,146 @@
+name: Release
+
+# A v* tag builds the five binaries testers install, writes the unsigned
+# manifest, and leaves both in a DRAFT GitHub release. Nicolas then signs the
+# manifest on his PC (scripts/sign-release.cmd or .sh), which uploads the
+# signature and publishes. docs/RELEASING.md is the walk-through.
+#
+# Why CI builds but never signs (decided 2026-10-06): a signing key in GitHub
+# Actions means whoever takes the GitHub account can push a binary onto every
+# member's machine. Here the worst a stolen account can do is leave a draft
+# nobody signs. Why not build on each machine from a signed tag: Rust on every
+# tester's machine, forty minutes on a Mac, impossible on Android.
+
+on:
+  push:
+    tags: ["v*"]
+
+# Read-only by default; only the job that creates the release may write.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Two pushes of the same tag must not race to create the same release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: The tag matches the workspace version
+    runs-on: ubuntu-latest
+    # A binary reports the workspace version, and a node installs a release
+    # only if its version is newer than the running one. Tag v0.2.0 on a
+    # workspace still at 0.1.0 and every node would install it, still be
+    # "0.1.0", and install it again at its next check, forever. Refused here,
+    # before half an hour of builds.
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compare
+        run: |
+          workspace=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$workspace" != "$tag" ]; then
+            echo "::error::tag $GITHUB_REF_NAME but the workspace is $workspace: bump [workspace.package] version in Cargo.toml, then tag again"
+            exit 1
+          fi
+          echo "releasing $tag"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One target failing must not cancel the others: the logs of all five
+      # are what tells which platform broke.
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04, not ubuntu-latest: a binary linked against a newer glibc
+          # refuses to start on an older one ("GLIBC_2.39 not found"), and the
+          # fleet's Raspberry Pi OS and Debian 12 ship glibc 2.36. Building on
+          # 22.04 (glibc 2.35) keeps them able to run what testers download.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          # A native ARM runner rather than cross-compiling as ci.yml does:
+          # the release binary is linked by the platform's own toolchain, and
+          # blake3's NEON assembly needs no cross C compiler. 22.04 for the
+          # glibc reason above; the Pi is the machine this target is for.
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          # macos-latest is Apple silicon. Intel Macs are built there too, by
+          # adding the target: Apple's toolchain links both architectures, and
+          # GitHub's Intel macOS runners are being retired.
+          - target: x86_64-apple-darwin
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      # --locked: a release is built from exactly the dependencies cargo deny
+      # checked on main, never from a resolution made on the runner.
+      - name: Build
+        run: cargo build --release --locked -p itsanas-cli --bin itsanas --target ${{ matrix.target }}
+      # Named by target so the five can sit in one release and one directory,
+      # and so a bootstrap installer can ask for its own by name.
+      - name: Name the binary by its target
+        shell: bash
+        run: |
+          mkdir dist
+          if [ -f "target/${{ matrix.target }}/release/itsanas.exe" ]; then
+            cp "target/${{ matrix.target }}/release/itsanas.exe" "dist/itsanas-${{ matrix.target }}.exe"
+          else
+            cp "target/${{ matrix.target }}/release/itsanas" "dist/itsanas-${{ matrix.target }}"
+          fi
+          ls -l dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: itsanas-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    name: Draft release with the unsigned manifest
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: itsanas-*
+          path: dist
+          merge-multiple: true
+      # The manifest is written by the same code that will verify it, from the
+      # bytes that are about to be uploaded: nothing in between to drift.
+      - name: Manifest
+        run: cargo run --release --locked -p itsanas-release -- manifest --version "$GITHUB_REF_NAME" --dir dist
+      # All five or nothing: a release missing a platform would leave those
+      # testers on the old version with no message saying why.
+      - name: Every target is there
+        run: test "$(grep -c '^file ' dist/manifest.txt)" -eq 5
+      # A draft is invisible to testers and to the bootstrap installers, which
+      # look for the latest *published* release. It becomes one only when
+      # Nicolas has signed it.
+      - name: Create the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --draft --verify-tag
+          --title "ITSaNAS ${GITHUB_REF_NAME#v}"
+          --notes "Unsigned until Nicolas runs scripts/sign-release. Install: docs/RELEASING.md."

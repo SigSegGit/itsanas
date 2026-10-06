@@ -362,6 +362,10 @@ fn versions_compare_as_numbers_not_as_text() {
         v("0.10.0") > v("0.9.0"),
         "0.10.0 sorted before 0.9.0: nodes would refuse the tenth minor release"
     );
+    assert!(
+        v("1.0.0") > v("0.99.99") && v("0.2.0") > v("0.1.99"),
+        "a higher patch or minor outranked a higher major or minor: a node would call an old release newer and install it"
+    );
     for bad in ["v0.2.0", "0.2", "0.2.0.1", "0.+2.0", "0..0", ""] {
         assert!(
             Version::parse(bad).is_err(),
