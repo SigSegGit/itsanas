@@ -1504,7 +1504,11 @@ fn snapshot_status(home: &Path, running: bool) -> Result<String> {
             "{header}\nSyncing is PAUSED here, since {}: nothing moves until `itsanas resume`.",
             describe_age(itsanas_discover::now_unix().saturating_sub(since))
         ),
-        _ => header,
+        Ok(_) => header,
+        Err(why) => format!(
+            "{header}\nThe control file cannot be read ({why}): the daemon keeps what it last \
+             understood, and one starting now starts paused."
+        ),
     };
 
     Ok(format!("{header}\n\n{body}"))
@@ -1676,10 +1680,15 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
     let age = now.saturating_sub(taken);
     if age > every.saturating_mul(2) {
         format!("stale {age}")
-    } else if control::paused_on_disk(home) {
-        format!("paused {age}")
     } else {
-        format!("healthy {age}")
+        // A control file nobody can read is not "healthy": the daemon is
+        // keeping what it last understood, or started paused (`control.rs`),
+        // and the icon should say that something needs a look.
+        match control::Control::read(home) {
+            Err(_) => format!("unknown {age}"),
+            Ok(asked) if asked.paused_since.is_some() => format!("paused {age}"),
+            Ok(_) => format!("healthy {age}"),
+        }
     }
 }
 
@@ -1696,9 +1705,21 @@ fn steer(home: &Path, command: &Command) -> Result<()> {
     }
     let running = itsanas_store::Store::is_locked(Node::store_path(home));
     let now = itsanas_discover::now_unix();
-    // An unreadable file is replaced: rewriting it is the repair, and the
-    // daemon has kept what it last understood in the meantime.
-    let mut control = control::Control::read(home).unwrap_or_default();
+    // An unreadable file is rewritten only by `pause` and `resume`, which say
+    // outright what it should hold. Anything else would start from the
+    // default -- "not paused" -- and erase a pause it could not read
+    // (#243's review: `interval 10m` resumed a paused node that way).
+    let (mut control, rewritten) = match control::Control::read(home) {
+        Ok(control) => (control, false),
+        Err(_) if matches!(command, Command::Pause | Command::Resume) => {
+            (control::Control::default(), true)
+        }
+        Err(why) => {
+            return Err(CliError::Usage(format!(
+                "{why}\nNothing else is changed until it is rewritten, so a pause it may hold is kept."
+            )));
+        }
+    };
     let said = match command {
         Command::Pause if control.paused_since.is_some() => {
             "Syncing was already paused.".to_owned()
@@ -1711,7 +1732,9 @@ fn steer(home: &Path, command: &Command) -> Result<()> {
              starts.\nResume with: itsanas resume"
                 .to_owned()
         }
-        Command::Resume if control.paused_since.is_none() => "Syncing was not paused.".to_owned(),
+        Command::Resume if control.paused_since.is_none() && !rewritten => {
+            "Syncing was not paused.".to_owned()
+        }
         Command::Resume => {
             control.paused_since = None;
             // Resuming is a request to catch up, not to wait for the interval.
@@ -1765,6 +1788,12 @@ fn steer(home: &Path, command: &Command) -> Result<()> {
         source,
     })?;
     println!("{said}");
+    if rewritten {
+        println!(
+            "(The control file could not be read, so it was written afresh: an interval set \
+             before is back to auto.)"
+        );
+    }
     if !running && !matches!(command, Command::SyncNow) {
         println!("(No daemon is running this node now; it reads this when it starts.)");
     }
@@ -4059,6 +4088,50 @@ mod tests {
             steer(&home, &Command::SyncNow).is_err(),
             "sync-now with no daemon running said it was asked"
         );
+    }
+
+    /// A setting written over a control file that cannot be read would start
+    /// from "not paused" and erase the pause it holds: `interval 10m` from a
+    /// tray resuming a node paused on a metered link.
+    #[test]
+    fn red_team_a_setting_never_erases_a_pause_it_cannot_read() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        let garbled = "paused 1\ninterval ten minutes\n";
+        std::fs::write(home.join(control::CONTROL), garbled).expect("control");
+
+        let refused = steer(
+            &home,
+            &Command::Interval {
+                every: Some("10m".to_owned()),
+            },
+        );
+        assert!(
+            refused.is_err(),
+            "a setting was written over an unreadable control file"
+        );
+        assert!(steer(&home, &Command::SyncNow).is_err());
+        assert_eq!(
+            std::fs::read_to_string(home.join(control::CONTROL)).expect("control"),
+            garbled,
+            "the file holding the pause was rewritten"
+        );
+        let now = 1_000_000;
+        std::fs::write(
+            home.join(SNAPSHOT),
+            format!("snapshot {} every 300\n", now - 60),
+        )
+        .expect("snapshot");
+        assert_eq!(
+            brief_status(&home, true, now),
+            "unknown 60",
+            "a node whose control file cannot be read showed healthy"
+        );
+
+        // `resume` says outright what the file should hold, so it repairs it.
+        steer(&home, &Command::Resume).expect("resume rewrites it");
+        assert!(control::Control::read(&home).is_ok_and(|read| read.paused_since.is_none()));
     }
 
     /// Onto an existing home is onto somebody's node: refused, both untouched.

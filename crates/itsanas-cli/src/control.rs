@@ -33,13 +33,21 @@
 
 use std::{
     fmt::Write as _,
-    io::ErrorKind,
+    io::{ErrorKind, Read as _},
     path::Path,
     time::{Duration, Instant},
 };
 
 /// The file, in the node's home.
 pub const CONTROL: &str = "control";
+
+/// The most of the file the daemon reads: three short lines fit many times
+/// over. It is read every two seconds, so a file that grew by accident -- a log
+/// redirected into it, a tool's output -- would otherwise be read whole, every
+/// two seconds. Past this, the whole lines that fit are read and the rest is
+/// ignored: refusing the file instead would lose a pause written before the
+/// growth, and every reader of a refused file has to guess (#243's review).
+pub const MAX_CONTROL_BYTES: u64 = 4096;
 
 /// The shortest interval a person can ask for.
 ///
@@ -76,14 +84,43 @@ impl Control {
     /// what that means; the daemon keeps what it last understood
     /// ([`Steering::refresh`]).
     pub fn read(home: &Path) -> Result<Self, String> {
-        match std::fs::read_to_string(home.join(CONTROL)) {
-            Ok(text) => Self::parse(&text),
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(Self::default()),
-            Err(error) => Err(format!(
-                "could not read {}: {error}",
-                home.join(CONTROL).display()
-            )),
+        let path = home.join(CONTROL);
+        let unreadable =
+            |error: std::io::Error| format!("could not read {}: {error}", path.display());
+        let file = match std::fs::File::open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Self::default()),
+            Err(error) => return Err(unreadable(error)),
+        };
+        let mut bytes = Vec::new();
+        file.take(MAX_CONTROL_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(unreadable)?;
+        let rewrite = "`itsanas pause` or `itsanas resume` rewrites it";
+        if bytes.len() as u64 > MAX_CONTROL_BYTES {
+            // Cut at the last whole line, so a character split by the limit
+            // is never what decides whether the file can be read.
+            bytes.truncate(usize::try_from(MAX_CONTROL_BYTES).unwrap_or(usize::MAX));
+            let Some(end) = bytes.iter().rposition(|&byte| byte == b'\n') else {
+                return Err(format!(
+                    "{} has no line end in its first {MAX_CONTROL_BYTES} bytes; {rewrite}",
+                    path.display()
+                ));
+            };
+            bytes.truncate(end + 1);
         }
+        // UTF-16, which PowerShell 5's `Out-File` writes, is NUL between every
+        // letter: `p\0a\0u\0s\0e\0d\0` would parse as an unknown key and
+        // read as "not paused".
+        if bytes.contains(&0) {
+            return Err(format!(
+                "{} holds NUL bytes (written as UTF-16?); {rewrite}",
+                path.display()
+            ));
+        }
+        let text = String::from_utf8(bytes)
+            .map_err(|_| format!("{} is not UTF-8 text; {rewrite}", path.display()))?;
+        Self::parse(&text)
     }
 
     /// # Errors
@@ -179,15 +216,33 @@ impl Steering {
     /// Start from what the file says now. A "sync now" already in it is taken
     /// as done: the daemon syncs as it starts anyway, and replaying an old
     /// request at every restart would be a round nobody asked for.
+    ///
+    /// A file that cannot be read starts the daemon **paused**. There is no
+    /// earlier state to keep, and the file exists, so somebody wrote it: the
+    /// commonest thing written there is a pause. Starting to sync would
+    /// override one -- on a metered link, say -- and say nothing. Paused, the
+    /// machine still hosts for the others, `status` says `unknown`, and
+    /// `itsanas resume` rewrites the file. (#243's review.)
     #[must_use]
     pub fn start(read: Result<Control, String>) -> (Self, Option<String>) {
-        let mut steering = Self {
-            current: Control::default(),
-            honoured: None,
-            unreadable: false,
+        let (current, unreadable, said) = match read {
+            Ok(current) => (current, false, None),
+            Err(why) => (
+                Control {
+                    paused_since: Some(0),
+                    ..Control::default()
+                },
+                true,
+                Some(format!(
+                    "{why}; starting paused until it can be read (`itsanas resume` rewrites it)"
+                )),
+            ),
         };
-        let said = steering.refresh(read).into_iter().next();
-        steering.honoured = steering.current.sync_asked;
+        let steering = Self {
+            current,
+            honoured: current.sync_asked,
+            unreadable,
+        };
         (steering, said)
     }
 
@@ -481,6 +536,60 @@ mod tests {
             "the same failure was logged every two seconds"
         );
         assert_eq!(steering.next(Instant::now(), None, BASE), Next::Publish);
+    }
+
+    /// A file that grew -- a log redirected into it -- is read as far as the
+    /// limit, never whole, and still says what was written first: refusing
+    /// it would leave every reader guessing whether the node is paused.
+    #[test]
+    fn red_team_a_control_file_that_grew_still_says_paused() {
+        let home = tempfile::tempdir().expect("temp dir");
+        let path = home.path().join(CONTROL);
+        let paused = |home: &Path| Control::read(home).map(|read| read.paused_since);
+
+        let mut grown = "paused 1\n".to_owned();
+        grown.push_str(&"# a log redirected here by mistake\n".repeat(30_000));
+        std::fs::write(&path, grown).expect("write");
+        assert_eq!(
+            paused(home.path()),
+            Ok(Some(1)),
+            "a megabyte appended after `paused 1` lost the pause"
+        );
+        // A multi-byte character split by the limit does not make it unreadable.
+        std::fs::write(&path, format!("paused 2\n#{}", "é".repeat(3000))).expect("write");
+        assert_eq!(paused(home.path()), Ok(Some(2)));
+        // Exactly at the limit, the last line is read too.
+        let exact = format!("{}\npaused 3\n", "#".repeat(4096 - 10));
+        assert_eq!(exact.len(), 4096);
+        std::fs::write(&path, &exact).expect("write");
+        assert_eq!(paused(home.path()), Ok(Some(3)));
+        // UTF-16 is refused rather than read as "nothing asked".
+        let utf16: Vec<u8> = "paused 4\n"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        std::fs::write(&path, utf16).expect("write");
+        assert!(
+            paused(home.path()).is_err(),
+            "UTF-16 `paused 4` read as not paused"
+        );
+    }
+
+    /// No earlier state to keep at start: a file that cannot be read must not
+    /// turn into "syncing", which would override the pause it most likely holds.
+    #[test]
+    fn red_team_an_unreadable_control_file_at_start_never_syncs() {
+        let (mut steering, said) = Steering::start(Err("could not read control".to_owned()));
+        assert!(said.is_some_and(|said| said.contains("starting paused")));
+        assert_eq!(
+            steering.next(Instant::now(), None, BASE),
+            Next::Publish,
+            "a daemon that could not read its control file started syncing"
+        );
+        // Once the file can be read, it decides.
+        let said = steering.refresh(Ok(Control::default()));
+        assert_eq!(said, vec!["syncing resumed".to_owned()]);
+        assert_eq!(steering.next(Instant::now(), None, BASE), Next::Round);
     }
 
     #[test]

@@ -523,34 +523,8 @@ fn sync_loop(
         if deep {
             next_deep = Instant::now() + DEEP_SCAN_EVERY;
         }
-
-        if paused {
-        } else if let Some((folder, _)) = &folder {
-            reconcile_once(node, folder, deep);
-        } else if let Err(error) = node.bound_writes() {
-            // `reconcile_once` refreshes the bound; with no folder nothing
-            // did, and the pulls below would meet the ceiling `Node::open`
-            // sets, which is none (8.1b).
-            eprintln!("itsanas: could not work out this disk's room: {error}");
-        }
-
-        // Anything a peer pushed into this node's vault while it was serving.
-        // Without this a node that never dials anybody — because it has no
-        // peers configured, or because its peers are behind NAT and can only
-        // push — would hold its own data and never look at it.
-        match session::drain_vault(&node.store, &node.vault) {
-            _ if paused => {}
-            Ok(report) if report.changed_anything() => {
-                println!(
-                    "pushed to us: {} files, {} conflicts",
-                    report.adopted, report.conflicted
-                );
-                if let Some((folder, _)) = &folder {
-                    reconcile_once(node, folder, false);
-                }
-            }
-            Ok(_) => {}
-            Err(error) => eprintln!("itsanas: could not apply pushed data: {error}"),
+        if !paused {
+            take_in(node, folder.as_ref(), deep);
         }
 
         let next = if scope.connects() {
@@ -579,7 +553,12 @@ fn sync_loop(
             );
             last_round = Some(Instant::now());
             board.replace(contact.board());
-            check_disks(node, interval, &mut own_check);
+            // A pause asked for during the round: `halted` stopped the dialling,
+            // and nothing after it may touch the folder or the store either.
+            let paused_since_round = control::paused_on_disk(&node.home);
+            if !paused_since_round {
+                check_disks(node, interval, &mut own_check);
+            }
             if let Err(error) = contact.save(&book) {
                 eprintln!("itsanas: could not keep the address book: {error}");
             }
@@ -598,7 +577,7 @@ fn sync_loop(
 
             // Write out whatever just arrived, rather than making the user
             // wait for the next loop to see their peer's changes.
-            if let Some((folder, _)) = &folder {
+            if let Some((folder, _)) = folder.as_ref().filter(|_| !paused_since_round) {
                 reconcile_once(node, folder, false);
             }
         }
@@ -607,6 +586,39 @@ fn sync_loop(
 
         let next_sync = last_round.map_or_else(Instant::now, |last| last + interval);
         wait_for_work(folder.as_ref(), next_sync, shutdown);
+    }
+}
+
+/// Take in what changed: the folder (or, with none, the disk's room), then
+/// what peers pushed into the vault. Not called at all while paused -- a
+/// `match` arm that ignored a result computed anyway was the first version of
+/// this guard, and it drained the vault of a paused node (#243's review).
+fn take_in(node: &Node, folder: Option<&(Folder, Option<Watcher>)>, deep: bool) {
+    if let Some((folder, _)) = folder {
+        reconcile_once(node, folder, deep);
+    } else if let Err(error) = node.bound_writes() {
+        // `reconcile_once` refreshes the bound; with no folder nothing
+        // did, and the pulls below would meet the ceiling `Node::open`
+        // sets, which is none (8.1b).
+        eprintln!("itsanas: could not work out this disk's room: {error}");
+    }
+
+    // Anything a peer pushed into this node's vault while it was serving.
+    // Without this a node that never dials anybody — because it has no
+    // peers configured, or because its peers are behind NAT and can only
+    // push — would hold its own data and never look at it.
+    match session::drain_vault(&node.store, &node.vault) {
+        Ok(report) if report.changed_anything() => {
+            println!(
+                "pushed to us: {} files, {} conflicts",
+                report.adopted, report.conflicted
+            );
+            if let Some((folder, _)) = folder {
+                reconcile_once(node, folder, false);
+            }
+        }
+        Ok(_) => {}
+        Err(error) => eprintln!("itsanas: could not apply pushed data: {error}"),
     }
 }
 

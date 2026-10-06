@@ -37,7 +37,12 @@ matched nothing (write the script to a file); PowerShell's `GetNewClosure()`
 hides a script's own functions from the handler (the tray uses the item's
 `Tag`); one Bash call starting a detached daemon with `sleep`s was refused --
 the end-to-end run went through a Python script that kills its daemon in
-`finally`. Left on disk, harmless: the worktree `D:/GitHub/itsanas-wipe` still
+`finally`. **Missed by the session, caught by its reviewers:** the vault
+drain's pause guard was `match drain(..) { _ if paused => {} .. }` -- the
+drain runs before any arm is chosen, so a paused node adopted what its own
+devices pushed; and the first test written for it passed on nothing,
+because a node with no pledge refuses even its own account's push. Both now
+have a test that fails on them. Left on disk, harmless: the worktree `D:/GitHub/itsanas-wipe` still
 holds the merged branch `docs/fleet-wiped` (`git worktree remove` it).
 
 **2026-10-06 evening, the whole fleet wiped; NEXT is a self-updating
@@ -1472,9 +1477,21 @@ Detail and measurements are in ROADMAP.md; this is the map.
          The Windows tray has Pause/Resume (with the consequence dialog),
          Sync now and Sync every. Red-team, each sabotaged red: the interval
          floor, one request one round, paused never a full round, an
-         unreadable file never resuming. **Not tested:** the loop's dispatch
-         (no test drives the daemon loop; run once end to end by hand with a
-         throwaway node), and the tray's new entries never seen on screen.
+         unreadable file never resuming. Then the review round (the CI
+         reviewer, and two adversarial reviewers run by the session): the
+         first tests that run the daemon loop at all, `tests/steering.rs` --
+         a daemon started paused, a pause landing mid-round, and the
+         account's own device pushing into a paused node, each sabotaged red.
+         The third caught a real bug of this step: the vault drain's "guard"
+         was a `match` arm that ignored the result of a drain that ran
+         anyway. Also fixed from that round: the scan that closes a round
+         re-reads the pause; an unreadable control file starts the daemon
+         paused, is shown `unknown`, and is rewritten only by `pause` or
+         `resume` (`interval` over it would have erased a pause); a file
+         that grew is read to 4096 bytes, never whole. **Not tested:**
+         `halted` stopping further dials (needs a second peer), Windows and
+         macOS in CI (`slow-tests` is Linux only, §10 item 13), and the
+         tray's new entries, never seen on screen.
       2. **The setup engine, and `itsanas setup` in a terminal. NEXT.** One
          module (`crates/itsanas-cli/src/setup.rs`; a crate only if (4) needs
          it apart) holding the steps as data. Each step has `check` (already
@@ -2473,6 +2490,27 @@ Detail and measurements are in ROADMAP.md; this is the map.
 12. ✅ **Who signs a self-updating release?** (§8 0t.) **Decided 2026-10-06
    (Nicolas): his key, on his PC**, against a key in CI or per-machine
    builds from signed tags; reasons in 0t.
+
+13. **Run the expensive tests on Windows and macOS too** (2026-10-06, from
+   #243's review). `slow-tests` is `runs-on: ubuntu-latest`, so the
+   `#[ignore]`d tests -- now including the three that run the daemon loop,
+   whose main client is the Windows tray -- never run on Windows or macOS
+   in CI. `ci.yml` is Nicolas's to change. The block, replacing the job's
+   first two lines; the check is then named per OS, so a required
+   "Expensive tests" in branch protection must be renamed with it:
+
+   ```yaml
+     slow-tests:
+       name: Expensive tests (${{ matrix.os }})
+       runs-on: ${{ matrix.os }}
+       strategy:
+         fail-fast: false
+         matrix:
+           os: [ubuntu-latest, windows-latest, macos-latest]
+   ```
+
+   Cost: the three release builds, about twice the job's minutes on macOS.
+   **Add** or **keep Linux only**.
 
 ## 11. Working style Nicolas expects
 
