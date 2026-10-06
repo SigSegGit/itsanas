@@ -31,6 +31,7 @@ pub(crate) mod service;
 pub(crate) mod sign;
 mod steps;
 pub(crate) mod verify;
+pub(crate) mod web;
 
 use std::{
     io::Write as _,
@@ -467,15 +468,26 @@ pub(crate) fn plan(
 
 /// `itsanas setup`, from the command line.
 ///
-/// `--answers FILE` runs unattended; otherwise the questions are asked in
-/// this terminal. The web page of 0w (4), which is to be the default on a
-/// desktop, is not built yet: until it is, every run is this one.
+/// `--answers FILE` runs unattended; `--text` asks in this terminal; without
+/// either, a desktop gets the web page of [`web`], and a session with no
+/// desktop (SSH, no display) the terminal, said as it happens.
 pub(crate) fn command(
     home: &Path,
     instance: Option<&str>,
+    text: bool,
     answers_file: Option<&Path>,
     phrase_file: Option<PathBuf>,
 ) -> Result<()> {
+    if answers_file.is_none() && !text {
+        if web::desktop_here() {
+            return web::wizard(home, instance);
+        }
+        println!(
+            "No desktop here (an SSH session, or no display): asking in this terminal instead. \
+             `itsanas setup --text` does this on purpose."
+        );
+        println!();
+    }
     let platform = service::Platform::of_this_machine(home, instance);
     if answers_file.is_none() && crate::node::Node::exists(home) {
         // Said before any question, so a person re-running setup sees that

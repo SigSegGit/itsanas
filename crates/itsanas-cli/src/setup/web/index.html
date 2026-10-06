@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>ITSaNAS</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the current step</a>
+<header class="top">
+  <span class="brand">ITSaNAS</span>
+  <span id="mode-title">Set up this machine</span>
+</header>
+
+<div class="layout">
+  <nav id="progress-nav" aria-label="Steps">
+    <ol id="progress"></ol>
+  </nav>
+
+  <main id="main" tabindex="-1">
+    <noscript><p class="problem">This page needs JavaScript. Close it and run <code>itsanas setup --text</code> in a terminal instead.</p></noscript>
+    <p id="problem" class="problem" role="alert" hidden></p>
+
+    <!-- ===== Setup: one step at a time ===== -->
+    <section data-page="welcome" hidden>
+      <h1 tabindex="-1">Welcome</h1>
+      <p class="lead">ITSaNAS keeps one folder the same on all your machines. Your files are locked with a key only you have, and copies are kept on other members' computers in case yours breaks.</p>
+      <p>This takes about five minutes. Each step is saved: if something stops, run setup again and it picks up where it left off.</p>
+      <div class="actions"><button type="button" class="primary" data-next>Start</button></div>
+    </section>
+
+    <section data-page="machine" hidden>
+      <h1 tabindex="-1">This machine</h1>
+      <p class="lead">Check that this is the machine you want to set up.</p>
+      <dl class="facts">
+        <dt>Its ITSaNAS data goes in</dt><dd id="machine-home"></dd>
+        <dt>Name of this setup</dt><dd id="machine-instance"></dd>
+      </dl>
+      <p class="done-note" data-done-for="machine" hidden></p>
+      <div class="actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
+    </section>
+
+    <section data-page="account" hidden>
+      <h1 tabindex="-1">Your account</h1>
+      <p class="done-note" data-done-for="account" hidden></p>
+      <div id="account-questions">
+        <p class="lead">Is this your first machine with ITSaNAS?</p>
+        <fieldset>
+          <legend>Account</legend>
+          <label class="choice"><input type="radio" name="account" value="new" checked> Yes, create a new account</label>
+          <label class="choice"><input type="radio" name="account" value="join"> No, I already have an account</label>
+        </fieldset>
+        <label for="username">Your username</label>
+        <input id="username" name="username" autocomplete="username" spellcheck="false" autocapitalize="none" aria-describedby="username-help">
+        <p id="username-help" class="help">Letters and digits. Use the same one on all your machines.</p>
+        <div id="join-only" hidden>
+          <label for="recover-from">Coordinator holding your account's recovery copy (optional)</label>
+          <input id="recover-from" name="recover_from" spellcheck="false" autocapitalize="none" placeholder="coordinator.example.org:9800" aria-describedby="recover-help">
+          <p id="recover-help" class="help">Leave empty to type your 24 recovery words instead, in a separate window.</p>
+        </div>
+      </div>
+      <div class="actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
+    </section>
+
+    <section data-page="secret" hidden>
+      <h1 tabindex="-1">Your secret</h1>
+      <p class="never">Never type your recovery words into a web page &mdash; not even this one.</p>
+      <p class="lead">Your secret is asked in a separate ITSaNAS window, never on this page.</p>
+      <ul class="plain">
+        <li>A new account gets 24 recovery words. Write them on paper: they are the only way back into your files if this machine is lost. The window then asks three of them back.</li>
+        <li>An existing account: the window asks for your 24 words, unless your coordinator keeps your recovery copy.</li>
+        <li>Then the window asks for a passphrase that unlocks this machine.</li>
+      </ul>
+      <p>The window opens when you press <strong>Start setting up</strong>, after the next few questions.</p>
+      <div class="actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
+    </section>
+
+    <section data-page="network" hidden>
+      <h1 tabindex="-1">Joining the network</h1>
+      <p class="done-note" data-done-for="registration" hidden></p>
+      <p class="lead">Type the coordinator address you were given with your invitation.</p>
+      <label for="coordinator">Coordinator address (optional)</label>
+      <input id="coordinator" name="coordinator" spellcheck="false" autocapitalize="none" placeholder="coordinator.example.org:9800" aria-describedby="coordinator-help">
+      <p id="coordinator-help" class="help">Leave empty if all your machines are on the same home network.</p>
+      <label for="invite">Invitation code (optional)</label>
+      <input id="invite" name="invite" spellcheck="false" autocapitalize="none" autocomplete="off">
+      <div class="actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
+    </section>
+
+    <section data-page="space" hidden>
+      <h1 tabindex="-1">Space you offer</h1>
+      <p class="done-note" data-done-for="pledge" hidden></p>
+      <p class="lead">Choose how much of this disk other members may use for their copies.</p>
+      <p id="space-free" class="help"></p>
+      <label for="pledge">Space to offer, in GB</label>
+      <input id="pledge" name="pledge" type="number" min="0" step="1" inputmode="numeric" aria-describedby="pledge-help">
+      <p id="pledge-help" class="help">Offering space is what earns room for your own files on theirs. You can change it later.</p>
+      <div class="actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
+    </section>
+
+    <section data-page="folder" hidden>
+      <h1 tabindex="-1">Your folder</h1>
+      <p class="done-note" data-done-for="folder" hidden></p>
+      <p class="lead">Choose the folder to keep the same on all your machines.</p>
+      <label for="folder">Folder</label>
+      <input id="folder" name="folder" spellcheck="false" autocapitalize="none" aria-describedby="folder-help">
+      <p id="folder-help" class="help">It is created if it does not exist. Files you put in it are synced.</p>
+      <label class="choice"><input type="checkbox" id="background" checked> Keep ITSaNAS running in the background, with an icon near the clock (recommended)</label>
+      <div class="actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
+    </section>
+
+    <section data-page="connection" hidden>
+      <h1 tabindex="-1" id="run-title">Ready</h1>
+      <p class="lead" id="run-lead">Press Start. ITSaNAS then checks the connection, starts in the background and checks that it all works.</p>
+      <div class="actions" id="start-actions"><button type="button" data-back>Back</button><button type="button" class="primary" id="start">Start setting up</button></div>
+      <div id="run-panel" hidden>
+        <p class="never" data-secret-warning hidden>Never type your recovery words into a web page &mdash; not even this one.</p>
+        <div id="window-notice" class="notice" role="status" hidden>
+          <p><strong>A separate ITSaNAS window has opened in front of this page.</strong> If you cannot see it, look for ITSaNAS in your taskbar / Dock.</p>
+          <p id="window-what" class="help"></p>
+        </div>
+        <p id="run-step" class="current" aria-live="polite"></p>
+        <details>
+          <summary>Details</summary>
+          <ul id="run-lines" class="lines"></ul>
+        </details>
+      </div>
+    </section>
+
+    <section data-page="final" hidden>
+      <h1 tabindex="-1" id="final-title">Final check</h1>
+      <p class="lead" id="final-lead"></p>
+      <div id="final-fix" class="notice" hidden>
+        <p><strong>What to do:</strong> <span id="final-remedy"></span></p>
+        <p class="help" id="final-error"></p>
+      </div>
+      <ul id="report" class="report"></ul>
+      <div class="actions">
+        <button type="button" id="retry" hidden>Try again</button>
+        <button type="button" class="primary" id="finish">Close</button>
+      </div>
+    </section>
+
+    <!-- ===== Settings ===== -->
+    <section data-page="settings" hidden>
+      <h1 tabindex="-1">Settings</h1>
+      <p class="status-line"><span id="st-dot" class="dot" aria-hidden="true"></span> <span id="st-status">Reading&hellip;</span></p>
+      <p id="st-said" class="said" role="status" aria-live="polite"></p>
+
+      <h2>Syncing</h2>
+      <div class="row">
+        <label for="pause-for">Pause</label>
+        <!-- 0w (5): "for 1 hour" and "for 8 hours" join once the control file has an end time. -->
+        <select id="pause-for"><option value="resume">until I resume</option></select>
+        <button type="button" id="pause">Pause</button>
+        <button type="button" id="resume" hidden>Resume</button>
+      </div>
+      <div class="row">
+        <button type="button" id="sync-now">Sync now</button>
+      </div>
+      <div class="row">
+        <label for="interval">Check for changes</label>
+        <select id="interval">
+          <option value="auto">automatically</option>
+          <option value="5m">every 5 minutes</option>
+          <option value="15m">every 15 minutes</option>
+          <option value="1h">every hour</option>
+          <option value="6h">every 6 hours</option>
+          <option value="1d">once a day</option>
+        </select>
+        <button type="button" id="interval-save">Save</button>
+      </div>
+
+      <h2>This machine</h2>
+      <p class="help">Changing these restarts ITSaNAS (a few seconds).</p>
+      <label for="st-pledge">Space offered to others, in GB</label>
+      <input id="st-pledge" type="number" min="0" step="1" inputmode="numeric" aria-describedby="st-pledge-now">
+      <p id="st-pledge-now" class="help"></p>
+      <label for="st-folder">Folder</label>
+      <input id="st-folder" spellcheck="false" autocapitalize="none">
+      <label for="st-coordinator">Coordinator address</label>
+      <input id="st-coordinator" spellcheck="false" autocapitalize="none">
+      <label for="st-invite">Invitation code, if the coordinator asks for one</label>
+      <input id="st-invite" spellcheck="false" autocapitalize="none" autocomplete="off">
+      <div class="actions"><button type="button" class="primary" id="apply">Apply</button></div>
+      <div id="st-run" hidden>
+        <p class="never" data-secret-warning hidden>Never type your recovery words into a web page &mdash; not even this one.</p>
+        <div id="st-window-notice" class="notice" role="status" hidden>
+          <p><strong>A separate ITSaNAS window has opened in front of this page.</strong> If you cannot see it, look for ITSaNAS in your taskbar / Dock.</p>
+        </div>
+        <p id="st-run-step" class="current" aria-live="polite"></p>
+      </div>
+
+      <h2>Sign out</h2>
+      <p class="help">Stops ITSaNAS on this machine and forgets its passphrase. Your files and keys stay on this disk.</p>
+      <div class="actions"><button type="button" class="danger" id="signout">Sign out</button><button type="button" id="close">Close</button></div>
+    </section>
+
+    <section data-page="closed" hidden>
+      <h1 tabindex="-1">This page is closed</h1>
+      <p class="lead">You can close this tab. Run <code>itsanas settings</code> to open it again.</p>
+    </section>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,233 @@
+/* ITSaNAS setup and settings. Light or dark with the system; readable at
+   phone width; every control reachable and visible with the keyboard. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #16191d;
+  --muted: #4a525c;
+  --line: #d5d9df;
+  --accent: #0b5cad;
+  --accent-text: #ffffff;
+  --ok: #17713a;
+  --bad: #b3261e;
+  --warn-bg: #fff4d6;
+  --warn-text: #5a4100;
+  --focus: #e8a400;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121417;
+    --panel: #1b1e23;
+    --text: #eceff3;
+    --muted: #b4bcc6;
+    --line: #353b44;
+    --accent: #6cb2ff;
+    --accent-text: #0b1320;
+    --ok: #5fd08a;
+    --bad: #ff8a80;
+    --warn-bg: #3a2f10;
+    --warn-text: #ffe2a0;
+    --focus: #ffc94d;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+}
+
+[hidden] { display: none !important; }
+
+.skip {
+  position: absolute;
+  left: -999px;
+}
+.skip:focus {
+  left: 16px;
+  top: 8px;
+  background: var(--panel);
+  padding: 8px 12px;
+  z-index: 10;
+}
+
+.top {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.brand { font-weight: 700; font-size: 1.15rem; }
+#mode-title { color: var(--muted); }
+
+.layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 24px;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+#progress {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: step;
+}
+#progress li {
+  counter-increment: step;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+}
+#progress li::before {
+  content: counter(step) ". ";
+}
+#progress li.done { color: var(--ok); }
+#progress li.done::before { content: "\2713  "; }
+#progress li.failed { color: var(--bad); }
+#progress li[aria-current="step"] {
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+  border: 1px solid var(--line);
+}
+
+main {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 28px;
+  min-width: 0;
+}
+main:focus { outline: none; }
+
+h1 { font-size: 1.6rem; margin: 0 0 12px; }
+h1:focus { outline: none; }
+h2 { font-size: 1.2rem; margin: 28px 0 8px; }
+.lead { font-size: 1.1rem; }
+.help { color: var(--muted); font-size: 0.95rem; margin-top: 4px; }
+
+label { display: block; font-weight: 600; margin: 16px 0 6px; }
+label.choice { font-weight: 400; display: flex; gap: 10px; align-items: center; margin: 8px 0; }
+fieldset { border: 0; padding: 0; margin: 0; }
+legend { position: absolute; left: -999px; }
+
+input, select {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  width: 100%;
+  max-width: 34rem;
+}
+input[type="radio"], input[type="checkbox"] { width: 22px; height: 22px; }
+select { width: auto; }
+
+button {
+  font: inherit;
+  min-height: 48px;
+  padding: 10px 22px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+button.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+  font-weight: 600;
+  min-width: 10rem;
+}
+button.danger { color: var(--bad); border-color: var(--bad); }
+button:disabled { opacity: 0.6; cursor: default; }
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 28px;
+}
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 10px 0;
+}
+.row label { margin: 0; }
+
+.never {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 600;
+}
+.notice {
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  padding: 4px 16px;
+  margin: 16px 0;
+}
+.problem {
+  color: var(--bad);
+  font-weight: 600;
+}
+.done-note { color: var(--ok); font-weight: 600; }
+.current { font-size: 1.1rem; font-weight: 600; }
+.said { white-space: pre-line; }
+
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0 0 10px; overflow-wrap: anywhere; }
+
+.lines {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.report { list-style: none; padding: 0; }
+.report li { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.report .mark { display: inline-block; width: 1.6em; font-weight: 700; }
+.report .passed .mark { color: var(--ok); }
+.report .failed .mark { color: var(--bad); }
+.report .skipped .mark { color: var(--muted); }
+.report .detail { color: var(--muted); font-size: 0.95rem; margin-left: 1.6em; overflow-wrap: anywhere; }
+
+.status-line { font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.dot { width: 14px; height: 14px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.dot.ok { background: var(--ok); }
+.dot.bad { background: var(--bad); }
+
+code { font-family: ui-monospace, Consolas, monospace; }
+
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; padding: 12px; gap: 12px; }
+  main { padding: 18px; }
+  #progress { display: flex; flex-wrap: wrap; gap: 4px; }
+  #progress li { padding: 4px 8px; font-size: 0.9rem; }
+  #progress li:not([aria-current="step"]) { display: none; }
+  button.primary { width: 100%; }
+}

@@ -172,8 +172,9 @@ enum Command {
     /// identity. The 24 words and the passphrase are asked in a window of the
     /// system's own (or this terminal), never in a web page.
     Setup {
-        /// Ask in this terminal. The only way until the setup web page of
-        /// HANDOVER 0w (4) exists, which will then be the default on a desktop.
+        /// Ask in this terminal instead of the web page that opens in the
+        /// browser on a desktop. A session without a desktop (SSH, no
+        /// DISPLAY) is asked here anyway.
         #[arg(long)]
         text: bool,
         /// Every answer but the secrets from this TOML file, asking nothing;
@@ -191,6 +192,9 @@ enum Command {
     Signout,
     /// Undo `signout`: ask the passphrase, check it, start the service again.
     Signin,
+    /// Open this machine's settings in the browser: status, pause, sync now,
+    /// interval, space offered, folder, coordinator, sign out.
+    Settings,
     /// Show this node's identity, contents and hosting.
     Status {
         /// One line for a tray icon or a script: `healthy`, `paused`,
@@ -711,9 +715,10 @@ fn run() -> Result<()> {
         Command::Invite { uses, days } => invite(&home, uses, days),
         Command::Passphrase { recovery } => change_passphrase(&home, recovery),
         Command::Status { brief } => status(&home, brief),
-        command @ (Command::Setup { .. } | Command::Signout | Command::Signin) => {
-            setup_command(&home, cli.instance.as_deref(), command)
-        }
+        command @ (Command::Setup { .. }
+        | Command::Signout
+        | Command::Signin
+        | Command::Settings) => setup_command(&home, cli.instance.as_deref(), command),
         command @ (Command::Pause
         | Command::Resume
         | Command::SyncNow
@@ -768,17 +773,19 @@ fn run() -> Result<()> {
     }
 }
 
-/// `setup`, `signout` and `signin`: the engine of [`setup`], from here.
+/// `setup`, `signout`, `signin` and `settings`: the engine of [`setup`], from
+/// here.
 fn setup_command(home: &Path, instance: Option<&str>, command: Command) -> Result<()> {
     match command {
         Command::Setup {
+            text,
             answers,
             phrase_file,
-            ..
-        } => setup::command(home, instance, answers.as_deref(), phrase_file),
+        } => setup::command(home, instance, text, answers.as_deref(), phrase_file),
         Command::Signout => setup::sign::signout(home, instance),
         Command::Signin => setup::sign::signin(home, instance),
-        _ => unreachable!("only setup, signout and signin are sent here"),
+        Command::Settings => setup::web::settings(home, instance),
+        _ => unreachable!("only setup, signout, signin and settings are sent here"),
     }
 }
 
@@ -1748,6 +1755,13 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
 /// Opens nothing and asks no passphrase: these are the commands a tray runs
 /// while the daemon holds the store, which is every moment they are useful.
 fn steer(home: &Path, command: &Command) -> Result<()> {
+    println!("{}", steer_said(home, command)?);
+    Ok(())
+}
+
+/// [`steer`], returning what it would print: the Settings page of
+/// `setup::web` says the same words as the terminal.
+fn steer_said(home: &Path, command: &Command) -> Result<String> {
     if !Node::exists(home) {
         return Err(CliError::Usage(format!(
             "no node in {}; set one up first",
@@ -1809,18 +1823,15 @@ fn steer(home: &Path, command: &Command) -> Result<()> {
             "Asked; the round starts within two seconds.".to_owned()
         }
         Command::Interval { every: None } => {
-            println!(
-                "{}",
-                match control.interval {
-                    Some(every) => format!(
-                        "every {} (set with `itsanas interval`; `itsanas interval auto` undoes it)",
-                        control::describe_every(every)
-                    ),
-                    None => "auto: the daemon's own setting (`--interval`, else the sync policy)"
-                        .to_owned(),
+            return Ok(match control.interval {
+                Some(every) => format!(
+                    "every {} (set with `itsanas interval`; `itsanas interval auto` undoes it)",
+                    control::describe_every(every)
+                ),
+                None => {
+                    "auto: the daemon's own setting (`--interval`, else the sync policy)".to_owned()
                 }
-            );
-            return Ok(());
+            });
         }
         Command::Interval { every: Some(every) } => {
             let every = control::parse_every(every).map_err(CliError::Usage)?;
@@ -1838,17 +1849,17 @@ fn steer(home: &Path, command: &Command) -> Result<()> {
         path: home.join(control::CONTROL),
         source,
     })?;
-    println!("{said}");
+    let mut said = said;
     if rewritten {
-        println!(
-            "(The control file could not be read, so it was written afresh: an interval set \
-             before is back to auto.)"
+        said.push_str(
+            "\n(The control file could not be read, so it was written afresh: an interval set \
+             before is back to auto.)",
         );
     }
     if !running && !matches!(command, Command::SyncNow) {
-        println!("(No daemon is running this node now; it reads this when it starts.)");
+        said.push_str("\n(No daemon is running this node now; it reads this when it starts.)");
     }
-    Ok(())
+    Ok(said)
 }
 
 fn status(home: &Path, brief: bool) -> Result<()> {

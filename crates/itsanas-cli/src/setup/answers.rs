@@ -109,7 +109,7 @@ pub(crate) fn default_folder(base: &Path, instance: Option<&str>) -> PathBuf {
 }
 
 /// `~` and `~/...`, which every example in the documentation writes.
-fn expand(text: &str, base: &Path) -> PathBuf {
+pub(super) fn expand(text: &str, base: &Path) -> PathBuf {
     match text.strip_prefix('~') {
         Some("") => base.to_owned(),
         Some(rest) if rest.starts_with(['/', '\\']) => base.join(&rest[1..]),
