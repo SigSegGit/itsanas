@@ -31,6 +31,32 @@ execute the file and nothing else. On a Pi or a phone the difference is the whol
 arrives on the machine rather than being inferred from a laptop. Skip it with
 `--no-smoke` if you need the install regardless.
 
+## For testers: no compiler needed
+
+Once a signed release is published (none is yet: Nicolas must first generate
+his release key, HANDOVER §10), one line installs the latest one and starts
+`itsanas setup`:
+
+```powershell
+irm https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.ps1 | iex
+```
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.sh | sh
+```
+
+`install/get.ps1` (options `-Prefix`, `-NoSetup`, `-NoPath`, `-Clean`) and
+`install/get.sh` (POSIX sh; `--prefix`, `--no-setup`, `--yes`, `--clean`) find
+the latest *published* release through the GitHub API, download `manifest.txt`
+and the binary for this platform, check its size and SHA-256 against the
+manifest, install it where `windows.ps1` / `linux.sh` / `macos.sh` put it by
+renaming over the old one (never writing into a running binary, #240), add it
+to PATH, then run `itsanas setup`. **Trust, honestly:** until the installed
+binary verifies the release signature itself (self-update, HANDOVER §8 0w (6)),
+HTTPS from GitHub is the trust root of this first download; the SHA-256 check
+catches a truncated or damaged file, not a forged release. See
+[docs/RELEASING.md](../docs/RELEASING.md).
+
 ## A test bed, in one command per machine
 
 To *see* it work across your own machines, with a throwaway account that
@@ -523,7 +549,50 @@ shows in Task Manager's Startup apps, where you can switch it off;
 `-NoTray` skips it. `clean.ps1 -Instance sam` removes Sam's shortcut and
 no other; `clean.ps1` without `-Instance` removes them all with the
 programs. An icon already on screen stays until you log off or quit it.
-Nothing in the menu pauses, disconnects or decommissions a machine yet.
+Since 2026-10-06 the menu also offers a pause of 1 hour or 8 hours, Settings... and Sign out... (behind a dialog; Sign in brings it back); nothing in it decommissions a machine yet.
+
+### The tray on macOS and Linux
+
+Tray autostart, one per node. macOS uses
+`~/Library/LaunchAgents/net.itsanas.menubar[.NAME].plist`, which runs
+`osascript -l JavaScript scripts/itsanas-menubar.js [NAME]` (a menu-bar item).
+Linux desktops use `~/.config/autostart/itsanas-tray[-NAME].desktop`, which
+runs `python3 scripts/itsanas-tray.py [NAME]` (needs python3-gi and
+AyatanaAppIndicator3 or AppIndicator3; GNOME needs the AppIndicator extension;
+without them it points to `itsanas settings`). `provision.sh` and `macos.sh`
+write these through `scripts/tray-autostart.sh`; on Linux nothing is written
+when neither `DISPLAY` nor `WAYLAND_DISPLAY` is set (a Pi, a server). An
+existing `net.itsanas.menubar*.plist` that does not run the menu-bar script is
+never overwritten (it is the daemon agent of an instance named "menubar").
+`clean.sh --instance NAME` removes only that node's autostart; `clean.sh --yes`
+removes all of them. **Neither has run on a real Mac or Linux desktop yet**:
+only their parse checks and printed menus run in `check-installers.sh`.
+
+All three trays (Windows, macOS, Linux) offer the same menu: open the folder,
+pause for 1 hour, 8 hours or until resumed, sync now, sync every, Settings...,
+Sign out... (behind a dialog), open the log, restart, quit the icon.
+
+## Setting up: `itsanas setup`
+
+After any installer, `itsanas setup` opens the setup page in the default
+browser (served by the binary on 127.0.0.1 on a random port, with a one-time
+token in the URL fragment). The 24 words and the passphrase are never typed into
+the page: a separate ITSaNAS window asks for them. On a headless machine (SSH,
+no display) setup asks in the terminal; `--text` forces that. `itsanas settings`
+opens the same page later; over SSH it prints `ssh -L PORT:127.0.0.1:PORT
+<machine>` -- forward the same port number so the Host check passes.
+
+#### Unattended setup: `itsanas setup --answers FILE.toml`
+
+Every non-secret answer goes in a TOML file with these keys: instance, folder,
+account = "new"|"join", username, from, coordinator, coordinator_device,
+invite, pledge, announce, service, tray, verify_seconds. An unknown key is
+refused. The passphrase comes from `ITSANAS_PASSPHRASE`, and the 24 words of an
+account being joined from `--phrase-file FILE`. A new account's 24 words are
+printed once to standard output, as `itsanas init` does. `service = false` sets
+the node up without installing the background service. The service setup
+installs uses the installers' names (scheduled task `ITSaNAS[-NAME]`, systemd
+user unit, LaunchAgent), so `clean.ps1` / `clean.sh` remove it unchanged.
 
 ## After installing, on any of them
 

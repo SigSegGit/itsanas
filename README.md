@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/logo.png" alt="ITSaNAS" width="360"></p>
+
 # ITSaNAS
 
 **A peer-to-peer cloud where people trade disk space, and hosting someone's data
@@ -18,6 +20,12 @@ reboots — and your data stays available and stays in sync.
 >
 > Start at [FIRST-STEPS.md](FIRST-STEPS.md).
 >
+> **Try it** (once the first signed release is published; until then, build
+> from source as FIRST-STEPS says). Windows:
+> `irm https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.ps1 | iex` -- Linux and macOS:
+> `curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.sh | sh`. Both install the binary and start
+> `itsanas setup`, which walks you through the rest in your browser.
+>
 > **What runs today.** Two machines keep a folder in sync over an encrypted,
 > mutually authenticated connection: drop a file in, it appears on the other;
 > delete it, it goes from both. Machines on one network find each other with
@@ -33,7 +41,7 @@ reboots — and your data stays available and stays in sync.
 > Joining is by invitation from an existing member, also tested between two
 > machines through a real coordinator.
 >
-> 995 tests, 214 of them red-team — a red-team test **passes when the attack
+> 1045 tests, 233 of them red-team — a red-team test **passes when the attack
 > fails**. See [docs/TESTING.md](docs/TESTING.md), which lists every one of them
 > with the property it establishes.
 >

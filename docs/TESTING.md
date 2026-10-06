@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-06 — 995 test functions across 31 binaries, 7 of them
-`#[ignore]`d, plus 2 doctests. 214 are red-team tests.**
+**Last updated: 2026-10-06 — 1045 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 233 are red-team tests.**
 
-**879 of the 995 tests have an entry of their own on this page** — an *entry*,
+**929 of the 1045 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 54 |
+| `itsanas-cli` unit | 90 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 117 |
@@ -182,7 +182,9 @@ guarantee and is not one.
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
 | `itsanas-node` withdrawals (`tests/withdrawals.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
-| `itsanas-cli` steering (`tests/steering.rs`) | 3 (3 `#[ignore]`d) |
+| `itsanas-cli` steering (`tests/steering.rs`) | 4 (4 `#[ignore]`d) |
+| `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
+| `itsanas-release` release (`tests/release.rs`) | 12 |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with
@@ -917,7 +919,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — the daemon loop, driven (3, `#[ignore]`d)
+# `itsanas-cli` — the daemon loop, driven (4, `#[ignore]`d)
 
 `tests/steering.rs`. The only tests that run `sync_loop`: each starts the real
 daemon on a throwaway node and reads the snapshot it writes every time round
@@ -933,10 +935,11 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 | **`red_team_a_paused_daemon_takes_in_no_file_until_resumed`** | A daemon started paused: a file written into the folder is not taken into the store while it loops (two snapshots three seconds apart both say `files 0`), and is after `itsanas resume`. The unit tests in `control` prove the decisions; this proves the loop obeys them -- the CI reviewer's finding on #243: deleting the loop's guard passed every unit test. Sabotaged (`take_in` called while paused): red, with the two below. |
 | **`red_team_a_pause_landing_mid_round_takes_in_no_file`** | A pause asked for while a round is under way. A "peer" the test owns accepts the daemon's connection and says nothing, holding the round open; the pause and a new file arrive; the peer lets go. The folder scans inside and at the end of the round re-read the pause, so the store still holds nothing. Sabotaged (either re-read removed): red. Not covered: `halted` stopping the dials to further peers, which needs a second one. |
 | **`red_team_a_paused_daemon_adopts_nothing_its_own_devices_push`** | The paused node's listener keeps serving, by design, so a second device of the account (restored from the 24 words `init` printed) pushes a file into its vault; the store must not adopt it until `resume`. It asserts the push really sent something -- its first run passed on nothing, because a node with no pledge refuses its own account's push. **The test the first version of this guard needed:** a `match` arm that ignored the vault drain's result while the drain ran anyway. Sabotaged (that version put back): red. |
+| **`red_team_a_timed_pause_ends_by_itself_without_resume`** | A real daemon paused through a control file with until = now+4 takes in a file written during the pause by itself once the end passes, never before it and without `itsanas resume`, and logs "pause over, syncing resumed"; Sabotaged (until ignored; comparison inverted): red. |
 
 ---
 
-# `itsanas-cli` — unit tests (54)
+# `itsanas-cli` — unit tests (90)
 
 ## `bench` — measuring this machine (4)
 
@@ -963,7 +966,7 @@ a benchmark that measures a broken path produces a confident wrong number.
 | `the_neighbourhood_is_empty_until_something_is_heard` | No invented peers. |
 | `the_poll_is_short_enough_that_shutdown_feels_immediate` | A Ctrl-C must not wait out an announce interval. |
 
-## `control` — pause, resume, sync now, how often (9)
+## `control` — pause (open-ended or timed), resume, sync now, how often (12)
 
 What a tray, a wizard or a terminal asks of the running daemon, through a file
 in the home (`crates/itsanas-cli/src/control.rs`). The daemon holds the store's
@@ -984,6 +987,87 @@ refused, `1m` taken.
 | **`red_team_a_control_file_that_grew_still_says_paused`** | The daemon reads the file every two seconds, so one that grew by accident (a log redirected into it) is read only up to 4096 bytes -- the whole lines that fit -- and still says the `paused 1` written first. The first version refused such a file, which every reader then had to guess about, and three guessed "not paused". A multi-byte character split by the limit changes nothing; exactly 4096 bytes is read whole; UTF-16 (PowerShell 5's `Out-File`) is refused rather than read as nothing asked. Sabotaged (refuse past the limit; skip the NUL check): red. |
 | **`red_team_an_unreadable_control_file_at_start_never_syncs`** | At start there is no earlier state to keep: a file that exists and cannot be read starts the daemon paused -- it most likely holds a pause -- rather than syncing over it. Once the file can be read, it decides. Sabotaged (start from "not paused"): red. |
 | `a_person_types_durations_and_learns_the_bounds` | `10m`, `1h`, `90`, `1d`, `auto` parse; `5s` and `2d` are refused with the bounds named rather than clamped to a number nobody typed. |
+| **`red_team_a_timed_pause_that_has_expired_syncs_by_itself`** | A pause whose end has passed stops holding by itself: the log says "pause over, syncing resumed" and a round is due at once, with no resume and no wait for the interval; Sabotaged (until ignored; comparison inverted; no immediate round when the pause ends): red. |
+| **`red_team_a_timed_pause_holds_until_its_end`** | A paused node whose until is in the future does not sync; until = u64::MAX, typed or from a corrupted file, survives the file round-trip and is a pause that lasts rather than an overflow or panic; Sabotaged (until ignored; comparison inverted; now+1 arithmetic): red. |
+| `a_pause_is_asked_for_in_words_and_said_back_in_dates` | `pause --for` accepts 1m..30d in the parse_every style and refuses anything else with the bounds and the open-ended alternative; the end is said back as a UTC date plus "in N min", and u64::MAX gives no date and no overflow. |
+
+## `setup` — the setup engine: run again, secrets, the service's home (5)
+
+`crates/itsanas-cli/src/setup/` (`mod.rs`, `steps.rs`, `sign.rs`; tests in
+`setup/tests.rs`). `itsanas setup` walks Machine, Account, Secret,
+Registration, Pledge, Folder, Connectivity, Service and Verify; each step has a
+check, an apply and a one-line remedy, so a second run skips what is done.
+`signout` / `signin` live here too. These tests drive the engine with a scripted
+person and a fake service manager; no real window or service is ever opened.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_setup_run_again_never_remakes_the_account_or_touches_the_keystore`** | A second setup on a configured node finds every step done, never calls init/login again, and leaves the keystore byte for byte; Sabotaged (Account check skipped): red. |
+| **`red_team_no_event_and_no_log_line_carries_a_recovery_word`** | Across two accounts, no progress event and no setup.log line contains a recovery word of its own run; Sabotaged (a word put in an event): red. |
+| **`red_team_words_typed_back_wrong_write_no_account`** | Wrong words typed back for the 3 asked positions leave no account written, so nobody leaves with a paper that restores nothing; Sabotaged (engine skips the check / words_match accepts any word): red. |
+| **`red_team_sign_out_forgets_the_passphrase_and_sign_in_needs_the_right_one`** | Signout deletes the service's passphrase file and keeps the keystore; signin refuses a wrong passphrase and rewrites the file with the right one; Sabotaged (file not deleted / passphrase not checked): red. |
+| **`red_team_the_service_is_never_installed_for_a_home_it_would_not_run`** | Setup --home ELSEWHERE refuses to install a service that would run a different node, before installing anything; Sabotaged (home guard removed): red. |
+
+## `answers` — the unattended answers file (2)
+
+| Test | What it proves |
+| --- | --- |
+| `an_answers_file_says_everything_but_the_secrets` | Every non-secret key of an answers file is parsed into Answers, and none of them is a secret. |
+| `a_mistyped_answer_is_refused_not_ignored` | An unknown or mistyped key in the answers file is refused, never silently ignored (a typo must not leave a machine offering nothing). |
+
+## `secrets` — the 24 words and the passphrase, never in argv, env or a web page (5)
+
+The native window per platform (WinForms through PowerShell on stdin, osascript,
+zenity, kdialog) or the terminal. Only the built command and the parsing are
+tested: no window was opened by a test.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_no_secret_window_carries_a_secret_in_argv_or_env`** | For every backend (PowerShell, osascript, zenity, kdialog) and every ask, the built Command's argv and env hold no recovery word and no passphrase; Sabotaged (phrase put in argv): red. |
+| **`red_team_typed_back_words_are_checked_not_waved_through`** | Words_match accepts the right words at the asked positions (case and spaces tolerated) and refuses wrong, missing or swapped ones; Sabotaged (any non-empty word accepted): red. |
+| `positions_are_three_distinct_words_of_the_twenty_four` | The confirm step asks 3 distinct positions within 1..=24, in order. |
+| `the_windows_reply_survives_any_code_page` | The window's reply comes back base64-encoded, so a non-ASCII passphrase is not mangled by the console code page. |
+| `the_secret_window_is_the_platforms_own_or_the_terminal` | The backend choice is the platform's own window when there is a desktop and the terminal otherwise (an SSH session included), and gives a clear error naming what to install when there is neither. |
+
+## `service` — the background service under the installers' names (5)
+
+| Test | What it proves |
+| --- | --- |
+| `every_name_matches_what_the_installers_and_clean_scripts_use` | Task, unit, plist, passphrase-file and tray-autostart names, with and without an instance, match provision.ps1/provision.sh/macos.sh and clean.ps1/clean.sh. |
+| `names_and_paths_are_quoted_where_they_land` | Instance names and paths are quoted in the generated task script, unit and plist, and none of them contains the passphrase. |
+| `the_passphrase_file_reads_back_in_both_forms` | A passphrase file written by setup or by the installers reads back as the same passphrase. |
+| `the_passphrase_file_is_written_whole_and_alone` | The service's passphrase file is written in full, with owner-only permissions, and holds nothing else. |
+| `the_windows_scripts_parse` | (Windows) The generated wrapper, task, tray and ACL scripts, the secret window and the tray icon script all pass PowerShell's Parser::ParseFile, with and without an instance. |
+
+## `verify` — the final check (2)
+
+| Test | What it proves |
+| --- | --- |
+| `an_unreachable_laptop_is_not_a_failure_an_unreachable_forward_is` | The dial-back verdict passes a machine behind NAT that announced nothing, and fails one whose announced forward cannot be reached, giving a remedy. |
+| `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
+
+## `web` — the local setup and Settings page (13)
+
+`crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
+on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
+port and a 128-bit token, std::net only. The tests run a real server
+in-process with stand-in secret windows; no real browser is launched.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_no_response_ever_carries_a_recovery_word_or_the_passphrase`** | Two whole setups driven through the page's HTTP API with a scripted person in place of the window; every byte that came back (static files, plan, every state poll, run reply) holds neither passphrase nor the 24-word phrase, nor any word of it the other run did not also say; Sabotaged (engine emits the phrase in an event, so in the state JSON): red. |
+| **`red_team_a_rebinding_host_with_the_right_token_is_refused`** | GET /api/state and POST /api/quit under Host evil.example:PORT with the valid token are 403, and the server keeps serving; Sabotaged (Host check dropped): red. |
+| `a_foreign_host_is_refused_before_anything_is_served` | A rebinding name, another port, no port, a localhost-prefixed name, no Host and two Host headers all get 403 for the page itself; 127.0.0.1:PORT and localhost:PORT get 200; Sabotaged (Host check dropped): red. |
+| `the_api_refuses_a_missing_or_wrong_token` | /api/state, /api/plan and /api/run with no token, a token one digit off, or the right token beside a wrong one are 403; the right token is 200; Sabotaged (token check forced true): red. |
+| `a_cross_origin_request_is_refused_and_no_cors_header_is_sent` | A POST with a valid token from Origin evil.example, null, another local port, or Sec-Fetch-Site cross-site is 403; the page's own origin is answered with no Access-Control-* header; Sabotaged (Origin check skipped): red. |
+| `oversized_requests_are_refused_without_being_read_whole` | A head one byte over 16 KiB that never ends gets 431, and a body announced at 64 KiB+1 or 10 MB that is never sent gets 413, both before the read timeout, so neither is waited for or read whole; Sabotaged (head limit raised; body limit removed): red. |
+| `every_response_says_no_store_and_forbids_framing` | The 200 page/js/css, 404, 403 (Host), 403 (token), 200 API and 431 answers all carry no-store, a CSP with script-src 'self' and frame-ancestors 'none', X-Frame-Options DENY, nosniff, no-referrer and Connection: close; Sabotaged (Cache-Control max-age=60): red. |
+| `while_a_window_is_open_the_page_is_told_so_and_a_closed_window_says_what_to_do` | While a stand-in window blocks, /api/state says running and waiting on the 24 words, and a second /api/run is 409; once the window closes, the state says failed with a remedy, waiting is cleared and no keystore was written; Sabotaged (waiting never set): red. |
+| `settings_steer_through_the_control_file_and_change_the_pledge_through_the_engine` | On a node set up through the page: the setup page refuses Settings actions (404); Settings pause writes the control file, a pause 'for 1h' writes a pause with an end (`until`), resume clears it, a pledge change through /api/run reaches the node's config, and sign out deletes the passphrase file; Sabotaged (sign out a no-op): red. |
+| `the_page_asks_no_secret_loads_nothing_from_elsewhere_and_sends_its_key_in_a_header` | Index.html has no password field or textarea and keeps the never-type and window-opened sentences; no embedded file names an http(s) address or a CDN; app.js sends the X-Itsanas-Token header, clears the address with history.replaceState, and uses neither innerHTML nor eval. |
+| `a_desktop_is_needed_for_the_page_and_ssh_never_counts_as_one` | Has_desktop: Windows and macOS yes, Linux only with a display, any SSH session no (X forwarding included), so setup falls back to the terminal where a browser would open unseen. |
+| `the_browser_is_opened_by_the_systems_own_program_with_the_url_as_one_argument` | Browser_command builds rundll32 url.dll,FileProtocolHandler / open / xdg-open with a URL containing # and & as one whole argument, never through cmd. |
+| `the_suggested_pledge_is_a_fifth_in_whole_gib_and_capped` | Suggest_pledge offers a fifth of the free disk, rounded down to whole GiB, 0 on a nearly full disk, at most 500 GiB, in integers. |
 
 ## `daemon` — pacing (3)
 
@@ -998,7 +1082,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable (31)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds (32)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1038,6 +1122,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_an_empty_mount_point_is_not_a_reachable_folder`** | An unmounted disk leaves an empty mount point; `instances` must say UNREACHABLE unless 0l's `.itsanas-folder` marker is there, never trust `is_dir` alone. |
 | `a_refused_chain_is_said_on_the_sync_line` | `itsanas sync`'s summary names a device chain the peer served and this node refused (§8 2c), and adds nothing when there is none; without it the round reads as a finished sync with one device's changes left out. Sabotaged (the line dropped from `deferred_note`): red. |
 | **`red_team_pledge_under_what_keep_needs_is_refused_and_saves_nothing`** | `itsanas pledge 1M` on a node keeping 20 GiB is refused with the `space --pledge .. --keep .. --apply` command, and neither the node file nor the node in memory changes; with no keep the same pledge goes through, so the setter is not one that refuses everything (HANDOVER §8 3a). Sabotaged (the `check_split` call in `set_pledge` dropped, or moved below the assignment; `check_split` always `Ok`): red. |
+| `a_timed_pause_shows_paused_only_while_it_holds` | Status --brief, which every tray reads, says paused only while the pause holds, so an expired timed pause never shows a blue icon over a node that is syncing again. |
 
 # `itsanas-policy` — when to sync, and how much (23)
 
@@ -1880,6 +1965,44 @@ catalogued by name because they hold a rule two other programs depend on:
 | **`red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`** | Two splits exist and they are not the same thing: the one in a node's configuration file decides what that machine refuses to its own owner, and the one `assess` is given decides what the network grants. What this catches is a `split` field added to `DeviceContribution` — the struct a device fills in about itself — and read by `assess`. If a member's number ever reaches that arithmetic, widening an entitlement costs one line of a text file and the bargain is decoration. |
 | **`red_team_a_second_username_cannot_renew_the_joining_allowance`** | `register_admitted` answered two questions from two tables: "has this key been here before?" from BY_ID, and "does this account exist?" from ACCOUNTS keyed by *name*. They agree until one key asks for a second name — then the key counts as returning, so no invitation is demanded, and the name is unknown, so the branch that preserves the account's registration date is skipped and a fresh account is minted with today's date. One signed message every thirty days turned a bounded 10 GiB joining allowance into a permanent free tier. **The two sibling tests covered (same key, same name) and (different key, same name); nobody wrote (same key, different name)**, and this page recorded the property as established. Same shape as the freshness guard that lived in one branch of three. |
 | **`red_team_one_admitted_key_cannot_mint_accounts_on_an_invite_only_coordinator`** | The same defect on its other axis. The invitation gate is skipped for a key that already has an account — right for somebody re-registering the name they hold, wrong for anything else. An admitted member could open unlimited accounts with no invitation, and usernames here are bound to a key for ever with no release path, so one member could squat every short name on the coordinator. |
+
+---
+
+# `itsanas-cli` — setup run twice (1, `#[ignore]`d)
+
+`tests/setup.rs`. Runs the real binary twice with `--answers` (service off) in
+a temporary home. Ignored because each run pays a full Argon2id derivation;
+the `slow-tests` CI job runs it in release.
+
+| Test | What it proves |
+| --- | --- |
+| `setup_run_twice_from_answers_changes_nothing` | (ignored, release) The binary run twice with --answers (service = false) in a temp home: the second run shows no new words and leaves the device id, keystore and config byte for byte; Sabotaged (Account check skipped): red. |
+
+---
+
+# `itsanas-release` — signed release manifests (12)
+
+`crates/itsanas-release` (`tests/release.rs`): the manifest (`itsanas-release 1`,
+one `file` line per target with size, BLAKE3 and SHA-256), its Ed25519
+signature, the sealed signing key and the `itsanas-release` binary used by
+`scripts/sign-release.*` and `.github/workflows/release.yml`. No node calls
+`verify_release` yet (self-update is 0t part 4), and `RELEASE_KEY` is `None`
+until Nicolas pins his key, so today every verification is refused.
+
+| Test | What it proves |
+| --- | --- |
+| `a_release_signed_by_the_trusted_key_is_accepted_end_to_end` | The honest path holds: manifest from a dir, sealed key signs it, verify_release + check_file accept the real binary (a refusal here would block every tester's update). |
+| **`red_team_a_manifest_signed_by_another_key_is_refused`** | A release signed by anyone but the trusted key is refused (else anyone could push binaries to every node); Sabotaged (signature check accepts any key): red. |
+| **`red_team_one_changed_byte_in_a_signed_manifest_is_refused`** | One byte altered in a signed manifest (e.g. a hash swapped for a trojan's) is refused; Sabotaged (signature check accepts any key): red. |
+| **`red_team_an_older_or_equal_version_is_refused_as_a_downgrade`** | A genuinely signed but older or equal release is refused, so an attacker cannot replay an old vulnerable binary; Sabotaged (<= turned into <; version fields reordered): red. |
+| **`red_team_a_file_whose_size_or_hashes_do_not_match_is_refused`** | A downloaded binary whose size, BLAKE3 or SHA-256 differs from the signed manifest is refused, not installed; Sabotaged (BLAKE3 check off; SHA-256 check off): red. |
+| **`red_team_a_truncated_download_is_refused`** | A download cut short is refused before install, so a flaky network never leaves a half binary in place; Sabotaged (size check accepts smaller files): red. |
+| **`red_team_the_key_file_with_a_wrong_passphrase_is_refused`** | A stolen key file without the passphrase (or a tampered one) signs nothing and fails in one plain line; Sabotaged (unlock failure falls back to a zero key): red. |
+| **`red_team_with_no_release_key_pinned_every_manifest_is_refused`** | A build with no release key pinned refuses every manifest with "no release key pinned yet" instead of a misleading forgery error; Sabotaged (None yields an empty trust): red. |
+| `the_release_key_is_pinned_until_nicolas_changes_it_on_purpose` | RELEASE_KEY's value is pinned, so changing the key every node trusts is a visible decision in a diff; Sabotaged (constant changed): red. |
+| `a_next_key_named_by_a_signed_manifest_is_trusted_once_learned` | Key rotation works: a key named by a manifest the old key signed is trusted afterwards, so a rotation does not strand nodes; Sabotaged (next key not stored): red. |
+| `a_manifest_names_only_files_derived_from_their_target` | A manifest line whose file name is not itsanas-<target>[.exe] is refused, so a signed manifest cannot point an installer at another file; Sabotaged (name check off): red. |
+| `versions_compare_as_numbers_not_as_text` | 0.10.0 is newer than 0.9.0 and non-digit parts are refused, so the downgrade rule cannot be fooled by text ordering; Sabotaged (field order swapped; digits-only check off): red. |
 
 ---
 

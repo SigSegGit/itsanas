@@ -638,11 +638,15 @@ fn settings_steer_through_the_control_file_and_change_the_pledge_through_the_eng
         crate::control::paused_on_disk(&home),
         "the page said paused and the control file does not: the daemon would keep syncing"
     );
+    let timed = page.api("POST", "/api/control", "action=pause&for=1h");
     assert_eq!(
-        page.api("POST", "/api/control", "action=pause&for=1h")
-            .status,
-        400,
-        "a pause with an end was accepted though nothing ends it yet (0w (5)): it would never end"
+        timed.status, 200,
+        "a pause for 1 hour was refused: {}",
+        timed.body
+    );
+    assert!(
+        crate::control::Control::read(&home).is_ok_and(|c| c.until.is_some()),
+        "the page's 'for 1 hour' wrote a pause with no end: it would never end by itself"
     );
     assert!(
         page.api("GET", "/api/state", "")

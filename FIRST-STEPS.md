@@ -10,6 +10,12 @@ machine, run one command, then follow **After the install** at the bottom.
 From a clone, build the tag rather than `main`:
 `git clone --branch v0.1.0 https://github.com/SigSegGit/itsanas`.
 
+**No compiler? Install a release.** Windows:
+`irm https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.ps1 | iex`. Linux/macOS:
+`curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.sh | sh`. It downloads the latest release, checks it, installs it and starts
+`itsanas setup`. This works only once Nicolas has published a first signed
+release; until then, compile as below.
+
 Everything here builds from source on the machine it runs on. There are no
 prebuilt binaries and that is deliberate: the fleet this is written for is a
 Windows laptop, a Raspberry Pi and an ARM virtual machine, and a build on each
@@ -98,6 +104,31 @@ NAME`, start it again. Withdrawn devices stay withdrawn.
 ---
 
 ## After the install
+
+### The easy way: `itsanas setup`
+
+Run `itsanas setup` (add `--instance NAME` for a second account on the same
+computer). On a computer with a screen it opens a page in your browser and
+walks you through each step: this machine, the account (new, or one you
+already have), joining the network, the space you offer, the folder, a
+connectivity check, the background service and a final check. If no page
+opens, paste the address it prints into your browser; it only works on that
+computer and only while the command runs.
+
+**Your 24 recovery words and your passphrase are never typed into the page:** a
+separate ITSaNAS window asks for them (look in your taskbar / Dock if you
+cannot see it). **Never type your recovery words into a web page.** A new
+account shows the 24 words once and asks three of them back before anything is
+written. If a step fails, it says the one thing to do; run `itsanas setup` again
+afterwards: it skips what is done and never makes a second account.
+
+`itsanas setup --text` asks the same questions in the terminal, and an SSH
+session uses the terminal by itself. Later, `itsanas settings` opens the same
+page to pause or resume, sync now, change how often it syncs, the space you
+offer, your folder or your coordinator, or to sign out (changing space, folder
+or coordinator restarts ITSaNAS, a few seconds).
+
+The numbered steps below are the same thing done by hand, the alternative.
 
 ### 1. Make an account, on your first machine
 
@@ -256,8 +287,25 @@ itsanas sync-now     # don't wait for the next round
 itsanas interval 10m # how often it syncs: 30s to 1d, or auto
 ```
 
-Nothing is lost while paused: what you change waits until you resume. On
-Windows the tray icon's menu has the same four.
+Nothing is lost while paused: what you change waits until you resume.
+`itsanas pause --for 2h` (1 min to 30 days) pauses with an end, and syncing
+resumes by itself; `itsanas status` then says "PAUSED until <time> (in N
+min)".
+
+```sh
+itsanas signout      # stop ITSaNAS here and forget the passphrase; keys and files stay
+itsanas signin       # ask the passphrase again and start it
+itsanas settings     # the same choices in a page in your browser
+```
+
+While signed out this machine does not answer the others' checks.
+
+An ITSaNAS icon starts at login: in the notification area on Windows, in the
+menu bar on a Mac, and as an indicator on a Linux desktop (it needs
+python3-gi and AppIndicator; without them, use `itsanas settings`). Its menu
+has the same choices: open the folder, pause for 1 hour, 8 hours or until you
+resume, sync now, sync every, Settings..., Sign out..., open the log, restart.
+The Mac and Linux icons have not yet been run on a real desktop.
 
 ---
 
