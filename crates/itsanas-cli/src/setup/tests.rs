@@ -417,3 +417,34 @@ fn red_team_sign_out_forgets_the_passphrase_and_sign_in_needs_the_right_one() {
         "signed in, and the service was not started again"
     );
 }
+
+#[test]
+fn red_team_the_service_is_never_installed_for_a_home_it_would_not_run() {
+    // The task, the unit and the plist run the node `--instance` names, not
+    // the `--home` setup was given: installed for a throwaway home, the
+    // service would start some other node, or none, and setup would say done.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let service = Recording {
+        file: dir.path().join("service").join("passphrase"),
+        calls: RefCell::new(Vec::new()),
+    };
+    let mut wanted = answers(dir.path());
+    wanted.service = true;
+    let (mut person, _) = Scripted::new(false);
+    let mut events = Vec::new();
+    let mut record = |event: &Event| events.push(event.clone());
+    let outcome = Setup::new(&home, wanted, &mut person, &service, &mut record).run();
+    assert_eq!(
+        outcome.failed,
+        Some(Step::Service),
+        "setup on a home no service runs did not stop at the service: {events:#?}"
+    );
+    assert!(
+        !service.calls.borrow().contains(&"install"),
+        concat!(
+            "a service was installed for a home it does not run: the person is told the ",
+            "machine works while no daemon ever opens this node"
+        )
+    );
+}

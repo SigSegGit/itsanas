@@ -458,6 +458,7 @@ impl Setup<'_> {
     }
 
     pub(super) fn apply_service(&mut self) -> Result<String> {
+        self.refuse_a_home_the_service_would_not_run()?;
         let store = Node::store_path(&self.home);
         if itsanas_store::Store::is_locked(&store) && !self.service.installed() {
             return Err(CliError::Usage(
@@ -478,6 +479,37 @@ impl Setup<'_> {
             )));
         }
         Ok(format!("{said}; the daemon runs"))
+    }
+
+    /// The service names no home of its own: the task, the unit and the plist
+    /// run the node `--instance NAME` (or no instance) resolves to, as the
+    /// installers' do. Set up with `--home` somewhere else, it would start a
+    /// daemon on another node -- or on none -- and call that a success.
+    fn refuse_a_home_the_service_would_not_run(&self) -> Result<()> {
+        let served = match self.answers.instance.as_deref() {
+            Some(name) => crate::config::instance_home(name)?,
+            None => crate::config::unnamed_home(&crate::config::user_home())?,
+        };
+        let same = |a: &std::path::Path, b: &std::path::Path| match (
+            std::path::absolute(a),
+            std::path::absolute(b),
+        ) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        };
+        if same(&self.home, &served) {
+            return Ok(());
+        }
+        Err(CliError::Usage(format!(
+            concat!(
+                "the background service runs the node in {}, and this one is in {}; run setup ",
+                "with `--instance NAME` instead of `--home`, or set service = false and start ",
+                "this node with `itsanas --home {} daemon`"
+            ),
+            served.display(),
+            self.home.display(),
+            self.home.display()
+        )))
     }
 
     // -- Verify ---------------------------------------------------------------
