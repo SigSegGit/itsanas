@@ -1063,8 +1063,12 @@ zero=0000000000000000000000000000000000000000000000000000000000000000
 printf 'itsanas-release 1\nversion 9.9.9\nfile x86_64-unknown-linux-gnu %s %s %s %s\n' \
     "$bin_name" "$good_size" "$zero" "$good_sha" > "$getbed/rel/manifest.txt"
 
+# The prefix's bin is already on the PATH: get.sh then has no PATH question to
+# ask. Without it, a developer running this check in a terminal is asked one on
+# /dev/tty (stdin redirected or not) and the check waits forever -- found on
+# 2026-10-06, when a run under WSL sat on that prompt for twenty minutes.
 run_get() {
-    PATH="$getbed/stub:$PATH" HOME="$getbed/home" GETREL="$getbed/rel" \
+    PATH="$getbed/stub:$getbed/prefix/bin:$PATH" HOME="$getbed/home" GETREL="$getbed/rel" \
         sh install/get.sh --prefix "$getbed/prefix" --no-setup </dev/null 2>&1
 }
 
@@ -1095,7 +1099,7 @@ else
     printf '%s\n' "$out" | tail -3 | sed 's/^/       /'
 fi
 if [ -n "$(ls -A "$getbed/home")" ]; then
-    bad "get.sh wrote into HOME without a terminal to ask on: $(ls -A "$getbed/home")"
+    bad "get.sh wrote into HOME, which it has no reason to touch here: $(ls -A "$getbed/home")"
 fi
 rm -rf "$getbed"
 
