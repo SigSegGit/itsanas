@@ -12,6 +12,7 @@
 //! rather than glossed over.
 
 mod bench;
+mod control;
 mod daemon;
 mod discovery;
 
@@ -165,12 +166,30 @@ enum Command {
     },
     /// Show this node's identity, contents and hosting.
     Status {
-        /// One line for a tray icon or a script: `healthy`, `stale`,
-        /// `stopped`, `departed` or `unknown`, then the snapshot's age in
-        /// seconds when there is one. Never asks for a passphrase.
+        /// One line for a tray icon or a script: `healthy`, `paused`,
+        /// `stale`, `stopped`, `departed` or `unknown`, then the snapshot's
+        /// age in seconds when there is one. Never asks for a passphrase.
         #[arg(long)]
         brief: bool,
     },
+    /// Stop syncing this machine's files until `itsanas resume`.
+    ///
+    /// Nothing is lost: what you change here waits until you resume, and what
+    /// the others change waits for you. This machine keeps hosting for them
+    /// and keeps saying where it is, so pausing your own syncing never costs
+    /// anybody else a copy. An idle daemon takes it within two seconds; in a
+    /// round, it finishes with the machine it is talking to (five minutes at
+    /// most) and dials no other. One started later starts paused.
+    Pause,
+    /// Start syncing again after `itsanas pause`, at once.
+    Resume,
+    /// Ask the running daemon for a sync round now rather than at its next
+    /// interval.
+    #[command(name = "sync-now")]
+    SyncNow,
+    /// How often the daemon syncs: `30s` to `1d`, e.g. `10m` or `1h`, or `auto`
+    /// for its own setting. Without a value, says what it is.
+    Interval { every: Option<String> },
     /// Show this account's public identity.
     Whoami,
     /// List the nodes on this machine: account, home, folder, daemon.
@@ -657,11 +676,11 @@ fn run() -> Result<()> {
         } => register(&home, recovery, withdraw_recovery, invite.as_deref()),
         Command::Invite { uses, days } => invite(&home, uses, days),
         Command::Passphrase { recovery } => change_passphrase(&home, recovery),
-        Command::Status { brief: true } => {
-            print_brief(&home);
-            Ok(())
-        }
-        Command::Status { brief: false } => status(&home),
+        Command::Status { brief } => status(&home, brief),
+        command @ (Command::Pause
+        | Command::Resume
+        | Command::SyncNow
+        | Command::Interval { .. }) => steer(&home, &command),
         Command::Instances | Command::Migrate { .. } => {
             unreachable!("answered before a home is resolved")
         }
@@ -1477,6 +1496,16 @@ fn snapshot_status(home: &Path, running: bool) -> Result<String> {
         // that was never measured.
         None => format!("{subject}; the snapshot it left has no time on it."),
     };
+    let header = match control::Control::read(home) {
+        Ok(control::Control {
+            paused_since: Some(since),
+            ..
+        }) => format!(
+            "{header}\nSyncing is PAUSED here, since {}: nothing moves until `itsanas resume`.",
+            describe_age(itsanas_discover::now_unix().saturating_sub(since))
+        ),
+        _ => header,
+    };
 
     Ok(format!("{header}\n\n{body}"))
 }
@@ -1647,12 +1676,106 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
     let age = now.saturating_sub(taken);
     if age > every.saturating_mul(2) {
         format!("stale {age}")
+    } else if control::paused_on_disk(home) {
+        format!("paused {age}")
     } else {
         format!("healthy {age}")
     }
 }
 
-fn status(home: &Path) -> Result<()> {
+/// Write what was asked into the control file the daemon reads (`control.rs`).
+///
+/// Opens nothing and asks no passphrase: these are the commands a tray runs
+/// while the daemon holds the store, which is every moment they are useful.
+fn steer(home: &Path, command: &Command) -> Result<()> {
+    if !Node::exists(home) {
+        return Err(CliError::Usage(format!(
+            "no node in {}; set one up first",
+            home.display()
+        )));
+    }
+    let running = itsanas_store::Store::is_locked(Node::store_path(home));
+    let now = itsanas_discover::now_unix();
+    // An unreadable file is replaced: rewriting it is the repair, and the
+    // daemon has kept what it last understood in the meantime.
+    let mut control = control::Control::read(home).unwrap_or_default();
+    let said = match command {
+        Command::Pause if control.paused_since.is_some() => {
+            "Syncing was already paused.".to_owned()
+        }
+        Command::Pause => {
+            control.paused_since = Some(now);
+            "Syncing paused on this machine. Nothing is lost: your changes here wait until you \
+             resume, and this machine keeps hosting for the others. A transfer under way \
+             finishes with the machine it is talking to (five minutes at most); no other \
+             starts.\nResume with: itsanas resume"
+                .to_owned()
+        }
+        Command::Resume if control.paused_since.is_none() => "Syncing was not paused.".to_owned(),
+        Command::Resume => {
+            control.paused_since = None;
+            // Resuming is a request to catch up, not to wait for the interval.
+            control.sync_asked = Some(now);
+            "Syncing resumed; a round starts within two seconds.".to_owned()
+        }
+        Command::SyncNow if control.paused_since.is_some() => {
+            return Err(CliError::Usage(
+                "syncing is paused on this machine; `itsanas resume` resumes and syncs at once"
+                    .to_owned(),
+            ));
+        }
+        Command::SyncNow if !running => {
+            return Err(CliError::Usage(
+                "no daemon is running this node; start it, and it syncs as it starts".to_owned(),
+            ));
+        }
+        Command::SyncNow => {
+            // A second click in the same second is the same request.
+            control.sync_asked = Some(now);
+            "Asked; the round starts within two seconds.".to_owned()
+        }
+        Command::Interval { every: None } => {
+            println!(
+                "{}",
+                match control.interval {
+                    Some(every) => format!(
+                        "every {} (set with `itsanas interval`; `itsanas interval auto` undoes it)",
+                        control::describe_every(every)
+                    ),
+                    None => "auto: the daemon's own setting (`--interval`, else the sync policy)"
+                        .to_owned(),
+                }
+            );
+            return Ok(());
+        }
+        Command::Interval { every: Some(every) } => {
+            let every = control::parse_every(every).map_err(CliError::Usage)?;
+            control.interval = every;
+            match every {
+                Some(every) => {
+                    format!("The daemon syncs every {}.", control::describe_every(every))
+                }
+                None => "The daemon syncs on its own setting again.".to_owned(),
+            }
+        }
+        _ => unreachable!("only pause, resume, sync-now and interval are dispatched here"),
+    };
+    control.write(home).map_err(|source| CliError::Io {
+        path: home.join(control::CONTROL),
+        source,
+    })?;
+    println!("{said}");
+    if !running && !matches!(command, Command::SyncNow) {
+        println!("(No daemon is running this node now; it reads this when it starts.)");
+    }
+    Ok(())
+}
+
+fn status(home: &Path, brief: bool) -> Result<()> {
+    if brief {
+        print_brief(home);
+        return Ok(());
+    }
     // Ask whether the daemon holds the store *before* asking anybody for a
     // passphrase. `open` resolves the passphrase first, so this path -- whose
     // entire purpose is to answer while the daemon is running, which is the
@@ -3596,10 +3719,10 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceId, SNAPSHOT, brief_status, departure_refusal, describe_age, first_free_port,
-        instances_report, looks_like_a_closed_pipe, migrate_unnamed, phrase_grid, phrase_words,
-        record_departure, refuse_if_departed, register, rejoin, resolve_device, set_pledge,
-        sibling_ports, snapshot_status, sync_folder,
+        Command, DeviceId, SNAPSHOT, brief_status, control, departure_refusal, describe_age,
+        first_free_port, instances_report, looks_like_a_closed_pipe, migrate_unnamed, phrase_grid,
+        phrase_words, record_departure, refuse_if_departed, register, rejoin, resolve_device,
+        set_pledge, sibling_ports, snapshot_status, steer, sync_folder,
     };
 
     /// `itsanas sync` names a refused chain on its summary line, and says
@@ -3902,6 +4025,40 @@ mod tests {
         assert_eq!(brief_status(&home, false, now), "stopped");
         record_departure(&home, now).expect("depart");
         assert_eq!(brief_status(&home, true, now), "departed");
+    }
+
+    /// A paused node says so; a hung one is stale whatever it was asked, or a
+    /// pause would hide a dead daemon behind a calm icon.
+    #[test]
+    fn a_paused_node_says_paused_and_a_hung_one_still_says_stale() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        let now = 1_000_000;
+        let write = |taken: u64| {
+            std::fs::write(
+                home.join(SNAPSHOT),
+                format!("snapshot {taken} every 300\n  files 3\n"),
+            )
+            .expect("snapshot");
+        };
+        steer(&home, &Command::Pause).expect("pause");
+        write(now - 60);
+        assert_eq!(brief_status(&home, true, now), "paused 60");
+        write(now - 3 * 300);
+        assert_eq!(brief_status(&home, true, now), "stale 900");
+        steer(&home, &Command::Resume).expect("resume");
+        write(now - 60);
+        assert_eq!(brief_status(&home, true, now), "healthy 60");
+        let resumed = control::Control::read(&home).expect("control");
+        assert!(
+            resumed.sync_asked.is_some(),
+            "resuming did not ask for a round: the node waits a full interval to catch up"
+        );
+        assert!(
+            steer(&home, &Command::SyncNow).is_err(),
+            "sync-now with no daemon running said it was asked"
+        );
     }
 
     /// Onto an existing home is onto somebody's node: refused, both untouched.

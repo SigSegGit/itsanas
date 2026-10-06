@@ -247,6 +247,18 @@ asks the coordinator to try -- and whether the addresses it was given are ones i
 could dial from where it is standing. If nothing is syncing, that is the command
 that says whose problem it is.
 
+While the daemon runs:
+
+```sh
+itsanas pause        # stop syncing here; this machine keeps hosting for the others
+itsanas resume       # start again, and sync at once
+itsanas sync-now     # don't wait for the next round
+itsanas interval 10m # how often it syncs: 30s to 1d, or auto
+```
+
+Nothing is lost while paused: what you change waits until you resume. On
+Windows the tray icon's menu has the same four.
+
 ---
 
 ## Removing it

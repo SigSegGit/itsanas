@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**981 test functions, 4 of them `#[ignore]`d into the slow job, and 204 of
+**989 test functions, 4 of them `#[ignore]`d into the slow job, and 208 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1109,9 +1109,11 @@ Still to build:
 - Alerting on the conditions in
   [ARCHITECTURE.md §7](ARCHITECTURE.md#7-operational-behaviour). None of them
   are wired to anything yet.
-- While the daemon runs, other commands against the same home still refuse to
-  start. The daemon covers the common case; a local control socket would be the
-  real fix.
+- While the daemon runs, commands that open the store still refuse to start.
+  Pausing, resuming, asking for a round and changing the interval do not need
+  the store and work while it runs (`itsanas pause|resume|sync-now|interval`,
+  through a file the daemon reads); a live file list would still need a local
+  control socket.
 
 **Exit criteria:** the folder-that-just-syncs experience, plus an alert that
 actually fires when node count drops below the replication floor or a sync round
@@ -2163,6 +2165,6 @@ real network.
 | --- | --- |
 | Reed–Solomon erasure coding | Needs ≥6 independent nodes to beat replication; the interface is already shaped for it |
 | Virtual drive mount, writing into it | **Reading works** — `itsanas-drive` shows the whole account in Explorer and downloads a file when it is opened, verified on 2026-09-08. What is missing is the other direction: a file dropped into the folder is not imported, because that needs ProjFS notification callbacks the MIT binding does not expose. `itsanas put` and `itsanas folder` are how things get in meanwhile. FUSE on Linux is untouched and low value: the Pi and the VM are servers nobody browses |
-| Tray / desktop GUI | 🟨 Windows: `scripts/itsanas-tray.ps1` (2026-09-30) draws `itsanas status --brief` -- state, folder, log, restart; `provision.ps1` starts it at logon per node through a Startup-folder shortcut, and `clean.ps1 -Instance` removes only that node's (checked in `check-installers.sh`; the icon itself never yet seen on screen). Pause / disconnect / decommission wait for their confirmations. macOS, Linux desktops: none. |
+| Tray / desktop GUI | 🟨 Windows: `scripts/itsanas-tray.ps1` (2026-09-30) draws `itsanas status --brief` -- state, folder, log, restart; `provision.ps1` starts it at logon per node through a Startup-folder shortcut, and `clean.ps1 -Instance` removes only that node's (checked in `check-installers.sh`; the icon itself never yet seen on screen). Pause/Resume (behind its dialog), Sync now and Sync every since 2026-10-06, through `itsanas pause|resume|sync-now|interval` (HANDOVER §8 0w (1)); disconnect and decommission wait for their confirmations (0w (5), (7)). macOS, Linux desktops: none. |
 | Fully decentralised discovery (DHT) | The coordinator is control-plane only and swappable; building both at once doubles the surface |
 | Traffic padding and cover traffic | Would hide object sizes and access timing, currently accepted as visible |

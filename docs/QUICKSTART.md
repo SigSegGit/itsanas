@@ -160,8 +160,10 @@ read.
 > stopped: stop it and try again.
 > ```
 >
-> Use `itsanas daemon`, which does both. A local control socket would remove
-> the restriction entirely and is not built.
+> Use `itsanas daemon`, which does both. While it runs, `itsanas status`,
+> `pause`, `resume`, `sync-now` and `interval` still work: they go through
+> files in the home rather than the store. A local control socket would lift
+> the restriction for the rest and is not built.
 
 ## 4. Bring up a second machine
 

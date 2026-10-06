@@ -9,16 +9,36 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0t
-TITLE: a release that updates itself, signed with Nicolas's key
+NEXT: 8.0w
+TITLE: setup wizard and tray, sub-step (2): the setup engine and `itsanas setup` in a terminal
 WRITTEN-AT: 2026-10-06
-BASE: 4c7ca3b
+BASE: e3b05fd
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-06 night, NEXT is the setup wizard and the tray (§8 0w), by
+Nicolas's redirection** ("the BIG step-up ... to get more testers before going
+further"). #242 (fleet wiped, 0t planned) was found open and green, and merged
+first. 0w is planned in eight sub-steps; (1), the control channel, is built
+(branch `step/control-channel`): `itsanas pause|resume|sync-now|interval` write
+`<home>/control`, which the daemon reads every two seconds at most; the Windows
+tray has the matching entries. The architecture of the wizard (a local web page
+served by `itsanas` itself) is the session's decision, recorded in 0w with why,
+and **reversible until (4) starts**. 0t is split: its parts 1-3 (a release
+a tester downloads instead of building) are 0w (3), ahead of the web page,
+after Rodin's audit; its self-update is 0w (6). Truth when this
+and the code disagree: `crates/itsanas-cli/src/control.rs`. Traps this time:
+a Python edit passed through a Git Bash heredoc lost the backslash of `\n` and
+matched nothing (write the script to a file); PowerShell's `GetNewClosure()`
+hides a script's own functions from the handler (the tray uses the item's
+`Tag`); one Bash call starting a detached daemon with `sleep`s was refused --
+the end-to-end run went through a Python script that kills its daemon in
+`finally`. Left on disk, harmless: the worktree `D:/GitHub/itsanas-wipe` still
+holds the merged branch `docs/fleet-wiped` (`git worktree remove` it).
 
 **2026-10-06 evening, the whole fleet wiped; NEXT is a self-updating
 release.** After the live test (Pi, VM, laptop, Mandarine's Mac all saying
@@ -1409,7 +1429,132 @@ Detail and measurements are in ROADMAP.md; this is the map.
       SSH (sudo without a password, private guide) may be done by the
       session itself.
 
-   t. **A release that updates itself, signed with Nicolas's key.** Asked
+   w. 🟨 **A setup wizard and a tray, friendly enough for testers who are
+      not us.** Asked for by Nicolas on 2026-10-06, after the live test
+      (several machines of one account): a simple step-by-step interface to
+      set up the machine, the account, the pledge, updates, registration,
+      the secret, a connectivity check and the daemon; a final verification
+      that it all worked; then the app lives in the tray, where it opens the
+      right folder and offers sign off, sync frequency, pause, sync now, a
+      clean removal and account deletion. Put ahead of 0t by him. 0t stays
+      the gate for testers outside his circle: every installer builds from
+      source today (`windows.ps1` installs Rust and the Visual Studio build
+      tools, `macos.sh` waits for Apple's), which no ordinary tester does.
+      **Decided by the session, 2026-10-06, reversible until (4) starts:**
+      the wizard is a local web page served by the `itsanas` binary itself
+      -- `itsanas setup` opens the default browser on
+      `http://127.0.0.1:<random port>/` with a one-time token -- the model
+      Syncthing has used for years. Why: one interface for Windows, macOS and
+      Linux desktops, and a headless Pi through `ssh -L`; no GUI crate,
+      where the tray crates are already refused by `cargo deny` (the header
+      of `scripts/itsanas-tray.ps1` says why) and a web view would be the
+      same fight; and every step testable by plain Rust tests in CI, which
+      has no display. Rejected: egui or iced (winit, already refused, and a
+      large tree), Tauri (a toolchain of its own), a PowerShell-only wizard
+      (Windows only). In order:
+      1. ✅ **The control channel.** Built 2026-10-06:
+         `itsanas pause|resume|sync-now|interval` write `<home>/control`,
+         read by the daemon at most two seconds later
+         (`crates/itsanas-cli/src/control.rs`; the home is already the
+         boundary of trust, so a file needs no socket and works the same on
+         every platform). Paused means no folder scan, no vault drain, no
+         peer dialled -- but the coordinator publication and the standing
+         check go on, so the machine keeps hosting. That departs from item 1
+         of 0f's 2026-09-15 specification ("stop hosting"), on purpose: a
+         machine that stops answering fails the audits others' copies rely
+         on, and stopping everything is what Disconnect is for. The interval
+         is 30 s to 1 day, held there by the daemon whatever the file says.
+         A pause is read again before each machine a round dials, so the
+         session under way finishes (five minutes at most, #241's budget) and
+         no other starts -- Rodin's catch: "after the round" can be hours on
+         a first sync, and a pause is for giving the bandwidth back now.
+         `status --brief` says `paused` (a stale daemon still says `stale`).
+         The Windows tray has Pause/Resume (with the consequence dialog),
+         Sync now and Sync every. Red-team, each sabotaged red: the interval
+         floor, one request one round, paused never a full round, an
+         unreadable file never resuming. **Not tested:** the loop's dispatch
+         (no test drives the daemon loop; run once end to end by hand with a
+         throwaway node), and the tray's new entries never seen on screen.
+      2. **The setup engine, and `itsanas setup` in a terminal. NEXT.** One
+         module (`crates/itsanas-cli/src/setup.rs`; a crate only if (4) needs
+         it apart) holding the steps as data. Each step has `check` (already
+         done? read from the home and the configuration, never by asking
+         again), `apply` and `verify`, so running `setup` again after a
+         failure skips what is done and every failure says the one thing to
+         do -- that is the resilience asked for. Steps: the name of this
+         machine and its instance; the account, new (`init`, show the 24
+         words, ask three of them back at random) or joined (`login` from the
+         words, or `--from` the coordinator); the passphrase and the file the
+         service reads it from, permissions checked; the coordinator and
+         registration with an invitation; the pledge, checked against free
+         disk, the 30/70 bargain said in one line from `itsanas-placement`'s
+         constants (`check-bargain.py` will want the wording); the folder;
+         connectivity -- reach the coordinator, have it dial back (the
+         network half of `doctor`, called, not copied), announce a public
+         address when one is needed; the service (what `provision.ps1` and
+         `provision.sh` do now -- read them, roughly 450-600 in the `.ps1`,
+         and decide whether the engine calls them or absorbs them); and the
+         final verification -- the daemon running and `healthy`, the
+         coordinator listing this device, and, when another machine of the
+         account is online, a canary file both ways (the verdict logic of
+         `install/testbed.sh`, ported). Read `testbed.sh`/`testbed.ps1`
+         first: they are the nearest thing to a wizard today. Red-team
+         expected: setup run again on a configured node never makes a second
+         identity or overwrites the keystore (sabotage: skip `check`); the 24
+         words never reach a file or a log (sabotage: log them).
+      3. **0t's parts 1-3: a release a tester downloads.** Moved here by
+         the session after Rodin's audit: what stops a tester today is not
+         the absence of a wizard, it is installing Rust and the Visual Studio
+         build tools, or 40 minutes of compiling on a Mac. The signed
+         manifest, `sign-release.*` and the `release` workflow, as written in
+         0t; the self-update (0t's part 4) stays at (6).
+      4. **The same engine behind a local web page.** `itsanas setup` on a
+         desktop opens it, `--text` keeps the terminal. An HTTP/1.1 server
+         on `std::net` (no new crate unless `cargo deny` takes a small one),
+         bound to 127.0.0.1 only, a random port, a one-time token in the
+         URL; a request whose Host is not `127.0.0.1:<port>` is refused (DNS
+         rebinding), a POST needs the token and a same-origin Origin (CSRF),
+         and every page that shows the 24 words is `Cache-Control:
+         no-store`. HTML, CSS and JS embedded with `include_str!`, nothing
+         from a CDN, light or dark with the system. Red-team: another Host,
+         a missing token, a cross-origin POST, each refused. Two questions
+         to settle before building, both Rodin's: **the 24 words do not go
+         through the browser** -- every extension allowed to read all sites
+         reads that page; show them where `itsanas setup` was started (the
+         terminal, or a native dialog on Windows), and have the page ask
+         three back, or say in the decision why the browser is acceptable.
+         And **who serves the Settings page once the daemon runs**: it holds
+         the store and reads its configuration only at start, so either the
+         daemon serves HTTP itself (a listener in a long-lived process: more
+         to defend) or a separate process writes the configuration and
+         restarts the daemon. Choose with the cost of each written down.
+         After setup the same page is Settings: pledge, folder, interval,
+         updates.
+      5. **The tray, finished.** A pause with an end: `itsanas pause --for
+         2h` (a `until` key the daemon honours by the clock), and the tray's
+         Pause offering 1 h, 8 h or until resumed -- OneDrive forces a
+         duration for the reason Rodin gave: a pause forgotten on a backup
+         is somebody who believes their files are safe. Windows (`itsanas-tray.ps1`): Settings...
+         (opens (4)), Sign out (0f's Disconnect: stop the daemon, remove the
+         passphrase file, keep the keystore; behind its dialog), icons drawn
+         per state instead of the system's. macOS: a menu-bar item -- a small
+         Swift app built by `macos.sh`, or `osascript`; measure both first.
+         Linux desktops: the web page only.
+      6. **0t's part 4, the self-update**; the wizard's "updates" step
+         (automatic / tell me / off) lands with it.
+      7. **Clean removal**, from the tray and as `itsanas uninstall`: wraps
+         `clean.ps1` / `clean.sh` under 0f's decommission rule -- refused
+         while this machine is the only confirmed holder of a chunk, saying
+         how many owners are affected, never who.
+      8. **Account deletion.** Needs Nicolas's answer first, as a closed
+         question: what becomes of the account's data on other members'
+         disks (a tombstone signed by the account, and hosts free it), of
+         the data this account's machines host for others (re-homed first,
+         as in (7)), and of the username at the coordinator
+         (`--forget-account` exists, operator-only). Then a signed request.
+   t. **A release that updates itself, signed with Nicolas's key.** Split
+      on 2026-10-06 into 0w (3) (parts 1-3, the release) and 0w (6) (part 4,
+      the self-update); the text below stays their specification. Asked
       for by Nicolas on 2026-10-06, after the live test needed every fix
       carried to every machine by hand. **Decided the same day (closed
       question): the signing key is Nicolas's, on his PC** -- passphrase-
@@ -1543,10 +1688,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
       crate); started at logon per node since the same day, through a
       Startup-folder shortcut rather than a task (see §0 for why), removed
       per instance by `clean.ps1 -Instance`, checked in
-      `check-installers.sh`. **Left, waiting on Nicolas:** he sees the icon
-      once and says what it gets wrong; then the pause / disconnect /
-      decommission items below, each behind its confirmation. The text
-      below stays the specification for them. Original
+      `check-installers.sh`. **Pause / resume, Sync now and Sync every are
+      in its menu since 2026-10-06 (0w (1))**, and pause keeps hosting -- a
+      deliberate change from item 1 of the specification below, said in 0w.
+      **Left:** Nicolas sees the icon once and says what it gets wrong; then
+      disconnect and decommission, each behind its confirmation, now planned
+      as 0w (5) and (7). The text below stays the specification for them. Original
       plan, kept for reference: do it in two PRs. First, alone: pick the crates (`tray-icon` + `tao`/`winit`,
       or `windows`-crate `Shell_NotifyIcon` directly) by running `cargo deny
       check` with them added and confirming `scripts/check-unsafe.py` still
@@ -2160,7 +2307,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
   the number says. Deferred because measuring it badly punishes people for their
   ISP.
 - **One process per node.** The index is under an exclusive lock, so commands
-  refuse to run while the daemon holds it. A local control socket is the fix.
+  refuse to run while the daemon holds it. Since 2026-10-06 the commands a tray
+  needs while it runs -- `pause`, `resume`, `sync-now`, `interval`, `status` --
+  go through files in the home instead (`control.rs`, the snapshot); anything
+  that reads or changes the store itself still needs the daemon stopped, and a
+  live file list still needs a control socket.
 - **The escrow attempt counters are in memory only.** A coordinator restart
   clears every one of them, so anybody who can provoke a restart — or who simply
   waits for one — gets a fresh budget. Persisting them is the fix; the Argon2id
