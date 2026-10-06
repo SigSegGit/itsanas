@@ -63,8 +63,17 @@ the service reads it; the 24 words are typed at a hidden prompt, never on a
 command line (or read from `--phrase-file`, which the script never deletes).
 The bed is one more instance, so it takes the next free port (9798, 9799...):
 a firewall or a router forward that names only the real account's port keeps
-it off the network, and nothing here opens one. Android has no script: install the APK and restore `essai` from
-the 24 words in the app. **Not yet run on a real machine** (HANDOVER §8 0r);
+it off the network, and nothing here opens one.
+
+**Away from home** a machine syncs only with one reachable from outside, so
+every machine that stays at home needs a port forwarded on the box and
+`--announce PUBLICNAME:PORT` (`-Announce`), the port as seen from outside.
+Machines that move announce nothing; they call out. Without it the bed works
+on the home network only -- how it was first deployed on 2026-10-06, and why
+the laptop, away that day, received nothing until the Pi and the VM announced.
+
+Android has no script: install the APK and restore `essai` from
+the 24 words in the app. **Run on the Pi, the VM and Windows on 2026-10-06; never on a Mac** (HANDOVER §8 0r);
 `check-installers.sh` checks, in a throwaway home, that a real account is left
 untouched and an earlier bed is archived.
 

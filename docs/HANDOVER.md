@@ -20,6 +20,28 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-06 afternoon, the test bed across the internet** (branch
+`step/testbed-announce`). The first deployment worked only on the home
+network: the bed never announced a public address, and the Freebox forwarded
+only 9797 and 9898, so the laptop, away that day, dialled 192.168.1.x and was
+refused. Nicolas added two forwards (9798 -> Pi 9798, 9799 -> VM 9797); the
+Pi's and the VM's `essai` nodes ran `itsanas announce ngas.fr:9798` /
+`ngas.fr:9799` and `register`. Verified at 14:11: the laptop, off the home
+network, sent its 50 MB to both through `ngas.fr` and fetched theirs; the Pi
+and the VM report **IT WORKS** with the laptop's files. `testbed.sh
+--announce` / `testbed.ps1 -Announce` now do it at setup (README says why).
+Found on the way, **not fixed, each worth a step**:
+- `Stop-ScheduledTask ITSaNAS-essai` does not stop the daemon. The
+  wrapper `run-daemon-essai.ps1` restarts it ("restarting in 10 s") and
+  outlives the task, so a later start races a live process for the store.
+  Seen on the laptop.
+- The laptop's own nodes are discovered on VMware's virtual adapters
+  (192.168.19.1 / 192.168.117.1). The log shows one device "moved" back and
+  forth between them every round.
+- Each round re-sends about 50 MiB to the same older-build nodes of other
+  accounts (Pi 9797, VM 9799/9801) and delays writing the folder: 13 min
+  from reception to file on the Pi.
+
 **2026-10-06 afternoon, §8 0r deployed on the Pi, the VM and Windows;
 two bugs found doing it** (branch `fix/testbed-ps1-phrasefile`). The Pi
 founded `essai` (invitation minted as `nicolas`, its service stopped and
