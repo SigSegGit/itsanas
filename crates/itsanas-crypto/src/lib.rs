@@ -69,3 +69,5 @@ pub use keystore::{KdfParams, Keystore};
 pub use seal::{SealContext, open_deterministic, open_random, seal_deterministic, seal_random};
 pub use secret::{SecretBytes, SymmetricKey};
 pub use wellknown::{PUBLISHED_TEST_USER_IDS, is_published_test_identity};
+
+// Throwaway: demonstrates the CI scope for a crypto-only change (HANDOVER 8.6a). Never merged.
