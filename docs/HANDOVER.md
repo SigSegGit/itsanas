@@ -10,15 +10,32 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.3c
-TITLE: measure the disk cost of padding chunk sizes, then pad
-WRITTEN-AT: 2026-10-05
-BASE: 1cb786b
+TITLE: cut chunks with a per-account secret gear table (keyed chunking), after reading the published attacks
+WRITTEN-AT: 2026-10-06
+BASE: c1ea182
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-06, §8 3c measured: padding does not close the fingerprint;
+Nicolas chose keyed chunking** (branch `step/8.3c-padding-measure`). The
+measurement is `crates/itsanas-store/examples/padding_cost.rs` (production
+chunker, five class sets, prints aggregates only). On 30.2 GiB of Nicolas's
+real files (Ma musique, Mes vidéos, ComfyUI: 25 344 files, 452 668 chunks,
+1 090 of two chunks or more, 9 min 26 s), the share of multi-chunk files
+whose padded size sequence no other file shares: 98.2 % today, 77.8 % with
+Padmé (+1.5 % disk), 19.2 % with powers of two (+59.8 %), 4.7 % with every
+chunk at 256 KiB (+265.6 %, and the count still leaks). §10 item 9 said such
+a result goes back to Nicolas before code; asked as a closed question, he
+chose **keyed chunking** (details §10 item 9, plan §8 3c). No product code
+changed. Traps: a first run over `D:\GitHub` too was killed at 30 min with no
+output (the tool now prints progress to stderr); and the selective-CI
+session had checked out its branch in the same `D:\GitHub\itsanas`, so this
+step moved to the worktree `D:\GitHub\itsanas-8.3c` -- **two sessions on one
+repo need two worktrees**.
 
 **2026-10-06, outside §8: selective CI** (asked for by Nicolas; branch
 `ci/selective-tests`). A pull request now tests the crates it changed plus
@@ -1627,14 +1644,49 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Red-team test expected: the total equals the sum over the blobs after
       puts, a re-put of the same address and deletes; sabotage by skipping the
       update on delete. Not enforcement: same rule, cheaper to ask.
-   c. Chunk-size sequences fingerprint files (ROADMAP). **Decided
-      2026-10-05: pad, after measuring the cost** (§10 item 9). So: find where chunk sizes are
-      cut (`itsanas-store`'s chunker) and measure the disk cost on a real
-      folder before choosing classes; the red-team test is that two
-      different files of one size class store chunk sequences a host cannot
-      tell apart. If accepted, ROADMAP's entry moves to "Known ceilings"
-      with the reasoning, and DESIGN says what blinded addressing does not
-      hide.
+   c. Chunk-size sequences fingerprint files (ROADMAP). **Keyed
+      chunking, decided 2026-10-06** (§10 item 9). Padding was measured
+      first and does not close it at any sane cost (§10 item 9, the table;
+      `crates/itsanas-store/examples/padding_cost.rs` re-takes it). To build,
+      in this order:
+      1. **Read before coding.** Published work attacks keyed content-defined
+         chunkers (Borg, Restic, Tarsnap and others; look for "Breaking and
+         Fixing Content-Defined Chunking", 2025, and what it recommends).
+         Not read yet -- the title and scope are from memory, verify them.
+         If it shows a Gear table keyed this way is recoverable by a host
+         from what it sees alone (sizes of chunks it stores, no chosen
+         plaintext), stop and take that back to Nicolas before any code.
+      2. **Facts already checked (2026-10-06).** The table is the global
+         `GEAR` (`crates/itsanas-store/src/chunker.rs` ~30), derived from
+         the public `GEAR_DOMAIN`, pinned by `the_gear_table_is_pinned_forever`.
+         `ChunkerConfig` is `Copy` and carries no table; it is built with
+         `ChunkerConfig::default()` in `Store::open` (`store.rs` ~228) and in
+         tests/bench (`itsanas-cli/src/bench.rs`, `itsanas-net`,
+         `itsanas-node`, `itsanas-folder` tests). Chunk addresses are already
+         per account (`UserKeys::chunk_id`, `identity.rs` ~335, keyed on
+         `blinding`), so a per-account table costs **no** deduplication:
+         there is none across accounts today.
+      3. **Build.** A new KDF context in `itsanas-crypto` (beside
+         `CTX_USER_*`) gives `UserKeys` a chunking secret; the table is 256
+         words from `blake3` keyed on it, so every device of one account cuts
+         identically and no other account can. `ChunkerConfig` takes the
+         table (an `Arc<[u64; 256]>`, since it stops being `Copy`), and the
+         public table stays for tests and the bench only. Files already
+         stored keep their chunks: a file is re-cut with the new table only
+         when it is next written, so its first rewrite re-uploads it once and
+         **old files stay recognisable until then** -- say so in ROADMAP; a
+         forced re-cut of everything is not part of this step.
+      4. **Red-team tests expected.** Two accounts cutting the same 4 MiB file
+         produce different size sequences, and two devices of one account
+         the same; a host cutting its candidate copy with the public table
+         reproduces none of the account's sizes. Sabotage: the public table
+         for every account (red on the first and third), a table keyed on the
+         device instead of the account (red on the second). Plus the pinned
+         public table must still pass: tests depend on it.
+      5. **Docs.** ROADMAP's entry and its table row move to ✅ with the
+         ceilings named (old files until rewritten, total file length still
+         visible, whatever step 1 found); DESIGN says what blinded
+         addressing and keyed chunking each hide.
    d. ✅ **The LAN beacon stops grouping an account's machines.** Built
       2026-09-30 (see §0). **Corrected:** this item said a v1 beacon "heard
       as a stranger is safe". It was not, and no test ran it: `parse`
@@ -1895,6 +1947,26 @@ Detail and measurements are in ROADMAP.md; this is the map.
    so **pad**, after measuring. The disk cost on a real folder is measured
    first and the classes chosen from it; if no class set keeps the waste
    reasonable, that measurement comes back to him before any code.
+   **Measured 2026-10-06** (`padding_cost` example, 30.2 GiB of Nicolas's
+   files, 1 090 files of two chunks or more). "Recognisable" is the share of
+   those whose padded size sequence no other file in the corpus shares, a
+   floor on what a host with a candidate learns:
+
+   | classes | extra disk | recognisable |
+   |---|---|---|
+   | none (today) | 0 % | 98.2 % |
+   | Padmé | 1.5 % | 77.8 % |
+   | 4 per doubling | 11.6 % | 37.2 % |
+   | power of two | 59.8 % | 19.2 % |
+   | one class (256 KiB) | 265.6 % | 4.7 % |
+
+   No class set keeps the waste reasonable *and* closes it: even one class
+   leaks the chunk count. Taken back to him as a closed question (keyed
+   chunking / Padmé only / accept). **Decided 2026-10-06 (Nicolas): keyed
+   chunking** -- each account cuts with its own secret table, so a host
+   cannot compute the sizes to look for; no disk, no deduplication lost;
+   old files stay recognisable until rewritten; the published attacks are
+   read first and anything that breaks it comes back to him (§8 3c).
 
 10. **Make the skip verifier a required check** (selective CI, 2026-10-06).
    Branch protection requires lint, the three `Test (...)` legs and

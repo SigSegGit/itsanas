@@ -1597,10 +1597,17 @@ it, which is host-side enforcement (§8 1c, deferred).
 chunking means the boundaries are a function of the bytes, so the sequence of
 sizes a host stores identifies a known file to anyone who has a copy of it —
 which is the confirmation attack blinded addressing exists to prevent, arriving
-by a different door. Padding chunks to a size class would close it and costs
-disk on every host. Not decided, and the honest position is that the current
-scheme protects *contents* against a host and does not protect *which file it
-is* against a host that already has a candidate.
+by a different door. Today the scheme protects *contents* against a host and
+does not protect *which file it is* against a host that already has a
+candidate. **Padding does not fix it -- measured 2026-10-06** on 30.2 GiB of
+real files (`cargo run --release -p itsanas-store --example padding_cost --
+<folder>`): of files of two chunks or more, 98.2 % have a size sequence no
+other file shares; Padmé (+1.5 % disk) leaves 77.8 %, powers of two (+59.8 %)
+19.2 %, every chunk at 256 KiB (+265.6 %) still 4.7 %, by chunk count alone.
+**Decided 2026-10-06 (Nicolas): keyed chunking**, a secret cut table per
+account, so a host cannot compute the sizes to compare (HANDOVER §8 3c, not
+built). Its ceilings, before it exists: files stored before it stay
+recognisable until rewritten, and a file's total length stays visible.
 
 **The LAN beacon grouped an account's machines** -- ✅ fixed 2026-09-30
 (§8 3d). The version 1 owner tag was a plain hash of a public key, so anyone on
@@ -1716,7 +1723,7 @@ stops it, and the test:
 | Confirm a guessed file from its address | address is not the content hash | `chunk_id_does_not_expose_the_plaintext_hash` |
 | Read a path or a byte of content on a host | sealed chunk and sealed segment body | `the_sealed_body_does_not_leak_the_path_in_plaintext`, `the_hosts_hold_everything_and_can_read_none_of_it` |
 | Learn from a repair request which chunks exist only on hosts | asked only of peers the ledger records as holders | `red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost` |
-| Two accounts' identical files matched by chunk sizes | nothing | ⬜ **open**, the fingerprint above; decided 2026-10-05: pad, after measuring the cost (HANDOVER §8 3c) |
+| Two accounts' identical files matched by chunk sizes | nothing | ⬜ **open**, the fingerprint above; padding measured and rejected 2026-10-06, keyed chunking decided (HANDOVER §8 3c) |
 | **A stranger reads any account's metadata from any host** | nothing | ⬜ **open**, below |
 | Operation count per publish | nothing: `first_sequence`..`last_sequence` in the clear | ⬜ **by design**, `validate_chain` needs them |
 | Size and time of each edit | nothing: body length, chunk count and when they arrive | ⬜ **by design**, ARCHITECTURE §8 |
