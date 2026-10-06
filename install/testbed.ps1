@@ -30,6 +30,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $instance = 'essai'
+
+# First, before anything reads LOCALAPPDATA: the uninstaller must be reachable
+# from any PowerShell, pwsh on Linux included (check-installers.sh runs it so).
+# In-process, so -Yes stays a switch instead of crossing a command line.
+if ($Clean) {
+    & (Join-Path $PSScriptRoot 'clean.ps1') -Instance $instance -Yes:$Yes
+    exit $LASTEXITCODE
+}
 $nodeHome = Join-Path $env:USERPROFILE ".itsanas-$instance"
 $folder = Join-Path $env:USERPROFILE "ITSaNAS-$instance"
 $bin = Join-Path $env:LOCALAPPDATA 'Programs\itsanas\bin\itsanas.exe'
@@ -73,13 +81,6 @@ function Show-Status {
 }
 
 if ($Status) { Show-Status }
-if ($Clean) {
-    # A switch cannot cross `powershell -File` as -Yes:$true: it arrives as a string.
-    $cleanArgs = @('-Instance', $instance)
-    if ($Yes) { $cleanArgs += '-Yes' }
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'clean.ps1') @cleanArgs
-    exit $LASTEXITCODE
-}
 
 if (-not $Coordinator -or -not $CoordinatorDevice) {
     Die '-Coordinator and -CoordinatorDevice are both needed' @(
