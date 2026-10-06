@@ -511,7 +511,7 @@ fn sync_loop(
     let mut own_check: Option<itsanas_crypto::ChunkId> = None;
 
     while !shutdown.load(Ordering::Relaxed) {
-        for said in steering.refresh(Control::read(&node.home)) {
+        for said in steering.refresh(Control::read(&node.home), itsanas_discover::now_unix()) {
             println!("{said}");
         }
         let interval = steering.interval(base);
@@ -654,12 +654,16 @@ fn say_if_alone(
 /// `interval`, from a terminal or a tray, while this process holds the store
 /// (`control.rs`).
 fn start_steering(node: &Node) -> Steering {
-    let (steering, unreadable) = Steering::start(Control::read(&node.home));
+    let now = itsanas_discover::now_unix();
+    let (steering, unreadable) = Steering::start(Control::read(&node.home), now);
     if let Some(why) = unreadable {
         eprintln!("itsanas: {why}");
     }
     if steering.paused() {
-        println!("syncing is paused (`itsanas resume` to continue); this machine still hosts");
+        println!(
+            "syncing is paused {} (`itsanas resume` to continue); this machine still hosts",
+            steering.lasts(now)
+        );
     }
     steering
 }
