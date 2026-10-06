@@ -44,3 +44,5 @@ pub mod spreading;
 pub use nodeset::{MAX_SLOTS, NodeSet, PlacementError, StorageNode};
 pub use repair::{AtRisk, Census, DEFAULT_REPLICATION_FLOOR, Push, RepairPlan, plan};
 pub use spreading::{Blocked, SHARE_DIVISOR, Spreading, critical_mass, space_needed, spreading};
+
+// Throwaway: demonstrates the CI scope for a placement-only change (HANDOVER 8.6a). Never merged.
