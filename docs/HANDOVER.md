@@ -9,16 +9,24 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.3c
-TITLE: cut chunks with a per-account secret gear table (keyed chunking), after reading the published attacks
+NEXT: 8.0r
+TITLE: a test bed in one command per machine (Windows, Mac, Pi, VM, Android), with a visible verdict
 WRITTEN-AT: 2026-10-06
-BASE: c1ea182
+BASE: c5b7f4b
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-06, NEXT moved to §8 0r, a test bed in one command per
+machine** (asked for by Nicolas the same night: a visual test on
+Mandarine's Mac, his Windows and maybe the Pi/VM/Android at ~10 GB, with all
+preparation done by the script). It goes ahead of 3c's build, which stays
+fully planned in §8 3c. Plan only, nothing built: the session ran out of its
+5-hour window after #233. The routine decisions taken alone are listed in
+0r; reverse any he objects to.
 
 **2026-10-06, §8 3c measured: padding does not close the fingerprint;
 Nicolas chose keyed chunking** (branch `step/8.3c-padding-measure`). The
@@ -1201,6 +1209,80 @@ Detail and measurements are in ROADMAP.md; this is the map.
       and port, nor Doze / LAN-only notes; install/README "Two accounts"
       does not say where `provision.ps1 -NoInstall` looks for
       `itsanas.exe` for a second *Windows* account.
+
+   r. **A test bed in one command per machine, and a visible answer.**
+      Asked for by Nicolas on 2026-10-06, ahead of everything else: he wants
+      to see it work with his own eyes on Mandarine's Mac, his Windows laptop,
+      and if possible the Pi, the VM and an Android phone, about 10 GB each.
+      In his words: **one command, two at most, per machine**. The script does
+      all the preparation itself: it removes earlier versions, installs what
+      is missing, and sets the machine up. Whether it works must be obvious at
+      a glance. This is what 0i was missing, and it is what gates 0c.
+
+      **Decided without him (routine; say so in §0, reverse it if he
+      objects):**
+      - The bed is its own account, instance `essai`, on every machine.
+        `nicolas` and `sigseg42` are not touched.
+      - Earlier *binaries* are replaced. An earlier `essai` node is
+        **archived** (`~/itsanas-archive-DATE/`, as the private reset
+        scripts do), never deleted.
+      - The coordinator is the fleet's existing one. Its address and id are
+        in Nicolas's private `Documents\ITSaNAS\INSTALL-FLOTTE.md`. The
+        scripts take them as arguments and hard-code nothing.
+      - The first machine creates `essai` with an invitation minted by an
+        existing member instance on the same machine (`itsanas invite`,
+        `crates/itsanas-cli/src/main.rs` ~412). Every other machine joins the
+        same account, so files show up everywhere.
+      - The 24 words reach the other machines by a paste at a masked prompt,
+        never on a command line (shell history).
+      - Each machine generates a random passphrase for its `essai` instance
+        and writes it only to the protected passphrase file the service reads
+        already (`provision.sh` / `provision.ps1` know where).
+      - Pledge 10G and keep 3G: 30/70 allows 4.28G against 10G pledged, and
+        the 10 GiB trial covers it in any case.
+
+      **Facts checked 2026-10-06:**
+      - `install/provision.sh` handles Linux only. Nothing in it branches on
+        Darwin, and macOS has no named instances (README: "its launch agent is
+        one"), so **the Mac is the real work**: either `provision.sh` learns
+        Darwin, with a launch agent that is loaded, or the Mac gets its own
+        path. Decide after reading `install/macos.sh`.
+      - `install/provision.ps1 -Instance` and `clean.sh` / `clean.ps1
+        --instance` exist (§8 0i).
+      - Android has no script: there you install the APK
+        (`scripts/build-apk.sh`) and restore from the 24 words in the app. The
+        test bed's job there is to print those two steps, not to automate a
+        phone.
+
+      **To build:**
+      - `install/testbed.sh` (Linux, macOS, Termux) and `install/testbed.ps1`
+        (Windows), each a thin wrapper over the existing installers and
+        provisioners, never a fork of them. In order: clean binaries (archive
+        an old `essai`), install `main`, provision `essai` (found the account
+        or join it), start the service. Then drop
+        `bonjour-depuis-<hostname>.txt` and a 50 MB random file into
+        `~/ITSaNAS-essai`.
+      - It ends with a **verdict table**, one line each, ✅ or ❌, every ❌
+        followed by its fix:
+        - the daemon runs;
+        - the coordinator answers;
+        - the account's devices, and how many;
+        - which other machines' `bonjour-*` files have arrived.
+      - `testbed status` reprints the table without changing anything; it is
+        the second command.
+      - On Windows, the tray icon (0f) gives the same answer in colour.
+
+      **Red-team test expected** (hermetic, in `scripts/check-installers.sh`,
+      with the same fakes as 0i): the bed run on a home that holds a
+      `nicolas` instance leaves its node, passphrase file and unit untouched,
+      and an old `essai` ends up in the archive, not gone. Sabotage: have
+      the clean step call `clean.sh` without `--instance` (red), and replace
+      the archive with `rm -rf` (red).
+
+      **Done when** Nicolas has run it on Windows and the Mac, and the
+      `bonjour` files have crossed both ways. A run on the Pi and the VM over
+      SSH (sudo without a password, private guide) may be done by the
+      session itself.
 
    f. 🟨 **A tray icon for the Windows daemon.** First half built 2026-09-30
       as `status --brief` + `scripts/itsanas-tray.ps1` (see §0 for why not a
