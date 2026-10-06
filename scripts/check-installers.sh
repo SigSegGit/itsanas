@@ -778,6 +778,7 @@ cat > "$h/.local/bin/itsanas" <<'STUB'
 #!/bin/sh
 case "$1" in
     init) mkdir -p "$ITSANAS_HOME" && : > "$ITSANAS_HOME/keystore.bin" && echo "word word word" ;;
+    login) mkdir -p "$ITSANAS_HOME" && : > "$ITSANAS_HOME/keystore.bin" ;;
 esac
 exit 0
 STUB
@@ -808,6 +809,46 @@ if grep -E '(disable|stop).*itsanas@nicolas' "$bed/systemctl.log" >/dev/null 2>&
     bad "testbed.sh stopped or disabled the real account's service"; bed_ok=0
 fi
 [ "$bed_ok" -eq 1 ] && say "test bed: real account untouched, earlier bed archived"
+
+# An unattended join (--phrase-file, over SSH): the words file is the caller's.
+# Deleting it would lose the only copy someone typed out on a machine with no
+# other record of the 24 words.
+rm -rf "$h/.itsanas-essai" "$h/.config/itsanas/essai.environment"
+printf '%s\n' "w w w w w w w w w w w w w w w w w w w w w w w w" > "$bed/words.txt"
+chmod 600 "$bed/words.txt"
+if ! env HOME="$h" PATH="$bed/fake:/usr/bin:/bin" TESTBED_OS=Linux BED_LOG="$bed/systemctl.log" XDG_RUNTIME_DIR="$bed" \
+        timeout 60 sh "$bed/scripts/testbed.sh" --coordinator 192.0.2.1:9898 --coordinator-device d \
+        --phrase-file "$bed/words.txt" --no-install </dev/null >"$bed/out" 2>&1; then
+    bad "testbed.sh --phrase-file failed in a throwaway home"
+    sed 's/^/    /' "$bed/out"
+elif [ ! -e "$bed/words.txt" ]; then
+    bad "testbed.sh --phrase-file deleted the caller's file of 24 words"
+elif [ ! -e "$h/.itsanas-essai/keystore.bin" ]; then
+    bad "testbed.sh --phrase-file did not restore the essai account"
+else
+    say "test bed: an unattended join keeps the caller's words file"
+fi
+
+# The Mac's bed is a LaunchAgent of its own; clean.sh --instance must know it,
+# or "--clean --yes" leaves a daemon starting at every login with a passphrase
+# in its plist. The default node's agent is not the instance's to remove.
+la="$h/Library/LaunchAgents"
+mkdir -p "$la"
+: > "$la/net.itsanas.essai.plist"
+: > "$la/net.itsanas.daemon.plist"
+env HOME="$h" PATH="$bed/fake:/usr/bin:/bin" timeout 30 sh install/clean.sh --instance essai </dev/null >/dev/null 2>&1
+if [ ! -e "$la/net.itsanas.essai.plist" ]; then
+    bad "clean.sh --instance essai removed the agent without --yes (a dry run changed something)"
+else
+    env HOME="$h" PATH="$bed/fake:/usr/bin:/bin" timeout 30 sh install/clean.sh --instance essai --yes </dev/null >/dev/null 2>&1
+    if [ -e "$la/net.itsanas.essai.plist" ]; then
+        bad "clean.sh --instance essai --yes left the bed's LaunchAgent in place"
+    elif [ ! -e "$la/net.itsanas.daemon.plist" ]; then
+        bad "clean.sh --instance essai removed the default node's LaunchAgent"
+    else
+        say "clean.sh --instance removes that instance's LaunchAgent and no other"
+    fi
+fi
 rm -rf "$bed"
 
 # ------------------------------------------------- the PATH line, added once

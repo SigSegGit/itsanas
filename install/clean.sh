@@ -78,6 +78,8 @@ if [ -n "$INSTANCE" ]; then
     NODE_HOME="$HOME/.itsanas-$INSTANCE"
     SERVICE="itsanas@$INSTANCE"
     SECRET="$ENV_DIR/$INSTANCE.environment"
+    # The LaunchAgent install/testbed.sh loads for an instance on a Mac.
+    AGENT="$HOME/Library/LaunchAgents/net.itsanas.$INSTANCE.plist"
     say "ITSaNAS clean-up, instance $INSTANCE"
     say ""
     say "Only this instance. The programs, the unit template and every other node"
@@ -85,6 +87,7 @@ if [ -n "$INSTANCE" ]; then
     say ""
     plan "stop and disable $SERVICE"
     [ -f "$SECRET" ] && plan "remove $SECRET"
+    [ -f "$AGENT" ] && plan "unload and remove $AGENT"
     if [ -d "$NODE_HOME" ]; then
         if [ "$PURGE" -eq 1 ]; then
             plan "REMOVE $NODE_HOME - the sealed master secret and every chunk of this instance"
@@ -102,7 +105,10 @@ if [ -n "$INSTANCE" ]; then
     if command -v systemctl >/dev/null 2>&1; then
         systemctl --user disable --now "$SERVICE" >/dev/null 2>&1 || true
     fi
-    rm -f "$SECRET"
+    if [ -f "$AGENT" ] && command -v launchctl >/dev/null 2>&1; then
+        launchctl bootout "gui/$(id -u)/net.itsanas.$INSTANCE" >/dev/null 2>&1 || true
+    fi
+    rm -f "$SECRET" "$AGENT"
     if [ "$PURGE" -eq 1 ] && [ -d "$NODE_HOME" ]; then
         rm -rf "$NODE_HOME"
     fi

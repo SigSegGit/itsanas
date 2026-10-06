@@ -7,6 +7,8 @@
 #     powershell -ExecutionPolicy Bypass -File install\testbed.ps1 -Coordinator HOST:PORT -CoordinatorDevice ID -Invite CODE
 #   Every other machine (asks for the 24 words, hidden):
 #     powershell -ExecutionPolicy Bypass -File install\testbed.ps1 -Coordinator HOST:PORT -CoordinatorDevice ID
+#   Unattended: -PhraseFile PATH reads the 24 words from a file you made
+#   readable only by you; the script never deletes your file.
 #   Any time, changes nothing:
 #     powershell -ExecutionPolicy Bypass -File install\testbed.ps1 -Status
 #   Remove the bed (a dry run; add -Yes):
@@ -19,6 +21,7 @@ param(
     [string] $Coordinator = '',
     [string] $CoordinatorDevice = '',
     [string] $Invite = '',
+    [string] $PhraseFile = '',
     [switch] $Fresh,
     [switch] $Clean,
     [switch] $Yes,
@@ -57,6 +60,11 @@ function Show-Status {
         ForEach-Object { $_.BaseName -replace '^bonjour-depuis-', '' } | Where-Object { $_ -ne $hostName })
     if ($others.Count -gt 0) { Line $true "other machines $($others.Count): $($others -join ', ')" }
     else { Line $false 'other machines none yet -- normal right after the first setup; wait a few minutes' }
+    # A greeting proves a path exists; a whole 50 MB file proves it carries data.
+    $big = @(Get-ChildItem -LiteralPath $folder -Filter '50Mo-depuis-*.bin' -ErrorAction SilentlyContinue |
+        Where-Object { $_.BaseName -ne "50Mo-depuis-$hostName" -and $_.Length -eq 52428800 })
+    if ($big.Count -gt 0) { Line $true "50 MB files    $($big.Count) complete from other machines" }
+    else { Line $false '50 MB files    none complete yet -- they follow the greetings' }
     Write-Host ""
     Write-Host "  Details: `$env:ITSANAS_HOME='$nodeHome'; & '$bin' doctor"
     Write-Host "  Your test folder: $folder"; Write-Host ""
@@ -114,7 +122,13 @@ try {
         Coordinator = $Coordinator; CoordinatorDevice = $CoordinatorDevice
     }
     if ($Invite) { $arguments.Invite = $Invite }
-    elseif (-not (Test-Path -LiteralPath (Join-Path $nodeHome 'keystore.bin'))) {
+    elseif (Test-Path -LiteralPath (Join-Path $nodeHome 'keystore.bin')) { }
+    elseif ($PhraseFile) {
+        if (-not (Test-Path -LiteralPath $PhraseFile)) { Die "cannot read $PhraseFile" }
+        if (@((Get-Content -LiteralPath $PhraseFile -Raw).Trim() -split '\s+').Count -ne 24) { Die "$PhraseFile does not hold 24 words" }
+        # Not $phraseFile: `finally` removes only the file this script made.
+        $arguments.PhraseFile = (Resolve-Path -LiteralPath $PhraseFile).Path
+    } else {
         Write-Host ""; Write-Host '==> Joining the test account'
         $secure = Read-Host '  Paste the 24 words the first machine printed (hidden)' -AsSecureString
         $words = [System.Net.NetworkCredential]::new('', $secure).Password

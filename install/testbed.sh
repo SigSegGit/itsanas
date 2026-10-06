@@ -10,6 +10,9 @@
 #
 #     sh install/testbed.sh --coordinator HOST:PORT --coordinator-device ID
 #
+#   Unattended (over SSH, no terminal): --phrase-file PATH reads the 24 words
+#   from a file you made mode 600; the script never deletes your file.
+#
 #   Then, any time, on any of them -- changes nothing:
 #
 #     sh install/testbed.sh status
@@ -35,7 +38,8 @@
 # `~/itsanas-archive-DATE/` -- moved, never deleted.
 #
 # Secrets: the passphrase is drawn at random once per machine and lives only
-# in the file the service reads (mode 600). The 24 words are typed at a hidden
+# in ~/.config/itsanas/essai.environment (mode 600), the file provision.sh
+# writes and clean.sh removes -- on the Mac too, so one clean-up knows it. The 24 words are typed at a hidden
 # prompt, go through a mode-600 temporary file, and are removed after use;
 # they never appear on a command line, where every process could read them.
 set -u
@@ -48,7 +52,8 @@ FOLDER="$HOME/ITSaNAS-$INSTANCE"
 NODE_HOME="$HOME/.itsanas-$INSTANCE"
 BIN="$HOME/.local/bin/itsanas"
 RAW="https://raw.githubusercontent.com/SigSegGit/itsanas/main/install"
-AGENT_LABEL="fr.ngas.itsanas.$INSTANCE"
+# The family install/macos.sh uses (net.itsanas.daemon), so clean.sh finds it.
+AGENT_LABEL="net.itsanas.$INSTANCE"
 AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -79,6 +84,14 @@ sibling() {
     curl -fsSL "$RAW/$1" -o "$target" || die "could not download $1" "Is the network up?"
     printf '%s\n' "$target"
 }
+
+# `ssh pi 'sh testbed.sh status'` has no XDG_RUNTIME_DIR, and without it
+# `systemctl --user` cannot find the bus: a running daemon reads as stopped.
+# Same fix as provision.sh.
+if [ "$OS" != Darwin ] && [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u)" ]; then
+    XDG_RUNTIME_DIR="/run/user/$(id -u)"
+    export XDG_RUNTIME_DIR
+fi
 
 # ------------------------------------------------------------------ verdict
 
@@ -139,6 +152,21 @@ status() {
         failures=$((failures + 1))
     fi
 
+    # A 25-byte greeting proves a path exists; a whole 50 MB file proves it
+    # carries data. A file still arriving does not count.
+    big=0
+    for file in "$FOLDER"/50Mo-depuis-*.bin; do
+        [ -e "$file" ] || continue
+        case "$file" in *"-depuis-$host.bin") continue ;; esac
+        [ "$(wc -c < "$file" | tr -d ' ')" -eq 52428800 ] && big=$((big + 1))
+    done
+    if [ "$big" -gt 0 ]; then
+        printf '  %s✅%s 50 MB files    %s complete from other machines\n' "$C_OK" "$C_OFF" "$big"
+    else
+        printf '  %s❌%s 50 MB files    none complete yet -- they follow the greetings\n' "$C_ERR" "$C_OFF"
+        failures=$((failures + 1))
+    fi
+
     printf '\n  Details: ITSANAS_HOME=%s %s doctor\n' "$NODE_HOME" "$BIN"
     printf '  Your test folder: %s\n\n' "$FOLDER"
     if [ "$failures" -eq 0 ]; then
@@ -154,6 +182,7 @@ status() {
 COORDINATOR=""
 COORDINATOR_DEVICE=""
 INVITE=""
+PHRASE_ARG=""
 FRESH=0
 INSTALL=1
 case "${1:-}" in
@@ -165,9 +194,10 @@ while [ $# -gt 0 ]; do
         --coordinator) [ $# -ge 2 ] || die "--coordinator needs host:port"; COORDINATOR="$2"; shift 2 ;;
         --coordinator-device) [ $# -ge 2 ] || die "--coordinator-device needs an id"; COORDINATOR_DEVICE="$2"; shift 2 ;;
         --invite) [ $# -ge 2 ] || die "--invite needs a code"; INVITE="$2"; shift 2 ;;
+        --phrase-file) [ $# -ge 2 ] || die "--phrase-file needs a path"; PHRASE_ARG="$2"; shift 2 ;;
         --fresh) FRESH=1; shift ;;
         --no-install) INSTALL=0; shift ;;
-        --help|-h) sed -n '2,21p' "$0" 2>/dev/null; exit 0 ;;
+        --help|-h) sed -n '2,24p' "$0" 2>/dev/null; exit 0 ;;
         *) die "unknown option: $1" "Run with --help." ;;
     esac
 done
@@ -193,9 +223,8 @@ if [ "$FRESH" -eq 1 ] && [ -e "$NODE_HOME" ]; then
     mkdir -p "$archive" && chmod 700 "$archive" || die "could not create $archive"
     mv "$NODE_HOME" "$archive/" || die "could not move $NODE_HOME"
     [ -e "$FOLDER" ] && mv "$FOLDER" "$archive/"
-    for secret in "$HOME/.config/itsanas/$INSTANCE.environment" "$HOME/.itsanas-$INSTANCE.passphrase"; do
-        [ -e "$secret" ] && mv "$secret" "$archive/"
-    done
+    secret="$HOME/.config/itsanas/$INSTANCE.environment"
+    [ -e "$secret" ] && mv "$secret" "$archive/"
     printf '  moved to %s (delete it yourself once the new bed works)\n' "$archive"
 fi
 
@@ -203,8 +232,7 @@ fi
 
 # Reused when the machine already has one, so a re-run does not lock the
 # existing node out of its own keystore.
-SECRET_FILE="$HOME/.itsanas-$INSTANCE.passphrase"
-[ "$OS" = Darwin ] || SECRET_FILE="$HOME/.config/itsanas/$INSTANCE.environment"
+SECRET_FILE="$HOME/.config/itsanas/$INSTANCE.environment"
 if [ -r "$SECRET_FILE" ]; then
     ITSANAS_PASSPHRASE=$(sed -n 's/^ITSANAS_PASSPHRASE=//p' "$SECRET_FILE" | head -1)
 fi
@@ -218,9 +246,17 @@ export ITSANAS_PASSPHRASE
 # ------------------------------------------------------------ the 24 words
 
 PHRASE_FILE=""
-cleanup() { [ -n "$PHRASE_FILE" ] && rm -f "$PHRASE_FILE"; }
+# Only the temporary file this script made: a --phrase-file is the caller's.
+OWN_PHRASE=0
+cleanup() { [ "$OWN_PHRASE" -eq 1 ] && rm -f "$PHRASE_FILE"; }
 trap cleanup EXIT INT TERM
-if [ ! -e "$NODE_HOME/keystore.bin" ] && [ -z "$INVITE" ]; then
+if [ -e "$NODE_HOME/keystore.bin" ] || [ -n "$INVITE" ]; then
+    :
+elif [ -n "$PHRASE_ARG" ]; then
+    [ -r "$PHRASE_ARG" ] || die "cannot read $PHRASE_ARG"
+    [ "$(wc -w < "$PHRASE_ARG" | tr -d ' ')" -eq 24 ] || die "$PHRASE_ARG does not hold 24 words"
+    PHRASE_FILE="$PHRASE_ARG"
+else
     step "Joining the test account"
     printf '  Paste the 24 words the first machine printed, then Enter (hidden):\n  '
     stty -echo 2>/dev/null
@@ -230,6 +266,7 @@ if [ ! -e "$NODE_HOME/keystore.bin" ] && [ -z "$INVITE" ]; then
     [ "$(printf '%s\n' "$WORDS" | wc -w | tr -d ' ')" -eq 24 ] || die "that is not 24 words" \
         "Copy all of them, in order, from the first machine's output."
     PHRASE_FILE=$(mktemp) || die "could not create a temporary file"
+    OWN_PHRASE=1
     chmod 600 "$PHRASE_FILE"
     printf '%s\n' "$WORDS" > "$PHRASE_FILE"
     WORDS=""
@@ -278,6 +315,7 @@ elif [ "$OS" = Darwin ]; then
     step "Starting the daemon (a LaunchAgent, loaded)"
     # 600 before the secret goes in: the window between writing and
     # restricting is exactly as long as the machine is slow.
+    mkdir -p "$(dirname "$SECRET_FILE")"
     : > "$SECRET_FILE" && chmod 600 "$SECRET_FILE" || die "could not create $SECRET_FILE"
     printf 'ITSANAS_PASSPHRASE=%s\n' "$ITSANAS_PASSPHRASE" >> "$SECRET_FILE"
     mkdir -p "$(dirname "$AGENT_PLIST")"
@@ -293,7 +331,7 @@ elif [ "$OS" = Darwin ]; then
     <key>ITSANAS_PASSPHRASE</key><string>$ITSANAS_PASSPHRASE</string>
   </dict>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>StandardOutPath</key><string>$NODE_HOME/daemon.log</string>
   <key>StandardErrorPath</key><string>$NODE_HOME/daemon.log</string>
 </dict></plist>
