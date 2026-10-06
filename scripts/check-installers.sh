@@ -757,6 +757,100 @@ if [ "$twin_ok" -eq 1 ]; then
 fi
 rm -rf "$twin"
 
+# ------------------------------------------ the test bed spares real accounts
+#
+# HANDOVER §8 0r's red-team test: testbed.sh --fresh on a home that holds a
+# real account (`nicolas`) and an earlier bed. The real node, its passphrase
+# file and its service must come through untouched, and the earlier bed must
+# be in an archive, not gone: it may hold the only copy of something.
+
+bed=$(mktemp -d)
+h="$bed/home"
+mkdir -p "$h/.local/bin" "$h/.config/systemd/user" "$h/.config/itsanas" "$bed/fake" "$bed/scripts" \
+    "$h/.itsanas-nicolas" "$h/.itsanas-essai" "$h/ITSaNAS-essai"
+cp install/testbed.sh install/provision.sh "$bed/scripts/"
+: > "$h/.itsanas-nicolas/keystore.bin"
+echo 'ITSANAS_PASSPHRASE=real' > "$h/.config/itsanas/nicolas.environment"
+echo 'old bed' > "$h/.itsanas-essai/only-copy.txt"
+: > "$h/.itsanas-essai/keystore.bin"
+echo 'ITSANAS_PASSPHRASE=old' > "$h/.config/itsanas/essai.environment"
+cat > "$h/.local/bin/itsanas" <<'STUB'
+#!/bin/sh
+case "$1" in
+    init) mkdir -p "$ITSANAS_HOME" && : > "$ITSANAS_HOME/keystore.bin" && echo "word word word" ;;
+    login) mkdir -p "$ITSANAS_HOME" && : > "$ITSANAS_HOME/keystore.bin" ;;
+esac
+exit 0
+STUB
+cat > "$bed/fake/systemctl" <<'FAKE'
+#!/bin/sh
+echo "$*" >> "$BED_LOG"
+case "$*" in *is-active*) exit 3 ;; esac
+exit 0
+FAKE
+chmod +x "$h/.local/bin/itsanas" "$bed/fake/systemctl"
+: > "$h/.config/systemd/user/itsanas@.service"
+bed_ok=1
+if ! env HOME="$h" PATH="$bed/fake:/usr/bin:/bin" TESTBED_OS=Linux BED_LOG="$bed/systemctl.log" XDG_RUNTIME_DIR="$bed" \
+        timeout 60 sh "$bed/scripts/testbed.sh" --coordinator 192.0.2.1:9898 --coordinator-device d \
+        --invite c --fresh --no-install </dev/null >"$bed/out" 2>&1; then
+    bad "testbed.sh --fresh failed in a throwaway home"
+    sed 's/^/    /' "$bed/out"
+    bed_ok=0
+fi
+for kept in "$h/.itsanas-nicolas/keystore.bin" "$h/.config/itsanas/nicolas.environment"; do
+    [ -e "$kept" ] || { bad "testbed.sh removed ${kept#"$h"/}, which belongs to a real account"; bed_ok=0; }
+done
+# shellcheck disable=SC2010 # one directory of known names
+ls "$h"/itsanas-archive-*/.itsanas-essai/only-copy.txt >/dev/null 2>&1 \
+    || { bad "testbed.sh --fresh did not archive the earlier bed; its files are gone"; bed_ok=0; }
+[ -e "$h/.itsanas-essai/keystore.bin" ] || { bad "testbed.sh made no new essai node"; bed_ok=0; }
+if grep -E '(disable|stop).*itsanas@nicolas' "$bed/systemctl.log" >/dev/null 2>&1; then
+    bad "testbed.sh stopped or disabled the real account's service"; bed_ok=0
+fi
+[ "$bed_ok" -eq 1 ] && say "test bed: real account untouched, earlier bed archived"
+
+# An unattended join (--phrase-file, over SSH): the words file is the caller's.
+# Deleting it would lose the only copy someone typed out on a machine with no
+# other record of the 24 words.
+rm -rf "$h/.itsanas-essai" "$h/.config/itsanas/essai.environment"
+printf '%s\n' "w w w w w w w w w w w w w w w w w w w w w w w w" > "$bed/words.txt"
+chmod 600 "$bed/words.txt"
+if ! env HOME="$h" PATH="$bed/fake:/usr/bin:/bin" TESTBED_OS=Linux BED_LOG="$bed/systemctl.log" XDG_RUNTIME_DIR="$bed" \
+        timeout 60 sh "$bed/scripts/testbed.sh" --coordinator 192.0.2.1:9898 --coordinator-device d \
+        --phrase-file "$bed/words.txt" --no-install </dev/null >"$bed/out" 2>&1; then
+    bad "testbed.sh --phrase-file failed in a throwaway home"
+    sed 's/^/    /' "$bed/out"
+elif [ ! -e "$bed/words.txt" ]; then
+    bad "testbed.sh --phrase-file deleted the caller's file of 24 words"
+elif [ ! -e "$h/.itsanas-essai/keystore.bin" ]; then
+    bad "testbed.sh --phrase-file did not restore the essai account"
+else
+    say "test bed: an unattended join keeps the caller's words file"
+fi
+
+# The Mac's bed is a LaunchAgent of its own; clean.sh --instance must know it,
+# or "--clean --yes" leaves a daemon starting at every login with a passphrase
+# in its plist. The default node's agent is not the instance's to remove.
+la="$h/Library/LaunchAgents"
+mkdir -p "$la"
+: > "$la/net.itsanas.essai.plist"
+: > "$la/net.itsanas.daemon.plist"
+env HOME="$h" PATH="$bed/fake:/usr/bin:/bin" timeout 30 sh install/clean.sh --instance essai </dev/null >/dev/null 2>&1
+if [ ! -e "$la/net.itsanas.essai.plist" ]; then
+    bad "clean.sh --instance essai removed the agent without --yes (a dry run changed something)"
+else
+    env HOME="$h" PATH="$bed/fake:/usr/bin:/bin" timeout 30 sh install/clean.sh --instance essai --yes </dev/null >/dev/null 2>&1
+    if [ -e "$la/net.itsanas.essai.plist" ]; then
+        bad "clean.sh --instance essai --yes left the bed's LaunchAgent in place"
+    elif [ ! -e "$la/net.itsanas.daemon.plist" ]; then
+        bad "clean.sh --instance essai removed the default node's LaunchAgent"
+    else
+        say "clean.sh --instance removes that instance's LaunchAgent and no other"
+    fi
+fi
+rm -rf "$bed"
+
 # ------------------------------------------------- the PATH line, added once
 #
 # HANDOVER §8 3e. On the first real Mac the install succeeded and `itsanas` was

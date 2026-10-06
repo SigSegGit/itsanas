@@ -31,6 +31,43 @@ execute the file and nothing else. On a Pi or a phone the difference is the whol
 arrives on the machine rather than being inferred from a laptop. Skip it with
 `--no-smoke` if you need the install regardless.
 
+## A test bed, in one command per machine
+
+To *see* it work across your own machines, with a throwaway account that
+leaves any real one alone: [`testbed.sh`](testbed.sh) (Linux, Pi, VM, macOS)
+and [`testbed.ps1`](testbed.ps1) (Windows). Each one installs or updates,
+creates or joins the account `essai` (instance `essai`, folder
+`~/ITSaNAS-essai`, 10G pledged, 3G kept), starts the daemon (on macOS a
+LaunchAgent of its own, `net.itsanas.essai`, which `--clean` removes), drops `bonjour-depuis-<machine>.txt` and a 50 MB file
+into the folder, and ends with a table where every line is OK or FAIL plus the
+fix:
+
+```sh
+sh install/testbed.sh --coordinator HOST:PORT --coordinator-device ID --invite CODE   # the first machine
+sh install/testbed.sh --coordinator HOST:PORT --coordinator-device ID                 # every other one: asks for the 24 words
+sh install/testbed.sh --coordinator HOST:PORT --coordinator-device ID --phrase-file F # unattended (SSH): words from your mode-600 file, which stays
+sh install/testbed.sh status                                                          # any time; changes nothing
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install\testbed.ps1 -Coordinator HOST:PORT -CoordinatorDevice ID [-Invite CODE | -PhraseFile F]
+powershell -ExecutionPolicy Bypass -File install\testbed.ps1 -Status
+```
+
+It works when the table says so: the other machines' `bonjour` files have
+arrived, and at least one of their 50 MB files is there whole (a greeting
+proves a path; a complete 50 MB file proves it carries data). `--fresh` (`-Fresh`) starts over and **archives** the earlier bed to
+`~/itsanas-archive-DATE/`; `--clean` (`-Clean`) removes it through the usual
+uninstaller. The passphrase is drawn at random per machine and kept only where
+the service reads it; the 24 words are typed at a hidden prompt, never on a
+command line (or read from `--phrase-file`, which the script never deletes).
+The bed is one more instance, so it takes the next free port (9798, 9799...):
+a firewall or a router forward that names only the real account's port keeps
+it off the network, and nothing here opens one. Android has no script: install the APK and restore `essai` from
+the 24 words in the app. **Not yet run on a real machine** (HANDOVER §8 0r);
+`check-installers.sh` checks, in a throwaway home, that a real account is left
+untouched and an earlier bed is archived.
+
 ## From nothing to a running node, in one command
 
 `linux.sh` compiles and installs. It touches no keys, creates no account and

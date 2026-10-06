@@ -10,15 +10,42 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0r
-TITLE: a test bed in one command per machine (Windows, Mac, Pi, VM, Android), with a visible verdict
+TITLE: run the test bed on real machines (built, not yet run on Nicolas's Windows and Mandarine's Mac)
 WRITTEN-AT: 2026-10-06
-BASE: c5b7f4b
+BASE: 70daa81
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-06 (morning), §8 0r built: `install/testbed.sh` and
+`install/testbed.ps1`** (branch `step/8.0r-testbed`). One command per machine
+installs, founds or joins the account `essai` (instance `essai`, 10G pledged,
+3G kept), drops `bonjour-depuis-<host>.txt` plus a 50 MB file, and prints
+✅/❌ lines ending in `IT WORKS` once another machine's greeting *and* one of
+its 50 MB files have arrived whole. NEXT stays 0r: it is done only when the
+greetings cross on real machines (Nicolas's Windows, Mandarine's Mac). What
+the review of the WIP commit found and fixed: macOS `--clean` left the bed's
+LaunchAgent loaded at every login (clean.sh `--instance` now removes
+`net.itsanas.<instance>.plist`, the label was `fr.ngas.*`, renamed to the
+`net.itsanas.*` family macos.sh uses); the Mac kept its passphrase in a
+second place clean.sh did not know (now `~/.config/itsanas/essai.environment`
+everywhere); `status` over `ssh host 'cmd'` read a running daemon as stopped
+(no XDG_RUNTIME_DIR; same fix as provision.sh); `--phrase-file` /
+`-PhraseFile` added for unattended joins and never deletes the caller's file.
+**Facts that bound the real run, checked over SSH the same morning:** the VM's
+disk is **100 % full** (133 MB free of 22 GB; 9.1 GB in
+`/var/lib/containerd`, 2.9 GB in `~/micro-ai`) and it hosts the coordinator,
+which needs room to write its directory -- pruning Docker images is Nicolas's
+call, not a session's, so the VM is out of the bed until he frees space. The
+bed is one more instance, so it takes the next free port (9798...); the VM's
+ufw opens only 9797 and the Freebox forwards only 9797 (Pi) and 9898
+(coordinator), so the bed is a **home-LAN** test: a Mac outside the house
+reaches the coordinator but none of the bed's nodes. The plan below asked for
+"coordinator answers" and "devices" lines in the verdict; they are not built,
+`itsanas doctor` (printed by `status`) gives both.
 
 **2026-10-06, NEXT moved to §8 0r, a test bed in one command per
 machine** (asked for by Nicolas the same night: a visual test on
@@ -1210,7 +1237,16 @@ Detail and measurements are in ROADMAP.md; this is the map.
       does not say where `provision.ps1 -NoInstall` looks for
       `itsanas.exe` for a second *Windows* account.
 
-   r. **A test bed in one command per machine, and a visible answer.**
+   r. 🟨 **A test bed in one command per machine, and a visible answer.**
+      **Built 2026-10-06** (`install/testbed.sh`, `install/testbed.ps1`, see
+      §0 for what the review fixed and for the VM's full disk); three
+      hermetic tests in `check-installers.sh`, each sabotaged red: real
+      account untouched + earlier bed archived; `--phrase-file` keeps the
+      caller's file (sabotage: unconditional `rm`); `clean.sh --instance`
+      removes that instance's LaunchAgent and no other (sabotage: drop the
+      `rm`). **Left:** the run on real machines, which is the "done when"
+      below; the private `Documents\ITSaNAS\TEST-VISUEL.md` has the
+      commands per device.
       Asked for by Nicolas on 2026-10-06, ahead of everything else: he wants
       to see it work with his own eyes on Mandarine's Mac, his Windows laptop,
       and if possible the Pi, the VM and an Android phone, about 10 GB each.
