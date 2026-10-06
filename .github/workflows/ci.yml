@@ -3,7 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # `labeled` so that adding `milestone` to an open pull request runs the full
+  # suite at once, rather than at its next push.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   schedule:
     # Daily, so a newly published advisory against a dependency surfaces the
     # day it is published rather than on the next unrelated PR. It was weekly
@@ -25,6 +28,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # What a pull request touches decides what it tests: the crates it changed
+  # and every crate that depends on them. Nicolas asked for it on 2026-10-06,
+  # when a docs-only PR cost 23 runner-minutes. Everything that is not a pull
+  # request, a PR labelled `milestone`, and a PR touching Cargo.lock, a
+  # manifest, the toolchain, .config/, a workflow or the scope script itself,
+  # runs in full. The rule, and what it cannot see, are in scripts/ci_scope.py
+  # and docs/ROADMAP.md "Selective CI". Lint and the doc gates always run.
+  #
+  # A skipped job is green only because the last job below checks that this
+  # one decided to skip it and wrote down why (docs/HANDOVER.md §5).
+  changes:
+    name: What this run tests
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.plan.outputs.full }}
+      reason: ${{ steps.plan.outputs.reason }}
+      plan: ${{ steps.plan.outputs.plan }}
+      tests: ${{ steps.plan.outputs.tests }}
+      slow: ${{ steps.plan.outputs.slow }}
+      installers: ${{ steps.plan.outputs.installers }}
+      acceptance: ${{ steps.plan.outputs.acceptance }}
+      arm: ${{ steps.plan.outputs.arm }}
+      android: ${{ steps.plan.outputs.android }}
+      msrv: ${{ steps.plan.outputs.msrv }}
+      coverage: ${{ steps.plan.outputs.coverage }}
+      smoke: ${{ steps.plan.outputs.smoke }}
+      test_args: ${{ steps.plan.outputs.test_args }}
+      doc_args: ${{ steps.plan.outputs.doc_args }}
+      build_args: ${{ steps.plan.outputs.build_args }}
+    steps:
+      # The whole history, so `origin/main...HEAD` has a merge base to find.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # cargo is on the runner image already; `cargo metadata --no-deps` reads
+      # the manifests and resolves nothing. If it fails, the plan is a full run.
+      - name: Decide what this run tests
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: python3 scripts/ci_scope.py plan
+
   lint:
     name: Format and lint
     runs-on: ubuntu-latest
@@ -136,6 +183,14 @@ jobs:
       # what runs.
       - name: Every gate in scripts/ is actually run here
         run: python scripts/check-ci.py
+      # A wrong scope does not fail anything: it makes CI green by testing
+      # less, which is the one bug a CI cannot catch by running. So the
+      # decision is tested here without git or GitHub -- a crypto-only change
+      # must reach every dependent, docs-only must run no Rust test, Cargo.lock
+      # must force the full run -- and this file is read to check every job
+      # obeys the decision it is given.
+      - name: The CI scope tests what it must
+        run: python scripts/check-ci-scope.py
       # An installer is the one program here that runs on a machine nobody has
       # configured, in a shell nobody chose, in front of somebody who has read
       # nothing — and it is the least exercised code in the project. A syntax
@@ -158,6 +213,12 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    needs: changes
+    # No job-level `if:` here, on purpose. These three legs are required
+    # checks, and a matrix job skipped by `if:` reports under the name
+    # "Test (${{ matrix.os }})", unexpanded, which no required check matches:
+    # the pull request would wait forever. So every step is gated instead, and
+    # the job passes having said why it tested nothing.
     strategy:
       fail-fast: false
       matrix:
@@ -165,15 +226,28 @@ jobs:
         # cheap check that nothing has quietly become Windows- or Linux-only.
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
+      - name: What this run tests
+        shell: bash
+        env:
+          REASON: ${{ needs.changes.outputs.reason }}
+          ARGS: ${{ needs.changes.outputs.test_args }}
+          TESTS: ${{ needs.changes.outputs.tests }}
+        run: |
+          echo "plan: $REASON"
+          if [ "$TESTS" = true ]; then echo "testing: $ARGS"; else echo "no crate is affected; nothing to test here"; fi
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.tests == 'true'
       - uses: dtolnay/rust-toolchain@stable
+        if: needs.changes.outputs.tests == 'true'
       - uses: Swatinem/rust-cache@v2
+        if: needs.changes.outputs.tests == 'true'
       # Printed so a slow run can be compared with a fast one: hosted runners
       # vary, and on 2026-09-14 a Windows test job took seven minutes where
       # three to five is usual. An earlier step here excluded build directories
       # from Defender on the theory that scanning caused those stalls; the
       # runner reported real-time protection already off, so it was removed.
       - name: How much machine this runner has
+        if: needs.changes.outputs.tests == 'true'
         shell: bash
         run: echo "cores $(nproc 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")"
       # Test temporary files on a RAM disk, Windows only, so every test still
@@ -185,7 +259,7 @@ jobs:
       # where a CPU-bound test is about 6x; on a stalled runner such tests
       # crossed the 60 s budget. tempfile reads TMP/TEMP, so both point here.
       - name: Test temporary files on a RAM disk
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.changes.outputs.tests == 'true'
         shell: pwsh
         run: |
           choco install imdisk-toolkit --no-progress -y | Out-Null
@@ -196,23 +270,34 @@ jobs:
           $drive = Get-PSDrive R
           "RAM disk R: free {0:N1} GiB" -f ($drive.Free / 1GB)
       - name: Where tests will write their temporary files
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.changes.outputs.tests == 'true'
         shell: pwsh
         run: '"temp path: " + [System.IO.Path]::GetTempPath()'
       - uses: taiki-e/install-action@nextest
+        if: needs.changes.outputs.tests == 'true'
       # nextest, not `cargo test`, because it runs each test in its own process
       # and can therefore time it out. The budget is in .config/nextest.toml:
       # one minute per test, no exceptions. `cargo test` has no such thing, and
       # a test that hangs under it hangs the job until a person kills it.
-      - run: cargo nextest run --profile ci --workspace --all-features
+      #
+      # The crates are the plan's: every one this run affects, or the
+      # workspace on a full run.
+      - name: The tests of every affected crate
+        if: needs.changes.outputs.tests == 'true'
+        run: cargo nextest run --profile ci ${{ needs.changes.outputs.test_args }} --all-features
       # nextest does not run doctests, so they need their own invocation. Left
       # out, this change would have quietly stopped running two tests while the
       # summary still said everything passed.
-      - run: cargo test --doc --workspace --all-features
+      # Only crates with a library have doctests; the plan lists those.
+      - name: The doctests of every affected library
+        if: needs.changes.outputs.tests == 'true' && needs.changes.outputs.doc_args != ''
+        run: cargo test --doc ${{ needs.changes.outputs.doc_args }} --all-features
 
   slow-tests:
     name: Expensive tests
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.slow == 'true'
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -229,11 +314,13 @@ jobs:
       # three take 0.2 s, 2.4 s and 5.9 s. Running them here rather than writing
       # them a timeout exception is the difference between a budget that means
       # something and a list of things it does not apply to.
-      - run: cargo nextest run --release --profile ci --workspace --all-features --run-ignored ignored-only
+      - run: cargo nextest run --release --profile ci ${{ needs.changes.outputs.test_args }} --all-features --run-ignored ignored-only
 
   installers-run:
     name: The installer installs (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    needs: changes
+    if: needs.changes.outputs.installers == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -272,6 +359,8 @@ jobs:
   acceptance-local:
     name: Acceptance phases between three local nodes
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.acceptance == 'true'
     # `scripts/acceptance.sh` is what the MVP verdict is taken with, on four real
     # machines, by a person, in a morning that is expensive to waste. This runs
     # every phase here first between three nodes of one account and a throwaway
@@ -293,6 +382,8 @@ jobs:
   cross-build:
     name: Builds and runs on ARM
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.arm == 'true'
     # Every step here builds or runs aarch64, so these belong to the job rather
     # than to one step of it. Setting the linker on the build step alone is what
     # made the test step try to link aarch64 objects with the host `cc`, which
@@ -315,7 +406,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - uses: taiki-e/install-action@nextest
       - name: Build
-        run: cargo build --workspace --release --target aarch64-unknown-linux-gnu
+        run: cargo build ${{ needs.changes.outputs.build_args }} --release --target aarch64-unknown-linux-gnu
       # A build says the types line up. It does not say the code runs, and until
       # this step existed no line of this project had ever executed on an ARM
       # processor -- the machine half its constants are chosen for. aarch64 is
@@ -352,14 +443,17 @@ jobs:
       # environment variable set at the job level, the same one plain
       # `cargo test` used.
       - name: The whole test suite, on ARM
-        run: cargo nextest run --profile ci-emulated --workspace --all-features --target aarch64-unknown-linux-gnu
+        run: cargo nextest run --profile ci-emulated ${{ needs.changes.outputs.test_args }} --all-features --target aarch64-unknown-linux-gnu
       # The doctests, which nextest does not run, and which `cargo test` does
       # not cross-run under a target runner either -- so they stay on the
       # native job above and are named here so their absence is a decision
       # rather than an oversight.
       # And the same check an installer runs at the end of a real install, so
       # the thing a person sees on their own machine is the thing CI ran.
+      # Only when the plan built `itsanas`, which is whenever itsanas-cli is
+      # affected -- and a store or crypto change always reaches it.
       - name: Store a file and read it back, on ARM
+        if: needs.changes.outputs.smoke == 'true'
         env:
           ITSANAS_RUNNER: qemu-aarch64-static
         run: sh scripts/smoke.sh target/aarch64-unknown-linux-gnu/release/itsanas
@@ -367,6 +461,8 @@ jobs:
   android-core:
     name: Core compiles for Android
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -414,6 +510,8 @@ jobs:
   minimum-rust-version:
     name: Minimum supported Rust version
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.msrv == 'true'
     steps:
       - uses: actions/checkout@v7
       - name: Read rust-version from the workspace manifest
@@ -425,7 +523,7 @@ jobs:
         with:
           toolchain: ${{ steps.msrv.outputs.version }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --all-features
+      - run: cargo check ${{ needs.changes.outputs.build_args }} --all-features
 
   supply-chain:
     name: Dependency advisories and licences
@@ -439,6 +537,10 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.coverage == 'true'
+    # A subset's coverage is a misleading number and gates nothing, so it is
+    # measured on full runs only: main, nightly, and `milestone` PRs.
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -463,7 +565,11 @@ jobs:
     # to stop reading warnings, and the next one is the one that mattered. This
     # reads the annotations of every check run in this run and fails on any at
     # warning or failure level.
+    # `!cancelled()`: by default a job whose needs were skipped is skipped too,
+    # and this one must run precisely then, to judge the skips.
+    if: ${{ !cancelled() }}
     needs:
+      - changes
       - lint
       - test
       - slow-tests
@@ -479,6 +585,15 @@ jobs:
       checks: read
       contents: read
     steps:
+      - uses: actions/checkout@v7
+      # The merge rule (docs/HANDOVER.md §5): skipped is green only when the
+      # `changes` job decided the skip and wrote down why. This is where that
+      # is checked, so a skip nobody planned -- or any failure -- turns this
+      # check red, and merge-when-green.sh refuses a skip unless this passed.
+      - name: Every skipped job was skipped by the plan, for a written reason
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci_scope.py verify
       - name: Every annotation in this run is a notice at most
         env:
           GH_TOKEN: ${{ github.token }}

@@ -422,7 +422,8 @@ What is missing before this is a *network* rather than a personal sync tool:
 
 - Cargo workspace, Rust 2024 edition, MSRV pinned and enforced.
 - AGPL-3.0-or-later.
-- CI with eleven jobs: lint (format, clippy at `-D warnings`, rustdoc, and the
+- CI with twelve jobs: one that decides what a pull request tests (see
+  "Selective CI" under Known ceilings), lint (format, clippy at `-D warnings`, rustdoc, and the
   five checking scripts), tests on Linux/Windows/macOS, expensive `#[ignore]`d
   tests, **the installers actually installing** on a machine of each kind, an
   aarch64 build that then runs the whole suite under emulation, an Android
@@ -431,7 +432,8 @@ What is missing before this is a *network* rather than a personal sync tool:
   nodes, where every check must pass once and fail once, and a last job that
   fails the run on any warning annotation. Dependabot proposes action and
   crate patch updates weekly.
-- Weekly scheduled CI run so a new advisory surfaces without waiting for a push.
+- Daily scheduled CI run, always in full, so a new advisory -- or a new rustc,
+  or a new runner image -- surfaces without waiting for a push.
 
 **It had never run.** The workflow was written in the first week and the
 repository was not published until 2026-08-31, so the first execution was also
@@ -1364,6 +1366,63 @@ files rather than being a new class of problem.
 Three limits that are fine at the size this runs at today and are not fine at
 the size it is aimed at. Written with the number where each one breaks, because
 a limit described in words gets rediscovered as a surprise.
+
+### Selective CI: a pull request tests what it touches — 2026-10-06
+
+Asked for by Nicolas on 2026-10-06. Until then every pull request ran every
+job: over the ten pull-request runs before the change, a completed run took
+**6.5 min of wall-clock and 25 runner-minutes** on average (seven completed,
+22.9--26.9 runner-minutes each; `python scripts/ci-cost.py 10`), and the
+docs-only #225 cost 22.9 like the others.
+
+Now a first job, `changes` (`scripts/ci_scope.py`), reads
+`git diff origin/main...HEAD`, maps each path to a workspace crate, and adds
+**every crate that depends on one, transitively, dev-dependencies included**.
+The tests, the expensive tests, ARM and MSRV run on that set; installers only
+when `install/`, `scripts/smoke.sh` or `itsanas-cli` is affected; acceptance
+only for the two binaries or its scripts; android-core only for the crates it
+checks; coverage only on full runs. Lint, every doc gate and `cargo deny`
+always run. A docs-only or scripts-only PR runs no Rust test job.
+
+**The full suite still runs, unconditionally**, on every push to `main`, the
+nightly schedule, a PR labelled `milestone`, and a PR touching `Cargo.lock`,
+`Cargo.toml`, the toolchain file, `.config/`, `.cargo/`, any workflow, or
+`ci_scope.py` itself. A path the script does not classify also means full.
+`scripts/check-ci-scope.py` tests all of this hermetically, and reads `ci.yml`
+to check each job obeys its gate.
+
+⬜ **The saving is not measured yet.** The numbers above are the baseline;
+the first runs under the new rule can only happen after it merges, and are to
+be written here from `ci-cost.py --runs <ids>`.
+
+**What it cannot catch, and that is the price.**
+
+- A break on a platform whose crate did not change is still caught, *if* the
+  cause is in the diff: a Windows-only path in `itsanas-drive` that breaks
+  because `itsanas-store` changed runs on the Windows leg, because
+  `itsanas-drive` depends on `itsanas-store`. That is the dependents rule, and
+  it is why a change to `itsanas-crypto` or `itsanas-store` still tests nearly
+  the whole workspace.
+- A break that comes from **the environment** is not in any diff: a new
+  stable rustc with a new lint or a changed inference, a runner image that
+  drops a tool, a dependency yanked upstream. A PR touching only `itsanas-wire`
+  will not see it in `itsanas-node`. **Only the push to `main` and the nightly
+  run catch those**, so such a break shows as a red `main` after a merge rather
+  than on the PR that would otherwise have shown it first. Whoever sees a red
+  `main` or a red nightly fixes it before the next step.
+- A pull request is tested against `main` as it was when it ran, and branch
+  protection does not require it to be up to date (`strict: false`). A PR
+  touching `itsanas-wire` that stays open while a crypto change merges is not
+  re-run; the full run used to cover its whole tree against the older `main`,
+  the selective one covers less. The push to `main` catches the combination.
+- `verify` checks that every skip was *planned and explained*, not that the
+  plan is *right*. A `Test (...)` leg that tested nothing because the plan
+  said so reports "pass" and is never looked at by `verify`. What keeps the
+  plan right is `check-ci-scope.py`, and nothing else.
+- A test that reads a file outside its own crate breaks the mapping. One does
+  (`itsanas-android` includes the Kotlin `Native.kt` with `include_str!`), and
+  `android/` is mapped to that crate for that reason. A new one must be added
+  to `ci_scope.py` the same way, and nothing detects that it was not.
 
 ### Named by the final verification pass, not fixed — 2026-10-01
 

@@ -28,7 +28,7 @@
 set -uo pipefail
 
 PR=${1:-}
-MINIMUM=${2:-15}
+MINIMUM=${2:-14}
 
 [ -n "$PR" ] || { echo "usage: merge-when-green.sh <pr-number> [minimum-checks]"; exit 2; }
 
@@ -44,6 +44,23 @@ fi
 
 total=$(printf '%s\n' "$checks" | grep -c .)
 passing=$(printf '%s\n' "$checks" | grep -c $'\tpass\t')
+
+# Selective CI (2026-10-06): a pull request skips the jobs its change cannot
+# affect. A skip counts as passing on one condition only -- the last job,
+# which runs `ci_scope.py verify`, passed. That job fails on any skip the
+# `changes` job did not decide and explain, and on any failure. Without it a
+# skip is what it always was here: not green. A docs-only run reports 14
+# checks, hence the minimum above.
+VERIFIER="No warnings anywhere in this run"
+skipped=$(printf '%s\n' "$checks" | grep -c $'\tskipping\t')
+if [ "$skipped" -gt 0 ]; then
+    if printf '%s\n' "$checks" | grep -q "^$VERIFIER"$'\tpass\t'; then
+        echo "PR $PR: $skipped skipped, each decided and explained by the plan ('$VERIFIER' passed)."
+        passing=$((passing + skipped))
+    else
+        echo "PR $PR: $skipped skipped, and '$VERIFIER' has not passed to vouch for them."
+    fi
+fi
 
 if [ "$total" -lt "$MINIMUM" ]; then
     echo "PR $PR: only $total checks are reporting, and this suite has $MINIMUM."

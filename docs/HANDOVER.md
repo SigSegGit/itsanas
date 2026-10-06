@@ -20,6 +20,26 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-06, outside §8: selective CI** (asked for by Nicolas; branch
+`ci/selective-tests`). A pull request now tests the crates it changed plus
+every crate depending on them; docs- and scripts-only PRs run no Rust test
+job; push to `main`, nightly, the `milestone` label and Cargo.lock / manifest /
+toolchain / `.config/` / workflow changes run everything. `scripts/ci_scope.py`
+decides, the `changes` job publishes the plan, `check-ci-scope.py` tests it
+hermetically and checks `ci.yml` obeys it. **The merge rule changed** (see
+§4b, under `merge-when-green.sh`): skipped is green only when the last job
+(`No warnings anywhere in this run`) passed, because it runs
+`ci_scope.py verify`. Baseline measured (ROADMAP "Selective CI"); **the
+saving is not**: the first selective runs only exist after this merges, and
+§8 6a is to measure them. Trap: a matrix job skipped by a job-level `if:`
+reports as "Test (${{ matrix.os }})", unexpanded, and the three required
+"Test (...)" checks would never arrive -- hence the per-step gates on `test`.
+The same happens if `changes` itself fails: `test` is skipped through `needs`
+and the PR waits for checks that never come. Look at `changes` first.
+Rodin's two points kept: `verify` proves a skip was planned, not that the plan
+is right (that is `check-ci-scope.py`'s job alone); and the verifier is not a
+required check, so a hand merge is not held by it -- §10 item 10.
+
 **2026-10-05, late: §8 3e, the installers put `itsanas` on the PATH.**
 `linux.sh` and `macos.sh` share one `path-line` block (byte-identical,
 compared by `check-installers.sh`): under `confirm` / `--yes` they add
@@ -247,6 +267,8 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
 cargo nextest run --profile ci --workspace --all-features   # 1 min per test, enforced
+# CI runs only the affected crates on a pull request: see what it chose with
+#   EVENT=pull_request python scripts/ci_scope.py plan
 cargo test --doc --workspace --all-features                 # nextest skips doctests
 cargo nextest run --release --workspace --all-features --run-ignored ignored-only
 cargo +1.88.0 check --workspace --all-features          # MSRV
@@ -333,7 +355,7 @@ that survives:
 | | |
 | --- | --- |
 | `scripts/sabotage.py` | breaks one defence at a time, runs the tests, restores from a copy, and **reports a defence whose sabotage turned nothing red** as the finding it is |
-| `scripts/merge-when-green.sh` | merges only when passing checks equal total checks and there are enough of them to be the real suite. It exists because `gh pr checks \| grep -civ pass && gh pr merge` merged a pull request with two checks still running: `grep -c` exits 0 when it *finds* something, so finding three failures ran the merge. A gate must say "all of them passed", never "I saw no failure" |
+| `scripts/merge-when-green.sh` | merges only when passing checks equal total checks and there are enough of them to be the real suite. **Since 2026-10-06 one exception, and only one: a skipped check is green when `No warnings anywhere in this run` passed**, because that job runs `ci_scope.py verify`, which fails on any skip the `changes` job did not decide and explain. A skip without that is not green, as before. (The `itsanas` skill's own text, outside this repository, still says "skipped is not green"; this rule supersedes it.) It exists because `gh pr checks \| grep -civ pass && gh pr merge` merged a pull request with two checks still running: `grep -c` exits 0 when it *finds* something, so finding three failures ran the merge. A gate must say "all of them passed", never "I saw no failure" |
 
 ---
 
@@ -1701,6 +1723,43 @@ Detail and measurements are in ROADMAP.md; this is the map.
 5. **A real phone**, and a release signing key for the APK that Nicolas holds
    (v0.1.0 ships with the development key).
 
+6. **CI that costs what the change costs.** Asked for by Nicolas on
+   2026-10-06: "test again only what changed, except for major milestones",
+   then, the same day, "a lot of red-team tests, one file per test type or
+   attack surface, then we stop having 40+ minute CIs".
+
+   a. ✅ **Selective CI, by crate** (2026-10-06, see §0 and ROADMAP
+      "Selective CI"). ⬜ Still owed in the next PR, which is itself
+      docs-only and so the first demonstration: run
+      `python scripts/ci-cost.py --runs <ids>` on that PR's run and on one
+      throwaway draft PR touching only a comment in `itsanas-crypto` (close
+      it unmerged), check in each run's summary that the plan is what
+      `check-ci-scope.py` says, and write the numbers in ROADMAP.
+
+   b. **Red-team tests by attack surface.** Fix the list in
+      `docs/TESTING.md` -- suggested: wire/framing, identity & claims,
+      coordinator, host storage & quotas, placement & audit, discovery/LAN,
+      TLS, local store & crash, sync convergence, installers. Move each
+      `red_team_*` test (203 in about 30 files on 2026-10-06; most in
+      `node/src/owners.rs` 19, `net/tests/two_nodes.rs` 19,
+      `node/src/contact.rs` 16, `coord/src/directory.rs` 14,
+      `cli/src/main.rs` 13) to `crates/<crate>/tests/redteam_<surface>.rs`
+      where the public API allows, else into an inline
+      `mod redteam_<surface>`. One nextest filterset per surface in
+      `.config/nextest.toml`. Do not rename tests unless forced; if forced,
+      the catalogue changes in the same commit; `check-counts.py` green.
+      Re-sabotage at least one moved test per surface. Then extend
+      `ci_scope.py` so a PR runs only the surfaces it touches, with a gate
+      that goes red on a source file mapped to no surface.
+
+   c. **Not decided -- needs Nicolas.** The push to `main` re-runs the full
+      suite on a tree a PR run usually already tested, which roughly doubles
+      the cost of a merge. Skipping it when the merged tree equals the tested
+      PR merge commit's tree would halve that, but Nicolas asked on
+      2026-10-06 for `main` to run in full unconditionally, and the full run
+      on `main` is half of what catches environment breaks (ROADMAP,
+      "Selective CI"). Asked in §10 item 11; do not build before the answer.
+
 ## 9. Known gaps, deliberately open
 
 - **Tail truncation.** A host can serve an internally consistent *prefix* of a
@@ -1837,6 +1896,21 @@ Detail and measurements are in ROADMAP.md; this is the map.
    so **pad**, after measuring. The disk cost on a real folder is measured
    first and the classes chosen from it; if no class set keeps the waste
    reasonable, that measurement comes back to him before any code.
+
+10. **Make the skip verifier a required check** (selective CI, 2026-10-06).
+   Branch protection requires lint, the three `Test (...)` legs and
+   `acceptance-local`, and GitHub counts a skipped required check as passing.
+   `merge-when-green.sh` refuses a skip unless `No warnings anywhere in this
+   run` passed, but a merge by hand is held by nothing of the kind. Closed
+   question: **add** that check to the required list (a hand merge then waits
+   for the whole run, about the time the slowest job takes), or **leave** it
+   and accept that only agent merges are guarded. Changing protection is
+   Nicolas's to do; no agent touches it.
+
+11. **Skip the push-to-`main` run when the merged tree was already tested**
+   (§8 6c). Halves the cost of a merge; loses the second full run that catches
+   environment breaks the same day rather than at the nightly. **Skip** or
+   **keep**.
 
 ## 11. Working style Nicolas expects
 
