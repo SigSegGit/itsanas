@@ -203,7 +203,8 @@ enum Command {
         #[arg(long)]
         brief: bool,
     },
-    /// Stop syncing this machine's files until `itsanas resume`.
+    /// Stop syncing this machine's files until `itsanas resume`, or for a while
+    /// with `--for 1h`.
     ///
     /// Nothing is lost: what you change here waits until you resume, and what
     /// the others change waits for you. This machine keeps hosting for them
@@ -211,7 +212,12 @@ enum Command {
     /// anybody else a copy. An idle daemon takes it within two seconds; in a
     /// round, it finishes with the machine it is talking to (five minutes at
     /// most) and dials no other. One started later starts paused.
-    Pause,
+    Pause {
+        /// End the pause by itself after this long: `1h`, `8h`, `2d`, from
+        /// one minute to 30 days. Without it, the pause lasts until resumed.
+        #[arg(long = "for", value_name = "DURATION")]
+        duration: Option<String>,
+    },
     /// Start syncing again after `itsanas pause`, at once.
     Resume,
     /// Ask the running daemon for a sync round now rather than at its next
@@ -719,7 +725,7 @@ fn run() -> Result<()> {
         | Command::Signout
         | Command::Signin
         | Command::Settings) => setup_command(&home, cli.instance.as_deref(), command),
-        command @ (Command::Pause
+        command @ (Command::Pause { .. }
         | Command::Resume
         | Command::SyncNow
         | Command::Interval { .. }) => steer(&home, &command),
@@ -1554,13 +1560,19 @@ fn snapshot_status(home: &Path, running: bool) -> Result<String> {
         // that was never measured.
         None => format!("{subject}; the snapshot it left has no time on it."),
     };
+    let now = itsanas_discover::now_unix();
     let header = match control::Control::read(home) {
+        Ok(asked) if asked.pause_holds(now) && asked.until.is_some() => format!(
+            "{header}\nSyncing is PAUSED {}: nothing moves until then, or `itsanas resume`.",
+            asked.lasts(now)
+        ),
         Ok(control::Control {
             paused_since: Some(since),
+            until: None,
             ..
         }) => format!(
             "{header}\nSyncing is PAUSED here, since {}: nothing moves until `itsanas resume`.",
-            describe_age(itsanas_discover::now_unix().saturating_sub(since))
+            describe_age(now.saturating_sub(since))
         ),
         Ok(_) => header,
         Err(why) => format!(
@@ -1744,10 +1756,38 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
         // and the icon should say that something needs a look.
         match control::Control::read(home) {
             Err(_) => format!("unknown {age}"),
-            Ok(asked) if asked.paused_since.is_some() => format!("paused {age}"),
+            Ok(asked) if asked.pause_holds(now) => format!("paused {age}"),
             Ok(_) => format!("healthy {age}"),
         }
     }
+}
+
+/// `itsanas pause [--for D]` applied to what the control file says.
+///
+/// A pause already holding keeps its start, and takes the new end: "for 8
+/// hours" over "for 1 hour" extends it, plain `pause` over a timed one makes
+/// it last until resumed. Only the same open-ended pause twice is a no-op.
+fn pause(control: &mut control::Control, duration: Option<&str>, now: u64) -> Result<String> {
+    let until = duration
+        .map(control::parse_pause)
+        .transpose()
+        .map_err(CliError::Usage)?
+        .map(|seconds| now.saturating_add(seconds));
+    let holding = control.pause_holds(now);
+    if holding && control.until.is_none() && until.is_none() {
+        return Ok("Syncing was already paused.".to_owned());
+    }
+    if !holding {
+        control.paused_since = Some(now);
+    }
+    control.until = until;
+    Ok(format!(
+        "Syncing paused on this machine {}. Nothing is lost: your changes here wait until \
+         syncing resumes, and this machine keeps hosting for the others. A transfer under way \
+         finishes with the machine it is talking to (five minutes at most); no other \
+         starts.\nResume sooner with: itsanas resume",
+        control.lasts(now)
+    ))
 }
 
 /// Write what was asked into the control file the daemon reads (`control.rs`).
@@ -1776,7 +1816,7 @@ fn steer_said(home: &Path, command: &Command) -> Result<String> {
     // (#243's review: `interval 10m` resumed a paused node that way).
     let (mut control, rewritten) = match control::Control::read(home) {
         Ok(control) => (control, false),
-        Err(_) if matches!(command, Command::Pause | Command::Resume) => {
+        Err(_) if matches!(command, Command::Pause { .. } | Command::Resume) => {
             (control::Control::default(), true)
         }
         Err(why) => {
@@ -1786,27 +1826,21 @@ fn steer_said(home: &Path, command: &Command) -> Result<String> {
         }
     };
     let said = match command {
-        Command::Pause if control.paused_since.is_some() => {
-            "Syncing was already paused.".to_owned()
-        }
-        Command::Pause => {
-            control.paused_since = Some(now);
-            "Syncing paused on this machine. Nothing is lost: your changes here wait until you \
-             resume, and this machine keeps hosting for the others. A transfer under way \
-             finishes with the machine it is talking to (five minutes at most); no other \
-             starts.\nResume with: itsanas resume"
-                .to_owned()
-        }
-        Command::Resume if control.paused_since.is_none() && !rewritten => {
+        Command::Pause { duration } => pause(&mut control, duration.as_deref(), now)?,
+        Command::Resume if !control.pause_holds(now) && !rewritten => {
+            // A pause over by the clock leaves its lines behind; clear them.
+            control.paused_since = None;
+            control.until = None;
             "Syncing was not paused.".to_owned()
         }
         Command::Resume => {
             control.paused_since = None;
+            control.until = None;
             // Resuming is a request to catch up, not to wait for the interval.
             control.sync_asked = Some(now);
             "Syncing resumed; a round starts within two seconds.".to_owned()
         }
-        Command::SyncNow if control.paused_since.is_some() => {
+        Command::SyncNow if control.pause_holds(now) => {
             return Err(CliError::Usage(
                 "syncing is paused on this machine; `itsanas resume` resumes and syncs at once"
                     .to_owned(),
@@ -4260,7 +4294,7 @@ mod tests {
             )
             .expect("snapshot");
         };
-        steer(&home, &Command::Pause).expect("pause");
+        steer(&home, &Command::Pause { duration: None }).expect("pause");
         write(now - 60);
         assert_eq!(brief_status(&home, true, now), "paused 60");
         write(now - 3 * 300);
@@ -4321,6 +4355,58 @@ mod tests {
         // `resume` says outright what the file should hold, so it repairs it.
         steer(&home, &Command::Resume).expect("resume rewrites it");
         assert!(control::Control::read(&home).is_ok_and(|read| read.paused_since.is_none()));
+    }
+
+    /// The tray's "pause for 1 hour": the icon says paused for the hour and
+    /// healthy after it, by the clock alone -- a blue icon over a node that
+    /// syncs again would send somebody to resume what is not paused, and a
+    /// blue icon forever is the forgotten pause the end exists to prevent.
+    #[test]
+    fn a_timed_pause_shows_paused_only_while_it_holds() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        steer(
+            &home,
+            &Command::Pause {
+                duration: Some("1h".to_owned()),
+            },
+        )
+        .expect("pause for an hour");
+        let asked = control::Control::read(&home).expect("control");
+        let (since, until) = (
+            asked.paused_since.expect("paused"),
+            asked.until.expect("an end"),
+        );
+        assert_eq!(until - since, 3600, "`--for 1h` did not end an hour later");
+        std::fs::write(
+            home.join(SNAPSHOT),
+            format!("snapshot {} every 300\n", until - 60),
+        )
+        .expect("snapshot");
+        assert_eq!(brief_status(&home, true, until - 1), "paused 59");
+        assert_eq!(
+            brief_status(&home, true, until),
+            "healthy 60",
+            "the icon still said paused once the hour was over"
+        );
+        assert!(
+            steer(
+                &home,
+                &Command::Pause {
+                    duration: Some("31d".to_owned())
+                }
+            )
+            .is_err(),
+            "a pause of a month and more was taken"
+        );
+        // Plain `pause` over a timed one lasts until resumed; `resume` clears both.
+        steer(&home, &Command::Pause { duration: None }).expect("pause");
+        let asked = control::Control::read(&home).expect("control");
+        assert_eq!((asked.paused_since, asked.until), (Some(since), None));
+        steer(&home, &Command::Resume).expect("resume");
+        let asked = control::Control::read(&home).expect("control");
+        assert_eq!((asked.paused_since, asked.until), (None, None));
     }
 
     /// Onto an existing home is onto somebody's node: refused, both untouched.
