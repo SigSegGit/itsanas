@@ -20,6 +20,23 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-06 afternoon, §8 0r deployed on the Pi, the VM and Windows;
+two bugs found doing it** (branch `fix/testbed-ps1-phrasefile`). The Pi
+founded `essai` (invitation minted as `nicolas`, its service stopped and
+restarted for it, with Nicolas's approval); the VM joined over SSH with
+`--phrase-file`, and showed **IT WORKS** with the Pi's files received. Found:
+(1) `testbed.ps1` declared `$phraseFile = $null`, and PowerShell names are
+case-insensitive, so `-PhraseFile` was always erased and an unattended join
+hung on a prompt -- now `$tempPhraseFile`, and `check-installers.sh` refuses
+any assignment to a parameter's name in another case (sabotaged: red);
+(2) `windows.ps1` could not replace `itsanas.exe` while another node's daemon
+ran (`sigseg42` on the laptop); it now renames the running file aside and
+copies the new one in, which Windows allows. Not hermetic-tested: it needs a
+running Windows process; verified by the laptop's own install. Still on the
+VM, untouched: a default node (`itsanas.service`) and an old
+`itsanas-mandarine.service` from September, both older builds -- Nicolas's
+call whether they go.
+
 **2026-10-06 (midday), NEXT is §8 0s, the vault on another disk.** 0r is
 merged (#235) and waits only on Nicolas running it by hand (his private
 `Documents\ITSaNAS\TEST-VISUEL.md`; the invitation needs a brief stop of the
