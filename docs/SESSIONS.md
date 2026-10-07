@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-10-07 ~18:00 | ~3 h | n/d | 0w (6b) en lot | au bout | 🟨 | Les 13 points de Nicolas en une PR : nom vérifié à la frappe et refusé avant toute clé, coordinateur intégré, welcome.txt, parcourir/ouvrir/épingler le dossier, curseur d'espace, FR/EN, 24 mots copiables (Windows), UPnP, ITSaNAS-Setup.exe, mise à jour nocturne du coordinateur ; v0.1.1 prête à tagger ; rien testé en vrai | suivi |
 | 2026-10-07 ~16:00 | ~1 h | n/d | v0.1.0 + 0w (6b) | au bout | 🟨 | v0.1.0 publiée, signée, vérifiée de l'extérieur, installée par get.ps1 ; 13 retours de Nicolas consignés en 0w (6b) avec ses décisions ; (11) l'icône démarre à la fin du setup (sabotée rouge, deux sens) | suivi |
 | 2026-10-07 ~13:00 | ~20 min | n/d | 0t (clé) | au bout | ✅ | Clé de release épinglée (`RELEASE_KEY`), test qui vérifie les octets contre l'hex de keygen (saboté rouge) ; première clé régénérée car le fichier avait été envoyé dans le chat ; nouveau trou §9 (un binaire compilé annonce une mise à jour qu'il refusera) | suivi |
 | 2026-10-07 ~11:00 | ~45 min | n/d | 0w (6) vérif + fusion | au bout | ✅ | #245 revérifiée à froid (11 sabotages rouges, gates verts), BLOCKER IA répondus, fusionnée ; 3 phrases périmées corrigées ; trou du scratch à côté de l'exe en §9 ; question drain/refus posée en §10 item 15 avant 0w (7) | suivi |

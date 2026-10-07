@@ -97,7 +97,7 @@ release_tool sign "$MANIFEST" --key "$KEY" \
     || fail "not signed (the reason is just above): nothing was published"
 gh release upload "$TAG" -R "$REPO" "$MANIFEST.sig" --clobber \
     || fail "the signature could not be uploaded to $TAG: run this again, it is safe"
-gh release edit "$TAG" -R "$REPO" --draft=false \
+gh release edit "$TAG" -R "$REPO" --draft=false --notes "Signed with the ITSaNAS release key (manifest.txt.sig). Windows: ITSaNAS-Setup-*.exe. Install: docs/RELEASING.md." \
     || fail "signed and uploaded, but $TAG is still a draft: run this again, or publish it on GitHub"
 
 echo

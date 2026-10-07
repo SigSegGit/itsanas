@@ -244,6 +244,34 @@ pub fn conditions(metered: bool) -> Conditions {
     }
 }
 
+/// The home router's port, opened by `UPnP` when nothing was written: what
+/// makes a machine behind a box reachable without anybody touching the box.
+/// On its own thread, so a silent router costs the start nothing; the
+/// address found is announced from the next round.
+fn open_the_router_port<'scope>(
+    scope: &'scope std::thread::Scope<'scope, '_>,
+    node: &'scope Node,
+    port: u16,
+    shutdown: &'scope AtomicBool,
+) {
+    if node.config.announce.is_some()
+        || node.config.coordinator.is_none()
+        || std::env::var_os("ITSANAS_NO_UPNP").is_some()
+    {
+        return;
+    }
+    scope.spawn(move || match crate::upnp::open_port(port) {
+        Ok((gateway, address)) => {
+            println!("itsanas: the router opened port {port} (UPnP); reachable at {address}");
+            coordinator::set_found_address(Some(address));
+            crate::upnp::renew(&gateway, port, shutdown);
+        }
+        Err(why) => {
+            println!("itsanas: no port opened on the router ({why}); this machine dials out");
+        }
+    });
+}
+
 /// Run until interrupted.
 ///
 /// `interval` overrides the policy's own schedule when the operator passed
@@ -355,6 +383,8 @@ pub fn run(
         });
 
         scope.spawn(|| crate::update::watch(&node.home, shutdown, &UPDATED));
+
+        open_the_router_port(scope, node, bound.port(), shutdown);
 
         if let Some(lan) = &lan {
             scope.spawn(|| {

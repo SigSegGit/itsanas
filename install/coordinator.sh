@@ -91,6 +91,7 @@ STATE_DIR="/var/lib/itsanas-coordinator"
 BIN_SRC=""
 BIN_DST="/usr/local/bin/itsanas-coordinator"
 OPEN_DOOR=0
+AUTO_UPDATE=0
 DO_INSTALL=1
 # Whether --check found everything the real run needs, and whether any address
 # on this machine is reachable from outside. --check used to stop with no
@@ -108,6 +109,9 @@ Options
   --port N          port to listen on (default 9898)
   --binary PATH     use this itsanas-coordinator instead of looking for one
   --admit-first     let the next registration in without an invitation, once
+  --auto-update     each night, pull this checkout's main, rebuild and restart
+                    if it moved (a systemd timer; the build runs as the
+                    checkout's owner, never as root)
   --check           look at the machine and stop, changing nothing
   --clean           remove what a previous install put here, then stop
                     (a dry run; add --yes, and --purge-coordinator for the
@@ -170,6 +174,7 @@ while [ $# -gt 0 ]; do
         --binary) [ $# -ge 2 ] || die "--binary needs a path"; BIN_SRC="$2"; shift 2 ;;
         --binary=*) BIN_SRC="${1#--binary=}"; shift ;;
         --admit-first) OPEN_DOOR=1; shift ;;
+        --auto-update) AUTO_UPDATE=1; shift ;;
         --check) DO_INSTALL=0; shift ;;
         --help|-h) usage; exit 0 ;;
         --clean) shift; run_clean "$@" ;;
@@ -456,6 +461,52 @@ UNIT
     else
         die "the service started and then stopped" \
             "  sudo journalctl -u itsanas-coordinator -n 50"
+    fi
+
+    # The coordinator has no self-update of its own (releases carry the
+    # member binary only), so the machine updates it from this checkout:
+    # fast-forward only, so a local commit or a rewritten main stops it
+    # instead of being merged; built as the checkout's owner, so cargo and
+    # the network never run as root; restarted only when the binary changed.
+    if [ "$AUTO_UPDATE" -eq 1 ]; then
+        CHECKOUT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." 2>/dev/null && pwd)
+        [ -d "$CHECKOUT/.git" ] || die "--auto-update needs this script run from a git checkout" \
+            "  git clone https://github.com/SigSegGit/itsanas && sudo sh itsanas/install/coordinator.sh --auto-update"
+        OWNER=$(stat -c %U "$CHECKOUT")
+        OWNER_HOME=$(getent passwd "$OWNER" | cut -d: -f6)
+        [ "$OWNER" != "root" ] || die "the checkout belongs to root; clone it as your own user"
+        cat > /usr/local/sbin/itsanas-coordinator-update <<UPDATE
+#!/bin/sh
+# Written by install/coordinator.sh --auto-update.
+set -eu
+as_owner() { runuser -u $OWNER -- env HOME='$OWNER_HOME' sh -c "cd '$CHECKOUT' && \$1"; }
+before=\$(as_owner 'git rev-parse HEAD')
+as_owner 'git fetch --quiet origin main && git merge --ff-only --quiet origin/main'
+after=\$(as_owner 'git rev-parse HEAD')
+[ "\$before" != "\$after" ] || [ ! -x '$CHECKOUT/target/release/itsanas-coordinator' ] || exit 0
+as_owner '. "$OWNER_HOME/.cargo/env" 2>/dev/null; cargo build --release --quiet -p itsanas-coord'
+cmp -s '$CHECKOUT/target/release/itsanas-coordinator' $BIN_DST && exit 0
+install -m 0755 '$CHECKOUT/target/release/itsanas-coordinator' $BIN_DST.new
+mv -f $BIN_DST.new $BIN_DST
+systemctl restart itsanas-coordinator
+echo "itsanas-coordinator updated to \$after"
+UPDATE
+        chmod 0755 /usr/local/sbin/itsanas-coordinator-update
+        # printf, not a heredoc: check-installers.sh reads the main unit as the
+        # text from the first "[Unit]" line to "WantedBy=multi-user.target".
+        printf '%s\n' '[Unit]' 'Description=Update the ITSaNAS coordinator from its checkout' \
+            'After=network-online.target' 'Wants=network-online.target' '' \
+            '[Service]' 'Type=oneshot' 'ExecStart=/usr/local/sbin/itsanas-coordinator-update' \
+            > /etc/systemd/system/itsanas-coordinator-update.service
+        printf '%s\n' '[Unit]' 'Description=Update the ITSaNAS coordinator each night' '' \
+            '[Timer]' 'OnCalendar=*-*-* 04:00' 'RandomizedDelaySec=30min' 'Persistent=true' '' \
+            '[Install]' 'WantedBy=timers.target' \
+            > /etc/systemd/system/itsanas-coordinator-update.timer
+        systemctl daemon-reload
+        systemctl enable --now itsanas-coordinator-update.timer >/dev/null 2>&1 \
+            || die "the update timer would not start" "  sudo systemctl status itsanas-coordinator-update.timer"
+        ok "auto-update each night from $CHECKOUT (as $OWNER): itsanas-coordinator-update.timer"
+        info "Run it now:  sudo systemctl start itsanas-coordinator-update; journalctl -u itsanas-coordinator-update"
     fi
 fi
 

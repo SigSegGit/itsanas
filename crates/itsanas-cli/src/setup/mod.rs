@@ -177,6 +177,36 @@ enum State {
 /// line: the record a person sends when it went wrong. Holds no secret.
 pub(crate) const SETUP_LOG: &str = "setup.log";
 
+/// The coordinator a setup page proposes when the person names none: one
+/// name for the whole network, repointable by DNS (HANDOVER §8 0w (6b), 4).
+/// Not a secret -- the code is public and the address shows in `netstat` --
+/// and not a single point of failure: members that know each other keep
+/// syncing without it.
+pub(crate) const DEFAULT_COORDINATOR: &str = "itsanas.ngas.fr:9898";
+
+/// Whether a coordinator already holds `username`. A function, not a call,
+/// so the tests answer without a network.
+pub(crate) type NameCheck = fn(&str, &str) -> Result<bool>;
+
+/// Ask the coordinator at `address` whether `username` is taken. A lookup is
+/// unauthenticated, so a throwaway device key serves: this machine has no
+/// key of its own yet, which is the point of asking first.
+pub(crate) fn name_taken(address: &str, username: &str) -> Result<bool> {
+    use itsanas_coord::protocol::{Request, Response};
+    let keys = itsanas_crypto::DeviceKeys::generate()
+        .map_err(|error| CliError::Usage(error.to_string()))?;
+    let mut client = itsanas_coord::server::CoordClient::connect(address, &keys, None)
+        .map_err(|error| CliError::Usage(format!("{address}: {error}")))?;
+    match client.ask(&Request::Lookup {
+        username: username.to_owned(),
+    }) {
+        Ok(Response::Account(_)) => Ok(true),
+        Ok(Response::Missing) => Ok(false),
+        Ok(other) => Err(CliError::Usage(format!("{address} answered {other:?}"))),
+        Err(error) => Err(CliError::Usage(format!("{address}: {error}"))),
+    }
+}
+
 /// One run of setup on one home.
 pub(crate) struct Setup<'a> {
     home: PathBuf,
@@ -190,6 +220,7 @@ pub(crate) struct Setup<'a> {
     stopped_service: bool,
     started_service: bool,
     report: Option<verify::Report>,
+    name_check: NameCheck,
 }
 
 impl std::fmt::Debug for Setup<'_> {
@@ -219,7 +250,15 @@ impl<'a> Setup<'a> {
             stopped_service: false,
             started_service: false,
             report: None,
+            name_check: name_taken,
         }
+    }
+
+    /// Answer "is this name taken?" with `check` (the page's backend, or a
+    /// test's) instead of [`name_taken`].
+    pub(crate) fn with_name_check(mut self, check: NameCheck) -> Self {
+        self.name_check = check;
+        self
     }
 
     /// Every step in order, stopping at the first that fails.

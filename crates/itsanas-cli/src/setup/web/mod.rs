@@ -73,6 +73,8 @@ use crate::{
 const INDEX_HTML: &str = include_str!("index.html");
 const APP_CSS: &str = include_str!("app.css");
 const APP_JS: &str = include_str!("app.js");
+/// The page's other languages, keyed by its English text.
+const I18N_JS: &str = include_str!("i18n.js");
 /// The project's icon (docs/assets), in the header and as the favicon.
 const ICON_PNG: &[u8] = include_bytes!("../../../../../docs/assets/icon.png");
 
@@ -113,6 +115,8 @@ type MakeService = Box<dyn Fn() -> Box<dyn ServiceControl> + Send + Sync>;
 pub(crate) struct Backends {
     pub(crate) prompt: MakePrompt,
     pub(crate) service: MakeService,
+    /// Is a username taken at a coordinator ([`super::name_taken`]).
+    pub(crate) name: super::NameCheck,
 }
 
 impl Backends {
@@ -131,6 +135,7 @@ impl Backends {
                 );
                 platform
             }),
+            name: super::name_taken,
         }
     }
 }
@@ -416,6 +421,7 @@ fn route(ctx: &Arc<Context>, request: &Request) -> Response {
         ("GET", "/" | "/index.html") => Response::new(200, "text/html; charset=utf-8", INDEX_HTML),
         ("GET", "/app.css") => Response::new(200, "text/css; charset=utf-8", APP_CSS),
         ("GET", "/app.js") => Response::new(200, "text/javascript; charset=utf-8", APP_JS),
+        ("GET", "/i18n.js") => Response::new(200, "text/javascript; charset=utf-8", I18N_JS),
         ("GET", "/icon.png") => Response::new(200, "image/png", ICON_PNG),
         (_, path) if path.starts_with("/api/") => api(ctx, request),
         ("GET", _) => Response::refuse(404, "no such page"),
@@ -448,6 +454,11 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/run") => start_run(ctx, request),
         ("POST", "/api/control") if ctx.mode == Mode::Settings => steer(ctx, request),
         ("POST", "/api/signout") if ctx.mode == Mode::Settings => sign_out(ctx),
+        ("POST", "/api/name") if ctx.mode == Mode::Setup => check_name(ctx, request),
+        ("POST", "/api/free") => free_space(ctx, request),
+        ("POST", "/api/pick") => pick(request),
+        ("POST", "/api/open") => open_folder(ctx, request, false),
+        ("POST", "/api/pin") => open_folder(ctx, request, true),
         ("POST", "/api/quit") => {
             ctx.quit.store(true, Ordering::SeqCst);
             ok_json(object(&[("said", quote("closed"))]))
@@ -506,6 +517,37 @@ fn state_json(ctx: &Context) -> String {
             ),
         ),
         ("free", optional(free.map(format_size).as_deref())),
+        ("free_bytes", free.unwrap_or(0).to_string()),
+        (
+            "coordinator",
+            quote(
+                &Config::load(&Node::config_path(&ctx.home))
+                    .ok()
+                    .and_then(|config| config.coordinator)
+                    .unwrap_or_else(|| super::DEFAULT_COORDINATOR.to_owned()),
+            ),
+        ),
+        // The bargain the space page shows live, from the code's own split.
+        (
+            "split_own",
+            itsanas_coord::accounting::Split::DEFAULT.own.to_string(),
+        ),
+        (
+            "split_network",
+            itsanas_coord::accounting::Split::DEFAULT
+                .network
+                .to_string(),
+        ),
+        (
+            "folder_now",
+            optional(
+                Config::load(&Node::config_path(&ctx.home))
+                    .ok()
+                    .and_then(|config| config.folder)
+                    .map(|folder| folder.display().to_string())
+                    .as_deref(),
+            ),
+        ),
     ]);
     let mut fields = vec![
         (
@@ -743,6 +785,7 @@ fn run_engine(ctx: &Context, answers: Answers) {
                 service.as_ref(),
                 &mut record,
             )
+            .with_name_check(ctx.backends.name)
             .run())
         }
         Err(error) => Err(error.to_string()),
@@ -827,6 +870,233 @@ pub(crate) fn browser_command(os: &str, url: &str) -> Command {
     };
     command.arg(url);
     command
+}
+
+/// Is the username typed taken at the coordinator typed? Answers "unknown"
+/// rather than failing when the coordinator cannot be asked: the person may
+/// be offline, and the engine asks again before any key is written.
+fn check_name(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let (Some(username), Some(coordinator)) =
+        (field(&form, "username"), field(&form, "coordinator"))
+    else {
+        return ok_json(object(&[("taken", quote("unknown"))]));
+    };
+    let answer = match (ctx.backends.name)(coordinator, username) {
+        Ok(true) => "yes",
+        Ok(false) => "no",
+        Err(_) => "unknown",
+    };
+    ok_json(object(&[("taken", quote(answer))]))
+}
+
+/// The nearest directory that exists at or above `path`: free space is a
+/// property of a disk, and the folder chosen may not exist yet.
+fn existing_ancestor(path: &Path) -> Option<&Path> {
+    path.ancestors().find(|dir| dir.is_dir())
+}
+
+/// Free space on the disk that would hold `path` (the folder chosen), for
+/// the slider's upper end.
+fn free_space(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let path =
+        field(&form, "path").map_or_else(|| ctx.base.clone(), |p| answers::expand(p, &ctx.base));
+    let free = existing_ancestor(&path).and_then(|dir| fs4::available_space(dir).ok());
+    ok_json(object(&[
+        ("free_bytes", free.unwrap_or(0).to_string()),
+        ("free", optional(free.map(format_size).as_deref())),
+    ]))
+}
+
+/// The system's own folder chooser, started from `start`. Returns the
+/// program to run; the chosen path is its standard output. The start folder
+/// goes in an environment variable, never inside the script's text.
+pub(crate) fn picker_command(os: &str, start: &Path) -> Command {
+    let mut command = match os {
+        "windows" => {
+            let mut command = Command::new("powershell.exe");
+            command.args([
+                "-NoProfile",
+                "-STA",
+                "-Command",
+                "[Console]::OutputEncoding = [Text.Encoding]::UTF8; \
+                 Add-Type -AssemblyName System.Windows.Forms; \
+                 $d = New-Object System.Windows.Forms.FolderBrowserDialog; \
+                 $d.Description = 'ITSaNAS'; $d.ShowNewFolderButton = $true; \
+                 $d.SelectedPath = $env:ITSANAS_PICK_START; \
+                 $owner = New-Object System.Windows.Forms.Form; $owner.TopMost = $true; \
+                 if ($d.ShowDialog($owner) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }",
+            ]);
+            command
+        }
+        "macos" => {
+            let mut command = Command::new("osascript");
+            command.args([
+                "-e",
+                "set start to POSIX file (system attribute \"ITSANAS_PICK_START\")",
+                "-e",
+                "POSIX path of (choose folder with prompt \"ITSaNAS\" default location start)",
+            ]);
+            command
+        }
+        _ => {
+            let mut command = Command::new("zenity");
+            command.args(["--file-selection", "--directory", "--title=ITSaNAS"]);
+            command.arg(format!("--filename={}/", start.display()));
+            command
+        }
+    };
+    command.env("ITSANAS_PICK_START", start);
+    command
+}
+
+/// Ask the system's folder chooser; `{"path": ...}`, or no path when the
+/// person cancelled.
+fn pick(request: &Request) -> Response {
+    let form = json::parse_form(&request.body).unwrap_or_default();
+    let base = crate::config::user_home();
+    let start = field(&form, "start").map_or_else(|| base.clone(), |p| answers::expand(p, &base));
+    let start = existing_ancestor(&start).map_or(base, Path::to_path_buf);
+    let output = picker_command(std::env::consts::OS, &start)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    match output {
+        Ok(output) => {
+            let chosen = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            ok_json(object(&[(
+                "path",
+                optional((!chosen.is_empty()).then_some(chosen.as_str())),
+            )]))
+        }
+        Err(error) => Response::refuse(
+            500,
+            &format!("this system's folder chooser could not open ({error}): type the path"),
+        ),
+    }
+}
+
+/// The program that shows `folder` in the file manager.
+pub(crate) fn open_command(os: &str, folder: &Path) -> Command {
+    let mut command = Command::new(match os {
+        "windows" => "explorer.exe",
+        "macos" => "open",
+        _ => "xdg-open",
+    });
+    command.arg(folder);
+    command
+}
+
+/// Open the synced folder, or pin it where the file manager keeps favourites:
+/// Quick access on Windows, the GTK bookmarks on Linux. macOS has no command
+/// for the Finder sidebar, and says how by hand.
+fn open_folder(ctx: &Context, request: &Request, pin: bool) -> Response {
+    let form = json::parse_form(&request.body).unwrap_or_default();
+    let folder = field(&form, "path")
+        .map(|p| answers::expand(p, &ctx.base))
+        .or_else(|| {
+            Config::load(&Node::config_path(&ctx.home))
+                .ok()
+                .and_then(|config| config.folder)
+        });
+    let Some(folder) = folder.filter(|folder| folder.is_dir()) else {
+        return Response::refuse(400, "the folder does not exist yet");
+    };
+    let os = std::env::consts::OS;
+    let said = if pin {
+        match pin_folder(os, &folder) {
+            Ok(said) => said,
+            Err(why) => return Response::refuse(500, &why),
+        }
+    } else {
+        match open_command(os, &folder)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(mut child) => {
+                std::thread::spawn(move || child.wait());
+                format!("opened {}", folder.display())
+            }
+            Err(error) => return Response::refuse(500, &format!("could not open it: {error}")),
+        }
+    };
+    ok_json(object(&[("said", quote(&said))]))
+}
+
+/// The line a GTK bookmarks file holds for `folder`.
+pub(crate) fn gtk_bookmark(folder: &Path) -> String {
+    let mut url = String::from("file://");
+    for byte in folder.display().to_string().bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-_.~".contains(&byte) {
+            url.push(char::from(byte));
+        } else {
+            let _ = write!(url, "%{byte:02X}");
+        }
+    }
+    url
+}
+
+fn pin_folder(os: &str, folder: &Path) -> std::result::Result<String, String> {
+    match os {
+        "windows" => {
+            let status = Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "(New-Object -ComObject Shell.Application).Namespace($env:ITSANAS_PIN).Self.InvokeVerb('pintohome')",
+                ])
+                .env("ITSANAS_PIN", folder)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|error| error.to_string())?;
+            if status.success() {
+                Ok(format!("{} is in Quick access", folder.display()))
+            } else {
+                Err(
+                    "Windows refused to pin it: right-click the folder, Pin to Quick access"
+                        .to_owned(),
+                )
+            }
+        }
+        "macos" => {
+            Ok("macOS has no command for this: drag the folder into Finder's sidebar".to_owned())
+        }
+        _ => {
+            let file = crate::config::user_home().join(".config/gtk-3.0/bookmarks");
+            let line = gtk_bookmark(folder);
+            let existing = std::fs::read_to_string(&file).unwrap_or_default();
+            if !existing
+                .lines()
+                .any(|l| l.split(' ').next() == Some(line.as_str()))
+            {
+                if let Some(dir) = file.parent() {
+                    std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
+                }
+                let mut text = existing;
+                if !text.is_empty() && !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                text.push_str(&line);
+                text.push_str(" ITSaNAS\n");
+                std::fs::write(&file, text).map_err(|error| error.to_string())?;
+            }
+            Ok(format!(
+                "{} is in your file manager's bookmarks",
+                folder.display()
+            ))
+        }
+    }
 }
 
 /// `itsanas setup` on a desktop.

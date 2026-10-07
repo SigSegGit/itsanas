@@ -50,9 +50,60 @@
 
   const $ = function (id) { return document.getElementById(id); };
 
+  // ------------------------------------------------------------- languages
+  //
+  // English is written in the page; other languages are i18n.js, keyed by the
+  // English text. The system's language is the default, English when there
+  // is no translation, and the list in the header changes it.
+  const LANG_KEY = 'itsanas-lang';
+  let dict = {};
+  const original = new WeakMap();
+
+  function t(text) { return dict[text] || text; }
+
+  function chooseLanguage() {
+    let lang = '';
+    try { lang = localStorage.getItem(LANG_KEY) || ''; } catch (e) { lang = ''; }
+    if (!lang) { lang = (navigator.language || 'en').slice(0, 2).toLowerCase(); }
+    return (window.I18N && window.I18N[lang]) ? lang : 'en';
+  }
+
+  function translatePage(lang) {
+    dict = (window.I18N && window.I18N[lang]) || {};
+    document.documentElement.lang = lang;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!original.has(node)) { original.set(node, node.nodeValue); }
+      const english = original.get(node);
+      const key = english.trim();
+      if (!key) { continue; }
+      node.nodeValue = english.replace(key, t(key));
+    }
+    document.querySelectorAll('[placeholder],[aria-label]').forEach(function (el) {
+      ['placeholder', 'aria-label'].forEach(function (name) {
+        if (!el.hasAttribute(name)) { return; }
+        const store = 'en' + name.replace('-', '');
+        if (!el.dataset[store]) { el.dataset[store] = el.getAttribute(name); }
+        el.setAttribute(name, t(el.dataset[store]));
+      });
+    });
+  }
+
+  function setupLanguage() {
+    const lang = chooseLanguage();
+    $('lang').value = lang;
+    translatePage(lang);
+    $('lang').addEventListener('change', function () {
+      try { localStorage.setItem(LANG_KEY, $('lang').value); } catch (e) { /* private mode */ }
+      translatePage($('lang').value);
+      buildProgress();
+      markProgress(current);
+    });
+  }
+
   function say(text) {
     const problem = $('problem');
-    problem.textContent = text || '';
+    problem.textContent = text ? t(text) : '';
     problem.hidden = !text;
   }
 
@@ -74,14 +125,14 @@
     { page: 'account', label: 'Account', engine: 'account' },
     { page: 'secret', label: 'Secret', engine: 'secret' },
     { page: 'network', label: 'Joining the network', engine: 'registration' },
-    { page: 'space', label: 'Space you offer', engine: 'pledge' },
     { page: 'folder', label: 'Folder', engine: 'folder' },
+    { page: 'space', label: 'Space you offer', engine: 'pledge' },
     { page: 'updates', label: 'Updates', engine: 'updates' },
     { page: 'connection', label: 'Checking the connection', engine: 'connectivity' },
     { page: 'background', label: 'Starting in the background', engine: 'service' },
     { page: 'final', label: 'Final check', engine: 'verify' },
   ];
-  const QUESTION_PAGES = ['welcome', 'machine', 'account', 'secret', 'network', 'space', 'folder', 'updates', 'connection'];
+  const QUESTION_PAGES = ['welcome', 'machine', 'account', 'secret', 'network', 'folder', 'space', 'updates', 'connection'];
   const done = {};
   let current = 'welcome';
   let polling = null;
@@ -91,7 +142,7 @@
     list.textContent = '';
     STEPS.forEach(function (step) {
       const item = document.createElement('li');
-      item.textContent = step.label;
+      item.textContent = t(step.label);
       item.dataset.page = step.page;
       list.appendChild(item);
     });
@@ -132,12 +183,93 @@
       $('username').focus();
       return false;
     }
-    if ((page === 'space') && $('pledge').value !== '' && !/^\d+$/.test($('pledge').value)) {
-      say('Type a whole number of GB, or 0 for none yet.');
+    if (page === 'account' && !done.account && accountKind() === 'new' && nameTaken === 'yes') {
+      say('This username is already taken. Choose another.');
+      $('username').focus();
+      return false;
+    }
+    if ((page === 'space') && $('pledge').value !== '' && !/^[1-9]\d*$/.test($('pledge').value)) {
+      say('Type a whole number of GB, at least 1.');
       $('pledge').focus();
       return false;
     }
     return true;
+  }
+
+  // ------------------------------------------------- username, while typed
+
+  let nameTaken = 'unknown';
+  let nameTimer = null;
+
+  async function checkName() {
+    const username = $('username').value.trim();
+    const coordinator = $('coordinator').value.trim();
+    const line = $('username-check');
+    nameTaken = 'unknown';
+    line.textContent = '';
+    if (!username || !coordinator || done.account) { return; }
+    try {
+      const reply = await api('POST', '/api/name', { username: username, coordinator: coordinator });
+      if (username !== $('username').value.trim()) { return; }
+      nameTaken = reply.taken;
+      const isNew = accountKind() === 'new';
+      if (reply.taken === 'yes') {
+        line.textContent = isNew ? t('This username is already taken. Choose another.') : t('Account found.');
+      } else if (reply.taken === 'no') {
+        line.textContent = isNew ? t('This username is free.') : t('No account has this name on the network.');
+      } else {
+        line.textContent = t('The network cannot be asked right now; it is checked again before anything is made.');
+      }
+    } catch (e) { /* the engine asks again before any key is written */ }
+  }
+
+  function nameChanged() {
+    if (nameTimer) { clearTimeout(nameTimer); }
+    nameTimer = setTimeout(checkName, 500);
+  }
+
+  // ------------------------------------------------------- space and folder
+
+  const GIB = 1073741824;
+  let split = { own: 30, network: 70 };
+
+  function showEarns() {
+    const offered = parseInt($('pledge').value, 10);
+    $('pledge-earns').textContent = offered > 0
+      ? t('You offer') + ' ' + offered + ' GB → ' + t('you get about') + ' ' +
+        Math.floor(offered * split.own / split.network) + ' GB ' + t('for your own files on the network.')
+      : '';
+  }
+
+  function setupSpace(defaults) {
+    split = { own: defaults.split_own, network: defaults.split_network };
+    const max = Math.max(1, Math.floor(Number(defaults.free_bytes) / GIB));
+    const slider = $('pledge-slider');
+    slider.max = String(max);
+    $('pledge').max = String(max);
+    const start = Math.min(max, Math.max(1, defaults.pledge_gb));
+    slider.value = String(start);
+    $('pledge').value = String(start);
+    slider.addEventListener('input', function () { $('pledge').value = slider.value; showEarns(); });
+    $('pledge').addEventListener('input', function () {
+      if (/^\d+$/.test($('pledge').value)) { slider.value = $('pledge').value; }
+      showEarns();
+    });
+    showEarns();
+  }
+
+  async function browse(input) {
+    try {
+      const reply = await api('POST', '/api/pick', { start: input.value.trim() });
+      if (reply.path) { input.value = reply.path; }
+    } catch (e) { say(e.message); }
+  }
+
+  async function folderAction(path, pin, line) {
+    try {
+      const reply = await api('POST', pin ? '/api/pin' : '/api/open', path ? { path: path } : {});
+      if (line) { line.textContent = reply.said; }
+    } catch (e) { if (line) { line.textContent = e.message; } else { say(e.message); } }
   }
 
   function showDone(engine, said) {
@@ -167,8 +299,8 @@
     if (!done.account) {
       form.account = accountKind();
       form.username = $('username').value.trim();
-      if (form.account === 'join' && $('recover-from').value.trim()) {
-        form.recover_from = $('recover-from').value.trim();
+      if (form.account === 'join' && $('recover-escrow').checked && $('coordinator').value.trim()) {
+        form.recover_from = $('coordinator').value.trim();
       }
     }
     ['coordinator', 'invite', 'folder'].forEach(function (id) {
@@ -196,8 +328,8 @@
   function following() {
     $('start-actions').hidden = true;
     $('run-panel').hidden = false;
-    $('run-title').textContent = 'Setting up';
-    $('run-lead').textContent = 'This takes a minute or two. Keep this page open.';
+    $('run-title').textContent = t('Setting up');
+    $('run-lead').textContent = t('This takes a minute or two. Keep this page open.');
     document.querySelectorAll('[data-secret-warning]').forEach(function (w) { w.hidden = false; });
     if (!polling) { polling = setInterval(pollRun, 1000); }
     pollRun();
@@ -219,7 +351,7 @@
 
   function renderWindow(notice, whatLine, waiting) {
     notice.hidden = !waiting;
-    if (whatLine) { whatLine.textContent = waiting ? 'It asks for ' + waiting + '.' : ''; }
+    if (whatLine) { whatLine.textContent = waiting ? t('It asks for') + ' ' + waiting + '.' : ''; }
   }
 
   async function pollRun() {
@@ -233,7 +365,7 @@
       current = page;
       markProgress(page);
       const label = STEPS.find(function (s) { return s.page === page; }).label;
-      $('run-step').textContent = 'Now: ' + label;
+      $('run-step').textContent = t('Now:') + ' ' + t(label);
     }
     renderWindow($('window-notice'), $('window-what'), run.waiting);
     renderLines($('run-lines'), run.lines);
@@ -277,17 +409,18 @@
       // "Works" only when a check passed: a run whose checks were all
       // skipped (no background service asked for) proved nothing.
       const proved = run.report.some(function (f) { return f.verdict === 'passed'; });
-      $('final-title').textContent = proved ? 'All set' : 'Setup finished';
-      $('final-lead').textContent = proved
-        ? 'ITSaNAS works on this machine. Put files in your folder and they appear on your other machines.'
-        : 'Every step is done. The checks below could not run here; each says why.';
+      $('final-title').textContent = t(proved ? 'All set' : 'Setup finished');
+      $('final-lead').textContent = t(proved
+        ? 'ITSaNAS runs on this machine, and its icon is near the clock. A welcome.txt file is in your folder: open it on your other machines to see that they sync.'
+        : 'Every step is done. The checks below could not run here; each says why.');
       $('final-fix').hidden = true;
       $('retry').hidden = true;
+      $('folder-actions').hidden = false;
     } else {
       const failed = run.failed || { step: 'machine', title: '', error: '', remedy: '' };
       markProgress('final', pageOfEngine(failed.step));
-      $('final-title').textContent = 'Setup stopped';
-      $('final-lead').textContent = 'It stopped at: ' + failed.title + '. What is already done is kept.';
+      $('final-title').textContent = t('Setup stopped');
+      $('final-lead').textContent = t('It stopped at:') + ' ' + failed.title + '. ' + t('What is already done is kept.');
       $('final-remedy').textContent = failed.remedy;
       $('final-error').textContent = failed.error;
       $('final-fix').hidden = false;
@@ -300,23 +433,29 @@
     $('start').disabled = false;
     $('start-actions').hidden = false;
     $('run-panel').hidden = true;
-    $('run-title').textContent = 'Ready';
+    $('run-title').textContent = t('Ready');
     go('connection');
   }
 
   async function initSetup(state) {
     buildProgress();
     $('machine-home').textContent = state.home;
-    $('machine-instance').textContent = state.instance || '(the only one on this computer)';
-    $('folder').value = state.defaults.folder;
-    $('pledge').value = String(state.defaults.pledge_gb);
+    $('machine-instance').textContent = state.instance || t('(the only one on this computer)');
+    $('folder').value = state.defaults.folder_now || state.defaults.folder;
+    $('coordinator').value = state.defaults.coordinator;
+    setupSpace(state.defaults);
+    $('username').addEventListener('input', nameChanged);
+    $('coordinator').addEventListener('change', nameChanged);
+    $('folder-browse').addEventListener('click', function () { browse($('folder')); });
+    $('open-folder').addEventListener('click', function () { folderAction('', false, $('folder-said')); });
+    $('pin-folder').addEventListener('click', function () { folderAction('', true, $('folder-said')); });
     const updates = document.querySelector('input[name="updates"][value="' + state.defaults.updates + '"]');
     if (updates) { updates.checked = true; }
-    $('space-free').textContent = state.defaults.free ? 'This disk has ' + state.defaults.free + ' free.' : '';
+    $('space-free').textContent = state.defaults.free ? t('This disk has') + ' ' + state.defaults.free + ' ' + t('free.') : '';
     document.querySelectorAll('[data-next]').forEach(function (b) { b.addEventListener('click', function () { step(1); }); });
     document.querySelectorAll('[data-back]').forEach(function (b) { b.addEventListener('click', function () { step(-1); }); });
     document.querySelectorAll('input[name="account"]').forEach(function (radio) {
-      radio.addEventListener('change', function () { $('join-only').hidden = accountKind() !== 'join'; });
+      radio.addEventListener('change', function () { $('join-only').hidden = accountKind() !== 'join'; nameChanged(); });
     });
     $('start').addEventListener('click', startSetup);
     $('retry').addEventListener('click', retry);
@@ -335,6 +474,9 @@
     if (polling) { clearInterval(polling); polling = null; }
     $('progress-nav').hidden = true;
     showPage('closed');
+    // Allowed only to a page a script opened; otherwise the "closed" page
+    // says the tab can be closed.
+    setTimeout(function () { window.close(); }, 1500);
   }
 
   // ------------------------------------------------------------- settings
@@ -352,13 +494,13 @@
 
   function renderSettings(settings) {
     const word = STATUS_WORDS[settings.status] || STATUS_WORDS.unknown;
-    $('st-status').textContent = word[0];
+    $('st-status').textContent = t(word[0]);
     $('st-dot').className = 'dot ' + word[1];
     $('pause').hidden = settings.paused;
     $('pause-for').hidden = settings.paused;
     document.querySelector('label[for="pause-for"]').hidden = settings.paused;
     $('resume').hidden = !settings.paused;
-    $('st-pledge-now').textContent = 'Now: ' + settings.pledge;
+    $('st-pledge-now').textContent = t('Now:') + ' ' + settings.pledge;
     $('st-update').hidden = !settings.update_notice;
     $('st-update').textContent = settings.update_notice || '';
   }
@@ -495,11 +637,14 @@
     $('apply').addEventListener('click', apply);
     $('signout').addEventListener('click', signOut);
     $('close').addEventListener('click', closePage);
+    $('st-folder-browse').addEventListener('click', function () { browse($('st-folder')); });
+    $('st-open-folder').addEventListener('click', function () { folderAction($('st-folder').value.trim(), false, $('st-said')); });
     settingsTimer = setInterval(refreshSettings, 5000);
     if (state.run.phase === 'running') { $('st-run').hidden = false; settingsRun(); }
   }
 
   async function init() {
+    setupLanguage();
     readToken();
     if (!token) {
       say('This page\'s key is missing. Open the address that the command printed in your terminal.');

@@ -116,6 +116,7 @@ fn backends(seen: &Seen, home: &Path) -> Backends {
             let service: Box<dyn ServiceControl> = Box::new(NoService { file: file.clone() });
             service
         }),
+        name: |_, name| Ok(name == "taken"),
     }
 }
 
@@ -796,6 +797,7 @@ fn while_a_window_is_open_the_page_is_told_so_and_a_closed_window_says_what_to_d
             let service: Box<dyn ServiceControl> = Box::new(NoService { file: file.clone() });
             service
         }),
+        name: |_, _| Ok(false),
     };
     let server = Server::bind(&home, None, Mode::Setup, dir.path(), backends).expect("bind");
     let ctx = Arc::clone(&server.ctx);
@@ -946,5 +948,172 @@ fn the_suggested_pledge_is_a_fifth_in_whole_gib_and_capped() {
         suggest_pledge(100_000 * GIB),
         500 * GIB,
         "a huge disk would be suggested more than anybody means to give"
+    );
+}
+
+#[test]
+fn the_page_learns_a_taken_username_before_anything_is_made() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let page = Page::start(
+        &dir.path().join("node"),
+        dir.path(),
+        Mode::Setup,
+        &Seen::default(),
+    );
+    let taken = page.api(
+        "POST",
+        "/api/name",
+        "username=taken&coordinator=c.test%3A9898",
+    );
+    assert!(
+        taken.status == 200 && taken.body.contains("\"taken\":\"yes\""),
+        "a name the coordinator holds is not reported while it is typed: {}",
+        taken.all()
+    );
+    let free = page.api(
+        "POST",
+        "/api/name",
+        "username=camille&coordinator=c.test%3A9898",
+    );
+    assert!(
+        free.body.contains("\"taken\":\"no\""),
+        "a free name is reported as taken: {}",
+        free.all()
+    );
+    assert!(
+        !dir.path().join("node").join("keystore.bin").exists(),
+        "asking about a name wrote a key"
+    );
+}
+
+#[test]
+fn the_page_proposes_the_built_in_coordinator_and_the_code_s_split() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let page = Page::start(
+        &dir.path().join("node"),
+        dir.path(),
+        Mode::Setup,
+        &Seen::default(),
+    );
+    let state = page.api("GET", "/api/state", "");
+    assert!(
+        state.body.contains(&format!(
+            "\"coordinator\":\"{}\"",
+            crate::setup::DEFAULT_COORDINATOR
+        )),
+        "a new member is asked for a coordinator address nobody gave them: {}",
+        state.body
+    );
+    let split = itsanas_coord::accounting::Split::DEFAULT;
+    assert!(
+        state.body.contains(&format!("\"split_own\":{}", split.own))
+            && state
+                .body
+                .contains(&format!("\"split_network\":{}", split.network)),
+        "the space page's \"you get\" would not be the code's bargain: {}",
+        state.body
+    );
+}
+
+#[test]
+fn red_team_a_chosen_path_never_lands_inside_a_script() {
+    let start = Path::new(r"C:\x'; Remove-Item -Recurse C:\ #");
+    for os in ["windows", "macos", "linux"] {
+        let command = super::picker_command(os, start);
+        let text: Vec<String> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let in_script = text
+            .iter()
+            .any(|arg| arg.contains("Remove-Item") && !arg.starts_with("--filename="));
+        assert!(
+            !in_script,
+            "{os}: the start folder was written into the chooser's script, so a folder name \
+             runs as code: {text:?}"
+        );
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "ITSANAS_PICK_START" && value == Some(start.as_os_str())),
+            "{os}: the start folder does not reach the chooser"
+        );
+    }
+}
+
+#[test]
+fn a_gtk_bookmark_escapes_what_a_url_cannot_hold() {
+    assert_eq!(
+        super::gtk_bookmark(Path::new("/home/sam/My Files/été")),
+        "file:///home/sam/My%20Files/%C3%A9t%C3%A9",
+        "a space or an accent in the folder makes the bookmark point nowhere"
+    );
+}
+
+/// Every text a person reads in the page, as the English the translations
+/// are keyed by: the text between tags (outside scripts and code), the
+/// placeholders and labels, and what app.js passes to `t(...)`.
+fn texts_of_the_page() -> Vec<String> {
+    let html = super::INDEX_HTML;
+    let body = &html[html.find("<body>").expect("body")..];
+    let mut texts = Vec::new();
+    let mut skip = 0_i32;
+    for piece in body.split('<').skip(1) {
+        let (tag, text) = piece.split_once('>').unwrap_or((piece, ""));
+        let name: String = tag
+            .trim_start_matches('/')
+            .chars()
+            .take_while(char::is_ascii_alphanumeric)
+            .collect();
+        if matches!(name.as_str(), "script" | "style" | "code") {
+            skip += if tag.starts_with('/') { -1 } else { 1 };
+        }
+        for attribute in ["placeholder=\"", "aria-label=\""] {
+            if let Some(start) = tag.find(attribute) {
+                let rest = &tag[start + attribute.len()..];
+                texts.push(rest[..rest.find('"').expect("quote")].to_owned());
+            }
+        }
+        let text = text
+            .replace("&mdash;", "—")
+            .replace("&hellip;", "…")
+            .replace("&amp;", "&");
+        let text = text.trim();
+        if skip == 0 && !text.is_empty() {
+            texts.push(text.to_owned());
+        }
+    }
+    // `t('` as a call, not the end of `createElement('`.
+    let js = super::APP_JS;
+    let mut from = 0;
+    while let Some(at) = js[from..].find("t('") {
+        let start = from + at;
+        from = start + 3;
+        if js[..start].ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
+            continue;
+        }
+        let rest = &js[from..];
+        texts.push(rest[..rest.find("')").expect("end of t()")].replace("\\'", "'"));
+    }
+    for label in super::APP_JS.split("label: '").skip(1) {
+        texts.push(label[..label.find('\'').expect("label")].to_owned());
+    }
+    texts
+}
+
+#[test]
+fn every_text_of_the_page_has_a_french_translation() {
+    let untranslated: Vec<String> = texts_of_the_page()
+        .into_iter()
+        .filter(|text| !matches!(text.as_str(), "ITSaNAS" | "English" | "Français"))
+        .filter(|text| {
+            !super::I18N_JS.contains(&format!("'{text}'"))
+                && !super::I18N_JS.contains(&format!("\"{text}\""))
+        })
+        .collect();
+    assert!(
+        untranslated.is_empty(),
+        "a French speaker would read these in English, in the middle of French ones: \
+         add them to i18n.js: {untranslated:#?}"
     );
 }

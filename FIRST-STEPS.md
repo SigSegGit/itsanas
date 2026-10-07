@@ -107,19 +107,39 @@ NAME`, start it again. Withdrawn devices stay withdrawn.
 
 ### The easy way: `itsanas setup`
 
-Run `itsanas setup` (add `--instance NAME` for a second account on the same
-computer). On a computer with a screen it opens a page in your browser and
-walks you through each step: this machine, the account (new, or one you
-already have), joining the network, the space you offer, the folder, a
-connectivity check, the background service and a final check. If no page
-opens, paste the address it prints into your browser; it only works on that
-computer and only while the command runs.
+On Windows, the easiest is **`ITSaNAS-Setup-<version>.exe`** from the
+[latest release](https://github.com/SigSegGit/itsanas/releases/latest): it
+installs for your account only and opens the setup page (not code-signed yet,
+so Windows SmartScreen says "unknown publisher" the first time: *More info*,
+then *Run anyway*). Otherwise run `itsanas setup`. On a computer with a screen
+it opens a page in your browser, in your system's language (English and French
+for now), and walks you through each step: this machine, the account (new, or
+one you already have; a username already taken is said while you type it),
+joining the network (built in: nothing to type unless a member gave you an
+invitation code), the folder (with a *Browse* button), the space you offer (a
+slider that says what it earns you), a connectivity check, the background
+service and a final check. If no page opens, paste the address it prints into
+your browser; it only works on that computer and only while the command runs.
+
+At the end the icon near the clock is there, and a **`welcome.txt`** file is
+in your folder: open it on your other machines to see that they sync. The
+last page opens the folder and adds it to the file manager's favourites.
+ITSaNAS also asks your home router to open its port by itself (UPnP), so most
+homes need no port forwarding; a machine whose router refuses still syncs by
+calling out.
+
+**A second account on the same computer** (somebody else in the family, or a
+test account) is a second *instance*: `itsanas setup --instance NAME`. It has
+its own folder, its own port, its own background service and its own icon
+near the clock, so the two never mix; `itsanas instances` lists them.
 
 **Your 24 recovery words and your passphrase are never typed into the page:** a
 separate ITSaNAS window asks for them (look in your taskbar / Dock if you
 cannot see it). **Never type your recovery words into a web page.** A new
 account shows the 24 words once and asks three of them back before anything is
-written. If a step fails, it says the one thing to do; run `itsanas setup` again
+written. Keep them in a password manager rather than on paper: the window lets
+you copy them (the clipboard is emptied after 60 seconds) or save them to a
+file, and says the risk of each. If a step fails, it says the one thing to do; run `itsanas setup` again
 afterwards: it skips what is done and never makes a second account.
 
 `itsanas setup --text` asks the same questions in the terminal, and an SSH

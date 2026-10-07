@@ -705,7 +705,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "itsanas-android"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "itsanas-coord",
  "itsanas-crypto",
@@ -721,7 +721,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "clap",
@@ -749,7 +749,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-coord"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "itsanas-coord",
  "itsanas-crypto",
@@ -765,7 +765,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-coordinator"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "ctrlc",
@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-crypto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "argon2",
  "bip39",
@@ -794,7 +794,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-discover"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "itsanas-crypto",
@@ -804,7 +804,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-drive"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "getrandom 0.4.3",
  "itsanas-crypto",
@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-folder"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "itsanas-crypto",
@@ -830,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-net"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "getrandom 0.4.3",
@@ -849,7 +849,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-node"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "fs4",
@@ -872,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-placement"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "itsanas-crypto",
@@ -882,11 +882,11 @@ dependencies = [
 
 [[package]]
 name = "itsanas-policy"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "itsanas-release"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "clap",
@@ -902,7 +902,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "getrandom 0.4.3",
@@ -918,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-sync"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "itsanas-crypto",
@@ -930,7 +930,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-testkit"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "itsanas-crypto",
@@ -938,7 +938,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-tls"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "itsanas-crypto",
  "itsanas-wire",
@@ -952,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "itsanas-wire"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "postcard",

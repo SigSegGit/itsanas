@@ -107,6 +107,18 @@ impl Setup<'_> {
             &crate::config::user_home(),
             crate::config::other_user_home().as_deref(),
         )?;
+        // A taken name is refused here, before a key is written: learnt at the
+        // registration step instead, it left a whole account on this disk
+        // under a name the network would never give it. An unreachable
+        // coordinator does not stop the step -- registration says so later.
+        if let (Account::New { username }, Some(address)) = (&account, self.wanted_coordinator())
+            && let Ok(true) = (self.name_check)(&address, username)
+        {
+            return Err(CliError::Usage(format!(
+                "the username {username:?} is already taken at {address}: choose another \
+                 (nothing was written)"
+            )));
+        }
         let node = match &account {
             Account::New { username } => self.create_account(username)?,
             Account::Join {
@@ -181,7 +193,7 @@ impl Setup<'_> {
                 Some(_) if attempt == CONFIRM_ATTEMPTS => {
                     return Err(CliError::Usage(format!(
                         "{CONFIRM_ATTEMPTS} times, the words typed back were not the ones shown; \
-                         nothing was written. Run setup again with paper and pen ready"
+                         nothing was written. Run setup again, ready to keep the words"
                     )));
                 }
                 Some(_) => {}
@@ -265,7 +277,7 @@ impl Setup<'_> {
 
     // -- Registration ---------------------------------------------------------
 
-    fn wanted_coordinator(&self) -> Option<String> {
+    pub(super) fn wanted_coordinator(&self) -> Option<String> {
         self.answers
             .coordinator
             .clone()

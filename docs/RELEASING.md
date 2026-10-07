@@ -62,7 +62,10 @@ from the checkout, so the code that touches the key is the reviewed code).
 
 ## Installing a release (testers)
 
-Windows, in PowerShell:
+Windows, by clicking: `ITSaNAS-Setup-<version>.exe` from the release
+(Inno Setup, built by `release.yml` around the release's own Windows binary,
+byte for byte, so it updates itself like one from `get.ps1`; not code-signed,
+so SmartScreen warns once). Or in PowerShell:
 
     irm https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/get.ps1 | iex
 
@@ -80,6 +83,17 @@ check an Ed25519 signature with what a fresh machine has, so their hash check
 catches a damaged download, not a forged release. Self-update is where the
 installed binary checks every later release's signature against the key
 compiled into it.
+
+## The coordinator updates itself too
+
+Releases carry the member binary only. On the coordinator's machine,
+`sudo sh install/coordinator.sh --auto-update` (run from a git checkout owned
+by a normal user) installs a systemd timer that, each night, fast-forwards the
+checkout to `origin/main`, rebuilds `itsanas-coordinator` as that user, and
+restarts the service only if the binary changed
+(`itsanas-coordinator-update.timer`, `journalctl -u itsanas-coordinator-update`).
+A local commit or a rewritten `main` stops it rather than being merged.
+`install/clean.sh` removes the timer with the service.
 
 ## How a node updates itself
 

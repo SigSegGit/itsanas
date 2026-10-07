@@ -232,3 +232,15 @@ code { font-family: ui-monospace, Consolas, monospace; }
   #progress li:not([aria-current="step"]) { display: none; }
   button.primary { width: 100%; }
 }
+
+.lang { margin-left: auto; }
+.lang select { width: auto; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+.row input:not([type="checkbox"]):not([type="radio"]) { flex: 1 1 auto; min-width: 0; }
+.slider input[type="range"] { flex: 3 1 auto; }
+.slider input[type="number"] { flex: 0 0 7em; }
+.earns { font-weight: 600; }
+details { margin-top: 12px; }

@@ -304,6 +304,15 @@ fn ask_for_a_round(home: &Path) {
     }
 }
 
+/// The file setup leaves in a new folder, synced like any other: what a
+/// person opens on their second machine to see that it works.
+pub(crate) const WELCOME_FILE: &str = "welcome.txt";
+const WELCOME_TEXT: &str = "Welcome to ITSaNAS.\n\n\
+This file was put here by setup to check that this folder syncs. If you can\n\
+read it on another of your machines, it works: whatever you put in this folder\n\
+appears there too, sealed so that the members who keep copies cannot read it.\n\n\
+You can delete this file.\n";
+
 fn canary(inputs: &Inputs<'_>, started: Instant) -> Finding {
     const WHAT: &str = "the folder syncs";
     let Some(folder) = inputs.folder else {
@@ -319,20 +328,31 @@ fn canary(inputs: &Inputs<'_>, started: Instant) -> Finding {
             format!("read the daemon's log ({})", inputs.log_hint),
         );
     };
-    let mut tag = [0u8; 6];
-    let _ = getrandom::fill(&mut tag);
-    let name = format!(
-        "itsanas-setup-check-{}.txt",
-        tag.iter().fold(String::new(), |mut hex, b| {
-            let _ = write!(hex, "{b:02x}");
-            hex
-        })
-    );
-    let path = folder.join(&name);
-    if let Err(error) = std::fs::write(
-        &path,
-        "Written by `itsanas setup` to check that this folder syncs. It removes itself.\n",
-    ) {
+    // The witness: `welcome.txt`, kept, so the person sees in the folder --
+    // and on their other machines -- the proof that it syncs (Nicolas,
+    // 2026-10-07). When a welcome is there already (setup run again, or one
+    // arrived from another machine), a throwaway file proves it instead.
+    let welcome = folder.join(WELCOME_FILE);
+    let keep = !welcome.exists();
+    let path = if keep {
+        welcome
+    } else {
+        let mut tag = [0u8; 6];
+        let _ = getrandom::fill(&mut tag);
+        folder.join(format!(
+            "itsanas-setup-check-{}.txt",
+            tag.iter().fold(String::new(), |mut hex, b| {
+                let _ = write!(hex, "{b:02x}");
+                hex
+            })
+        ))
+    };
+    let text = if keep {
+        WELCOME_TEXT
+    } else {
+        "Written by `itsanas setup` to check that this folder syncs. It removes itself.\n"
+    };
+    if let Err(error) = std::fs::write(&path, text) {
         return Finding::failed(
             WHAT,
             format!("could not write into {}: {error}", folder.display()),
@@ -349,15 +369,24 @@ fn canary(inputs: &Inputs<'_>, started: Instant) -> Finding {
             _ => std::thread::sleep(Duration::from_secs(1)),
         }
     };
-    let _ = std::fs::remove_file(&path);
-    ask_for_a_round(inputs.home);
+    if !keep {
+        let _ = std::fs::remove_file(&path);
+        ask_for_a_round(inputs.home);
+    }
     if seen {
         Finding::passed(
             WHAT,
-            format!(
-                "a file written into {} reached the account, and was removed",
-                folder.display()
-            ),
+            if keep {
+                format!(
+                    "{} reached the account: open it on another of your machines",
+                    path.display()
+                )
+            } else {
+                format!(
+                    "a file written into {} reached the account, and was removed",
+                    folder.display()
+                )
+            },
         )
     } else {
         Finding::failed(
@@ -420,6 +449,62 @@ mod tests {
             snapshot_counts("  files 3\n"),
             None,
             "a snapshot with no stamp was read as a fresh one"
+        );
+    }
+
+    /// A daemon that counts the folder's files into the snapshot each
+    /// 100 ms, as the real one does each round.
+    fn fake_daemon(home: &Path, folder: &Path, stop: &std::sync::atomic::AtomicBool) {
+        let mut stamp = 1_000_u64;
+        while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+            stamp += 1;
+            let files = std::fs::read_dir(folder).map_or(0, Iterator::count);
+            let _ = std::fs::write(
+                home.join(crate::node::SNAPSHOT),
+                format!("snapshot {stamp} every 300\n  files {files}\n"),
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    #[test]
+    fn the_folder_check_leaves_a_welcome_file_and_never_a_second_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("node");
+        let folder = dir.path().join("folder");
+        std::fs::create_dir_all(&home).expect("home");
+        std::fs::create_dir_all(&folder).expect("folder");
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| fake_daemon(&home, &folder, &stop));
+            std::thread::sleep(Duration::from_millis(250));
+            let inputs = Inputs {
+                home: &home,
+                identity: None,
+                daemon_expected: true,
+                folder: Some(&folder),
+                deadline: Duration::from_secs(5),
+                log_hint: "the test".to_owned(),
+            };
+            let first = canary(&inputs, Instant::now());
+            let second = canary(&inputs, Instant::now());
+            stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            assert_eq!(first.verdict, Verdict::Passed, "{first:?}");
+            assert!(
+                folder.join(WELCOME_FILE).is_file(),
+                "setup removed its witness: the person has nothing to open on another machine \
+                 to see that the folder syncs"
+            );
+            assert_eq!(second.verdict, Verdict::Passed, "{second:?}");
+        });
+        let names: Vec<_> = std::fs::read_dir(&folder)
+            .expect("read")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect();
+        assert_eq!(
+            names,
+            vec![std::ffi::OsString::from(WELCOME_FILE)],
+            "setup run twice left more than one file in the person's folder"
         );
     }
 }
