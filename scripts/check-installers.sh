@@ -1187,6 +1187,19 @@ if [ -n "$left" ]; then
     desk_ok=0
 fi
 [ "$desk_ok" -eq 1 ] && say "tray autostart: written per instance on a Mac and a Linux desktop, none headless, b cleaned alone, all cleaned"
+# red_team: ITSANAS_BIN comes from macos.sh --prefix or provision.sh. A newline
+# in it would split the Exec line and add keys of its own; a % is a field code
+# that makes the entry silently not start. Both must be refused, nothing written.
+inject_ok=1
+for evil in "$(printf '/x/a\nExec=evil')" '/x/100%/itsanas'; do
+    rm -rf "$th/.config/autostart"
+    if env -u WAYLAND_DISPLAY HOME="$th" PATH="$traydesk/fake:/usr/bin:/bin" DISPLAY=:0 \
+        ITSANAS_TRAY_OS=Linux ITSANAS_BIN="$evil" sh scripts/tray-autostart.sh install b </dev/null >/dev/null 2>&1 \
+        || [ -e "$th/.config/autostart/itsanas-tray-b.desktop" ]; then
+        bad "red_team: tray-autostart.sh accepted ITSANAS_BIN=$(printf '%s' "$evil" | tr '\n' '|') and wrote a .desktop entry"; inject_ok=0
+    fi
+done
+[ "$inject_ok" -eq 1 ] && say "red_team: a newline or % in ITSANAS_BIN is refused, no .desktop entry written"
 rm -rf "$traydesk"
 
 # ------------------------------------------- the bootstrap installer's checks
@@ -1315,9 +1328,110 @@ if command -v pwsh >/dev/null 2>&1; then
             printf '%s\n' "$out" | tail -3 | sed 's/^/       /'
         fi
     done
+    # red_team: the new binary cannot be renamed into place (antivirus lock).
+    # The old itsanas.exe must be put back, not left as itsanas.exe.old-*.
+    cp "$psbed/good" "$psbed/rel/$ps_name"
+    out=$(GETREL="$psbed/rel" GETPREFIX="$psbed/prefix" pwsh -NoProfile -Command '
+        $env:PROCESSOR_ARCHITECTURE = "AMD64"
+        function Invoke-RestMethod { param($Uri, [switch] $UseBasicParsing) [pscustomobject] @{ tag_name = "v9.9.9" } }
+        function Invoke-WebRequest { param($Uri, $OutFile, [switch] $UseBasicParsing)
+            Copy-Item -LiteralPath (Join-Path $env:GETREL ($Uri -split "/")[-1]) -Destination $OutFile }
+        function Rename-Item { param($LiteralPath, $NewName, $ErrorAction)
+            if ($LiteralPath -like "*.new") { throw "locked by antivirus" }
+            Microsoft.PowerShell.Management\Rename-Item -LiteralPath $LiteralPath -NewName $NewName }
+        & ./install/get.ps1 -Prefix $env:GETPREFIX -NoSetup -NoPath
+        exit $LASTEXITCODE' 2>&1 </dev/null)
+    status=$?
+    if [ "$status" -ne 0 ] && grep -q old-install "$psbed/prefix/bin/itsanas.exe" 2>/dev/null; then
+        say "red_team: get.ps1 puts the old itsanas.exe back when the new one cannot be renamed in"
+    else
+        bad "red_team: get.ps1 left no itsanas.exe (or the wrong one) after a failed rename (exit $status):"
+        printf '%s\n' "$out" | tail -3 | sed 's/^/       /'
+        ls "$psbed/prefix/bin" | sed 's/^/       /'
+    fi
+    # red_team: Add-ToUserPath must keep %VARS% and REG_EXPAND_SZ. Run on a
+    # throwaway HKCU key, never the person's own Environment key.
+    if pwsh -NoProfile -Command 'exit [int](-not $IsWindows)' </dev/null >/dev/null 2>&1; then
+        out=$(pwsh -NoProfile -Command '
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path ./install/get.ps1), [ref] $null, [ref] $null)
+            $fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq "Add-ToUserPath" }, $true)
+            Invoke-Expression $fn.Extent.Text
+            $sub = "Software\itsanas-check-" + [guid]::NewGuid().ToString("N")
+            $k = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($sub)
+            $k.SetValue("Path", "%USERPROFILE%\x", [Microsoft.Win32.RegistryValueKind]::ExpandString)
+            $k.Close()
+            Add-ToUserPath -BinDir "C:\itsanas-check\bin" -KeyPath $sub *> $null
+            $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($sub)
+            $raw = $k.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            $kind = $k.GetValueKind("Path")
+            $k.Close()
+            [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($sub)
+            "$kind|$raw"' 2>&1 </dev/null)
+        if [ "$out" = 'ExpandString|%USERPROFILE%\x;C:\itsanas-check\bin' ]; then
+            say "red_team: get.ps1 adds to the user PATH keeping %USERPROFILE% and REG_EXPAND_SZ"
+        else
+            bad "red_team: get.ps1 rewrote the user PATH as: $out"
+        fi
+    else
+        say "not Windows; get.ps1's PATH registry check was not run"
+    fi
     rm -rf "$psbed"
 else
     say "pwsh is not here; get.ps1's download check was not run"
+fi
+
+# ------------------------------------------------ the release signing step
+#
+# red_team: scripts/sign-release.sh signs a draft anyone with write access to
+# the repository can edit. It must check every binary against manifest.txt, and
+# the manifest's version against the tag, before the key is touched. Run here
+# against a fake `gh` (serving a directory, logging upload and edit) and a fake
+# `cargo` that runs the itsanas-release built from this checkout. The good
+# draft must reach the "Sign it?" question; the bad ones must stop before it,
+# with no upload and no publish.
+if command -v cargo >/dev/null 2>&1 && cargo build -q -p itsanas-release 2>/dev/null; then
+    signbed=$(mktemp -d)
+    tool="$PWD/target/debug/itsanas-release"
+    [ -x "$tool" ] || tool="$tool.exe"
+    mkdir -p "$signbed/stub" "$signbed/draft"
+    printf '#!/bin/sh\nwhile [ "$1" != -- ]; do shift; done; shift\nexec "%s" "$@"\n' "$tool" > "$signbed/stub/cargo"
+    cat > "$signbed/stub/gh" <<'STUB'
+#!/bin/sh
+case "$1 $2" in
+    "auth status") exit 0 ;;
+    "release download") while [ "$1" != -D ]; do shift; done; cp "$SIGNBED/draft/"* "$2"/ ;;
+    "release upload"|"release edit") echo "$*" >> "$SIGNBED/published.log" ;;
+    *) exit 1 ;;
+esac
+STUB
+    chmod +x "$signbed/stub/cargo" "$signbed/stub/gh"
+    touch "$signbed/key"
+    printf 'linux binary\n' > "$signbed/draft/itsanas-x86_64-unknown-linux-gnu"
+    "$tool" manifest --version 0.2.0 --dir "$signbed/draft" >/dev/null
+    sign_ok=1
+    sign_run() {  # tag
+        SIGNBED="$signbed" PATH="$signbed/stub:$PATH" ITSANAS_RELEASE_KEY="$signbed/key" \
+            sh scripts/sign-release.sh "$1" </dev/null >"$signbed/out" 2>&1
+    }
+    sign_run v0.2.0
+    grep -q 'Sign it and publish it?' "$signbed/out" \
+        || { bad "sign-release.sh did not reach the question for an untouched draft:"; tail -3 "$signbed/out" | sed 's/^/    /'; sign_ok=0; }
+    for case in flipped tag; do
+        rm -f "$signbed/published.log"
+        if [ "$case" = flipped ]; then
+            printf 'linux binarY\n' > "$signbed/draft/itsanas-x86_64-unknown-linux-gnu"; tag=v0.2.0
+        else
+            printf 'linux binary\n' > "$signbed/draft/itsanas-x86_64-unknown-linux-gnu"; tag=v0.3.0
+        fi
+        if sign_run "$tag" || grep -q 'Sign it and publish it?' "$signbed/out" \
+            || [ -e "$signbed/published.log" ] || [ -e "$signbed/draft/manifest.txt.sig" ]; then
+            bad "red_team: sign-release.sh went on to sign a draft ($case) that does not match its manifest"; sign_ok=0
+        fi
+    done
+    [ "$sign_ok" -eq 1 ] && say "red_team: sign-release.sh refuses a draft with a binary changed or a version not the tag's, before asking to sign"
+    rm -rf "$signbed"
+else
+    say "cargo is not here; sign-release.sh's draft check was not run"
 fi
 
 if [ "$failed" -ne 0 ]; then

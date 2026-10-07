@@ -13,7 +13,8 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use itsanas_release::{
-    Manifest, RELEASE_KEY, ReleaseError, ReleaseKey, Trust, Version, verify_release, verify_signed,
+    Manifest, RELEASE_KEY, ReleaseError, ReleaseKey, Trust, Version, check_draft, verify_release,
+    verify_signed,
 };
 use zeroize::Zeroizing;
 
@@ -52,6 +53,16 @@ enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Check a downloaded draft before signing it: manifest version equals the
+    /// tag, every binary matches the manifest; prints each SHA-256
+    Check {
+        /// The directory holding manifest.txt and the binaries
+        #[arg(long)]
+        dir: PathBuf,
+        /// The release tag, e.g. v0.2.0
+        #[arg(long)]
+        tag: String,
+    },
     /// Sign a manifest with the key file; writes <manifest>.sig
     Sign {
         manifest: PathBuf,
@@ -76,6 +87,7 @@ fn main() -> ExitCode {
     let result = match Cli::parse().command {
         Command::Keygen { out } => keygen(&out),
         Command::Manifest { version, dir, out } => manifest(&version, &dir, out),
+        Command::Check { dir, tag } => check(&dir, &tag),
         Command::Sign { manifest, key } => sign(&manifest, &key),
         Command::Verify {
             manifest,
@@ -192,6 +204,20 @@ fn manifest(version: &str, dir: &Path, out: Option<PathBuf>) -> Result<(), Relea
     println!("Wrote {} for release {version}:", out.display());
     for file in &manifest.files {
         println!("  {} ({} bytes)", file.name, file.size);
+    }
+    Ok(())
+}
+
+fn check(dir: &Path, tag: &str) -> Result<(), ReleaseError> {
+    let manifest = check_draft(dir, tag)?;
+    // The hashes are printed so they can be compared by eye with the ones the
+    // CI run logged, the one check this tool cannot make for Nicolas.
+    println!(
+        "Draft {tag}: every binary matches manifest.txt for release {}:",
+        manifest.version
+    );
+    for file in &manifest.files {
+        println!("  {}  sha256 {}", file.name, hex::encode(file.sha256));
     }
     Ok(())
 }

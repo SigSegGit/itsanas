@@ -468,6 +468,58 @@ fn oversized_requests_are_refused_without_being_read_whole() {
 }
 
 #[test]
+fn red_team_connections_dripping_bytes_cannot_starve_the_page() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let dir = tempfile::tempdir().expect("tempdir");
+    let page = Page::start(
+        &dir.path().join("node"),
+        dir.path(),
+        Mode::Setup,
+        &Seen::default(),
+    );
+    let stop = Arc::new(AtomicBool::new(false));
+    let port = page.port();
+    // Every slot taken by a client that sends one byte every 2 s: under the
+    // 5 s per-read timeout, so only a total deadline can drop it.
+    let drippers: Vec<_> = (0..super::MAX_CONNECTIONS)
+        .map(|_| {
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)) else {
+                    return;
+                };
+                for byte in b"GET / HTTP/1.1\r\nX-Slow: aaaaaaaaaaaaaaaaaaaaaa"
+                    .iter()
+                    .cycle()
+                {
+                    if stop.load(Ordering::SeqCst) || stream.write_all(&[*byte]).is_err() {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_secs(2));
+                }
+            })
+        })
+        .collect();
+    std::thread::sleep(super::CONNECTION_DEADLINE + Duration::from_secs(2));
+    let asked = Instant::now();
+    let reply = page.api("GET", "/api/state", "");
+    stop.store(true, Ordering::SeqCst);
+    for dripper in drippers {
+        let _ = dripper.join();
+    }
+    assert_eq!(
+        reply.status, 200,
+        "with every slot held by a client dripping bytes, the person's page got no answer: a \
+         local process could stall setup until the idle exit"
+    );
+    assert!(
+        asked.elapsed() < Duration::from_secs(5),
+        "the page was answered only after {:?}",
+        asked.elapsed()
+    );
+}
+
+#[test]
 fn every_response_says_no_store_and_forbids_framing() {
     let dir = tempfile::tempdir().expect("tempdir");
     let page = Page::start(

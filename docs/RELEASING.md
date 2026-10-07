@@ -33,8 +33,11 @@ Then, before anything else:
 The file is sealed with the node keystore's own scheme (Argon2id, then
 XChaCha20-Poly1305): useless without the passphrase. Losing both copies, or the
 passphrase, means nodes can no longer be updated by a signed release until each
-is reinstalled by hand. Changing keys later is a release signed by the old key
-whose manifest names the new one (`next-key`).
+is reinstalled by hand. Key rotation is not built: the manifest format has a
+`next-key` line and `Trust::learn` can add the key it names, but nothing calls
+it, nothing remembers a learned key, and the old key is never dropped. Changing
+keys today means pinning the new one in a release and reinstalling by hand any
+node that does not take that release.
 
 ## Each version (Nicolas)
 
@@ -44,8 +47,13 @@ whose manifest names the new one (`next-key`).
    does not match the workspace version, builds the five targets, and leaves a
    **draft** release with the binaries and `manifest.txt`. Testers see nothing
    yet.
-4. Double-click `scripts\sign-release.cmd`. It shows the draft's version and
-   targets, asks "Sign it and publish it?", asks the passphrase, signs, uploads
+4. Double-click `scripts\sign-release.cmd`. It downloads the draft's binaries
+   and runs `itsanas-release check`, which refuses unless every binary matches
+   `manifest.txt` and the manifest's version is the tag's, and prints each
+   binary's SHA-256 (compare them with the ones the workflow's log printed). A
+   draft is writable by anyone with write access to the repository, so this
+   check is what makes a tampered draft one nobody signs. It then shows the
+   draft's version and targets, asks "Sign it and publish it?", asks the passphrase, signs, uploads
    `manifest.txt.sig`, publishes, and says what it published.
 
 It needs `gh` logged in (`gh auth login`) and Rust (it builds the signing tool

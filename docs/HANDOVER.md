@@ -32,6 +32,13 @@ installed by `setup`, `release.yml` has never run. **Nicolas must generate his
 release key** (`scripts/sign-release.cmd`, §10 item 14) and paste the public
 key into `RELEASE_KEY`. Batch mode (few commits, one PR) is temporary; the
 next step goes back to one step per PR. NEXT: 0w (6), the self-update.
+Red-team pass on the batch found and fixed (each with a sabotage-verified
+red_team test): sign-release signed a draft without checking its binaries
+(now `itsanas-release check`), a Windows `#`-leading passphrase read as the
+placeholder, join-from-coordinator skipping the service-file check, no total
+deadline per web connection, get.ps1 with no rollback and flattening
+REG_EXPAND_SZ PATH, `%`/newline in the tray's .desktop path. Key rotation was
+documented as working; the docs now say it is not built.
 
 **2026-10-06 night, NEXT is the setup wizard and the tray (§8 0w), by
 Nicolas's redirection** ("the BIG step-up ... to get more testers before going

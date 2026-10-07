@@ -448,3 +448,37 @@ fn red_team_the_service_is_never_installed_for_a_home_it_would_not_run() {
         )
     );
 }
+
+#[test]
+fn red_team_joining_from_a_coordinator_refuses_a_passphrase_the_service_file_cannot_hold() {
+    let base = tempfile::tempdir().expect("tempdir");
+    let home = base.path().join("home");
+    let service = Recording {
+        file: base.path().join("passphrase.txt"),
+        calls: RefCell::new(Vec::new()),
+    };
+    let mut answers = answers(base.path());
+    answers.account = Some(Account::Join {
+        username: "camille".to_owned(),
+        // Nothing listens here: the refusal must come before any network.
+        from: Some("127.0.0.1:1".to_owned()),
+    });
+    answers.service = true;
+    // A line break is refused on every system, so this runs the same on all.
+    let mut prompt = Typing("line\nbreak");
+    let mut events = Vec::new();
+    let mut record = |event: &Event| events.push(event.clone());
+    let outcome = Setup::new(&home, answers, &mut prompt, &service, &mut record).run();
+    assert_eq!(outcome.failed, Some(Step::Account));
+    assert!(
+        events.iter().any(
+            |event| matches!(event, Event::Failed { error, .. } if error.contains("line break"))
+        ),
+        "a passphrase the service file cannot hold reached the coordinator: the keystore is \
+         restored under it and the Secret step then fails on every run"
+    );
+    assert!(
+        !Node::exists(&home),
+        "a keystore was written under a passphrase no service can use"
+    );
+}

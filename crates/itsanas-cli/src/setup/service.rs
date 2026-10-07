@@ -494,8 +494,14 @@ pub(crate) fn parse_passphrase_file(text: &str) -> Option<Secret> {
     {
         return (!value.is_empty()).then(|| Secret::new(value.to_owned()));
     }
-    if text.trim_start().starts_with('#') || text.is_empty() {
-        // linux.sh's placeholder: "# ITSANAS_PASSPHRASE=your-passphrase-here".
+    // linux.sh's placeholder: "# ITSANAS_PASSPHRASE=your-passphrase-here".
+    // Recognised by the commented key, not by a leading '#' alone: on Windows
+    // the file is the bare passphrase, and "#Horse-Battery-9" is a passphrase.
+    let commented_key = text
+        .trim_start()
+        .strip_prefix('#')
+        .is_some_and(|rest| rest.trim_start().starts_with(ENV_PREFIX));
+    if commented_key || text.is_empty() {
         return None;
     }
     Some(Secret::new(text.to_owned()))
@@ -1051,6 +1057,25 @@ mod tests {
                 && fits_service_file("linux", "back\\slash").is_err()
                 && fits_service_file("windows", "back\\slash").is_ok(),
             "a passphrase systemd would change was accepted, or Windows refused one it keeps"
+        );
+    }
+
+    #[test]
+    fn red_team_a_windows_passphrase_starting_with_a_hash_reads_back() {
+        assert_eq!(
+            parse_passphrase_file("#Horse-Battery-9")
+                .as_deref()
+                .map(String::as_str),
+            Some("#Horse-Battery-9"),
+            "a bare Windows passphrase starting with # was taken for linux.sh's placeholder: setup stops at the Secret step forever"
+        );
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("passphrase-hash.txt");
+        write_passphrase_file(&path, "#Horse-Battery-9")
+            .expect("a passphrase starting with # is written and read back");
+        assert_eq!(
+            read_passphrase_file(&path).as_deref().map(String::as_str),
+            Some("#Horse-Battery-9")
         );
     }
 

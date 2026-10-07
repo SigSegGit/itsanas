@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-06 — 1045 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 233 are red-team tests.**
+**Last updated: 2026-10-06 — 1050 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 238 are red-team tests.**
 
-**929 of the 1045 tests have an entry of their own on this page** — an *entry*,
+**934 of the 1050 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 90 |
+| `itsanas-cli` unit | 93 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 117 |
@@ -184,7 +184,7 @@ guarantee and is not one.
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-cli` steering (`tests/steering.rs`) | 4 (4 `#[ignore]`d) |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
-| `itsanas-release` release (`tests/release.rs`) | 12 |
+| `itsanas-release` release (`tests/release.rs`) | 14 |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with
@@ -282,7 +282,7 @@ checks had already gone wrong:
 | `check-counts.py` | Any number about tests in README.md, ROADMAP.md or this file that the source does not support. All three disagreed with the tree and with each other. |
 | `check-messages.py` | A line continuation collapsed into a message or a command. `cargo fmt` eats them in string literals and the scripts that write large edits eat them everywhere else; the Android job ran with thirteen literal spaces in it from the day it was written. |
 | `check-wired.py` | A `pub fn` with no call site. Four mechanisms were designed, implemented, tested, documented and wired to nothing. |
-| `check-installers.sh` | An installer that does not parse, uses bash syntax while claiming POSIX, is missing from `install/README.md`, demands a Rust version Cargo.toml does not, writes a systemd `ReadWritePaths` without the leading dash that lets a unit start before the path exists, cannot be re-run over the coordinator binary it installed (the copy step is cut out of `coordinator.sh` and run against a file that is already its destination, and against an older one it must still replace), or cannot undo itself — every entry point is *run* with `--clean` and has to reach the uninstaller's dry run. A grep for the flag would have passed on all three ways that delegation breaks: a missing sibling, a case arm that shifts and falls through, and a script that never had the arm at all. Two instances are provisioned with `provision.sh --instance` in a throwaway HOME (a stub `itsanas`, a `systemctl` that only logs), `b` is cleaned with `--purge-account`, and `a`'s home, passphrase file, enablement and the shared unit template must survive while nothing stops or disables `itsanas@a` (HANDOVER §8 0i; sabotaged by globbing `*.environment` and by disabling `itsanas@*`, red both times). The tray's logon shortcut (§8 0f): the shortcut's name and arguments are read out of `provision.ps1` as written and evaluated for two instances and the default node -- each must run the installed script through `conhost --headless` with its own `-Instance`, under a name of its own -- then `clean.ps1 -Instance zz-check-b -Yes` runs against a throwaway Startup folder holding all three and must remove b's alone (sabotaged by dropping `-Instance`, by globbing `ITSaNAS tray*.lnk` in the clean, and by one name for every node; red all three times). The PATH line (§8 3e): the `path-line` block must be identical in `linux.sh` and `macos.sh`, and is run in a throwaway HOME under zsh -- two installs leave one marked line in `~/.zprofile` without gluing it onto a last line that has no newline, `clean.sh --yes` removes that line and leaves the person's untouched, and a Debian `~/.profile` that already puts `$HOME/.local/bin` on the PATH gets no second entry (sabotaged by dropping the duplicate check, by a clean that keeps the line, by dropping the Debian check, and by editing one copy of the block; red all four times). |
+| `check-installers.sh` | An installer that does not parse, uses bash syntax while claiming POSIX, is missing from `install/README.md`, demands a Rust version Cargo.toml does not, writes a systemd `ReadWritePaths` without the leading dash that lets a unit start before the path exists, cannot be re-run over the coordinator binary it installed (the copy step is cut out of `coordinator.sh` and run against a file that is already its destination, and against an older one it must still replace), or cannot undo itself — every entry point is *run* with `--clean` and has to reach the uninstaller's dry run. A grep for the flag would have passed on all three ways that delegation breaks: a missing sibling, a case arm that shifts and falls through, and a script that never had the arm at all. Two instances are provisioned with `provision.sh --instance` in a throwaway HOME (a stub `itsanas`, a `systemctl` that only logs), `b` is cleaned with `--purge-account`, and `a`'s home, passphrase file, enablement and the shared unit template must survive while nothing stops or disables `itsanas@a` (HANDOVER §8 0i; sabotaged by globbing `*.environment` and by disabling `itsanas@*`, red both times). The tray's logon shortcut (§8 0f): the shortcut's name and arguments are read out of `provision.ps1` as written and evaluated for two instances and the default node -- each must run the installed script through `conhost --headless` with its own `-Instance`, under a name of its own -- then `clean.ps1 -Instance zz-check-b -Yes` runs against a throwaway Startup folder holding all three and must remove b's alone (sabotaged by dropping `-Instance`, by globbing `ITSaNAS tray*.lnk` in the clean, and by one name for every node; red all three times). The PATH line (§8 3e): the `path-line` block must be identical in `linux.sh` and `macos.sh`, and is run in a throwaway HOME under zsh -- two installs leave one marked line in `~/.zprofile` without gluing it onto a last line that has no newline, `clean.sh --yes` removes that line and leaves the person's untouched, and a Debian `~/.profile` that already puts `$HOME/.local/bin` on the PATH gets no second entry (sabotaged by dropping the duplicate check, by a clean that keeps the line, by dropping the Debian check, and by editing one copy of the block; red all four times). Red-team pass on the release batch: `tray-autostart.sh` refuses an `ITSANAS_BIN` holding a newline or `%` and writes no `.desktop` entry (sabotaged by dropping the pattern: red); `get.ps1` puts the old `itsanas.exe` back when the new one cannot be renamed in (a mocked `Rename-Item` throws; sabotaged by dropping the restore: red), and on Windows adds to the user PATH in a throwaway HKCU key keeping `%USERPROFILE%` and REG_EXPAND_SZ (sabotaged by writing it expanded as REG_SZ: red); `sign-release.sh`, against a fake `gh` and the checkout's `itsanas-release`, reaches the signing question for an untouched draft and stops before it, with nothing uploaded or published, for a draft with a binary byte changed or a manifest version that is not the tag's (sabotaged by skipping `check`: red). |
 
 The workflow also runs **daily on a schedule, in full**, so a newly published
 advisory against a dependency -- or a new rustc, or a new runner image --
@@ -939,7 +939,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (90)
+# `itsanas-cli` — unit tests (93)
 
 ## `bench` — measuring this machine (4)
 
@@ -991,7 +991,7 @@ refused, `1m` taken.
 | **`red_team_a_timed_pause_holds_until_its_end`** | A paused node whose until is in the future does not sync; until = u64::MAX, typed or from a corrupted file, survives the file round-trip and is a pause that lasts rather than an overflow or panic; Sabotaged (until ignored; comparison inverted; now+1 arithmetic): red. |
 | `a_pause_is_asked_for_in_words_and_said_back_in_dates` | `pause --for` accepts 1m..30d in the parse_every style and refuses anything else with the bounds and the open-ended alternative; the end is said back as a UTC date plus "in N min", and u64::MAX gives no date and no overflow. |
 
-## `setup` — the setup engine: run again, secrets, the service's home (5)
+## `setup` — the setup engine: run again, secrets, the service's home (6)
 
 `crates/itsanas-cli/src/setup/` (`mod.rs`, `steps.rs`, `sign.rs`; tests in
 `setup/tests.rs`). `itsanas setup` walks Machine, Account, Secret,
@@ -1005,6 +1005,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_setup_run_again_never_remakes_the_account_or_touches_the_keystore`** | A second setup on a configured node finds every step done, never calls init/login again, and leaves the keystore byte for byte; Sabotaged (Account check skipped): red. |
 | **`red_team_no_event_and_no_log_line_carries_a_recovery_word`** | Across two accounts, no progress event and no setup.log line contains a recovery word of its own run; Sabotaged (a word put in an event): red. |
 | **`red_team_words_typed_back_wrong_write_no_account`** | Wrong words typed back for the 3 asked positions leave no account written, so nobody leaves with a paper that restores nothing; Sabotaged (engine skips the check / words_match accepts any word): red. |
+| **`red_team_joining_from_a_coordinator_refuses_a_passphrase_the_service_file_cannot_hold`** | Joining from a coordinator with the service on refuses, at the Account step and before any network or keystore, a passphrase the service file cannot hold, so no node is left restored with no service; Sabotaged (check removed): red. |
 | **`red_team_sign_out_forgets_the_passphrase_and_sign_in_needs_the_right_one`** | Signout deletes the service's passphrase file and keeps the keystore; signin refuses a wrong passphrase and rewrites the file with the right one; Sabotaged (file not deleted / passphrase not checked): red. |
 | **`red_team_the_service_is_never_installed_for_a_home_it_would_not_run`** | Setup --home ELSEWHERE refuses to install a service that would run a different node, before installing anything; Sabotaged (home guard removed): red. |
 
@@ -1029,13 +1030,14 @@ tested: no window was opened by a test.
 | `the_windows_reply_survives_any_code_page` | The window's reply comes back base64-encoded, so a non-ASCII passphrase is not mangled by the console code page. |
 | `the_secret_window_is_the_platforms_own_or_the_terminal` | The backend choice is the platform's own window when there is a desktop and the terminal otherwise (an SSH session included), and gives a clear error naming what to install when there is neither. |
 
-## `service` — the background service under the installers' names (5)
+## `service` — the background service under the installers' names (6)
 
 | Test | What it proves |
 | --- | --- |
 | `every_name_matches_what_the_installers_and_clean_scripts_use` | Task, unit, plist, passphrase-file and tray-autostart names, with and without an instance, match provision.ps1/provision.sh/macos.sh and clean.ps1/clean.sh. |
 | `names_and_paths_are_quoted_where_they_land` | Instance names and paths are quoted in the generated task script, unit and plist, and none of them contains the passphrase. |
 | `the_passphrase_file_reads_back_in_both_forms` | A passphrase file written by setup or by the installers reads back as the same passphrase. |
+| **`red_team_a_windows_passphrase_starting_with_a_hash_reads_back`** | A bare Windows passphrase such as `#Horse-Battery-9` is not taken for linux.sh's commented placeholder, and is written and read back, so setup does not stop at the Secret step for ever; Sabotaged (any leading # read as the placeholder): red. |
 | `the_passphrase_file_is_written_whole_and_alone` | The service's passphrase file is written in full, with owner-only permissions, and holds nothing else. |
 | `the_windows_scripts_parse` | (Windows) The generated wrapper, task, tray and ACL scripts, the secret window and the tray icon script all pass PowerShell's Parser::ParseFile, with and without an instance. |
 
@@ -1046,7 +1048,7 @@ tested: no window was opened by a test.
 | `an_unreachable_laptop_is_not_a_failure_an_unreachable_forward_is` | The dial-back verdict passes a machine behind NAT that announced nothing, and fails one whose announced forward cannot be reached, giving a remedy. |
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 
-## `web` — the local setup and Settings page (13)
+## `web` — the local setup and Settings page (14)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1061,6 +1063,7 @@ in-process with stand-in secret windows; no real browser is launched.
 | `the_api_refuses_a_missing_or_wrong_token` | /api/state, /api/plan and /api/run with no token, a token one digit off, or the right token beside a wrong one are 403; the right token is 200; Sabotaged (token check forced true): red. |
 | `a_cross_origin_request_is_refused_and_no_cors_header_is_sent` | A POST with a valid token from Origin evil.example, null, another local port, or Sec-Fetch-Site cross-site is 403; the page's own origin is answered with no Access-Control-* header; Sabotaged (Origin check skipped): red. |
 | `oversized_requests_are_refused_without_being_read_whole` | A head one byte over 16 KiB that never ends gets 431, and a body announced at 64 KiB+1 or 10 MB that is never sent gets 413, both before the read timeout, so neither is waited for or read whole; Sabotaged (head limit raised; body limit removed): red. |
+| **`red_team_connections_dripping_bytes_cannot_starve_the_page`** | Sixteen connections each sending one byte every 2 s (under the per-read timeout) are dropped at the 10 s connection deadline, and the person's next API call is answered; Sabotaged (per-read timeout only): red. |
 | `every_response_says_no_store_and_forbids_framing` | The 200 page/js/css, 404, 403 (Host), 403 (token), 200 API and 431 answers all carry no-store, a CSP with script-src 'self' and frame-ancestors 'none', X-Frame-Options DENY, nosniff, no-referrer and Connection: close; Sabotaged (Cache-Control max-age=60): red. |
 | `while_a_window_is_open_the_page_is_told_so_and_a_closed_window_says_what_to_do` | While a stand-in window blocks, /api/state says running and waiting on the 24 words, and a second /api/run is 409; once the window closes, the state says failed with a remedy, waiting is cleared and no keystore was written; Sabotaged (waiting never set): red. |
 | `settings_steer_through_the_control_file_and_change_the_pledge_through_the_engine` | On a node set up through the page: the setup page refuses Settings actions (404); Settings pause writes the control file, a pause 'for 1h' writes a pause with an end (`until`), resume clears it, a pledge change through /api/run reaches the node's config, and sign out deletes the passphrase file; Sabotaged (sign out a no-op): red. |
@@ -1980,7 +1983,7 @@ the `slow-tests` CI job runs it in release.
 
 ---
 
-# `itsanas-release` — signed release manifests (12)
+# `itsanas-release` — signed release manifests (14)
 
 `crates/itsanas-release` (`tests/release.rs`): the manifest (`itsanas-release 1`,
 one `file` line per target with size, BLAKE3 and SHA-256), its Ed25519
@@ -2000,7 +2003,9 @@ until Nicolas pins his key, so today every verification is refused.
 | **`red_team_the_key_file_with_a_wrong_passphrase_is_refused`** | A stolen key file without the passphrase (or a tampered one) signs nothing and fails in one plain line; Sabotaged (unlock failure falls back to a zero key): red. |
 | **`red_team_with_no_release_key_pinned_every_manifest_is_refused`** | A build with no release key pinned refuses every manifest with "no release key pinned yet" instead of a misleading forgery error; Sabotaged (None yields an empty trust): red. |
 | `the_release_key_is_pinned_until_nicolas_changes_it_on_purpose` | RELEASE_KEY's value is pinned, so changing the key every node trusts is a visible decision in a diff; Sabotaged (constant changed): red. |
-| `a_next_key_named_by_a_signed_manifest_is_trusted_once_learned` | Key rotation works: a key named by a manifest the old key signed is trusted afterwards, so a rotation does not strand nodes; Sabotaged (next key not stored): red. |
+| `a_next_key_named_by_a_signed_manifest_is_trusted_by_learn` | `Trust::learn` adds a key named by a manifest the old key signed, for that `Trust` value. Rotation itself is not built: nothing calls `learn` outside tests, nothing persists a learned key, and the old key is never dropped; Sabotaged (next key not stored): red. |
+| **`red_team_a_draft_with_one_binary_byte_flipped_is_not_signable`** | `itsanas-release check` (run by `sign-release.sh`/`.ps1` before the key is touched) refuses a draft whose binary differs from its manifest by one byte, or is missing, so a draft edited by anyone with repository write access is never signed; Sabotaged (file check skipped): red. |
+| **`red_team_a_draft_whose_manifest_version_is_not_the_tag_is_not_signable`** | A draft of tag v0.3.0 carrying a manifest for 0.2.0 is refused before signing, so a replayed or hand-made manifest is not signed; Sabotaged (version comparison off): red. |
 | `a_manifest_names_only_files_derived_from_their_target` | A manifest line whose file name is not itsanas-<target>[.exe] is refused, so a signed manifest cannot point an installer at another file; Sabotaged (name check off): red. |
 | `versions_compare_as_numbers_not_as_text` | 0.10.0 is newer than 0.9.0 and non-digit parts are refused, so the downgrade rule cannot be fooled by text ordering; Sabotaged (field order swapped; digits-only check off): red. |
 

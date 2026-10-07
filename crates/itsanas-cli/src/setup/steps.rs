@@ -127,6 +127,13 @@ impl Setup<'_> {
                     "The passphrase the recovery container was sealed with (that of the machine \
                      that lodged it):",
                 )?;
+                if self.answers.service {
+                    // The same check new_passphrase makes, and for the same
+                    // reason: said before the keystore is written under a
+                    // passphrase the service's file could not hold, which
+                    // would leave a node with no service on every re-run.
+                    service::fits_service_file(std::env::consts::OS, &secret)?;
+                }
                 let node = crate::recover_from_coordinator(
                     &self.home,
                     username,

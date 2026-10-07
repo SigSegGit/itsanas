@@ -8,7 +8,9 @@
 # The release workflow (.github/workflows/release.yml) builds the binaries on a
 # v* tag and leaves a DRAFT release holding them and an unsigned manifest.txt.
 # This script: makes the release key the first time (asking first), finds the
-# newest draft with `gh`, shows what it is about to sign, signs it with
+# newest draft with `gh`, downloads its binaries and refuses unless each one
+# matches manifest.txt and the manifest's version is the tag's (printing each
+# SHA-256), shows what it is about to sign, signs it with
 # `itsanas-release sign` -- which asks the passphrase itself, hidden; this
 # script never sees, prints or stores it -- uploads manifest.txt.sig, publishes
 # the release and says what it published.
@@ -75,9 +77,14 @@ fi
 WORK=$(mktemp -d) || fail "could not make a temporary directory"
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
-gh release download "$TAG" -R "$REPO" -p manifest.txt -D "$WORK" \
-    || fail "release $TAG has no manifest.txt: did the release workflow finish? Look at its run on GitHub"
+# Every binary too, not only the manifest: a draft is writable by anyone with
+# write access to the repository, so the manifest is signed only once each
+# binary it lists has been measured here and found identical.
+gh release download "$TAG" -R "$REPO" -p manifest.txt -p 'itsanas-*' -D "$WORK" \
+    || fail "could not download release $TAG: did the release workflow finish? Look at its run on GitHub"
 MANIFEST="$WORK/manifest.txt"
+release_tool check --dir "$WORK" --tag "$TAG" \
+    || fail "the draft $TAG does not match its own manifest (the reason is just above): do not sign it, nothing was signed"
 VERSION=$(sed -n 's/^version //p' "$MANIFEST" | head -n 1)
 TARGETS=$(awk '$1 == "file" { print $2 }' "$MANIFEST")
 

@@ -11,7 +11,10 @@
       1. makes the release key the first time (asks before doing it, and says
          where the offline copy goes);
       2. finds the newest draft release with `gh`;
-      3. downloads its manifest.txt and shows what it is about to sign;
+      3. downloads its manifest.txt and binaries, refuses unless each binary
+         matches the manifest and the manifest's version is the tag's
+         (`itsanas-release check`, which prints each SHA-256), and shows what
+         it is about to sign;
       4. signs it with `itsanas-release sign`, which asks the passphrase itself,
          hidden -- this script never sees, prints or stores it;
       5. uploads manifest.txt.sig and publishes the release;
@@ -108,9 +111,16 @@ if (-not $Tag) {
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ("itsanas-sign-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work | Out-Null
 try {
-    & gh release download $Tag -R $Repo -p manifest.txt -D $work
-    if ($LASTEXITCODE -ne 0) { Stop-Plain "release $Tag has no manifest.txt: did the release workflow finish? Look at its run on GitHub" }
+    # Every binary too, not only the manifest: a draft is writable by anyone
+    # with write access to the repository, so the manifest is signed only once
+    # each binary it lists has been measured here and found identical.
+    & gh release download $Tag -R $Repo -p manifest.txt -p 'itsanas-*' -D $work
+    if ($LASTEXITCODE -ne 0) { Stop-Plain "could not download release ${Tag}: did the release workflow finish? Look at its run on GitHub" }
     $manifest = Join-Path $work 'manifest.txt'
+    Invoke-ReleaseTool @('check', '--dir', $work, '--tag', $Tag)
+    if ($LASTEXITCODE -ne 0) {
+        Stop-Plain "the draft $Tag does not match its own manifest (the reason is just above): do not sign it, nothing was signed"
+    }
     $lines = Get-Content -LiteralPath $manifest
     $version = ($lines | Where-Object { $_ -like 'version *' } | Select-Object -First 1) -replace '^version ', ''
     $targets = @($lines | Where-Object { $_ -like 'file *' } | ForEach-Object { ($_ -split ' ')[1] })

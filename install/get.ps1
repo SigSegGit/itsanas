@@ -154,35 +154,61 @@ function Install-Binary {
     New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
     $dest = Join-Path $BinDir 'itsanas.exe'
     $new = Join-Path $BinDir 'itsanas.exe.new'
-    # Leftovers from earlier runs; one still in use simply stays.
-    Get-ChildItem -LiteralPath $BinDir -Filter 'itsanas.exe.old-*' -ErrorAction SilentlyContinue |
-        Remove-Item -Force -ErrorAction SilentlyContinue
+    $aside = $null
     try {
         Copy-Item -LiteralPath $File -Destination $new -Force
         # Never written over: a running daemon holds itsanas.exe open, and
         # Windows lets a running executable be renamed but not rewritten. The
         # old one is moved aside and the new one renamed into place; the daemon
         # picks it up at its next start (the #240 rule, as in windows.ps1).
+        # Milliseconds in the name: two runs in one second must not collide.
         if (Test-Path -LiteralPath $dest) {
-            Rename-Item -LiteralPath $dest -NewName ('itsanas.exe.old-' + (Get-Date -Format 'yyyyMMddHHmmss'))
+            $aside = 'itsanas.exe.old-' + (Get-Date -Format 'yyyyMMddHHmmssfff')
+            Rename-Item -LiteralPath $dest -NewName $aside
         }
         Rename-Item -LiteralPath $new -NewName 'itsanas.exe'
     } catch {
+        # Put the old binary back: with no itsanas.exe, a Startup shortcut or a
+        # scheduled task pointing at it stops silently, and the next run would
+        # purge the only copy as a leftover.
+        if ($aside -and -not (Test-Path -LiteralPath $dest)) {
+            Rename-Item -LiteralPath (Join-Path $BinDir $aside) -NewName 'itsanas.exe' -ErrorAction SilentlyContinue
+        }
         Stop-Plain "could not install into ${BinDir}: close any ITSaNAS window and run this again"
     }
+    # Leftovers, purged only once the new binary is in place; one still in use
+    # (the running daemon's) simply stays until a later run.
+    Get-ChildItem -LiteralPath $BinDir -Filter 'itsanas.exe.old-*' -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
     Write-Host "  ok   $dest" -ForegroundColor Green
     return $dest
 }
 
 function Add-ToUserPath {
-    param([string] $BinDir)
+    param([string] $BinDir, [string] $KeyPath = 'Environment')
     # This user only, as windows.ps1 does: a machine-wide change needs
     # administrator rights a storage tool has no business asking for.
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if (($userPath -split ';') -notcontains $BinDir) {
-        $joined = if ($userPath) { "$userPath;$BinDir" } else { $BinDir }
-        [Environment]::SetEnvironmentVariable('Path', $joined, 'User')
-        Write-Host "  ok   added $BinDir to your PATH (new windows will see it)" -ForegroundColor Green
+    # The raw registry value, not [Environment]::Get/SetEnvironmentVariable:
+    # that pair reads %USERPROFILE%\bin expanded and, on Windows PowerShell
+    # 5.1, writes it back as REG_SZ, baking every user's variables into
+    # literals. $KeyPath exists so a test can use a throwaway key.
+    $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($KeyPath)
+    try {
+        $userPath = [string] $key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        $entries = $userPath -split ';'
+        if ($entries -notcontains $BinDir -and
+            ($entries | ForEach-Object { [Environment]::ExpandEnvironmentVariables($_) }) -notcontains $BinDir) {
+            $joined = if ($userPath) { "$userPath;$BinDir" } else { $BinDir }
+            $key.SetValue('Path', $joined, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+            # A raw registry write tells no running program; setting and
+            # clearing a variable through .NET broadcasts the change, so new
+            # windows opened from Explorer see the new PATH.
+            [Environment]::SetEnvironmentVariable('ITSANAS_PATH_CHANGED', '1', 'User')
+            [Environment]::SetEnvironmentVariable('ITSANAS_PATH_CHANGED', $null, 'User')
+            Write-Host "  ok   added $BinDir to your PATH (new windows will see it)" -ForegroundColor Green
+        }
+    } finally {
+        $key.Close()
     }
     if (($env:Path -split ';') -notcontains $BinDir) { $env:Path = "$env:Path;$BinDir" }
 }

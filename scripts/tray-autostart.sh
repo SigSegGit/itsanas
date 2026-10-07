@@ -57,6 +57,10 @@ agent_label() { printf 'net.itsanas.menubar%s' "${1:+.$1}"; }
 plain_path() {
     case "$1" in
         *'"'*|*'`'*|*'$'*|*'\'*|*'&'*|*'<'*|*'>'*) return 1 ;;
+        # % is a .desktop field code (the entry would silently not start), and
+        # a newline or other control character would split the Exec line and
+        # add keys of its own.
+        *'%'*|*[[:cntrl:]]*) return 1 ;;
     esac
     return 0
 }
@@ -72,7 +76,7 @@ install_linux() {
         return 0
     fi
     copy_script itsanas-tray.py || fail "could not copy itsanas-tray.py to $SHARE"
-    plain_path "$SHARE${ITSANAS_BIN:-}" || fail "$HOME holds a character a .desktop line would need escaped"
+    plain_path "$SHARE${ITSANAS_BIN:-}" || fail "$HOME or ITSANAS_BIN holds a character a .desktop line would need escaped"
     mkdir -p "$AUTOSTART" || fail "could not create $AUTOSTART"
     file=$(desktop_file "$NAME")
     exec_line="python3 \"$SHARE/itsanas-tray.py\"${NAME:+ $NAME}"
@@ -101,7 +105,7 @@ install_macos() {
         return 0
     fi
     copy_script itsanas-menubar.js || fail "could not copy itsanas-menubar.js to $SHARE"
-    plain_path "$SHARE${ITSANAS_BIN:-}" || fail "$HOME holds a character a plist would need escaped"
+    plain_path "$SHARE${ITSANAS_BIN:-}" || fail "$HOME or ITSANAS_BIN holds a character a plist would need escaped"
     mkdir -p "$AGENTS" || fail "could not create $AGENTS"
     {
         cat <<PLIST_HEAD

@@ -92,6 +92,11 @@ pub(crate) const IDLE: Duration = Duration::from_secs(30 * 60);
 const FINISHED_GRACE: Duration = Duration::from_secs(2 * 60);
 /// A slow or silent client is dropped after this, so it cannot hold a thread.
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// The whole life of one connection, at most. `READ_TIMEOUT` alone is per
+/// read: a local process dripping one byte every few seconds would hold a
+/// thread for ever, and sixteen of them would leave the person's page
+/// unanswered until the idle exit.
+const CONNECTION_DEADLINE: Duration = Duration::from_secs(10);
 /// Connections served at once; one person's browser opens a handful.
 const MAX_CONNECTIONS: usize = 16;
 /// Lines of progress kept for the page; a run says about twenty.
@@ -344,12 +349,36 @@ impl Context {
     }
 }
 
+/// Reads from a stream, refusing to go past an absolute instant: each read
+/// waits at most what is left, so dripping bytes cannot extend the life of a
+/// connection the way they extend a per-read timeout.
+struct Deadline<'a> {
+    stream: &'a TcpStream,
+    until: Instant,
+}
+
+impl std::io::Read for Deadline<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        self.stream.set_read_timeout(Some(left.min(READ_TIMEOUT)))?;
+        std::io::Read::read(&mut &*self.stream, buf)
+    }
+}
+
 /// Read one request, answer it, close.
 fn handle(ctx: &Arc<Context>, mut stream: TcpStream) {
+    let until = Instant::now() + CONNECTION_DEADLINE;
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let _ = stream.set_write_timeout(Some(READ_TIMEOUT));
-    let response = match http::read_request(&mut stream) {
+    let read = http::read_request(&mut Deadline {
+        stream: &stream,
+        until,
+    });
+    let response = match read {
         Ok(request) => route(ctx, &request),
         Err(status) => Response::refuse(
             status,
@@ -361,9 +390,12 @@ fn handle(ctx: &Arc<Context>, mut stream: TcpStream) {
     // Read a little of what is left before closing, so the close is not a
     // reset that destroys the answer before the client reads it. Bounded in
     // bytes and time: an oversized body is still never read whole.
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
+    let mut drain = Deadline {
+        stream: &stream,
+        until: until.min(Instant::now() + Duration::from_millis(200)),
+    };
     let _ = std::io::copy(
-        &mut (&mut stream).take(http::MAX_BODY as u64),
+        &mut (&mut drain).take(http::MAX_BODY as u64),
         &mut std::io::sink(),
     );
 }

@@ -5,8 +5,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use itsanas_release::{
-    FileEntry, Manifest, RELEASE_KEY, ReleaseError, ReleaseKey, Trust, Version, verify_release,
-    verify_signed,
+    FileEntry, Manifest, RELEASE_KEY, ReleaseError, ReleaseKey, Trust, Version, check_draft,
+    verify_release, verify_signed,
 };
 
 /// A temporary directory removed on drop, so no test leaves files behind.
@@ -312,7 +312,7 @@ fn the_release_key_is_pinned_until_nicolas_changes_it_on_purpose() {
 }
 
 #[test]
-fn a_next_key_named_by_a_signed_manifest_is_trusted_once_learned() {
+fn a_next_key_named_by_a_signed_manifest_is_trusted_by_learn() {
     let old = ReleaseKey::generate().unwrap();
     let new = ReleaseKey::generate().unwrap();
     let r = release("0.2.0");
@@ -338,6 +338,48 @@ fn a_next_key_named_by_a_signed_manifest_is_trusted_once_learned() {
     assert!(
         verify_signed(later_text.as_bytes(), &later_sig, &trusted).is_ok(),
         "after a rotation signed by the old key, releases signed by the new one are refused: nodes stop updating"
+    );
+}
+
+/// The draft as the signing script downloads it: binaries plus manifest.txt.
+fn draft(version: &str) -> Release {
+    let r = release(version);
+    fs::write(r.dir.0.join("manifest.txt"), &r.text).unwrap();
+    r
+}
+
+#[test]
+fn red_team_a_draft_with_one_binary_byte_flipped_is_not_signable() {
+    let r = draft("0.2.0");
+    assert!(
+        check_draft(&r.dir.0, "v0.2.0").is_ok(),
+        "an untouched draft is refused: nothing could ever be signed"
+    );
+    let (entry, path) = binary(&r);
+    let mut bytes = fs::read(&path).unwrap();
+    bytes[3] ^= 1;
+    fs::write(&path, &bytes).unwrap();
+    assert_eq!(
+        check_draft(&r.dir.0, "v0.2.0"),
+        Err(ReleaseError::WrongContent {
+            name: entry.name.clone()
+        }),
+        "a draft whose binary differs from its manifest passed the pre-signing check: the release key would sign an attacker's hashes"
+    );
+    fs::remove_file(&path).unwrap();
+    assert!(
+        check_draft(&r.dir.0, "v0.2.0").is_err(),
+        "a draft missing a binary its manifest lists passed the pre-signing check"
+    );
+}
+
+#[test]
+fn red_team_a_draft_whose_manifest_version_is_not_the_tag_is_not_signable() {
+    let r = draft("0.2.0");
+    let refused = check_draft(&r.dir.0, "v0.3.0");
+    assert!(
+        refused.is_err(),
+        "a manifest for 0.2.0 in the draft of v0.3.0 passed: a replayed or hand-made manifest would be signed"
     );
 }
 

@@ -7,8 +7,13 @@ name: Release
 #
 # Why CI builds but never signs (decided 2026-10-06): a signing key in GitHub
 # Actions means whoever takes the GitHub account can push a binary onto every
-# member's machine. Here the worst a stolen account can do is leave a draft
-# nobody signs. Why not build on each machine from a signed tag: Rust on every
+# member's machine. A draft is still writable by a stolen account or by a
+# compromised action in the draft job: the signing script downloads every
+# binary and refuses (itsanas-release check) unless each matches the manifest
+# and the manifest's version is the tag's. It cannot tell a manifest an
+# attacker rewrote together with the binaries; comparing the SHA-256 it prints
+# with this run's log is what catches that. Actions are pinned by tag, not by
+# SHA: no SHA is pinned anywhere in this repository yet to copy (to do). Why not build on each machine from a signed tag: Rust on every
 # tester's machine, forty minutes on a Mac, impossible on Android.
 
 on:

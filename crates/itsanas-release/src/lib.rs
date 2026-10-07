@@ -12,8 +12,7 @@
 //! Verification is in a fixed order, and the order is the point:
 //!
 //! 1. the signature, over the **exact** manifest bytes, against the pinned key
-//!    (or a key a signed manifest named as the next one) -- nothing in an
-//!    unsigned manifest is even parsed;
+//!    -- nothing in an unsigned manifest is even parsed;
 //! 2. the manifest's format;
 //! 3. its version, which must be newer than the running one (no downgrade: an
 //!    old, correctly signed release with a known bug must not be replayable);
@@ -340,6 +339,34 @@ impl Manifest {
     }
 }
 
+/// What the signing step checks before Nicolas's key touches a draft: the
+/// manifest in `dir` names the version of `tag`, and every binary it lists is
+/// in `dir` with exactly the signed size and hashes. Returns the manifest so
+/// the caller can print each SHA-256.
+///
+/// Why: a draft release is writable by anyone with write access to the
+/// repository or by a compromised action in the job that creates it. Signing
+/// its manifest without checking the binaries would put the genuine key on an
+/// attacker's hashes, and every install and self-update would then accept
+/// them. Checking here makes a tampered draft a draft nobody signs.
+pub fn check_draft(dir: &Path, tag: &str) -> Result<Manifest> {
+    let path = dir.join("manifest.txt");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| ReleaseError::Io(format!("could not read {}: {e}", path.display())))?;
+    let manifest = Manifest::parse(&text)?;
+    let tagged = Version::parse(tag.strip_prefix('v').unwrap_or(tag))?;
+    if manifest.version != tagged {
+        return Err(ReleaseError::Io(format!(
+            "the draft {tag} carries a manifest for {}: it was not made by the release workflow for this tag, do not sign it",
+            manifest.version
+        )));
+    }
+    for file in &manifest.files {
+        file.check_file(&dir.join(&file.name))?;
+    }
+    Ok(manifest)
+}
+
 fn parse_file_line(
     target: &str,
     name: &str,
@@ -416,8 +443,10 @@ impl Trust {
         Self::from_pinned(Some(key))
     }
 
-    /// Accept the key a verified manifest names as the next one. Rotation is a
-    /// release signed by the old key that names the new: the old key vouches.
+    /// Accept the key a verified manifest names as the next one, for this
+    /// `Trust` value only. This is the building block of key rotation, not
+    /// rotation itself: nothing calls it outside tests, nothing persists a
+    /// learned key, and it never drops the old key, so rotation is not built.
     pub fn learn(&mut self, manifest: &Manifest) -> Result<()> {
         if let Some(next) = manifest.next_key {
             let key = verifying_key(&next)?;
