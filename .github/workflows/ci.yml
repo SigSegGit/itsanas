@@ -417,6 +417,9 @@ jobs:
                        -o Acquire::http::Timeout=10 \
                        -o Acquire::Retries=2 \
                        install -y gcc-aarch64-linux-gnu
+      - uses: taiki-e/install-action@nextest
+      - name: Build
+        run: cargo build ${{ needs.changes.outputs.build_args }} --release --target aarch64-unknown-linux-gnu
       # A build says the types line up. It does not say the code runs, and until
       # this step existed no line of this project had ever executed on an ARM
       # processor -- the machine half its constants are chosen for. aarch64 is
