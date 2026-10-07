@@ -71,26 +71,7 @@ pub(crate) struct Curl;
 
 impl Fetch for Curl {
     fn get(&self, path: &str, to: &Path, max_bytes: u64) -> std::result::Result<(), String> {
-        let output = Command::new("curl")
-            .args([
-                "--fail",
-                "--silent",
-                "--show-error",
-                "--location",
-                "--proto",
-                "=https",
-                "--proto-redir",
-                "=https",
-                "--connect-timeout",
-                "30",
-                "--max-time",
-                "900",
-                "--max-filesize",
-                &max_bytes.to_string(),
-                "--output",
-            ])
-            .arg(to)
-            .arg(format!("{RELEASES}{path}"))
+        let output = curl_command(path, to, max_bytes)
             .output()
             .map_err(|error| format!("could not run curl ({error}); is it installed?"))?;
         if output.status.success() {
@@ -102,6 +83,50 @@ impl Fetch for Curl {
             ))
         }
     }
+}
+
+/// The `curl` call a download makes, apart so a test can read it: HTTPS
+/// only, redirects included (GitHub sends `latest/download` to its CDN, and a
+/// redirect to plain HTTP would hand the file to anyone on the path); a cap
+/// on the size; the URL always under this project's releases, with the path
+/// passed as one argument and never through a shell.
+pub(crate) fn curl_command(path: &str, to: &Path, max_bytes: u64) -> Command {
+    let mut command = Command::new("curl");
+    command
+        .args([
+            "--fail",
+            "--silent",
+            "--show-error",
+            "--location",
+            "--proto",
+            "=https",
+            "--proto-redir",
+            "=https",
+            "--connect-timeout",
+            "30",
+            "--max-time",
+            "900",
+            "--max-filesize",
+            &max_bytes.to_string(),
+            "--output",
+        ])
+        .arg(to)
+        .arg(format!("{RELEASES}{}", path.trim_start_matches('/')));
+    command
+}
+
+/// Read a downloaded file, refusing one larger than `max`: the cap `curl`
+/// enforces is not the only way a file reaches that path.
+fn read_capped(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)?
+        .take(max + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max {
+        return Err(std::io::Error::other(format!("larger than {max} bytes")));
+    }
+    Ok(bytes)
 }
 
 /// The release target this build is, or `None` on a platform no release
@@ -227,9 +252,12 @@ impl<'a> Updater<'a> {
                     .get(&format!("{dir}/{SIGNATURE}"), &signature_path, MANIFEST_MAX)
             });
         let read = fetched.map_err(CliError::Usage).and_then(|()| {
-            let bytes = std::fs::read(&manifest_path).map_err(io_error(&manifest_path))?;
-            let signature =
-                std::fs::read_to_string(&signature_path).map_err(io_error(&signature_path))?;
+            let bytes =
+                read_capped(&manifest_path, MANIFEST_MAX).map_err(io_error(&manifest_path))?;
+            let signature = String::from_utf8(
+                read_capped(&signature_path, MANIFEST_MAX).map_err(io_error(&signature_path))?,
+            )
+            .map_err(|_| CliError::Usage("the release signature is not text".to_owned()))?;
             Ok((bytes, signature))
         });
         let _ = std::fs::remove_file(&manifest_path);

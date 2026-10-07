@@ -10,7 +10,10 @@ use std::{
 
 use itsanas_release::{FileEntry, Manifest, ReleaseKey, Trust, Version};
 
-use super::{Daily, Fetch, Found, NOTICE_FILE, Updater, aside, daily, replace, this_target};
+use super::{
+    Daily, Fetch, Found, NOTICE_FILE, Updater, aside, curl_command, daily, read_capped, replace,
+    this_target,
+};
 use crate::config::Updates;
 
 const TARGET: &str = "x86_64-unknown-linux-gnu";
@@ -404,5 +407,56 @@ fn this_target_names_the_machine_it_runs_on() {
         this_target(),
         expected,
         "this machine would download another platform's binary, or none"
+    );
+}
+
+/// A download goes only over HTTPS, redirects included, capped in size, to
+/// this project's releases: a redirect to plain HTTP, or a path that leaves
+/// the release, would let someone on the network choose what is installed.
+#[test]
+fn red_team_the_download_command_is_https_only_capped_and_under_the_releases() {
+    let command = curl_command("/latest/download/manifest.txt", Path::new("out"), 65_536);
+    let args: Vec<String> = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    let after = |flag: &str| {
+        args.iter()
+            .position(|arg| arg == flag)
+            .and_then(|at| args.get(at + 1))
+            .cloned()
+    };
+    assert_eq!(
+        after("--proto").as_deref(),
+        Some("=https"),
+        "plain HTTP allowed: {args:?}"
+    );
+    assert_eq!(
+        after("--proto-redir").as_deref(),
+        Some("=https"),
+        "a redirect to plain HTTP allowed: {args:?}"
+    );
+    assert_eq!(
+        after("--max-filesize").as_deref(),
+        Some("65536"),
+        "no size cap: {args:?}"
+    );
+    let url = args.last().expect("a URL");
+    assert!(
+        url.starts_with(super::RELEASES) && !url[super::RELEASES.len()..].starts_with('/'),
+        "the URL leaves this project's releases: {url}"
+    );
+}
+
+/// A file at the download path larger than the cap is refused, not read whole.
+#[test]
+fn a_downloaded_file_over_the_cap_is_refused_not_read_whole() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("manifest.txt");
+    std::fs::write(&file, vec![b'x'; 100]).expect("write");
+    assert!(read_capped(&file, 100).is_ok());
+    assert!(
+        read_capped(&file, 99).is_err(),
+        "a file over the cap was read whole"
     );
 }
