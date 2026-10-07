@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-07 — 1061 test functions across 33 binaries, 9 of them
+**Last updated: 2026-10-07 — 1062 test functions across 33 binaries, 9 of them
 `#[ignore]`d, plus 2 doctests. 245 are red-team tests.**
 
-**945 of the 1061 tests have an entry of their own on this page** — an *entry*,
+**946 of the 1062 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 104 |
+| `itsanas-cli` unit | 105 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 117 |
@@ -939,7 +939,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (104)
+# `itsanas-cli` — unit tests (105)
 
 ## `bench` — measuring this machine (4)
 
@@ -1010,7 +1010,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_the_service_is_never_installed_for_a_home_it_would_not_run`** | Setup --home ELSEWHERE refuses to install a service that would run a different node, before installing anything; Sabotaged (home guard removed): red. |
 | `the_updates_choice_is_written_and_a_later_run_without_it_keeps_it` | `updates = auto` from setup reaches the node's configuration, a second setup that does not ask leaves it auto (re-running setup never undoes a choice), and the answers file takes `updates = "off"` and refuses a mistyped value instead of defaulting. |
 
-## `update::tests` — the self-update: only a signed, newer, intact release replaces the program (10)
+## `update::tests` — the self-update: only a signed, newer, intact release replaces the program (11)
 
 `crates/itsanas-cli/src/update.rs` (tests in `update/tests.rs`). `itsanas
 update [--check]` and the daemon's daily look. The tests serve a fake release
@@ -1022,6 +1022,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 
 | Test | What it proves |
 | --- | --- |
+| `this_target_names_the_machine_it_runs_on` | The target an update downloads is the machine's own, checked against the standard library's reading of the platform on each CI system: a wrong answer installs a binary that cannot run, or never updates a covered machine. |
 | `a_signed_newer_release_replaces_the_program` | The path that must work: release 0.2.0 signed by the key, its binary intact, replaces a 0.1.0 installed from a release. |
 | **`red_team_an_update_signed_by_another_key_is_refused`** | A release signed by any other key is "not signed by the ITSaNAS release key" and nothing changes: whoever can upload to the release page cannot push a program. Sabotaged (manifest parsed without its signature): red. |
 | **`red_team_a_modified_manifest_with_a_valid_signature_is_refused`** | The real signature file beside a manifest with one line changed (another binary's hashes) is refused: the signature covers the exact bytes read. Sabotaged (as above): red. |

@@ -10,7 +10,7 @@ use std::{
 
 use itsanas_release::{FileEntry, Manifest, ReleaseKey, Trust, Version};
 
-use super::{Daily, Fetch, Found, NOTICE_FILE, Updater, aside, daily, replace};
+use super::{Daily, Fetch, Found, NOTICE_FILE, Updater, aside, daily, replace, this_target};
 use crate::config::Updates;
 
 const TARGET: &str = "x86_64-unknown-linux-gnu";
@@ -384,4 +384,25 @@ fn the_daily_look_follows_the_setting() {
     );
     assert_eq!(std::fs::read(&world.exe).expect("program"), NEW_PROGRAM);
     assert!(!world.home.join(NOTICE_FILE).exists());
+}
+
+/// The target an update downloads is the machine's own: a wrong answer
+/// installs a binary that cannot run, or never updates a covered machine.
+/// Checked against the standard library's own reading of the platform, on
+/// each system CI runs (Linux, Windows and macOS).
+#[test]
+fn this_target_names_the_machine_it_runs_on() {
+    let expected = match (std::env::consts::ARCH, std::env::consts::OS) {
+        ("x86_64", "linux") if cfg!(target_env = "gnu") => Some("x86_64-unknown-linux-gnu"),
+        ("aarch64", "linux") if cfg!(target_env = "gnu") => Some("aarch64-unknown-linux-gnu"),
+        ("x86_64", "windows") if cfg!(target_env = "msvc") => Some("x86_64-pc-windows-msvc"),
+        ("aarch64", "macos") => Some("aarch64-apple-darwin"),
+        ("x86_64", "macos") => Some("x86_64-apple-darwin"),
+        _ => None,
+    };
+    assert_eq!(
+        this_target(),
+        expected,
+        "this machine would download another platform's binary, or none"
+    );
 }
