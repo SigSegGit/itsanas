@@ -407,8 +407,16 @@ jobs:
       - name: Cross C compiler, bounded so a stalled mirror fails in minutes
         timeout-minutes: 10
         run: |
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y gcc-aarch64-linux-gnu      
+          sudo sed -i 's|http://.*archive.ubuntu.com/ubuntu|http://mirrors.cloudflare.com/ubuntu|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::ForceIPv4=true \
+                       -o Acquire::http::Pipeline-Depth=0 \
+                       -o Acquire::http::Timeout=10 \
+                       -o Acquire::Retries=2 \
+                       update
+          sudo apt-get -o Acquire::ForceIPv4=true \
+                       -o Acquire::http::Timeout=10 \
+                       -o Acquire::Retries=2 \
+                       install -y gcc-aarch64-linux-gnu
       # A build says the types line up. It does not say the code runs, and until
       # this step existed no line of this project had ever executed on an ARM
       # processor -- the machine half its constants are chosen for. aarch64 is
