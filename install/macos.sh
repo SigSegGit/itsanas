@@ -532,6 +532,18 @@ PLIST_END
     fi
 fi
 
+# --------------------------------------------------------------- menu bar
+
+# The menu-bar item goes with the service, written and not loaded like it:
+# scripts/tray-autostart.sh writes ~/Library/LaunchAgents/net.itsanas.menubar.plist,
+# which shows the dot from the next login (or at once with the launchctl line
+# it prints). A dot for a node with no service would only ever say stopped.
+if [ "$DO_SERVICE" -eq 1 ] && [ -r "$BUILD_DIR/scripts/tray-autostart.sh" ]; then
+    step "Writing the menu-bar item"
+    ITSANAS_BIN="$BIN_DIR/itsanas" sh "$BUILD_DIR/scripts/tray-autostart.sh" install \
+        || warn "the menu-bar item was not written; the daemon is unaffected"
+fi
+
 # ------------------------------------------------------------------- check
 
 step "Checking what was installed"

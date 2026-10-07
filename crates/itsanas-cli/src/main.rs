@@ -15,6 +15,7 @@ mod bench;
 mod control;
 mod daemon;
 mod discovery;
+mod setup;
 
 // The node itself -- keystore, configuration, and the round that honours what
 // this device keeps -- lives in `itsanas-node`, because the Android shell needs
@@ -164,6 +165,36 @@ enum Command {
         #[arg(long)]
         recovery: bool,
     },
+    /// Set this machine up, step by step, or finish a setup that stopped.
+    ///
+    /// Each step is checked first and skipped when done, so running it again
+    /// after a failure redoes only what is missing and never makes a second
+    /// identity. The 24 words and the passphrase are asked in a window of the
+    /// system's own (or this terminal), never in a web page.
+    Setup {
+        /// Ask in this terminal instead of the web page that opens in the
+        /// browser on a desktop. A session without a desktop (SSH, no
+        /// DISPLAY) is asked here anyway.
+        #[arg(long)]
+        text: bool,
+        /// Every answer but the secrets from this TOML file, asking nothing;
+        /// the passphrase from `ITSANAS_PASSPHRASE`.
+        #[arg(long, value_name = "FILE.toml")]
+        answers: Option<PathBuf>,
+        /// With --answers and an account to join: the 24 words, from this file.
+        #[arg(long, requires = "answers")]
+        phrase_file: Option<PathBuf>,
+    },
+    /// Stop this machine's background service and forget its passphrase.
+    ///
+    /// The keys, your files and what this machine holds for others all stay.
+    /// While signed out it neither syncs nor answers the others' checks.
+    Signout,
+    /// Undo `signout`: ask the passphrase, check it, start the service again.
+    Signin,
+    /// Open this machine's settings in the browser: status, pause, sync now,
+    /// interval, space offered, folder, coordinator, sign out.
+    Settings,
     /// Show this node's identity, contents and hosting.
     Status {
         /// One line for a tray icon or a script: `healthy`, `paused`,
@@ -172,7 +203,8 @@ enum Command {
         #[arg(long)]
         brief: bool,
     },
-    /// Stop syncing this machine's files until `itsanas resume`.
+    /// Stop syncing this machine's files until `itsanas resume`, or for a while
+    /// with `--for 1h`.
     ///
     /// Nothing is lost: what you change here waits until you resume, and what
     /// the others change waits for you. This machine keeps hosting for them
@@ -180,7 +212,12 @@ enum Command {
     /// anybody else a copy. An idle daemon takes it within two seconds; in a
     /// round, it finishes with the machine it is talking to (five minutes at
     /// most) and dials no other. One started later starts paused.
-    Pause,
+    Pause {
+        /// End the pause by itself after this long: `1h`, `8h`, `2d`, from
+        /// one minute to 30 days. Without it, the pause lasts until resumed.
+        #[arg(long = "for", value_name = "DURATION")]
+        duration: Option<String>,
+    },
     /// Start syncing again after `itsanas pause`, at once.
     Resume,
     /// Ask the running daemon for a sync round now rather than at its next
@@ -625,28 +662,35 @@ fn refuse_stranded(chosen: PathBuf, base: &Path, other: Option<&Path>) -> Result
     }
 }
 
-fn run() -> Result<()> {
-    let cli = Cli::parse();
-    // These two look at every home on the machine, not at one: resolving a
-    // home first would make them refuse exactly when they are the answer.
+/// The commands that look at every home on the machine, not at one:
+/// resolving a home first would make them refuse exactly when they are the
+/// answer. `None` for every other command.
+fn machine_wide(cli: &Cli) -> Option<Result<()>> {
     match &cli.command {
         Command::Instances => {
             print!("{}", instances_report(&config::user_home()));
-            return Ok(());
+            Some(Ok(()))
         }
         Command::Migrate { name } => {
             // It moves ~/.itsanas and nothing else; ignoring an explicit home
             // would migrate a node the user did not name.
             let unnamed = config::user_home().join(".itsanas");
             if cli.instance.is_some() || cli.home.as_ref().is_some_and(|home| *home != unnamed) {
-                return Err(CliError::Usage(format!(
+                return Some(Err(CliError::Usage(format!(
                     "migrate moves {} only; drop --instance / --home (ITSANAS_HOME)",
                     unnamed.display()
-                )));
+                ))));
             }
-            return migrate(name.as_deref());
+            Some(migrate(name.as_deref()))
         }
-        _ => {}
+        _ => None,
+    }
+}
+
+fn run() -> Result<()> {
+    let cli = Cli::parse();
+    if let Some(done) = machine_wide(&cli) {
+        return done;
     }
     let home = resolve_home(cli.instance.as_deref(), cli.home)?;
 
@@ -677,7 +721,11 @@ fn run() -> Result<()> {
         Command::Invite { uses, days } => invite(&home, uses, days),
         Command::Passphrase { recovery } => change_passphrase(&home, recovery),
         Command::Status { brief } => status(&home, brief),
-        command @ (Command::Pause
+        command @ (Command::Setup { .. }
+        | Command::Signout
+        | Command::Signin
+        | Command::Settings) => setup_command(&home, cli.instance.as_deref(), command),
+        command @ (Command::Pause { .. }
         | Command::Resume
         | Command::SyncNow
         | Command::Interval { .. }) => steer(&home, &command),
@@ -728,6 +776,22 @@ fn run() -> Result<()> {
         Command::Doctor { deep } => doctor(&home, deep),
         Command::Bench { size, quick } => bench::run(parse_size(&size)?, quick),
         Command::Gc { grace } => gc(&home, grace),
+    }
+}
+
+/// `setup`, `signout`, `signin` and `settings`: the engine of [`setup`], from
+/// here.
+fn setup_command(home: &Path, instance: Option<&str>, command: Command) -> Result<()> {
+    match command {
+        Command::Setup {
+            text,
+            answers,
+            phrase_file,
+        } => setup::command(home, instance, text, answers.as_deref(), phrase_file),
+        Command::Signout => setup::sign::signout(home, instance),
+        Command::Signin => setup::sign::signin(home, instance),
+        Command::Settings => setup::web::settings(home, instance),
+        _ => unreachable!("only setup, signout, signin and settings are sent here"),
     }
 }
 
@@ -1496,13 +1560,19 @@ fn snapshot_status(home: &Path, running: bool) -> Result<String> {
         // that was never measured.
         None => format!("{subject}; the snapshot it left has no time on it."),
     };
+    let now = itsanas_discover::now_unix();
     let header = match control::Control::read(home) {
+        Ok(asked) if asked.pause_holds(now) && asked.until.is_some() => format!(
+            "{header}\nSyncing is PAUSED {}: nothing moves until then, or `itsanas resume`.",
+            asked.lasts(now)
+        ),
         Ok(control::Control {
             paused_since: Some(since),
+            until: None,
             ..
         }) => format!(
             "{header}\nSyncing is PAUSED here, since {}: nothing moves until `itsanas resume`.",
-            describe_age(itsanas_discover::now_unix().saturating_sub(since))
+            describe_age(now.saturating_sub(since))
         ),
         Ok(_) => header,
         Err(why) => format!(
@@ -1686,10 +1756,38 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
         // and the icon should say that something needs a look.
         match control::Control::read(home) {
             Err(_) => format!("unknown {age}"),
-            Ok(asked) if asked.paused_since.is_some() => format!("paused {age}"),
+            Ok(asked) if asked.pause_holds(now) => format!("paused {age}"),
             Ok(_) => format!("healthy {age}"),
         }
     }
+}
+
+/// `itsanas pause [--for D]` applied to what the control file says.
+///
+/// A pause already holding keeps its start, and takes the new end: "for 8
+/// hours" over "for 1 hour" extends it, plain `pause` over a timed one makes
+/// it last until resumed. Only the same open-ended pause twice is a no-op.
+fn pause(control: &mut control::Control, duration: Option<&str>, now: u64) -> Result<String> {
+    let until = duration
+        .map(control::parse_pause)
+        .transpose()
+        .map_err(CliError::Usage)?
+        .map(|seconds| now.saturating_add(seconds));
+    let holding = control.pause_holds(now);
+    if holding && control.until.is_none() && until.is_none() {
+        return Ok("Syncing was already paused.".to_owned());
+    }
+    if !holding {
+        control.paused_since = Some(now);
+    }
+    control.until = until;
+    Ok(format!(
+        "Syncing paused on this machine {}. Nothing is lost: your changes here wait until \
+         syncing resumes, and this machine keeps hosting for the others. A transfer under way \
+         finishes with the machine it is talking to (five minutes at most); no other \
+         starts.\nResume sooner with: itsanas resume",
+        control.lasts(now)
+    ))
 }
 
 /// Write what was asked into the control file the daemon reads (`control.rs`).
@@ -1697,6 +1795,13 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
 /// Opens nothing and asks no passphrase: these are the commands a tray runs
 /// while the daemon holds the store, which is every moment they are useful.
 fn steer(home: &Path, command: &Command) -> Result<()> {
+    println!("{}", steer_said(home, command)?);
+    Ok(())
+}
+
+/// [`steer`], returning what it would print: the Settings page of
+/// `setup::web` says the same words as the terminal.
+fn steer_said(home: &Path, command: &Command) -> Result<String> {
     if !Node::exists(home) {
         return Err(CliError::Usage(format!(
             "no node in {}; set one up first",
@@ -1711,7 +1816,7 @@ fn steer(home: &Path, command: &Command) -> Result<()> {
     // (#243's review: `interval 10m` resumed a paused node that way).
     let (mut control, rewritten) = match control::Control::read(home) {
         Ok(control) => (control, false),
-        Err(_) if matches!(command, Command::Pause | Command::Resume) => {
+        Err(_) if matches!(command, Command::Pause { .. } | Command::Resume) => {
             (control::Control::default(), true)
         }
         Err(why) => {
@@ -1721,27 +1826,21 @@ fn steer(home: &Path, command: &Command) -> Result<()> {
         }
     };
     let said = match command {
-        Command::Pause if control.paused_since.is_some() => {
-            "Syncing was already paused.".to_owned()
-        }
-        Command::Pause => {
-            control.paused_since = Some(now);
-            "Syncing paused on this machine. Nothing is lost: your changes here wait until you \
-             resume, and this machine keeps hosting for the others. A transfer under way \
-             finishes with the machine it is talking to (five minutes at most); no other \
-             starts.\nResume with: itsanas resume"
-                .to_owned()
-        }
-        Command::Resume if control.paused_since.is_none() && !rewritten => {
+        Command::Pause { duration } => pause(&mut control, duration.as_deref(), now)?,
+        Command::Resume if !control.pause_holds(now) && !rewritten => {
+            // A pause over by the clock leaves its lines behind; clear them.
+            control.paused_since = None;
+            control.until = None;
             "Syncing was not paused.".to_owned()
         }
         Command::Resume => {
             control.paused_since = None;
+            control.until = None;
             // Resuming is a request to catch up, not to wait for the interval.
             control.sync_asked = Some(now);
             "Syncing resumed; a round starts within two seconds.".to_owned()
         }
-        Command::SyncNow if control.paused_since.is_some() => {
+        Command::SyncNow if control.pause_holds(now) => {
             return Err(CliError::Usage(
                 "syncing is paused on this machine; `itsanas resume` resumes and syncs at once"
                     .to_owned(),
@@ -1758,18 +1857,15 @@ fn steer(home: &Path, command: &Command) -> Result<()> {
             "Asked; the round starts within two seconds.".to_owned()
         }
         Command::Interval { every: None } => {
-            println!(
-                "{}",
-                match control.interval {
-                    Some(every) => format!(
-                        "every {} (set with `itsanas interval`; `itsanas interval auto` undoes it)",
-                        control::describe_every(every)
-                    ),
-                    None => "auto: the daemon's own setting (`--interval`, else the sync policy)"
-                        .to_owned(),
+            return Ok(match control.interval {
+                Some(every) => format!(
+                    "every {} (set with `itsanas interval`; `itsanas interval auto` undoes it)",
+                    control::describe_every(every)
+                ),
+                None => {
+                    "auto: the daemon's own setting (`--interval`, else the sync policy)".to_owned()
                 }
-            );
-            return Ok(());
+            });
         }
         Command::Interval { every: Some(every) } => {
             let every = control::parse_every(every).map_err(CliError::Usage)?;
@@ -1787,17 +1883,17 @@ fn steer(home: &Path, command: &Command) -> Result<()> {
         path: home.join(control::CONTROL),
         source,
     })?;
-    println!("{said}");
+    let mut said = said;
     if rewritten {
-        println!(
-            "(The control file could not be read, so it was written afresh: an interval set \
-             before is back to auto.)"
+        said.push_str(
+            "\n(The control file could not be read, so it was written afresh: an interval set \
+             before is back to auto.)",
         );
     }
     if !running && !matches!(command, Command::SyncNow) {
-        println!("(No daemon is running this node now; it reads this when it starts.)");
+        said.push_str("\n(No daemon is running this node now; it reads this when it starts.)");
     }
-    Ok(())
+    Ok(said)
 }
 
 fn status(home: &Path, brief: bool) -> Result<()> {
@@ -1868,26 +1964,15 @@ fn login_from_coordinator(
     address: &str,
     device: Option<&str>,
 ) -> Result<()> {
-    let expect = device.map(coordinator::parse_device).transpose()?;
+    // Parsed before the passphrase is asked: a mistyped id fails first.
+    device.map(coordinator::parse_device).transpose()?;
 
     println!("Recovering {username:?} from {address}.");
     println!("This needs the passphrase the container was sealed with, which is");
     println!("the passphrase of whichever machine lodged it — not necessarily one");
     println!("you have used on this machine.");
-    let secret = passphrase(false)?;
-
-    let secrets = coordinator::fetch_escrow(address, expect, username, &secret)?;
-    let mut node = Node::restore_from_secrets(home, &secret, username, &secrets)?;
-
-    // The coordinator that just proved it holds this account is the one to
-    // keep. This used to be forgotten: the message below told the reader to
-    // run `itsanas register`, which then failed for want of a coordinator, and
-    // `sync` found only machines on the same network -- so a recovery on a
-    // network away from the others restored an identity and nothing else.
-    node.config.coordinator = Some(address.to_owned());
-    node.config.coordinator_device = device.map(str::to_owned);
-    node.save_config()?;
-    settle_listen_port(&mut node)?;
+    let secret = zeroize::Zeroizing::new(passphrase(false)?);
+    let node = recover_from_coordinator(home, username, address, device, &secret)?;
 
     println!();
     println!("Account restored.");
@@ -1910,6 +1995,48 @@ fn login_from_coordinator(
     Ok(())
 }
 
+/// Fetch the account's recovery container from `address`, open it with
+/// `secret` and write this machine's node from it: `login --from` without
+/// its messages, so `setup` runs the same restore.
+fn recover_from_coordinator(
+    home: &Path,
+    username: &str,
+    address: &str,
+    device: Option<&str>,
+    secret: &str,
+) -> Result<Node> {
+    let expect = device.map(coordinator::parse_device).transpose()?;
+    let secrets = coordinator::fetch_escrow(address, expect, username, secret)?;
+    let mut node = Node::restore_from_secrets(home, secret, username, &secrets)?;
+
+    // The coordinator that just proved it holds this account is the one to
+    // keep. This used to be forgotten: the message below told the reader to
+    // run `itsanas register`, which then failed for want of a coordinator, and
+    // `sync` found only machines on the same network -- so a recovery on a
+    // network away from the others restored an identity and nothing else.
+    node.config.coordinator = Some(address.to_owned());
+    node.config.coordinator_device = device.map(str::to_owned);
+    node.save_config()?;
+    settle_listen_port(&mut node)?;
+    Ok(node)
+}
+
+/// Point `config` at the coordinator `address`, pinned to `device` when
+/// given. The id is parsed now rather than at first use, so a mistyped one
+/// fails while the person who typed it is still looking at it.
+fn apply_coordinator(
+    config: &mut config::Config,
+    address: &str,
+    device: Option<&str>,
+) -> Result<()> {
+    if let Some(device) = device {
+        coordinator::parse_device(device)?;
+    }
+    config.coordinator = Some(address.to_owned());
+    config.coordinator_device = device.map(str::to_owned);
+    Ok(())
+}
+
 /// Set, show, or forget the coordinator this node uses.
 fn coordinator_setting(
     home: &Path,
@@ -1929,13 +2056,7 @@ fn coordinator_setting(
     }
 
     if let Some(address) = address {
-        if let Some(device) = device {
-            // Parsed now rather than at first use, so a mistyped id fails while
-            // the person who typed it is still looking at it.
-            coordinator::parse_device(device)?;
-        }
-        config.coordinator = Some(address.to_owned());
-        config.coordinator_device = device.map(str::to_owned);
+        apply_coordinator(&mut config, address, device)?;
         config.save(&Node::config_path(home))?;
         println!("coordinator set to {address}");
         if let Some(device) = device {
@@ -1999,22 +2120,12 @@ fn register(home: &Path, recovery: bool, withdraw: bool, invite: Option<&str>) -
     // would hand the peers, told it was gone, a fresh address to dial.
     refuse_if_departed(home)?;
     let node = open(home)?;
-    let now = itsanas_discover::now_unix();
-
-    let secret = invite.map(coordinator::decode_secret).transpose()?;
-    coordinator::register_with(&node, secret.as_ref(), now)?;
+    let published = register_and_announce(&node, invite)?;
     println!(
         "registered {:?} and enrolled this device",
         node.config.username
     );
-
-    // Publishing the address is part of registering, not a separate step: a
-    // device nobody can reach has not really joined anything.
-    let listen = node.config.listen.clone();
-    match coordinator::announce(&node, &listen, now) {
-        // What was published, not what was configured. With `listen` set to
-        // every interface — the default — those differ, and printing the
-        // configured value told the reader an address no peer can dial.
+    match published {
         Ok(published) => println!("announced {published}"),
         Err(error) => println!("could not announce an address: {error}"),
     }
@@ -2048,6 +2159,45 @@ fn register(home: &Path, recovery: bool, withdraw: bool, invite: Option<&str>) -
     }
 
     Ok(())
+}
+
+/// The file that says which coordinator this node last registered with: the
+/// only way `setup` can tell "registered" from "configured" without asking
+/// the coordinator, and asking again is what a re-run must not need.
+const REGISTERED: &str = "registered";
+
+/// Enrol this account and device with the configured coordinator and publish
+/// this device's address. The outer error is the registration; the inner
+/// result is the address published, or why none could be -- a device that
+/// registered and could not announce is still enrolled.
+fn register_and_announce(
+    node: &Node,
+    invite: Option<&str>,
+) -> Result<std::result::Result<String, String>> {
+    let now = itsanas_discover::now_unix();
+    let secret = invite.map(coordinator::decode_secret).transpose()?;
+    coordinator::register_with(node, secret.as_ref(), now)?;
+    if let Some(address) = &node.config.coordinator {
+        // Best effort: without it a re-run of setup registers again, which
+        // the coordinator takes as a refresh.
+        let _ = std::fs::write(node.home.join(REGISTERED), address);
+    }
+
+    // Publishing the address is part of registering, not a separate step: a
+    // device nobody can reach has not really joined anything. What was
+    // published is returned, not what was configured: with `listen` set to
+    // every interface -- the default -- those differ, and printing the
+    // configured value told the reader an address no peer can dial.
+    let listen = node.config.listen.clone();
+    Ok(coordinator::announce(node, &listen, now).map_err(|error| error.to_string()))
+}
+
+/// The coordinator this node last registered with, if any.
+fn registered_with(home: &Path) -> Option<String> {
+    std::fs::read_to_string(home.join(REGISTERED))
+        .ok()
+        .map(|text| text.trim().to_owned())
+        .filter(|text| !text.is_empty())
 }
 
 fn whoami(home: &Path) -> Result<()> {
@@ -2307,6 +2457,14 @@ fn folder(home: &Path, path: Option<&Path>, confirm: bool) -> Result<()> {
         return Ok(());
     };
 
+    let (absolute, first_pass) = set_folder(&mut node, path)?;
+    println!("synced folder set to {}", absolute.display());
+    println!("{first_pass}");
+    Ok(())
+}
+
+/// Keep `path` in step with this node, and say what the first pass did.
+fn set_folder(node: &mut Node, path: &Path) -> Result<(PathBuf, String)> {
     // Store it absolute. A relative path would mean something different
     // depending on where the daemon happened to be started from, which is the
     // sort of thing that quietly syncs the wrong directory.
@@ -2320,19 +2478,16 @@ fn folder(home: &Path, path: Option<&Path>, confirm: bool) -> Result<()> {
     node.config.folder = Some(absolute.clone());
     node.save_config()?;
 
-    println!("synced folder set to {}", absolute.display());
-
     // Show what the first pass would do rather than doing it silently. Pointing
     // this at an existing directory full of files is a big action, and the user
     // should see the size of it.
     let report = folder.reconcile(&node.store, false)?;
-    if report.changed_anything() {
-        println!("first pass: {}", report.summary());
+    let said = if report.changed_anything() {
+        format!("first pass: {}", report.summary())
     } else {
-        println!("the folder and the store already agree.");
-    }
-
-    Ok(())
+        "the folder and the store already agree.".to_owned()
+    };
+    Ok((absolute, said))
 }
 
 fn device(home: &Path, what: &DeviceCommand) -> Result<()> {
@@ -3236,13 +3391,16 @@ fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> 
 fn pledge(home: &Path, size: &str) -> Result<()> {
     let bytes = parse_size(size)?;
     let mut node = open(home)?;
-    set_pledge(&mut node, bytes)?;
+    if let Some(warning) = set_pledge(&mut node, bytes)? {
+        println!("warning: {warning}");
+    }
     println!("pledged {} to the network", format_size(bytes));
     Ok(())
 }
 
 /// Set this node's pledge to `bytes`, or refuse and leave the file as it was.
-fn set_pledge(node: &mut Node, bytes: u64) -> Result<()> {
+/// The warning, when there is one, is for the caller to say.
+fn set_pledge(node: &mut Node, bytes: u64) -> Result<Option<String>> {
     // The split first: lowering the pledge under what `keep` holds would leave
     // this machine keeping more than it earns, which `keep` itself refuses.
     Node::check_split(&node.config, bytes, node.config.keep_bytes)
@@ -3251,19 +3409,19 @@ fn set_pledge(node: &mut Node, bytes: u64) -> Result<()> {
     // Only other accounts' bytes: our own devices push here too, and counting
     // those as hosted said the pledge was already paid by our own backlog.
     let held = node.held_for_others()?;
-    if bytes < held {
-        // Lowering below what is already stored is allowed — the operator may
-        // be reclaiming a disk — but it must be said out loud, because the node
-        // will keep serving what it already took rather than silently dropping
-        // a peer's data.
-        println!(
-            "warning: {} is already held for other people, which is more than \
+    // Lowering below what is already stored is allowed — the operator may
+    // be reclaiming a disk — but it must be said out loud, because the node
+    // will keep serving what it already took rather than silently dropping
+    // a peer's data.
+    let warning = (bytes < held).then(|| {
+        format!(
+            "{} is already held for other people, which is more than \
              the new pledge of {}. Nothing will be deleted, and what is already \
              stored will still be served; this node simply will not accept more.",
             format_size(held),
             format_size(bytes)
-        );
-    }
+        )
+    });
 
     // Refusing to promise a disk this machine has not got. A host that accepts
     // data and then runs out has failed the person who trusted it, and "I
@@ -3281,7 +3439,7 @@ fn set_pledge(node: &mut Node, bytes: u64) -> Result<()> {
 
     node.config.pledge_bytes = bytes;
     node.save_config()?;
-    Ok(())
+    Ok(warning)
 }
 
 fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
@@ -3552,6 +3710,74 @@ fn peer(home: &Path, action: PeerAction) -> Result<()> {
     Ok(())
 }
 
+/// What the coordinator said of this account's other machines.
+#[derive(Debug)]
+struct Peers {
+    /// This device is among those the coordinator lists.
+    me_listed: bool,
+    /// Other machines of the account that published an address.
+    elsewhere: usize,
+    /// Of those, the ones at an address dialable from another network.
+    dialable: usize,
+}
+
+/// What the coordinator saw when asked to dial this machine back.
+#[derive(Debug)]
+enum Inbound {
+    Answered(coordinator::Reachability),
+    /// The coordinator predates the dial-back.
+    TooOld,
+    Failed(String),
+}
+
+/// The network half of `doctor`, as data: `doctor` prints it, `setup`
+/// judges it. `inbound` is `None` when the coordinator was not reached.
+#[derive(Debug)]
+struct NetworkCheck {
+    coordinator: Option<String>,
+    outbound: std::result::Result<Peers, String>,
+    inbound: Option<Inbound>,
+}
+
+fn network_check(identity: &itsanas_node::node::Identity) -> NetworkCheck {
+    let coordinator = identity.config.coordinator.clone();
+    if coordinator.is_none() {
+        return NetworkCheck {
+            coordinator,
+            outbound: Err("no coordinator configured".to_owned()),
+            inbound: None,
+        };
+    }
+    let user = identity.user.user_id();
+    let outbound = coordinator::devices_as(&identity.config, &identity.device, user)
+        .map(|found| {
+            let me = identity.device.device_id();
+            Peers {
+                me_listed: found.iter().any(|(device, _)| *device == me),
+                elsewhere: found.iter().filter(|(device, _)| *device != me).count(),
+                dialable: found
+                    .iter()
+                    .filter(|(device, candidate)| {
+                        *device != me && !coordinator::is_private_address(candidate)
+                    })
+                    .count(),
+            }
+        })
+        .map_err(|error| error.to_string());
+    let inbound = outbound.is_ok().then(|| {
+        match coordinator::check_me_as(&identity.config, &identity.device, user) {
+            Ok(Some(answer)) => Inbound::Answered(answer),
+            Ok(None) => Inbound::TooOld,
+            Err(error) => Inbound::Failed(error.to_string()),
+        }
+    });
+    NetworkCheck {
+        coordinator,
+        outbound,
+        inbound,
+    }
+}
+
 /// Say, in order, everything this machine can find out about its connectivity.
 ///
 /// The question a member actually has when nothing is syncing is "whose fault
@@ -3573,27 +3799,21 @@ fn network_report(identity: &itsanas_node::node::Identity) {
     println!();
     println!("network");
 
-    let Some(address) = identity.config.coordinator.as_deref() else {
+    let check = network_check(identity);
+    let Some(address) = check.coordinator.as_deref() else {
         println!("  no coordinator configured, so this machine can only meet peers on");
         println!("  its own network, or ones added by hand with `itsanas peer add`.");
         return;
     };
 
-    match coordinator::devices_as(&identity.config, &identity.device, identity.user.user_id()) {
-        Ok(found) => {
+    match &check.outbound {
+        Ok(peers) => {
             println!("  out    the coordinator at {address} answered");
-            let me = identity.device.device_id();
-            let elsewhere = found.iter().filter(|(device, _)| *device != me).count();
-            let dialable = found
-                .iter()
-                .filter(|(device, candidate)| {
-                    *device != me && !coordinator::is_private_address(candidate)
-                })
-                .count();
             println!(
-                "  peers  {elsewhere} other machine(s) of this account have published an address"
+                "  peers  {} other machine(s) of this account have published an address",
+                peers.elsewhere
             );
-            if elsewhere > 0 && dialable == 0 {
+            if peers.elsewhere > 0 && peers.dialable == 0 {
                 println!("         none of them is an address this machine could dial from");
                 println!("         another network. On one LAN that is right and costs nothing;");
                 println!("         from anywhere else nothing of this account can be reached.");
@@ -3609,9 +3829,11 @@ fn network_report(identity: &itsanas_node::node::Identity) {
         }
     }
 
-    match coordinator::check_me_as(&identity.config, &identity.device, identity.user.user_id()) {
-        Ok(Some(coordinator::Reachability::Reachable(detail))) => println!("  in     {detail}"),
-        Ok(Some(coordinator::Reachability::Unreachable(detail))) => {
+    match &check.inbound {
+        Some(Inbound::Answered(coordinator::Reachability::Reachable(detail))) => {
+            println!("  in     {detail}");
+        }
+        Some(Inbound::Answered(coordinator::Reachability::Unreachable(detail))) => {
             println!("  in     NOTHING can reach this machine: {detail}");
             if let Some(announce) = identity.config.announce.as_deref() {
                 println!("         This machine announces {announce}, so something was meant");
@@ -3626,13 +3848,14 @@ fn network_report(identity: &itsanas_node::node::Identity) {
         }
         // Nothing was tried, so nothing is known. Printing this as a verdict is
         // what sends somebody to rewire a router that works.
-        Ok(Some(coordinator::Reachability::Unknown(why))) => {
+        Some(Inbound::Answered(coordinator::Reachability::Unknown(why))) => {
             println!("  in     not checked this time: {why}");
         }
-        Ok(None) => {
+        Some(Inbound::TooOld) => {
             println!("  in     not checked: this coordinator is too old to try reaching back");
         }
-        Err(error) => println!("  in     not checked: {error}"),
+        Some(Inbound::Failed(error)) => println!("  in     not checked: {error}"),
+        None => {}
     }
 }
 
@@ -4071,7 +4294,7 @@ mod tests {
             )
             .expect("snapshot");
         };
-        steer(&home, &Command::Pause).expect("pause");
+        steer(&home, &Command::Pause { duration: None }).expect("pause");
         write(now - 60);
         assert_eq!(brief_status(&home, true, now), "paused 60");
         write(now - 3 * 300);
@@ -4132,6 +4355,58 @@ mod tests {
         // `resume` says outright what the file should hold, so it repairs it.
         steer(&home, &Command::Resume).expect("resume rewrites it");
         assert!(control::Control::read(&home).is_ok_and(|read| read.paused_since.is_none()));
+    }
+
+    /// The tray's "pause for 1 hour": the icon says paused for the hour and
+    /// healthy after it, by the clock alone -- a blue icon over a node that
+    /// syncs again would send somebody to resume what is not paused, and a
+    /// blue icon forever is the forgotten pause the end exists to prevent.
+    #[test]
+    fn a_timed_pause_shows_paused_only_while_it_holds() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        steer(
+            &home,
+            &Command::Pause {
+                duration: Some("1h".to_owned()),
+            },
+        )
+        .expect("pause for an hour");
+        let asked = control::Control::read(&home).expect("control");
+        let (since, until) = (
+            asked.paused_since.expect("paused"),
+            asked.until.expect("an end"),
+        );
+        assert_eq!(until - since, 3600, "`--for 1h` did not end an hour later");
+        std::fs::write(
+            home.join(SNAPSHOT),
+            format!("snapshot {} every 300\n", until - 60),
+        )
+        .expect("snapshot");
+        assert_eq!(brief_status(&home, true, until - 1), "paused 59");
+        assert_eq!(
+            brief_status(&home, true, until),
+            "healthy 60",
+            "the icon still said paused once the hour was over"
+        );
+        assert!(
+            steer(
+                &home,
+                &Command::Pause {
+                    duration: Some("31d".to_owned())
+                }
+            )
+            .is_err(),
+            "a pause of a month and more was taken"
+        );
+        // Plain `pause` over a timed one lasts until resumed; `resume` clears both.
+        steer(&home, &Command::Pause { duration: None }).expect("pause");
+        let asked = control::Control::read(&home).expect("control");
+        assert_eq!((asked.paused_since, asked.until), (Some(since), None));
+        steer(&home, &Command::Resume).expect("resume");
+        let asked = control::Control::read(&home).expect("control");
+        assert_eq!((asked.paused_since, asked.until), (None, None));
     }
 
     /// Onto an existing home is onto somebody's node: refused, both untouched.

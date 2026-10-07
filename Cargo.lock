@@ -884,6 +884,22 @@ name = "itsanas-policy"
 version = "0.1.0"
 
 [[package]]
+name = "itsanas-release"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "clap",
+ "ed25519-dalek",
+ "getrandom 0.4.3",
+ "hex",
+ "itsanas-crypto",
+ "rpassword",
+ "sha2",
+ "thiserror 2.0.21",
+ "zeroize",
+]
+
+[[package]]
 name = "itsanas-store"
 version = "0.1.0"
 dependencies = [

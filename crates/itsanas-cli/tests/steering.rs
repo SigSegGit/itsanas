@@ -21,7 +21,8 @@
 //! started paused, a pause landing while a round is under way, and the
 //! account's own device pushing into a paused node. The third is the one the
 //! first version got wrong -- a `match` arm that ignored the vault drain's
-//! result while the drain ran anyway (#243's review).
+//! result while the drain ran anyway (#243's review). And the other way round:
+//! a pause with an end must end by itself, with nobody running `resume`.
 //!
 //! # What it does not cover
 //!
@@ -33,7 +34,7 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::mpsc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 const PASSPHRASE: &str = "steering-test-passphrase";
@@ -340,5 +341,53 @@ fn red_team_a_paused_daemon_adopts_nothing_its_own_devices_push() {
         &daemon,
         "resuming did not adopt what was pushed while paused",
         |(_, files)| files == 1,
+    );
+}
+
+/// The tray's "pause for 1 hour", shortened to four seconds: the control file
+/// is written as `itsanas pause --for` writes it, and nobody runs `resume`.
+/// When the end passes, the running daemon must notice by the clock alone and
+/// take in the file written meanwhile -- a pause that never ends by itself is
+/// somebody who believes their files are safe.
+#[test]
+#[ignore = "one Argon2id derivation and a running daemon; the release job runs it"]
+fn red_team_a_timed_pause_ends_by_itself_without_resume() {
+    let base = tempfile::tempdir().expect("temp dir");
+    let (home, folder, _) = node_with_folder(base.path(), "a");
+    run(&home, &["pause"]);
+    let daemon = Daemon::start(&home, base.path().join("daemon.log"));
+    wait_for(&home, &daemon, "the paused daemon never reported", |_| true);
+
+    std::fs::write(folder.join("written-while-paused.txt"), b"wait for me")
+        .expect("write into the folder");
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs();
+    let until = now + 4;
+    std::fs::write(
+        home.join("control"),
+        format!("paused {now}\nuntil {until}\n"),
+    )
+    .expect("write the control file");
+
+    let (stamp, _) = wait_for(
+        &home,
+        &daemon,
+        "a pause whose end had passed never let the daemon take the file in",
+        |(_, files)| files == 1,
+    );
+    assert!(
+        stamp >= until,
+        "the file was taken in {}s before the pause's end: the end was not honoured\n\
+         --- daemon log\n{}",
+        until - stamp,
+        daemon.log()
+    );
+    assert!(
+        daemon.log().contains("pause over, syncing resumed"),
+        "the log never said the pause ended, so a person reading it cannot tell why \
+         syncing started again\n--- daemon log\n{}",
+        daemon.log()
     );
 }
