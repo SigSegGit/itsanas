@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-07 — 1076 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 250 are red-team tests.**
+**Last updated: 2026-10-07 — 1077 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 251 are red-team tests.**
 
-**960 of the 1076 tests have an entry of their own on this page** — an *entry*,
+**961 of the 1077 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 119 |
+| `itsanas-cli` unit | 120 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 117 |
@@ -939,7 +939,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (119)
+# `itsanas-cli` — unit tests (120)
 
 ## `bench` — measuring this machine (4)
 
@@ -991,7 +991,7 @@ refused, `1m` taken.
 | **`red_team_a_timed_pause_holds_until_its_end`** | A paused node whose until is in the future does not sync; until = u64::MAX, typed or from a corrupted file, survives the file round-trip and is a pause that lasts rather than an overflow or panic; Sabotaged (until ignored; comparison inverted; now+1 arithmetic): red. |
 | `a_pause_is_asked_for_in_words_and_said_back_in_dates` | `pause --for` accepts 1m..30d in the parse_every style and refuses anything else with the bounds and the open-ended alternative; the end is said back as a UTC date plus "in N min", and u64::MAX gives no date and no overflow. |
 
-## `setup` — the setup engine: run again, secrets, the service's home (8)
+## `setup` — the setup engine: run again, secrets, the service's home (9)
 
 `crates/itsanas-cli/src/setup/` (`mod.rs`, `steps.rs`, `sign.rs`; tests in
 `setup/tests.rs`). `itsanas setup` walks Machine, Account, Secret,
@@ -1010,6 +1010,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_the_service_is_never_installed_for_a_home_it_would_not_run`** | Setup --home ELSEWHERE refuses to install a service that would run a different node, before installing anything; Sabotaged (home guard removed): red. |
 | `the_updates_choice_is_written_and_a_later_run_without_it_keeps_it` | `updates = auto` from setup reaches the node's configuration, a second setup that does not ask leaves it auto (re-running setup never undoes a choice), and the answers file takes `updates = "off"` and refuses a mistyped value instead of defaulting. |
 | **`red_team_a_username_already_taken_is_refused_before_any_key_is_written`** | With a coordinator that already holds the name, the account step fails before any keystore is written or any word shown, and says the name is taken. Sabotaged (check ignored): red. |
+| **`red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`** | The built-in coordinator's device id is pinned (and parses), so a machine answering at its name that is not it is refused; another coordinator gets no pin. Sabotaged (pin never applied): red. |
 
 ## `update::tests` — the self-update: only a signed, newer, intact release replaces the program (13)
 

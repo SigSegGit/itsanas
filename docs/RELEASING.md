@@ -90,6 +90,9 @@ The network's coordinator admits anybody who installs ITSaNAS (Nicolas,
 2026-10-07): `install/coordinator.sh` starts it open, and `--invite-only`
 makes a private one.
 
+Or in Docker, with memory, CPU and process limits so it cannot slow the rest
+of the machine: [install/docker/README.md](../install/docker/README.md).
+
 ### Its self-update
 
 Releases carry the member binary only. On the coordinator's machine,

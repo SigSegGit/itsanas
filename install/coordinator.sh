@@ -221,7 +221,14 @@ if ! have systemctl; then
 fi
 
 # Is the port already taken? Finding out now beats a service that fails to
-# start with "address in use" three steps later.
+# start with "address in use" three steps later. Our own coordinator holding
+# it is the ordinary re-run (to change a flag), not a conflict: it is stopped,
+# and the service step below starts it again. Found on the Freebox VM on
+# 2026-10-07: the documented re-run refused itself.
+if [ "$DO_INSTALL" -eq 1 ] && have systemctl && systemctl is-active --quiet itsanas-coordinator 2>/dev/null; then
+    systemctl stop itsanas-coordinator || die "could not stop the running coordinator to reinstall it"
+    ok "stopped the running coordinator; it starts again below"
+fi
 if have ss; then
     if ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$PORT\$"; then
         die "something is already listening on port $PORT" \

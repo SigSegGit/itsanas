@@ -151,5 +151,13 @@ window.I18N = {
       'Toutes les étapes sont faites. Les vérifications ci-dessous n’ont pas pu tourner ici ; chacune dit pourquoi.',
     'Choose a username.': 'Choisissez un nom d’utilisateur.',
     'Type a whole number of GB, at least 1.': 'Tapez un nombre entier de Go, au moins 1.',
+    'Three questions, then ITSaNAS sets itself up. If something stops, run setup again and it picks up where it left off.':
+      'Trois questions, puis ITSaNAS s’installe tout seul. Si quelque chose s’arrête, relancez l’installation : elle reprend là où elle en était.',
+    'Your recovery words and your passphrase are asked later in a separate ITSaNAS window, never in this page.':
+      'Vos mots de récupération et votre phrase de passe seront demandés plus tard dans une fenêtre ITSaNAS séparée, jamais dans cette page.',
+    'Your folder and your space': 'Votre dossier et votre espace',
+    'How much of this disk other members may use for their copies: it is what earns room for your own files on theirs.':
+      'Combien de ce disque les autres membres peuvent utiliser pour leurs copies : c’est ce qui vous donne de la place pour vos fichiers chez eux.',
+    'Folder and space': 'Dossier et espace',
   },
 };

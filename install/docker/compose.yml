@@ -1,0 +1,35 @@
+# docker compose -f install/docker/compose.yml up -d --build
+#
+# Limits are the point (Nicolas, 2026-10-07): the VM also runs a VPN, the CV
+# service and home automation, so a flood, a leak or too many members must
+# cost this container, never the machine. `docker stats itsanas-coordinator`
+# shows its own use beside the machine's.
+services:
+  coordinator:
+    container_name: itsanas-coordinator
+    build:
+      context: ../..
+      dockerfile: install/docker/Dockerfile.coordinator
+    image: itsanas-coordinator:local
+    restart: unless-stopped
+    ports:
+      - "9898:9898"
+    # The state is the directory install/coordinator.sh used: same device id,
+    # same members. Owned by the image's user (65532), see README.md.
+    volumes:
+      - ${ITSANAS_COORD_STATE:-/var/lib/itsanas-coordinator}:/state
+    # Add "--invite-only" here for a private network.
+    command: ["--state", "/state", "--listen", "0.0.0.0:9898"]
+    mem_limit: ${ITSANAS_COORD_MEMORY:-256m}
+    memswap_limit: ${ITSANAS_COORD_MEMORY:-256m}
+    cpus: ${ITSANAS_COORD_CPUS:-0.5}
+    pids_limit: 256
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

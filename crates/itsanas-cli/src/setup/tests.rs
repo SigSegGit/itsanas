@@ -555,3 +555,19 @@ fn red_team_a_username_already_taken_is_refused_before_any_key_is_written() {
         "the refusal does not say the name is taken: {events:#?}"
     );
 }
+
+#[test]
+fn red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not() {
+    let pinned = super::pinned_for(super::DEFAULT_COORDINATOR).expect(
+        "the built-in coordinator has no pinned device: anything answering at its name is trusted",
+    );
+    assert!(
+        crate::coordinator::parse_device(pinned).is_ok(),
+        "the pinned coordinator device id is not one: every member's registration would fail"
+    );
+    assert_eq!(
+        super::pinned_for("other.example:9898"),
+        None,
+        "the built-in pin was applied to another coordinator, which then could never be used"
+    );
+}
