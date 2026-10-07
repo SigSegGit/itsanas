@@ -27,6 +27,13 @@ second reading looking for missing tests, unbounded memory, P2P security
 holes — is the AI code reviewer's job on the PR, not a Claude Code pass per
 commit.
 
+**Merging with planned skips.** A PR's CI is green when every check is a
+success or a *skip the CI planned*: skipped jobs count as green only if
+"What this run tests" planned them (selective CI) and "No warnings
+anywhere in this run" is a success. Any other skip, a pending check or a
+red one is not green. (Nicolas, 2026-10-07; a docs-only PR skips six jobs
+by design and was otherwise never mergeable by a session.)
+
 **Rodin before each major step, once.** A major step is a `docs/HANDOVER.md` §8
 item, or anything Nicolas calls one. Rodin critiques the *plan* before the code
 is written, where a wrong design is cheapest to drop; he is not re-run per

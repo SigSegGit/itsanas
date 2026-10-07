@@ -10,7 +10,7 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0w
-TITLE: sub-step (7): clean removal (ask Nicolas the drain question first)
+TITLE: sub-step (7): clean removal, by drain (decided, §10 item 15)
 WRITTEN-AT: 2026-10-07
 BASE: dc09537
 -->
@@ -30,9 +30,10 @@ the scratch directory sits beside the exe, so with a `--prefix` the daemon's
 account cannot write, even the `notify` check fails every day (logged, §9).
 Stale until now: ROADMAP "Signed releases", TESTING's `itsanas-release`
 header and `install/README.md` still said no node checked a signature.
-Trap: 0w (7)'s specification leans on 0f (f) item 4, which says "decide
-with Nicolas first" between a drain and a refusal, and §10 had no answer;
-it is now §10 item 15. Ask that, closed, before building.
+0w (7)'s specification leaned on 0f (f) item 4, which left "drain or
+refuse" to Nicolas; asked as §10 item 15 and **answered the same day:
+drain** -- removal always finishes. Also decided: a planned skip is not a
+red check (AGENTS.md, "Merging with planned skips").
 
 **2026-10-07, 0w (6), the self-update, built (branch `step/self-update`,
 PR #245, merged).** `itsanas update [--check]` and the daemon's daily, jittered look
@@ -1621,10 +1622,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
          run on a real machine; macOS/Linux trays keep their plain dots; the
          new tray icon never seen.
       7. **Clean removal. NEXT.** from the tray and as `itsanas uninstall`: wraps
-         `clean.ps1` / `clean.sh` under 0f's decommission rule -- refused
-         while this machine is the only confirmed holder of a chunk, saying
-         how many owners are affected, never who.
-         **First, §10 item 15** (closed question, drain or refusal). Facts
+         `clean.ps1` / `clean.sh` after a **drain** (§10 item 15, decided
+         2026-10-07): stop accepting chunks, hand every hosted chunk to
+         another host until each owner's ledger shows another holder or a
+         stated timeout passes, then forget the device and delete. Removal
+         is never refused: a member is never kept from switching off
+         because the network is thin. What is said, before and after, is
+         how many owners were left with one replica fewer, never who. Facts
          checked 2026-10-07: a host does not know who else holds a chunk it
          hosts -- the holder ledger is the *owner's* (`itsanas-store`
          `index.rs`, both key orders); so for hosted data "only confirmed
@@ -2610,6 +2614,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
    forget the device -- more code (a new protocol message), but removal
    always finishes. Either way this machine's own data follows the
    existing `status` rule.
+   ✅ **Decided 2026-10-07: (b), drain.** Nicolas: nobody is kept from
+   switching their machine off because the network is not dense enough.
+   Idea for a later version, **not decided**: as a last resort the
+   coordinator takes the chunks no host accepted (sealed, so unreadable
+   to it) until a new host is found -- a temporary recentralisation as
+   backup. It would give the coordinator a data-plane role, against
+   ROADMAP's "control-plane only" and its storage and bandwidth cost;
+   to be weighed (and Rodin'd) before anything is built.
 
 ## 11. Working style Nicolas expects
 
