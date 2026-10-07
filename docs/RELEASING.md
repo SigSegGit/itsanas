@@ -28,7 +28,8 @@ Then, before anything else:
 3. paste the public key into `RELEASE_KEY` in `crates/itsanas-release/src/lib.rs`
    and update the test `the_release_key_is_pinned_until_nicolas_changes_it_on_purpose`
    in the same pull request. Until then every build says "no release key
-   pinned yet" and trusts no download.
+   pinned yet" and trusts no download. **Done 2026-10-07**: the key is
+   `5b951b5d5df151b4598b11ce2a7ec6599710fbd61897aff013a1645b0bc5101b`.
 
 The file is sealed with the node keystore's own scheme (Argon2id, then
 XChaCha20-Poly1305): useless without the passphrase. Losing both copies, or the
@@ -88,7 +89,8 @@ default (log, and "update available: X" in `itsanas status`), `auto`
 (installs), `off` (never looks). Setup's "Updates" step and Settings set it;
 `updates = "auto"` in an answers file too. In `crates/itsanas-cli/src/update.rs`:
 
-1. no key pinned (`RELEASE_KEY = None`): says so, fetches nothing;
+1. no key pinned (`RELEASE_KEY = None`, every build before 2026-10-07):
+   says so, fetches nothing;
 2. a binary under a cargo `target/` directory, or on a platform no release
    covers, never updates itself;
 3. `releases/latest/download/manifest.txt` and `.sig` (HTTPS through `curl`,
@@ -108,5 +110,5 @@ default (log, and "update available: X" in `itsanas status`), `auto`
    new program -- stopping its own service from inside would kill it half way.
 
 **Not verified:** never run against the real GitHub (no signed release exists
-yet, and no key is pinned); the Windows rename of a running `itsanas.exe` and
+yet; the key is pinned since 2026-10-07); the Windows rename of a running `itsanas.exe` and
 the service restarts were never exercised on a real machine.

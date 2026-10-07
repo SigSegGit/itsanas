@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-10-07 ~13:00 | ~20 min | n/d | 0t (clé) | au bout | ✅ | Clé de release épinglée (`RELEASE_KEY`), test qui vérifie les octets contre l'hex de keygen (saboté rouge) ; première clé régénérée car le fichier avait été envoyé dans le chat ; nouveau trou §9 (un binaire compilé annonce une mise à jour qu'il refusera) | suivi |
 | 2026-10-07 ~11:00 | ~45 min | n/d | 0w (6) vérif + fusion | au bout | ✅ | #245 revérifiée à froid (11 sabotages rouges, gates verts), BLOCKER IA répondus, fusionnée ; 3 phrases périmées corrigées ; trou du scratch à côté de l'exe en §9 ; question drain/refus posée en §10 item 15 avant 0w (7) | suivi |
 | 2026-10-07 ~08:00 | n/d | n/d | 0w (6) | au bout | 🟨 | `itsanas update [--check]` + regard quotidien du daemon (`updates` auto/notify/off, étape Updates de setup, Settings, `--answers`), vérif par itsanas-release, remplacement par renommage avec retour arrière, curl ; icône du tray Windows et de la page web ; 7 red-team sabotés rouges ; jamais contre le vrai GitHub, pas de clé épinglée | #245 |
 | 2026-10-06 ~21:45 | ~1 h 30 | n/d (agents 509 k + 704 k coupés) | 0w (2)-(5) + 0t 1-3 (lot) | au bout | 🟨 | lot assistant web + tray 3 OS + release signée, 4 agents en worktrees ; chemins GUI/macOS/Linux jamais exécutés | #244 |
