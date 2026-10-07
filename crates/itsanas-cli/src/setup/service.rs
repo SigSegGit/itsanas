@@ -302,7 +302,15 @@ pub(crate) fn windows_tray_script(names: &Names, tray: &Path, bin_dir: &Path) ->
          $link.Arguments = {arguments}\n\
          $link.WorkingDirectory = {bin}\n\
          $link.Description = {description}\n\
-         $link.Save()\n",
+         $link.Save()\n\
+         # Started now too, not only at the next logon: an install that ends with\n\
+         # nothing on screen reads as an install that did not work. Once: a second\n\
+         # run of setup must not put a second icon beside the first.\n\
+         $running = Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" |\n\
+         \x20   Where-Object {{ $_.CommandLine -like {running} }}\n\
+         if (-not $running) {{\n\
+         \x20   Start-Process -FilePath $link.TargetPath -ArgumentList $link.Arguments -WorkingDirectory $link.WorkingDirectory\n\
+         }}\n",
         shortcut = ps_quote(&names.tray_shortcut),
         arguments = ps_quote(&format!(
             "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"{instance}",
@@ -310,6 +318,7 @@ pub(crate) fn windows_tray_script(names: &Names, tray: &Path, bin_dir: &Path) ->
         )),
         bin = ps_quote(&bin_dir.display().to_string()),
         description = ps_quote(&description),
+        running = ps_quote(&format!("*{}\"{instance}", tray.display())),
     )
 }
 
@@ -806,6 +815,12 @@ impl Platform {
                 .join(&self.names.autostart_file);
             write_file(&entry, &autostart_desktop(&self.names, &script))?;
             let _ = write!(said, ", tray at login ({})", entry.display());
+            // And now, when there is a desktop to draw in, as on Windows.
+            if std::env::var_os("DISPLAY").is_some()
+                || std::env::var_os("WAYLAND_DISPLAY").is_some()
+            {
+                start_linux_tray(&script, self.names.instance.as_deref());
+            }
         }
         Ok(said)
     }
@@ -845,6 +860,29 @@ impl Platform {
         }
         Ok(said)
     }
+}
+
+/// Start the Linux tray unless one for this node already runs. Best effort:
+/// the autostart entry is the guarantee, this only spares a logout.
+fn start_linux_tray(script: &Path, instance: Option<&str>) {
+    let pattern = format!(
+        "{}{}",
+        script.display(),
+        instance.map_or(String::new(), |name| format!(" {name}"))
+    );
+    if tool("pgrep", &["-f", &pattern]).is_ok() {
+        return;
+    }
+    let mut command = std::process::Command::new("python3");
+    command.arg(script);
+    if let Some(name) = instance {
+        command.arg(name);
+    }
+    let _ = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 fn whoami() -> String {
@@ -1036,6 +1074,27 @@ mod tests {
             entry.contains("Exec=python3 \"/home/x y/\\$t/itsanas-tray.py\" \"o-brien\""),
             "a space or dollar in the path starts a different program at login: {entry}"
         );
+    }
+
+    #[test]
+    fn the_windows_tray_starts_now_and_only_once() {
+        for (instance, tail) in [(None, "\"'"), (Some("tester"), "\" -Instance tester'")] {
+            let script = windows_tray_script(
+                &Names::of(instance),
+                Path::new(r"C:\x\itsanas-tray.ps1"),
+                Path::new(r"C:\x"),
+            );
+            assert!(
+                script.contains("Start-Process -FilePath $link.TargetPath"),
+                "setup saves the tray shortcut without starting it: nothing is on screen until \
+                 the next logon, and the install looks like it failed: {script}"
+            );
+            assert!(
+                script.contains(&format!(r"-like '*C:\x\itsanas-tray.ps1{tail}")),
+                "the tray is started without checking for one already running ({instance:?}): \
+                 every run of setup adds an icon: {script}"
+            );
+        }
     }
 
     #[test]

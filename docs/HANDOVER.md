@@ -10,7 +10,7 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0w
-TITLE: sub-step (7): clean removal, by drain (decided, §10 item 15)
+TITLE: sub-step (6b): the setup after its first real install (Nicolas's 13 points)
 WRITTEN-AT: 2026-10-07
 BASE: 65ebe76
 -->
@@ -19,6 +19,17 @@ Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-07 evening, v0.1.0 published and installed.** Tag `v0.1.0`
+(on aeaaf9b) built by `release.yml` on its first run (5 targets, 3 min),
+signed by `sign-release.cmd`; checked from outside: good signature, a
+modified manifest refused, the Linux binary's SHA-256 as listed.
+`get.ps1` installed it on Windows and `update --check` said "up to date".
+Trap: a stale local `v0.1.0` tag on Nicolas's PC was pushed first, onto a
+commit with no `release.yml`, and nothing ran; and PowerShell eats
+`^{commit}` unquoted. Nicolas's first install produced 13 points, now
+0w (6b) and NEXT; (11) is done in the same PR. The release body still
+says "Unsigned until..." after signing: `sign-release` should edit it.
 
 **2026-10-07 afternoon, the release key pinned.** Nicolas generated it with
 `scripts/sign-release.cmd` (a second time: the first key file was sent into a
@@ -1633,7 +1644,58 @@ Detail and measurements are in ROADMAP.md; this is the map.
          running `itsanas.exe` and the restarts by the three services never
          run on a real machine; macOS/Linux trays keep their plain dots; the
          new tray icon never seen.
-      7. **Clean removal. NEXT.** from the tray and as `itsanas uninstall`: wraps
+      6b. **The setup after its first real install. NEXT.** Nicolas installed
+         v0.1.0 by `get.ps1` on 2026-10-07 (signed, `update --check` answered
+         "up to date": the release chain works end to end) and listed what a
+         member meets. Decided with him the same day; do them in this order,
+         one PR each where they are large:
+         - ✅ (11) **The tray starts at the end of setup**, not at the next
+           logon (Windows: `windows_tray_script`, once per node; Linux: when a
+           desktop is there). macOS already did (launchd `RunAtLoad`).
+         - (3) The passphrase window: say "at the next step a window opens",
+           and "a window is open" only when it is.
+         - (8) "the folder to keep the same on all your machines" is wrong:
+           the path is per machine, the *content* syncs. Rewrite.
+         - (10) Show the autostart (a checked box) and end on "Open ITSaNAS
+           now"; the service step already autostarts (`steps.rs`,
+           `set_autostart(true)`).
+         - (Nicolas) **A witness file**: setup writes `welcome.txt` in the
+           synced folder and the last screen checks the daemon took it into
+           the store (it runs, it syncs) before saying so. A button opens the
+           folder; another pins it to Quick access (Windows), Finder
+           favourites (macOS), GTK bookmarks (Linux).
+         - (2, 6) One screen for the folder, the disk hosted for others and
+           the space: native folder pickers (WinForms / `osascript` / `zenity`,
+           as the passphrase window), a slider tied to a field, 1 GB to the
+           free space of the chosen disk, saying live "you offer X, you get
+           Y" from the bargain constant (`check-bargain.py`).
+         - (13) **A username already taken is learnt late**: the coordinator
+           refuses it (`a_username_cannot_be_taken_over_by_another_key`), but
+           only at the coordinator step, after the account is made locally;
+           with no coordinator, never. Ask the coordinator while the name is
+           typed (needs (4)). Red-team: a taken name is refused before any
+           key is written.
+         - (4) **The coordinator is built in**: default `itsanas.ngas.fr:9898`
+           (TCP; Nicolas points the name at the Freebox and forwards 9898 to
+           the VM), the field moves under "Advanced". Not hidden: the code is
+           public and the address shows in `netstat`; what limits a DDoS is a
+           name that can be repointed and peers that keep working without it.
+         - (9) **The 24 words can be copied and saved to a file**, with a
+           warning (malware reads the clipboard; cleared after 60 s) and a
+           password manager suggested instead of paper; the 3-word check
+           stays. Decided by Nicolas: forced paper loses more data than it
+           protects.
+         - (7) Languages: one strings file per language, the system's by
+           default, English otherwise, a list to change it; FR and EN first.
+         - (5a) **No router step**: UPnP-IGD / NAT-PMP maps the port by
+           itself where the box allows (most do), and the step goes. (5b),
+           hole punching and relay, later (ROADMAP "NAT traversal").
+         - (1) A clickable `ITSaNAS-Setup.exe` with the logo: Inno Setup
+           (free, no ads, no third-party service), **unsigned**: SmartScreen's
+           warning accepted, no spending (Nicolas).
+         - (12) The page closes itself if the browser allows it; otherwise
+           says it can be closed. Not worth more.
+      7. **Clean removal.** from the tray and as `itsanas uninstall`: wraps
          `clean.ps1` / `clean.sh` after a **drain** (§10 item 15, decided
          2026-10-07): stop accepting chunks, hand every hosted chunk to
          another host until each owner's ledger shows another holder or a

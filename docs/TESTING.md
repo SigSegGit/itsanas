@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-07 — 1064 test functions across 33 binaries, 9 of them
+**Last updated: 2026-10-07 — 1065 test functions across 33 binaries, 9 of them
 `#[ignore]`d, plus 2 doctests. 246 are red-team tests.**
 
-**948 of the 1064 tests have an entry of their own on this page** — an *entry*,
+**949 of the 1065 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 107 |
+| `itsanas-cli` unit | 108 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 117 |
@@ -939,7 +939,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (107)
+# `itsanas-cli` — unit tests (108)
 
 ## `bench` — measuring this machine (4)
 
@@ -1057,7 +1057,7 @@ tested: no window was opened by a test.
 | `the_windows_reply_survives_any_code_page` | The window's reply comes back base64-encoded, so a non-ASCII passphrase is not mangled by the console code page. |
 | `the_secret_window_is_the_platforms_own_or_the_terminal` | The backend choice is the platform's own window when there is a desktop and the terminal otherwise (an SSH session included), and gives a clear error naming what to install when there is neither. |
 
-## `service` — the background service under the installers' names (6)
+## `service` — the background service under the installers' names (7)
 
 | Test | What it proves |
 | --- | --- |
@@ -1066,6 +1066,7 @@ tested: no window was opened by a test.
 | `the_passphrase_file_reads_back_in_both_forms` | A passphrase file written by setup or by the installers reads back as the same passphrase. |
 | **`red_team_a_windows_passphrase_starting_with_a_hash_reads_back`** | A bare Windows passphrase such as `#Horse-Battery-9` is not taken for linux.sh's commented placeholder, and is written and read back, so setup does not stop at the Secret step for ever; Sabotaged (any leading # read as the placeholder): red. |
 | `the_passphrase_file_is_written_whole_and_alone` | The service's passphrase file is written in full, with owner-only permissions, and holds nothing else. |
+| `the_windows_tray_starts_now_and_only_once` | The Windows tray script starts the icon at once, not only at the next logon, and first looks for one already running for that node (default or instance), so a second setup adds no second icon. Sabotaged (no start; check ignoring the instance): red. |
 | `the_windows_scripts_parse` | (Windows) The generated wrapper, task, tray and ACL scripts, the secret window and the tray icon script all pass PowerShell's Parser::ParseFile, with and without an instance. |
 
 ## `verify` — the final check (2)
