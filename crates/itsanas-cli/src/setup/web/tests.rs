@@ -723,12 +723,13 @@ fn settings_steer_through_the_control_file_and_change_the_pledge_through_the_eng
         assert!(Instant::now() < deadline, "the pledge change never ended");
         std::thread::sleep(Duration::from_millis(200));
     }
+    let ended = page.api("GET", "/api/state", "").body;
     let config =
         crate::config::Config::load(&crate::node::Node::config_path(&home)).expect("config");
     assert_eq!(
         config.pledge_bytes,
         2 * 1024 * 1024,
-        "the pledge changed in the page is not the node's: the person offers what they did not choose"
+        "the pledge changed in the page is not the node's: the person offers what they did not choose; the page ended with {ended}"
     );
     let file = home.with_extension("passphrase");
     std::fs::write(&file, "stand-in\n").expect("stand-in passphrase file");

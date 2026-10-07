@@ -849,7 +849,10 @@ mod tests {
         // The end is exclusive, at the last second there is as anywhere else.
         assert!(!forever.pause_holds(u64::MAX));
         let mut lasting = Steering::start(Ok(forever), NOW).0;
-        assert!(lasting.refresh(Ok(forever), u64::MAX - 1).is_empty());
+        assert_eq!(
+            lasting.refresh(Ok(forever), u64::MAX - 1),
+            Vec::<String>::new()
+        );
         assert_eq!(lasting.next(start, None, BASE), Next::Publish);
         assert_eq!(
             forever.lasts(NOW),

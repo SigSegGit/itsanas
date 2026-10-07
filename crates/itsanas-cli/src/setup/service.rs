@@ -265,6 +265,7 @@ pub(crate) fn windows_task_script(names: &Names, wrapper: &Path) -> String {
 /// The script that makes a file this account's alone: `provision.ps1`'s
 /// `FileInfo.SetAccessControl`, which works where `icacls` and `Set-Acl`
 /// were each measured to fail (see the comment there).
+#[cfg_attr(not(windows), allow(dead_code))] // called by the Windows branch and its tests
 pub(crate) fn windows_acl_script(path: &Path) -> String {
     format!(
         "$ErrorActionPreference = 'Stop'\n\
