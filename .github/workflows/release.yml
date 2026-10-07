@@ -115,9 +115,38 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # The clickable Windows installer, around the release's own binary (so an
+  # install from it updates itself like one from get.ps1). Inno Setup is on
+  # the windows-latest image; installed if it is not.
+  setup-exe:
+    name: Windows installer (ITSaNAS-Setup.exe)
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: itsanas-x86_64-pc-windows-msvc
+          path: install/windows
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          $version = "$env:GITHUB_REF_NAME".TrimStart('v')
+          & $iscc "/DAppVersion=$version" "/DBinary=itsanas-x86_64-pc-windows-msvc.exe" "/O$PWD\dist" install\windows\itsanas.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: setup-exe
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
   draft:
     name: Draft release with the unsigned manifest
-    needs: build
+    needs: [build, setup-exe]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -141,11 +170,17 @@ jobs:
       # A draft is invisible to testers and to the bootstrap installers, which
       # look for the latest *published* release. It becomes one only when
       # Nicolas has signed it.
+      # After the manifest, in its own directory: the installer is not one of
+      # the five binaries the manifest signs; it wraps one of them.
+      - uses: actions/download-artifact@v8
+        with:
+          name: setup-exe
+          path: extra
       - name: Create the draft
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "$GITHUB_REF_NAME" dist/*
+          gh release create "$GITHUB_REF_NAME" dist/* extra/*
           --draft --verify-tag
           --title "ITSaNAS ${GITHUB_REF_NAME#v}"
           --notes "Unsigned until Nicolas runs scripts/sign-release. Install: docs/RELEASING.md."

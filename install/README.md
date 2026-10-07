@@ -99,8 +99,10 @@ The bed is one more instance, so it takes the next free port (9798, 9799...):
 a firewall or a router forward that names only the real account's port keeps
 it off the network, and nothing here opens one.
 
-**Away from home** a machine syncs only with one reachable from outside, so
-every machine that stays at home needs a port forwarded on the box and
+**Away from home** a machine syncs only with one reachable from outside. Since
+2026-10-07 the daemon asks the box to open its port by UPnP and announces the
+box's public address by itself; where the box refuses, a machine that stays at
+home needs a port forwarded on the box and
 `--announce PUBLICNAME:PORT` (`-Announce`), the port as seen from outside.
 Machines that move announce nothing; they call out. Without it the bed works
 on the home network only -- how it was first deployed on 2026-10-06, and why

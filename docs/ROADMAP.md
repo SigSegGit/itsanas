@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1065 test functions, 9 of them `#[ignore]`d into the slow job, and 246 of
+**1076 test functions, 9 of them `#[ignore]`d into the slow job, and 250 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -801,7 +801,11 @@ device and reaching a different one is refused.
   `--instance` looks at `~/.itsanas` only and leaves the named homes' data
   in place -- the safe direction, but it does not say so.
 
-- **NAT traversal.** A node behind NAT can push but cannot be dialled. Partly
+- **NAT traversal.** 🟨 Since 2026-10-07 the daemon asks the home router to
+  open its port by `UPnP` IGD (`upnp.rs`, HANDOVER §8 0w (6b) 5a) and
+  announces the router's public address when nothing was written; a router
+  that refuses, a box behind a box and NAT-PMP-only routers are still the
+  case below. A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts
   connections still learns what was pushed to it. Hole punching and relay
   fallback would want QUIC, which is now an optimisation rather than a

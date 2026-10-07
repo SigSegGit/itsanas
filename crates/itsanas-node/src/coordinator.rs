@@ -351,10 +351,29 @@ pub fn published_address(
     listen: &str,
     local: SocketAddr,
 ) -> String {
-    match config.announce.as_deref() {
-        Some(announce) => announce.to_owned(),
+    match config.announce.clone().or_else(found_address) {
+        Some(announce) => announce,
         None => reachable_address(listen, local),
     }
+}
+
+/// An address this process found it is reachable at -- the router opened its
+/// port by `UPnP` -- used when the configuration names none. A written
+/// `announce` always wins: a person who typed one knows their network.
+static FOUND_ADDRESS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Say where this process is reachable from outside, or that it is not.
+pub fn set_found_address(address: Option<String>) {
+    *FOUND_ADDRESS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = address;
+}
+
+fn found_address() -> Option<String> {
+    FOUND_ADDRESS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
 }
 
 /// Publish where this device can be reached, and return what was published.
@@ -879,8 +898,8 @@ pub fn contact(node: &Node, listen: &str, now: u64, due: &Due) -> Result<Contact
 /// `None` when there is no route: no network, or a name that does not resolve.
 #[must_use]
 pub fn address_now(config: &crate::config::Config, listen: &str) -> Option<String> {
-    if let Some(announce) = config.announce.as_deref() {
-        return Some(announce.to_owned());
+    if let Some(announce) = config.announce.clone().or_else(found_address) {
+        return Some(announce);
     }
     match listen.parse::<SocketAddr>() {
         Ok(parsed) if parsed.ip().is_unspecified() => {}

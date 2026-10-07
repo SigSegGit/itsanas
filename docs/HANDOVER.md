@@ -10,15 +10,40 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0w
-TITLE: sub-step (6b): the setup after its first real install (Nicolas's 13 points)
+TITLE: sub-step (6b) leftovers after Nicolas tests v0.1.1, then (7) clean removal
 WRITTEN-AT: 2026-10-07
-BASE: 65ebe76
+BASE: 11b3449
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-07 night, the network is open to anybody (Nicolas).** "Anybody
+who installs the client joins": `install/coordinator.sh` now starts the
+coordinator open (`Admission::Open`), `--invite-only` makes a private
+one, and the setup page moved the invitation code under "Advanced".
+Trap: the coordinator binary is the crate `itsanas-coordinator`;
+`itsanas-coord` is the library, and building it builds no binary.
+
+**2026-10-07 night, 0w (6b) built in one batch, v0.1.1 ready to tag.**
+Nicolas asked for all his first-install points in one session (weekly limit
+near), then real testing while development pauses. In one PR: username
+checked while typed and refused before any key; built-in coordinator
+`itsanas.ngas.fr:9898` (not pinned yet); `welcome.txt` witness kept in the
+folder; folder Browse, open and pin; space slider with the bargain; page in
+French and English (`i18n.js`, gated by a test); 24 words copyable and
+savable (Windows window); UPnP port opening in the daemon (`upnp.rs`);
+`ITSaNAS-Setup.exe` (Inno Setup) in `release.yml`; release notes rewritten
+on signing; the coordinator's nightly self-update. Workspace bumped to
+0.1.1. Traps: `check-installers.sh` reads the coordinator unit as the text
+from the first `[Unit]` to `WantedBy=multi-user.target`, so a second unit
+written by heredoc swallowed the check (written by `printf` instead);
+`createElement('` contains `t('`. Not verified: every piece of this against
+a real browser, router, Windows installer build or coordinator; DNS for
+`itsanas.ngas.fr` still answered an IONOS address (217.160.0.245) at 15:00
+UTC, not the Freebox.
 
 **2026-10-07 evening, v0.1.0 published and installed.** Tag `v0.1.0`
 (on aeaaf9b) built by `release.yml` on its first run (5 targets, 3 min),
@@ -1644,7 +1669,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
          running `itsanas.exe` and the restarts by the three services never
          run on a real machine; macOS/Linux trays keep their plain dots; the
          new tray icon never seen.
-      6b. **The setup after its first real install. NEXT.** Nicolas installed
+      6b. 🟨 **The setup after its first real install. NEXT: its leftovers.** Nicolas installed
          v0.1.0 by `get.ps1` on 2026-10-07 (signed, `update --check` answered
          "up to date": the release chain works end to end) and listed what a
          member meets. Decided with him the same day; do them in this order,
@@ -1652,49 +1677,72 @@ Detail and measurements are in ROADMAP.md; this is the map.
          - ✅ (11) **The tray starts at the end of setup**, not at the next
            logon (Windows: `windows_tray_script`, once per node; Linux: when a
            desktop is there). macOS already did (launchd `RunAtLoad`).
-         - (3) The passphrase window: say "at the next step a window opens",
+         - ✅ (3) The passphrase window: say "at the next step a window opens",
            and "a window is open" only when it is.
-         - (8) "the folder to keep the same on all your machines" is wrong:
+         - ✅ (8) "the folder to keep the same on all your machines" is wrong:
            the path is per machine, the *content* syncs. Rewrite.
-         - (10) Show the autostart (a checked box) and end on "Open ITSaNAS
+         - ✅ (10) Show the autostart (a checked box) and end on "Open ITSaNAS
            now"; the service step already autostarts (`steps.rs`,
            `set_autostart(true)`).
-         - (Nicolas) **A witness file**: setup writes `welcome.txt` in the
+         - ✅ (Nicolas) **A witness file**: setup writes `welcome.txt` in the
            synced folder and the last screen checks the daemon took it into
            the store (it runs, it syncs) before saying so. A button opens the
            folder; another pins it to Quick access (Windows), Finder
            favourites (macOS), GTK bookmarks (Linux).
-         - (2, 6) One screen for the folder, the disk hosted for others and
+         - 🟨 (2, 6) One screen for the folder, the disk hosted for others and
            the space: native folder pickers (WinForms / `osascript` / `zenity`,
            as the passphrase window), a slider tied to a field, 1 GB to the
            free space of the chosen disk, saying live "you offer X, you get
            Y" from the bargain constant (`check-bargain.py`).
-         - (13) **A username already taken is learnt late**: the coordinator
+         - ✅ (13) **A username already taken is learnt late**: the coordinator
            refuses it (`a_username_cannot_be_taken_over_by_another_key`), but
            only at the coordinator step, after the account is made locally;
            with no coordinator, never. Ask the coordinator while the name is
            typed (needs (4)). Red-team: a taken name is refused before any
            key is written.
-         - (4) **The coordinator is built in**: default `itsanas.ngas.fr:9898`
+         - 🟨 (4) **The coordinator is built in**: default `itsanas.ngas.fr:9898`
            (TCP; Nicolas points the name at the Freebox and forwards 9898 to
            the VM), the field moves under "Advanced". Not hidden: the code is
            public and the address shows in `netstat`; what limits a DDoS is a
            name that can be repointed and peers that keep working without it.
-         - (9) **The 24 words can be copied and saved to a file**, with a
+         - 🟨 (9) **The 24 words can be copied and saved to a file**, with a
            warning (malware reads the clipboard; cleared after 60 s) and a
            password manager suggested instead of paper; the 3-word check
            stays. Decided by Nicolas: forced paper loses more data than it
            protects.
-         - (7) Languages: one strings file per language, the system's by
+         - ✅ (7) Languages: one strings file per language, the system's by
            default, English otherwise, a list to change it; FR and EN first.
-         - (5a) **No router step**: UPnP-IGD / NAT-PMP maps the port by
+         - 🟨 (5a) **No router step**: UPnP-IGD / NAT-PMP maps the port by
            itself where the box allows (most do), and the step goes. (5b),
            hole punching and relay, later (ROADMAP "NAT traversal").
-         - (1) A clickable `ITSaNAS-Setup.exe` with the logo: Inno Setup
+         - 🟨 (1) A clickable `ITSaNAS-Setup.exe` with the logo: Inno Setup
            (free, no ads, no third-party service), **unsigned**: SmartScreen's
            warning accepted, no spending (Nicolas).
-         - (12) The page closes itself if the browser allows it; otherwise
+         - ✅ (12) The page closes itself if the browser allows it; otherwise
            says it can be closed. Not worth more.
+         **Built 2026-10-07 (one PR, batch mode by Nicolas's request: his
+         weekly limit was near), what is left:** (2, 6) the folder has a
+         native *Browse* (`/api/pick`), the space a slider tied to the field
+         and "you get about X" from `Split::DEFAULT`, but the disk hosted for
+         others is still the home's: choosing another disk means moving the
+         node's home, which the service step refuses today
+         (`refuse_a_home_the_service_would_not_run`); (4) default
+         `itsanas.ngas.fr:9898` (`setup::DEFAULT_COORDINATOR`), field under
+         "Advanced", **not pinned**: pin its device id in the default once
+         the coordinator runs (`install/coordinator.sh` prints it); (9)
+         Copy / Save in the Windows window only; macOS (`osascript`) and
+         Linux (`zenity`/`kdialog`) windows only lost the "on paper" text;
+         (5a) `upnp.rs`, IGD only, no NAT-PMP/PCP, the public address read
+         once at start (a new public IP is announced only after a restart),
+         never seen against a real router; (1) `install/windows/itsanas.iss`
+         + `release.yml` job `setup-exe`, never built (first run: the v0.1.1
+         tag); its uninstaller only signs out. Also built: the coordinator's
+         nightly self-update (`install/coordinator.sh --auto-update`). Red
+         team: `red_team_a_username_already_taken_is_refused_before_any_key_is_written`,
+         `red_team_a_chosen_path_never_lands_inside_a_script`, two in
+         `upnp.rs`, each sabotaged red. Next: Nicolas tests v0.1.1 for real
+         (install by the `.exe`, update from v0.1.0, a second machine, the
+         router), and the leftovers above go first.
       7. **Clean removal.** from the tray and as `itsanas uninstall`: wraps
          `clean.ps1` / `clean.sh` after a **drain** (§10 item 15, decided
          2026-10-07): stop accepting chunks, hand every hosted chunk to
@@ -2489,6 +2537,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
   release"). Harmless and misleading. The fix is for `check` to run
   `installed_from_release` before it answers `Available`, at the price of a
   second manifest fetch a day; it needs its own red-team test.
+- **The default coordinator is not pinned.** `setup::DEFAULT_COORDINATOR`
+  is a name; anything answering there is taken for the coordinator until
+  its device id is compiled in beside it (the coordinator prints it). A
+  coordinator is a notice board that cannot admit anyone and whose lists
+  are signed by the members' own keys, so a fake one can refuse service and
+  learn who asks, not read or forge.
 - **One process per node.** The index is under an exclusive lock, so commands
   refuse to run while the daemon holds it. Since 2026-10-06 the commands a tray
   needs while it runs -- `pause`, `resume`, `sync-now`, `interval`, `status` --

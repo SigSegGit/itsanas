@@ -138,7 +138,7 @@ try {
     }
     & gh release upload $Tag -R $Repo "$manifest.sig" --clobber
     if ($LASTEXITCODE -ne 0) { Stop-Plain "the signature could not be uploaded to ${Tag}: run this again, it is safe" }
-    & gh release edit $Tag -R $Repo --draft=false
+    & gh release edit $Tag -R $Repo --draft=false --notes 'Signed with the ITSaNAS release key (manifest.txt.sig). Windows: ITSaNAS-Setup-*.exe. Install: docs/RELEASING.md.'
     if ($LASTEXITCODE -ne 0) { Stop-Plain "signed and uploaded, but $Tag is still a draft: run this again, or publish it on GitHub" }
 
     Write-Host ''

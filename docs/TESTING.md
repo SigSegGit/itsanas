@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-07 — 1065 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 246 are red-team tests.**
+**Last updated: 2026-10-07 — 1076 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 250 are red-team tests.**
 
-**949 of the 1065 tests have an entry of their own on this page** — an *entry*,
+**960 of the 1076 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 108 |
+| `itsanas-cli` unit | 119 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 117 |
@@ -939,7 +939,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (108)
+# `itsanas-cli` — unit tests (119)
 
 ## `bench` — measuring this machine (4)
 
@@ -991,7 +991,7 @@ refused, `1m` taken.
 | **`red_team_a_timed_pause_holds_until_its_end`** | A paused node whose until is in the future does not sync; until = u64::MAX, typed or from a corrupted file, survives the file round-trip and is a pause that lasts rather than an overflow or panic; Sabotaged (until ignored; comparison inverted; now+1 arithmetic): red. |
 | `a_pause_is_asked_for_in_words_and_said_back_in_dates` | `pause --for` accepts 1m..30d in the parse_every style and refuses anything else with the bounds and the open-ended alternative; the end is said back as a UTC date plus "in N min", and u64::MAX gives no date and no overflow. |
 
-## `setup` — the setup engine: run again, secrets, the service's home (7)
+## `setup` — the setup engine: run again, secrets, the service's home (8)
 
 `crates/itsanas-cli/src/setup/` (`mod.rs`, `steps.rs`, `sign.rs`; tests in
 `setup/tests.rs`). `itsanas setup` walks Machine, Account, Secret,
@@ -1009,6 +1009,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_sign_out_forgets_the_passphrase_and_sign_in_needs_the_right_one`** | Signout deletes the service's passphrase file and keeps the keystore; signin refuses a wrong passphrase and rewrites the file with the right one; Sabotaged (file not deleted / passphrase not checked): red. |
 | **`red_team_the_service_is_never_installed_for_a_home_it_would_not_run`** | Setup --home ELSEWHERE refuses to install a service that would run a different node, before installing anything; Sabotaged (home guard removed): red. |
 | `the_updates_choice_is_written_and_a_later_run_without_it_keeps_it` | `updates = auto` from setup reaches the node's configuration, a second setup that does not ask leaves it auto (re-running setup never undoes a choice), and the answers file takes `updates = "off"` and refuses a mistyped value instead of defaulting. |
+| **`red_team_a_username_already_taken_is_refused_before_any_key_is_written`** | With a coordinator that already holds the name, the account step fails before any keystore is written or any word shown, and says the name is taken. Sabotaged (check ignored): red. |
 
 ## `update::tests` — the self-update: only a signed, newer, intact release replaces the program (13)
 
@@ -1069,14 +1070,15 @@ tested: no window was opened by a test.
 | `the_windows_tray_starts_now_and_only_once` | The Windows tray script starts the icon at once, not only at the next logon, and first looks for one already running for that node (default or instance), so a second setup adds no second icon. Sabotaged (no start; check ignoring the instance): red. |
 | `the_windows_scripts_parse` | (Windows) The generated wrapper, task, tray and ACL scripts, the secret window and the tray icon script all pass PowerShell's Parser::ParseFile, with and without an instance. |
 
-## `verify` — the final check (2)
+## `verify` — the final check (3)
 
 | Test | What it proves |
 | --- | --- |
 | `an_unreachable_laptop_is_not_a_failure_an_unreachable_forward_is` | The dial-back verdict passes a machine behind NAT that announced nothing, and fails one whose announced forward cannot be reached, giving a remedy. |
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
+| `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page (14)
+## `web` — the local setup and Settings page (19)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1099,6 +1101,24 @@ in-process with stand-in secret windows; no real browser is launched.
 | `a_desktop_is_needed_for_the_page_and_ssh_never_counts_as_one` | Has_desktop: Windows and macOS yes, Linux only with a display, any SSH session no (X forwarding included), so setup falls back to the terminal where a browser would open unseen. |
 | `the_browser_is_opened_by_the_systems_own_program_with_the_url_as_one_argument` | Browser_command builds rundll32 url.dll,FileProtocolHandler / open / xdg-open with a URL containing # and & as one whole argument, never through cmd. |
 | `the_suggested_pledge_is_a_fifth_in_whole_gib_and_capped` | Suggest_pledge offers a fifth of the free disk, rounded down to whole GiB, 0 on a nearly full disk, at most 500 GiB, in integers. |
+| `the_page_learns_a_taken_username_before_anything_is_made` | POST /api/name says "yes" for a name the coordinator holds and "no" for a free one, and writes no key. |
+| `the_page_proposes_the_built_in_coordinator_and_the_code_s_split` | /api/state proposes `DEFAULT_COORDINATOR` and the split of `Split::DEFAULT`, so the space page's "you get" is the code's bargain. |
+| **`red_team_a_chosen_path_never_lands_inside_a_script`** | On the three systems the folder chooser gets its start folder through an environment variable, never inside its script, so a folder name cannot run as code. Sabotaged (path in an argument): red. |
+| `a_gtk_bookmark_escapes_what_a_url_cannot_hold` | A space or an accent in the folder is percent-encoded in the GTK bookmark line. |
+| `every_text_of_the_page_has_a_french_translation` | Every text between tags, placeholder, label and `t('...')` string of the page has an entry in `i18n.js`. Sabotaged (one entry removed): red. |
+
+## `upnp` — the router's port, opened by itself (4)
+
+`crates/itsanas-cli/src/upnp.rs`: SSDP search, the router's description, the
+SOAP mapping and its public address. No router in CI: the parsing and the
+requests are tested on the bytes a router sends.
+
+| Test | What it proves |
+| --- | --- |
+| `the_router_s_answers_are_read_as_routers_write_them` | A search answer's `LOCATION` and a description's `WANIPConnection` control URL are found. |
+| **`red_team_a_router_naming_itself_by_name_is_not_followed`** | A `LOCATION` with a host name, or https, is refused: only a literal LAN address is dialled. Sabotaged (https accepted): red. |
+| **`red_team_a_private_public_address_is_never_announced`** | Private, carrier-grade NAT and unspecified addresses are not taken for a public one, so a box behind a box never makes a node announce an address nobody outside can dial. Sabotaged (CGNAT removed): red. |
+| `the_mapping_request_says_what_a_router_expects` | The SOAP request has the control path, the `SOAPAction` and a Content-Length that matches its body. |
 
 ## `daemon` — pacing (3)
 

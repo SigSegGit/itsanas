@@ -362,8 +362,12 @@ if [ "$COORD_FOUND" -eq 1 ]; then
     else
         if command -v systemctl >/dev/null 2>&1; then
             systemctl disable --now itsanas-coordinator >/dev/null 2>&1 || true
+            systemctl disable --now itsanas-coordinator-update.timer >/dev/null 2>&1 || true
         fi
-        rm -f "$COORD_UNIT_SYS" "$COORD_BIN"
+        rm -f "$COORD_UNIT_SYS" "$COORD_BIN" \
+            /etc/systemd/system/itsanas-coordinator-update.service \
+            /etc/systemd/system/itsanas-coordinator-update.timer \
+            /usr/local/sbin/itsanas-coordinator-update
         if command -v systemctl >/dev/null 2>&1; then
             systemctl daemon-reload >/dev/null 2>&1 || true
         fi

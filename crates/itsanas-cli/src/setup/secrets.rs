@@ -198,7 +198,8 @@ fn grid(phrase: &str) -> String {
 }
 
 /// What every window says above the words.
-pub(crate) const WORDS_INSTRUCTION: &str = "Write these 24 words on paper. Anyone with them can read your files. \
+pub(crate) const WORDS_INSTRUCTION: &str = "Keep these 24 words somewhere safe: a password manager \
+     is better than paper, and copying them is allowed. Anyone with them can read your files. \
      ITSaNAS will never ask for them in a web page.";
 
 // ---------------------------------------------------------------------------
@@ -329,7 +330,10 @@ fn applescript(ask: Ask<'_>) -> Prepared {
             let asks: Vec<String> = positions
                 .iter()
                 .map(|position| {
-                    hidden_question(title, &format!("Word number {position}, from your paper:"))
+                    hidden_question(
+                        title,
+                        &format!("Word number {position}, from where you kept them:"),
+                    )
                 })
                 .collect();
             format!(
@@ -402,7 +406,7 @@ fn zenity(ask: Ask<'_>) -> Vec<Prepared> {
             for position in positions {
                 steps.push(hidden(
                     "ITSaNAS - check your recovery words",
-                    &format!("Word number {position}, from your paper:"),
+                    &format!("Word number {position}, from where you kept them:"),
                 ));
             }
             steps
@@ -453,7 +457,7 @@ fn kdialog(ask: Ask<'_>) -> Vec<Prepared> {
             for position in positions {
                 steps.push(hidden(
                     "ITSaNAS - check your recovery words",
-                    &format!("Word number {position}, from your paper:"),
+                    &format!("Word number {position}, from where you kept them:"),
                 ));
             }
             steps
@@ -716,7 +720,7 @@ fn terminal_show_and_confirm(
         print!("\x1b[2J\x1b[3J\x1b[H");
         let _ = std::io::stdout().flush();
     }
-    println!("Now three of them, from your paper.");
+    println!("Now three of them, from where you kept them.");
     positions
         .iter()
         .map(|position| terminal_line(&format!("Word number {position}: ")))

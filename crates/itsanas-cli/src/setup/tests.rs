@@ -524,3 +524,34 @@ fn the_updates_choice_is_written_and_a_later_run_without_it_keeps_it() {
         "a mistyped updates answer was taken as the default instead of refused"
     );
 }
+
+#[test]
+fn red_team_a_username_already_taken_is_refused_before_any_key_is_written() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let mut wanted = answers(dir.path());
+    wanted.coordinator = Some("coordinator.test:9898".to_owned());
+    let (mut person, asked) = Scripted::new(false);
+    let service = NoService {
+        file: home.with_extension("passphrase"),
+    };
+    let mut events = Vec::new();
+    let mut record = |event: &Event| events.push(event.clone());
+    let outcome = Setup::new(&home, wanted, &mut person, &service, &mut record)
+        .with_name_check(|_, name| Ok(name == "camille"))
+        .run();
+    assert_eq!(
+        outcome.failed,
+        Some(Step::Account),
+        "a name the coordinator already holds was let through the account step: {events:#?}"
+    );
+    assert!(
+        !keystore(&home).exists() && asked.borrow().questions == 0,
+        "keys were made, or words shown, for a name the network will refuse: the person \
+         writes 24 words for an account that can never register"
+    );
+    assert!(
+        said(&home, &events).contains("already taken"),
+        "the refusal does not say the name is taken: {events:#?}"
+    );
+}

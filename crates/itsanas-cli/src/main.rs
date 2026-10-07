@@ -17,6 +17,7 @@ mod daemon;
 mod discovery;
 mod setup;
 mod update;
+mod upnp;
 
 // The node itself -- keystore, configuration, and the round that honours what
 // this device keeps -- lives in `itsanas-node`, because the Android shell needs
