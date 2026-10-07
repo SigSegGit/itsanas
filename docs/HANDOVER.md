@@ -12,13 +12,24 @@ contract.
 NEXT: 8.0w
 TITLE: sub-step (7): clean removal, by drain (decided, §10 item 15)
 WRITTEN-AT: 2026-10-07
-BASE: dc09537
+BASE: 65ebe76
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-07 afternoon, the release key pinned.** Nicolas generated it with
+`scripts/sign-release.cmd` (a second time: the first key file was sent into a
+chat, and replacing an unpinned key costs nothing); `RELEASE_KEY` holds
+`5b951b5d5df151b4...` and the pinning test checks the bytes against the hex keygen
+printed (sabotaged: one byte changed, red). Next, Nicolas's: tag `v0.1.0`,
+let `release.yml` run for the first time, sign the draft; then a `v0.1.1` to
+watch a Windows machine installed by `get.ps1` update itself (the steps are
+RELEASING.md's). New gap from the pin, §9: a source build now finds the
+signed release and says "update available", which `itsanas update` then
+refuses. NEXT is unchanged.
 
 **2026-10-07 midday, #245 verified and merged (dc09537); three stale
 sentences fixed in a follow-up PR.** Checked again by a fresh session: crate
@@ -1563,7 +1574,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
          2026-10-06: `crates/itsanas-release` (manifest `itsanas-release 1`,
          Ed25519 over the exact bytes, size + BLAKE3 + SHA-256; signature,
          parse, no downgrade, file -- each refusal proven by
-         `tests/release.rs`; `RELEASE_KEY` is `None` and pinned by a test),
+         `tests/release.rs`; `RELEASE_KEY` pinned by a test, `None` until
+         2026-10-07 and Nicolas's key since),
          `.github/workflows/release.yml` (v* tag -> 5 targets -> draft;
          Linux on ubuntu-22.04 for glibc reach), `scripts/sign-release.cmd`/
          `.ps1`/`.sh`, `install/get.ps1` / `get.sh` (SHA-256 checked; a
@@ -1616,8 +1628,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
          `update/tests.rs` against a fake release in a temp dir, sabotaged red:
          another key, a modified manifest, a downgrade (check and install), a
          hash mismatch, a truncated download, a source build, a failed swap.
-         **Not verified:** never run against the real GitHub; no key pinned
-         (`RELEASE_KEY = None`), so it installs nothing yet; the rename of a
+         **Not verified:** never run against the real GitHub; the key is
+         pinned (2026-10-07) but no signed release exists yet; the rename of a
          running `itsanas.exe` and the restarts by the three services never
          run on a real machine; macOS/Linux trays keep their plain dots; the
          new tray icon never seen.
@@ -2407,6 +2419,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
   `updates = notify` fails its daily check, logged each day. Manifests
   could go to the node's home instead; not to a shared temp directory,
   where a fixed name is a symlink target.
+- **A source build is told of an update it will refuse.** Since the key is
+  pinned, a binary built from source outside `target/` (every machine
+  installed by `windows.ps1` / `linux.sh`) passes `check`'s local test,
+  finds the newest signed release and, under `notify`, says "update
+  available"; `itsanas update` then refuses it ("not installed from a
+  release"). Harmless and misleading. The fix is for `check` to run
+  `installed_from_release` before it answers `Available`, at the price of a
+  second manifest fetch a day; it needs its own red-team test.
 - **One process per node.** The index is under an exclusive lock, so commands
   refuse to run while the daemon holds it. Since 2026-10-06 the commands a tray
   needs while it runs -- `pause`, `resume`, `sync-now`, `interval`, `status` --
@@ -2595,7 +2615,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
    Cost: the three release builds, about twice the job's minutes on macOS.
    **Add** or **keep Linux only**.
-14. **Generate the release key** (2026-10-06, §8 0w (3)). Run
+14. ✅ **Generate the release key** (2026-10-06, §8 0w (3); done 2026-10-07,
+   pinned in `RELEASE_KEY`). Run
    `scripts/sign-release.cmd` once (double-click): it creates the
    passphrase-protected key in `%USERPROFILE%\itsanas-release-key\` and
    prints the public key in hex and where the offline copy goes. Paste that

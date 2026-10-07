@@ -40,14 +40,20 @@ use itsanas_crypto::{KdfParams, Keystore};
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
 
-/// The public half of Nicolas's release key.
+/// The public half of Nicolas's release key, generated 2026-10-07 by
+/// `itsanas-release keygen`:
+/// `5b951b5d5df151b4598b11ce2a7ec6599710fbd61897aff013a1645b0bc5101b`.
 ///
-/// `None` until he generates it (`itsanas-release keygen`) and pastes the hex
-/// here in a pull request. Until then every verification refuses, which is the
-/// safe failure: a build with no key can be installed by hand but can never be
-/// told by a download that it is official. A test pins this value, so changing
-/// it is a visible decision in a diff rather than a line nobody reads.
-pub const RELEASE_KEY: Option<[u8; 32]> = None;
+/// Every node built from here on installs only what this key signed. A build
+/// with `None` (every build before this line) refuses every verification,
+/// which is the safe failure: it can be installed by hand but can never be told
+/// by a download that it is official. A test pins this value against the hex
+/// above, so changing it is a visible decision in a diff rather than a line
+/// nobody reads.
+pub const RELEASE_KEY: Option<[u8; 32]> = Some([
+    0x5b, 0x95, 0x1b, 0x5d, 0x5d, 0xf1, 0x51, 0xb4, 0x59, 0x8b, 0x11, 0xce, 0x2a, 0x7e, 0xc6, 0x59,
+    0x97, 0x10, 0xfb, 0xd6, 0x18, 0x97, 0xaf, 0xf0, 0x13, 0xa1, 0x64, 0x5b, 0x0b, 0xc5, 0x10, 0x1b,
+]);
 
 /// The five targets a release is built for, in manifest order.
 pub const TARGETS: [&str; 5] = [

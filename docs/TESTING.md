@@ -1032,7 +1032,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | **`red_team_a_download_whose_hash_differs_is_refused`** | A binary swapped on the server after signing (same size, one bit) is "not the file that was signed". Sabotaged (download not checked): red. |
 | **`red_team_a_truncated_update_is_never_put_in_place`** | Half the binary is "incomplete", never put in place: half a program is a machine that no longer starts. Sabotaged (as above): red. |
 | **`red_team_a_build_not_installed_from_a_release_never_updates_itself`** | A program whose bytes are not its own version's released binary (built from source) refuses to update; one running under a cargo `target/` directory does not even look. Sabotaged (origin check removed; target/ test removed): red both. |
-| `without_a_pinned_key_nothing_is_fetched` | With `RELEASE_KEY` still `None`, `check` answers "no key" without one request: a build that can trust nothing does not ask. |
+| `without_a_pinned_key_nothing_is_fetched` | With no key (`trust: None`, as in every build before the key was pinned), `check` answers "no key" without one request: a build that can trust nothing does not ask. |
 | **`red_team_a_failed_swap_puts_the_old_program_back`** | The replace is two renames; when the second fails the first is undone and the old program is where the service starts it; when the first fails nothing moved. Sabotaged (no rollback): red. |
 | `the_daily_look_follows_the_setting` | `off` makes no request and clears the notice; `notify` writes the version `status` shows and installs nothing; `auto` installs and clears the notice. |
 
@@ -2017,8 +2017,8 @@ one `file` line per target with size, BLAKE3 and SHA-256), its Ed25519
 signature, the sealed signing key and the `itsanas-release` binary used by
 `scripts/sign-release.*` and `.github/workflows/release.yml`. The node's
 self-update (`crates/itsanas-cli/src/update.rs`, catalogued under
-`update::tests`) calls `verify_release` and `verify_signed`; `RELEASE_KEY` is
-`None` until Nicolas pins his key, so today every verification is refused.
+`update::tests`) calls `verify_release` and `verify_signed`; `RELEASE_KEY`
+holds Nicolas's public key since 2026-10-07.
 
 | Test | What it proves |
 | --- | --- |
@@ -2030,7 +2030,7 @@ self-update (`crates/itsanas-cli/src/update.rs`, catalogued under
 | **`red_team_a_truncated_download_is_refused`** | A download cut short is refused before install, so a flaky network never leaves a half binary in place; Sabotaged (size check accepts smaller files): red. |
 | **`red_team_the_key_file_with_a_wrong_passphrase_is_refused`** | A stolen key file without the passphrase (or a tampered one) signs nothing and fails in one plain line; Sabotaged (unlock failure falls back to a zero key): red. |
 | **`red_team_with_no_release_key_pinned_every_manifest_is_refused`** | A build with no release key pinned refuses every manifest with "no release key pinned yet" instead of a misleading forgery error; Sabotaged (None yields an empty trust): red. |
-| `the_release_key_is_pinned_until_nicolas_changes_it_on_purpose` | RELEASE_KEY's value is pinned, so changing the key every node trusts is a visible decision in a diff; Sabotaged (constant changed): red. |
+| `the_release_key_is_pinned_until_nicolas_changes_it_on_purpose` | RELEASE_KEY's value is pinned against the hex keygen printed, and is a valid Ed25519 key, so changing the key every node trusts is a visible decision in a diff and a typo cannot make every node refuse every release; Sabotaged (one byte changed): red. |
 | `a_next_key_named_by_a_signed_manifest_is_trusted_by_learn` | `Trust::learn` adds a key named by a manifest the old key signed, for that `Trust` value. Rotation itself is not built: nothing calls `learn` outside tests, nothing persists a learned key, and the old key is never dropped; Sabotaged (next key not stored): red. |
 | **`red_team_a_draft_with_one_binary_byte_flipped_is_not_signable`** | `itsanas-release check` (run by `sign-release.sh`/`.ps1` before the key is touched) refuses a draft whose binary differs from its manifest by one byte, or is missing, so a draft edited by anyone with repository write access is never signed; Sabotaged (file check skipped): red. |
 | **`red_team_a_draft_whose_manifest_version_is_not_the_tag_is_not_signable`** | A draft of tag v0.3.0 carrying a manifest for 0.2.0 is refused before signing, so a replayed or hand-made manifest is not signed; Sabotaged (version comparison off): red. |

@@ -304,10 +304,20 @@ fn red_team_with_no_release_key_pinned_every_manifest_is_refused() {
 fn the_release_key_is_pinned_until_nicolas_changes_it_on_purpose() {
     // Changing this value changes which releases every node installs. It must
     // be a deliberate line in a reviewed diff: Nicolas pastes the public key
-    // keygen printed, and updates this test in the same pull request.
+    // keygen printed, and updates this test in the same pull request. Pinned
+    // 2026-10-07; the hex is the one keygen printed, so a typo in the byte
+    // array is caught here rather than by every node refusing every release.
+    let printed = "5b951b5d5df151b4598b11ce2a7ec6599710fbd61897aff013a1645b0bc5101b";
+    let mut expected = [0u8; 32];
+    hex::decode_to_slice(printed, &mut expected).expect("the pinned hex is 64 hex characters");
     assert_eq!(
-        RELEASE_KEY, None,
+        RELEASE_KEY,
+        Some(expected),
         "RELEASE_KEY changed: if this is not Nicolas pasting his own public key, every node would trust someone else's releases"
+    );
+    assert!(
+        Trust::pinned().is_ok(),
+        "the pinned release key is not a valid Ed25519 public key: every node would refuse every release"
     );
 }
 
