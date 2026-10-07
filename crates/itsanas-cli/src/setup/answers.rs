@@ -23,6 +23,7 @@
 //! announce = "home.example:9801" # only where a forward or IPv6 reaches this machine
 //! service = true                 # install and start the background service
 //! tray = true                    # and the tray icon at logon
+//! updates = "notify"             # or "auto" (install by itself) or "off"
 //! verify_seconds = 120           # how long the final check waits
 //! ```
 //!
@@ -78,6 +79,8 @@ pub(crate) struct Answers {
     pub(crate) announce: Option<String>,
     pub(crate) service: bool,
     pub(crate) tray: bool,
+    /// What the daemon does about a newer release; `None` keeps the node's.
+    pub(crate) updates: Option<crate::config::Updates>,
     pub(crate) verify_for: Duration,
 }
 
@@ -97,6 +100,7 @@ impl Default for Answers {
             announce: None,
             service: true,
             tray: true,
+            updates: None,
             verify_for: DEFAULT_VERIFY,
         }
     }
@@ -202,6 +206,13 @@ pub(crate) fn parse(text: &str, base: &Path) -> Result<Answers> {
             ("invite", Value::Text(v)) => answers.invite = Some(v),
             ("pledge", Value::Text(v)) => answers.pledge = Some(parse_size(&v)?),
             ("announce", Value::Text(v)) => answers.announce = Some(v),
+            ("updates", Value::Text(v)) => {
+                answers.updates = Some(crate::config::Updates::parse(&v).ok_or_else(|| {
+                    CliError::Usage(format!(
+                        "answers, line {number}: updates is \"auto\", \"notify\" or \"off\""
+                    ))
+                })?);
+            }
             ("service", Value::Flag(v)) => answers.service = v,
             ("tray", Value::Flag(v)) => answers.tray = v,
             ("verify_seconds", Value::Number(v)) => answers.verify_for = Duration::from_secs(v),
@@ -209,7 +220,7 @@ pub(crate) fn parse(text: &str, base: &Path) -> Result<Answers> {
             ("verify_seconds", _) => return Err(wrong("a number of seconds")),
             (
                 "instance" | "folder" | "account" | "username" | "from" | "coordinator"
-                | "coordinator_device" | "invite" | "pledge" | "announce",
+                | "coordinator_device" | "invite" | "pledge" | "announce" | "updates",
                 _,
             ) => return Err(wrong("\"text\"")),
             (other, _) => {

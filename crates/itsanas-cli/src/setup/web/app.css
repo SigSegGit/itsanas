@@ -65,7 +65,8 @@ html, body {
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
-.brand { font-weight: 700; font-size: 1.15rem; }
+.brand { font-weight: 700; font-size: 1.15rem; display: inline-flex; align-items: center; gap: 0.4rem; }
+.brand img { display: block; }
 #mode-title { color: var(--muted); }
 
 .layout {

@@ -201,6 +201,10 @@ impl Drop for StopEverythingOnDrop<'_> {
 /// call, and cannot borrow a local.
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
+/// Set by the daily update look when it installed a new program: the daemon
+/// then exits with a failure code so its service starts the new one.
+static UPDATED: AtomicBool = AtomicBool::new(false);
+
 /// One word for what a scope moves, for the banner.
 const fn describe(scope: PolicyScope) -> &'static str {
     match scope {
@@ -350,6 +354,8 @@ pub fn run(
             }
         });
 
+        scope.spawn(|| crate::update::watch(&node.home, shutdown, &UPDATED));
+
         if let Some(lan) = &lan {
             scope.spawn(|| {
                 discovery::run(
@@ -375,6 +381,14 @@ pub fn run(
         );
     });
 
+    if UPDATED.load(Ordering::SeqCst) {
+        // A failure code on purpose: the Windows wrapper, systemd's
+        // Restart=on-failure and launchd's KeepAlive all start the program
+        // again on one, and only on one -- and the program is now the new one.
+        return Err(CliError::Usage(
+            "updated; exiting so the background service starts the new version".to_owned(),
+        ));
+    }
     println!("stopped.");
     Ok(())
 }

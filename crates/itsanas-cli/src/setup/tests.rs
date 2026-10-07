@@ -482,3 +482,45 @@ fn red_team_joining_from_a_coordinator_refuses_a_passphrase_the_service_file_can
         "a keystore was written under a passphrase no service can use"
     );
 }
+
+#[test]
+fn the_updates_choice_is_written_and_a_later_run_without_it_keeps_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let (mut person, _) = Scripted::new(false);
+    let chosen = Answers {
+        updates: Some(crate::config::Updates::Auto),
+        ..answers(dir.path())
+    };
+    let (events, failed) = run(&home, chosen, &mut person);
+    assert_eq!(
+        failed, None,
+        "setup with an updates choice failed: {events:#?}"
+    );
+    let updates = |home: &Path| {
+        crate::config::Config::load(&Node::config_path(home))
+            .expect("config")
+            .updates
+    };
+    assert_eq!(
+        updates(&home),
+        crate::config::Updates::Auto,
+        "the member chose automatic updates and the daemon would only notify"
+    );
+
+    let (mut again, _) = Scripted::new(false);
+    let (_, failed) = run(&home, answers(dir.path()), &mut again);
+    assert_eq!(failed, None);
+    assert_eq!(
+        updates(&home),
+        crate::config::Updates::Auto,
+        "running setup again without the question undid the member's choice"
+    );
+
+    let parsed = super::answers::parse("updates = \"off\"\n", dir.path()).expect("parse");
+    assert_eq!(parsed.updates, Some(crate::config::Updates::Off));
+    assert!(
+        super::answers::parse("updates = \"sometimes\"\n", dir.path()).is_err(),
+        "a mistyped updates answer was taken as the default instead of refused"
+    );
+}

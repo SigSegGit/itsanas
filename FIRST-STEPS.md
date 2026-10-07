@@ -128,6 +128,22 @@ page to pause or resume, sync now, change how often it syncs, the space you
 offer, your folder or your coordinator, or to sign out (changing space, folder
 or coordinator restarts ITSaNAS, a few seconds).
 
+### Updates
+
+Setup asks what to do when a new version is out: **install it by itself**
+(once a day; ITSaNAS restarts in a few seconds), **tell me** (the default:
+`itsanas status` says "update available: X"), or **never look**. Change it in
+`itsanas settings`, or with `updates = auto|notify|off` in an answers file.
+`itsanas update --check` says whether there is one; `itsanas update` installs
+it and restarts the background service.
+
+A new version is installed only if it is newer than yours and carries the
+signature of the ITSaNAS release key compiled into your copy, and its download
+matches that signed list byte for byte. Only a copy installed from a release
+(`install/get.ps1` / `get.sh`) updates itself; one built from source says so
+and changes nothing. Until the release key is pinned in the code, every copy
+answers "this build has no release key pinned yet" and installs nothing.
+
 The numbered steps below are the same thing done by hand, the alternative.
 
 ### 1. Make an account, on your first machine

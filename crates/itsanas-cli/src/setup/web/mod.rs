@@ -73,6 +73,8 @@ use crate::{
 const INDEX_HTML: &str = include_str!("index.html");
 const APP_CSS: &str = include_str!("app.css");
 const APP_JS: &str = include_str!("app.js");
+/// The project's icon (docs/assets), in the header and as the favicon.
+const ICON_PNG: &[u8] = include_bytes!("../../../../../docs/assets/icon.png");
 
 /// What the page is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -414,6 +416,7 @@ fn route(ctx: &Arc<Context>, request: &Request) -> Response {
         ("GET", "/" | "/index.html") => Response::new(200, "text/html; charset=utf-8", INDEX_HTML),
         ("GET", "/app.css") => Response::new(200, "text/css; charset=utf-8", APP_CSS),
         ("GET", "/app.js") => Response::new(200, "text/javascript; charset=utf-8", APP_JS),
+        ("GET", "/icon.png") => Response::new(200, "image/png", ICON_PNG),
         (_, path) if path.starts_with("/api/") => api(ctx, request),
         ("GET", _) => Response::refuse(404, "no such page"),
         _ => Response::refuse(405, "not here"),
@@ -465,6 +468,7 @@ const fn step_id(step: Step) -> &'static str {
         Step::Registration => "registration",
         Step::Pledge => "pledge",
         Step::Folder => "folder",
+        Step::Updates => "updates",
         Step::Connectivity => "connectivity",
         Step::Service => "service",
         Step::Verify => "verify",
@@ -491,6 +495,16 @@ fn state_json(ctx: &Context) -> String {
             ),
         ),
         ("pledge_gb", suggested_gib.to_string()),
+        // What this node has, so running setup again never resets a choice.
+        (
+            "updates",
+            quote(
+                Config::load(&Node::config_path(&ctx.home))
+                    .map(|config| config.updates)
+                    .unwrap_or_default()
+                    .name(),
+            ),
+        ),
         ("free", optional(free.map(format_size).as_deref())),
     ]);
     let mut fields = vec![
@@ -592,6 +606,19 @@ fn settings_json(home: &Path) -> String {
             "coordinator",
             optional(config.as_ref().and_then(|c| c.coordinator.as_deref())),
         ),
+        (
+            "updates",
+            quote(
+                config
+                    .as_ref()
+                    .map_or_else(Default::default, |c| c.updates)
+                    .name(),
+            ),
+        ),
+        (
+            "update_notice",
+            optional(crate::update::notice(home).as_deref()),
+        ),
     ])
 }
 
@@ -656,6 +683,12 @@ fn answers_from_form(
     answers.invite = field(form, "invite").map(str::to_owned);
     answers.pledge = field(form, "pledge")
         .map(|text| parse_size(text).map_err(|error| error.to_string()))
+        .transpose()?;
+    answers.updates = field(form, "updates")
+        .map(|text| {
+            crate::config::Updates::parse(text)
+                .ok_or_else(|| "updates is auto, notify or off".to_owned())
+        })
         .transpose()?;
     Ok(answers)
 }

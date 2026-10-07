@@ -63,6 +63,8 @@ pub(crate) enum Step {
     Pledge,
     /// The synced folder set in the configuration.
     Folder,
+    /// What the daemon does about a newer release: auto, notify, off.
+    Updates,
     /// The coordinator reached, and asked to dial back.
     Connectivity,
     /// The background service installed and running, and the tray.
@@ -72,13 +74,14 @@ pub(crate) enum Step {
 }
 
 /// Every step, in the order they run.
-pub(crate) const STEPS: [Step; 9] = [
+pub(crate) const STEPS: [Step; 10] = [
     Step::Machine,
     Step::Account,
     Step::Secret,
     Step::Registration,
     Step::Pledge,
     Step::Folder,
+    Step::Updates,
     Step::Connectivity,
     Step::Service,
     Step::Verify,
@@ -93,6 +96,7 @@ impl Step {
             Self::Registration => "The coordinator",
             Self::Pledge => "Space offered to others",
             Self::Folder => "Your folder",
+            Self::Updates => "Updates",
             Self::Connectivity => "Connectivity",
             Self::Service => "The background service",
             Self::Verify => "Does it work?",
@@ -277,6 +281,7 @@ impl<'a> Setup<'a> {
             Step::Registration => self.registration_state(),
             Step::Pledge => self.pledge_state(),
             Step::Folder => self.folder_state(),
+            Step::Updates => self.updates_state(),
             Step::Connectivity => self.connectivity_state(),
             Step::Service => Ok(self.service_state()),
             Step::Verify => Ok(State::Todo),
@@ -291,6 +296,7 @@ impl<'a> Setup<'a> {
             Step::Registration => self.apply_registration(),
             Step::Pledge => self.apply_pledge(),
             Step::Folder => self.apply_folder(),
+            Step::Updates => self.apply_updates(),
             Step::Connectivity => self.apply_connectivity(),
             Step::Service => self.apply_service(),
             Step::Verify => self.apply_verify(),
@@ -336,6 +342,10 @@ impl<'a> Setup<'a> {
             (Step::Connectivity, _) => {
                 "a name that does not resolve is DNS, a refused connection a closed port, a \
                  timeout usually a firewall; fix that and run setup again"
+                    .to_owned()
+            }
+            (Step::Updates, _) => {
+                "check that you can write in this node's configuration file and run setup again"
                     .to_owned()
             }
             (Step::Service, _) => format!(
