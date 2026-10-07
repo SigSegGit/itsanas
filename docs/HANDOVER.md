@@ -20,6 +20,15 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-07 late night, after v0.1.1 was tagged.** The coordinator runs
+on the Freebox VM (device `2cfb515f...`), now pinned in the client
+(`setup::DEFAULT_COORDINATOR_DEVICE`, `pinned_for`). `coordinator.sh` run
+again refused itself on its own port: it now stops its own service first.
+The setup page is three questions (welcome, account, folder and space with
+everything else under "Advanced"), Nicolas: fewer screens, fewer people
+lost. The coordinator also runs in Docker with capped memory, CPU and
+processes (`install/docker/`), never tried on the VM yet.
+
 **2026-10-07 night, the network is open to anybody (Nicolas).** "Anybody
 who installs the client joins": `install/coordinator.sh` now starts the
 coordinator open (`Admission::Open`), `--invite-only` makes a private

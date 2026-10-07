@@ -1,0 +1,14 @@
+# The ITSaNAS coordinator in a container (install/docker/README.md).
+# Built from this checkout, so what runs is the reviewed code; about 25 MB.
+FROM rust:1-slim-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN cargo build --release --locked -p itsanas-coordinator
+
+# distroless/cc: glibc and nothing else -- no shell, no package manager --
+# for the one process in the fleet a stranger can reach.
+FROM gcr.io/distroless/cc-debian12:nonroot
+COPY --from=build /src/target/release/itsanas-coordinator /usr/local/bin/itsanas-coordinator
+EXPOSE 9898
+ENTRYPOINT ["/usr/local/bin/itsanas-coordinator"]
+CMD ["--state", "/state", "--listen", "0.0.0.0:9898"]

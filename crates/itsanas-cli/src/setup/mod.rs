@@ -184,6 +184,18 @@ pub(crate) const SETUP_LOG: &str = "setup.log";
 /// syncing without it.
 pub(crate) const DEFAULT_COORDINATOR: &str = "itsanas.ngas.fr:9898";
 
+/// The device id of the coordinator at [`DEFAULT_COORDINATOR`], printed by
+/// `install/coordinator.sh` on the Freebox VM on 2026-10-07. Pinned, so a
+/// machine answering at that name that is not this coordinator is refused
+/// rather than trusted (DNS, a hijacked forward, a hostile network).
+pub(crate) const DEFAULT_COORDINATOR_DEVICE: &str =
+    "2cfb515fc90749d7248f4af404ecb34b5417e0c1339565c8036a9dde70cf72ce";
+
+/// The device to pin for `address`, when it is the built-in coordinator.
+pub(crate) fn pinned_for(address: &str) -> Option<&'static str> {
+    (address == DEFAULT_COORDINATOR).then_some(DEFAULT_COORDINATOR_DEVICE)
+}
+
 /// Whether a coordinator already holds `username`. A function, not a call,
 /// so the tests answer without a network.
 pub(crate) type NameCheck = fn(&str, &str) -> Result<bool>;
@@ -195,7 +207,10 @@ pub(crate) fn name_taken(address: &str, username: &str) -> Result<bool> {
     use itsanas_coord::protocol::{Request, Response};
     let keys = itsanas_crypto::DeviceKeys::generate()
         .map_err(|error| CliError::Usage(error.to_string()))?;
-    let mut client = itsanas_coord::server::CoordClient::connect(address, &keys, None)
+    let expect = pinned_for(address)
+        .map(crate::coordinator::parse_device)
+        .transpose()?;
+    let mut client = itsanas_coord::server::CoordClient::connect(address, &keys, expect)
         .map_err(|error| CliError::Usage(format!("{address}: {error}")))?;
     match client.ask(&Request::Lookup {
         username: username.to_owned(),

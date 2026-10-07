@@ -118,21 +118,19 @@
 
   // ---------------------------------------------------------------- setup
 
-  // The page's steps, and the engine step each one is (setup/mod.rs STEPS).
+  // The page's screens, and the engine steps each one holds (setup/mod.rs
+  // STEPS). Three questions, then the run: every screen is one more place an
+  // impatient person leaves (Nicolas, 2026-10-07).
   const STEPS = [
-    { page: 'welcome', label: 'Welcome' },
-    { page: 'machine', label: 'This machine', engine: 'machine' },
-    { page: 'account', label: 'Account', engine: 'account' },
-    { page: 'secret', label: 'Secret', engine: 'secret' },
-    { page: 'network', label: 'Joining the network', engine: 'registration' },
-    { page: 'folder', label: 'Folder', engine: 'folder' },
-    { page: 'space', label: 'Space you offer', engine: 'pledge' },
-    { page: 'updates', label: 'Updates', engine: 'updates' },
-    { page: 'connection', label: 'Checking the connection', engine: 'connectivity' },
-    { page: 'background', label: 'Starting in the background', engine: 'service' },
-    { page: 'final', label: 'Final check', engine: 'verify' },
+    { page: 'welcome', label: 'Welcome', engines: ['machine'] },
+    { page: 'account', label: 'Account', engines: ['account', 'secret'] },
+    { page: 'folder', label: 'Folder and space', engines: ['registration', 'folder', 'pledge', 'updates'] },
+    { page: 'connection', label: 'Setting up', engines: ['connectivity', 'service'] },
+    { page: 'final', label: 'Final check', engines: ['verify'] },
   ];
-  const QUESTION_PAGES = ['welcome', 'machine', 'account', 'secret', 'network', 'folder', 'space', 'updates', 'connection'];
+  const QUESTION_PAGES = ['welcome', 'account', 'folder'];
+  function stepDone(step) { return step.engines.every(function (e) { return done[e]; }); }
+  function markEngines(step) { step.engines.forEach(function (e) { done[e] = true; }); }
   const done = {};
   let current = 'welcome';
   let polling = null;
@@ -154,14 +152,14 @@
       const isCurrent = item.dataset.page === currentPage;
       if (isCurrent) { item.setAttribute('aria-current', 'step'); }
       else { item.removeAttribute('aria-current'); }
-      item.classList.toggle('done', !isCurrent && Boolean(step.engine && done[step.engine]));
+      item.classList.toggle('done', !isCurrent && stepDone(step));
       item.classList.toggle('failed', item.dataset.page === failedPage);
     });
   }
 
   function go(page) {
     current = page;
-    showPage(page === 'background' ? 'connection' : page);
+    showPage(page);
     markProgress(page);
   }
 
@@ -188,7 +186,7 @@
       $('username').focus();
       return false;
     }
-    if ((page === 'space') && $('pledge').value !== '' && !/^[1-9]\d*$/.test($('pledge').value)) {
+    if ((page === 'folder') && $('pledge').value !== '' && !/^[1-9]\d*$/.test($('pledge').value)) {
       say('Type a whole number of GB, at least 1.');
       $('pledge').focus();
       return false;
@@ -315,6 +313,8 @@
   }
 
   async function startSetup() {
+    if (current === 'folder' && !validate('folder')) { return; }
+    go('connection');
     $('start').disabled = true;
     try {
       await api('POST', '/api/run', setupForm());
@@ -322,6 +322,7 @@
     } catch (e) {
       say(e.message);
       $('start').disabled = false;
+      $('start-actions').hidden = false;
     }
   }
 
@@ -336,8 +337,8 @@
   }
 
   function pageOfEngine(engine) {
-    const found = STEPS.find(function (s) { return s.engine === engine; });
-    return found ? found.page : 'machine';
+    const found = STEPS.find(function (s) { return s.engines.indexOf(engine) >= 0; });
+    return found ? found.page : 'welcome';
   }
 
   function renderLines(list, lines) {
@@ -361,7 +362,7 @@
     if (run.step) {
       const page = pageOfEngine(run.step);
       const reached = STEPS.findIndex(function (s) { return s.page === page; });
-      STEPS.slice(0, reached).forEach(function (s) { if (s.engine) { done[s.engine] = true; } });
+      STEPS.slice(0, reached).forEach(markEngines);
       current = page;
       markProgress(page);
       const label = STEPS.find(function (s) { return s.page === page; }).label;
@@ -404,7 +405,7 @@
     showPage('final');
     renderReport($('report'), run.report);
     if (run.phase === 'done') {
-      STEPS.forEach(function (s) { if (s.engine) { done[s.engine] = true; } });
+      STEPS.forEach(markEngines);
       markProgress('final');
       // "Works" only when a check passed: a run whose checks were all
       // skipped (no background service asked for) proved nothing.
@@ -458,6 +459,7 @@
       radio.addEventListener('change', function () { $('join-only').hidden = accountKind() !== 'join'; nameChanged(); });
     });
     $('start').addEventListener('click', startSetup);
+    $('restart').addEventListener('click', startSetup);
     $('retry').addEventListener('click', retry);
     $('finish').addEventListener('click', closePage);
     if (state.run.phase === 'running') {

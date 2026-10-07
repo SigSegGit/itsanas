@@ -150,7 +150,10 @@ impl Setup<'_> {
                     &self.home,
                     username,
                     address,
-                    self.answers.coordinator_device.as_deref(),
+                    self.answers
+                        .coordinator_device
+                        .as_deref()
+                        .or_else(|| super::pinned_for(address)),
                     &secret,
                 )?;
                 self.passphrase = Some(secret);
@@ -326,7 +329,8 @@ impl Setup<'_> {
             .answers
             .coordinator_device
             .clone()
-            .or_else(|| node.config.coordinator_device.clone());
+            .or_else(|| node.config.coordinator_device.clone())
+            .or_else(|| super::pinned_for(&wanted).map(str::to_owned));
         crate::apply_coordinator(&mut node.config, &wanted, device.as_deref())?;
         if let Some(announce) = &self.answers.announce {
             node.config.announce = Some(crate::config::parse_announce(announce)?);
