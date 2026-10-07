@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0w
-TITLE: sub-step (7): clean removal
+TITLE: sub-step (7): clean removal (ask Nicolas the drain question first)
 WRITTEN-AT: 2026-10-07
-BASE: 825d88c
+BASE: dc09537
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,8 +20,22 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-07 midday, #245 verified and merged (dc09537); three stale
+sentences fixed in a follow-up PR.** Checked again by a fresh session: crate
+tests green, eleven sabotages (each defence of `update.rs`, plus the
+signature and downgrade checks in `itsanas-release`) each turned its test
+red, all gates clean. The three AI reviews' BLOCKERs are answered on the PR
+(TLS pinning: not the trust root, the signature is). Found and not fixed:
+the scratch directory sits beside the exe, so with a `--prefix` the daemon's
+account cannot write, even the `notify` check fails every day (logged, §9).
+Stale until now: ROADMAP "Signed releases", TESTING's `itsanas-release`
+header and `install/README.md` still said no node checked a signature.
+Trap: 0w (7)'s specification leans on 0f (f) item 4, which says "decide
+with Nicolas first" between a drain and a refusal, and §10 had no answer;
+it is now §10 item 15. Ask that, closed, before building.
+
 **2026-10-07, 0w (6), the self-update, built (branch `step/self-update`,
-PR #245).** `itsanas update [--check]` and the daemon's daily, jittered look
+PR #245, merged).** `itsanas update [--check]` and the daemon's daily, jittered look
 under a new `updates` setting (`notify` default, `auto`, `off`; setup's
 "Updates" step, Settings, `--answers`). Trust goes through `itsanas-release`
 (signature, format, no downgrade, size + BLAKE3 + SHA-256); only a binary that
@@ -1610,6 +1624,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
          `clean.ps1` / `clean.sh` under 0f's decommission rule -- refused
          while this machine is the only confirmed holder of a chunk, saying
          how many owners are affected, never who.
+         **First, §10 item 15** (closed question, drain or refusal). Facts
+         checked 2026-10-07: a host does not know who else holds a chunk it
+         hosts -- the holder ledger is the *owner's* (`itsanas-store`
+         `index.rs`, both key orders); so for hosted data "only confirmed
+         holder" can only be learnt by asking owners, while for this
+         account's own data `status` already computes it (`main.rs`, the
+         `unconfirmed` line, `coverage.resting_on_memory()`). Existing
+         pieces: `install/clean.ps1` (195 lines), `install/clean.sh` (394),
+         `itsanas signout` (`setup/sign.rs:93`) as the model for a tray
+         entry with a confirmation (`scripts/itsanas-tray.ps1:119,271`).
+         Red-team expected (0f (f)): a machine that is the only confirmed
+         holder of a chunk refuses to finish and names the owners affected
+         by count, never by name.
       8. **Account deletion.** Needs Nicolas's answer first, as a closed
          question: what becomes of the account's data on other members'
          disks (a tombstone signed by the account, and hosts free it), of
@@ -2370,6 +2397,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
 - **No bandwidth accounting.** 10 TB on a 1 Mbit uplink is worth far less than
   the number says. Deferred because measuring it badly punishes people for their
   ISP.
+- **The self-update's scratch directory is beside the program**
+  (`update.rs`, `SCRATCH`), so the final rename stays on one disk. With a
+  `--prefix` the daemon's account cannot write (`/usr/local`), even
+  `updates = notify` fails its daily check, logged each day. Manifests
+  could go to the node's home instead; not to a shared temp directory,
+  where a fixed name is a symlink target.
 - **One process per node.** The index is under an exclusive lock, so commands
   refuse to run while the daemon holds it. Since 2026-10-06 the commands a tray
   needs while it runs -- `pause`, `resume`, `sync-now`, `interval`, `status` --
@@ -2565,6 +2598,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
    hex into `RELEASE_KEY` in `crates/itsanas-release/src/lib.rs` (a PR; the
    pinning test changes with it on purpose). Until then every signature
    check is refused and `get.ps1` / `get.sh` have no release to install.
+
+15. **Clean removal: drain or refuse?** (2026-10-07, §8 0w (7), from 0f (f)
+   item 4, which left it "to decide with Nicolas first".) When a machine
+   that hosts other members' chunks is removed: (a) **refuse** while any
+   chunk it hosts has no other confirmed holder -- cheap, but a host cannot
+   see other holders, so the answer has to come from the owners, and a
+   machine whose owners are offline may be stuck until they return; or
+   (b) **drain**: stop accepting, hand every hosted chunk off until each
+   owner's ledger shows another holder or a stated timeout passes, then
+   forget the device -- more code (a new protocol message), but removal
+   always finishes. Either way this machine's own data follows the
+   existing `status` rule.
 
 ## 11. Working style Nicolas expects
 
