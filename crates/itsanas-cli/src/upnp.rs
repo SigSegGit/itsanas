@@ -68,6 +68,13 @@ pub(crate) fn split_url(url: &str) -> Option<(SocketAddrV4, String)> {
     Some((address, format!("/{path}")))
 }
 
+/// Whether a search answer from `from` may send this node to `device`: only
+/// to the machine that answered. Otherwise any host on the LAN could point
+/// this node's requests at another machine's service.
+pub(crate) fn answered_by(from: SocketAddr, device: SocketAddrV4) -> bool {
+    from.ip() == std::net::IpAddr::V4(*device.ip())
+}
+
 /// The text of `<tag>` inside `xml`, after `from`.
 fn element<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
     let open = format!("<{tag}>");
@@ -119,11 +126,13 @@ pub(crate) fn discover() -> Option<Gateway> {
     let started = Instant::now();
     let mut buffer = [0_u8; 2048];
     while started.elapsed() < SEARCH_FOR {
-        let Ok((length, _)) = socket.recv_from(&mut buffer) else {
+        let Ok((length, from)) = socket.recv_from(&mut buffer) else {
             continue;
         };
         let answer = String::from_utf8_lossy(&buffer[..length]).into_owned();
-        let Some((device, path)) = location(&answer) else {
+        let Some((device, path)) =
+            location(&answer).filter(|(device, _)| answered_by(from, *device))
+        else {
             continue;
         };
         let description = http(
@@ -132,7 +141,7 @@ pub(crate) fn discover() -> Option<Gateway> {
         )?;
         let (service, control) = control_url(&description)?;
         let (control, path) = if control.starts_with("http://") {
-            split_url(&control)?
+            split_url(&control).filter(|(at, _)| at.ip() == device.ip())?
         } else {
             (device, format!("/{}", control.trim_start_matches('/')))
         };
@@ -280,6 +289,16 @@ mod tests {
              where this node sends its requests"
         );
         assert_eq!(split_url("https://192.168.1.1/x"), None);
+        let router = SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 254), 5678);
+        assert!(answered_by(
+            "192.168.1.254:1900".parse().expect("addr"),
+            router
+        ));
+        assert!(
+            !answered_by("192.168.1.66:1900".parse().expect("addr"), router),
+            "an answer from one host sent this node to another's service: any machine on the \
+             LAN could aim it at a router's admin page"
+        );
     }
 
     #[test]
