@@ -382,6 +382,7 @@ jobs:
   cross-build:
     name: Builds and runs on ARM
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: changes
     if: needs.changes.outputs.arm == 'true'
     # Every step here builds or runs aarch64, so these belong to the job rather
@@ -403,7 +404,19 @@ jobs:
       # assembly for aarch64 and fails outright without a cross C compiler
       # ("failed to find tool aarch64-linux-gnu-gcc"). Everything else in the
       # tree is pure Rust.
-      - run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Cross C compiler, bounded so a stalled mirror fails in minutes
+        timeout-minutes: 10
+        run: |
+          sudo sed -i 's|http://.*archive.ubuntu.com/ubuntu|http://mirrors.cloudflare.com/ubuntu|g' /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::ForceIPv4=true \
+                       -o Acquire::http::Pipeline-Depth=0 \
+                       -o Acquire::http::Timeout=10 \
+                       -o Acquire::Retries=2 \
+                       update
+          sudo apt-get -o Acquire::ForceIPv4=true \
+                       -o Acquire::http::Timeout=10 \
+                       -o Acquire::Retries=2 \
+                       install -y gcc-aarch64-linux-gnu
       - uses: taiki-e/install-action@nextest
       - name: Build
         run: cargo build ${{ needs.changes.outputs.build_args }} --release --target aarch64-unknown-linux-gnu
