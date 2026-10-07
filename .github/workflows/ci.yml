@@ -75,7 +75,6 @@ jobs:
   lint:
     name: Format and lint
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -383,6 +382,7 @@ jobs:
   cross-build:
     name: Builds and runs on ARM
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: changes
     if: needs.changes.outputs.arm == 'true'
     # Every step here builds or runs aarch64, so these belong to the job rather
@@ -404,15 +404,11 @@ jobs:
       # assembly for aarch64 and fails outright without a cross C compiler
       # ("failed to find tool aarch64-linux-gnu-gcc"). Everything else in the
       # tree is pure Rust.
-      
-      - name: Cross C compiler (bounded: a stalled mirror fails in minutes, not hours)
+      - name: Cross C compiler, bounded so a stalled mirror fails in minutes
         timeout-minutes: 10
         run: |
           sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y gcc-aarch64-linux-gnu- run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-      - uses: taiki-e/install-action@nextest
-      - name: Build
-        run: cargo build ${{ needs.changes.outputs.build_args }} --release --target aarch64-unknown-linux-gnu
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y gcc-aarch64-linux-gnu      
       # A build says the types line up. It does not say the code runs, and until
       # this step existed no line of this project had ever executed on an ARM
       # processor -- the machine half its constants are chosen for. aarch64 is
