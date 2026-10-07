@@ -230,6 +230,12 @@ pub(crate) fn parse(text: &str, base: &Path) -> Result<Answers> {
             }
         }
     }
+    // Checked here, before anything is written: the coordinator refuses the
+    // same names, but only at the coordinator step, after the account exists.
+    if let Some(name) = &username {
+        itsanas_coord::directory::validate_username(name)
+            .map_err(|e| CliError::Usage(format!("answers: username {name:?}: {e}")))?;
+    }
     answers.account = match (account_kind.as_deref(), username) {
         (None, None) => None,
         (Some("new"), Some(username)) => {
@@ -458,6 +464,10 @@ mod tests {
             ("service = \"no\"\n", "a flag given as text"),
             ("account = \"new\"\n", "an account with no username"),
             ("account = \"maybe\"\nusername = \"x\"\n", "an account kind"),
+            (
+                "account = \"new\"\nusername = \"Nicolas\"\n",
+                "a username the coordinator refuses",
+            ),
             ("folder = \"C:\\Users\"\n", "an escape TOML does not have"),
         ] {
             assert!(
