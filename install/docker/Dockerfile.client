@@ -1,0 +1,16 @@
+# An ITSaNAS member node (the client) for any Linux, the Raspberry Pi
+# included: install/docker/README.md. Built from this checkout.
+FROM rust:1-slim-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN cargo build --release --locked -p itsanas-cli --bin itsanas
+
+# Debian slim rather than distroless: `init`, `login` and `status` are run
+# in it by hand, in a terminal.
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /src/target/release/itsanas /usr/local/bin/itsanas
+ENV ITSANAS_HOME=/data/home
+ENTRYPOINT ["/usr/local/bin/itsanas"]
+CMD ["daemon"]

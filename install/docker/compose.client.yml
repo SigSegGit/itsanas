@@ -1,0 +1,36 @@
+# One ITSaNAS member node in a container, apart from the coordinator's
+# compose.yml. See README.md, "A client in Docker".
+#
+#   cp client.env.example client.env && chmod 600 client.env   # passphrase
+#   docker compose -f compose.client.yml -p itsanas-nicolas run --rm client init --username nicolas
+#   docker compose -f compose.client.yml -p itsanas-nicolas up -d
+#
+# A second account on the same machine is a second project (-p) with its own
+# ITSANAS_DATA, ITSANAS_FOLDER and listen port.
+services:
+  client:
+    build:
+      context: ../..
+      dockerfile: install/docker/Dockerfile.client
+    image: itsanas-client:local
+    restart: unless-stopped
+    # The host's network: local discovery broadcasts on the LAN and UPnP
+    # opens the box's port, neither of which crosses Docker's bridge.
+    network_mode: host
+    user: "${ITSANAS_UID:-1000}:${ITSANAS_GID:-1000}"
+    env_file: client.env
+    volumes:
+      - ${ITSANAS_DATA:-./data}:/data/home
+      - ${ITSANAS_FOLDER:-./ITSaNAS}:/data/folder
+    mem_limit: ${ITSANAS_CLIENT_MEMORY:-512m}
+    memswap_limit: ${ITSANAS_CLIENT_MEMORY:-512m}
+    cpus: ${ITSANAS_CLIENT_CPUS:-1}
+    pids_limit: 512
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

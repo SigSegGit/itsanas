@@ -20,6 +20,13 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-07, last: v0.1.2 for the test campaign.** A member node in
+Docker for any Linux (`install/docker/compose.client.yml`, host network,
+512 MB / one core, one compose project per account), beside the
+coordinator's compose. Workspace 0.1.2, tagged so the release carries #250
+(pin, three screens). Nicolas tests until his weekly quota resets; never
+built here (no Docker in the session container).
+
 **2026-10-07 late night, after v0.1.1 was tagged.** The coordinator runs
 on the Freebox VM (device `2cfb515f...`), now pinned in the client
 (`setup::DEFAULT_COORDINATOR_DEVICE`, `pinned_for`). `coordinator.sh` run

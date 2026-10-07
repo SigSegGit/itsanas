@@ -37,3 +37,31 @@ docker logs itsanas-coordinator          # same device id as before
 it moved. Each night, as the checkout's owner (who must be in the `docker`
 group): `crontab -e`, then
 `0 4 * * * sh $HOME/itsanas/install/docker/update.sh >> $HOME/itsanas-update.log 2>&1`.
+
+## A client in Docker (any Linux, the Raspberry Pi included)
+
+`compose.client.yml` runs one member node, apart from the coordinator. It uses
+the host's network (local discovery and the router's port need it), runs as
+your user so the synced files are yours, and is capped at 512 MB and one core
+(`ITSANAS_CLIENT_MEMORY`, `ITSANAS_CLIENT_CPUS`). One project (`-p NAME`) per
+account; a second account on the machine is a second project with its own data
+directory, folder and listen port.
+
+```sh
+cd ~/itsanas/install/docker
+mkdir -p data ITSaNAS
+cp client.env.example client.env && chmod 600 client.env && nano client.env   # the passphrase
+C="docker compose -f compose.client.yml -p itsanas-nicolas"
+$C build
+$C run --rm client init --username nicolas        # first machine: shows the 24 words
+#   or: $C run --rm -it client login --username nicolas   (another machine of an existing account)
+$C run --rm client folder /data/folder
+$C run --rm client coordinator itsanas.ngas.fr:9898 --device 2cfb515fc90749d7248f4af404ecb34b5417e0c1339565c8036a9dde70cf72ce
+$C run --rm client register
+$C up -d
+$C logs -f client
+```
+
+The synced folder is `install/docker/ITSaNAS` (or `ITSANAS_FOLDER=/path`).
+Updating: `git pull && $C up -d --build`. `itsanas update` does not apply in a
+container: the image is rebuilt instead.

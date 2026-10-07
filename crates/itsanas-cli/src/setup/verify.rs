@@ -477,7 +477,12 @@ mod tests {
         let stop = std::sync::atomic::AtomicBool::new(false);
         std::thread::scope(|scope| {
             scope.spawn(|| fake_daemon(&home, &folder, &stop));
-            std::thread::sleep(Duration::from_millis(250));
+            // Until its first snapshot is there, not a fixed sleep: a busy
+            // macOS runner took longer than 250 ms to write it.
+            let started = Instant::now();
+            while read_counts(&home).is_none() && started.elapsed() < Duration::from_secs(10) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
             let inputs = Inputs {
                 home: &home,
                 identity: None,
