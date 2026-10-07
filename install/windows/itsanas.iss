@@ -33,6 +33,7 @@ UninstallDisplayIcon={app}\itsanas.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+WizardSizePercent=120
 ChangesEnvironment=yes
 CloseApplications=no
 
@@ -58,8 +59,23 @@ Filename: "{app}\itsanas.exe"; Parameters: "setup"; Description: "Set up ITSaNAS
 ; Stops the daemon and forgets the passphrase; the account, the files and
 ; the data hosted for others stay (clean removal is 0w (7)).
 Filename: "{app}\itsanas.exe"; Parameters: "signout"; Flags: runhidden; RunOnceId: "signout"
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM itsanas.exe"; Flags: runhidden; RunOnceId: "kill"
 
 [Code]
+// A running itsanas.exe (the daemon, or the tray asking it a status) holds
+// the file, and Windows refuses to replace it: "DeleteFile failed; code 5",
+// then the old program goes on running the old setup page (Nicolas,
+// 2026-10-07). Stop them first; setup starts the service again at the end.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\schtasks.exe'), '/End /TN "ITSaNAS"', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM itsanas.exe', '', SW_HIDE, ewWaitUntilTerminated, Code);
+  Sleep(1500);
+  Result := '';
+end;
+
 function NeedsAddPath(Dir: string): Boolean;
 var
   Paths: string;
