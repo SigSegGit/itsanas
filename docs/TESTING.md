@@ -2015,9 +2015,10 @@ the `slow-tests` CI job runs it in release.
 `crates/itsanas-release` (`tests/release.rs`): the manifest (`itsanas-release 1`,
 one `file` line per target with size, BLAKE3 and SHA-256), its Ed25519
 signature, the sealed signing key and the `itsanas-release` binary used by
-`scripts/sign-release.*` and `.github/workflows/release.yml`. No node calls
-`verify_release` yet (self-update is 0t part 4), and `RELEASE_KEY` is `None`
-until Nicolas pins his key, so today every verification is refused.
+`scripts/sign-release.*` and `.github/workflows/release.yml`. The node's
+self-update (`crates/itsanas-cli/src/update.rs`, catalogued under
+`update::tests`) calls `verify_release` and `verify_signed`; `RELEASE_KEY` is
+`None` until Nicolas pins his key, so today every verification is refused.
 
 | Test | What it proves |
 | --- | --- |

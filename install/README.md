@@ -51,9 +51,9 @@ the latest *published* release through the GitHub API, download `manifest.txt`
 and the binary for this platform, check its size and SHA-256 against the
 manifest, install it where `windows.ps1` / `linux.sh` / `macos.sh` put it by
 renaming over the old one (never writing into a running binary, #240), add it
-to PATH, then run `itsanas setup`. **Trust, honestly:** until the installed
-binary verifies the release signature itself (self-update, HANDOVER §8 0w (6)),
-HTTPS from GitHub is the trust root of this first download; the SHA-256 check
+to PATH, then run `itsanas setup`. **Trust, honestly:** HTTPS from GitHub is
+the trust root of this first download, and only of it (every later one is
+checked against the release key by the installed binary, below); the SHA-256 check
 catches a truncated or damaged file, not a forged release. See
 [docs/RELEASING.md](../docs/RELEASING.md).
 
