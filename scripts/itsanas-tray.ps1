@@ -171,7 +171,15 @@ function Invoke-Itsanas([string[]]$Arguments) {
     try { return (& $exe @all 2>$null) } catch { return $null }
 }
 
-# A filled circle, drawn once per colour: no image file to ship or lose.
+# The ITSaNAS icon (itsanas.ico, copied beside itsanas.exe by setup and
+# provision.ps1) with a small dot of the state's colour in its corner, drawn
+# once per colour. Without the .ico (an old install), the dot alone, as before:
+# a tray that shows nothing is worse than one that shows a plain dot.
+$icoPath = Join-Path $PSScriptRoot 'itsanas.ico'
+$base = $null
+if (Test-Path -LiteralPath $icoPath) {
+    try { $base = (New-Object System.Drawing.Icon $icoPath, 16, 16).ToBitmap() } catch { $base = $null }
+}
 $icons = @{}
 foreach ($pair in @(@('green', 46, 160, 67), @('blue', 47, 111, 235), @('orange', 230, 140, 20),
                     @('red', 210, 45, 45), @('grey', 140, 140, 140))) {
@@ -179,7 +187,14 @@ foreach ($pair in @(@('green', 46, 160, 67), @('blue', 47, 111, 235), @('orange'
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, $pair[1], $pair[2], $pair[3]))
-    $graphics.FillEllipse($brush, 1, 1, 14, 14)
+    if ($base) {
+        $graphics.DrawImage($base, 0, 0, 16, 16)
+        # A white ring keeps the dot readable on any part of the icon.
+        $graphics.FillEllipse([System.Drawing.Brushes]::White, 8, 8, 8, 8)
+        $graphics.FillEllipse($brush, 9, 9, 6, 6)
+    } else {
+        $graphics.FillEllipse($brush, 1, 1, 14, 14)
+    }
     $graphics.Dispose(); $brush.Dispose()
     $icons[$pair[0]] = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
 }

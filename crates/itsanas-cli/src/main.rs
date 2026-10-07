@@ -16,6 +16,7 @@ mod control;
 mod daemon;
 mod discovery;
 mod setup;
+mod update;
 
 // The node itself -- keystore, configuration, and the round that honours what
 // this device keeps -- lives in `itsanas-node`, because the Android shell needs
@@ -499,6 +500,19 @@ enum Command {
         #[command(subcommand)]
         action: PeerAction,
     },
+    /// Install the newest signed release in place of this program, then
+    /// restart the background service on it.
+    ///
+    /// Only a program installed from a release updates itself, and only to a
+    /// newer version whose manifest carries the release key's signature and
+    /// whose download matches it byte for byte. `updates = auto` in the
+    /// configuration (or the "Updates" choice in setup) has the daemon do this
+    /// once a day; `notify`, the default, only says so in `status`.
+    Update {
+        /// Only say whether a newer release exists; change nothing.
+        #[arg(long)]
+        check: bool,
+    },
     /// Check that everything this node claims to hold is actually here.
     Doctor {
         /// Also reassemble and re-hash every file. O(data), not O(metadata).
@@ -774,6 +788,7 @@ fn run() -> Result<()> {
         ),
         Command::Peer { action } => peer(&home, action),
         Command::Doctor { deep } => doctor(&home, deep),
+        Command::Update { check } => update::command(&home, cli.instance.as_deref(), check),
         Command::Bench { size, quick } => bench::run(parse_size(&size)?, quick),
         Command::Gc { grace } => gc(&home, grace),
     }
@@ -1900,6 +1915,11 @@ fn status(home: &Path, brief: bool) -> Result<()> {
     if brief {
         print_brief(home);
         return Ok(());
+    }
+    // First, so it is seen; written by the daemon's daily look (`updates =
+    // notify`, the default).
+    if let Some(line) = update::notice(home) {
+        println!("{line}");
     }
     // Ask whether the daemon holds the store *before* asking anybody for a
     // passphrase. `open` resolves the passphrase first, so this path -- whose

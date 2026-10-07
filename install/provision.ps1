@@ -636,6 +636,13 @@ if (-not $NoTray) {
         try { Copy-Item -LiteralPath $traySource -Destination $trayInstalled -Force }
         catch { Write-Warn "could not copy $traySource beside itsanas.exe: $($_.Exception.Message)" }
     }
+    # The tray draws its state dot over this icon; without it, a plain dot.
+    $icoSource = @((Join-Path $here '..\docs\assets\itsanas.ico'), (Join-Path $here 'itsanas.ico')) |
+        Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($icoSource) {
+        try { Copy-Item -LiteralPath $icoSource -Destination (Join-Path $binDir 'itsanas.ico') -Force }
+        catch { Write-Warn "could not copy the tray's icon beside itsanas.exe: $($_.Exception.Message)" }
+    }
     # ITSANAS_STARTUP_DIR only so scripts/check-installers.sh can run clean.ps1
     # against a throwaway folder; nothing documented sets it.
     $startup = if ($env:ITSANAS_STARTUP_DIR) { $env:ITSANAS_STARTUP_DIR } else { [Environment]::GetFolderPath('Startup') }

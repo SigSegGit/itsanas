@@ -31,6 +31,9 @@ use crate::error::{CliError, Result};
 
 /// The Windows tray, copied beside `itsanas.exe` as `provision.ps1` does.
 const TRAY_PS1: &str = include_str!("../../../../scripts/itsanas-tray.ps1");
+/// The tray's base icon, copied beside it: the tray draws its state dot over
+/// it, and a downloaded binary has no checkout to find it in.
+const TRAY_ICO: &[u8] = include_bytes!("../../../../docs/assets/itsanas.ico");
 /// The macOS menu-bar item, run by `osascript -l JavaScript`.
 const MENUBAR_JS: &str = include_str!("../../../../scripts/itsanas-menubar.js");
 /// The Linux desktop tray, run by `python3`.
@@ -762,6 +765,8 @@ impl Platform {
         if tray {
             let script = bin_dir.join("itsanas-tray.ps1");
             write_file(&script, TRAY_PS1)?;
+            let ico = bin_dir.join("itsanas.ico");
+            std::fs::write(&ico, TRAY_ICO).map_err(io(&ico))?;
             run_powershell(&windows_tray_script(&self.names, &script, &bin_dir))
                 .map_err(failed("could not put the tray icon in the Startup folder"))?;
             let _ = write!(said, ", tray icon at logon ({})", self.names.tray_shortcut);

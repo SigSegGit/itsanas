@@ -57,6 +57,14 @@ HTTPS from GitHub is the trust root of this first download; the SHA-256 check
 catches a truncated or damaged file, not a forged release. See
 [docs/RELEASING.md](../docs/RELEASING.md).
 
+**After that, it updates itself.** `itsanas update` (or the daemon once a day
+with `updates = auto`; `notify`, the default, only shows "update available" in
+`itsanas status`) checks every later release's manifest signature against the
+key compiled into the binary, refuses an older or equal version, checks the
+download's size, BLAKE3 and SHA-256, and replaces the program by renaming it
+aside (`itsanas.exe.old` on Windows, removed at the next start), then restarts
+the service. A binary built from source never updates itself.
+
 ## A test bed, in one command per machine
 
 To *see* it work across your own machines, with a throwaway account that

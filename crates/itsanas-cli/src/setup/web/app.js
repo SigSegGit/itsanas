@@ -76,11 +76,12 @@
     { page: 'network', label: 'Joining the network', engine: 'registration' },
     { page: 'space', label: 'Space you offer', engine: 'pledge' },
     { page: 'folder', label: 'Folder', engine: 'folder' },
+    { page: 'updates', label: 'Updates', engine: 'updates' },
     { page: 'connection', label: 'Checking the connection', engine: 'connectivity' },
     { page: 'background', label: 'Starting in the background', engine: 'service' },
     { page: 'final', label: 'Final check', engine: 'verify' },
   ];
-  const QUESTION_PAGES = ['welcome', 'machine', 'account', 'secret', 'network', 'space', 'folder', 'connection'];
+  const QUESTION_PAGES = ['welcome', 'machine', 'account', 'secret', 'network', 'space', 'folder', 'updates', 'connection'];
   const done = {};
   let current = 'welcome';
   let polling = null;
@@ -175,6 +176,8 @@
       if (value) { form[id] = value; }
     });
     if ($('pledge').value !== '') { form.pledge = $('pledge').value + 'G'; }
+    const updates = document.querySelector('input[name="updates"]:checked');
+    if (updates) { form.updates = updates.value; }
     form.background = $('background').checked ? 'yes' : 'no';
     return form;
   }
@@ -307,6 +310,8 @@
     $('machine-instance').textContent = state.instance || '(the only one on this computer)';
     $('folder').value = state.defaults.folder;
     $('pledge').value = String(state.defaults.pledge_gb);
+    const updates = document.querySelector('input[name="updates"][value="' + state.defaults.updates + '"]');
+    if (updates) { updates.checked = true; }
     $('space-free').textContent = state.defaults.free ? 'This disk has ' + state.defaults.free + ' free.' : '';
     document.querySelectorAll('[data-next]').forEach(function (b) { b.addEventListener('click', function () { step(1); }); });
     document.querySelectorAll('[data-back]').forEach(function (b) { b.addEventListener('click', function () { step(-1); }); });
@@ -354,11 +359,15 @@
     document.querySelector('label[for="pause-for"]').hidden = settings.paused;
     $('resume').hidden = !settings.paused;
     $('st-pledge-now').textContent = 'Now: ' + settings.pledge;
+    $('st-update').hidden = !settings.update_notice;
+    $('st-update').textContent = settings.update_notice || '';
   }
 
   function fillSettings(settings) {
     initial.folder = settings.folder || '';
     initial.coordinator = settings.coordinator || '';
+    initial.updates = settings.updates || 'notify';
+    $('st-updates').value = initial.updates;
     $('st-folder').value = initial.folder;
     $('st-coordinator').value = initial.coordinator;
     const option = Array.from($('interval').options).find(function (o) { return o.value === settings.interval; });
@@ -402,6 +411,7 @@
     if (coordinator && coordinator !== initial.coordinator) { form.coordinator = coordinator; }
     const invite = $('st-invite').value.trim();
     if (invite) { form.invite = invite; }
+    if ($('st-updates').value !== initial.updates) { form.updates = $('st-updates').value; }
     return form;
   }
 

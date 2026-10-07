@@ -402,6 +402,40 @@ impl Setup<'_> {
         ))
     }
 
+    // -- Updates --------------------------------------------------------------
+
+    /// Said the same way in every state, so a person reads what it means.
+    fn updates_said(updates: crate::config::Updates) -> String {
+        match updates {
+            crate::config::Updates::Auto => {
+                "new signed releases are installed by themselves, once a day".to_owned()
+            }
+            crate::config::Updates::Notify => {
+                "a new release is announced in `itsanas status`; `itsanas update` installs it"
+                    .to_owned()
+            }
+            crate::config::Updates::Off => "this machine never looks for a new release".to_owned(),
+        }
+    }
+
+    pub(super) fn updates_state(&self) -> Result<State> {
+        let config = Config::load(&Node::config_path(&self.home))?;
+        Ok(match self.answers.updates {
+            Some(wanted) if wanted != config.updates => State::Todo,
+            _ => State::Done(Self::updates_said(config.updates)),
+        })
+    }
+
+    /// The configuration file alone, not the keys: the daemon reads this
+    /// setting again before each daily look, so nothing needs a restart.
+    pub(super) fn apply_updates(&mut self) -> Result<String> {
+        let path = Node::config_path(&self.home);
+        let mut config = Config::load(&path)?;
+        config.updates = self.answers.updates.unwrap_or(config.updates);
+        config.save(&path)?;
+        Ok(Self::updates_said(config.updates))
+    }
+
     // -- Connectivity ---------------------------------------------------------
 
     pub(super) fn connectivity_state(&self) -> Result<State> {

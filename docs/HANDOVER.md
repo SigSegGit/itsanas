@@ -10,15 +10,29 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0w
-TITLE: setup wizard and tray, sub-step (6): self-update (0t part 4)
-WRITTEN-AT: 2026-10-06
-BASE: 772b2cd
+TITLE: sub-step (7): clean removal
+WRITTEN-AT: 2026-10-07
+BASE: 825d88c
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-07, 0w (6), the self-update, built (branch `step/self-update`,
+PR #245).** `itsanas update [--check]` and the daemon's daily, jittered look
+under a new `updates` setting (`notify` default, `auto`, `off`; setup's
+"Updates" step, Settings, `--answers`). Trust goes through `itsanas-release`
+(signature, format, no downgrade, size + BLAKE3 + SHA-256); only a binary that
+is its own version's released one updates itself; the program is replaced by
+two renames with rollback; fetched with `curl` (no HTTP client in the
+workspace). Tray icon on Windows: `itsanas.ico` with a state dot; the web page
+shows `icon.png`. Seven red-team tests, each sabotaged red. **Not verified:**
+never run against the real GitHub; no release key pinned yet, so every build
+says so and installs nothing; the real rename of a running `itsanas.exe` and
+the service restarts never exercised; the new tray icon never seen on screen.
+NEXT: 0w (7), clean removal.
 
 **2026-10-06 late night, a batch: 0w (2)-(5) and 0t parts 1-3, merged in
 branch `step/wizard-tray-release`, one PR (#244).** Built by four agents in
@@ -1567,9 +1581,32 @@ Detail and measurements are in ROADMAP.md; this is the map.
          `scripts/tray-autostart.sh`. **Not verified:** no tray ever seen on
          screen; the macOS and Linux trays never ran on a desktop; a clock
          jump during a timed pause.
-      6. **0t's part 4, the self-update. NEXT.** The wizard's "updates" step
-         (automatic / tell me / off) lands with it.
-      7. **Clean removal**, from the tray and as `itsanas uninstall`: wraps
+      6. 🟨 **0t's part 4, the self-update.** Built 2026-10-07
+         (`crates/itsanas-cli/src/update.rs`): `itsanas update [--check]`; the
+         daemon looks once a day (jittered, first look 5-65 min after start)
+         under `updates = notify` (default: log + `status` line "update
+         available: X") / `auto` (installs, then exits non-zero so its service
+         restarts it on the new program) / `off`; the setting is in the node's
+         config, set by setup's new "Updates" step, Settings and `--answers`
+         (`updates`). Order: no key -> say so, fetch nothing; `target/` build
+         or uncovered platform -> never; latest manifest + sig verified by
+         `itsanas-release` (newer only); the running exe must match its own
+         version's signed manifest (a source build never updates); download
+         beside the exe, size + BLAKE3 + SHA-256; exe renamed to `.old`, new
+         renamed in, rollback on failure; `itsanas update` restarts the
+         service (service.rs stop/start). HTTPS through `curl` (no HTTP client
+         in Cargo.lock). Windows tray: `itsanas.ico` (embedded, written beside
+         itsanas.exe by setup's service step and provision.ps1) with a state
+         dot; web page: `/icon.png` in the header and as favicon. Proven by
+         `update/tests.rs` against a fake release in a temp dir, sabotaged red:
+         another key, a modified manifest, a downgrade (check and install), a
+         hash mismatch, a truncated download, a source build, a failed swap.
+         **Not verified:** never run against the real GitHub; no key pinned
+         (`RELEASE_KEY = None`), so it installs nothing yet; the rename of a
+         running `itsanas.exe` and the restarts by the three services never
+         run on a real machine; macOS/Linux trays keep their plain dots; the
+         new tray icon never seen.
+      7. **Clean removal. NEXT.** from the tray and as `itsanas uninstall`: wraps
          `clean.ps1` / `clean.sh` under 0f's decommission rule -- refused
          while this machine is the only confirmed holder of a chunk, saying
          how many owners are affected, never who.

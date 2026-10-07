@@ -5,13 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>ITSaNAS</title>
+<link rel="icon" type="image/png" href="/icon.png">
 <link rel="stylesheet" href="/app.css">
 <script src="/app.js" defer></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to the current step</a>
 <header class="top">
-  <span class="brand">ITSaNAS</span>
+  <span class="brand"><img src="/icon.png" alt="" width="28" height="28"> ITSaNAS</span>
   <span id="mode-title">Set up this machine</span>
 </header>
 
@@ -112,6 +113,19 @@
       <div class="actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
     </section>
 
+    <section data-page="updates" hidden>
+      <h1 tabindex="-1">Updates</h1>
+      <p class="done-note" data-done-for="updates" hidden></p>
+      <p class="lead">New versions of ITSaNAS are signed by its author. This machine installs only a version with that signature.</p>
+      <fieldset>
+        <legend>When a new version is out</legend>
+        <label class="choice"><input type="radio" name="updates" value="auto"> Install it by itself (once a day, it restarts in a few seconds)</label>
+        <label class="choice"><input type="radio" name="updates" value="notify" checked> Tell me, and I install it (<code>itsanas update</code>)</label>
+        <label class="choice"><input type="radio" name="updates" value="off"> Never look</label>
+      </fieldset>
+      <div class="actions"><button type="button" data-back>Back</button><button type="button" class="primary" data-next>Next</button></div>
+    </section>
+
     <section data-page="connection" hidden>
       <h1 tabindex="-1" id="run-title">Ready</h1>
       <p class="lead" id="run-lead">Press Start. ITSaNAS then checks the connection, starts in the background and checks that it all works.</p>
@@ -149,6 +163,7 @@
       <h1 tabindex="-1">Settings</h1>
       <p class="status-line"><span id="st-dot" class="dot" aria-hidden="true"></span> <span id="st-status">Reading&hellip;</span></p>
       <p id="st-said" class="said" role="status" aria-live="polite"></p>
+      <p id="st-update" class="help" hidden></p>
 
       <h2>Syncing</h2>
       <div class="row">
@@ -183,6 +198,12 @@
       <input id="st-folder" spellcheck="false" autocapitalize="none">
       <label for="st-coordinator">Coordinator address</label>
       <input id="st-coordinator" spellcheck="false" autocapitalize="none">
+      <label for="st-updates">When a new version is out</label>
+      <select id="st-updates">
+        <option value="auto">install it by itself</option>
+        <option value="notify">tell me</option>
+        <option value="off">never look</option>
+      </select>
       <label for="st-invite">Invitation code, if the coordinator asks for one</label>
       <input id="st-invite" spellcheck="false" autocapitalize="none" autocomplete="off">
       <div class="actions"><button type="button" class="primary" id="apply">Apply</button></div>

@@ -44,6 +44,55 @@ pub fn parse_order(value: &str) -> Option<Order> {
     }
 }
 
+/// What the daemon does about a newer signed release (HANDOVER §8 0w (6)).
+///
+/// `Notify` by default: a member is told, and nothing on their machine changes
+/// without them, until they choose `Auto`. A setting rather than a flag so the
+/// daemon reads it again before every daily check and a change needs no
+/// restart.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Updates {
+    /// Install it and restart, once a day.
+    Auto,
+    /// Log it and show "update available" in `itsanas status`.
+    #[default]
+    Notify,
+    /// Never look.
+    Off,
+}
+
+impl Updates {
+    /// The word written in the configuration and in setup's answers.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Notify => "notify",
+            Self::Off => "off",
+        }
+    }
+
+    /// Parse `auto`, `notify` or `off`.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "auto" => Some(Self::Auto),
+            "notify" => Some(Self::Notify),
+            "off" => Some(Self::Off),
+            _ => None,
+        }
+    }
+}
+
+/// The `updates` line, or why it is wrong.
+fn parse_updates(value: &str, line: usize) -> Result<Updates> {
+    Updates::parse(value).ok_or_else(|| {
+        NodeError::Config(format!(
+            "line {line}: updates must be auto, notify or off, found {value:?}"
+        ))
+    })
+}
+
 /// Default pledge when a node has not chosen one: nothing.
 ///
 /// Hosting for other people is opt-in. A node that has not said how much space
@@ -141,6 +190,8 @@ pub struct Config {
     pub keep_order: Order,
     /// Path prefixes this device restricts itself to. Empty means everything.
     pub keep_only: Vec<String>,
+    /// What the daemon does about a newer release.
+    pub updates: Updates,
 }
 
 impl Default for Config {
@@ -158,6 +209,7 @@ impl Default for Config {
             keep_bytes: None,
             keep_order: Order::default(),
             keep_only: Vec::new(),
+            updates: Updates::default(),
         }
     }
 }
@@ -212,6 +264,12 @@ impl Config {
         }
         for peer in &self.peers {
             let _ = writeln!(out, "peer = {peer}");
+        }
+        // Only when chosen: a file without it reads as the default, and an
+        // older binary (which refuses unknown keys) still reads the file of a
+        // node that never changed it.
+        if self.updates != Updates::default() {
+            let _ = writeln!(out, "updates = {}", self.updates.name());
         }
 
         out
@@ -307,6 +365,7 @@ impl Config {
                 "coordinator" => config.coordinator = Some(value.to_owned()),
                 "coordinator_device" => config.coordinator_device = Some(value.to_owned()),
                 "peer" => peers.push(value.to_owned()),
+                "updates" => config.updates = parse_updates(value, number + 1)?,
                 other => {
                     // A backslash continuation here reached the repository with
                     // its second continuation eaten, so this line printed
@@ -319,7 +378,7 @@ impl Config {
                             "username, pledge_bytes, split, keep_bytes, keep_order, ",
                             "keep_only, ",
                             "listen, announce, folder, peer, ",
-                            "coordinator, coordinator_device"
+                            "coordinator, coordinator_device, updates"
                         ),
                         number + 1,
                         other
@@ -866,6 +925,8 @@ mod tests {
             keep_only: vec!["Documents".to_owned(), "Photos/2026".to_owned()],
             folder: Some(PathBuf::from("/home/nicolas/ITSaNAS")),
             announce: Some("ngas.fr:9801".to_owned()),
+            // Not the default, so the round trip covers the line being written.
+            updates: Updates::Auto,
         };
 
         assert_eq!(Config::parse(&config.render()).unwrap(), config);

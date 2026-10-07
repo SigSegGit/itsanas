@@ -736,6 +736,7 @@ dependencies = [
  "itsanas-node",
  "itsanas-placement",
  "itsanas-policy",
+ "itsanas-release",
  "itsanas-store",
  "itsanas-sync",
  "postcard",

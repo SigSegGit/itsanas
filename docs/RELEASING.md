@@ -76,6 +76,37 @@ that on the PATH, and runs `itsanas setup`.
 
 **What that first download trusts:** HTTPS to github.com. The scripts cannot
 check an Ed25519 signature with what a fresh machine has, so their hash check
-catches a damaged download, not a forged release. Self-update (HANDOVER §8 0w
-(6)) is where the installed binary checks every later release's signature
-against the key compiled into it.
+catches a damaged download, not a forged release. Self-update is where the
+installed binary checks every later release's signature against the key
+compiled into it.
+
+## How a node updates itself
+
+`itsanas update [--check]`, and the daemon once a day (jittered, a first look
+5 to 65 minutes after it starts) under the `updates` setting -- `notify` by
+default (log, and "update available: X" in `itsanas status`), `auto`
+(installs), `off` (never looks). Setup's "Updates" step and Settings set it;
+`updates = "auto"` in an answers file too. In `crates/itsanas-cli/src/update.rs`:
+
+1. no key pinned (`RELEASE_KEY = None`): says so, fetches nothing;
+2. a binary under a cargo `target/` directory, or on a platform no release
+   covers, never updates itself;
+3. `releases/latest/download/manifest.txt` and `.sig` (HTTPS through `curl`,
+   which every supported system ships; the workspace has no HTTP client and
+   the signature, not the transport, is what is trusted), verified by
+   `itsanas-release`: signature, format, newer than the running version;
+4. the running program must be the binary its own version's signed manifest
+   lists (`download/vX.Y.Z/manifest.txt`): a source build copied by an
+   installer is not, and is never replaced;
+5. the binary for this target is downloaded beside the program, checked
+   (size, BLAKE3, SHA-256), then put in place by two renames -- the running
+   program aside to `.old`, the new one in -- with the first undone if the
+   second fails. Never written over: a running file is never modified (#240);
+6. `itsanas update` restarts the background service; the daemon under `auto`
+   exits with a failure code instead, which its service (the Windows wrapper,
+   systemd `Restart=on-failure`, launchd `KeepAlive`) answers by starting the
+   new program -- stopping its own service from inside would kill it half way.
+
+**Not verified:** never run against the real GitHub (no signed release exists
+yet, and no key is pinned); the Windows rename of a running `itsanas.exe` and
+the service restarts were never exercised on a real machine.
