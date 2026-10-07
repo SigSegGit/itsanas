@@ -84,7 +84,13 @@ catches a damaged download, not a forged release. Self-update is where the
 installed binary checks every later release's signature against the key
 compiled into it.
 
-## The coordinator updates itself too
+## The coordinator: open, and updating itself
+
+The network's coordinator admits anybody who installs ITSaNAS (Nicolas,
+2026-10-07): `install/coordinator.sh` starts it open, and `--invite-only`
+makes a private one.
+
+### Its self-update
 
 Releases carry the member binary only. On the coordinator's machine,
 `sudo sh install/coordinator.sh --auto-update` (run from a git checkout owned

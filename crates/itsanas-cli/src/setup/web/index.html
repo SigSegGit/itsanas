@@ -85,11 +85,11 @@
     <section data-page="network" hidden>
       <h1 tabindex="-1">Joining the network</h1>
       <p class="done-note" data-done-for="registration" hidden></p>
-      <p class="lead">ITSaNAS finds the network by itself. If a member invited you, type the code they gave you.</p>
-      <label for="invite">Invitation code (if you were given one)</label>
-      <input id="invite" name="invite" spellcheck="false" autocapitalize="none" autocomplete="off">
+      <p class="lead">ITSaNAS joins the network by itself: there is nothing to type here.</p>
       <details>
         <summary>Advanced</summary>
+        <label for="invite">Invitation code (only for a private network that asks for one)</label>
+        <input id="invite" name="invite" spellcheck="false" autocapitalize="none" autocomplete="off">
         <label for="coordinator">Coordinator address</label>
         <input id="coordinator" name="coordinator" spellcheck="false" autocapitalize="none" aria-describedby="coordinator-help">
         <p id="coordinator-help" class="help">Leave it as it is unless you run your own network. Empty: only machines on this home network find each other.</p>

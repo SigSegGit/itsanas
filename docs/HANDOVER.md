@@ -20,6 +20,13 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-07 night, the network is open to anybody (Nicolas).** "Anybody
+who installs the client joins": `install/coordinator.sh` now starts the
+coordinator open (`Admission::Open`), `--invite-only` makes a private
+one, and the setup page moved the invitation code under "Advanced".
+Trap: the coordinator binary is the crate `itsanas-coordinator`;
+`itsanas-coord` is the library, and building it builds no binary.
+
 **2026-10-07 night, 0w (6b) built in one batch, v0.1.1 ready to tag.**
 Nicolas asked for all his first-install points in one session (weekly limit
 near), then real testing while development pauses. In one PR: username

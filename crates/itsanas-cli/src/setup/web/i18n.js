@@ -45,9 +45,9 @@ window.I18N = {
       'Un compte existant : la fenêtre demande vos 24 mots, sauf si le réseau garde votre copie de secours.',
     'Then it asks for a passphrase that unlocks this machine.': 'Puis elle demande une phrase de passe qui déverrouille cette machine.',
     'Joining the network': 'Rejoindre le réseau',
-    'ITSaNAS finds the network by itself. If a member invited you, type the code they gave you.':
-      'ITSaNAS trouve le réseau tout seul. Si un membre vous a invité, tapez le code qu’il vous a donné.',
-    'Invitation code (if you were given one)': 'Code d’invitation (si on vous en a donné un)',
+    'ITSaNAS joins the network by itself: there is nothing to type here.':
+      'ITSaNAS rejoint le réseau tout seul : il n’y a rien à taper ici.',
+    'Invitation code (only for a private network that asks for one)': 'Code d’invitation (seulement pour un réseau privé qui en demande un)',
     'Advanced': 'Avancé',
     'Coordinator address': 'Adresse du coordinateur',
     'Leave it as it is unless you run your own network. Empty: only machines on this home network find each other.':

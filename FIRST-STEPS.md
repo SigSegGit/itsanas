@@ -115,8 +115,7 @@ then *Run anyway*). Otherwise run `itsanas setup`. On a computer with a screen
 it opens a page in your browser, in your system's language (English and French
 for now), and walks you through each step: this machine, the account (new, or
 one you already have; a username already taken is said while you type it),
-joining the network (built in: nothing to type unless a member gave you an
-invitation code), the folder (with a *Browse* button), the space you offer (a
+joining the network (built in, and open to anybody: nothing to type), the folder (with a *Browse* button), the space you offer (a
 slider that says what it earns you), a connectivity check, the background
 service and a final check. If no page opens, paste the address it prints into
 your browser; it only works on that computer and only while the command runs.

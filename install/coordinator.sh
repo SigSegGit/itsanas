@@ -27,8 +27,10 @@
 #
 #   - it runs as a **system service under its own unmixed user**, not as your
 #     login, because a process on a public port should own nothing else;
-#   - it is **invite-only** from the moment it has a first member, because
-#     otherwise "who is a member" means "anyone who can open a socket";
+#   - it is **open** by default: anybody who installs ITSaNAS can join
+#     (Nicolas, 2026-10-07). A name cannot be taken over, a member's data
+#     is sealed, and hosting is earned by pledging, so an open door admits
+#     people, not power. `--invite-only` closes it for a private network;
 #   - it prints its **device id**, because members must pin it. A coordinator
 #     supplies addresses and is never trusted to say who lives at one.
 #
@@ -91,6 +93,7 @@ STATE_DIR="/var/lib/itsanas-coordinator"
 BIN_SRC=""
 BIN_DST="/usr/local/bin/itsanas-coordinator"
 OPEN_DOOR=0
+INVITE_ONLY=0
 AUTO_UPDATE=0
 DO_INSTALL=1
 # Whether --check found everything the real run needs, and whether any address
@@ -108,7 +111,8 @@ ITSaNAS coordinator setup
 Options
   --port N          port to listen on (default 9898)
   --binary PATH     use this itsanas-coordinator instead of looking for one
-  --admit-first     let the next registration in without an invitation, once
+  --invite-only     admit only members invited by a member (default: open)
+  --admit-first     with --invite-only: let the next registration in, once
   --auto-update     each night, pull this checkout's main, rebuild and restart
                     if it moved (a systemd timer; the build runs as the
                     checkout's owner, never as root)
@@ -173,7 +177,8 @@ while [ $# -gt 0 ]; do
         --port=*) PORT="${1#--port=}"; shift ;;
         --binary) [ $# -ge 2 ] || die "--binary needs a path"; BIN_SRC="$2"; shift 2 ;;
         --binary=*) BIN_SRC="${1#--binary=}"; shift ;;
-        --admit-first) OPEN_DOOR=1; shift ;;
+        --admit-first) OPEN_DOOR=1; INVITE_ONLY=1; shift ;;
+        --invite-only) INVITE_ONLY=1; shift ;;
         --auto-update) AUTO_UPDATE=1; shift ;;
         --check) DO_INSTALL=0; shift ;;
         --help|-h) usage; exit 0 ;;
@@ -379,7 +384,8 @@ if have systemctl; then
     step "The service"
 
     ADMIT=""
-    [ "$OPEN_DOOR" -eq 1 ] && ADMIT=" --admit-first"
+    [ "$INVITE_ONLY" -eq 1 ] && ADMIT=" --invite-only"
+    [ "$OPEN_DOOR" -eq 1 ] && ADMIT=" --invite-only --admit-first"
 
     cat > /etc/systemd/system/itsanas-coordinator.service <<UNIT
 [Unit]
@@ -392,7 +398,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_USER
-ExecStart=/usr/local/bin/itsanas-coordinator --state $STATE_DIR --listen 0.0.0.0:$PORT --invite-only$ADMIT
+ExecStart=/usr/local/bin/itsanas-coordinator --state $STATE_DIR --listen 0.0.0.0:$PORT$ADMIT
 Restart=always
 RestartSec=10
 
@@ -484,7 +490,7 @@ before=\$(as_owner 'git rev-parse HEAD')
 as_owner 'git fetch --quiet origin main && git merge --ff-only --quiet origin/main'
 after=\$(as_owner 'git rev-parse HEAD')
 [ "\$before" != "\$after" ] || [ ! -x '$CHECKOUT/target/release/itsanas-coordinator' ] || exit 0
-as_owner '. "$OWNER_HOME/.cargo/env" 2>/dev/null; cargo build --release --quiet -p itsanas-coord'
+as_owner '. "$OWNER_HOME/.cargo/env" 2>/dev/null; cargo build --release --quiet -p itsanas-coordinator'
 cmp -s '$CHECKOUT/target/release/itsanas-coordinator' $BIN_DST && exit 0
 install -m 0755 '$CHECKOUT/target/release/itsanas-coordinator' $BIN_DST.new
 mv -f $BIN_DST.new $BIN_DST
@@ -512,6 +518,8 @@ fi
 
 # ------------------------------------------------------------------- next
 
+ADMITS="anybody who installs ITSaNAS"
+[ "$INVITE_ONLY" -eq 1 ] && ADMITS="invited members only"
 cat <<NEXT
 
 ${C_OK}The coordinator is up.${C_OFF}
@@ -519,7 +527,7 @@ ${C_OK}The coordinator is up.${C_OFF}
   address    <this machine>:$PORT
   device id  $DEVICE_ID
   state      $STATE_DIR
-  admits     invited members only${ADMIT:+ (and the next one, once)}
+  admits     $ADMITS
 
 On each member machine, pin it:
 
