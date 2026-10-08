@@ -222,6 +222,10 @@
   }
 
   function nameChanged() {
+    // The coordinator takes lowercase names only: say it by typing it.
+    const box = $('username');
+    const low = box.value.toLowerCase();
+    if (low !== box.value) { box.value = low; }
     if (nameTimer) { clearTimeout(nameTimer); }
     nameTimer = setTimeout(checkName, 500);
   }
