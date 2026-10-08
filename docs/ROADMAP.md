@@ -1373,6 +1373,51 @@ Three limits that are fine at the size this runs at today and are not fine at
 the size it is aimed at. Written with the number where each one breaks, because
 a limit described in words gets rediscovered as a surprise.
 
+### Pledges are not reserved: two instances can promise the same disk — 2026-10-08
+
+Found on the Freebox VM: two Docker clients (`test`, `nicolas`) each pledged
+30 GB on a disk that cannot hold 60. The setup compares a pledge with the
+disk's free space at that moment only; it neither counts what the other
+instances on the same disk already promised nor holds anything back, so a
+member can fall short of a pledge without having done anything, once the
+chunks arrive.
+
+Decided by Nicolas, in this order:
+
+1. **ASAP — the check, and a watch.** When a pledge is set or changed, the
+   free space it is compared with is: free space + what the instances on the
+   same filesystem already store − what they pledged; refused beyond it,
+   saying which instances hold the rest. The node also watches real free
+   space: when it can no longer honour its pledge it says so in `status` and
+   the tray, and stops accepting chunks rather than failing silently.
+   Covers Windows, native Linux and Docker (data directories on one disk).
+   Does not protect against another program filling the disk.
+2. **Later — reservation.** An optional reserved file of "pledged − stored",
+   shrunk as chunks arrive (`fallocate` / `SetFileValidData`), for a real
+   guarantee against other programs. Costs the space on day one and is
+   unreliable on copy-on-write or compressing filesystems.
+
+Rejected: a Docker volume of fixed size (Docker does not enforce volume size
+on plain ext4; Windows and native installs untouched).
+Major step: Rodin on the plan before the code.
+
+### Next, asked by Nicolas — 2026-10-08
+
+- **The MCP server** Nicolas is creating on GitHub: to be improved with him
+  once it is in the repository (scope to be written down then).
+- **Setup, reliable with several accounts on one machine.** Seen on Windows
+  and on the VM: an old account's node makes every step "Already done", a
+  second account needs `--instance` that the web setup does not offer, and a
+  pledge ignores the other instances (above). The setup should list the
+  instances it finds, offer "add another account" or "replace this one",
+  and never mix two.
+- **Account removal that removes everything.** Today `clean.ps1` / `clean.sh`
+  keep the account unless `-PurgeAccount`, and the synced folder always.
+  Wanted: one removal (tray and `itsanas uninstall`) that, after the drain
+  (§10 item 15), deletes the node's data and storage directory, with one
+  clear confirmation saying what goes and that the synced folder's own files
+  stay or go as chosen.
+
 ### Selective CI: a pull request tests what it touches — 2026-10-06
 
 Asked for by Nicolas on 2026-10-06. Until then every pull request ran every
