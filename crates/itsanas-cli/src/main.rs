@@ -2979,26 +2979,35 @@ fn leave(home: &Path, drain_for: u64) -> Result<()> {
 /// off because the network is thin. What it says is counts, never who: the
 /// owners are other members, and their names are not this machine's to print.
 fn drain(node: &Node, targets: &[(Option<DeviceId>, String)], minutes: u64) {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, time::Instant};
     let minutes = minutes.min(itsanas_store::holders::MAX_DRAIN / 60);
     if minutes == 0 || targets.is_empty() {
         return;
     }
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(minutes * 60);
+    let deadline = Instant::now() + std::time::Duration::from_secs(minutes * 60);
     println!("draining: asking the owners to re-place what rests on this machine alone");
 
-    // Keyed by address: one owner's devices are asked one by one, and an
-    // owner that answers through any of them has answered.
-    let mut last: BTreeMap<&str, Asked> = BTreeMap::new();
+    // Keyed by device where the coordinator named one, so a machine listed at
+    // two addresses is one answer, and a dead address of a machine that
+    // answered elsewhere is not "could not be asked". A typed-in peer has
+    // only its address.
+    let key = |expect: &Option<DeviceId>, address: &str| {
+        expect.map_or_else(|| address.to_owned(), |device| device.to_string())
+    };
+    let mut last: BTreeMap<String, Asked> = BTreeMap::new();
+    // Only machines that cannot be reached are left after this many passes:
+    // waiting the whole drain for them would only keep a person at a screen.
+    let mut passes_with_only_unreachable = 0;
     loop {
         for (expect, address) in targets {
-            if matches!(
-                last.get(address.as_str()),
-                Some(Asked::Exposed(0) | Asked::TooOld)
-            ) {
+            let slot = key(expect, address);
+            if matches!(last.get(&slot), Some(Asked::Exposed(0) | Asked::TooOld)) {
                 continue;
             }
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
             let asked =
                 match PeerClient::connect(address, &node.device, node.store.owner(), *expect)
                     .and_then(|mut client| client.draining(left.as_secs() + 60))
@@ -3007,7 +3016,11 @@ fn drain(node: &Node, targets: &[(Option<DeviceId>, String)], minutes: u64) {
                     Ok(None) => Asked::TooOld,
                     Err(_) => Asked::Unreachable,
                 };
-            last.insert(address, asked);
+            // One answer from any address of a machine stands over a failure
+            // at another.
+            if asked != Asked::Unreachable || !last.contains_key(&slot) {
+                last.insert(slot, asked);
+            }
         }
         let waiting = last
             .values()
@@ -3017,13 +3030,19 @@ fn drain(node: &Node, targets: &[(Option<DeviceId>, String)], minutes: u64) {
             .values()
             .filter(|asked| **asked == Asked::Unreachable)
             .count();
-        if waiting + unreachable == 0 || std::time::Instant::now() >= deadline {
+        if waiting == 0 && unreachable > 0 {
+            passes_with_only_unreachable += 1;
+        }
+        if waiting + unreachable == 0
+            || passes_with_only_unreachable >= 3
+            || Instant::now() >= deadline
+        {
             break;
         }
         println!("draining: {waiting} owner(s) still re-placing, {unreachable} unreachable");
         std::thread::sleep(
             std::time::Duration::from_secs(60)
-                .min(deadline.saturating_duration_since(std::time::Instant::now())),
+                .min(deadline.saturating_duration_since(Instant::now())),
         );
     }
     println!("{}", drain_summary(last.values().copied()));
@@ -3063,8 +3082,9 @@ fn drain_summary(answers: impl Iterator<Item = Asked>) -> String {
     if short > 0 {
         let _ = write!(
             out,
-            "{short} owner(s) left one replica fewer, for {chunks} chunk(s) this machine \
-             alone held besides their own copy; their machines repair it"
+            "{short} owner(s) left one replica fewer, for {chunks} chunk(s) no other \
+             machine held; they re-place them from their own copy, and any they no longer \
+             have themselves may be lost"
         );
     }
     if unknown > 0 {

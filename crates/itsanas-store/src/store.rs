@@ -1486,7 +1486,7 @@ impl Store {
 
     /// Stop counting `device` towards replication until `until` (capped at
     /// [`crate::holders::MAX_DRAIN`] from `now`): it said it is draining.
-    pub fn note_draining(&self, device: &DeviceId, until: u64, now: u64) -> Result<()> {
+    pub fn note_draining(&self, device: &DeviceId, until: u64, now: u64) -> Result<bool> {
         self.index.note_draining(device, until, now)
     }
 

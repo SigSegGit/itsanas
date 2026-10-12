@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-12 — 1081 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 255 are red-team tests.**
+**Last updated: 2026-10-12 — 1082 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 256 are red-team tests.**
 
-**965 of the 1081 tests have an entry of their own on this page** — an *entry*,
+**966 of the 1082 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,7 +158,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 169 |
+| `itsanas-store` unit | 170 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
@@ -432,7 +432,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (144, plus the 25 vault tests below)
+# `itsanas-store` — unit tests (145, plus the 25 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -459,7 +459,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 | `a_key_round_trips_through_its_two_halves` / `a_key_of_the_wrong_length_is_refused_rather_than_guessed_at` | The encoding, and that a key written by something else is refused rather than reinterpreted. |
 | `a_disk_check_pass_fits_in_the_refresh_window_at_any_interval` | §8 4c: `rows_per_round` sizes the rolling disk check so a whole pass fits in `REFRESH_AFTER` at any round interval -- 15 874 rows a round for sixteen million chunks at five minutes, 190 477 at an hour, never more rows than exist. The first plan's fixed 16 384 would take forty-two days a pass on an hourly policy. |
 
-## `index` — the placement ledger (20)
+## `index` — the placement ledger (21)
 
 Where this node's data actually went. This is what replaced the coordinator's
 signed node-set epoch: an owner who already keeps a log of their own chunks can
@@ -483,7 +483,8 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | **`a_target_counts_this_device_so_three_asks_for_two_elsewhere`** | The counting convention, pinned. Off by one here means the repair loop targets two copies while reporting three, and nothing ever says so — it surfaces as data loss after two machines die instead of after three. |
 | **`one_chunk_nobody_holds_makes_the_whole_account_unrecoverable`** | Why the headline number is a minimum and not an average, in one test. Eight of nine holder records exist and not one complete copy does: a file comes back only if every chunk does, so almost-everywhere is nowhere. An average would report 2.0 here and read as comfortable. |
 | **`red_team_a_draining_holder_stops_counting_so_repair_starts_before_it_goes`** | §8 0w (7). A holder that told its owner it is draining stays in the ledger (its records are true) but no longer counts towards `under_replicated` or `coverage`, so repair places the replacement while the departing copy still exists as a margin, not after the machine is off. Without it repair waited for `Leaving`, and the one-replica-fewer window opened at the moment of switching off. `Leaving` removes the row with the records. Sabotaged (draining holders still counted): red. |
-| **`red_team_a_drain_expires_and_cannot_exclude_a_holder_for_a_week`** | A drain ends by itself and is capped at `holders::MAX_DRAIN` (2 h) whatever number the caller asked for. A Ctrl-C'd drain, or a machine that rejoined, otherwise left its owner ignoring a real holder for ever and over-replicating around it. Sabotaged (cap off; expiry off): red. |
+| **`red_team_a_drain_expires_and_cannot_exclude_a_holder_for_a_week`** | A drain ends by itself and is capped at `holders::MAX_DRAIN` (2 h) whatever number the caller asked for. A Ctrl-C'd drain, or a machine that rejoined, otherwise left its owner ignoring a real holder for ever and over-replicating around it. Sabotaged (cap off; expiry off): red. Renewal is refused while a grant runs and for as long again after it ends, so a holder cannot keep itself ignored for good. Sabotaged (cooldown off): red. |
+| **`red_team_a_stranger_draining_writes_nothing`** | A device that holds nothing for this owner gets no `draining_until` row: device keys are free, and a row plus a commit per stranger would be a disk and fsync amplifier on a Pi. Sabotaged (holder check off): red. |
 | **`a_peer_that_holds_every_chunk_is_reported_as_holding_everything`** | The other direction from the copy count, and not the same question. A peer holding a complete set is one broken cipher away from reading the account, and it is also what decides whether this scales: if the unit of hosting were "a whole account", somebody offering four terabytes would need peers who could each take four terabytes. The second half of the test spreads the same three chunks over three machines — same one complete copy, and nobody holding a whole set. |
 | **`a_holder_nobody_has_heard_from_stops_counting_as_a_copy`** | A holder record is a memory: it says a device once acknowledged a chunk, not that the device still exists. This fleet had a destroyed machine listed as a holder until somebody read a log. Two claims and one observation must report one copy, not two — and a machine that has gone quiet is not one holding a share of you, it is one nobody can say anything about. |
 | **`a_big_account_does_not_report_itself_lost_because_the_audit_is_slow`** | The arithmetic that decided the freshness rule is asked of the *machine* and not of the chunk. The audit re-checks sixteen chunks per peer per round at 300 s a round, so a chunk waits `chunks / 16` rounds for its turn — past ~64,500 chunks, four or five gigabytes, longer than the window. A per-chunk rule would report zero complete copies for a fleet whose every audit passes, at exactly the size this project is for. |

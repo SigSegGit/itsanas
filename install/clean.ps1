@@ -32,7 +32,7 @@ param(
     [switch]$PurgeAccount,
     # Minutes -PurgeAccount waits for the owners to re-place what this machine
     # holds for them alone (`itsanas leave --drain-for`). 0 skips the drain.
-    [int]$DrainFor = 30,
+    [ValidateRange(0, 120)][int]$DrainFor = 30,
     # One named instance only: its task, passphrase file, wrapper, logs and, with
     # -PurgeAccount, its node. The programs and the other nodes stay.
     [string]$Instance = '',

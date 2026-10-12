@@ -425,6 +425,8 @@ impl<'a> PeerService<'a> {
     /// machine. The store caps the duration; the caller's number is a wish.
     fn draining(&self, caller: DeviceId, seconds: u64) -> Result<Response> {
         let now = itsanas_store::now_unix();
+        // Whether a grant was written changes nothing in the answer: the
+        // count is the same question either way.
         self.store
             .note_draining(&caller, now.saturating_add(seconds), now)?;
         let chunks = self.store.exposed_by(&caller, now)?;

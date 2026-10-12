@@ -55,7 +55,12 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --yes|-y) DO_IT=1; shift ;;
         --purge-account) PURGE=1; shift ;;
-        --drain-for) DRAIN_FOR="$2"; shift 2 ;;
+        --drain-for)
+            # Checked here, not by `leave`: a bad value there fails the drain
+            # and the purge would go on without one.
+            DRAIN_FOR="${2:-}"
+            case "$DRAIN_FOR" in ''|*[!0-9]*) say "--drain-for takes minutes, a whole number"; exit 2 ;; esac
+            shift 2 ;;
         --purge-coordinator) PURGE_COORD=1; shift ;;
         --prefix) PREFIX="$2"; shift 2 ;;
         --prefix=*) PREFIX="${1#--prefix=}"; shift ;;

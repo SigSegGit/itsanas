@@ -37,6 +37,17 @@ a draining machine; all three in. Four red-team tests, each sabotaged red.
 between two real machines; the scripts' drain never ran (no pwsh, no real
 install here). Repair re-sends from the owner's own copy, so a draining
 host serves nothing and need not run.
+Red team on the diff, fixed: a stranger wrote a row per free key (now only
+a device that holds something), a holder renewed itself into being ignored
+for good (grant never extended, cooldown as long again), the drain counted
+an owner twice at two addresses and waited 30 min on dead ones (keyed by
+device, stops after three passes with only unreachable left), "their
+machines repair it" was false when the owner lost its own copy (says "may
+be lost"), `clean.sh --drain-for` unchecked. **Open, not fixed:**
+`exposed_by` walks all of the caller's holdings per request, unthrottled,
+and `Hosted` lets a peer inflate them (pre-existing); the drain's 0 trusts
+`LIVE_FOR` like `under_replicated`, not `DEVICE_SEEN`, so it is optimistic;
+on macOS the passphrase is in the plist, so `clean.sh` drain prompts.
 
 **2026-10-07, v0.1.2 for the test campaign.** A member node in
 Docker for any Linux (`install/docker/compose.client.yml`, host network,

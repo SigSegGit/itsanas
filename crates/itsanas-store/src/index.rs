@@ -1077,15 +1077,36 @@ impl Index {
 
     /// Record that `device` is draining until `until`, capped at
     /// [`holders::MAX_DRAIN`] past `now` whatever it asked.
-    pub fn note_draining(&self, device: &DeviceId, until: u64, now: u64) -> Result<()> {
+    ///
+    /// Written only for a device this ledger counts as holding something, so
+    /// a stranger minting keys cannot grow the table or force a commit per
+    /// request. Never extended: a grant stands as written, and a new one is
+    /// refused until as long again has passed since it ended, so a holder
+    /// cannot renew itself into being ignored for good. Returns whether a
+    /// grant was written.
+    pub fn note_draining(&self, device: &DeviceId, until: u64, now: u64) -> Result<bool> {
         let until = until.min(now.saturating_add(holders::MAX_DRAIN));
+        let key = device.as_bytes().as_slice();
+        {
+            let txn = self.db.begin_read()?;
+            let holds = txn
+                .open_table(HOLDER_COUNTS)?
+                .get(key)?
+                .is_some_and(|count| count.value() > 0);
+            let cooling = txn
+                .open_table(DRAINING)?
+                .get(key)?
+                .is_some_and(|ends| now < ends.value().saturating_add(holders::MAX_DRAIN));
+            if !holds || cooling {
+                return Ok(false);
+            }
+        }
         let txn = self.db.begin_write()?;
         {
-            txn.open_table(DRAINING)?
-                .insert(device.as_bytes().as_slice(), until)?;
+            txn.open_table(DRAINING)?.insert(key, until)?;
         }
         txn.commit()?;
-        Ok(())
+        Ok(true)
     }
 
     /// Whether `device` is draining at `now`.
@@ -3607,10 +3628,41 @@ mod tests {
             "the owner took the device's word for how long to ignore it"
         );
 
+        // Renewing is refused: not while the grant runs, and not until as
+        // long again has passed after it ended.
+        let renewed = now + holders::MAX_DRAIN - 1;
+        assert!(
+            !index
+                .note_draining(&device(7), renewed + 600, renewed)
+                .unwrap()
+        );
+        assert!(
+            !index.is_draining(&device(7), later).unwrap(),
+            "a holder renewed its own exclusion past the cap"
+        );
+        assert!(!index.note_draining(&device(7), later + 600, later).unwrap());
+        let cooled = now + 2 * holders::MAX_DRAIN;
+        assert!(
+            index
+                .note_draining(&device(7), cooled + 600, cooled)
+                .unwrap()
+        );
+
         // `Leaving` takes the row with the records.
-        index.note_draining(&device(7), now + 60, now).unwrap();
         index.forget_device(&device(7)).unwrap();
-        assert!(!index.is_draining(&device(7), now).unwrap());
+        assert!(!index.is_draining(&device(7), cooled).unwrap());
+    }
+
+    #[test]
+    fn red_team_a_stranger_draining_writes_nothing() {
+        // Device keys are free. A row per stranger, with a commit each, would
+        // be a disk and fsync amplifier on a Pi for anybody who can connect.
+        let (_dir, index) = index();
+        assert!(!index.note_draining(&device(9), 10_600, 10_000).unwrap());
+        assert!(
+            !index.is_draining(&device(9), 10_000).unwrap(),
+            "a device holding nothing here got a draining row"
+        );
     }
 
     #[test]
