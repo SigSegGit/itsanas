@@ -252,7 +252,7 @@ mod tests {
             15,
             "a Docker client could not see its neighbour's promise: containers do not share homes"
         );
-        assert!(stale.is_empty());
+        assert_eq!(stale, Vec::<String>::new());
 
         let (found, stale) = others(&b, Some(&shared), "bb", 100 + STALE_AFTER_SECS + 1);
         assert!(
