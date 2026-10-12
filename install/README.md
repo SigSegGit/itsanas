@@ -498,6 +498,12 @@ drain fails, it says so and goes on. An owner that could not be asked still coun
 this machine as holding its data until its next audit withdraws it. If this machine
 was a host for somebody, tell them.
 
+The synced folder stays unless asked for, with a flag of its own that only goes
+with the account: `sh install/clean.sh --yes --purge-account --purge-folder`,
+`clean.ps1 -Yes -PurgeAccount -PurgeFolder`. Only a folder holding the
+`.itsanas-folder` marker is removed, so a configuration pointing at a home
+directory or a drive root is never emptied (held by `check-installers.sh`).
+
 ## Two accounts on one machine
 
 Each account is a named **instance**: its own node (`~/.itsanas-NAME`), its own

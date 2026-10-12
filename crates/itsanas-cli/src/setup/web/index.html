@@ -39,6 +39,14 @@
         <dt>Name of this setup</dt><dd id="machine-instance"></dd>
       </dl>
       <p class="done-note" data-done-for="machine" hidden></p>
+      <div id="another" hidden>
+        <p><span>This computer already has the ITSaNAS account</span> <strong id="account-here"></strong></p>
+        <p>Start continues with it. To set up a different account beside it, give it a name:</p>
+        <label for="another-name">Name of the other setup (lowercase letters and digits)</label>
+        <div class="row"><input id="another-name" spellcheck="false" autocapitalize="none"><button type="button" id="another-start">Set up another account</button></div>
+        <p id="another-said" class="help" role="status" aria-live="polite"></p>
+        <p class="help">To remove the account already here instead, use Remove this machine in its icon near the clock, then run this setup again.</p>
+      </div>
       <div class="actions"><button type="button" class="primary" data-next>Start</button></div>
     </section>
 
@@ -72,11 +80,14 @@
       <h1 tabindex="-1">Your folder and your space</h1>
       <p class="done-note" data-done-for="folder" hidden></p>
       <p class="lead">Choose the folder to sync on this machine. On your other machines it can be somewhere else: what is synced is what it holds.</p>
+      <div id="folder-questions">
       <label for="folder">Folder</label>
       <div class="row"><input id="folder" name="folder" spellcheck="false" autocapitalize="none" aria-describedby="folder-help"><button type="button" id="folder-browse">Browse&hellip;</button></div>
       <p id="folder-help" class="help">It is created if it does not exist. Files you put in it are synced.</p>
+      </div>
       <label class="choice"><input type="checkbox" id="background" checked> Start ITSaNAS when I log in, with an icon near the clock (recommended)</label>
       <p class="done-note" data-done-for="pledge" hidden></p>
+      <div id="pledge-questions">
       <h2>Space you offer</h2>
       <p class="help">How much of this disk other members may use for their copies: it is what earns room for your own files on theirs.</p>
       <p id="space-free" class="help"></p>
@@ -84,6 +95,7 @@
       <div class="row slider"><input id="pledge-slider" type="range" min="1" step="1" aria-label="Space to offer, in GB"><input id="pledge" name="pledge" type="number" min="1" step="1" inputmode="numeric" aria-describedby="pledge-help"></div>
       <p id="pledge-earns" class="earns" aria-live="polite"></p>
       <p id="pledge-help" class="help">You can change it later. The disk is the one that holds this machine's ITSaNAS data.</p>
+      </div>
       <p class="done-note" data-done-for="updates" hidden></p>
       <p class="done-note" data-done-for="registration" hidden></p>
       <details>

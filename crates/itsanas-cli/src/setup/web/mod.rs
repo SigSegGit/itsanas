@@ -117,6 +117,9 @@ pub(crate) struct Backends {
     pub(crate) service: MakeService,
     /// Is a username taken at a coordinator ([`super::name_taken`]).
     pub(crate) name: super::NameCheck,
+    /// Start the setup of another account, as instance `name`, in a page of
+    /// its own ([`start_another`]).
+    pub(crate) another: fn(&str) -> std::result::Result<(), String>,
 }
 
 impl Backends {
@@ -136,6 +139,7 @@ impl Backends {
                 platform
             }),
             name: super::name_taken,
+            another: start_another,
         }
     }
 }
@@ -455,6 +459,7 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/control") if ctx.mode == Mode::Settings => steer(ctx, request),
         ("POST", "/api/signout") if ctx.mode == Mode::Settings => sign_out(ctx),
         ("POST", "/api/name") if ctx.mode == Mode::Setup => check_name(ctx, request),
+        ("POST", "/api/another") if ctx.mode == Mode::Setup => another_account(ctx, request),
         ("POST", "/api/free") => free_space(ctx, request),
         ("POST", "/api/pick") => pick(request),
         ("POST", "/api/open") => open_folder(ctx, request, false),
@@ -560,6 +565,16 @@ fn state_json(ctx: &Context) -> String {
         ("home", quote(&ctx.home.display().to_string())),
         ("instance", optional(ctx.instance.as_deref())),
         ("exists", Node::exists(&ctx.home).to_string()),
+        (
+            "account_here",
+            optional(
+                Node::exists(&ctx.home)
+                    .then(|| Config::load(&Node::config_path(&ctx.home)).ok())
+                    .flatten()
+                    .map(|config| config.username)
+                    .as_deref(),
+            ),
+        ),
         ("defaults", defaults),
         ("run", run_json(&lock(&ctx.run))),
     ];
@@ -997,6 +1012,46 @@ pub(crate) fn open_command(os: &str, folder: &Path) -> Command {
 /// Open the synced folder, or pin it where the file manager keeps favourites:
 /// Quick access on Windows, the GTK bookmarks on Linux. macOS has no command
 /// for the Finder sidebar, and says how by hand.
+/// A second account on this computer is a second instance, in a home of its
+/// own: never the home of the account already here, nor of any other one.
+/// Found on Windows: an old account's home made every step "Already done",
+/// and the page offered no way to set up a new account beside it.
+fn another_account(ctx: &Context, request: &Request) -> Response {
+    let form = json::parse_form(&request.body).unwrap_or_default();
+    let name = field(&form, "name").unwrap_or_default().trim().to_owned();
+    let home = match itsanas_node::config::instance_home_in(&ctx.base, &name) {
+        Ok(home) => home,
+        Err(error) => return Response::refuse(400, &error.to_string()),
+    };
+    if home == ctx.home || Node::exists(&home) {
+        return Response::refuse(
+            409,
+            "an account is already set up under that name on this computer; choose another name",
+        );
+    }
+    match (ctx.backends.another)(&name) {
+        Ok(()) => ok_json(object(&[(
+            "said",
+            quote(&format!("the setup of {name} opened in a new page")),
+        )])),
+        Err(why) => Response::refuse(500, &why),
+    }
+}
+
+/// `itsanas --instance NAME setup`, detached: it opens its own page.
+fn start_another(name: &str) -> std::result::Result<(), String> {
+    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let mut child = std::process::Command::new(exe)
+        .args(["--instance", name, "setup"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("could not start it: {error}"))?;
+    std::thread::spawn(move || child.wait());
+    Ok(())
+}
+
 fn open_folder(ctx: &Context, request: &Request, pin: bool) -> Response {
     let form = json::parse_form(&request.body).unwrap_or_default();
     let folder = field(&form, "path")
