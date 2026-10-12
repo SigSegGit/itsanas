@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0w
-TITLE: (7) leftover, the tray's removal entry; then (8) account deletion, closed question to Nicolas first
+TITLE: (8) account deletion, closed question to Nicolas first
 WRITTEN-AT: 2026-10-12
-BASE: 1345a9f
+BASE: 1bace7a
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,7 +20,14 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**2026-10-12, last: 0w (7) clean removal, the drain (branch
+**2026-10-12, latest: the tray's "Remove this machine..." (0w (7) closed).**
+All three trays, one menu (`check-installers.sh`). Also merged today: #258
+(the drain), #259 (AGENTS: merge a green PR without asking). NEXT (8)
+needs Nicolas's closed answer before code. Asked by Nicolas 2026-10-08 and
+in ROADMAP ("Pledges are not reserved", "Next, asked by Nicolas"): the
+per-disk pledge check ASAP, multi-account setup, full account removal.
+
+**2026-10-12, earlier: 0w (7) clean removal, the drain (branch
 `step/clean-removal`).** Protocol 8: `Request::Draining { seconds }`
 answered by `Response::Exposed { chunks }`. The owner records the caller in
 `draining_until` (capped at `holders::MAX_DRAIN`, 2 h; `Leaving` clears it),
@@ -1795,7 +1802,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
          `red_team_a_draining_notice_uncounts_only_the_caller`,
          `red_team_a_drain_never_counts_an_owner_it_could_not_ask_as_done`).
          There is no `itsanas uninstall`: removal is `install/clean.*`, which
-         now drains through `itsanas leave`. ⬜ **Left: the tray entry.** In
+         now drains through `itsanas leave`. ✅ **The tray entry, 2026-10-12:**
+         "Remove this machine..." on all three trays, behind a dialog; it stops
+         the service (scheduled task / `systemctl --user stop` / `launchctl
+         bootout`) and runs `itsanas leave` in a visible window. Held by
+         `check-installers.sh` (the healthy menu must carry it with
+         `[confirm]`; sabotaged without it: red). Never run from a real tray;
+         the window does not offer `clean -PurgeAccount` afterwards, the
+         dialog names it. Was: In
          `scripts/itsanas-tray.ps1`, beside "Sign out" (`$signoutWords` :48,
          the entry :119, its confirmation :270, the action :286): "Remove
          this machine" with a confirmation naming the drain, running
