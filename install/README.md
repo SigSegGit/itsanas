@@ -565,7 +565,7 @@ shows in Task Manager's Startup apps, where you can switch it off;
 `-NoTray` skips it. `clean.ps1 -Instance sam` removes Sam's shortcut and
 no other; `clean.ps1` without `-Instance` removes them all with the
 programs. An icon already on screen stays until you log off or quit it.
-Since 2026-10-06 the menu also offers a pause of 1 hour or 8 hours, Settings... and Sign out... (behind a dialog; Sign in brings it back); nothing in it decommissions a machine yet.
+Since 2026-10-06 the menu also offers a pause of 1 hour or 8 hours, Settings... and Sign out... (behind a dialog; Sign in brings it back); since 2026-10-12, Remove this machine... (behind a dialog) stops the service and runs `itsanas leave` in a visible window, which drains for up to 30 minutes.
 
 ### The tray on macOS and Linux
 
@@ -586,7 +586,7 @@ only their parse checks and printed menus run in `check-installers.sh`.
 
 All three trays (Windows, macOS, Linux) offer the same menu: open the folder,
 pause for 1 hour, 8 hours or until resumed, sync now, sync every, Settings...,
-Sign out... (behind a dialog), open the log, restart, quit the icon.
+Sign out... and Remove this machine... (each behind a dialog), open the log, restart, quit the icon.
 
 ## Setting up: `itsanas setup`
 

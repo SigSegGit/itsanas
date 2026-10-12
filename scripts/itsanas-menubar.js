@@ -34,6 +34,7 @@ var SIGNOUT_WORDS = 'This stops ITSaNAS on this machine and forgets the passphra
     'longer starts by itself.\n\nYour files, and the data this machine keeps for other people, ' +
     'stay on this disk. While signed out it does not sync, and the others cannot check what it ' +
     'keeps for them.\n\nTo come back, choose Sign in... and type your passphrase.';
+var REMOVE_WORDS = 'This hands what this machine keeps for other people to other machines (up to 30 minutes, in a window that shows the progress), then removes this machine from the account. ITSaNAS no longer starts here.\n\nYour synced folder stays. To delete this machine\'s ITSaNAS data afterwards, run install/clean with the purge option the window names.';
 
 var COLOURS = {
     green: [46, 160, 67],
@@ -128,6 +129,7 @@ function menuModel(brief, intervalLine, label) {
         items.push(entry('sep', ''));
         items.push(entry('item', 'Settings...', ['settings']));
         items.push(entry('item', 'Sign out...', ['signout'], { confirm: true }));
+        items.push(entry('item', 'Remove this machine...', ['leave'], { confirm: true }));
     }
     items.push(entry('sep', ''));
     items.push(entry('item', 'Open the log', 'open-log'));
@@ -352,6 +354,9 @@ function run(argv) {
         if (item.action[0] === 'signout') {
             return alert('Sign out of ' + label + ' on this machine?\n\n' + SIGNOUT_WORDS, true);
         }
+        if (item.action[0] === 'leave') {
+            return alert('Remove this machine from ' + label + '?\n\n' + REMOVE_WORDS, true);
+        }
         var lasts = PAUSES.filter(function (pause) { return pause[0] === item.text; })[0][2];
         return alert('Pause syncing on this machine ' + lasts + '?\n\n' + PAUSE_WORDS, true);
     }
@@ -363,6 +368,10 @@ function run(argv) {
             inTerminal(cli(argv));
         } else if (argv[0] === 'signout') {
             startWatched(argv, 'Sign out');
+        } else if (argv[0] === 'leave') {
+            // The daemon holds the store open: it stops before the drain can.
+            sh('launchctl bootout "gui/$(id -u)/' + agent + '"');
+            inTerminal(cli(argv));
         } else if (itsanas(argv) === null && argv[0] === 'sync-now') {
             alert('Not asked: syncing is paused, or no daemon is running for ' + label + '.', false);
         }

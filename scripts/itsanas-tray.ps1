@@ -45,6 +45,7 @@ $label = if ($Instance) { "ITSaNAS $Instance" } else { 'ITSaNAS' }
 # The words of the two dialogs, the same on every platform (the other trays
 # carry the same text): what a person loses, and what they keep.
 $pauseWords = 'Nothing is lost: what you change here waits until syncing resumes, and what your other machines change waits for you. This machine keeps hosting for the others.'
+$removeWords = "This hands what this machine keeps for other people to other machines (up to 30 minutes, in a window that shows the progress), then removes this machine from the account. ITSaNAS no longer starts here.`n`nYour synced folder stays. To delete this machine's ITSaNAS data afterwards, run install/clean with the purge option the window names."
 $signoutWords = "This stops ITSaNAS on this machine and forgets the passphrase here, so it no longer starts by itself.`n`nYour files, and the data this machine keeps for other people, stay on this disk. While signed out it does not sync, and the others cannot check what it keeps for them.`n`nTo come back, choose Sign in... and type your passphrase."
 
 # ---------------------------------------------------------------- the model
@@ -117,6 +118,7 @@ function Get-Menu([string]$Brief, [string]$IntervalLine) {
         $menu += New-Entry 'sep' '' $null
         $menu += New-Entry 'item' 'Settings...' @('settings')
         $menu += New-Entry 'item' 'Sign out...' @('signout') -Confirm
+        $menu += New-Entry 'item' 'Remove this machine...' @('leave') -Confirm
     }
     $menu += New-Entry 'sep' '' $null
     $menu += New-Entry 'item' 'Open the log' 'open-log'
@@ -269,6 +271,8 @@ function Confirm-Entry($entry) {
     if (-not $entry.Confirm) { return $true }
     if ($entry.Action[0] -eq 'signout') {
         $question = "Sign out of $label on this machine?`n`n$signoutWords"
+    } elseif ($entry.Action[0] -eq 'leave') {
+        $question = "Remove this machine from $label?`n`n$removeWords"
     } else {
         $lasts = switch ($entry.Text) { 'For 1 hour' { 'for 1 hour' } 'For 8 hours' { 'for 8 hours' } default { 'until you resume it' } }
         $question = "Pause syncing on this machine $lasts?`n`n$pauseWords"
@@ -284,6 +288,11 @@ function Invoke-Entry($entry) {
             'settings' { Start-Process -FilePath $exe -ArgumentList (Get-CliArguments @('settings')) -WindowStyle Hidden }
             'signin' { Start-InWindow @('signin') }
             'signout' { Start-Watched @('signout') 'Sign out' }
+            'leave' {
+                # The daemon holds the store open: it stops before the drain can.
+                Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+                Start-InWindow @('leave')
+            }
             'sync-now' {
                 if (-not @(Invoke-Itsanas @('sync-now'))) { Show-Message "Not asked: syncing is paused, or no daemon is running for $label." }
             }

@@ -1097,7 +1097,8 @@ if [ -n "$PY" ]; then
                 '  item Until I resume -> itsanas --instance b pause [confirm]' \
                 '  item 15 min -> itsanas --instance b interval 15m [checked]' \
                 'item Settings... -> itsanas --instance b settings' \
-                'item Sign out... -> itsanas --instance b signout [confirm]' 'item Quit the icon -> quit'; do
+                'item Sign out... -> itsanas --instance b signout [confirm]' \
+                'item Remove this machine... -> itsanas --instance b leave [confirm]' 'item Quit the icon -> quit'; do
         printf '%s\n' "$healthy" | grep -qxF -- "$line" \
             || { bad "the tray menu of a healthy node lacks: $line"; menus_ok=0; }
     done

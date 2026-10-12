@@ -45,6 +45,9 @@ SIGNOUT_WORDS = (
     "people, stay on this disk. While signed out it does not sync, and the others cannot "
     "check what it keeps for them.\n\nTo come back, choose Sign in... and type your passphrase."
 )
+REMOVE_WORDS = (
+    "This hands what this machine keeps for other people to other machines (up to 30 minutes, in a window that shows the progress), then removes this machine from the account. ITSaNAS no longer starts here.\n\nYour synced folder stays. To delete this machine's ITSaNAS data afterwards, run install/clean with the purge option the window names."
+)
 NO_TOOLKIT = (
     "itsanas-tray: no GTK for Python here (python3-gi), so no tray icon; "
     "the web Settings page does the same: itsanas settings"
@@ -161,6 +164,7 @@ def menu(brief, interval_line, label):
         items.append(entry("sep", ""))
         items.append(entry("item", "Settings...", ["settings"]))
         items.append(entry("item", "Sign out...", ["signout"], confirm=True))
+        items.append(entry("item", "Remove this machine...", ["leave"], confirm=True))
     items += [
         entry("sep", ""),
         entry("item", "Open the log", "open-log"),
@@ -343,6 +347,8 @@ class Tray:
             return True
         if item["action"] == ["signout"]:
             return self.ask("Sign out of %s on this machine?\n\n%s" % (self.label, SIGNOUT_WORDS))
+        if item["action"] == ["leave"]:
+            return self.ask("Remove this machine from %s?\n\n%s" % (self.label, REMOVE_WORDS))
         lasts = next(said for text, _, said in PAUSES if text == item["text"])
         return self.ask("Pause syncing on this machine %s?\n\n%s" % (lasts, PAUSE_WORDS))
 
@@ -377,6 +383,15 @@ class Tray:
                 self.tell("Open a terminal and run:\n\n  " + " ".join(full))
         elif argv == ["signout"]:
             self.watch(full, "Sign out")
+        elif argv == ["leave"]:
+            # The daemon holds the store open: it stops before the drain can.
+            subprocess.call(["systemctl", "--user", "stop", self.unit()],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            shown = terminal_argv(full)
+            if shown:
+                detach(shown)
+            else:
+                self.tell("Open a terminal and run:\n\n  " + " ".join(full))
         elif argv == ["sync-now"] and self.run(argv) is None:
             self.tell("Not asked: syncing is paused, or no daemon is running for %s." % self.label)
         elif argv != ["sync-now"]:

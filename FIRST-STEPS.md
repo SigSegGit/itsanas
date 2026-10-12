@@ -340,7 +340,7 @@ An ITSaNAS icon starts at login: in the notification area on Windows, in the
 menu bar on a Mac, and as an indicator on a Linux desktop (it needs
 python3-gi and AppIndicator; without them, use `itsanas settings`). Its menu
 has the same choices: open the folder, pause for 1 hour, 8 hours or until you
-resume, sync now, sync every, Settings..., Sign out..., open the log, restart.
+resume, sync now, sync every, Settings..., Sign out..., Remove this machine..., open the log, restart.
 The Mac and Linux icons have not yet been run on a real desktop.
 
 ---
