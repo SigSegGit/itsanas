@@ -342,13 +342,23 @@ A node that simply vanishes gets none of this, which is why repair exists. The
 notice period is the difference between leaving politely and leaving rudely, and
 the network survives both — it just does more work for the second.
 
-What exists today is the first half of politeness: `itsanas leave`, run with the
-daemon stopped, tells every peer that keeps a ledger about this device to stop
+What exists today is most of politeness: `itsanas leave`, run with the
+daemon stopped, first asks every owner to stop counting this device and to
+re-place what rests on it alone (`Draining`, peer protocol 8; asked again every
+minute for `--drain-for` minutes, 30 by default, 120 at most; the owner stops
+counting it for at most two hours, so an interrupted drain cannot exclude it
+for ever -- `red_team_a_draining_holder_stops_counting_so_repair_starts_before_it_goes`,
+`red_team_a_drain_expires_and_cannot_exclude_a_holder_for_a_week`,
+`red_team_a_draining_notice_uncounts_only_the_caller`). It never refuses to
+finish, and its last sentence gives counts only, never an owner's name; an owner
+it could not ask is not counted as done
+(`red_team_a_drain_never_counts_an_owner_it_could_not_ask_as_done`). Then it
+tells every peer that keeps a ledger about this device to stop
 counting it (`red_team_a_leaving_notice_withdraws_only_the_caller`), so repair
 starts at once instead of after the seven days a silence takes to be noticed,
 and the coordinator records the departure apart from a silence
 (`a_departure_is_recorded_apart_from_a_silence`). It does **not** keep serving
-while copies are taken — that is `evict`'s notice period — and nothing reads the
+while copies are taken (a drain asks for replacements, it does not hold the door) — that is `evict`'s notice period — and nothing reads the
 recorded departures yet. Leaving is not withdrawing: the device keeps its
 claim, and so its slot among the account's five
 (`red_team_a_departed_device_keeps_its_slot`); `itsanas leave` ends by saying

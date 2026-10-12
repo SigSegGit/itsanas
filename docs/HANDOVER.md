@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0w
-TITLE: sub-step (6b) leftovers after Nicolas tests v0.1.1, then (7) clean removal
-WRITTEN-AT: 2026-10-07
-BASE: 11b3449
+TITLE: (7) leftover, the tray's removal entry; then (8) account deletion, closed question to Nicolas first
+WRITTEN-AT: 2026-10-12
+BASE: 1345a9f
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,7 +20,25 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**2026-10-07, last: v0.1.2 for the test campaign.** A member node in
+**2026-10-12, last: 0w (7) clean removal, the drain (branch
+`step/clean-removal`).** Protocol 8: `Request::Draining { seconds }`
+answered by `Response::Exposed { chunks }`. The owner records the caller in
+`draining_until` (capped at `holders::MAX_DRAIN`, 2 h; `Leaving` clears it),
+stops counting it in `under_replicated` and `coverage`, and answers how many
+live chunks rest on it alone. `itsanas leave --drain-for N` (30 by default)
+writes the departure record first, asks every owner each minute until all
+say 0 or time is up, says counts only (an owner it could not ask is
+"could not be asked", never done), then `Leaving` as before.
+`clean.sh --purge-account` / `clean.ps1 -PurgeAccount` run it before
+deleting, the instance paths too. Rodin, before code: the service must be
+stopped (redb is one process), the row must expire, `status` must not count
+a draining machine; all three in. Four red-team tests, each sabotaged red.
+**Not done:** the tray entry (left as NEXT). **Not verified:** a drain
+between two real machines; the scripts' drain never ran (no pwsh, no real
+install here). Repair re-sends from the owner's own copy, so a draining
+host serves nothing and need not run.
+
+**2026-10-07, v0.1.2 for the test campaign.** A member node in
 Docker for any Linux (`install/docker/compose.client.yml`, host network,
 512 MB / one core, one compose project per account), beside the
 coordinator's compose. Workspace 0.1.2, tagged so the release carries #250
@@ -1759,7 +1777,22 @@ Detail and measurements are in ROADMAP.md; this is the map.
          `upnp.rs`, each sabotaged red. Next: Nicolas tests v0.1.1 for real
          (install by the `.exe`, update from v0.1.0, a second machine, the
          router), and the leftovers above go first.
-      7. **Clean removal.** from the tray and as `itsanas uninstall`: wraps
+      7. 🟨 **Clean removal.** ✅ drain built 2026-10-12 (`leave --drain-for`,
+         protocol 8, `clean.*` purge paths; tests
+         `red_team_a_draining_holder_stops_counting_so_repair_starts_before_it_goes`,
+         `red_team_a_drain_expires_and_cannot_exclude_a_holder_for_a_week`,
+         `red_team_a_draining_notice_uncounts_only_the_caller`,
+         `red_team_a_drain_never_counts_an_owner_it_could_not_ask_as_done`).
+         There is no `itsanas uninstall`: removal is `install/clean.*`, which
+         now drains through `itsanas leave`. ⬜ **Left: the tray entry.** In
+         `scripts/itsanas-tray.ps1`, beside "Sign out" (`$signoutWords` :48,
+         the entry :119, its confirmation :270, the action :286): "Remove
+         this machine" with a confirmation naming the drain, running
+         `itsanas leave` in a visible console (it prints progress for up to
+         30 min) after stopping the task, then offering `clean.ps1
+         -PurgeAccount`; the same on macOS/Linux trays. Red team expected:
+         the entry does nothing without the confirmation. Original text:
+         from the tray and as `itsanas uninstall`: wraps
          `clean.ps1` / `clean.sh` after a **drain** (§10 item 15, decided
          2026-10-07): stop accepting chunks, hand every hosted chunk to
          another host until each owner's ledger shows another holder or a

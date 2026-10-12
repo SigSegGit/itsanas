@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1077 test functions, 9 of them `#[ignore]`d into the slow job, and 251 of
+**1081 test functions, 9 of them `#[ignore]`d into the slow job, and 255 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1413,7 +1413,9 @@ Major step: Rodin on the plan before the code.
   and never mix two.
 - **Account removal that removes everything.** Today `clean.ps1` / `clean.sh`
   keep the account unless `-PurgeAccount`, and the synced folder always.
-  Wanted: one removal (tray and `itsanas uninstall`) that, after the drain
+  Since 2026-10-12 `clean.sh --purge-account` / `clean.ps1 -PurgeAccount`
+  run `itsanas leave --drain-for` first (§8 0w (7)); the tray entry is not
+  built. Wanted: one removal (tray and `itsanas uninstall`) that, after the drain
   (§10 item 15), deletes the node's data and storage directory, with one
   clear confirmation saying what goes and that the synced folder's own files
   stay or go as chosen.

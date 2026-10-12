@@ -1484,6 +1484,23 @@ impl Store {
         self.index.forget_holder(chunk, device)
     }
 
+    /// Stop counting `device` towards replication until `until` (capped at
+    /// [`crate::holders::MAX_DRAIN`] from `now`): it said it is draining.
+    pub fn note_draining(&self, device: &DeviceId, until: u64, now: u64) -> Result<()> {
+        self.index.note_draining(device, until, now)
+    }
+
+    /// Whether `device` is draining at `now`.
+    pub fn is_draining(&self, device: &DeviceId, now: u64) -> Result<bool> {
+        self.index.is_draining(device, now)
+    }
+
+    /// Live chunks `device` holds that no other live, non-draining machine
+    /// holds. See [`Index::exposed_by`].
+    pub fn exposed_by(&self, device: &DeviceId, now: u64) -> Result<u64> {
+        self.index.exposed_by(device, now)
+    }
+
     /// Withdraw every record naming `device`, for a peer that has left.
     pub fn forget_device(&self, device: &DeviceId) -> Result<usize> {
         self.index.forget_device(device)

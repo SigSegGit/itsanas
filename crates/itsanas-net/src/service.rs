@@ -403,6 +403,8 @@ impl<'a> PeerService<'a> {
 
             Request::Claim { claim } => Ok(self.claim(caller, claim)),
 
+            Request::Draining { seconds } => self.draining(caller, *seconds),
+
             Request::Hosted { chunks } => {
                 // A claim, recorded and then checked. The storage challenges
                 // this node already runs are what turn it into evidence: a peer
@@ -414,6 +416,19 @@ impl<'a> PeerService<'a> {
                 Ok(Response::Stored { accepted: true })
             }
         }
+    }
+
+    /// Stop counting `caller` for `seconds`, and say how much rests on it alone.
+    ///
+    /// Scoped to the caller, as `Leaving` is: a device can only ever ask to be
+    /// uncounted itself, so nobody can make an owner stop counting a third
+    /// machine. The store caps the duration; the caller's number is a wish.
+    fn draining(&self, caller: DeviceId, seconds: u64) -> Result<Response> {
+        let now = itsanas_store::now_unix();
+        self.store
+            .note_draining(&caller, now.saturating_add(seconds), now)?;
+        let chunks = self.store.exposed_by(&caller, now)?;
+        Ok(Response::Exposed { chunks })
     }
 
     /// Take the claim `caller` presented, if this host bounds accounts.
@@ -1103,6 +1118,46 @@ mod tests {
         assert!(
             at_risk.iter().any(|risk| risk.chunk == chunk),
             "a departed holder is still counted, so nothing repairs"
+        );
+    }
+
+    #[test]
+    fn red_team_a_draining_notice_uncounts_only_the_caller() {
+        // `Draining` makes an owner stop counting a holder. Pointed at somebody
+        // else it would make the owner ignore -- and replace -- a machine that
+        // is staying. It carries no device; this keeps it so, and checks the
+        // answer counts what rests on the caller alone.
+        let node = node(&alice(), 27);
+        node.store.write_file("notes.txt", b"content").unwrap();
+        let chunk = node.store.stat("notes.txt").unwrap().unwrap().chunks[0];
+
+        let stays = DeviceId::from_bytes([0xA5; 32]);
+        let goes = DeviceId::from_bytes([0xB6; 32]);
+        node.store.record_holders(&[chunk], &goes).unwrap();
+
+        let response = service(&node)
+            .handle(&Request::Draining { seconds: 600 }, goes)
+            .unwrap();
+        assert_eq!(
+            response,
+            Response::Exposed { chunks: 1 },
+            "the only holder drained and was told nothing rests on it"
+        );
+        let now = itsanas_store::now_unix();
+        assert!(node.store.is_draining(&goes, now).unwrap());
+        assert!(
+            !node.store.is_draining(&stays, now).unwrap(),
+            "a notice uncounted a device other than its sender"
+        );
+
+        node.store.record_holders(&[chunk], &stays).unwrap();
+        let response = service(&node)
+            .handle(&Request::Draining { seconds: 600 }, goes)
+            .unwrap();
+        assert_eq!(
+            response,
+            Response::Exposed { chunks: 0 },
+            "a second holder appeared and the drain was still told to wait"
         );
     }
 

@@ -496,6 +496,14 @@ pub const CONFIRMED_FOR: u64 = 14 * 24 * 60 * 60;
 /// bandwidth proving nothing.
 pub const LIVE_FOR: u64 = REFRESH_AFTER * 2;
 
+/// Longest a device may be excluded for saying it is draining: two hours.
+///
+/// A drain is a person waiting at a screen; `itsanas leave` asks for at most
+/// this. The cap is the owner's, not the asker's word, so a device cannot
+/// talk an owner into ignoring it -- and over-replicating around it -- for a
+/// week.
+pub const MAX_DRAIN: u64 = 2 * 60 * 60;
+
 /// How many rows a rolling disk check examines each round so that a whole pass
 /// over `rows` takes at most [`REFRESH_AFTER`] when a round comes every
 /// `interval_secs`.

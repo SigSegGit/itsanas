@@ -4,7 +4,7 @@
 #
 #   sh install/clean.sh              # show what would go, change nothing
 #   sh install/clean.sh --yes        # remove the programs and the service
-#   sh install/clean.sh --yes --purge-account   # and the account itself
+#   sh install/clean.sh --yes --purge-account   # and the account, after a drain
 #   sudo sh install/clean.sh --yes --purge-coordinator  # a coordinator host
 #   sh install/clean.sh --yes --instance bob   # one named instance, nothing else
 #
@@ -35,6 +35,7 @@ set -eu
 
 DO_IT=0
 PURGE=0
+DRAIN_FOR=30
 PURGE_COORD=0
 PREFIX="${ITSANAS_PREFIX:-$HOME/.local}"
 NODE_HOME="${ITSANAS_HOME:-$HOME/.itsanas}"
@@ -54,6 +55,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --yes|-y) DO_IT=1; shift ;;
         --purge-account) PURGE=1; shift ;;
+        --drain-for) DRAIN_FOR="$2"; shift 2 ;;
         --purge-coordinator) PURGE_COORD=1; shift ;;
         --prefix) PREFIX="$2"; shift 2 ;;
         --prefix=*) PREFIX="${1#--prefix=}"; shift ;;
@@ -114,6 +116,34 @@ each_tray_file() {
     IFS=$saved_ifs
 }
 
+# The account is about to go, and with it what this machine holds for other
+# members: drain first (§8 0w (7)), with the service already stopped because
+# one process at a time holds a node. `leave` asks each owner to re-place what
+# rests here alone, waits up to --drain-for minutes, and never refuses to
+# finish. The passphrase is read the way the service reads it
+# (`setup/service.rs`): the first ITSANAS_PASSPHRASE= line of $1; without one,
+# `leave` prompts on the terminal.
+drain_before_purge() {
+    [ "$PURGE" -eq 1 ] && [ -f "$NODE_HOME/keystore.bin" ] || return 0
+    exe="$PREFIX/bin/itsanas"
+    [ -x "$exe" ] || exe=$(command -v itsanas 2>/dev/null) || {
+        warn "no itsanas program to drain with; the owners stop counting this machine after their next audits"
+        return 0
+    }
+    secret=""
+    [ -f "$1" ] && secret=$(sed -n 's/^ITSANAS_PASSPHRASE=//p' "$1" | head -n 1)
+    drained=yes
+    if [ -n "$secret" ]; then
+        ITSANAS_PASSPHRASE="$secret" "$exe" --home "$NODE_HOME" leave --drain-for "$DRAIN_FOR" || drained=no
+    else
+        "$exe" --home "$NODE_HOME" leave --drain-for "$DRAIN_FOR" || drained=no
+    fi
+    unset secret
+    if [ "$drained" = no ]; then
+        warn "the drain did not run; the owners stop counting this machine after their next audits"
+    fi
+}
+
 # One named instance, and nothing that other nodes on this machine share: the
 # programs, the unit template and the other instances stay.
 if [ -n "$INSTANCE" ]; then
@@ -160,6 +190,7 @@ if [ -n "$INSTANCE" ]; then
     if [ -f "$AGENT" ] && command -v launchctl >/dev/null 2>&1; then
         launchctl bootout "gui/$(id -u)/net.itsanas.$INSTANCE" >/dev/null 2>&1 || true
     fi
+    drain_before_purge "$SECRET"
     rm -f "$SECRET" "$AGENT"
     each_tray_file remove_tray_file
     if [ "$PURGE" -eq 1 ] && [ -d "$NODE_HOME" ]; then
@@ -322,6 +353,7 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl --user daemon-reload >/dev/null 2>&1 || true
 fi
 say "service removed"
+drain_before_purge "$ENV_DIR/environment"
 if [ -n "$TRAYS" ]; then
     each_tray_file remove_tray_file
     say "tray icons removed"

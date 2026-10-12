@@ -379,12 +379,20 @@ enum Command {
     /// records the departure apart from a silence.
     ///
     /// Run it with the daemon stopped: one process at a time holds a node's
-    /// state. It does not wait for the repair, which is the peers' work.
-    /// Afterwards `daemon` exits at once, and `serve`, `sync` and `register`
+    /// state. First it drains: each owner is asked to stop counting this
+    /// machine and to re-place what rests on it alone, and asked again every
+    /// minute until nothing does or `--drain-for` minutes pass. It never
+    /// refuses to finish; it says how many owners were left one replica short,
+    /// never who. Afterwards `daemon` exits at once, and `serve`, `sync` and `register`
     /// refuse, until `itsanas rejoin`. The device keeps its claim, and so its
     /// slot among the account's 5: `itsanas device forget <id>`, run from
     /// another device, frees it.
-    Leave,
+    Leave {
+        /// Minutes to wait for the owners to re-place what rests on this
+        /// machine alone; 0 skips the drain. At most 120.
+        #[arg(long, default_value_t = 30)]
+        drain_for: u64,
+    },
     /// Undo `leave` on this machine: the daemon may start again.
     Rejoin,
     /// Serve peers.
@@ -766,7 +774,7 @@ fn run() -> Result<()> {
         Command::Device { what } => device(&home, &what),
         Command::Listen { address } => listen_on(&home, address.as_deref()),
         Command::Announce { address, forget } => announce_as(&home, address.as_deref(), forget),
-        Command::Leave => leave(&home),
+        Command::Leave { drain_for } => leave(&home, drain_for),
         Command::Rejoin => rejoin(&home),
         Command::Serve { listen } => serve(&home, listen.as_deref()),
         Command::Daemon {
@@ -2876,9 +2884,12 @@ fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
 /// The configured peers are told too, because somebody typed them in. Each is
 /// told at most once, and a peer that cannot be reached is named rather than
 /// retried: its records age out of `LIVE_FOR` like a crash's would.
-fn leave(home: &Path) -> Result<()> {
+fn leave(home: &Path, drain_for: u64) -> Result<()> {
     let node = open(home)?;
     let me = node.store.device_id();
+    // Written first: from here the daemon will not start, so nothing new is
+    // accepted while the owners re-place what this machine holds.
+    record_departure(home, itsanas_discover::now_unix())?;
 
     let mut targets: Vec<(Option<DeviceId>, String)> = node
         .config
@@ -2905,6 +2916,8 @@ fn leave(home: &Path) -> Result<()> {
             }
         }
     }
+
+    drain(&node, &targets, drain_for);
 
     let mut told: std::collections::BTreeSet<DeviceId> = std::collections::BTreeSet::new();
     for (expect, address) in &targets {
@@ -2945,7 +2958,6 @@ fn leave(home: &Path) -> Result<()> {
     } else {
         println!("{} peer(s) told; this node can be switched off", told.len());
     }
-    record_departure(home, itsanas_discover::now_unix())?;
     println!("the daemon will not start here again until `itsanas rejoin`");
     if node.config.coordinator.is_some() {
         // Leaving is not withdrawing: the claim stays live, so this device
@@ -2958,6 +2970,113 @@ fn leave(home: &Path) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Ask every owner to stop counting this machine and re-place what rests on it
+/// alone, until each says nothing does or `minutes` pass (§8 0w (7)).
+///
+/// Never refuses to finish: Nicolas, 2026-10-07, nobody is kept from switching
+/// off because the network is thin. What it says is counts, never who: the
+/// owners are other members, and their names are not this machine's to print.
+fn drain(node: &Node, targets: &[(Option<DeviceId>, String)], minutes: u64) {
+    use std::collections::BTreeMap;
+    let minutes = minutes.min(itsanas_store::holders::MAX_DRAIN / 60);
+    if minutes == 0 || targets.is_empty() {
+        return;
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(minutes * 60);
+    println!("draining: asking the owners to re-place what rests on this machine alone");
+
+    // Keyed by address: one owner's devices are asked one by one, and an
+    // owner that answers through any of them has answered.
+    let mut last: BTreeMap<&str, Asked> = BTreeMap::new();
+    loop {
+        for (expect, address) in targets {
+            if matches!(
+                last.get(address.as_str()),
+                Some(Asked::Exposed(0) | Asked::TooOld)
+            ) {
+                continue;
+            }
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let asked =
+                match PeerClient::connect(address, &node.device, node.store.owner(), *expect)
+                    .and_then(|mut client| client.draining(left.as_secs() + 60))
+                {
+                    Ok(Some(chunks)) => Asked::Exposed(chunks),
+                    Ok(None) => Asked::TooOld,
+                    Err(_) => Asked::Unreachable,
+                };
+            last.insert(address, asked);
+        }
+        let waiting = last
+            .values()
+            .filter(|asked| matches!(asked, Asked::Exposed(n) if *n > 0))
+            .count();
+        let unreachable = last
+            .values()
+            .filter(|asked| **asked == Asked::Unreachable)
+            .count();
+        if waiting + unreachable == 0 || std::time::Instant::now() >= deadline {
+            break;
+        }
+        println!("draining: {waiting} owner(s) still re-placing, {unreachable} unreachable");
+        std::thread::sleep(
+            std::time::Duration::from_secs(60)
+                .min(deadline.saturating_duration_since(std::time::Instant::now())),
+        );
+    }
+    println!("{}", drain_summary(last.values().copied()));
+}
+
+/// What one owner last said to [`drain`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Asked {
+    /// How many of its chunks rest on this machine alone.
+    Exposed(u64),
+    /// Older than the drain; its records go at `Leaving`, as before.
+    TooOld,
+    Unreachable,
+}
+
+/// The drain's last word, in counts only.
+///
+/// An owner that could not be asked is never folded into "done": that would
+/// be the one number in this sentence that lies.
+fn drain_summary(answers: impl Iterator<Item = Asked>) -> String {
+    let (mut short, mut chunks, mut unknown) = (0usize, 0u64, 0usize);
+    for asked in answers {
+        match asked {
+            Asked::Exposed(0) => {}
+            Asked::Exposed(n) => {
+                short += 1;
+                chunks += n;
+            }
+            Asked::TooOld | Asked::Unreachable => unknown += 1,
+        }
+    }
+    if short == 0 && unknown == 0 {
+        return "drained: every owner has another machine holding what this one held for them"
+            .to_owned();
+    }
+    let mut out = String::from("drain ended: ");
+    if short > 0 {
+        let _ = write!(
+            out,
+            "{short} owner(s) left one replica fewer, for {chunks} chunk(s) this machine \
+             alone held besides their own copy; their machines repair it"
+        );
+    }
+    if unknown > 0 {
+        if short > 0 {
+            out.push_str("; ");
+        }
+        let _ = write!(
+            out,
+            "{unknown} owner(s) could not be asked and may be one replica fewer"
+        );
+    }
+    out
 }
 
 /// The phrase as `init` shows it: numbered, four words a line.
@@ -3991,11 +4110,39 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn red_team_a_drain_never_counts_an_owner_it_could_not_ask_as_done() {
+        // The drain's last sentence is what a person reads before switching
+        // off for good. An owner that was unreachable, or too old to be asked,
+        // folded into "drained" would be the one number in it that lies.
+        let all_done = drain_summary([Asked::Exposed(0), Asked::Exposed(0)].into_iter());
+        assert!(all_done.starts_with("drained:"), "{all_done}");
+
+        let out = drain_summary(
+            [
+                Asked::Exposed(0),
+                Asked::Unreachable,
+                Asked::TooOld,
+                Asked::Exposed(4),
+            ]
+            .into_iter(),
+        );
+        assert!(
+            !out.starts_with("drained:"),
+            "owners that were never asked were reported as done: {out}"
+        );
+        assert!(
+            out.contains("1 owner(s) left one replica fewer, for 4 chunk(s)"),
+            "{out}"
+        );
+        assert!(out.contains("2 owner(s) could not be asked"), "{out}");
+    }
+
     use super::{
-        Command, DeviceId, SNAPSHOT, brief_status, control, departure_refusal, describe_age,
-        first_free_port, instances_report, looks_like_a_closed_pipe, migrate_unnamed, phrase_grid,
-        phrase_words, record_departure, refuse_if_departed, register, rejoin, resolve_device,
-        set_pledge, sibling_ports, snapshot_status, steer, sync_folder,
+        Asked, Command, DeviceId, SNAPSHOT, brief_status, control, departure_refusal, describe_age,
+        drain_summary, first_free_port, instances_report, looks_like_a_closed_pipe,
+        migrate_unnamed, phrase_grid, phrase_words, record_departure, refuse_if_departed, register,
+        rejoin, resolve_device, set_pledge, sibling_ports, snapshot_status, steer, sync_folder,
     };
 
     /// `itsanas sync` names a refused chain on its summary line, and says
