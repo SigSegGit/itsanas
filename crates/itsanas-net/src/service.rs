@@ -144,6 +144,9 @@ pub struct PeerService<'a> {
     /// This host's own claim, encoded, sent back to a device that presents
     /// one ([`Request::Claim`]).
     own_claim: Option<Vec<u8>>,
+    /// What the disk can still take, when the host knows (a pledge the disk
+    /// can no longer hold must stop the chunks, not fail their write).
+    disk_room: Option<&'a (dyn Fn() -> Option<u64> + Sync)>,
     /// The newest protocol this service admits to in `Hello`.
     protocol: u16,
     /// Held across "is there room" and "store it".
@@ -176,6 +179,7 @@ impl<'a> PeerService<'a> {
             relay: None,
             owners: None,
             own_claim: None,
+            disk_room: None,
             protocol: PROTOCOL_VERSION,
             storing: std::sync::Mutex::new(()),
         }
@@ -197,6 +201,14 @@ impl<'a> PeerService<'a> {
     #[must_use]
     pub fn with_relay(mut self, relay: &'a dyn Relay) -> Self {
         self.relay = Some(relay);
+        self
+    }
+
+    /// Refuse a chunk larger than what `room` says the disk can still take,
+    /// whatever the pledge allows.
+    #[must_use]
+    pub fn with_disk_room(mut self, room: &'a (dyn Fn() -> Option<u64> + Sync)) -> Self {
+        self.disk_room = Some(room);
         self
     }
 
@@ -581,6 +593,11 @@ impl<'a> PeerService<'a> {
         // A running total, not `stats()`: this runs under the storing lock on
         // every offer, and a walk here let a peer sending offers it knew would
         // be refused hold up every honest store behind a pass over the disk.
+        if let Some(room) = self.disk_room.and_then(|room| room())
+            && incoming as u64 > room
+        {
+            return Ok(true);
+        }
         let held = self.vault.held_bytes()?;
         Ok(held.saturating_add(incoming as u64) > self.pledge.bytes)
     }

@@ -410,6 +410,19 @@ impl Node {
         let free = fs4::available_space(&self.home).ok();
         let held = self.held_for_others()?;
         let local = self.store.local_bytes()?;
+        // Published every time the bound is set (each round, each write), so a
+        // neighbour on this disk sees what this node still owes. Best effort:
+        // a read-only home must not stop the node writing its own files.
+        let _ = crate::pledges::publish(
+            &self.home,
+            crate::pledges::shared_dir().as_deref(),
+            &self.store.device_id().to_hex(),
+            self.config.pledge_bytes,
+            held,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs()),
+        );
         self.store.set_write_budget(Some(WriteBudget {
             allowed: Self::allowed_for(
                 &self.config,
@@ -748,7 +761,7 @@ fn existing_ancestor(path: &Path) -> &Path {
 
 /// Whether `a` and `b` are on one volume; `None` when that cannot be told.
 #[cfg(unix)]
-fn same_volume(a: &Path, b: &Path) -> Option<bool> {
+pub(crate) fn same_volume(a: &Path, b: &Path) -> Option<bool> {
     use std::os::unix::fs::MetadataExt;
     let device = |path: &Path| {
         std::fs::metadata(existing_ancestor(path))
@@ -763,7 +776,7 @@ fn same_volume(a: &Path, b: &Path) -> Option<bool> {
 /// By drive (the path prefix after canonicalising). A volume mounted in a
 /// folder of another reads as the same: that errs towards charging twice.
 #[cfg(windows)]
-fn same_volume(a: &Path, b: &Path) -> Option<bool> {
+pub(crate) fn same_volume(a: &Path, b: &Path) -> Option<bool> {
     let prefix = |path: &Path| {
         std::fs::canonicalize(existing_ancestor(path))
             .ok()?
@@ -775,7 +788,7 @@ fn same_volume(a: &Path, b: &Path) -> Option<bool> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn same_volume(_: &Path, _: &Path) -> Option<bool> {
+pub(crate) fn same_volume(_: &Path, _: &Path) -> Option<bool> {
     None
 }
 

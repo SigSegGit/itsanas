@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1082 test functions, 9 of them `#[ignore]`d into the slow job, and 256 of
+**1086 test functions, 9 of them `#[ignore]`d into the slow job, and 259 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1384,7 +1384,7 @@ chunks arrive.
 
 Decided by Nicolas, in this order:
 
-1. **ASAP — the check, and a watch.** When a pledge is set or changed, the
+1. ✅ **Done 2026-10-12 — the check, and a watch** (`itsanas-node` `pledges.rs`; the Docker clients share `install/docker/pledges`; `status` says CANNOT KEEP; the tray's colour does not show it yet). When a pledge is set or changed, the
    free space it is compared with is: free space + what the instances on the
    same filesystem already store − what they pledged; refused beyond it,
    saying which instances hold the rest. The node also watches real free

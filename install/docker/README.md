@@ -49,7 +49,7 @@ directory, folder and listen port.
 
 ```sh
 cd ~/itsanas/install/docker
-mkdir -p data ITSaNAS
+mkdir -p data ITSaNAS pledges
 cp client.env.example client.env && chmod 600 client.env && nano client.env   # the passphrase
 C="docker compose -f compose.client.yml -p itsanas-nicolas"
 $C build

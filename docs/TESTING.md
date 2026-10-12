@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-12 — 1082 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 256 are red-team tests.**
+**Last updated: 2026-10-12 — 1086 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 259 are red-team tests.**
 
-**966 of the 1082 tests have an entry of their own on this page** — an *entry*,
+**970 of the 1086 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -176,7 +176,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 121 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 117 |
+| `itsanas-node` unit | 121 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -1226,7 +1226,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (134)
+# `itsanas-node` — a node on disk (138)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1371,6 +1371,20 @@ to the peer, each turns the matching test red.
 | **`a_full_device_makes_room_for_a_better_ranked_file`** | The property that separates a budget from a ratchet. The first version filled up once and from then on nothing new could arrive, because nothing old could leave — measured on the trial device, told to keep 200 KiB and holding 907 KiB with no path back down. |
 | **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
 | `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
+
+## `pledges` — what the other nodes on this disk promised (4)
+
+`src/pledges.rs`. Two accounts on the Freebox VM each pledged 30 GB on a disk
+that could not hold 60 (ROADMAP, "Pledges are not reserved"). Each red-team
+test was sabotaged red: the others' debt not subtracted, the shared entries
+not read, the pledge kept whatever the free space.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_sibling_promise_on_the_same_disk_is_counted`** | A second home on the same disk sees the first one's pledge, so `itsanas pledge` refuses to promise the same free space twice. |
+| **`red_team_a_shared_entry_from_another_container_is_counted_and_a_stale_one_named`** | A Docker client sees a neighbour container's promise through `ITSANAS_PLEDGES_DIR`; an entry not updated for seven days is not counted and is named, so a removed container neither holds the disk for ever nor vanishes unsaid. |
+| **`red_team_a_disk_that_filled_up_stops_taking_chunks_before_the_last_byte`** | When the disk can no longer hold the pledge, the host takes no more chunks than free space minus a 256 MiB reserve, and `status` says CANNOT KEEP. |
+| `its_own_entries_are_not_counted_against_itself` | A node's own published promise is never counted against it. |
 
 ## `config` — settings (26)
 
