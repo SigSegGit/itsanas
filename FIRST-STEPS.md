@@ -359,6 +359,15 @@ It leaves your account alone unless asked twice: `~/.itsanas` holds this
 machine's sealed copy of the master secret and the only copy of anything not yet
 replicated elsewhere. `--purge-account` removes it, and that is losing data
 rather than uninstalling a program.
+`--purge-folder`, with it, also removes the synced folder (only one ITSaNAS
+marked as its own).
+
+To delete the **account itself**, everywhere and for good, run
+`itsanas delete-account --confirm YOURNAME` on one of its machines: it hands
+what this machine keeps for others to other machines, then asks the
+coordinator to delete the account. The other members' machines free its data,
+its other machines stop, and the name stays reserved for a year so nobody can
+pass for you under it.
 
 ---
 

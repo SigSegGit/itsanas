@@ -40,6 +40,16 @@ pub enum CoordError {
     #[error("the username {0:?} is already registered to a different key")]
     NameTaken(String),
 
+    /// A deleted account's name, not free before `until` (unix seconds).
+    #[error(
+        "the username {name:?} belonged to a deleted account; it is free again after {until} (unix time)"
+    )]
+    Retired { name: String, until: u64 },
+
+    /// The key of a deleted account, which never registers again.
+    #[error("this key belonged to a deleted account; a new account needs new keys (itsanas init)")]
+    Deleted,
+
     #[error("no such account: {0}")]
     NoSuchAccount(String),
 

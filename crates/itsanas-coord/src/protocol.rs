@@ -256,7 +256,22 @@ pub enum Request {
     /// coordinator older than this hangs up on it -- which a host reads as no
     /// answer, and stores nothing for that device (Nicolas, 2026-10-05).
     Standing(Box<SignedClaim>),
+
+    /// Delete the account that signed this (HANDOVER §8 0w (8)). Appended
+    /// last; a coordinator older than this hangs up, and nothing is deleted.
+    DeleteAccount(Box<crate::claim::SignedDeletion>),
+
+    /// Which of these accounts were deleted, so a host frees what it keeps
+    /// for them, even one that was offline when it happened. At most
+    /// [`MAX_DELETED_ASKED`]. Appended last.
+    Deleted {
+        /// The accounts this host keeps something for.
+        users: Vec<UserId>,
+    },
 }
+
+/// Accounts one [`Request::Deleted`] may ask about.
+pub const MAX_DELETED_ASKED: usize = 256;
 
 /// One enrolled device, as [`Response::Devices`] lists it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -347,6 +362,10 @@ pub enum Response {
     /// or `None` when it holds none for that device under that account.
     /// Appended last.
     Standing(Option<Box<SignedClaim>>),
+
+    /// The accounts of a [`Request::Deleted`] that were deleted, each as its
+    /// own signed request, for the host to check. Appended last.
+    Deleted(Vec<crate::claim::SignedDeletion>),
 }
 
 impl Request {
@@ -384,6 +403,8 @@ impl Request {
             Self::SignedPeers { .. } => "signed-peers",
             Self::ClaimedPeers { .. } => "claimed-peers",
             Self::Standing(_) => "standing",
+            Self::DeleteAccount(_) => "delete-account",
+            Self::Deleted { .. } => "deleted",
         }
     }
 }
@@ -459,6 +480,26 @@ mod tests {
     type Numbered = (Vec<(u8, Request)>, Vec<(u8, Response)>);
 
     /// One of every message, with the number it is deployed under.
+    /// The deletion messages, numbered apart so the list above stays short.
+    fn deletions_numbered() -> Numbered {
+        use itsanas_crypto::{MasterSecret, UserKeys};
+        let owner = UserKeys::derive(&MasterSecret::from_bytes([1; 32]));
+        let user = owner.user_id();
+        let gone = crate::claim::Deletion {
+            user,
+            username: "a".to_owned(),
+            at_unix: 0,
+        }
+        .sign(&owner);
+        (
+            vec![
+                (16, Request::DeleteAccount(Box::new(gone.clone()))),
+                (17, Request::Deleted { users: vec![user] }),
+            ],
+            vec![(13, Response::Deleted(vec![gone]))],
+        )
+    }
+
     fn one_of_each_numbered() -> Numbered {
         use crate::{claim::NodeClaim, claim::Presence, directory::Registration};
         use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
@@ -572,7 +613,10 @@ mod tests {
         // is the first to add a variant since the coordinator was deployed on
         // the Raspberry Pi. A round trip cannot see a renumbering, because both
         // ends compile the same enum; the first byte can.
-        let (requests, responses) = one_of_each_numbered();
+        let (mut requests, mut responses) = one_of_each_numbered();
+        let (more_requests, more_responses) = deletions_numbered();
+        requests.extend(more_requests);
+        responses.extend(more_responses);
         for (number, request) in &requests {
             // An exhaustive match, so a new variant does not compile until it
             // is given a number here.
@@ -592,7 +636,9 @@ mod tests {
                 | Request::Depart(_)
                 | Request::SignedPeers { .. }
                 | Request::ClaimedPeers { .. }
-                | Request::Standing(_) => {}
+                | Request::Standing(_)
+                | Request::DeleteAccount(_)
+                | Request::Deleted { .. } => {}
             }
             assert_eq!(
                 postcard::to_stdvec(request).unwrap()[0],
@@ -616,7 +662,8 @@ mod tests {
                 | Response::Unknown(_)
                 | Response::SignedPeers(_)
                 | Response::ClaimedPeers(_)
-                | Response::Standing(_) => {}
+                | Response::Standing(_)
+                | Response::Deleted(_) => {}
             }
             assert_eq!(
                 postcard::to_stdvec(response).unwrap()[0],

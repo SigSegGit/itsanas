@@ -1057,6 +1057,50 @@ fn one_round(
 }
 
 /// Tell the coordinator where this machine is, and learn where the account's
+/// When the account check last ran, unix seconds (once every six hours).
+static DELETED_CHECKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Ask the coordinator which accounts this host keeps something for were
+/// deleted, and free what it keeps for them (HANDOVER §8 0w (8)). Asked at
+/// the rounds rather than told once, so a host offline on the day still frees
+/// it. If this machine's own account was deleted, it records its departure
+/// and stops, as `leave` does: its keys can no longer register anywhere.
+fn forget_deleted(node: &Node, shutdown: &AtomicBool) {
+    let now = itsanas_discover::now_unix();
+    if now.saturating_sub(DELETED_CHECKED.load(Ordering::Relaxed)) < 6 * 3600 {
+        return;
+    }
+    DELETED_CHECKED.store(now, Ordering::Relaxed);
+    let mut owners = node.vault.owners().unwrap_or_default();
+    let me = node.store.owner();
+    if !owners.contains(&me) {
+        owners.push(me);
+    }
+    let Ok(deleted) = coordinator::deleted_among(node, &owners) else {
+        return;
+    };
+    for owner in deleted {
+        if owner == me {
+            println!(
+                "this account was deleted at its coordinator; this machine leaves and stops. \
+                 Remove its data with install/clean (--purge-account)."
+            );
+            if let Err(error) = crate::record_departure(&node.home, now) {
+                eprintln!("itsanas: could not record the departure: {error}");
+            }
+            shutdown.store(true, Ordering::SeqCst);
+            continue;
+        }
+        match node.vault.forget_owner(owner) {
+            Ok((chunks, segments)) => println!(
+                "an account this machine kept data for was deleted: freed {chunks} chunk(s) \
+                 and {segments} log segment(s)"
+            ),
+            Err(error) => eprintln!("itsanas: could not free a deleted account's data: {error}"),
+        }
+    }
+}
+
 /// others are -- when `contact` says it is due. Returns the address published.
 fn publish(
     node: &Node,
@@ -1074,6 +1118,7 @@ fn publish(
             match coordinator::contact(node, &listen, itsanas_discover::now_unix(), &due) {
                 Ok(contacted) => {
                     outage.succeeded();
+                    forget_deleted(node, shutdown);
                     if let Some(published) = contacted.published {
                         contact.published(here.as_deref(), Instant::now());
                         announced = Some(published);

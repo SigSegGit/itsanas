@@ -427,6 +427,69 @@ impl Vault {
         Ok(removed)
     }
 
+    /// Free everything held for `owner`: its chunks, then its log chains.
+    ///
+    /// For an account its coordinator says was deleted (HANDOVER §8 0w (8)).
+    /// Chunk by chunk through [`Self::remove_chunk`], so the running totals
+    /// the pledge is checked against stay true; then every chain row under
+    /// the owner's prefix in one transaction. Returns (chunks, segments).
+    ///
+    /// # Errors
+    ///
+    /// The database's or the filesystem's.
+    pub fn forget_owner(&self, owner: UserId) -> Result<(u64, u64)> {
+        let mut chunks = 0u64;
+        for address in self.chunks_for(owner)? {
+            if self.remove_chunk(owner, &address)? {
+                chunks += 1;
+            }
+        }
+        let first = owner.as_bytes().to_vec();
+        let mut last = first.clone();
+        last.extend_from_slice(&[0xff; CHAIN_KEY_LEN + 8]);
+        let mut segments = 0u64;
+        let txn = self.db.begin_write()?;
+        {
+            let mut table = txn.open_table(SEGMENTS)?;
+            let keys: Vec<Vec<u8>> = table
+                .range(first.as_slice()..=last.as_slice())?
+                .map(|row| row.map(|(key, _)| key.value().to_vec()))
+                .collect::<std::result::Result<_, _>>()?;
+            for key in keys {
+                table.remove(key.as_slice())?;
+                segments += 1;
+            }
+            for definition in [CHAIN_LENGTHS, CHAIN_BYTES] {
+                let mut table = txn.open_table(definition)?;
+                let keys: Vec<Vec<u8>> = table
+                    .range(first.as_slice()..=last.as_slice())?
+                    .map(|row| row.map(|(key, _)| key.value().to_vec()))
+                    .collect::<std::result::Result<_, _>>()?;
+                for key in keys {
+                    table.remove(key.as_slice())?;
+                }
+            }
+            let mut heads = txn.open_table(HEADS)?;
+            let keys: Vec<Vec<u8>> = heads
+                .range(first.as_slice()..=last.as_slice())?
+                .map(|row| row.map(|(key, _)| key.value().to_vec()))
+                .collect::<std::result::Result<_, _>>()?;
+            for key in keys {
+                heads.remove(key.as_slice())?;
+            }
+        }
+        txn.commit()?;
+        // The owner's own blob directory, now empty of chunks: left behind it
+        // keeps the owner in `owners()`, and every later round asks about it.
+        let directory = self.root.join("owners").join(owner.to_hex());
+        match std::fs::remove_dir_all(&directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(StoreError::io(directory, error)),
+        }
+        Ok((chunks, segments))
+    }
+
     /// Every foreign byte this vault holds, without walking it.
     ///
     /// Equal to [`Self::stats`]`.bytes` -- chunk blobs plus log segments --
@@ -1459,6 +1522,41 @@ mod tests {
         assert_eq!(total.owners, 2);
         assert_eq!(total.bytes - total.segment_bytes, 500, "the chunk half");
         assert_eq!(total.segments, 1);
+    }
+
+    #[test]
+    fn red_team_forgetting_a_deleted_owner_frees_its_bytes_and_nobody_elses() {
+        let (_dir, vault) = vault();
+        let gone = keys(16);
+        let stays = keys(17);
+        let dev = device(16);
+        vault.put_segment(&segment(&gone, &dev, None, 1)).unwrap();
+        vault.put_segment(&segment(&stays, &dev, None, 1)).unwrap();
+        vault
+            .put_chunk(gone.user_id(), &ChunkId::from_bytes([3; 32]), &[0u8; 400])
+            .unwrap();
+        vault
+            .put_chunk(stays.user_id(), &ChunkId::from_bytes([3; 32]), &[0u8; 250])
+            .unwrap();
+        let kept = vault.held_bytes_for(stays.user_id()).unwrap();
+
+        assert_eq!(vault.forget_owner(gone.user_id()).unwrap(), (1, 1));
+        assert_eq!(
+            vault.held_bytes_for(gone.user_id()).unwrap(),
+            0,
+            "a deleted account's chunks or chains stayed on a host's disk and in its pledge"
+        );
+        assert_eq!(
+            vault.held_bytes().unwrap(),
+            kept,
+            "the running total the pledge reads disagrees with what is left"
+        );
+        assert_eq!(
+            vault.held_bytes_for(stays.user_id()).unwrap(),
+            kept,
+            "forgetting one owner took another's bytes"
+        );
+        assert_eq!(vault.owners().unwrap(), vec![stays.user_id()]);
     }
 
     #[test]

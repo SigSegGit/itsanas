@@ -395,6 +395,22 @@ enum Command {
     },
     /// Undo `leave` on this machine: the daemon may start again.
     Rejoin,
+    /// Delete this account everywhere, for good.
+    ///
+    /// Drains this machine as `leave` does, then asks the coordinator, with
+    /// the account's key, to delete the account. The hosts free what they keep
+    /// for it at their next rounds (they check the account's own signature),
+    /// the account's other machines stop, and the username stays retired for
+    /// a year. This machine's own files are not touched: `install/clean`
+    /// with `--purge-account --purge-folder` removes them.
+    DeleteAccount {
+        /// The username, typed again: nothing is deleted without it.
+        #[arg(long)]
+        confirm: String,
+        /// Minutes the drain waits, as for `leave`; 0 skips it. At most 120.
+        #[arg(long, default_value_t = 30)]
+        drain_for: u64,
+    },
     /// Serve peers.
     Serve {
         /// Address to listen on. Defaults to the configured `listen`.
@@ -776,6 +792,7 @@ fn run() -> Result<()> {
         Command::Announce { address, forget } => announce_as(&home, address.as_deref(), forget),
         Command::Leave { drain_for } => leave(&home, drain_for),
         Command::Rejoin => rejoin(&home),
+        Command::DeleteAccount { confirm, drain_for } => delete_account(&home, &confirm, drain_for),
         Command::Serve { listen } => serve(&home, listen.as_deref()),
         Command::Daemon {
             listen,
@@ -2901,6 +2918,35 @@ fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
 /// The configured peers are told too, because somebody typed them in. Each is
 /// told at most once, and a peer that cannot be reached is named rather than
 /// retried: its records age out of `LIVE_FOR` like a crash's would.
+/// `itsanas delete-account`: check the typed name, drain, then delete at the
+/// coordinator. The name check comes first and alone: a mistyped command must
+/// cost nothing.
+fn delete_account(home: &Path, confirm: &str, drain_for: u64) -> Result<()> {
+    let config = config::Config::load(&Node::config_path(home))?;
+    if confirm != config.username {
+        return Err(CliError::Usage(format!(
+            "--confirm must be this account's username, {:?}: nothing was deleted",
+            config.username
+        )));
+    }
+    if config.coordinator.is_none() {
+        return Err(CliError::Usage(
+            "no coordinator is set: an account only exists there, so there is nothing to delete"
+                .to_owned(),
+        ));
+    }
+    leave(home, drain_for)?;
+    let node = open(home)?;
+    coordinator::delete_account(&node, itsanas_discover::now_unix())?;
+    println!(
+        "account {} deleted at the coordinator: its hosts free its data at their next rounds, its \
+         other machines stop, and the name is retired for a year",
+        config.username
+    );
+    println!("remove this machine's own files with install/clean --purge-account --purge-folder");
+    Ok(())
+}
+
 fn leave(home: &Path, drain_for: u64) -> Result<()> {
     let node = open(home)?;
     let me = node.store.device_id();
@@ -4403,6 +4449,32 @@ mod tests {
     fn migration_advice_says_the_old_unit_restart_loops() {
         let text = super::migration_advice("alice", std::path::Path::new("/h/.itsanas-alice"));
         assert!(text.contains("keep restarting"), "{text}");
+    }
+
+    /// Deleting an account is for good: a mistyped name, or no coordinator to
+    /// delete it at, must cost nothing -- not even this machine's departure.
+    #[test]
+    fn red_team_delete_account_does_nothing_without_the_typed_name() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        for typed in ["alic", "Alice", ""] {
+            let refused = super::delete_account(&home, typed, 0)
+                .expect_err("a mistyped name went ahead")
+                .to_string();
+            assert!(
+                refused.contains("--confirm"),
+                "{typed:?} got past the name check (refused later, for another reason: {refused})"
+            );
+        }
+        assert!(
+            super::delete_account(&home, "alice", 0).is_err(),
+            "an account with no coordinator was 'deleted' with nothing to delete it at"
+        );
+        assert!(
+            refuse_if_departed(&home).is_ok(),
+            "a refused deletion still made this machine leave"
+        );
     }
 
     /// A machine that ran `leave` must not come back by itself: systemd's

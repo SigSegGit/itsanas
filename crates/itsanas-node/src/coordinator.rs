@@ -433,6 +433,68 @@ pub fn depart(node: &Node, now: u64) -> Result<bool> {
     }
 }
 
+/// Ask the coordinator to delete this account (HANDOVER §8 0w (8)), signed
+/// with the account's key. The username then stays retired for a year and
+/// this key never registers again.
+///
+/// # Errors
+///
+/// No coordinator, a refusal (said as the coordinator worded it), an outage.
+pub fn delete_account(node: &Node, now: u64) -> Result<()> {
+    let mut client = dial(node)?;
+    let request = itsanas_coord::claim::Deletion {
+        user: node.store.owner(),
+        username: node.config.username.clone(),
+        at_unix: now,
+    }
+    .sign(&node.user);
+    match client.ask(&Request::DeleteAccount(Box::new(request))) {
+        Ok(Response::Done) => Ok(()),
+        Ok(Response::Refused(why)) => Err(CliError::Usage(why)),
+        Ok(other) => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+        Err(failed) => Err(CliError::Usage(format!(
+            "the coordinator did not answer ({failed}); nothing was deleted there"
+        ))),
+    }
+}
+
+/// Which of `users` the coordinator says were deleted, asked in batches of
+/// [`itsanas_coord::protocol::MAX_DELETED_ASKED`]. An old coordinator that
+/// does not know the question answers nothing, which deletes nothing.
+///
+/// # Errors
+///
+/// No coordinator, an outage.
+pub fn deleted_among(node: &Node, users: &[UserId]) -> Result<Vec<UserId>> {
+    let mut client = dial(node)?;
+    let mut out = Vec::new();
+    for batch in users.chunks(itsanas_coord::protocol::MAX_DELETED_ASKED) {
+        match client.ask(&Request::Deleted {
+            users: batch.to_vec(),
+        }) {
+            // Only what was asked, and only what the account itself signed: a
+            // coordinator, pinned or not, must not be able to make a host drop
+            // an account that never asked to be deleted.
+            Ok(Response::Deleted(found)) => out.extend(accepted_deletions(batch, found)),
+            Ok(_) | Err(_) => break,
+        }
+    }
+    Ok(out)
+}
+
+/// The accounts a host may free: asked about, and signed by the account.
+#[must_use]
+pub fn accepted_deletions(
+    asked: &[UserId],
+    told: Vec<itsanas_coord::claim::SignedDeletion>,
+) -> Vec<UserId> {
+    told.into_iter()
+        .filter(|told| told.verify_origin().is_ok())
+        .map(|told| told.deletion.user)
+        .filter(|user| asked.contains(user))
+        .collect()
+}
+
 /// Where the other devices of `user` say they are.
 pub fn peers(node: &Node, user: UserId) -> Result<Vec<(DeviceId, String)>> {
     let mut found: Vec<(DeviceId, String)> = devices(node, user)?
@@ -1655,5 +1717,42 @@ mod tests {
         // the coordinator's blob could be dropped in as the local keystore, and
         // the domain separation that makes each one specific would be gone.
         assert_ne!(ESCROW_LABEL, crate::node::KEYSTORE_LABEL);
+    }
+
+    #[test]
+    fn red_team_a_coordinator_cannot_make_a_host_drop_an_account_that_never_asked() {
+        use itsanas_coord::claim::Deletion;
+        use itsanas_crypto::{MasterSecret, UserKeys};
+        let victim = UserKeys::derive(&MasterSecret::from_bytes([21; 32]));
+        let liar = UserKeys::derive(&MasterSecret::from_bytes([22; 32]));
+        let leaving = UserKeys::derive(&MasterSecret::from_bytes([23; 32]));
+        let mut forged = Deletion {
+            user: liar.user_id(),
+            username: "victim".to_owned(),
+            at_unix: 0,
+        }
+        .sign(&liar);
+        forged.deletion.user = victim.user_id();
+        let genuine = Deletion {
+            user: leaving.user_id(),
+            username: "leaving".to_owned(),
+            at_unix: 0,
+        }
+        .sign(&leaving);
+        let unasked = Deletion {
+            user: liar.user_id(),
+            username: "liar".to_owned(),
+            at_unix: 0,
+        }
+        .sign(&liar);
+        assert_eq!(
+            accepted_deletions(
+                &[victim.user_id(), leaving.user_id()],
+                vec![forged, genuine, unasked],
+            ),
+            vec![leaving.user_id()],
+            "a host would free an account on its coordinator's word alone, or one it never asked \
+             about: a hostile coordinator could erase anybody's replicas"
+        );
     }
 }

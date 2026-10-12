@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-12 — 1086 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 259 are red-team tests.**
+**Last updated: 2026-10-12 — 1092 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 265 are red-team tests.**
 
-**970 of the 1086 tests have an entry of their own on this page** — an *entry*,
+**976 of the 1092 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,14 +158,14 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 170 |
+| `itsanas-store` unit | 171 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
 | `itsanas-net` unit | 46 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 58 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 119 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 121 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
 | `itsanas-discover` unit | 43 |
 | `itsanas-policy` unit | 23 |
@@ -173,10 +173,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 121 |
+| `itsanas-cli` unit | 123 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 121 |
+| `itsanas-node` unit | 122 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -432,7 +432,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (145, plus the 25 vault tests below)
+# `itsanas-store` — unit tests (145, plus the 26 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -718,7 +718,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (25 of the store's unit tests)
+# `itsanas-store` — the vault (26 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -726,6 +726,7 @@ about reading.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_forgetting_a_deleted_owner_frees_its_bytes_and_nobody_elses`** | `Vault::forget_owner`, run when an account's coordinator hands over its signed deletion: the owner's chunks, chains and blob directory go, the running total the pledge reads stays equal to what is left, another owner's bytes are untouched, and the owner leaves `owners()`. Sabotaged (chain bytes kept): red. |
 | **`red_team_held_bytes_for_one_owner_needs_no_walk`** | `Node::held_for_others` runs on every reconcile pass and called `stats_for`, two walks of our own blobs each time. `held_bytes_for` reads a per-owner running total (the vault_owner_chunk_bytes table, changed in the chunk's own transaction) plus the owner's chain rows. It equals the walk after puts and a removal, keeps its answer when a blob file is deleted behind the vault's back (so it did not walk), and an unclean open rebuilds it from the disk. Sabotaged twice (`stats_for` again; the rebuild not writing the per-owner rows): red. |
 | **`a_segment_with_a_bad_signature_is_refused_before_it_is_stored`** | A host that stored unverified envelopes would be a convenient way to attribute garbage to someone else's device. |
 | **`a_segment_that_does_not_continue_the_chain_is_refused`** | Otherwise a host can be induced to store a chain with a hole and then serve that hole to a peer as though it were complete. |
@@ -943,7 +944,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (121)
+# `itsanas-cli` — unit tests (123)
 
 ## `bench` — measuring this machine (4)
 
@@ -1083,7 +1084,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page (19)
+## `web` — the local setup and Settings page (20)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1093,6 +1094,7 @@ in-process with stand-in secret windows; no real browser is launched.
 | Test | What it proves |
 | --- | --- |
 | **`red_team_no_response_ever_carries_a_recovery_word_or_the_passphrase`** | Two whole setups driven through the page's HTTP API with a scripted person in place of the window; every byte that came back (static files, plan, every state poll, run reply) holds neither passphrase nor the 24-word phrase, nor any word of it the other run did not also say; Sabotaged (engine emits the phrase in an event, so in the state JSON): red. |
+| **`red_team_another_account_never_takes_the_home_of_one_already_here`** | "Set up another account" (POST /api/another) refuses the name of an account already on this computer (409) and a name that is no instance name (400), and accepts a free one; Sabotaged (existing-home check dropped): red. |
 | **`red_team_a_rebinding_host_with_the_right_token_is_refused`** | GET /api/state and POST /api/quit under Host evil.example:PORT with the valid token are 403, and the server keeps serving; Sabotaged (Host check dropped): red. |
 | `a_foreign_host_is_refused_before_anything_is_served` | A rebinding name, another port, no port, a localhost-prefixed name, no Host and two Host headers all get 403 for the page itself; 127.0.0.1:PORT and localhost:PORT get 200; Sabotaged (Host check dropped): red. |
 | `the_api_refuses_a_missing_or_wrong_token` | /api/state, /api/plan and /api/run with no token, a token one digit off, or the right token beside a wrong one are 403; the right token is 200; Sabotaged (token check forced true): red. |
@@ -1138,7 +1140,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds (33)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds (34)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1147,6 +1149,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_delete_account_does_nothing_without_the_typed_name`** | `itsanas delete-account --confirm NAME` refuses a mistyped, differently cased or empty name at the name check itself, and an account with no coordinator; neither makes the machine leave. Sabotaged (name check off): red. |
 | **`a_panic_that_is_not_a_closed_pipe_is_never_swallowed`** | The dangerous half of the fix. A hook that exits 0 on the wrong panic turns a crash into a silent success, which is worse than the noise it removed. Five real panic messages must still reach the reader. |
 | **`a_prefix_that_names_no_device_is_refused_rather_than_invented`** | `itsanas device forget` accepts the short device id the logs print. A revocation is a signed record the coordinator files and honours, so one written against an identifier nobody holds would be silent, permanent and impossible to notice. Five strings that name no device must all be refused. |
 | `the_short_form_the_logs_print_is_enough_to_name_a_device` | The other half: a unique prefix resolves, and one shared by two devices refuses rather than picking one. |
@@ -1226,14 +1229,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (138)
+# `itsanas-node` — a node on disk (139)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `coordinator` — publishing an address (15)
+## `coordinator` — publishing an address, and whose deletion a host believes (16)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -1244,6 +1247,7 @@ anything.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_coordinator_cannot_make_a_host_drop_an_account_that_never_asked`** | A host frees an account's data only on a deletion the account itself signed, and only for an account it asked about: a forged tombstone (another key's signature over the victim's id) and an unasked one are ignored. Sabotaged (signature not checked): red. |
 | **`red_team_a_refusal_is_no_answer_rather_than_not_enrolled`** | §8 1c (ii), found by the redteam agent: a `Refused` reply to `Standing` (a rate limit, a caller not served) was read as "not enrolled" and ended every fresh confirmation at once. Only a `Standing` reply is about the device; a refusal is no answer. Sabotaged by mapping `Refused` to `Unenrolled`. |
 | **`red_team_an_unpinned_coordinator_is_not_asked_about_other_accounts`** | `pinned` is false without the coordinator's device id configured: unpinned, whoever is on the path answers "live" by echoing the presented claim. That `standing` and the asker consult it is proved in `tests/withdrawals.rs`. |
 | **`an_unspecified_listen_address_is_not_what_gets_published`** | The address published is the local end of the connection that just reached the coordinator, not `0.0.0.0`. Of this machine's addresses it is the one demonstrably able to talk to the coordinator. Still wrong behind NAT, where only the coordinator can see the address a peer needs; that is a protocol change and is written down in `coordinator.rs`. |
@@ -1936,6 +1940,19 @@ good and nothing could free it. `Directory::forget_account`, run by
 |---|---|
 | **`a_forgotten_account_frees_its_name_and_its_live_devices`** | The name can be registered again under another key, and the old account's live claim, escrow and id lookup are gone, so the coordinator hands out nothing of it. Forgetting a name nobody holds answers "none" rather than failing. |
 | **`red_team_forgetting_an_account_keeps_its_withdrawals_final`** | A withdrawal is final for its device id (HANDOVER §6). If forgetting erased it, the same keys registering again would bring a stolen, withdrawn machine back with a fresh live claim. Sabotaged by dropping withdrawals with the rest: red. |
+
+# `itsanas-coord` — deleting an account at its own request (2)
+
+HANDOVER §8 0w (8), option A (Nicolas, 2026-10-12), with his red-team brief:
+no use of the old name, no create/delete loop on one name. `Directory::
+delete_account` takes a `SignedDeletion` signed with the account's key, fresh
+within ten minutes; it writes the tombstone and retires the name for a year
+before forgetting the account.
+
+| Test | What it proves |
+|---|---|
+| **`red_team_a_deleted_name_stays_retired_a_year_and_its_old_key_never_returns`** | After a deletion the name is refused to a stranger for `NAME_RETIRED_FOR` (a year), so a loop of create/delete cannot cycle it and a friend's list does not show a stranger under it; the deleted key never registers again, under any name; the name is free after the year. Sabotaged twice (retirement ignored; deleted key let back): red. |
+| **`red_team_only_the_account_itself_freshly_deletes_it`** | A deletion signed by another key over the victim's id, a stale request kept for later, and a request naming somebody else's account are all refused and the account stays; a real one is then reported by `deleted_among` with its signed request. Sabotaged twice (no freshness; any name accepted for the key): red. |
 
 # `itsanas-node` five devices (`tests/five_devices.rs`) — the client's half of the bound (4)
 

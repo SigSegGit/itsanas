@@ -238,6 +238,40 @@ impl<'a> CoordService<'a> {
         Ok(Response::Standing(held.map(Box::new)))
     }
 
+    fn hello(version: u16) -> Response {
+        if version == COORD_VERSION {
+            Response::Welcome {
+                version: COORD_VERSION,
+            }
+        } else {
+            Response::Refused(format!(
+                "this coordinator speaks version {COORD_VERSION}; upgrade one side"
+            ))
+        }
+    }
+
+    /// Deleting an account, and asking which accounts were deleted.
+    ///
+    /// The account's own key signs a deletion; the caller's device is not
+    /// asked to be the account's, because every keystore of the account holds
+    /// that key anyway and a lost machine is exactly when it is needed.
+    fn deletion(&self, request: &Request, now_unix: u64) -> Result<Response> {
+        match request {
+            Request::DeleteAccount(signed) => match self.directory.delete_account(signed, now_unix)
+            {
+                Ok(()) => Ok(Response::Done),
+                Err(error) => Ok(Response::Refused(error.to_string())),
+            },
+            Request::Deleted { users } if users.len() > crate::protocol::MAX_DELETED_ASKED => Ok(
+                Response::Refused("too many accounts in one question".to_owned()),
+            ),
+            Request::Deleted { users } => {
+                Ok(Response::Deleted(self.directory.deleted_among(users)?))
+            }
+            _ => Ok(Response::Refused("not a deletion request".to_owned())),
+        }
+    }
+
     pub fn handle(
         &self,
         request: &Request,
@@ -247,15 +281,7 @@ impl<'a> CoordService<'a> {
         now: Instant,
     ) -> Result<Response> {
         match request {
-            Request::Hello { version } => Ok(if *version == COORD_VERSION {
-                Response::Welcome {
-                    version: COORD_VERSION,
-                }
-            } else {
-                Response::Refused(format!(
-                    "this coordinator speaks version {COORD_VERSION}; upgrade one side"
-                ))
-            }),
+            Request::Hello { version } => Ok(Self::hello(*version)),
 
             Request::Register(signed) => {
                 match self
@@ -329,6 +355,7 @@ impl<'a> CoordService<'a> {
             )),
 
             Request::Standing(presented) => self.standing(presented),
+            Request::DeleteAccount(_) | Request::Deleted { .. } => self.deletion(request, now_unix),
 
             Request::PutEscrow { blob } => self.put_escrow(caller, blob.as_deref(), now_unix),
 
