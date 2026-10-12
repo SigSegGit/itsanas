@@ -3580,7 +3580,7 @@ mod tests {
         index.record_holder(&chunk(1), &device(8), now).unwrap();
         index.note_audit(&device(7), true, now).unwrap();
         index.note_audit(&device(8), true, now).unwrap();
-        assert!(index.under_replicated(2, now).unwrap().is_empty());
+        assert_eq!(index.under_replicated(2, now).unwrap(), Vec::new());
         assert_eq!(index.coverage(now).unwrap().complete_elsewhere, 1);
 
         index.note_draining(&device(7), now + 600, now).unwrap();
