@@ -257,7 +257,9 @@ fn red_team_no_event_and_no_log_line_carries_a_recovery_word() {
     // word of *this* run's phrase that the *other* run never said is a leak.
     let dir = tempfile::tempdir().expect("tempdir");
     let mut runs = Vec::new();
-    for name in ["one", "two"] {
+    // Not "one"/"two": both are recovery words, and a path printed with the
+    // home in it read as a leak whenever the phrase drew that word (1 in ~85).
+    for name in ["hqa", "hqb"] {
         let home = dir.path().join(name);
         let mut answers = answers(&dir.path().join(format!("{name}-base")));
         answers.folder = Some(dir.path().join(format!("{name}-folder")));
