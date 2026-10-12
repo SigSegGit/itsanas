@@ -143,6 +143,9 @@ pub struct DiskCheck {
     pub removed: usize,
 }
 
+/// Keys removed per transaction when an owner is forgotten.
+const FORGET_BATCH: u64 = 1024;
+
 /// Bytes in a `owner ‖ device` key.
 const CHAIN_KEY_LEN: usize = 64;
 
@@ -448,37 +451,19 @@ impl Vault {
         let mut last = first.clone();
         last.extend_from_slice(&[0xff; CHAIN_KEY_LEN + 8]);
         let mut segments = 0u64;
-        let txn = self.db.begin_write()?;
-        {
-            let mut table = txn.open_table(SEGMENTS)?;
-            let keys: Vec<Vec<u8>> = table
-                .range(first.as_slice()..=last.as_slice())?
-                .map(|row| row.map(|(key, _)| key.value().to_vec()))
-                .collect::<std::result::Result<_, _>>()?;
-            for key in keys {
-                table.remove(key.as_slice())?;
-                segments += 1;
-            }
-            for definition in [CHAIN_LENGTHS, CHAIN_BYTES] {
-                let mut table = txn.open_table(definition)?;
-                let keys: Vec<Vec<u8>> = table
-                    .range(first.as_slice()..=last.as_slice())?
-                    .map(|row| row.map(|(key, _)| key.value().to_vec()))
-                    .collect::<std::result::Result<_, _>>()?;
-                for key in keys {
-                    table.remove(key.as_slice())?;
-                }
-            }
-            let mut heads = txn.open_table(HEADS)?;
-            let keys: Vec<Vec<u8>> = heads
-                .range(first.as_slice()..=last.as_slice())?
-                .map(|row| row.map(|(key, _)| key.value().to_vec()))
-                .collect::<std::result::Result<_, _>>()?;
-            for key in keys {
-                heads.remove(key.as_slice())?;
+        // In batches, each its own transaction: an owner with millions of
+        // segments must not have all their keys held in memory at once.
+        loop {
+            let removed = self.remove_batch(SEGMENTS, &first, &last)?;
+            segments += removed;
+            if removed < FORGET_BATCH {
+                break;
             }
         }
-        txn.commit()?;
+        while self.remove_batch(HEADS, &first, &last)? == FORGET_BATCH {}
+        for definition in [CHAIN_LENGTHS, CHAIN_BYTES] {
+            while self.remove_batch_u64(definition, &first, &last)? == FORGET_BATCH {}
+        }
         // The owner's own blob directory, now empty of chunks: left behind it
         // keeps the owner in `owners()`, and every later round asks about it.
         let directory = self.root.join("owners").join(owner.to_hex());
@@ -488,6 +473,54 @@ impl Vault {
             Err(error) => return Err(StoreError::io(directory, error)),
         }
         Ok((chunks, segments))
+    }
+
+    /// Remove up to [`FORGET_BATCH`] keys in `first..=last`; how many went.
+    fn remove_batch(
+        &self,
+        definition: TableDefinition<'_, &[u8], &[u8]>,
+        first: &[u8],
+        last: &[u8],
+    ) -> Result<u64> {
+        let txn = self.db.begin_write()?;
+        let removed = {
+            let mut table = txn.open_table(definition)?;
+            let keys: Vec<Vec<u8>> = table
+                .range(first..=last)?
+                .take(usize::try_from(FORGET_BATCH).unwrap_or(usize::MAX))
+                .map(|row| row.map(|(key, _)| key.value().to_vec()))
+                .collect::<std::result::Result<_, _>>()?;
+            for key in &keys {
+                table.remove(key.as_slice())?;
+            }
+            keys.len() as u64
+        };
+        txn.commit()?;
+        Ok(removed)
+    }
+
+    /// [`Self::remove_batch`] for the tables keyed by chain with a count.
+    fn remove_batch_u64(
+        &self,
+        definition: TableDefinition<'_, &[u8], u64>,
+        first: &[u8],
+        last: &[u8],
+    ) -> Result<u64> {
+        let txn = self.db.begin_write()?;
+        let removed = {
+            let mut table = txn.open_table(definition)?;
+            let keys: Vec<Vec<u8>> = table
+                .range(first..=last)?
+                .take(usize::try_from(FORGET_BATCH).unwrap_or(usize::MAX))
+                .map(|row| row.map(|(key, _)| key.value().to_vec()))
+                .collect::<std::result::Result<_, _>>()?;
+            for key in &keys {
+                table.remove(key.as_slice())?;
+            }
+            keys.len() as u64
+        };
+        txn.commit()?;
+        Ok(removed)
     }
 
     /// Every foreign byte this vault holds, without walking it.

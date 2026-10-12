@@ -3059,11 +3059,11 @@ mod tests {
             );
         }
         assert!(directory.account("camille").unwrap().is_some());
-        assert!(
+        assert_eq!(
             directory
                 .deleted_among(&[owner.user_id(), other.user_id()])
-                .unwrap()
-                .is_empty()
+                .unwrap(),
+            Vec::new()
         );
 
         directory

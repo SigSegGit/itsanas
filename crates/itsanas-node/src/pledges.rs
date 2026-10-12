@@ -54,6 +54,21 @@ fn render(pledge: u64, held: u64, now: u64) -> String {
     format!("pledge={pledge}\nheld={held}\nupdated={now}\n")
 }
 
+/// The most of a state file read: three short lines. A larger file, in the
+/// shared directory any local process may write to, is not loaded whole.
+const MAX_STATE_BYTES: u64 = 256;
+
+fn read_state(path: &Path) -> Option<String> {
+    use std::io::Read as _;
+    let mut text = String::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(MAX_STATE_BYTES)
+        .read_to_string(&mut text)
+        .ok()?;
+    Some(text)
+}
+
 fn parse(text: &str, source: String) -> Option<Promise> {
     let mut pledge = None;
     let mut held = None;
@@ -128,8 +143,7 @@ pub fn others(
             if same == me || !crate::node::same_volume(home, &sibling).unwrap_or(true) {
                 continue;
             }
-            if let Some(promise) = std::fs::read_to_string(sibling.join(STATE_FILE))
-                .ok()
+            if let Some(promise) = read_state(&sibling.join(STATE_FILE))
                 .and_then(|text| parse(&text, format!("instance {name}")))
             {
                 found.push(promise);
@@ -148,8 +162,7 @@ pub fn others(
                 continue;
             }
             let short: String = file.chars().take(8).collect();
-            let Some(promise) = std::fs::read_to_string(entry.path())
-                .ok()
+            let Some(promise) = read_state(&entry.path())
                 .and_then(|text| parse(&text, format!("node {short}... (shared)")))
             else {
                 continue;
