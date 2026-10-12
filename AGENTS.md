@@ -34,6 +34,12 @@ anywhere in this run" is a success. Any other skip, a pending check or a
 red one is not green. (Nicolas, 2026-10-07; a docs-only PR skips six jobs
 by design and was otherwise never mergeable by a session.)
 
+**Merge without asking.** When a PR's CI is green by the rule above,
+Claude Code merges it itself, whoever opened it, marking a draft ready first.
+It asks Nicolas only when it has a concrete reason to doubt the merge, and
+then says what that reason is. Asking for a routine merge costs him a round
+trip for nothing. (Nicolas, 2026-10-12.)
+
 **Rodin before each major step, once.** A major step is a `docs/HANDOVER.md` §8
 item, or anything Nicolas calls one. Rodin critiques the *plan* before the code
 is written, where a wrong design is cheapest to drop; he is not re-run per
