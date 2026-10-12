@@ -78,6 +78,19 @@ const LEDGER_REFRESHED: TableDefinition<'_, &[u8], u64> = TableDefinition::new("
 /// When each peer last refused a chunk because its pledge was full.
 const PEER_FULL: TableDefinition<'_, &[u8], u64> = TableDefinition::new("peer_full");
 
+/// Device → until when it said it is draining (§8 0w (7)).
+///
+/// A device on its way out asks its owners to stop counting on it *before* it
+/// goes, so repair places a replacement while the departing copy still exists
+/// as a safety margin. Its records stay -- they are true -- but stop counting
+/// towards replication and coverage until the row expires.
+///
+/// Expires by itself, never later than [`holders::MAX_DRAIN`] after it was
+/// written: a drain interrupted by Ctrl-C, or a machine that rejoined, would
+/// otherwise be excluded for ever, and a ledger that undercounts for ever
+/// over-replicates for ever. `Leaving` removes the row with the records.
+const DRAINING: TableDefinition<'_, &[u8], u64> = TableDefinition::new("draining_until");
+
 /// Device → the head of that device's chain when it was last applied with
 /// nothing left over.
 ///
@@ -128,6 +141,17 @@ const HOLDINGS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holdings
 const HOLDER_COUNTS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("holder_counts");
 /// Set in `META` once `HOLDER_COUNTS` has been built.
 const HOLDER_COUNTS_BUILT: &str = "holder_counts_built";
+
+/// Whether `device` has an unexpired [`DRAINING`] row at `now`.
+fn draining_in(
+    table: &impl ReadableTable<&'static [u8], u64>,
+    device: &DeviceId,
+    now: u64,
+) -> Result<bool> {
+    Ok(table
+        .get(device.as_bytes().as_slice())?
+        .is_some_and(|until| until.value() > now))
+}
 
 /// Add `delta` to `device`'s count, never below zero.
 fn bump(counts: &mut redb::Table<'_, &[u8], u64>, device: &DeviceId, delta: i64) -> Result<()> {
@@ -363,6 +387,7 @@ impl Index {
             let _ = txn.open_table(DEVICE_SEEN)?;
             let _ = txn.open_table(LEDGER_REFRESHED)?;
             let _ = txn.open_table(PEER_FULL)?;
+            let _ = txn.open_table(DRAINING)?;
             let _ = txn.open_table(HOLDINGS)?;
             let _ = txn.open_table(HOLDER_COUNTS)?;
             let _ = txn.open_table(PROBES)?;
@@ -1048,6 +1073,100 @@ impl Index {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// Record that `device` is draining until `until`, capped at
+    /// [`holders::MAX_DRAIN`] past `now` whatever it asked.
+    ///
+    /// Written only for a device this ledger counts as holding something, so
+    /// a stranger minting keys cannot grow the table or force a commit per
+    /// request. Never extended: a grant stands as written, and a new one is
+    /// refused until as long again has passed since it ended, so a holder
+    /// cannot renew itself into being ignored for good. Returns whether a
+    /// grant was written.
+    pub fn note_draining(&self, device: &DeviceId, until: u64, now: u64) -> Result<bool> {
+        let until = until.min(now.saturating_add(holders::MAX_DRAIN));
+        let key = device.as_bytes().as_slice();
+        {
+            let txn = self.db.begin_read()?;
+            let holds = txn
+                .open_table(HOLDER_COUNTS)?
+                .get(key)?
+                .is_some_and(|count| count.value() > 0);
+            let cooling = txn
+                .open_table(DRAINING)?
+                .get(key)?
+                .is_some_and(|ends| now < ends.value().saturating_add(holders::MAX_DRAIN));
+            if !holds || cooling {
+                return Ok(false);
+            }
+        }
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(DRAINING)?.insert(key, until)?;
+        }
+        txn.commit()?;
+        Ok(true)
+    }
+
+    /// Whether `device` is draining at `now`.
+    pub fn is_draining(&self, device: &DeviceId, now: u64) -> Result<bool> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(DRAINING)?;
+        draining_in(&table, device, now)
+    }
+
+    /// How many live chunks `device` holds that no other live, non-draining
+    /// device holds: what this account would be one replica short of if that
+    /// device went now. The copy on this disk is not counted, so 0 means
+    /// "another machine has every one of them", not "the target is met".
+    ///
+    /// Asked by the draining device about itself only (the service passes the
+    /// device its connection proved), so it teaches a stranger nothing.
+    pub fn exposed_by(&self, device: &DeviceId, now: u64) -> Result<u64> {
+        let live_since = now.saturating_sub(holders::LIVE_FOR);
+        let txn = self.db.begin_read()?;
+        let refs = txn.open_table(CHUNK_REFS)?;
+        let holders_table = txn.open_table(HOLDERS)?;
+        let holdings = txn.open_table(HOLDINGS)?;
+        let draining = txn.open_table(DRAINING)?;
+
+        let mut exposed = 0u64;
+        for row in holdings.range(
+            holders::device_range_start(device).as_slice()
+                ..=holders::device_range_end(device).as_slice(),
+        )? {
+            let (key, _) = row?;
+            let Some((_, chunk)) = holders::split_by_device(key.value()) else {
+                continue;
+            };
+            if refs
+                .get(chunk.as_bytes().as_slice())?
+                .is_none_or(|count| count.value() == 0)
+            {
+                continue;
+            }
+            let mut elsewhere = false;
+            for holder in holders_table.range(
+                holders::range_start(&chunk).as_slice()..=holders::range_end(&chunk).as_slice(),
+            )? {
+                let (key, confirmed) = holder?;
+                let Some(other) = holders::device_from_key(key.value()) else {
+                    continue;
+                };
+                if other != *device
+                    && confirmed.value() >= live_since
+                    && !draining_in(&draining, &other, now)?
+                {
+                    elsewhere = true;
+                    break;
+                }
+            }
+            if !elsewhere {
+                exposed += 1;
+            }
+        }
+        Ok(exposed)
     }
 
     /// When `device` last refused a chunk for a full pledge, if ever.
@@ -1863,6 +1982,8 @@ impl Index {
             dropped = doomed.len();
             txn.open_table(HOLDER_COUNTS)?
                 .remove(device.as_bytes().as_slice())?;
+            txn.open_table(DRAINING)?
+                .remove(device.as_bytes().as_slice())?;
             for chunk in doomed {
                 let tag = holders::audit_tag(&self.audit_key, &chunk);
                 holders.remove(holders::key(&chunk, device).as_slice())?;
@@ -2056,6 +2177,7 @@ impl Index {
         // challenge removes that holder outright.
         let fresh_since = now.saturating_sub(holders::CONFIRMED_FOR);
         let seen_table = txn.open_table(DEVICE_SEEN)?;
+        let draining = txn.open_table(DRAINING)?;
         let mut alive: BTreeMap<DeviceId, bool> = BTreeMap::new();
 
         let mut live_chunks = 0usize;
@@ -2097,7 +2219,9 @@ impl Index {
                     let seen = seen_table
                         .get(device.as_bytes().as_slice())?
                         .map_or(0, |v| v.value());
-                    let live = seen >= fresh_since;
+                    // A draining device is still there but must not be
+                    // counted on: it asked for its copies to be replaced.
+                    let live = seen >= fresh_since && !draining_in(&draining, &device, now)?;
                     alive.insert(device, live);
                     live
                 };
@@ -2146,6 +2270,7 @@ impl Index {
         let txn = self.db.begin_read()?;
         let refs = txn.open_table(CHUNK_REFS)?;
         let holders_table = txn.open_table(HOLDERS)?;
+        let draining = txn.open_table(DRAINING)?;
 
         let mut out = Vec::new();
         for row in refs.iter()? {
@@ -2158,7 +2283,14 @@ impl Index {
             for holder in holders_table.range(
                 holders::range_start(&chunk).as_slice()..=holders::range_end(&chunk).as_slice(),
             )? {
-                let (_, confirmed) = holder?;
+                let (key, confirmed) = holder?;
+                // A device draining still holds the chunk, and that is the
+                // point: repair runs while its copy is a margin, not a count.
+                if let Some(device) = holders::device_from_key(key.value())
+                    && draining_in(&draining, &device, now)?
+                {
+                    continue;
+                }
                 // The timestamp is written every time that peer confirms this
                 // chunk, which is what `Index::holder_evidence` calls `fresh`:
                 // somebody answered about *this* chunk, not merely that the
@@ -3431,6 +3563,106 @@ mod tests {
         let coverage = index.coverage(1).unwrap();
         assert_eq!(coverage.live_chunks, 0);
         assert!(coverage.meets(2));
+    }
+
+    #[test]
+    fn red_team_a_draining_holder_stops_counting_so_repair_starts_before_it_goes() {
+        // The drain of §8 0w (7): a machine about to be removed asks its owners
+        // to stop counting on it. If its records still counted, repair would
+        // wait for `Leaving`, and the window with one replica fewer would open
+        // at the moment the machine is switched off instead of closing before.
+        let (_dir, index) = index();
+        index.put_file("a", &entry(&[1, 2])).unwrap();
+        let now = 10_000;
+        for id in [1u8, 2] {
+            index.record_holder(&chunk(id), &device(7), now).unwrap();
+        }
+        index.record_holder(&chunk(1), &device(8), now).unwrap();
+        index.note_audit(&device(7), true, now).unwrap();
+        index.note_audit(&device(8), true, now).unwrap();
+        assert_eq!(index.under_replicated(2, now).unwrap(), Vec::new());
+        assert_eq!(index.coverage(now).unwrap().complete_elsewhere, 1);
+
+        index.note_draining(&device(7), now + 600, now).unwrap();
+
+        let at_risk: Vec<ChunkId> = index
+            .under_replicated(2, now)
+            .unwrap()
+            .into_iter()
+            .map(|risk| risk.chunk)
+            .collect();
+        assert_eq!(
+            at_risk,
+            vec![chunk(2)],
+            "a draining machine still counted as a holder, so nothing is re-placed \
+             before it leaves and its departure costs a replica"
+        );
+        assert_eq!(
+            index.coverage(now).unwrap().complete_elsewhere,
+            0,
+            "`status` counted a draining machine as a copy it is about to lose"
+        );
+        assert_eq!(
+            index.exposed_by(&device(7), now).unwrap(),
+            1,
+            "only chunk 2 rests on the draining machine alone; chunk 1 is on device 8"
+        );
+    }
+
+    #[test]
+    fn red_team_a_drain_expires_and_cannot_exclude_a_holder_for_a_week() {
+        // An interrupted drain, or a device asking for a month, must not make
+        // its owner ignore a real holder -- and re-replicate around it -- for
+        // longer than a person waiting at a screen.
+        let (_dir, index) = index();
+        index.put_file("a", &entry(&[1])).unwrap();
+        let now = 10_000;
+        index.record_holder(&chunk(1), &device(7), now).unwrap();
+        index
+            .note_draining(&device(7), now + 30 * 24 * 3600, now)
+            .unwrap();
+        assert!(index.is_draining(&device(7), now).unwrap());
+        let later = now + holders::MAX_DRAIN + 1;
+        assert!(
+            !index.is_draining(&device(7), later).unwrap(),
+            "the owner took the device's word for how long to ignore it"
+        );
+
+        // Renewing is refused: not while the grant runs, and not until as
+        // long again has passed after it ended.
+        let renewed = now + holders::MAX_DRAIN - 1;
+        assert!(
+            !index
+                .note_draining(&device(7), renewed + 600, renewed)
+                .unwrap()
+        );
+        assert!(
+            !index.is_draining(&device(7), later).unwrap(),
+            "a holder renewed its own exclusion past the cap"
+        );
+        assert!(!index.note_draining(&device(7), later + 600, later).unwrap());
+        let cooled = now + 2 * holders::MAX_DRAIN;
+        assert!(
+            index
+                .note_draining(&device(7), cooled + 600, cooled)
+                .unwrap()
+        );
+
+        // `Leaving` takes the row with the records.
+        index.forget_device(&device(7)).unwrap();
+        assert!(!index.is_draining(&device(7), cooled).unwrap());
+    }
+
+    #[test]
+    fn red_team_a_stranger_draining_writes_nothing() {
+        // Device keys are free. A row per stranger, with a commit each, would
+        // be a disk and fsync amplifier on a Pi for anybody who can connect.
+        let (_dir, index) = index();
+        assert!(!index.note_draining(&device(9), 10_600, 10_000).unwrap());
+        assert!(
+            !index.is_draining(&device(9), 10_000).unwrap(),
+            "a device holding nothing here got a draining row"
+        );
     }
 
     #[test]

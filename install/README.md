@@ -488,8 +488,14 @@ it takes its own flag:
 sh install/clean.sh --yes --purge-account
 ```
 
-One thing it cannot do: other members still count this machine as holding their
-data until their next audit withdraws it. It says so at the end. If this machine
+Before deleting the account it runs `itsanas leave --drain-for N` (default 30
+minutes, at most 120; `sh install/clean.sh --yes --purge-account --drain-for 10`,
+`clean.ps1 -PurgeAccount -DrainFor 10`, also with `--instance` / `-Instance`):
+each owner is asked to re-place what rests on this machine alone, then told it
+has left. It prints counts only, and never refuses to finish, so a thin network
+does not keep anybody from switching off. If there is no `itsanas` program or the
+drain fails, it says so and goes on. An owner that could not be asked still counts
+this machine as holding its data until its next audit withdraws it. If this machine
 was a host for somebody, tell them.
 
 ## Two accounts on one machine

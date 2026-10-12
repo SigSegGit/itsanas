@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-07 — 1077 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 251 are red-team tests.**
+**Last updated: 2026-10-12 — 1082 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 256 are red-team tests.**
 
-**961 of the 1077 tests have an entry of their own on this page** — an *entry*,
+**966 of the 1082 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,11 +158,11 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 19 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 167 |
+| `itsanas-store` unit | 170 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
-| `itsanas-net` unit | 45 |
+| `itsanas-net` unit | 46 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 58 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 119 (1 `#[ignore]`d) |
@@ -173,7 +173,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 120 |
+| `itsanas-cli` unit | 121 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 117 |
@@ -432,7 +432,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (142, plus the 25 vault tests below)
+# `itsanas-store` — unit tests (145, plus the 25 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -459,7 +459,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 | `a_key_round_trips_through_its_two_halves` / `a_key_of_the_wrong_length_is_refused_rather_than_guessed_at` | The encoding, and that a key written by something else is refused rather than reinterpreted. |
 | `a_disk_check_pass_fits_in_the_refresh_window_at_any_interval` | §8 4c: `rows_per_round` sizes the rolling disk check so a whole pass fits in `REFRESH_AFTER` at any round interval -- 15 874 rows a round for sixteen million chunks at five minutes, 190 477 at an hour, never more rows than exist. The first plan's fixed 16 384 would take forty-two days a pass on an hourly policy. |
 
-## `index` — the placement ledger (18)
+## `index` — the placement ledger (21)
 
 Where this node's data actually went. This is what replaced the coordinator's
 signed node-set epoch: an owner who already keeps a log of their own chunks can
@@ -482,6 +482,9 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | **`a_ledger_written_before_the_second_ordering_is_rebuilt_on_open`** | Every write path writes both orderings, so they cannot drift while running — but they can *start* apart, on a store written before the device-first table existed. Left alone that is silent and total: challenge selection reads the second table, so no audit would ever ask anything, and a node that has stopped checking its hosts looks exactly like one whose hosts are honest. |
 | **`a_target_counts_this_device_so_three_asks_for_two_elsewhere`** | The counting convention, pinned. Off by one here means the repair loop targets two copies while reporting three, and nothing ever says so — it surfaces as data loss after two machines die instead of after three. |
 | **`one_chunk_nobody_holds_makes_the_whole_account_unrecoverable`** | Why the headline number is a minimum and not an average, in one test. Eight of nine holder records exist and not one complete copy does: a file comes back only if every chunk does, so almost-everywhere is nowhere. An average would report 2.0 here and read as comfortable. |
+| **`red_team_a_draining_holder_stops_counting_so_repair_starts_before_it_goes`** | §8 0w (7). A holder that told its owner it is draining stays in the ledger (its records are true) but no longer counts towards `under_replicated` or `coverage`, so repair places the replacement while the departing copy still exists as a margin, not after the machine is off. Without it repair waited for `Leaving`, and the one-replica-fewer window opened at the moment of switching off. `Leaving` removes the row with the records. Sabotaged (draining holders still counted): red. |
+| **`red_team_a_drain_expires_and_cannot_exclude_a_holder_for_a_week`** | A drain ends by itself and is capped at `holders::MAX_DRAIN` (2 h) whatever number the caller asked for. A Ctrl-C'd drain, or a machine that rejoined, otherwise left its owner ignoring a real holder for ever and over-replicating around it. Sabotaged (cap off; expiry off): red. Renewal is refused while a grant runs and for as long again after it ends, so a holder cannot keep itself ignored for good. Sabotaged (cooldown off): red. |
+| **`red_team_a_stranger_draining_writes_nothing`** | A device that holds nothing for this owner gets no `draining_until` row: device keys are free, and a row plus a commit per stranger would be a disk and fsync amplifier on a Pi. Sabotaged (holder check off): red. |
 | **`a_peer_that_holds_every_chunk_is_reported_as_holding_everything`** | The other direction from the copy count, and not the same question. A peer holding a complete set is one broken cipher away from reading the account, and it is also what decides whether this scales: if the unit of hosting were "a whole account", somebody offering four terabytes would need peers who could each take four terabytes. The second half of the test spreads the same three chunks over three machines — same one complete copy, and nobody holding a whole set. |
 | **`a_holder_nobody_has_heard_from_stops_counting_as_a_copy`** | A holder record is a memory: it says a device once acknowledged a chunk, not that the device still exists. This fleet had a destroyed machine listed as a holder until somebody read a log. Two claims and one observation must report one copy, not two — and a machine that has gone quiet is not one holding a share of you, it is one nobody can say anything about. |
 | **`a_big_account_does_not_report_itself_lost_because_the_audit_is_slow`** | The arithmetic that decided the freshness rule is asked of the *machine* and not of the chunk. The audit re-checks sixteen chunks per peer per round at 300 s a round, so a chunk waits `chunks / 16` rounds for its turn — past ~64,500 chunks, four or five gigabytes, longer than the window. A per-chunk rule would report zero complete copies for a fleet whose every audit passes, at exactly the size this project is for. |
@@ -751,7 +754,7 @@ about reading.
 | **`red_team_one_disk_check_call_holds_at_most_one_batch`** | Found by the CI reviewer on #218: the slice a round owes is 190 477 rows at a terabyte on an hourly policy, 12 MB of keys in one `Vec` on a 17 MiB machine. One call examines at most `MAX_CHECK_BATCH` and the daemon loops. Sabotaged by dropping the cap. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (45)
+# `itsanas-net` — unit tests (46)
 
 ## `protocol` — messages and challenges (12)
 
@@ -770,7 +773,7 @@ about reading.
 | **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 
-## `service` — what a peer may obtain (24)
+## `service` — what a peer may obtain (25)
 
 | Test | What it proves |
 | --- | --- |
@@ -791,6 +794,7 @@ about reading.
 | **`a_hello_from_a_newer_peer_is_answered_with_the_version_both_sides_know`** | The version window. Requiring an exact match — which is what this did — meant no node could speak to a node one commit ahead, so every protocol addition partitioned the network until every machine upgraded at the same instant. Survivable in one household; impossible for people who join and leave. |
 | `a_hello_from_below_the_floor_is_refused_rather_than_guessed_at` | A window has a bottom. Below it there is no shared vocabulary, and pretending otherwise fails on some later message instead of this one. |
 | **`red_team_a_leaving_notice_withdraws_only_the_caller`** | `Leaving` withdraws every record about a device at once, the most destructive notice a peer can send: pointed at the wrong device it would make an owner forget the only holder that still has its data. It carries no device, so the subject is the connection's proven one. Also checks the chunk is then under-replicated, which is what makes the next round repair it instead of waiting the seven days of `LIVE_FOR`. |
+| **`red_team_a_draining_notice_uncounts_only_the_caller`** | `Draining { seconds }` carries no device, so the subject is the connection's proven one: pointed at another machine it would make an owner ignore, and replace, a holder that is staying. The answer (`Exposed { chunks }`) counts what rests on the caller alone. Sabotaged (subject taken from elsewhere): red. |
 | `a_drop_notice_for_another_account_is_refused` | A node hosting somebody else's sealed data keeps no ledger about it. Accepting silently would look like the record had been withdrawn somewhere. |
 | `a_peer_can_fetch_this_nodes_own_segments_and_chunks` | The basic serving path. |
 | `the_segment_limit_is_clamped_to_the_protocol_maximum` | Limits are applied. |
@@ -939,7 +943,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (120)
+# `itsanas-cli` — unit tests (121)
 
 ## `bench` — measuring this machine (4)
 
@@ -1134,7 +1138,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds (32)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds (33)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1167,6 +1171,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_after_migration_a_command_without_a_name_refuses`** | With neither `--instance` nor `--home`, a machine holding only named instances refuses and names them, instead of falling back to `~/.itsanas` where `init` would make a second identity and a stale `itsanas.service` would start it. A machine with no node at all still gets `~/.itsanas`, or the first `init` could never run. Sabotaged (always fall back): red. |
 | **`red_team_a_departed_node_stays_departed_until_it_rejoins`** | After `itsanas leave` the home holds a `departed` file; the daemon exits 0 at once (so `Restart=on-failure` and the logon task do not loop), `serve` and `sync` refuse, each naming `itsanas rejoin`, and `rejoin` undoes it. Otherwise systemd would bring back a machine its peers were told had gone. Sabotaged (the check reads another file): red. |
 | **`red_team_a_departed_node_cannot_register_again`** | `register` publishes this device's address as well as its claim; after `itsanas leave` it ran unguarded, so a departed node could hand the peers that were told it had gone a fresh address. It now refuses first, naming `itsanas rejoin`. Sabotaged (guard removed): red. |
+| **`red_team_a_drain_never_counts_an_owner_it_could_not_ask_as_done`** | `itsanas leave --drain-for` prints counts only (owners left one replica fewer, owners not askable). An owner that was unreachable or too old for protocol 8 is never folded into "drained": that would be the one number in the last sentence a person reads before switching off that lies. Sabotaged (unaskable counted as done): red. |
 | **`red_team_a_node_under_the_other_home_variable_is_not_shadowed`** | On Windows the CLI prefers `USERPROFILE`; a node made when `HOME` won is invisible there, and `init`/`login` would mint a second identity. A derived home with no node, when the other variable's home holds one at the same place, is refused with the path and `--home` named; an explicit `--home` is never second-guessed. Sabotaged (`stranded_node` never finding): red. |
 | `migration_advice_says_the_old_unit_restart_loops` | After `migrate` the old unit still points at `~/.itsanas`, fails at each start and is restarted by `Restart=` or the logon task until disabled; the advice says so. Sabotaged (sentence softened): red. |
 | **`red_team_what_a_sync_pulled_lands_in_the_folder`** | `itsanas sync` by hand fetched into the store and left the synced folder empty until an `itsanas scan` no guide names (found by a persona run of FIRST-STEPS, HANDOVER §8 q). A file put in the store as a pull would must be written out by `sync_folder`, which `sync` runs after its rounds. Sabotaged (it returns at once): red. |

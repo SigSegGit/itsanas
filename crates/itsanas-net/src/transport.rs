@@ -58,8 +58,8 @@ use crate::{
     error::{NetError, Result},
     protocol::{
         Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_CHUNK_SUMMARY,
-        PROTOCOL_WITH_CLAIMS, PROTOCOL_WITH_DROP_NOTICES, PROTOCOL_WITH_LEAVING,
-        PROTOCOL_WITH_PRESENCES, Request, Response,
+        PROTOCOL_WITH_CLAIMS, PROTOCOL_WITH_DRAINING, PROTOCOL_WITH_DROP_NOTICES,
+        PROTOCOL_WITH_LEAVING, PROTOCOL_WITH_PRESENCES, Request, Response,
     },
     service::PeerService,
 };
@@ -700,6 +700,24 @@ impl PeerClient {
             Response::Stored { accepted } => Ok(accepted),
             Response::Refused(reason) => Err(NetError::Refused(reason)),
             _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
+        }
+    }
+
+    /// Ask the peer to stop counting this device for `seconds`, and how many
+    /// of its chunks rest on this device alone.
+    ///
+    /// `None`, having sent nothing, when the peer is too old to know the verb:
+    /// the caller counts it as an owner it could not ask, never as 0.
+    pub fn draining(&mut self, seconds: u64) -> Result<Option<u64>> {
+        if self.spoken < PROTOCOL_WITH_DRAINING {
+            return Ok(None);
+        }
+        match self.request(&Request::Draining { seconds })? {
+            Response::Exposed { chunks } => Ok(Some(chunks)),
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse {
+                expected: "exposed",
+            }),
         }
     }
 

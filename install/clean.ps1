@@ -30,6 +30,9 @@
 param(
     [switch]$Yes,
     [switch]$PurgeAccount,
+    # Minutes -PurgeAccount waits for the owners to re-place what this machine
+    # holds for them alone (`itsanas leave --drain-for`). 0 skips the drain.
+    [ValidateRange(0, 120)][int]$DrainFor = 30,
     # One named instance only: its task, passphrase file, wrapper, logs and, with
     # -PurgeAccount, its node. The programs and the other nodes stay.
     [string]$Instance = '',
@@ -43,6 +46,20 @@ $ErrorActionPreference = 'Continue'
 
 $programs = "$env:LOCALAPPDATA\Programs\itsanas"
 $state = "$env:LOCALAPPDATA\itsanas"
+
+# The account is about to go, and with it what this machine holds for other
+# members: drain first (§8 0w (7)), with the task already stopped because one
+# process at a time holds a node. `leave` never refuses to finish. The
+# passphrase is read exactly as the task's wrapper reads it
+# (`setup/service.rs`): untrimmed, so one ending in a space still opens it.
+function Invoke-DrainBeforePurge([string]$secretFile) {
+    $exe = Join-Path $programs 'itsanas.exe'
+    if (-not $PurgeAccount -or -not (Test-Path "$NodeHome\keystore.bin") -or -not (Test-Path $exe)) { return }
+    if (Test-Path $secretFile) { $env:ITSANAS_PASSPHRASE = Get-Content $secretFile -Raw }
+    & $exe --home $NodeHome leave --drain-for $DrainFor
+    if ($LASTEXITCODE -ne 0) { Write-Warning "the drain did not run; the owners stop counting this machine after their next audits" }
+    Remove-Item Env:ITSANAS_PASSPHRASE -ErrorAction SilentlyContinue
+}
 $taskName = 'ITSaNAS'
 # Where provision.ps1 puts the tray icon's logon shortcut: "ITSaNAS tray.lnk"
 # for the default node, "ITSaNAS tray (NAME).lnk" for an instance. The name
@@ -84,6 +101,7 @@ if ($Instance) {
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     }
+    Invoke-DrainBeforePurge "$state\passphrase-$Instance.txt"
     foreach ($file in $files) { Remove-Item $file -Force -ErrorAction SilentlyContinue }
     if ($PurgeAccount -and (Test-Path $NodeHome)) {
         Remove-Item $NodeHome -Recurse -Force -ErrorAction SilentlyContinue
@@ -166,6 +184,7 @@ Get-Process itsanas, itsanas-drive -ErrorAction SilentlyContinue |
     Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 2
 Write-Host "task and processes stopped"
+Invoke-DrainBeforePurge "$state\passphrase.txt"
 
 if (Test-Path $programs) {
     Remove-Item $programs -Recurse -Force -ErrorAction SilentlyContinue
