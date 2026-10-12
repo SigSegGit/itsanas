@@ -1408,6 +1408,23 @@ fn disk_use(node: &Node) -> Result<DiskUse> {
 /// up `status` cannot open it -- and answering "the node is busy" to somebody
 /// asking what their node is doing is the least useful thing this program could
 /// say.
+/// `status`'s "used" line, and the warning when the disk can no longer
+/// hold the pledge.
+fn used_line(node: &Node, hosted: u64) -> String {
+    let used = format!("  used            {}", format_size(hosted));
+    let free = fs4::available_space(&node.home).ok();
+    let keepable = itsanas_node::pledges::keepable(node.config.pledge_bytes, hosted, free);
+    if keepable >= node.config.pledge_bytes {
+        return used;
+    }
+    format!(
+        "{used}\n  CANNOT KEEP    this disk can hold only {} of the {} pledged; it takes no more \
+             chunks until space is freed or `itsanas pledge` is lowered",
+        format_size(keepable),
+        format_size(node.config.pledge_bytes)
+    )
+}
+
 fn render_status(node: &Node) -> Result<String> {
     let mut out = String::new();
 
@@ -1499,7 +1516,7 @@ fn render_status(node: &Node) -> Result<String> {
         "  pledged         {}",
         format_size(node.config.pledge_bytes)
     );
-    w!("  used            {}", format_size(hosted_bytes));
+    w!("{}", used_line(node, hosted_bytes));
     w!("  peers hosted    {hosted_owners}");
     w!("  chunks held     {hosted_chunks}");
     w!(
@@ -3587,18 +3604,49 @@ fn set_pledge(node: &mut Node, bytes: u64) -> Result<Option<String>> {
     // data and then runs out has failed the person who trusted it, and "I
     // offered more than I had" is not a failure anybody discovers until it
     // matters.
+    // And not the space another node on this disk already promised: each one
+    // compared with the free space alone, and two accounts on the Freebox VM
+    // promised the same 30 GB twice (ROADMAP, "Pledges are not reserved").
     let free = fs4::available_space(&node.home).unwrap_or(0);
-    if free > 0 && bytes > free.saturating_add(held) {
+    let shared = itsanas_node::pledges::shared_dir();
+    let (others, stale) = itsanas_node::pledges::others(
+        &node.home,
+        shared.as_deref(),
+        &node.store.device_id().to_hex(),
+        itsanas_discover::now_unix(),
+    );
+    let room = itsanas_node::pledges::room(free, held, &others);
+    if free > 0 && bytes > room {
         return Err(CliError::Usage(format!(
-            "offering {} on a disk with {} free, already holding {} for others",
+            "offering {} on a disk with {} free, already holding {} for others; \
+             at most {} can be offered here{}",
             format_size(bytes),
             format_size(free),
-            format_size(held)
+            format_size(held),
+            format_size(room),
+            if others.is_empty() && stale.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    ", because other nodes on this disk promised space too:{}",
+                    itsanas_node::pledges::describe(&others, &stale, format_size)
+                )
+            }
         )));
     }
 
     node.config.pledge_bytes = bytes;
     node.save_config()?;
+    // Published now, not at the next round: a second setup a minute later
+    // must already see this promise.
+    let _ = itsanas_node::pledges::publish(
+        &node.home,
+        shared.as_deref(),
+        &node.store.device_id().to_hex(),
+        bytes,
+        held,
+        itsanas_discover::now_unix(),
+    );
     Ok(warning)
 }
 

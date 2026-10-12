@@ -291,7 +291,8 @@ pub fn run(
     // others are (`Request::Presences`). The round owns the book; the listener
     // answers from the copy each round leaves here.
     let board = SharedBoard::default();
-    let service = peer_service(node, &board);
+    let disk_room = disk_room(node.home.clone());
+    let service = peer_service(node, &board, &disk_room);
 
     install_signal_handler()?;
     let shutdown = &SHUTDOWN;
@@ -826,7 +827,11 @@ fn report_keeping(peer: &str, keeping: &crate::keeping::KeepingReport) {
 /// which answers `Refused`.
 /// What the listener answers with: this node's store and vault, its pledge,
 /// the relay board, and the per-account bound with this node's own claim.
-fn peer_service<'a>(node: &'a Node, board: &'a SharedBoard) -> PeerService<'a> {
+fn peer_service<'a>(
+    node: &'a Node,
+    board: &'a SharedBoard,
+    disk_room: &'a (dyn Fn() -> Option<u64> + Sync),
+) -> PeerService<'a> {
     PeerService::new(
         &node.store,
         &node.vault,
@@ -835,6 +840,7 @@ fn peer_service<'a>(node: &'a Node, board: &'a SharedBoard) -> PeerService<'a> {
         },
     )
     .with_relay(board)
+    .with_disk_room(disk_room)
     // Whose each device is and what it offers, as its claim said (§8 1c).
     .with_owners(owners(node))
     .claiming(node.claim_bytes(itsanas_discover::now_unix()))
@@ -887,8 +893,27 @@ fn check_standing(node: &Node) {
     }
 }
 
+/// What the disk can still take beyond the reserve, read per offer.
+fn disk_room(home: std::path::PathBuf) -> impl Fn() -> Option<u64> + Sync {
+    move || {
+        fs4::available_space(&home)
+            .ok()
+            .map(|free| free.saturating_sub(itsanas_node::pledges::RESERVE))
+    }
+}
+
+/// The pledge as far as the disk can still honour it (`pledges::keepable`):
+/// another program filling the disk must stop the hosting, not a write.
+fn keepable_pledge(node: &Node) -> u64 {
+    itsanas_node::pledges::keepable(
+        node.config.pledge_bytes,
+        node.vault.held_bytes().unwrap_or(0),
+        fs4::available_space(&node.home).ok(),
+    )
+}
+
 fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
-    let pledge = Pledge::bytes(node.config.pledge_bytes);
+    let pledge = Pledge::bytes(keepable_pledge(node));
     let bound: (&dyn itsanas_net::Owners, &itsanas_store::Store) = (owners(node), &node.store);
     match session::host_for_bounded(&node.vault, client, pledge, Some(bound)) {
         // A peer that wanted nothing has nothing to say, and saying it every

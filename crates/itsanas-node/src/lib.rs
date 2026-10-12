@@ -29,6 +29,7 @@ pub mod error;
 pub mod keeping;
 pub mod node;
 pub mod owners;
+pub mod pledges;
 
 pub use config::Config;
 pub use error::{NodeError, Result};
