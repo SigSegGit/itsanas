@@ -407,7 +407,7 @@ impl PeerServer {
                 // ends is a machine gone, seen within a second rather than
                 // at the next keepalive, so a caller is never spliced onto
                 // a dead park. A read that times out is the park holding.
-                connection.stream().set_read_timeout(Some(PARK_LISTEN))?;
+                connection.stream().set_read_timeout(Some(RELAY_LISTEN))?;
                 loop {
                     match connection.receive::<Request>() {
                         Err(itsanas_wire::StreamError::Io(error)) if timed_out(&error) => {}
@@ -562,6 +562,10 @@ impl PeerServer {
 /// How long a park's side waits on its socket before looking at anything
 /// else: the other side gone, a caller handed, the daemon stopping.
 const PARK_LISTEN: Duration = Duration::from_secs(1);
+
+/// The relay's side of the same: short, because a caller handed to the park
+/// waits for it, inner handshake running.
+const RELAY_LISTEN: Duration = Duration::from_millis(50);
 
 /// A read that ran out of time, which on a park is the ordinary case.
 fn timed_out(error: &std::io::Error) -> bool {

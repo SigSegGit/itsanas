@@ -818,7 +818,7 @@ impl Vault {
                 per_owner.insert(*owner.as_bytes(), bytes);
             }
         }
-        self.remove_stale_rows(&owners)?;
+        self.remove_stale_rows(&owners.iter().copied().collect())?;
 
         let txn = self.db.begin_write()?;
         {
@@ -857,7 +857,7 @@ impl Vault {
 
     /// Remove the rows whose blob is gone, or whose owner the vault no longer
     /// lists, a batch at a time: the directories are the authority.
-    fn remove_stale_rows(&self, owners: &[UserId]) -> Result<()> {
+    fn remove_stale_rows(&self, owners: &std::collections::BTreeSet<UserId>) -> Result<()> {
         let mut after: Option<Vec<u8>> = None;
         loop {
             let mut stale = Vec::new();
@@ -898,7 +898,11 @@ impl Vault {
         }
     }
 
-    fn row_has_blob(&self, key: &[u8], owners: &[UserId]) -> Result<bool> {
+    fn row_has_blob(
+        &self,
+        key: &[u8],
+        owners: &std::collections::BTreeSet<UserId>,
+    ) -> Result<bool> {
         if key.len() != 64 {
             return Ok(false);
         }

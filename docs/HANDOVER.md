@@ -31,7 +31,11 @@ vault rebuild after an unclean exit streams in batches (ROADMAP finding).
 (4) Parks: the parked side stops within a second and drops a relay silent
 for two keepalives; the relay sees a parker gone within a second. (5) The
 IPv6 half of a list is the stable address beside the kernel's temporary one
-(`/proc/net/if_inet6`, Linux only). Red team on the diff.
+(`/proc/net/if_inet6`, Linux only). Red team on the diff: `presence.last`
+written in place (now aside then renamed, one signer at a time), a relayed
+dial waiting up to a second for the park's read (now 50 ms), an address over
+the coordinator's 255-byte cap published and refused every round (now the
+direct address instead), the stale-row scan's owner lookup (now a set).
 
 **2026-10-13: 0s, 0u and 0v built; v0.1.6 for a hand test.**
 #264 vault on another disk (0s), #265 NAT-PMP and address lists (0u), #266

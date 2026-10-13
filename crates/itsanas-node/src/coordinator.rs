@@ -378,13 +378,18 @@ fn publishable(
     // router's port with the global IPv6 address. This one used to return
     // only the router's port, so a 0.1.6 node compared a `relay:` or a list
     // with itself and published neither.
-    if let Some(relayed) = relayed {
+    // Never more than the coordinator takes: an address over its cap was
+    // refused at every round, so the machine stopped being findable at all.
+    let fits = |address: &String| address.len() <= itsanas_coord::claim::MAX_ADDRESS_LEN;
+    if let Some(relayed) = relayed.filter(fits) {
         return relayed;
     }
     match found {
         Some(found) if ANNOUNCE_LISTS => {
             let port = listen.parse::<SocketAddr>().ok().map(|l| l.port());
-            with_global_ipv6(&found, ipv6(), port)
+            Some(with_global_ipv6(&found, ipv6(), port))
+                .filter(fits)
+                .unwrap_or(found)
         }
         Some(found) => found,
         None => reachable_address(listen, local),
@@ -423,6 +428,12 @@ fn next_presence_time(last: u64, now: u64) -> u64 {
 }
 
 fn presence_time(node: &Node, now: u64) -> u64 {
+    // One signer at a time in this process: two announces reading the same
+    // record would sign the same date.
+    static SIGNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = SIGNING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let path = node.home.join("presence.last");
     let last = std::fs::read_to_string(&path)
         .ok()
@@ -433,7 +444,17 @@ fn presence_time(node: &Node, now: u64) -> u64 {
     // ahead of a clock that *is* set came from a clock that ran ahead; kept,
     // it would date every later presence past what peers accept, for ever.
     let at = next_presence_time(last, now);
-    let _ = std::fs::write(&path, at.to_string());
+    // Written aside and renamed: a power cut mid-write left an empty file,
+    // the floor read as 0, and the 1970 clock it exists for came back.
+    let aside = path.with_extension("last.tmp");
+    if let Err(error) =
+        std::fs::write(&aside, at.to_string()).and_then(|()| std::fs::rename(&aside, &path))
+    {
+        eprintln!(
+            "itsanas: could not keep {} ({error}); a clock reset may date presences back",
+            path.display()
+        );
+    }
     at
 }
 
@@ -1686,6 +1707,12 @@ mod tests {
             "198.51.100.1:9797,[2a01:e0a0:1:2::42]:9797".to_owned()
         };
         assert_eq!(listed, expected);
+        let long = format!("relay:aa@{}.example:9797", "h".repeat(250));
+        assert_eq!(
+            publishable(&config, "0.0.0.0:9797", local, None, Some(long), || None),
+            "192.168.1.5:9797",
+            "an address over the coordinator's cap was published, and refused every round"
+        );
     }
 
     #[test]
