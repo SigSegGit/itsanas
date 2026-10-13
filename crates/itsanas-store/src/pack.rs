@@ -595,11 +595,6 @@ impl Packs {
         }
         Ok(out)
     }
-
-    /// The pack `address` is in, for a test that damages it.
-    pub fn pack_of(&self, address: &ChunkId) -> Result<Option<u32>> {
-        Ok(self.place(address)?.map(|place| place.pack))
-    }
 }
 
 #[cfg(test)]
