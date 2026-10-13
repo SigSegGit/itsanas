@@ -56,6 +56,7 @@ pub mod holders;
 pub mod index;
 pub mod local;
 pub mod oplog;
+pub mod pack;
 pub mod path;
 pub mod reliability;
 pub mod store;

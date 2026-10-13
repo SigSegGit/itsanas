@@ -1103,6 +1103,9 @@ impl Store {
 
             self.index.forget_chunk(&address)?;
         }
+        // In pack files a removed chunk is dead space until its pack is
+        // rewritten; blob files gave the bytes back at `remove`.
+        self.blobs.compact()?;
 
         Ok(report)
     }

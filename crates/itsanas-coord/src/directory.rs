@@ -116,6 +116,10 @@ const RETIRED: TableDefinition<'_, &str, u64> = TableDefinition::new("retired_na
 /// about at their rounds, so a host that was offline when it happened still
 /// frees what it kept, and checks the account's signature before it does.
 const DELETED: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("deleted_accounts");
+/// Escrow fetches per username: `count` (u32 LE) then `since` (unix, u64 LE).
+/// On disk because a restart that cleared them handed out a fresh budget to
+/// anyone who could provoke one (HANDOVER §9).
+const ESCROW_TRIES: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("escrow_tries");
 
 /// How long a deleted account's name stays retired.
 pub const NAME_RETIRED_FOR: u64 = 365 * 24 * 3600;
@@ -1307,6 +1311,64 @@ impl Directory {
         Ok(())
     }
 
+    /// Count one escrow fetch of `username` at `now`, on disk; `false` when
+    /// its budget for the window is spent or the table is full.
+    ///
+    /// The same rule as the in-memory `EscrowLimiter`, kept across restarts.
+    /// Full means refuse, never evict (evicting is how a caller would clear
+    /// their own count). A clock that went backwards keeps the window open:
+    /// the cautious side.
+    pub fn count_escrow_attempt(
+        &self,
+        username: &str,
+        now: u64,
+        allowed: u32,
+        window: u64,
+        capacity: usize,
+    ) -> Result<bool> {
+        let decode = |bytes: &[u8]| -> Option<(u32, u64)> {
+            let count = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?);
+            let since = u64::from_le_bytes(bytes.get(4..12)?.try_into().ok()?);
+            Some((count, since))
+        };
+        let expired = |since: u64| now >= since && now - since >= window;
+        let txn = self.db.begin_write()?;
+        let allowed_now = {
+            let mut table = txn.open_table(ESCROW_TRIES)?;
+            let current = table.get(username)?.and_then(|v| decode(v.value()));
+            let next = match current {
+                Some((_, since)) if expired(since) => Some((1, now)),
+                Some((count, _)) if count >= allowed => None,
+                Some((count, since)) => Some((count + 1, since)),
+                None => {
+                    if table.len()? >= capacity as u64 {
+                        let stale: Vec<String> = table
+                            .iter()?
+                            .filter_map(std::result::Result::ok)
+                            .filter(|(_, v)| decode(v.value()).is_none_or(|(_, s)| expired(s)))
+                            .map(|(k, _)| k.value().to_owned())
+                            .collect();
+                        for name in &stale {
+                            table.remove(name.as_str())?;
+                        }
+                    }
+                    (table.len()? < capacity as u64).then_some((1, now))
+                }
+            };
+            match next {
+                Some((count, since)) => {
+                    let mut value = count.to_le_bytes().to_vec();
+                    value.extend_from_slice(&since.to_le_bytes());
+                    table.insert(username, value.as_slice())?;
+                    true
+                }
+                None => false,
+            }
+        };
+        txn.commit()?;
+        Ok(allowed_now)
+    }
+
     /// Fetch a member's escrow blob by username.
     ///
     /// Deliberately unauthenticated: somebody recovering an account has lost
@@ -2085,6 +2147,64 @@ mod tests {
     use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes};
 
     const NOW: u64 = 1_800_000_000;
+
+    #[test]
+    fn red_team_a_coordinator_restart_does_not_hand_out_a_fresh_escrow_budget() {
+        // HANDOVER §9: the counters were in memory only, so anybody who could
+        // provoke a restart -- or wait for one -- ground the passphrase with a
+        // fresh budget each time.
+        let (dir, directory) = directory();
+        for attempt in 1..=3 {
+            assert!(
+                directory
+                    .count_escrow_attempt("nicolas", NOW, 3, 60, 8)
+                    .unwrap(),
+                "attempt {attempt} refused"
+            );
+        }
+        let path = dir.path().join("coord.redb");
+        drop(directory);
+        let reopened = Directory::open(&path).expect("reopen");
+        assert!(
+            !reopened
+                .count_escrow_attempt("nicolas", NOW + 1, 3, 60, 8)
+                .unwrap(),
+            "the restart cleared the count: a fourth guess got through"
+        );
+        assert!(
+            reopened
+                .count_escrow_attempt("nicolas", NOW + 61, 3, 60, 8)
+                .unwrap(),
+            "the window never reopened: a person who mistyped is locked out for good"
+        );
+    }
+
+    #[test]
+    fn red_team_invented_names_cannot_evict_a_live_escrow_count() {
+        let (_dir, directory) = directory();
+        for _ in 0..3 {
+            assert!(
+                directory
+                    .count_escrow_attempt("victim", NOW, 3, 60, 4)
+                    .unwrap()
+            );
+        }
+        for index in 0..50 {
+            let _ = directory.count_escrow_attempt(&format!("invented-{index}"), NOW, 3, 60, 4);
+        }
+        assert!(
+            !directory
+                .count_escrow_attempt("victim", NOW, 3, 60, 4)
+                .unwrap(),
+            "a flood of invented names cleared the attacker's own count"
+        );
+        assert!(
+            directory
+                .count_escrow_attempt("someone", NOW + 61, 3, 60, 4)
+                .unwrap(),
+            "expired counts were never pruned: a full table refused everyone for good"
+        );
+    }
 
     fn directory() -> (tempfile::TempDir, Directory) {
         let dir = tempfile::tempdir().expect("temp dir");

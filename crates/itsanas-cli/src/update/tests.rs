@@ -288,6 +288,19 @@ fn red_team_a_build_not_installed_from_a_release_never_updates_itself() {
         std::fs::read(&world.exe).expect("program"),
         b"built from source by a developer, not 0.1.0"
     );
+    // Nor is it told of one: it heard "update available" daily, then was
+    // refused (HANDOVER §9).
+    assert!(
+        matches!(world.updater().check(), Ok(Found::NotFromRelease(_))),
+        "a source build was told of an update it will refuse"
+    );
+    // A release install still hears of it.
+    let world = World::new();
+    world.publish("0.2.0", NEW_PROGRAM);
+    assert!(
+        matches!(world.updater().check(), Ok(Found::Available(_))),
+        "a program installed from a release was not told of a newer one"
+    );
 
     // And one running from a cargo target/ directory does not even look.
     let in_target = world

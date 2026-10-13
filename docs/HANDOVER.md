@@ -2771,7 +2771,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
   `updates = notify` fails its daily check, logged each day. Manifests
   could go to the node's home instead; not to a shared temp directory,
   where a fixed name is a symlink target.
-- **A source build is told of an update it will refuse.** Since the key is
+- ✅ **Fixed 2026-10-13: a source build is no longer told of an update it will refuse** (`check` runs `installed_from_release` when a newer release exists). Was: **A source build is told of an update it will refuse.** Since the key is
   pinned, a binary built from source outside `target/` (every machine
   installed by `windows.ps1` / `linux.sh`) passes `check`'s local test,
   finds the newest signed release and, under `notify`, says "update
@@ -2791,13 +2791,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
   go through files in the home instead (`control.rs`, the snapshot); anything
   that reads or changes the store itself still needs the daemon stopped, and a
   live file list still needs a control socket.
-- **The escrow attempt counters are in memory only.** A coordinator restart
+- ✅ **Fixed 2026-10-13: the escrow attempt counters are on disk too** (`Directory::count_escrow_attempt`, table `escrow_tries`, checked after the in-memory limiter; `red_team_a_coordinator_restart_does_not_hand_out_a_fresh_escrow_budget`). Was: **The escrow attempt counters are in memory only.** A coordinator restart
   clears every one of them, so anybody who can provoke a restart — or who simply
   waits for one — gets a fresh budget. Persisting them is the fix; the Argon2id
   cost is what carries the weight until then.
 - **A stale address is handed out for a week.** `PRESENCE_TTL` bounds it, but
   every peer pays a dial for every stale entry until it expires.
-- **The blob layout does not reach a terabyte.** Measured, not suspected: see
+- 🟨 **Pack files built 2026-10-13, opt-in** (ROADMAP M10). Was: **The blob layout does not reach a terabyte.** Measured, not suspected: see
   [ROADMAP.md](ROADMAP.md) M9. One file per chunk is 14.7 million files per
   terabyte, and `blobs().addresses()` walks all of them on every sync round.
   Pack files are the decided answer, scheduled after the coordinator because

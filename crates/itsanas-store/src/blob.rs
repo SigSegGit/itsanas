@@ -41,7 +41,14 @@ const BLOB_EXTENSION: &str = "blob";
 pub struct BlobStore {
     blobs: PathBuf,
     tmp: PathBuf,
+    /// Set when this store keeps its chunks in pack files ([`crate::pack`]).
+    packs: Option<std::sync::Arc<crate::pack::Packs>>,
 }
+
+/// Set to `1` to start *new* stores in pack files (M10, experimental). A
+/// store that already has packs keeps them, one that has blob files keeps
+/// those: nothing is converted.
+pub const PACKS_ENV: &str = "ITSANAS_PACKS";
 
 impl BlobStore {
     /// Open (creating if needed) a blob store rooted at `root`.
@@ -49,13 +56,44 @@ impl BlobStore {
         let root = root.as_ref();
         let blobs = root.join("blobs");
         let tmp = root.join("tmp");
+        let fresh = fs::read_dir(&blobs).map_or(true, |mut entries| entries.next().is_none());
+        let packed = crate::pack::Packs::present(root)
+            || (fresh && std::env::var(PACKS_ENV).is_ok_and(|v| v == "1"));
+        if packed {
+            return Self::open_packed(root);
+        }
 
         for directory in [&blobs, &tmp] {
             fs::create_dir_all(directory)
                 .map_err(|error| StoreError::io(directory.clone(), error))?;
         }
 
-        Ok(Self { blobs, tmp })
+        Ok(Self {
+            blobs,
+            tmp,
+            packs: None,
+        })
+    }
+
+    /// Open (creating if needed) a store rooted at `root` in pack files.
+    pub fn open_packed(root: impl AsRef<Path>) -> Result<Self> {
+        let root = root.as_ref();
+        Ok(Self {
+            blobs: root.join("blobs"),
+            tmp: root.join("tmp"),
+            packs: Some(crate::pack::Packs::open(root)?),
+        })
+    }
+
+    /// The pack files behind this store, when it has them.
+    #[must_use]
+    pub fn packs(&self) -> Option<&crate::pack::Packs> {
+        self.packs.as_deref()
+    }
+
+    /// Give back the space of mostly dead packs; 0 for blob files.
+    pub fn compact(&self) -> Result<u64> {
+        self.packs.as_ref().map_or(Ok(0), |packs| packs.compact())
     }
 
     /// Path a given address maps to.
@@ -81,6 +119,9 @@ impl BlobStore {
     /// Whether this store already holds `address`.
     #[must_use]
     pub fn contains(&self, address: &ChunkId) -> bool {
+        if let Some(packs) = &self.packs {
+            return packs.contains(address);
+        }
         self.path_for(address).is_file()
     }
 
@@ -91,6 +132,9 @@ impl BlobStore {
     /// content is a no-op rather than a rewrite — this is where deduplication
     /// actually pays off.
     pub fn put(&self, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
+        if let Some(packs) = &self.packs {
+            return packs.put(address, sealed);
+        }
         let destination = self.path_for(address);
         if destination.is_file() {
             return Ok(false);
@@ -124,6 +168,9 @@ impl BlobStore {
 
     /// Read the sealed bytes stored under `address`.
     pub fn get(&self, address: &ChunkId) -> Result<Option<Vec<u8>>> {
+        if let Some(packs) = &self.packs {
+            return packs.get(address);
+        }
         let path = self.path_for(address);
         match fs::read(&path) {
             Ok(bytes) => Ok(Some(bytes)),
@@ -134,6 +181,9 @@ impl BlobStore {
 
     /// Remove `address`. Returns whether anything was removed.
     pub fn remove(&self, address: &ChunkId) -> Result<bool> {
+        if let Some(packs) = &self.packs {
+            return packs.remove(address);
+        }
         let path = self.path_for(address);
         match fs::remove_file(&path) {
             Ok(()) => Ok(true),
@@ -144,6 +194,9 @@ impl BlobStore {
 
     /// Number of bytes `address` occupies, without reading it.
     pub fn size_of(&self, address: &ChunkId) -> Result<Option<u64>> {
+        if let Some(packs) = &self.packs {
+            return packs.size_of(address);
+        }
         let path = self.path_for(address);
         match fs::metadata(&path) {
             Ok(meta) => Ok(Some(meta.len())),
@@ -158,6 +211,13 @@ impl BlobStore {
     /// garbage collection and integrity checking, never on a hot path.
     pub fn addresses(&self) -> Result<Vec<ChunkId>> {
         let mut found = Vec::new();
+        if let Some(packs) = &self.packs {
+            packs.for_each_address(&mut |address| {
+                found.push(address);
+                Ok(())
+            })?;
+            return Ok(found);
+        }
         Self::walk(&self.blobs, &mut found)?;
         Ok(found)
     }
@@ -166,6 +226,9 @@ impl BlobStore {
     /// [`Self::addresses`] without holding them all, for a walk over a vault
     /// of millions (a terabyte in 64 KiB chunks is 16 million).
     pub fn for_each_address(&self, visit: &mut dyn FnMut(ChunkId) -> Result<()>) -> Result<()> {
+        if let Some(packs) = &self.packs {
+            return packs.for_each_address(visit);
+        }
         Self::visit(&self.blobs, visit)
     }
 
@@ -229,6 +292,9 @@ impl BlobStore {
 
     /// Total bytes held, across every blob.
     pub fn total_bytes(&self) -> Result<u64> {
+        if let Some(packs) = &self.packs {
+            return packs.total_bytes();
+        }
         let mut total = 0u64;
         for address in self.addresses()? {
             total = total.saturating_add(self.size_of(&address)?.unwrap_or(0));
@@ -241,6 +307,9 @@ impl BlobStore {
     /// Returns how many were removed. Called on store open: without it, a
     /// machine that loses power mid-write leaks a temp file on every restart.
     pub fn sweep_staging(&self) -> Result<usize> {
+        if self.packs.is_some() {
+            return Ok(0);
+        }
         let entries = match fs::read_dir(&self.tmp) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),

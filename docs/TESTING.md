@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-13 — 1131 test functions across 35 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 296 are red-team tests.**
+**Last updated: 2026-10-13 — 1141 test functions across 36 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 303 are red-team tests.**
 
-**1015 of the 1131 tests have an entry of their own on this page** — an *entry*,
+**1025 of the 1141 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,15 +158,16 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 21 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 173 |
+| `itsanas-store` unit | 180 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
+| `itsanas-store` packs (`tests/packs.rs`) | 1 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
 | `itsanas-net` unit | 54 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 59 |
 | `itsanas-net` relay (`tests/relay.rs`) | 6 |
 | `itsanas-placement` unit | 34 |
-| `itsanas-coord` unit | 121 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 123 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 1 |
 | `itsanas-discover` unit | 43 |
@@ -434,7 +435,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (146, plus the 27 vault tests below)
+# `itsanas-store` — unit tests (153, plus the 27 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -609,6 +610,31 @@ moment the sync engine starts materialising files.
 | `malformed_separators_are_rejected` | Empty, doubled and trailing separators refused. |
 | `oversized_paths_and_components_are_rejected` | Bounds enforced, so one log entry cannot make the index enormous. |
 | `ordinary_paths_are_accepted` | The rules are not so strict that normal filenames — including Unicode and dotfiles — break. |
+
+## `pack` — sealed chunks appended into pack files (7)
+
+`crates/itsanas-store/src/pack.rs` (M10). A chunk is a record
+`[address][length][sealed bytes]` appended to the current pack, found through a
+redb index; removal drops the row and compaction reclaims the bytes. Sabotaged
+with `scripts/sabotage.py`: each defence below turned its test red.
+
+| Test | What it proves |
+| --- | --- |
+| `chunks_round_trip_deduplicate_and_survive_a_reopen` | A chunk reads back, a second put of the same address appends nothing, a removed chunk stays removed, and all of it survives a reopen. |
+| **`red_team_a_torn_append_is_dead_space_not_a_shifted_pack`** | A crash (or a full disk) mid-append leaves bytes no row names; the next record must land after them at the offset its row records, not at the store's idea of the length. Sabotaged (ignore the file's real end): red. |
+| **`red_team_rows_a_crash_took_are_rebuilt_and_removed_chunks_stay_removed`** | Rows are committed without waiting for the disk between marks; at open, the records after the last durable mark are replayed, so none is lost, a removed chunk never returns, and a cut-short tail invents nothing. Sabotaged (no replay; removal not moving the mark; mark before the torn tail): red each. |
+| **`red_team_a_row_naming_the_wrong_bytes_is_refused_not_served`** | A damaged pack, or a row pointing where another record now is, answers `Corrupt` rather than serving one chunk's bytes as another's. Sabotaged (no header check): red. |
+| **`red_team_compaction_frees_a_dead_pack_and_keeps_every_live_chunk`** | A closed pack eight tenths dead is rewritten and deleted, every live chunk still reads, and the byte total is exact. Sabotaged (drop the copy): red. |
+| **`red_team_compaction_never_leaves_a_chunk_without_bytes_its_row_names`** | Compaction used to remove a chunk's row before writing its copy, so a crash between the two lost the chunk. Now the copy is appended and the row moved in one durable commit. The test simulates a crash after the copy is appended but before its commit, reopens, and the chunk still reads; a full compaction then keeps it and frees the dead pack. Rodin's finding. |
+| `two_opens_of_one_directory_share_one_index` | redb refuses a second database on one file and the vault opens a store per call, so two opens share one index. |
+
+---
+
+# `itsanas-store` — a whole store in packs (`tests/packs.rs`) (1)
+
+| Test | What it proves |
+| --- | --- |
+| `a_store_in_packs_writes_reads_checks_collects_and_reopens_with_no_file_per_chunk` | Through the real `Store`: write, remove, garbage-collect, deep integrity check and reopen all work on a store created in packs, and no blob file is written. |
 
 ---
 
@@ -1070,7 +1096,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | **`red_team_an_older_release_is_never_installed`** | A correctly signed 0.0.9 offered to 0.1.0 is "up to date", and `install` refuses it on its own as not newer: an old release with a known bug cannot be replayed. Sabotaged twice (check's version floor; install's guard): red both. |
 | **`red_team_a_download_whose_hash_differs_is_refused`** | A binary swapped on the server after signing (same size, one bit) is "not the file that was signed". Sabotaged (download not checked): red. |
 | **`red_team_a_truncated_update_is_never_put_in_place`** | Half the binary is "incomplete", never put in place: half a program is a machine that no longer starts. Sabotaged (as above): red. |
-| **`red_team_a_build_not_installed_from_a_release_never_updates_itself`** | A program whose bytes are not its own version's released binary (built from source) refuses to update; one running under a cargo `target/` directory does not even look. Sabotaged (origin check removed; target/ test removed): red both. |
+| **`red_team_a_build_not_installed_from_a_release_never_updates_itself`** | A program whose bytes are not its own version's released binary (built from source) refuses to update; one running under a cargo `target/` directory does not even look. Sabotaged (origin check removed; target/ test removed): red both. The same test also holds `check()` to the same answer: a source build is told `NotFromRelease`, not "update available" it will then refuse every day, while a release install still hears `Available` (sabotaged: `Available` on error, red). |
 | `without_a_pinned_key_nothing_is_fetched` | With no key (`trust: None`, as in every build before the key was pinned), `check` answers "no key" without one request: a build that can trust nothing does not ask. |
 | **`red_team_a_failed_swap_puts_the_old_program_back`** | The replace is two renames; when the second fails the first is undone and the old program is where the service starts it; when the first fails nothing moved. Sabotaged (no rollback): red. |
 | `the_daily_look_follows_the_setting` | `off` makes no request and clears the notice; `notify` writes the version `status` shows and installs nothing; `auto` installs and clears the notice. |
@@ -2061,7 +2087,7 @@ a withdrawal it could not otherwise know of. In `service.rs`.
 | `a_host_that_asks_when_a_device_presents_lets_it_store_on_its_first_round` | The inline asker against a real coordinator: a member presenting for the first time stores in the same connection. Red when the asker never asks. |
 | **`red_team_a_host_whose_coordinator_is_not_pinned_stores_for_no_other_account`** | Found by the redteam agent: unpinned, the withdrawn device on the path answers "live" by echoing its own claim. Neither the round (`report.unpinned`, nothing asked) nor the inline ask asks an unpinned coordinator, and the member is refused `UNCONFIRMED`. Sabotaged by dropping `pinned` from each. |
 
-# `itsanas-coord` — claims, directory, accounting (64)
+# `itsanas-coord` — claims, directory, accounting (66)
 
 Catalogued by property rather than test by test: the crate is a library with no
 server yet, and what matters is which rule each group of tests pins down.
@@ -2119,6 +2145,14 @@ catalogued by name because they hold a rule two other programs depend on:
 | **`red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`** | Two splits exist and they are not the same thing: the one in a node's configuration file decides what that machine refuses to its own owner, and the one `assess` is given decides what the network grants. What this catches is a `split` field added to `DeviceContribution` — the struct a device fills in about itself — and read by `assess`. If a member's number ever reaches that arithmetic, widening an entitlement costs one line of a text file and the bargain is decoration. |
 | **`red_team_a_second_username_cannot_renew_the_joining_allowance`** | `register_admitted` answered two questions from two tables: "has this key been here before?" from BY_ID, and "does this account exist?" from ACCOUNTS keyed by *name*. They agree until one key asks for a second name — then the key counts as returning, so no invitation is demanded, and the name is unknown, so the branch that preserves the account's registration date is skipped and a fresh account is minted with today's date. One signed message every thirty days turned a bounded 10 GiB joining allowance into a permanent free tier. **The two sibling tests covered (same key, same name) and (different key, same name); nobody wrote (same key, different name)**, and this page recorded the property as established. Same shape as the freshness guard that lived in one branch of three. |
 | **`red_team_one_admitted_key_cannot_mint_accounts_on_an_invite_only_coordinator`** | The same defect on its other axis. The invitation gate is skipped for a key that already has an account — right for somebody re-registering the name they hold, wrong for anything else. An admitted member could open unlimited accounts with no invitation, and usernames here are bound to a key for ever with no release path, so one member could squat every short name on the coordinator. |
+
+**Escrow attempt counts survive a restart.** `escrow_tries` in the directory
+file holds the per-name counts the escrow budget spends.
+
+| Test | What it pins down |
+| --- | --- |
+| **`red_team_a_coordinator_restart_does_not_hand_out_a_fresh_escrow_budget`** | The counters were in memory, so anybody who could provoke or wait for a restart ground a passphrase with a fresh budget each time. Three attempts are spent, the directory is reopened, and the fourth is refused; a window later the name is allowed again, so a person who mistyped is not locked out for good. Sabotaged (never insert into `escrow_tries`): red. |
+| **`red_team_invented_names_cannot_evict_a_live_escrow_count`** | The table is bounded, and the bound must not be a lever: a flood of invented names must not clear the count of the name being ground, and a table full of expired counts must not refuse everyone for good. Full table refuses new names, expired counts are pruned. Sabotaged (prune everything): red. |
 
 ---
 
