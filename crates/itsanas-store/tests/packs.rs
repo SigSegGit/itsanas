@@ -76,6 +76,10 @@ fn red_team_a_store_converted_to_packs_keeps_every_file_and_survives_a_crash_at_
         .expect("store opens")
     };
     let body: Vec<u8> = (0..1_500_000u32).map(|i| (i * 13 % 251) as u8).collect();
+    // A store already in blob files, whatever ITSANAS_PACKS says: the
+    // variable only picks the layout of a store with nothing in it yet (it
+    // made this fixture start in packs on Nicolas's run, 2026-10-14).
+    std::fs::create_dir_all(dir.path().join("blobs").join("00")).unwrap();
     {
         let store = open();
         assert!(
