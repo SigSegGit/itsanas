@@ -24,6 +24,7 @@
 
 pub mod error;
 pub mod protocol;
+pub mod relay;
 pub mod service;
 pub mod session;
 pub mod transport;

@@ -153,6 +153,13 @@ impl FrameReader {
         self.buffer.len()
     }
 
+    /// Give up the bytes read past the last whole frame: what follows once a
+    /// stream stops carrying frames (a relay's splice, 8.0v).
+    #[must_use]
+    pub fn take_buffered(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.buffer)
+    }
+
     /// Take the next complete frame's payload, if one has arrived.
     ///
     /// Returns `Ok(None)` when more bytes are needed. An error means the peer

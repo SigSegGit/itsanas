@@ -76,6 +76,14 @@ impl<S: Read + Write> Connection<S> {
         }
     }
 
+    /// The stream back, with any bytes already read past the last message:
+    /// once a relay splices it, what follows is no longer frames, and a read
+    /// ahead must be handed on, not lost.
+    pub fn into_parts(mut self) -> (S, Vec<u8>) {
+        let rest = self.reader.take_buffered();
+        (self.stream, rest)
+    }
+
     /// Send a request and wait for its answer.
     pub fn exchange<Q: Serialize, A: DeserializeOwned>(
         &mut self,

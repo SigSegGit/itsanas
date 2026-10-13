@@ -7,4 +7,4 @@ pub mod session;
 
 pub use auth::{AUTH_DOMAIN, AuthHello, EXPORTER_LEN, check, prove};
 pub use error::{Result, TlsError};
-pub use session::{Authenticated, Bounded, Identity, accept, accept_within, connect};
+pub use session::{Authenticated, Bounded, Identity, Socket, accept, accept_within, connect};

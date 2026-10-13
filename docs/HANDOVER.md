@@ -1947,9 +1947,29 @@ Detail and measurements are in ROADMAP.md; this is the map.
       detail; after 0t. Honest limit, to keep saying: something must be
       reachable, the coordinator at least -- one forward (or one mapping
       opened by UPnP), or a coordinator on a public server.
-   v. **A relay for two machines that cannot reach each other** (0o's
+   v. 🟨 **A relay for two machines that cannot reach each other** (0o's
       phase 3): through a reachable member, data still sealed end to end.
-      After 0u, and only if the fleet shows 0u falls short.
+      Asked for by Nicolas on 2026-10-13 without waiting for the fleet: own
+      account's machines first, else a reachable host with a low cap, the
+      coordinator last and only if measured necessary ("no gas factory").
+      **First step built 2026-10-13, the net layer** (`itsanas-net/src/relay.rs`,
+      protocol 9): an unreachable B parks on R (`Request::Park`, keepalive
+      every 20 s), A asks R to `Splice { to: B }`, R pumps raw bytes, and A
+      and B run their own TLS and device proofs over it (A pins B): R sees
+      ciphertext only. Admission `PeerService::relays_for`: R's own account
+      (its book) or an account whose claim R confirmed with the coordinator
+      (`Owners::confirmed_account`); one refusal (`NOT_RELAYING`) whether the
+      target is parked or not. Caps: 8 own parks, 8 hosted (2 per account),
+      4 splices, 1 MiB/s for all of them, 30 s idle, 300 s a splice; one
+      splice per park, B parks again. Transport generic over
+      `itsanas_tls::Socket` (TCP or a session inside one). Rodin on the plan:
+      no join token (splice onto the park), one shared rate, uniform
+      refusals, per-account park cap, address `relay:<R id>` resolved from
+      R's own presence. **Next: the daemon** -- pick R (own reachable
+      machine, else a host), park while no public address, announce
+      `relay:<id>` once the fleet speaks 9 (gated like `ANNOUNCE_LISTS`),
+      and dial through it when a direct dial fails. Coordinator relay:
+      not built, only if measured.
    s. ✅ **The vault on another disk (a NAS), the default unchanged.**
       Built 2026-10-13: `Config::vault`, `Node::vault_path`/`open_vault`
       (marker `.itsanas-vault` = device id; a configured vault missing,

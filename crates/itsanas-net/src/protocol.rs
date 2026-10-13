@@ -32,7 +32,7 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 8;
+pub const PROTOCOL_VERSION: u16 = 9;
 
 /// The oldest version this node will still talk to.
 ///
@@ -121,6 +121,14 @@ pub const PROTOCOL_WITH_CLAIMS: u16 = 7;
 /// A peer at 7 does not know the request, so it is not asked: `leave` counts
 /// it as an owner it could not ask, and its records go at `Leaving` as before.
 pub const PROTOCOL_WITH_DRAINING: u16 = 8;
+
+/// The first version in which a peer can relay for a machine nobody can
+/// reach ([`Request::Park`], [`Request::Splice`], §8 0v).
+///
+/// A peer at 8 does not know either request, so it is never asked to relay
+/// and is never told to dial a `relay:` address: that waits, like
+/// several addresses did, until the fleet speaks 9.
+pub const PROTOCOL_WITH_RELAY: u16 = 9;
 
 /// Largest encoded claim a host reads. A `SignedClaim` is two ids, three
 /// integers, a flag and a signature: under 200 bytes.
@@ -332,6 +340,22 @@ pub enum Request {
     ///
     /// Appended last: postcard numbers variants by position.
     Draining { seconds: u64 },
+    /// Keep this connection open so callers who cannot reach this device can
+    /// be spliced onto it through the answering one (§8 0v). Answered with
+    /// [`Response::Parked`], then the same again every
+    /// `relay::KEEPALIVE`, then [`Response::Incoming`] once somebody asks;
+    /// after that the connection carries raw bytes, the caller's own
+    /// end-to-end TLS.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Park,
+    /// Connect this connection to the parked device `to`: answered with
+    /// [`Response::Spliced`], after which it carries raw bytes, the caller's
+    /// end-to-end TLS with `to`. The relay sees ciphertext and can only drop
+    /// or delay it.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Splice { to: DeviceId },
 }
 
 /// What a peer answers.
@@ -387,6 +411,22 @@ pub enum Response {
     Exposed {
         chunks: u64,
     },
+    /// The park holds; repeated as a keepalive.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Parked,
+    /// Somebody, proven to the relay as `from`, is spliced onto this park:
+    /// what follows is raw bytes, and `from` must prove itself again over
+    /// them -- the relay's word is not taken.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Incoming {
+        from: DeviceId,
+    },
+    /// The splice is made: what follows is raw bytes to the parked device.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Spliced,
 }
 
 /// How far one device's chain has advanced, as a peer reports it.
@@ -543,6 +583,8 @@ mod tests {
                 claim: vec![1, 2, 3],
             },
             Request::Draining { seconds: 1800 },
+            Request::Park,
+            Request::Splice { to: device() },
         ]
     }
 
@@ -573,6 +615,8 @@ mod tests {
             Request::Presences => {}
             Request::Claim { .. } => {}
             Request::Draining { .. } => {}
+            Request::Park => {}
+            Request::Splice { .. } => {}
         }
     }
 
@@ -614,6 +658,9 @@ mod tests {
             Response::Presences(vec![vec![1, 2, 3], Vec::new()]),
             Response::Claim(vec![4, 5]),
             Response::Exposed { chunks: 3 },
+            Response::Parked,
+            Response::Incoming { from: device() },
+            Response::Spliced,
         ];
 
         for response in responses {
@@ -755,6 +802,8 @@ mod tests {
             Request::Presences => 13,
             Request::Claim { .. } => 14,
             Request::Draining { .. } => 15,
+            Request::Park => 16,
+            Request::Splice { .. } => 17,
         }
     }
 
@@ -774,6 +823,9 @@ mod tests {
             Response::Presences(_) => 10,
             Response::Claim(_) => 11,
             Response::Exposed { .. } => 12,
+            Response::Parked => 13,
+            Response::Incoming { .. } => 14,
+            Response::Spliced => 15,
         }
     }
 
@@ -818,6 +870,9 @@ mod tests {
             Response::Presences(Vec::new()),
             Response::Claim(Vec::new()),
             Response::Exposed { chunks: 0 },
+            Response::Parked,
+            Response::Incoming { from: device() },
+            Response::Spliced,
         ];
         let numbered: std::collections::BTreeSet<u8> =
             responses.iter().map(response_number).collect();

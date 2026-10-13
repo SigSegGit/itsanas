@@ -206,6 +206,63 @@ pub fn accept<S: Read + Write>(
     Ok(Authenticated { peer, connection })
 }
 
+/// A byte stream whose reads and writes can be given a timeout.
+///
+/// A TCP socket, or a session carried inside another one: a relay hands the
+/// two ends a stream spliced through its own TLS, and the end-to-end session
+/// runs over that as it would over TCP (8.0v). The timeout goes down to the
+/// socket underneath, the only place a stalled read can be cut.
+pub trait Socket: Read + Write + Send {
+    /// As [`TcpStream::set_read_timeout`].
+    ///
+    /// # Errors
+    ///
+    /// The socket's.
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()>;
+    /// As [`TcpStream::set_write_timeout`].
+    ///
+    /// # Errors
+    ///
+    /// The socket's.
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()>;
+}
+
+impl Socket for TcpStream {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        Self::set_read_timeout(self, timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        Self::set_write_timeout(self, timeout)
+    }
+}
+
+impl<S: Socket + ?Sized> Socket for Box<S> {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        (**self).set_read_timeout(timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        (**self).set_write_timeout(timeout)
+    }
+}
+
+impl<S: Socket> Socket for ClientStream<S> {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.sock.set_read_timeout(timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.sock.set_write_timeout(timeout)
+    }
+}
+
+impl<S: Socket> Socket for ServerStream<S> {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.sock.set_read_timeout(timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.sock.set_write_timeout(timeout)
+    }
+}
+
 /// A socket whose opening exchange has to finish by a fixed moment.
 ///
 /// A read timeout alone bounds how long one read may stall, not how long the
@@ -215,8 +272,8 @@ pub fn accept<S: Read + Write>(
 /// has. So until [`accept_within`] disarms it, every read and write is given
 /// only what is left of the deadline, and nothing at all once it has passed.
 #[derive(Debug)]
-pub struct Bounded {
-    stream: TcpStream,
+pub struct Bounded<S = TcpStream> {
+    stream: S,
     until: Instant,
     armed: Arc<AtomicBool>,
     /// The per-read timeout for after the handshake, put back by the first
@@ -230,7 +287,7 @@ pub struct Bounded {
     idle: Option<Duration>,
 }
 
-impl Bounded {
+impl<S: Socket> Bounded<S> {
     fn remaining(&mut self) -> std::io::Result<Option<Duration>> {
         if !self.armed.load(Ordering::Relaxed) {
             if let Some(idle) = self.idle.take() {
@@ -250,7 +307,16 @@ impl Bounded {
     }
 }
 
-impl Read for Bounded {
+impl<S: Socket> Socket for Bounded<S> {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_read_timeout(timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_write_timeout(timeout)
+    }
+}
+
+impl<S: Socket> Read for Bounded<S> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if let Some(left) = self.remaining()? {
             self.stream.set_read_timeout(Some(left))?;
@@ -259,7 +325,7 @@ impl Read for Bounded {
     }
 }
 
-impl Write for Bounded {
+impl<S: Socket> Write for Bounded<S> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if let Some(left) = self.remaining()? {
             self.stream.set_write_timeout(Some(left))?;
@@ -278,13 +344,13 @@ impl Write for Bounded {
 /// the conversation runs under. Only the part before the caller has proved
 /// anything is bounded this way: an authenticated peer pushing a large chunk
 /// over a slow link is doing what it is for.
-pub fn accept_within(
+pub fn accept_within<S: Socket>(
     config: &Arc<ServerConfig>,
     device: &DeviceKeys,
-    stream: TcpStream,
+    stream: S,
     limit: Duration,
     idle: Duration,
-) -> Result<Authenticated<ServerStream<Bounded>>> {
+) -> Result<Authenticated<ServerStream<Bounded<S>>>> {
     let armed = Arc::new(AtomicBool::new(true));
     let bounded = Bounded {
         stream,
