@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1143 test functions, 9 of them `#[ignore]`d into the slow job, and 305 of
+**1144 test functions, 9 of them `#[ignore]`d into the slow job, and 306 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1284,7 +1284,7 @@ tests that lost a blob by deleting its file now go through
 packs are only the four about blob files themselves (their path, their
 staging). **Open before packs are the default:** on Windows a live clone
 of a `BlobStore` keeps the index open while `forget_owner` deletes the
-directory, untried; no conversion of existing stores; the gain unmeasured
+directory, untried; conversion of an existing store is built (`itsanas convert-packs`, `BlobStore::convert_to_packs`: copy into a staging directory, one rename switches the layout, then the blob files go; red-team tested at each crash point) but never run on a real node; the gain unmeasured
 where it is claimed (Windows, Defender).
 
 **Decision: pack files, and not urgently.** Chunks append into large segment files, with an index

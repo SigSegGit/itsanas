@@ -85,6 +85,57 @@ impl BlobStore {
         })
     }
 
+    /// Move a store in blob files at `root` into pack files; returns how many
+    /// chunks moved. The store must be closed (no daemon on it).
+    ///
+    /// Crash-safe by staging: every blob is copied into packs under
+    /// `root/converting`, which nothing opens; only when all are there is
+    /// that directory renamed to `root/packs`, the one step that switches
+    /// the layout, and only after it are the blob files removed. A crash
+    /// before the rename leaves the blob store whole (the staging is
+    /// started over); after it, the packs are whole and the leftover blob
+    /// files are deleted by the next call. A store already in packs is left
+    /// as it is.
+    pub fn convert_to_packs(root: impl AsRef<Path>) -> Result<u64> {
+        let root = root.as_ref();
+        let blobs = Self::open(root)?;
+        let moved = if blobs.packs.is_some() {
+            0
+        } else {
+            let staging = root.join("converting");
+            if staging.exists() {
+                fs::remove_dir_all(&staging)
+                    .map_err(|error| StoreError::io(staging.clone(), error))?;
+            }
+            let mut moved = 0u64;
+            {
+                let target = crate::pack::Packs::open(&staging)?;
+                blobs.for_each_address(&mut |address| {
+                    if let Some(sealed) = blobs.get(&address)? {
+                        target.put(&address, &sealed)?;
+                        moved += 1;
+                    }
+                    Ok(())
+                })?;
+                target.flush()?;
+            }
+            let from = staging.join("packs");
+            let to = root.join("packs");
+            fs::rename(&from, &to).map_err(|error| StoreError::io(to.clone(), error))?;
+            let _ = fs::remove_dir_all(&staging);
+            moved
+        };
+        // The switch is made: blob files left behind, from this call or from
+        // one a crash cut short after its rename, are no longer read.
+        let files = root.join("blobs");
+        if files.exists() && crate::pack::Packs::present(root) {
+            fs::remove_dir_all(&files).map_err(|error| StoreError::io(files.clone(), error))?;
+            let tmp = root.join("tmp");
+            let _ = fs::remove_dir_all(tmp);
+        }
+        Ok(moved)
+    }
+
     /// The pack files behind this store, when it has them.
     #[must_use]
     pub fn packs(&self) -> Option<&crate::pack::Packs> {
