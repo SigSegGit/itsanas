@@ -277,3 +277,32 @@ fn a_bounded_log_still_names_every_deletion_and_conflict() {
         "the routine lines were not bounded: {bounded:?}"
     );
 }
+
+/// A file name is the one thing in a report that somebody else may have
+/// chosen: a download, an archive unpacked into the folder. A newline in it
+/// would start a line of its own, one that says a file was deleted everywhere
+/// when none was; the store refuses such a name, so it never reaches a report.
+/// A bidirectional override is not a control character to `char::is_control`
+/// and the store accepts it, so the report escapes it: printed raw,
+/// `invoice<U+202E>fdp.exe` reads as `invoiceexe.pdf` on the terminal.
+#[cfg(unix)]
+#[test]
+fn red_team_a_file_name_cannot_forge_or_disguise_a_line_in_the_log() {
+    let node = node(7);
+    let root = node.folder.root();
+    let forged = "notes.txt\n  del  thesis.odt (deleted here, will be deleted everywhere)";
+    write_disk(root, forged, b"an innocent-looking file");
+    let disguised = "invoice\u{202E}fdp.exe";
+    write_disk(root, disguised, b"a program pretending to be a document");
+    let report = node.folder.reconcile(&node.store, false).unwrap();
+
+    let lines = report.lines(None);
+    assert_eq!(
+        lines,
+        vec!["  in   invoice\\u{202e}fdp.exe".to_owned()],
+        "a name with a newline reached the log, or a bidirectional override \
+         reached the terminal raw and disguised what was imported"
+    );
+    // Escaping is for the reader: the store keeps the real name.
+    assert_eq!(report.imported, vec![disguised.to_owned()]);
+}

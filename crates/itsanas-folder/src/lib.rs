@@ -164,12 +164,14 @@ impl ReconcileReport {
         // one line somebody needs to read. The bound is for the routine ones.
         let mut urgent = Vec::new();
         for (original, sibling) in &self.kept_both {
+            let (original, sibling) = (shown(original), shown(sibling));
             urgent.push(format!(
                 "  !!   {original} conflicted -- your version kept as {sibling}"
             ));
         }
         for path in &self.removed_from_store {
             if !moved_from_here.contains(path.as_str()) {
+                let path = shown(path);
                 urgent.push(format!(
                     "  del  {path} (deleted here, will be deleted everywhere)"
                 ));
@@ -177,6 +179,7 @@ impl ReconcileReport {
         }
         for path in &self.deleted_from_disk {
             if !moved_from_elsewhere.contains(path.as_str()) {
+                let path = shown(path);
                 urgent.push(format!(
                     "  rm   {path} (deleted elsewhere, removed from this folder)"
                 ));
@@ -185,23 +188,25 @@ impl ReconcileReport {
 
         let mut routine = Vec::new();
         for (from, to) in &self.renamed_here {
+            let (from, to) = (shown(from), shown(to));
             routine.push(format!(
                 "  mv   {from} -> {to} (renamed here, renamed everywhere)"
             ));
         }
         for (from, to) in &self.renamed_elsewhere {
+            let (from, to) = (shown(from), shown(to));
             routine.push(format!(
                 "  mv   {from} -> {to} (renamed elsewhere, renamed here)"
             ));
         }
         for path in &self.imported {
             if !moved_to_here.contains(path.as_str()) {
-                routine.push(format!("  in   {path}"));
+                routine.push(format!("  in   {}", shown(path)));
             }
         }
         for path in &self.exported {
             if !moved_to_elsewhere.contains(path.as_str()) {
-                routine.push(format!("  out  {path}"));
+                routine.push(format!("  out  {}", shown(path)));
             }
         }
 
@@ -223,6 +228,28 @@ impl ReconcileReport {
     pub const fn held_anything(&self) -> bool {
         self.held_deletions > 0
     }
+}
+
+/// A path as a report prints it: anything that would change how the line
+/// reads, rather than what it says, escaped.
+///
+/// The store already refuses control characters in a path, so a newline cannot
+/// start a forged line; they are escaped here too because this function is
+/// what the report relies on, not a check two crates away. Bidirectional
+/// overrides and isolates are not control characters to `char::is_control`
+/// and the store accepts them, and printed raw they reorder the line:
+/// `invoice<U+202E>fdp.exe` reads as `invoiceexe.pdf`. Every other
+/// character, accents and scripts included, prints as it is.
+fn shown(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for c in path.chars() {
+        if c.is_control() || matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}') {
+            out.extend(c.escape_unicode());
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// Fewer deletions than this are never held, whatever the proportion.

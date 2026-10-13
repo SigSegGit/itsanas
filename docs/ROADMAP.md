@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1124 test functions, 9 of them `#[ignore]`d into the slow job, and 289 of
+**1125 test functions, 9 of them `#[ignore]`d into the slow job, and 290 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1079,8 +1079,10 @@ deletion removed it from both. Both folders ended byte-identical.
   a create, and a file renamed *and* edited in one pass, or one of two identical
   copies, still reads as a deletion and an addition, because the bytes do not
   say which became which. ⬜ Not on Android: the app shows no per-file report.
-  ⬜ Paths are printed raw: a file name holding a newline could forge a line
-  in the log (older than this, suspected by `itsanas-redteam`, not tested).
+  A file name cannot forge or disguise a line (2026-10-13,
+  `red_team_a_file_name_cannot_forge_or_disguise_a_line_in_the_log`): the
+  store refuses a name with a control character, and the report escapes
+  bidirectional overrides, which the store accepts.
 - **Symlinks are skipped, never followed** — a link inside the folder pointing
   at `~/.ssh` would otherwise quietly upload a private key.
 - **Atomic writes.** A torn file in a synced folder is worse than a missing one:
