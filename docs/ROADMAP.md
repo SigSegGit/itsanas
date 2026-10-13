@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1092 test functions, 9 of them `#[ignore]`d into the slow job, and 265 of
+**1093 test functions, 9 of them `#[ignore]`d into the slow job, and 266 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -805,7 +805,9 @@ device and reaching a different one is refused.
   open its port by `UPnP` IGD (`upnp.rs`, HANDOVER §8 0w (6b) 5a) and
   announces the router's public address when nothing was written; a router
   that refuses, a box behind a box and NAT-PMP-only routers are still the
-  case below. A node behind NAT can push but cannot be dialled. Partly
+  case below, except that since 2026-10-13 such a node with a global IPv6
+  address announces it instead of its private IPv4 (`prefer_global_ipv6`;
+  not on Windows, whose listener is IPv4 only). A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts
   connections still learns what was pushed to it. Hole punching and relay
   fallback would want QUIC, which is now an optimisation rather than a

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-12 — 1092 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 265 are red-team tests.**
+**Last updated: 2026-10-12 — 1093 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 266 are red-team tests.**
 
-**976 of the 1092 tests have an entry of their own on this page** — an *entry*,
+**977 of the 1093 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -176,7 +176,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 123 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 122 |
+| `itsanas-node` unit | 123 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -1229,14 +1229,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (139)
+# `itsanas-node` — a node on disk (140)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `coordinator` — publishing an address, and whose deletion a host believes (16)
+## `coordinator` — publishing an address, and whose deletion a host believes (17)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -1247,6 +1247,7 @@ anything.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_home_node_announces_its_global_ipv6_not_its_private_ipv4`** | With no `announce` and no port opened by UPnP, a node behind a home NAT announces its global IPv6 address rather than the private IPv4 only its LAN can dial (not on Windows, whose listener is IPv4 only); a public IPv4 address stays; link-local, unique-local, documentation and loopback addresses are never taken for global. Sabotaged (preference off): red. |
 | **`red_team_a_coordinator_cannot_make_a_host_drop_an_account_that_never_asked`** | A host frees an account's data only on a deletion the account itself signed, and only for an account it asked about: a forged tombstone (another key's signature over the victim's id) and an unasked one are ignored. Sabotaged (signature not checked): red. |
 | **`red_team_a_refusal_is_no_answer_rather_than_not_enrolled`** | §8 1c (ii), found by the redteam agent: a `Refused` reply to `Standing` (a rate limit, a caller not served) was read as "not enrolled" and ended every fresh confirmation at once. Only a `Standing` reply is about the device; a refusal is no answer. Sabotaged by mapping `Refused` to `Unenrolled`. |
 | **`red_team_an_unpinned_coordinator_is_not_asked_about_other_accounts`** | `pinned` is false without the coordinator's device id configured: unpinned, whoever is on the path answers "live" by echoing the presented claim. That `standing` and the asker consult it is proved in `tests/withdrawals.rs`. |
