@@ -2067,8 +2067,7 @@ mod tests {
 
     /// Lose a blob the way a disk does: the file goes, the index row stays.
     fn lose_behind_the_index(vault: &Vault, owner: UserId, chunk: &ChunkId) {
-        let path = vault.blobs_for(owner).unwrap().path_of(chunk);
-        std::fs::remove_file(path).unwrap();
+        vault.blobs_for(owner).unwrap().damage(chunk).unwrap();
     }
 
     #[test]

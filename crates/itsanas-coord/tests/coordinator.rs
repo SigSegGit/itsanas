@@ -540,6 +540,53 @@ fn red_team_reconnecting_does_not_reset_the_escrow_attempt_budget() {
     });
 }
 
+/// One coordinator run over the directory file at `path`, stopped after `body`.
+fn serve_once<T>(path: &std::path::Path, body: impl FnOnce(std::net::SocketAddr) -> T) -> T {
+    let directory = Directory::open(path).expect("directory");
+    let server = CoordServer::bind("127.0.0.1:0").expect("bind");
+    let address = server.local_addr().expect("address");
+    let shutdown = AtomicBool::new(false);
+    let coordinator = device(0xC0);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let _ = server.serve_until(&directory, &coordinator, &shutdown, |_| {});
+        });
+        let _stop = StopOnDrop(&shutdown, address);
+        body(address)
+    })
+}
+
+#[test]
+fn red_team_a_restarted_coordinator_still_refuses_a_spent_escrow_budget() {
+    // The disk count is only as good as its wiring: directory.rs proves
+    // the table, this proves the server asks it. A restart cleared the in-memory limiter, and with it the
+    // budget of guesses at a passphrase (HANDOVER §9).
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("directory.redb");
+    let ask = |address| {
+        let mut client = dial(address, &device(0xE1), &user(0xE1));
+        client
+            .ask(&Request::GetEscrow {
+                username: "nobody-yet".to_owned(),
+            })
+            .unwrap()
+    };
+    serve_once(&path, |address| {
+        for attempt in 1..=itsanas_coord::service::ESCROW_ATTEMPTS {
+            assert!(
+                !matches!(ask(address), Response::Refused(_)),
+                "attempt {attempt} of the budget was refused"
+            );
+        }
+    });
+    serve_once(&path, |address| {
+        assert!(
+            matches!(ask(address), Response::Refused(_)),
+            "a restart handed out a fresh budget of guesses"
+        );
+    });
+}
+
 #[test]
 fn red_team_an_oversized_username_is_refused_before_the_directory_sees_it() {
     // THE ATTACK: hand the directory a megabyte where it expects a name, and

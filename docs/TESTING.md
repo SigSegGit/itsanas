@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-13 — 1141 test functions across 36 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 303 are red-team tests.**
+**Last updated: 2026-10-13 — 1143 test functions across 36 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 305 are red-team tests.**
 
-**1025 of the 1141 tests have an entry of their own on this page** — an *entry*,
+**1027 of the 1143 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,7 +158,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 21 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 180 |
+| `itsanas-store` unit | 181 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 1 |
 | `itsanas-sync` unit | 12 |
@@ -168,7 +168,7 @@ guarantee and is not one.
 | `itsanas-net` relay (`tests/relay.rs`) | 6 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 123 (1 `#[ignore]`d) |
-| `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
+| `itsanas-coord` integration (`tests/coordinator.rs`) | 17 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 1 |
 | `itsanas-discover` unit | 43 |
 | `itsanas-policy` unit | 23 |
@@ -435,7 +435,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (153, plus the 27 vault tests below)
+# `itsanas-store` — unit tests (154, plus the 27 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -611,7 +611,7 @@ moment the sync engine starts materialising files.
 | `oversized_paths_and_components_are_rejected` | Bounds enforced, so one log entry cannot make the index enormous. |
 | `ordinary_paths_are_accepted` | The rules are not so strict that normal filenames — including Unicode and dotfiles — break. |
 
-## `pack` — sealed chunks appended into pack files (7)
+## `pack` — sealed chunks appended into pack files (8)
 
 `crates/itsanas-store/src/pack.rs` (M10). A chunk is a record
 `[address][length][sealed bytes]` appended to the current pack, found through a
@@ -623,7 +623,8 @@ with `scripts/sabotage.py`: each defence below turned its test red.
 | `chunks_round_trip_deduplicate_and_survive_a_reopen` | A chunk reads back, a second put of the same address appends nothing, a removed chunk stays removed, and all of it survives a reopen. |
 | **`red_team_a_torn_append_is_dead_space_not_a_shifted_pack`** | A crash (or a full disk) mid-append leaves bytes no row names; the next record must land after them at the offset its row records, not at the store's idea of the length. Sabotaged (ignore the file's real end): red. |
 | **`red_team_rows_a_crash_took_are_rebuilt_and_removed_chunks_stay_removed`** | Rows are committed without waiting for the disk between marks; at open, the records after the last durable mark are replayed, so none is lost, a removed chunk never returns, and a cut-short tail invents nothing. Sabotaged (no replay; removal not moving the mark; mark before the torn tail): red each. |
-| **`red_team_a_row_naming_the_wrong_bytes_is_refused_not_served`** | A damaged pack, or a row pointing where another record now is, answers `Corrupt` rather than serving one chunk's bytes as another's. Sabotaged (no header check): red. |
+| **`red_team_a_damaged_record_reads_as_missing_so_repair_can_replace_it`** | A damaged pack record (`BlobStore::damage` overwrites its header), or a row pointing where another record now is, reads as missing rather than serving one chunk's bytes as another's; its row is dropped, and a `put` stores the chunk again. Sabotaged (no header check): red. |
+| **`red_team_a_damaged_row_never_allocates_what_it_claims`** | An index row claiming a 4 GiB record, or an offset before any header, is damage: it reads as no record and is never allocated or seeked (it used to take the node down, and the offset underflowed the seek). Sabotaged (no filter in `place`): red. |
 | **`red_team_compaction_frees_a_dead_pack_and_keeps_every_live_chunk`** | A closed pack eight tenths dead is rewritten and deleted, every live chunk still reads, and the byte total is exact. Sabotaged (drop the copy): red. |
 | **`red_team_compaction_never_leaves_a_chunk_without_bytes_its_row_names`** | Compaction used to remove a chunk's row before writing its copy, so a crash between the two lost the chunk. Now the copy is appended and the row moved in one durable commit. The test simulates a crash after the copy is appended but before its commit, reopens, and the chunk still reads; a full compaction then keeps it and frees the dead pack. Rodin's finding. |
 | `two_opens_of_one_directory_share_one_index` | redb refuses a second database on one file and the vault opens a store per call, so two opens share one index. |
@@ -1894,9 +1895,9 @@ refuses to do.
 | **`red_team_a_name_that_resolves_into_a_private_network_is_not_dialled`** | The bypass, and it was live for an afternoon: the guard on the announced string treats a *name* as public — correctly, since what it resolves to is the resolver's business — and the dial then resolves it. `nas.example.org` pointing at `192.168.1.10` walked through a guard written to stop exactly that. The check that counts is on the resolved address, before any socket. The sabotage run that proved the hole reached the real daemon on the machine the test ran on. |
 | `measure_what_one_lookup_costs_across_a_fleet` | `#[ignore]`d, and a measurement rather than an assertion: what one address lookup costs with 0, 500, 1500 and 3000 devices in the directory. The numbers are in ROADMAP "Known ceilings"; they exist so the decision to index claims by account is made against a number rather than an intuition. |
 
-# `itsanas-coord` — the coordinator server (24)
+# `itsanas-coord` — the coordinator server (25)
 
-Fifteen integration tests in `tests/coordinator.rs` and nine unit tests beside
+Sixteen integration tests in `tests/coordinator.rs` and nine unit tests beside
 the code. A real coordinator on a real socket: real directory, real TLS with
 device authentication, real signatures, real framing.
 
@@ -1907,6 +1908,7 @@ two numbers made `itsanas-coord` look eight short.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_restarted_coordinator_still_refuses_a_spent_escrow_budget`** | Two real coordinator runs over one directory file: the escrow budget spent in the first is refused in the second, so a restart does not hand a passphrase guesser a fresh budget. Sabotaged (server skips the disk count): red. |
 | **`red_team_a_trickled_handshake_is_cut_off_by_the_coordinator`** | Every member dials this one address, so a slot held by a caller trickling its handshake is a slot no member gets. The deadline is unit-tested in `itsanas-tls`; this proves the coordinator applies it. Fails when the coordinator ignores its deadline. |
 | **`a_member_s_device_list_includes_a_machine_that_has_gone_quiet`** | `device list` was built on `Peers`, which drops a device silent for a week — the lost laptop the list is opened to find. Every live enrolment is listed, heard-from first; one that never announced reads as never heard from rather than fresh; a withdrawn one is absent. |
 | **`red_team_a_stranger_cannot_list_another_member_s_devices`** | Another member and an unenrolled keypair are both refused the list of pledges and silences. |
