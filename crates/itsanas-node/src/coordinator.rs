@@ -369,12 +369,35 @@ pub fn set_found_address(address: Option<String>) {
         .unwrap_or_else(std::sync::PoisonError::into_inner) = address;
 }
 
-fn found_address() -> Option<String> {
+pub fn found_address() -> Option<String> {
     FOUND_ADDRESS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone()
 }
+
+/// The relay this process is parked on (§8 0v), set by the daemon's parking
+/// thread while the park holds.
+static PARKED_ON: std::sync::Mutex<Option<DeviceId>> = std::sync::Mutex::new(None);
+
+/// Say which relay this process is parked on, or that it is not.
+pub fn set_parked_on(relay: Option<DeviceId>) {
+    *PARKED_ON
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = relay;
+}
+
+fn parked_on() -> Option<DeviceId> {
+    *PARKED_ON
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Whether this build announces `relay:<device>` while parked. Off for the
+/// reason [`ANNOUNCE_LISTS`] is: a peer older than protocol 9 cannot dial it,
+/// and an address it cannot parse is an address it loses. The park itself
+/// runs; turn this on with lists, once the fleet runs this release.
+pub const ANNOUNCE_RELAY: bool = false;
 
 /// Publish where this device can be reached, and return what was published.
 ///
@@ -962,6 +985,9 @@ pub fn contact(node: &Node, listen: &str, now: u64, due: &Due) -> Result<Contact
 pub fn address_now(config: &crate::config::Config, listen: &str) -> Option<String> {
     if let Some(announce) = config.announce.clone() {
         return Some(announce);
+    }
+    if let Some(relay) = parked_on().filter(|_| ANNOUNCE_RELAY && found_address().is_none()) {
+        return Some(format!("{}{relay}", crate::contact::RELAY_PREFIX));
     }
     if let Some(found) = found_address() {
         if ANNOUNCE_LISTS {

@@ -248,18 +248,34 @@ pub fn conditions(metered: bool) -> Conditions {
 /// makes a machine behind a box reachable without anybody touching the box.
 /// On its own thread, so a silent router costs the start nothing; the
 /// address found is announced from the next round.
+/// And, beside it, the park on a relay while no port is open (§8 0v).
 fn open_the_router_port<'scope>(
     scope: &'scope std::thread::Scope<'scope, '_>,
     node: &'scope Node,
     port: u16,
+    parking: (
+        &'scope PeerServer,
+        &'scope itsanas_net::PeerService<'scope>,
+        &'scope SharedBoard,
+    ),
     shutdown: &'scope AtomicBool,
 ) {
+    let (server, service, board) = parking;
+    scope.spawn(move || park_while_unreachable(node, server, service, board, shutdown));
     if node.config.announce.is_some()
         || node.config.coordinator.is_none()
         || std::env::var_os("ITSANAS_NO_UPNP").is_some()
     {
         return;
     }
+    open_router(scope, port, shutdown);
+}
+
+fn open_router<'scope>(
+    scope: &'scope std::thread::Scope<'scope, '_>,
+    port: u16,
+    shutdown: &'scope AtomicBool,
+) {
     scope.spawn(move || match crate::upnp::open_port(port) {
         Ok((gateway, address)) => {
             println!("itsanas: the router opened port {port} (UPnP); reachable at {address}");
@@ -286,6 +302,114 @@ fn open_the_router_port<'scope>(
             }
         },
     });
+}
+
+/// How long the parking thread waits between looks: for the router's answer
+/// at the start, for a relay to be known, after a refused park.
+const PARK_PAUSE: Duration = Duration::from_secs(60);
+
+/// Park on a machine of the account that can be reached, for as long as this
+/// one cannot (§8 0v): no `announce`, no port the router opened. A caller who
+/// cannot dial this machine reaches it through the park; what it says over it
+/// is sealed end to end. Off with no coordinator, or `ITSANAS_NO_RELAY`.
+fn park_while_unreachable(
+    node: &Node,
+    server: &PeerServer,
+    service: &itsanas_net::PeerService<'_>,
+    board: &SharedBoard,
+    shutdown: &AtomicBool,
+) {
+    if node.config.announce.is_some()
+        || node.config.coordinator.is_none()
+        || std::env::var_os("ITSANAS_NO_RELAY").is_some()
+    {
+        return;
+    }
+    let mut said: Option<String> = None;
+    // Relays that refused or closed the park, skipped until every one has.
+    let mut failed: BTreeSet<DeviceId> = BTreeSet::new();
+    while pause(PARK_PAUSE, shutdown) {
+        let me = node.store.device_id();
+        let choices: Vec<_> = board
+            .relays()
+            .into_iter()
+            .filter(|(d, _)| *d != me)
+            .collect();
+        if choices.iter().all(|(d, _)| failed.contains(d)) {
+            failed.clear();
+        }
+        let Some((relay, address)) = choices.into_iter().find(|(d, _)| !failed.contains(d)) else {
+            continue;
+        };
+        // Parked again after each caller, for as long as this machine is
+        // still unreachable and the relay still the book's.
+        while coordinator::found_address().is_none()
+            && board
+                .relays()
+                .iter()
+                .any(|(d, a)| *d == relay && *a == address)
+        {
+            coordinator::set_parked_on(Some(relay));
+            let parked = server.serve_parked(
+                itsanas_net::AddressList(&address),
+                relay,
+                service,
+                &node.device,
+                shutdown,
+            );
+            coordinator::set_parked_on(None);
+            match parked {
+                Ok(true) if !shutdown.load(Ordering::Relaxed) => {}
+                Ok(true) => return,
+                Ok(false) => {
+                    failed.insert(relay);
+                    break;
+                }
+                Err(error) => {
+                    failed.insert(relay);
+                    let line = format!("itsanas: could not park on {address} ({error})");
+                    if said.as_deref() != Some(&line) {
+                        println!("{line}");
+                        said = Some(line);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Sleep `length`, a second at a time; `false` once stopping.
+fn pause(length: Duration, shutdown: &AtomicBool) -> bool {
+    let until = Instant::now() + length;
+    while Instant::now() < until {
+        if shutdown.load(Ordering::Relaxed) {
+            return false;
+        }
+        std::thread::sleep(Duration::from_secs(1).min(until - Instant::now()));
+    }
+    !shutdown.load(Ordering::Relaxed)
+}
+
+/// The LAN discovery socket, if wanted and free.
+fn bind_lan(discover: bool) -> Option<Lan> {
+    // Discovery is an optimisation, so a failure to bind is a warning and not
+    // an exit. The commonest cause is a second node on the same machine, which
+    // is a test rig rather than a mistake, and it must not stop the daemon that
+    // can still sync with its configured peers.
+    if discover {
+        match Lan::bind(itsanas_discover::DEFAULT_PORT) {
+            Ok(lan) => Some(lan),
+            Err(error) => {
+                eprintln!(
+                    "itsanas: local discovery is off ({error}). Peers must be added by hand."
+                );
+                None
+            }
+        }
+    } else {
+        None
+    }
 }
 
 /// Run until interrupted.
@@ -315,23 +439,7 @@ pub fn run(
 
     let neighbourhood = Neighbourhood::new();
 
-    // Discovery is an optimisation, so a failure to bind is a warning and not
-    // an exit. The commonest cause is a second node on the same machine, which
-    // is a test rig rather than a mistake, and it must not stop the daemon that
-    // can still sync with its configured peers.
-    let lan = if discover {
-        match Lan::bind(itsanas_discover::DEFAULT_PORT) {
-            Ok(lan) => Some(lan),
-            Err(error) => {
-                eprintln!(
-                    "itsanas: local discovery is off ({error}). Peers must be added by hand."
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
+    let lan = bind_lan(discover);
 
     println!("itsanas daemon");
     println!("  serving   {bound}");
@@ -401,8 +509,13 @@ pub fn run(
 
         scope.spawn(|| crate::update::watch(&node.home, shutdown, &UPDATED));
 
-        open_the_router_port(scope, node, bound.port(), shutdown);
-
+        open_the_router_port(
+            scope,
+            node,
+            bound.port(),
+            (&server, &service, &board),
+            shutdown,
+        );
         if let Some(lan) = &lan {
             scope.spawn(|| {
                 discovery::run(
@@ -1077,6 +1190,7 @@ fn one_round(
         let outcome = sync_once(
             node,
             &candidate.address.to_string(),
+            None,
             Some(candidate.device),
             candidate.mine,
             false,
@@ -1232,7 +1346,7 @@ fn dial_configured(
         if halted(node, shutdown) {
             break;
         }
-        if let Some(outcome) = sync_once(node, peer, None, true, false, scope) {
+        if let Some(outcome) = sync_once(node, peer, None, None, true, false, scope) {
             neighbourhood.confirm(outcome.device);
             reached.insert(outcome.device);
         }
@@ -1254,7 +1368,21 @@ fn dial_listed(
         if halted(node, shutdown) || reached.contains(&device) {
             continue;
         }
-        if let Some(outcome) = sync_once(node, &address, Some(device), true, true, scope) {
+        // A machine parked on a relay (§8 0v) is dialled through it, at the
+        // relay's own address from this book.
+        let through = contact.through(&address);
+        if address.starts_with(itsanas_node::contact::RELAY_PREFIX) && through.is_none() {
+            continue;
+        }
+        if let Some(outcome) = sync_once(
+            node,
+            &address,
+            through.as_ref(),
+            Some(device),
+            true,
+            true,
+            scope,
+        ) {
             reached.insert(outcome.device);
             contact.worked(device, &address, itsanas_discover::now_unix());
             // What this machine of the account knows of the others. Checked
@@ -1461,6 +1589,36 @@ struct Outcome {
     relayed: Option<Vec<Vec<u8>>>,
 }
 
+/// Dial `peer`, or `expect` through the relay `through` (§8 0v).
+fn dial(
+    node: &Node,
+    peer: &str,
+    through: Option<&(DeviceId, String)>,
+    expect: Option<DeviceId>,
+) -> itsanas_net::Result<PeerClient> {
+    let budget = Some(itsanas_net::transport::PEER_SESSION_BUDGET);
+    match (through, expect) {
+        (Some((relay, address)), Some(target)) => PeerClient::connect_relayed(
+            itsanas_net::AddressList(address),
+            *relay,
+            target,
+            &node.device,
+            node.store.owner(),
+            budget,
+        ),
+        _ if peer.starts_with(itsanas_node::contact::RELAY_PREFIX) => Err(
+            itsanas_net::NetError::Refused("no known relay for this address".to_owned()),
+        ),
+        _ => PeerClient::connect_within(
+            itsanas_net::AddressList(peer),
+            &node.device,
+            node.store.owner(),
+            expect,
+            budget,
+        ),
+    }
+}
+
 /// One round against one peer. Never propagates an error.
 ///
 /// A peer being unreachable is the normal state of this network, not a fault:
@@ -1474,6 +1632,7 @@ struct Outcome {
 fn sync_once(
     node: &Node,
     peer: &str,
+    through: Option<&(DeviceId, String)>,
     expect: Option<DeviceId>,
     announce_failure: bool,
     ask_presences: bool,
@@ -1481,13 +1640,7 @@ fn sync_once(
 ) -> Option<Outcome> {
     // Bounded as a whole: one peer that stalls must not hold the round, and
     // with it the folder pass and every other peer (PEER_SESSION_BUDGET).
-    let mut client = match PeerClient::connect_within(
-        itsanas_net::AddressList(peer),
-        &node.device,
-        node.store.owner(),
-        expect,
-        Some(itsanas_net::transport::PEER_SESSION_BUDGET),
-    ) {
+    let mut client = match dial(node, peer, through, expect) {
         Ok(client) => client,
         Err(error) => {
             if announce_failure {

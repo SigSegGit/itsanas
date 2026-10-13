@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-12 — 1114 test functions across 34 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 279 are red-team tests.**
+**Last updated: 2026-10-12 — 1116 test functions across 34 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 281 are red-team tests.**
 
-**998 of the 1114 tests have an entry of their own on this page** — an *entry*,
+**1000 of the 1116 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -164,7 +164,7 @@ guarantee and is not one.
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
 | `itsanas-net` unit | 54 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 58 |
-| `itsanas-net` relay (`tests/relay.rs`) | 4 |
+| `itsanas-net` relay (`tests/relay.rs`) | 5 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 121 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
@@ -177,7 +177,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 128 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 126 |
+| `itsanas-node` unit | 127 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -911,13 +911,14 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_a_host_that_lost_a_blob_behind_its_index_is_caught_by_the_next_due_walk`** | The downside §10 8 names, closed: a host's blob deleted behind its index, one pass of its disk check, and the owner's due walk lists the bucket that now differs, offers the chunk again and puts it back -- without listing the whole account. Sabotaged by the check keeping the row. |
 | **`red_team_a_peer_refused_on_push_cannot_be_hosted_by_being_pulled`** | Found by the redteam agent on §8 1c: the bound sat on `StoreChunk` and `StoreSegment`, and the hosting pull -- the peer naming owner and chunks, this node fetching them -- was checked against this node's pledge only. `host_for_bounded` asks the same bound before each chunk; against a bound that refuses, nothing is taken and the refusal is reported. Sabotaged by skipping it. |
 
-# `itsanas-net` — relay tests (4)
+# `itsanas-net` — relay tests (5)
 
 A machine nobody can reach, over real sockets: R listens, B parks on R, A
 reaches B only through R. `tests/relay.rs`.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_relay_that_closes_the_park_with_nobody_is_told_apart_from_a_caller_served`** | §8 0v, red team on the daemon wiring: `serve_parked` says `true` only once a caller was served; a relay that closes the park with nobody never reads as one, so the daemon backs off and tries the next relay instead of dialling it in a loop. Sabotaged (errors swallowed as a served caller): red. |
 | **`a_machine_nobody_can_reach_syncs_through_a_relay`** | §8 0v. A full round from A reaches B through R, the session's peer is B (end to end), A holds B's file afterwards, and R kept nothing of what it carried. |
 | **`red_team_a_device_parked_on_the_relay_cannot_receive_another_devices_callers`** | Asking R for a device nobody parked as reaches nobody, with the refusal a stranger gets (`NOT_RELAYING`). |
 | **`red_team_a_relay_refuses_strangers_the_same_way_whether_or_not_the_target_is_parked`** | A caller outside the relay's account gets `NOT_RELAYING` even when the target is parked, so the refusal does not say who is parked. |
@@ -1267,7 +1268,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (143)
+# `itsanas-node` — a node on disk (144)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1303,7 +1304,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (25)
+## `contact` — when the coordinator is dialled at all (26)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1313,6 +1314,7 @@ here reads a peer's clock or trusts the coordinator's order.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_relayed_machine_is_dialled_at_the_relays_own_address_only`** | §8 0v. A `relay:<id>` presence is dialled through the relay at the relay's own address from the book; an announcer that names where to dial (`relay:<id>@host`) is not followed, an unknown relay is not dialled, and the relay chosen to park on is the first public, non-relay address. Sabotaged (private addresses allowed as relay): red. |
 | **`a_machine_that_never_moves_dials_the_coordinator_once_an_hour`** | The number the step is justified by: 288 rounds of a Pi that never moves make 24 connections, 24 publications and 24 reads -- every read on a publication's connection, none on its own. |
 | **`red_team_a_machine_that_found_everybody_by_broadcast_still_publishes`** | The Rodin finding of 2026-09-21 against the first rule ("dial when the round reached nobody"): a Pi that found the VM by broadcast never published, and a laptop elsewhere could not find it. The rule is not given who was reached; publishing at start and hourly are each sabotaged and each turns this red. |
 | **`a_machine_that_changes_network_publishes_at_once`** | A laptop whose address changed publishes on the next round, not in an hour; an unchanged address inside the hour costs no connection; losing the route counts as a change. |

@@ -238,3 +238,44 @@ fn a_relay_older_than_the_relay_protocol_is_never_asked_to_splice() {
         },
     );
 }
+
+#[test]
+fn red_team_a_relay_that_closes_the_park_with_nobody_is_told_apart_from_a_caller_served() {
+    // The daemon parks again at once after a caller and backs off otherwise:
+    // a relay closing every park must not be dialled in a loop.
+    let r = node(50);
+    let b = node(51);
+    let book = Book(None);
+    let server = PeerServer::bind("127.0.0.1:0").unwrap();
+    let address = server.local_addr().unwrap();
+    let shutdown = AtomicBool::new(false);
+    let parker_stop = AtomicBool::new(false);
+    let service = PeerService::new(&r.store, &r.vault, Pledge::gigabytes(1)).with_relay(&book);
+    let parked_server = PeerServer::bind("127.0.0.1:0").unwrap();
+    let parked_service = PeerService::new(&b.store, &b.vault, Pledge::gigabytes(1));
+    let parked = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let _ = server.serve_until(&service, &r.device, &shutdown);
+        });
+        let parker = scope.spawn(|| {
+            parked_server.serve_parked(
+                address,
+                r.store.device_id(),
+                &parked_service,
+                &b.device,
+                &parker_stop,
+            )
+        });
+        let witness = server.witness();
+        while witness.from_inside() == 0 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::sleep(Duration::from_millis(300));
+        drop(Stop(&shutdown, address));
+        parker.join().unwrap()
+    });
+    assert!(
+        !matches!(parked, Ok(true)),
+        "a park closed with nobody read as a caller served: {parked:?}"
+    );
+}

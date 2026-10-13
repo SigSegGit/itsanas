@@ -558,6 +558,40 @@ impl Contact {
         out
     }
 
+    /// The machine of the account to park on when this one cannot be
+    /// reached (§8 0v): the first, in dialling order, with an address that
+    /// works from anywhere and is not itself a relay. Own account only in
+    /// this first version: a host of another account relays too (its
+    /// `relays_for`), but this node does not choose one yet.
+    #[must_use]
+    pub fn relay_choice(&self) -> Option<(DeviceId, String)> {
+        self.relay_choices().into_iter().next()
+    }
+
+    /// Every machine [`Self::relay_choice`] could pick, best first: a
+    /// first choice that refuses does not leave this node unreachable while
+    /// another would take the park.
+    #[must_use]
+    pub fn relay_choices(&self) -> Vec<(DeviceId, String)> {
+        self.candidates()
+            .into_iter()
+            .filter(|(_, address)| {
+                !address.starts_with(RELAY_PREFIX) && !is_private_address(address)
+            })
+            .collect()
+    }
+
+    /// The relay behind an address `relay:<device>`, and where to dial it:
+    /// its own address from this book, never one the announcing machine
+    /// gave, so a stale or forged presence cannot send the caller elsewhere.
+    #[must_use]
+    pub fn through(&self, address: &str) -> Option<(DeviceId, String)> {
+        let relay: DeviceId = address.strip_prefix(RELAY_PREFIX)?.parse().ok()?;
+        self.candidates()
+            .into_iter()
+            .find(|(device, address)| *device == relay && !address.starts_with(RELAY_PREFIX))
+    }
+
     /// What this node may hand a peer of its account: every address it holds
     /// with both the device's signature and the owner's claim.
     ///
@@ -674,7 +708,11 @@ impl Contact {
                 postcard::to_stdvec(&row).ok().map(|bytes| (device, bytes))
             })
             .collect();
-        Board { members, rows }
+        Board {
+            members,
+            rows,
+            relays: self.relay_choices(),
+        }
     }
 }
 
@@ -704,7 +742,13 @@ pub struct Relayed {
 pub struct Board {
     members: BTreeSet<DeviceId>,
     rows: Vec<(DeviceId, Vec<u8>)>,
+    /// [`Contact::relay_choices`], for the thread that parks.
+    relays: Vec<(DeviceId, String)>,
 }
+
+/// How an address names a relay instead of a socket (§8 0v):
+/// `relay:<device id>`, the device a machine nobody can reach has parked on.
+pub const RELAY_PREFIX: &str = "relay:";
 
 /// A [`Board`] shared between the round that writes it and the listener that
 /// answers from it.
@@ -720,6 +764,18 @@ impl SharedBoard {
             .0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = board;
+    }
+}
+
+impl SharedBoard {
+    /// The machines to park on, best first, as the last round saw them.
+    #[must_use]
+    pub fn relays(&self) -> Vec<(DeviceId, String)> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .relays
+            .clone()
     }
 }
 
@@ -773,6 +829,41 @@ mod tests {
             .iter()
             .map(|&d| (device(d), format!("192.168.1.{d}:9797")))
             .collect()
+    }
+
+    #[test]
+    fn red_team_a_relayed_machine_is_dialled_at_the_relays_own_address_only() {
+        let mut contact = Contact::new();
+        let relay = device(3);
+        let listed = vec![
+            (device(2), format!("{RELAY_PREFIX}{relay}")),
+            (relay, "203.0.113.5:9797".to_owned()),
+            (device(1), "192.168.1.4:9797".to_owned()),
+            (
+                device(5),
+                format!("{RELAY_PREFIX}{relay}@198.51.100.9:9797"),
+            ),
+        ];
+        contact.read(&listed, &[], &[], Instant::now());
+        assert_eq!(
+            contact.through(&format!("{RELAY_PREFIX}{relay}")),
+            Some((relay, "203.0.113.5:9797".to_owned()))
+        );
+        assert_eq!(
+            contact.through(&format!("{RELAY_PREFIX}{relay}@198.51.100.9:9797")),
+            None,
+            "an announcer named where to dial its relay: a presence must not steer \
+             the caller to an address the relay never gave"
+        );
+        assert_eq!(
+            contact.through(&format!("{RELAY_PREFIX}{}", device(9))),
+            None
+        );
+        assert_eq!(
+            contact.relay_choice(),
+            Some((relay, "203.0.113.5:9797".to_owned())),
+            "a machine parked on a private address, or on another relay"
+        );
     }
 
     /// The whole justification for this step: a machine that is always on and
