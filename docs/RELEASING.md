@@ -42,6 +42,13 @@ node that does not take that release.
 
 ## Each version (Nicolas)
 
+All of it is one command in PowerShell, `scripts\release.ps1 -Pr <the PR
+bumping the version>` (or double-click `scripts\release.cmd` to release `main`
+as it is). It waits for the PR's CI and merges it, updates `main`, tags the
+version `Cargo.toml` says, deletes a tag of that version left on another
+commit and its draft, waits for the workflow, then runs `sign-release.ps1`:
+the only questions come at the end, after a beep. The steps by hand:
+
 1. Bump `version` under `[workspace.package]` in `Cargo.toml`, merge.
 2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
 3. Wait for the **Release** workflow (about 20 minutes). It refuses a tag that
