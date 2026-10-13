@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0c
-TITLE: Nicolas tests v0.1.7 on the fleet by hand (reinstall, multi-account, relay, lists, vault, deletion)
+TITLE: Nicolas tests v0.1.8 on the fleet by hand (reinstall, multi-account, relay, lists, vault, deletion)
 WRITTEN-AT: 2026-10-13
-BASE: 75db3e5
+BASE: d6c8468
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,7 +20,22 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**2026-10-13, latest, while 0c waits:** #272 (the coordinator killed
+**2026-10-13, latest: 0.1.8, the version for the hand test (0c).** Test
+0.1.8, not 0.1.7: it is 0.1.7 plus what follows, no wire change. (1) The
+daemon's parking loop (§8 0v) is `park_loop` over a `ParkSite` trait, so its
+decisions are tested without a socket: a relay that closes the park is
+passed over, the skip list rotates, a machine never parks on itself, it
+parks again after each caller and withdraws `relay:` once reachable (four
+red-team tests, each sabotaged red). Behaviour unchanged. (2) Two claims
+ROADMAP made without a test now have one: a body re-signed under a new
+segment id does not open; a file deferred for room arrives through
+`session::pull` once room is made (the applied markers held). Not done:
+0o's older "relay wiring" (`dial_listed`, the presence relay) still has no
+test of its own; `connect_peer` with a `relay:` address and no pinned device
+dials the string as a socket and fails (only `fetch_absent`, whose peers
+come from `peer add`, calls it so).
+
+**2026-10-13, while 0c waited:** #272 (the coordinator killed
 outright keeps every account and enrolment it confirmed). Then a report
 fix: file names with bidirectional overrides (`invoice<U+202E>fdp.exe`) are
 escaped in `scan`/`sync`/daemon logs (`shown` in `itsanas-folder`); the
@@ -2041,7 +2056,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `connect_peer`), `relay:` counted public (now private). The IPv6
       half of a list followed the system's temporary address (fixed in
       0.1.7 on Linux, `stable_ipv6`). Coordinator relay: not
-      built, only if measured.
+      built, only if measured. The parking loop's decisions are tested
+      since 0.1.8 (`park_loop` over `ParkSite`, `daemon.rs`); the real
+      park over a socket only in `tests/relay.rs`.
    s. ✅ **The vault on another disk (a NAS), the default unchanged.**
       Built 2026-10-13: `Config::vault`, `Node::vault_path`/`open_vault`
       (marker `.itsanas-vault` = device id; a configured vault missing,
