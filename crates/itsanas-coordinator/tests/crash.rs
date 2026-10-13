@@ -35,6 +35,8 @@ fn start(state: &std::path::Path) -> (Child, std::net::SocketAddr) {
             return (child, address.parse().expect("a socket address"));
         }
     }
+    let _ = child.kill();
+    let _ = child.wait();
     panic!("the coordinator exited without saying where it listens");
 }
 
