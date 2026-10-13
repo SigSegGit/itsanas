@@ -451,20 +451,28 @@ impl<'a> Setup<'a> {
     fn open_node(&mut self, step: Step) -> Result<Node> {
         let store = Node::store_path(&self.home);
         if itsanas_store::Store::is_locked(&store) {
-            if !self.service.installed() {
-                return Err(CliError::Usage(
-                    "a daemon started by hand holds this node; stop it (Ctrl+C where it runs) \
-                     and run setup again"
-                        .to_owned(),
-                ));
-            }
-            self.service.stop()?;
-            self.stopped_service = true;
-            if !wait_until(Duration::from_secs(20), || {
+            // A lock held for a moment -- the settings page reading the
+            // node's state while this step runs -- is not a daemon: wait it
+            // out before saying one holds the node. Seen in CI as a pledge
+            // change refused at random.
+            if self.service.installed() {
+                self.service.stop()?;
+                self.stopped_service = true;
+                if !wait_until(Duration::from_secs(20), || {
+                    !itsanas_store::Store::is_locked(&store)
+                }) {
+                    return Err(CliError::Usage(
+                        "the background service was asked to stop and still holds the node \
+                         after 20 s"
+                            .to_owned(),
+                    ));
+                }
+            } else if !wait_until(Duration::from_secs(3), || {
                 !itsanas_store::Store::is_locked(&store)
             }) {
                 return Err(CliError::Usage(
-                    "the background service was asked to stop and still holds the node after 20 s"
+                    "a daemon started by hand holds this node; stop it (Ctrl+C where it runs) \
+                     and run setup again"
                         .to_owned(),
                 ));
             }
