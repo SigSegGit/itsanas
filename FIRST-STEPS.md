@@ -211,6 +211,13 @@ not yet among strangers. See `docs/ECONOMICS.md` §1. **Every machine must run
 the same version:** a host now refuses to store for a device that does not
 present its claim.
 
+**What you host for others can live on another disk** (a NAS, a second
+drive): `itsanas vault /mnt/nas/itsanas-vault`, while the vault is still
+empty. The pledge is then checked against that disk. Use a disk that locks
+files (a local disk, iSCSI, NFS v4 with locking); SMB is not supported until
+measured. If that disk is not mounted when the node starts, it refuses to
+start rather than make an empty vault elsewhere.
+
 ### 3. Point it at a folder, and run it
 
 ```sh

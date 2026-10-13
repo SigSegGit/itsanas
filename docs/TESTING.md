@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-12 — 1093 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 266 are red-team tests.**
+**Last updated: 2026-10-12 — 1097 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 269 are red-team tests.**
 
-**977 of the 1093 tests have an entry of their own on this page** — an *entry*,
+**981 of the 1097 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,10 +173,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 123 |
+| `itsanas-cli` unit | 125 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 123 |
+| `itsanas-node` unit | 125 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -944,7 +944,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (123)
+# `itsanas-cli` — unit tests (125)
 
 ## `bench` — measuring this machine (4)
 
@@ -1127,10 +1127,11 @@ requests are tested on the bytes a router sends.
 | **`red_team_a_private_public_address_is_never_announced`** | Private, carrier-grade NAT and unspecified addresses are not taken for a public one, so a box behind a box never makes a node announce an address nobody outside can dial. Sabotaged (CGNAT removed): red. |
 | `the_mapping_request_says_what_a_router_expects` | The SOAP request has the control path, the `SOAPAction` and a Content-Length that matches its body. |
 
-## `daemon` — pacing (3)
+## `daemon` — pacing, and a vault whose disk drops (4)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_vault_that_drops_while_running_takes_no_chunk`** | When the vault's marker disappears under a running daemon (a NAS unmounted, an empty local mount point left), the room offered for chunks is 0, so nothing lands on the system disk to vanish under the mount; the round then stops the daemon. Sabotaged (marker check off): red. |
 | `the_default_interval_is_neither_a_busy_loop_nor_an_hour` | Too short and three machines polling each other is a constant load on a Pi; too long and the thing feels broken. |
 | `shutdown_is_noticed_quickly_enough_to_feel_immediate` | A Ctrl-C that took a whole interval to be noticed would be indistinguishable from a hang. |
 
@@ -1140,7 +1141,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds (34)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds (35)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1149,6 +1150,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_setting_the_vault_never_adopts_a_foreign_directory`** | `itsanas vault PATH` refuses a directory holding other files and another device's vault, saves nothing then, and marks an empty new one that the next open uses. Sabotaged (emptiness check off): red. |
 | **`red_team_delete_account_does_nothing_without_the_typed_name`** | `itsanas delete-account --confirm NAME` refuses a mistyped, differently cased or empty name at the name check itself, and an account with no coordinator; neither makes the machine leave. Sabotaged (name check off): red. |
 | **`a_panic_that_is_not_a_closed_pipe_is_never_swallowed`** | The dangerous half of the fix. A hook that exits 0 on the wrong panic turns a crash into a silent success, which is worse than the noise it removed. Five real panic messages must still reach the reader. |
 | **`a_prefix_that_names_no_device_is_refused_rather_than_invented`** | `itsanas device forget` accepts the short device id the logs print. A revocation is a signed record the coordinator files and honours, so one written against an identifier nobody holds would be silent, permanent and impossible to notice. Five strings that name no device must all be refused. |
@@ -1229,7 +1231,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (140)
+# `itsanas-node` — a node on disk (142)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1300,10 +1302,12 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk (21)
+## `node` — identity on disk, and where its vault lives (23)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_vault_on_a_dropped_disk_is_refused_never_recreated_empty`** | A configured vault (`vault = PATH`, HANDOVER §8 0s) whose directory is missing or empty, as when a NAS mount drops, refuses to open and creates nothing there, so hosted chunks are never mistaken for lost; another device's marker is refused too. Sabotaged twice (configured check off; marker contents ignored): red. |
+| `an_existing_node_keeps_its_vault_where_it_is_and_gains_the_marker` | A node built before the marker opens `<home>/vault` as before and gains `.itsanas-vault`. |
 | **`the_keys_can_be_read_while_the_store_is_held_by_another_process`** | Only one process may hold a node's store, and the daemon holds it on every machine that is working — so anything that opened a `Node` refused to run on exactly the machines somebody asks about, including `doctor`, which is what a person runs *because* something is wrong. Stopping the daemon to ask then changes the answer: a node that is not running is not listening, so "can anybody reach me" comes back no, for a reason that is the asking. `Identity::open` reads the keystore and the config, neither of which is locked. |
 | **`an_empty_node_home_reads_as_unmounted_storage_rather_than_a_fresh_start`** | A node home on a disk that is not mounted is an *empty directory*, and "no node found, run `itsanas init`" is then advice to create a **second account** on the root filesystem — while the real one sits on a disk nobody is looking at, and the next backup captures the empty one. A directory that does not exist at all still reads as a fresh start. |
 | **`a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does`** | `itsanas passphrase` re-seals the keystore without regenerating anything — same account, same device id — the old passphrase stops working, and the pending file is renamed over the keystore rather than left beside it. |

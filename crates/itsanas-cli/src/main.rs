@@ -259,6 +259,22 @@ enum Command {
     },
     /// Delete a file, leaving a tombstone so it does not come back.
     Rm { path: String },
+    /// Set, or show, where this node keeps what it holds for others.
+    ///
+    /// The default is `<home>/vault`. Another disk or a NAS works if it locks
+    /// files (a local disk, iSCSI, NFS v4 with locking; not SMB). Set only while
+    /// the vault is empty: to move a full one, stop the daemon, move the
+    /// directory, then set the path. A configured vault that is missing or not
+    /// this node's is refused at every start, never recreated empty.
+    Vault {
+        /// Where the vault lives. Omit to print the current one.
+        path: Option<PathBuf>,
+        /// Accept a path on the same disk as this node's home. Refused
+        /// without it, because an unmounted NAS leaves an empty mount point
+        /// on the local disk that looks like a fine new vault.
+        #[arg(long)]
+        same_disk: bool,
+    },
     /// Set, or show, the directory kept in step with this account.
     ///
     /// Once set, files put in it are uploaded, files deleted from it are
@@ -777,6 +793,7 @@ fn run() -> Result<()> {
         Command::Get { path, destination } => get(&home, &path, destination.as_deref()),
         Command::Rm { path } => remove(&home, &path),
         Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
+        Command::Vault { path, same_disk } => vault(&home, path.as_deref(), same_disk),
         Command::Scan { deep } => scan(&home, deep),
         Command::Space {
             pledge,
@@ -1414,7 +1431,7 @@ fn disk_use(node: &Node) -> Result<DiskUse> {
     Ok(DiskUse {
         mine: node.store.stats()?.bytes_on_disk,
         vault: node.vault.stats()?.bytes,
-        indexes: databases(node.store.root()) + databases(&node.home.join("vault")),
+        indexes: databases(node.store.root()) + databases(&node.vault_dir()),
     })
 }
 
@@ -1429,7 +1446,7 @@ fn disk_use(node: &Node) -> Result<DiskUse> {
 /// hold the pledge.
 fn used_line(node: &Node, hosted: u64) -> String {
     let used = format!("  used            {}", format_size(hosted));
-    let free = fs4::available_space(&node.home).ok();
+    let free = fs4::available_space(node.vault_dir()).ok();
     let keepable = itsanas_node::pledges::keepable(node.config.pledge_bytes, hosted, free);
     if keepable >= node.config.pledge_bytes {
         return used;
@@ -2924,6 +2941,107 @@ fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
 /// `itsanas delete-account`: check the typed name, drain, then delete at the
 /// coordinator. The name check comes first and alone: a mistyped command must
 /// cost nothing.
+/// `itsanas vault [PATH]`.
+fn vault(home: &Path, path: Option<&Path>, same_disk: bool) -> Result<()> {
+    let mut node = open(home)?;
+    let Some(path) = path else {
+        let dir = node.vault_dir();
+        println!(
+            "vault {} ({})",
+            dir.display(),
+            if node.config.vault.is_some() {
+                "set"
+            } else {
+                "the default"
+            }
+        );
+        return Ok(());
+    };
+    let wanted = std::path::absolute(path).map_err(|source| CliError::Io {
+        path: path.to_owned(),
+        source,
+    })?;
+    if wanted == node.vault_dir() {
+        println!("vault already at {}", wanted.display());
+        return Ok(());
+    }
+    // An automatic copy of tens of GB, half done when a disk drops, is how
+    // hosted data gets lost: a full vault is moved by hand, daemon stopped.
+    if node.vault.held_bytes()? > 0 {
+        return Err(CliError::Usage(format!(
+            "the vault at {} holds data: stop the daemon, move that directory to {}, then run \
+             `itsanas vault {}` again",
+            node.vault_dir().display(),
+            wanted.display(),
+            wanted.display()
+        )));
+    }
+    set_vault(&mut node, &wanted, same_disk)?;
+    println!(
+        "vault set to {}; the daemon uses it from its next start",
+        wanted.display()
+    );
+    Ok(())
+}
+
+/// Point `node` at an empty or new directory `wanted`, marked as its own.
+/// A directory that holds anything, or another device's vault, is refused:
+/// adopting it would mix what two nodes hold, or another node's hosted data.
+fn set_vault(node: &mut Node, wanted: &Path, same_disk: bool) -> Result<()> {
+    // Inside the home, the store or the synced folder, other people's sealed
+    // chunks would be synced as this account's files, or mixed with its own.
+    let inside = |outer: &Path| wanted.starts_with(outer);
+    if inside(&node.home) || node.config.folder.as_deref().is_some_and(inside) {
+        return Err(CliError::Usage(format!(
+            "{} is inside this node's home or synced folder; the vault goes elsewhere",
+            wanted.display()
+        )));
+    }
+    if !same_disk && Node::same_disk(&node.home, wanted).unwrap_or(true) {
+        return Err(CliError::Usage(format!(
+            "{} is on the same disk as this node's home: if it is a NAS mount point, the NAS is \
+             not mounted. Mount it and retry, or add --same-disk if this is meant",
+            wanted.display()
+        )));
+    }
+    let io = |path: &Path| {
+        let path = path.to_owned();
+        move |source| CliError::Io { path, source }
+    };
+    let marker = wanted.join(itsanas_node::node::VAULT_MARKER);
+    let mine = node.store.device_id().to_hex();
+    match std::fs::read_to_string(&marker) {
+        Ok(text) if text.trim() == mine => {}
+        Ok(_) => {
+            return Err(CliError::Usage(format!(
+                "{} is another device's vault; refusing to share it",
+                wanted.display()
+            )));
+        }
+        Err(_) => {
+            let occupied = match std::fs::read_dir(wanted) {
+                Ok(mut entries) => entries.next().is_some(),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                // Unreadable is not empty.
+                Err(_) => true,
+            };
+            if occupied {
+                return Err(CliError::Usage(format!(
+                    "{} is not empty and is no vault of this node's; choose an empty or new directory",
+                    wanted.display()
+                )));
+            }
+            std::fs::create_dir_all(wanted).map_err(io(wanted))?;
+            std::fs::write(&marker, &mine).map_err(io(&marker))?;
+            // The index now, so a later open finds marker and index together.
+            itsanas_store::Vault::open(wanted)?;
+        }
+    }
+    node.config.vault = Some(wanted.to_owned());
+    node.save_config()?;
+    Ok(())
+}
+
 fn delete_account(home: &Path, confirm: &str, drain_for: u64) -> Result<()> {
     let config = config::Config::load(&Node::config_path(home))?;
     if confirm != config.username {
@@ -3521,7 +3639,7 @@ fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> 
     // laptop with a small C: and a large D: is the ordinary case, and telling
     // somebody they have room they do not have is the one answer this must
     // never give.
-    let free = fs4::available_space(&node.home).unwrap_or(0);
+    let free = fs4::available_space(node.vault_dir()).unwrap_or(0);
     let held = node.store.stats()?.bytes_on_disk;
     let hosted = node.vault.stats()?.bytes;
 
@@ -3656,7 +3774,7 @@ fn set_pledge(node: &mut Node, bytes: u64) -> Result<Option<String>> {
     // And not the space another node on this disk already promised: each one
     // compared with the free space alone, and two accounts on the Freebox VM
     // promised the same 30 GB twice (ROADMAP, "Pledges are not reserved").
-    let free = fs4::available_space(&node.home).unwrap_or(0);
+    let free = fs4::available_space(node.vault_dir()).unwrap_or(0);
     let shared = itsanas_node::pledges::shared_dir();
     let (others, stale) = itsanas_node::pledges::others(
         &node.home,
@@ -4452,6 +4570,56 @@ mod tests {
     fn migration_advice_says_the_old_unit_restart_loops() {
         let text = super::migration_advice("alice", std::path::Path::new("/h/.itsanas-alice"));
         assert!(text.contains("keep restarting"), "{text}");
+    }
+
+    /// `itsanas vault PATH` never adopts a directory that holds something
+    /// else, nor another device's vault; an empty one is marked as this node's
+    /// and the next open uses it.
+    #[test]
+    fn red_team_setting_the_vault_never_adopts_a_foreign_directory() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join("node");
+        let (mut node, _) =
+            itsanas_node::Node::create(&home, "a long enough passphrase", "alice").expect("node");
+        let full = base.path().join("photos");
+        std::fs::create_dir_all(&full).expect("dir");
+        std::fs::write(full.join("holiday.jpg"), b"x").expect("file");
+        let theirs = base.path().join("theirs");
+        std::fs::create_dir_all(&theirs).expect("dir");
+        std::fs::write(
+            theirs.join(itsanas_node::node::VAULT_MARKER),
+            "someone-else",
+        )
+        .expect("m");
+        for (path, why) in [
+            (&full, "a directory full of photos"),
+            (&theirs, "another device's vault"),
+        ] {
+            assert!(
+                super::set_vault(&mut node, path, true).is_err(),
+                "{why} was adopted as this node's vault"
+            );
+        }
+        assert_eq!(node.config.vault, None, "a refused path was saved anyway");
+
+        let nas = base.path().join("nas").join("vault");
+        assert!(
+            super::set_vault(&mut node, &nas, false).is_err(),
+            "a path on the home's own disk was taken without --same-disk: an unmounted NAS mount \
+             point would become a vault on the local disk"
+        );
+        assert!(
+            super::set_vault(&mut node, &home.join("inside"), true).is_err(),
+            "a vault inside the node's home was accepted"
+        );
+        super::set_vault(&mut node, &nas, true).expect("an empty, new directory");
+        drop(node);
+        let reopened = itsanas_node::Node::open(&home, "a long enough passphrase").expect("reopen");
+        assert_eq!(
+            reopened.vault_dir(),
+            nas,
+            "the node did not use the vault it was given"
+        );
     }
 
     /// Deleting an account is for good: a mistyped name, or no coordinator to
