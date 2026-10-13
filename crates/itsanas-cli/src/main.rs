@@ -1769,7 +1769,7 @@ fn migration_advice(name: &str, to: &Path) -> String {
 }
 
 /// The node's state in one word, for a tray icon: what it shows, not what it
-/// hopes. `healthy` only while a daemon holds the store **and** its last
+/// hopes. `short` when the disk can no longer hold the pledge (orange). `healthy` only while a daemon holds the store **and** its last
 /// snapshot is within two intervals; a daemon alive but silent longer than
 /// that is `stale` -- a green icon over a hung daemon is the failure a tray
 /// exists to prevent (HANDOVER §8 f). The age follows in seconds.
@@ -1815,6 +1815,9 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
         match control::Control::read(home) {
             Err(_) => format!("unknown {age}"),
             Ok(asked) if asked.pause_holds(now) => format!("paused {age}"),
+            // Running, but the disk can no longer hold what it promised: not
+            // green (`status` says CANNOT KEEP and why).
+            Ok(_) if itsanas_node::pledges::short_of_pledge(home) => format!("short {age}"),
             Ok(_) => format!("healthy {age}"),
         }
     }
@@ -4576,6 +4579,18 @@ mod tests {
 
         write(now - 60);
         assert_eq!(brief_status(&home, true, now), "healthy 60");
+        // A pledge the disk cannot hold: orange, never green.
+        std::fs::write(
+            home.join(itsanas_node::pledges::STATE_FILE),
+            format!("pledge={}\nheld=0\nupdated={now}\n", u64::MAX / 2),
+        )
+        .expect("pledge state");
+        assert_eq!(
+            brief_status(&home, true, now),
+            "short 60",
+            "a node that cannot keep its pledge showed green in the tray"
+        );
+        std::fs::remove_file(home.join(itsanas_node::pledges::STATE_FILE)).expect("remove");
         write(now - 3 * 300);
         assert_eq!(
             brief_status(&home, true, now),

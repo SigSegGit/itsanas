@@ -91,6 +91,25 @@ fn parse(text: &str, source: String) -> Option<Promise> {
     })
 }
 
+/// This node's own last published promise, read without opening its store
+/// (the tray asks while the daemon holds it).
+#[must_use]
+pub fn own(home: &Path) -> Option<Promise> {
+    read_state(&home.join(STATE_FILE)).and_then(|text| parse(&text, "this node".to_owned()))
+}
+
+/// Whether the disk under `home` can no longer hold this node's pledge.
+#[must_use]
+pub fn short_of_pledge(home: &Path) -> bool {
+    own(home).is_some_and(|promise| {
+        keepable(
+            promise.pledge,
+            promise.held,
+            fs4::available_space(home).ok(),
+        ) < promise.pledge
+    })
+}
+
 /// The shared directory, if one is configured.
 #[must_use]
 pub fn shared_dir() -> Option<PathBuf> {

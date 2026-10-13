@@ -33,7 +33,7 @@ Found on my own diff: hosts first trusted the coordinator's word for a
 deletion; now the account's signature. Traps: CI's clippy is newer than the
 container's (`assert!(x.is_empty())` refused); a push to a non-designated
 branch left `step/pledge-per-disk` on the remote (the proxy refused its
-deletion; delete it by hand). Open: the tray colour ignores CANNOT KEEP;
+deletion; delete it by hand). Done after: the tray turns orange (`short`) on CANNOT KEEP.
 `clean.ps1 -PurgeFolder` never ran (no pwsh here); MCP waits for Nicolas.
 
 **2026-10-12, earlier: the tray's "Remove this machine..." (0w (7) closed).**
