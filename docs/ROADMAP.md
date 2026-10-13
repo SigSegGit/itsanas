@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1097 test functions, 9 of them `#[ignore]`d into the slow job, and 269 of
+**1102 test functions, 9 of them `#[ignore]`d into the slow job, and 273 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -807,7 +807,10 @@ device and reaching a different one is refused.
   that refuses, a box behind a box and NAT-PMP-only routers are still the
   case below, except that since 2026-10-13 such a node with a global IPv6
   address announces it instead of its private IPv4 (`prefer_global_ipv6`;
-  not on Windows, whose listener is IPv4 only). A node behind NAT can push but cannot be dialled. Partly
+  not on Windows, whose listener is IPv4 only); NAT-PMP is tried after
+  UPnP; every dialler accepts a list of addresses, and announcing a router's
+  port together with the global IPv6 address is ready for the next release
+  (2026-10-13). A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts
   connections still learns what was pushed to it. Hole punching and relay
   fallback would want QUIC, which is now an optimisation rather than a

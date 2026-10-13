@@ -10,7 +10,7 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0u
-TITLE: reachable without forwards, next: NAT-PMP/PCP beside UPnP, then several signed addresses per device
+TITLE: reachable without forwards: measure on the fleet, then PCP or hole punching only if needed
 WRITTEN-AT: 2026-10-12
 BASE: 1bace7a
 -->
@@ -1927,10 +1927,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
       UPnP mapping, a node behind a home NAT announces its global IPv6
       address instead of its private IPv4 (`coordinator::prefer_global_ipv6`,
       red-team test sabotaged red; Linux and macOS, the dual-stack listener).
-      Next, in order: NAT-PMP/PCP beside UPnP (routers that speak no IGD);
-      then several signed addresses per device (`Presence.address` becomes a
-      signed list, appended last), so IPv4 and IPv6 are both offered; hole
-      punching (QUIC) only if the fleet shows those fall short. Windows over
+      ✅ 2026-10-13, second and third steps: NAT-PMP (`natpmp.rs`) after
+      UPnP fails; several addresses per device as a comma-separated list in
+      the one signed presence string (`itsanas_tls::reach::AddressList`,
+      at most 4, every dialler and the coordinator's probe, a list private
+      if any entry is). Announcing a port opened by the router together with
+      the global IPv6 address is built (`with_global_ipv6`) but off
+      (`ANNOUNCE_LISTS = false`): a peer older than this release cannot dial
+      a list, and `updates = notify` means the fleet does not update itself
+      (Rodin). **Next: turn it on in the release after this one.** Red team
+      on the diff: the probe refused lists, lists sorted as public, NAT-PMP
+      overclaimed LAN anti-spoofing, the granted lease ignored, a double-NAT
+      mapping left open: all fixed. PCP and hole punching (QUIC) only if the fleet
+      shows these fall short. Windows over
       IPv6 needs `SO_EXCLUSIVEADDRUSE` on a hand-built socket (`reach.rs`).
       Asked for by Nicolas on 2026-10-06 ("make the redirection unnecessary").
       A home node asks its box to open its port and announces what it got;

@@ -48,10 +48,12 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// for and what this function trusts.
 #[must_use]
 pub fn is_private_address(address: &str) -> bool {
-    let Ok(parsed) = address.parse::<SocketAddr>() else {
-        return false;
-    };
-    is_private_ip(parsed.ip())
+    // A list (`AddressList`) is private if any entry is: the coordinator's
+    // probe refuses it whole, and a dialler ranks it after the public ones.
+    address
+        .split(',')
+        .filter_map(|entry| entry.trim().parse::<SocketAddr>().ok())
+        .any(|parsed| is_private_ip(parsed.ip()))
 }
 
 /// The same question about an address that is already parsed.
@@ -193,6 +195,43 @@ pub fn connect_to_one_of(addresses: &[SocketAddr]) -> io::Result<TcpStream> {
     connect_within(addresses, CONNECT_TIMEOUT)
 }
 
+/// Most addresses one announcement may list.
+pub const MAX_LISTED: usize = 4;
+
+/// An announced address that may list several, comma-separated, best first:
+/// `203.0.113.7:9797,[2a01:e0a::5]:9797` (HANDOVER §8 0u). One signed string,
+/// so the presence a device signs and the coordinator stores are unchanged;
+/// a dialler tries every entry, as it already tries every record of a name.
+#[derive(Clone, Copy, Debug)]
+pub struct AddressList<'a>(pub &'a str);
+
+impl std::net::ToSocketAddrs for AddressList<'_> {
+    type Iter = std::vec::IntoIter<SocketAddr>;
+
+    fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
+        let mut out = Vec::new();
+        let mut last = None;
+        for entry in self
+            .0
+            .split(',')
+            .map(str::trim)
+            .filter(|e| !e.is_empty())
+            .take(MAX_LISTED)
+        {
+            match std::net::ToSocketAddrs::to_socket_addrs(entry) {
+                Ok(found) => out.extend(found),
+                Err(error) => last = Some(error),
+            }
+        }
+        if out.is_empty() {
+            return Err(last.unwrap_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "no address to connect to")
+            }));
+        }
+        Ok(out.into_iter())
+    }
+}
+
 /// The same, with the caller choosing how long to wait.
 ///
 /// For a diagnostic probe, which wants an answer rather than a connection: "it
@@ -325,5 +364,28 @@ mod tests {
             connect_to_one_of(&[]).is_err(),
             "an empty address list is a failure, not a connection"
         );
+    }
+
+    #[test]
+    fn red_team_an_address_list_is_capped_and_skips_what_does_not_parse() {
+        use std::net::ToSocketAddrs as _;
+        let long = (1..=50)
+            .map(|i| format!("127.0.0.{i}:9"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert_eq!(
+            AddressList(&long).to_socket_addrs().unwrap().count(),
+            MAX_LISTED,
+            "a presence listing fifty addresses made the dialler try fifty connections"
+        );
+        assert_eq!(
+            AddressList("not an address,127.0.0.1:9")
+                .to_socket_addrs()
+                .unwrap()
+                .count(),
+            1,
+            "one bad entry hid the good one beside it"
+        );
+        assert!(AddressList(" , ").to_socket_addrs().is_err());
     }
 }
