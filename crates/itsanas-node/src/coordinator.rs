@@ -960,8 +960,15 @@ pub fn contact(node: &Node, listen: &str, now: u64, due: &Due) -> Result<Contact
 /// `None` when there is no route: no network, or a name that does not resolve.
 #[must_use]
 pub fn address_now(config: &crate::config::Config, listen: &str) -> Option<String> {
-    if let Some(announce) = config.announce.clone().or_else(found_address) {
+    if let Some(announce) = config.announce.clone() {
         return Some(announce);
+    }
+    if let Some(found) = found_address() {
+        if ANNOUNCE_LISTS {
+            let port = listen.parse::<SocketAddr>().ok().map(|l| l.port());
+            return Some(with_global_ipv6(&found, global_ipv6(), port));
+        }
+        return Some(found);
     }
     match listen.parse::<SocketAddr>() {
         Ok(parsed) if parsed.ip().is_unspecified() => {}
@@ -983,6 +990,33 @@ pub fn address_now(config: &crate::config::Config, listen: &str) -> Option<Strin
             socket.local_addr().ok()
         })
         .map(|local| reachable_address(listen, prefer_global_ipv6(local, global_ipv6())))
+}
+
+/// Whether this build announces a list of addresses. Every build from this
+/// one *dials* a list (`itsanas_tls::reach::AddressList`); announcing one
+/// waits for the release after, because a peer older than this one cannot
+/// dial `"v4,[v6]"` and would lose the IPv4 route it has today -- and
+/// `updates = notify`, the default, means the fleet does not update by
+/// itself (Rodin, 2026-10-13). Turn on once every member runs this release.
+pub const ANNOUNCE_LISTS: bool = false;
+
+/// The address the router opened (`UPnP`, NAT-PMP), then this machine's global
+/// IPv6 address on the listening port, as one list (HANDOVER §8 0u): a peer
+/// whose network has no IPv6 dials the first, one behind a box that opened
+/// nothing outbound for IPv4 the second. Not on Windows, whose listener takes
+/// IPv4 only.
+#[must_use]
+pub fn with_global_ipv6(
+    found: &str,
+    global: Option<std::net::Ipv6Addr>,
+    port: Option<u16>,
+) -> String {
+    match (global, port) {
+        (Some(v6), Some(port)) if cfg!(not(windows)) => {
+            format!("{found},{}", SocketAddr::new(v6.into(), port))
+        }
+        _ => found.to_owned(),
+    }
 }
 
 /// This machine's global IPv6 address, if it has one: the local end of a UDP
@@ -1829,5 +1863,34 @@ mod tests {
                 "{not_global} was taken for a global address and announced"
             );
         }
+    }
+
+    #[test]
+    fn red_team_a_node_with_an_opened_port_and_ipv6_offers_both_and_every_one_is_dialable() {
+        let v6: std::net::Ipv6Addr = "2a01:e0a:1:2::5".parse().unwrap();
+        let listed = with_global_ipv6("203.0.113.7:41000", Some(v6), Some(9797));
+        if cfg!(windows) {
+            assert_eq!(listed, "203.0.113.7:41000");
+        } else {
+            assert_eq!(listed, "203.0.113.7:41000,[2a01:e0a:1:2::5]:9797");
+            let resolved: Vec<SocketAddr> =
+                std::net::ToSocketAddrs::to_socket_addrs(&itsanas_net::AddressList(&listed))
+                    .unwrap()
+                    .collect();
+            assert_eq!(
+                resolved.len(),
+                2,
+                "a dialler saw one route of two: a peer with no IPv4 path, or no IPv6 one, \
+                 would fail where the other would have worked"
+            );
+            assert!(
+                listed.len() <= itsanas_coord::claim::MAX_ADDRESS_LEN,
+                "the list no longer fits the signed presence"
+            );
+        }
+        assert_eq!(
+            with_global_ipv6("203.0.113.7:41000", None, Some(9797)),
+            "203.0.113.7:41000"
+        );
     }
 }

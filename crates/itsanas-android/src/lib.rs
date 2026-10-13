@@ -377,7 +377,7 @@ fn fetch(node: &Node, path: &str) -> Result<Vec<u8>, Failure> {
 
     for target in &node.config.peers {
         let Ok(mut client) = itsanas_net::PeerClient::connect(
-            target.as_str(),
+            itsanas_net::AddressList(target.as_str()),
             &node.device,
             node.store.owner(),
             None,
@@ -498,7 +498,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_sync(
 
             for target in &node.config.peers {
                 let Ok(mut client) = itsanas_net::PeerClient::connect(
-                    target.as_str(),
+                    itsanas_net::AddressList(target.as_str()),
                     &node.device,
                     node.store.owner(),
                     None,

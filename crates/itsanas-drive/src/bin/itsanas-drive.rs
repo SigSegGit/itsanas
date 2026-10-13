@@ -113,7 +113,7 @@ mod windows {
 
             for target in &node.config.peers {
                 let Ok(mut client) = itsanas_net::PeerClient::connect(
-                    target.as_str(),
+                    itsanas_net::AddressList(target.as_str()),
                     &node.device,
                     node.store.owner(),
                     None,
@@ -290,9 +290,12 @@ mod windows {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(interval));
             for target in &peers {
-                let Ok(mut client) =
-                    itsanas_net::PeerClient::connect(target.as_str(), &device, owner, None)
-                else {
+                let Ok(mut client) = itsanas_net::PeerClient::connect(
+                    itsanas_net::AddressList(target.as_str()),
+                    &device,
+                    owner,
+                    None,
+                ) else {
                     continue;
                 };
                 let Ok(guard) = shared.lock() else {

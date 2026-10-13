@@ -564,7 +564,14 @@ impl<'a> CoordService<'a> {
         };
 
         let address = presence.presence.address;
-        if address.parse::<std::net::SocketAddr>().is_err() && !looks_like_host_port(&address) {
+        // A list of addresses (HANDOVER §8 0u): every entry must be one, and
+        // no more of them than a dialler tries.
+        let entries: Vec<&str> = address.split(',').map(str::trim).collect();
+        if entries.len() > itsanas_tls::reach::MAX_LISTED
+            || entries.iter().any(|entry| {
+                entry.parse::<std::net::SocketAddr>().is_err() && !looks_like_host_port(entry)
+            })
+        {
             return Ok(Probe::Refuse(format!(
                 "{address:?} is not an address this coordinator will dial"
             )));
@@ -807,6 +814,9 @@ mod tests {
             "[::1]:9797",
             "169.254.169.254:80",
             "172.16.0.1:443",
+            // A list with a private entry behind a public one (HANDOVER 0u).
+            "82.67.35.234:9801,10.0.0.5:22",
+            "82.67.35.234:9801,a,b,c,d",
         ] {
             announce_address(&directory, &owner, &laptop, address);
             let decided = service.probe_target(laptop.device_id(), NOW).unwrap();
@@ -818,7 +828,12 @@ mod tests {
         }
 
         // And the addresses the feature exists for.
-        for address in ["ngas.fr:9801", "82.67.35.234:9801", "[2001:db8::1]:9797"] {
+        for address in [
+            "ngas.fr:9801",
+            "82.67.35.234:9801",
+            "[2001:db8::1]:9797",
+            "82.67.35.234:9801,[2001:db8::1]:9797",
+        ] {
             announce_address(&directory, &owner, &laptop, address);
             assert_eq!(
                 service.probe_target(laptop.device_id(), NOW).unwrap(),

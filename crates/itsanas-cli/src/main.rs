@@ -15,6 +15,7 @@ mod bench;
 mod control;
 mod daemon;
 mod discovery;
+mod natpmp;
 mod setup;
 mod update;
 mod upnp;
@@ -2439,9 +2440,12 @@ fn fetch_absent(node: &Node, path: &str) -> Result<Vec<u8>> {
     }
 
     for target in &node.config.peers {
-        let Ok(mut client) =
-            PeerClient::connect(target.as_str(), &node.device, node.store.owner(), None)
-        else {
+        let Ok(mut client) = PeerClient::connect(
+            itsanas_net::AddressList(target.as_str()),
+            &node.device,
+            node.store.owner(),
+            None,
+        ) else {
             continue;
         };
 
@@ -3108,14 +3112,18 @@ fn leave(home: &Path, drain_for: u64) -> Result<()> {
         if expect.is_some_and(|device| told.contains(&device)) {
             continue;
         }
-        let mut client =
-            match PeerClient::connect(address, &node.device, node.store.owner(), *expect) {
-                Ok(client) => client,
-                Err(error) => {
-                    println!("{address}: not told, unreachable ({error})");
-                    continue;
-                }
-            };
+        let mut client = match PeerClient::connect(
+            itsanas_net::AddressList(address),
+            &node.device,
+            node.store.owner(),
+            *expect,
+        ) {
+            Ok(client) => client,
+            Err(error) => {
+                println!("{address}: not told, unreachable ({error})");
+                continue;
+            }
+        };
         let device = client.peer_device();
         if !told.insert(device) {
             continue;
@@ -3192,14 +3200,18 @@ fn drain(node: &Node, targets: &[(Option<DeviceId>, String)], minutes: u64) {
             if left.is_zero() {
                 break;
             }
-            let asked =
-                match PeerClient::connect(address, &node.device, node.store.owner(), *expect)
-                    .and_then(|mut client| client.draining(left.as_secs() + 60))
-                {
-                    Ok(Some(chunks)) => Asked::Exposed(chunks),
-                    Ok(None) => Asked::TooOld,
-                    Err(_) => Asked::Unreachable,
-                };
+            let asked = match PeerClient::connect(
+                itsanas_net::AddressList(address),
+                &node.device,
+                node.store.owner(),
+                *expect,
+            )
+            .and_then(|mut client| client.draining(left.as_secs() + 60))
+            {
+                Ok(Some(chunks)) => Asked::Exposed(chunks),
+                Ok(None) => Asked::TooOld,
+                Err(_) => Asked::Unreachable,
+            };
             // One answer from any address of a machine stands over a failure
             // at another.
             if asked != Asked::Unreachable || !last.contains_key(&slot) {
@@ -3911,16 +3923,20 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
         print!("{target}: ");
         let _ = std::io::stdout().flush();
 
-        let mut client =
-            match PeerClient::connect(target.as_str(), &node.device, node.store.owner(), *pinned) {
-                Ok(client) => client,
-                Err(error) => {
-                    // One unreachable peer must not abort the others: the whole
-                    // point is that peers come and go.
-                    println!("unreachable ({error})");
-                    continue;
-                }
-            };
+        let mut client = match PeerClient::connect(
+            itsanas_net::AddressList(target.as_str()),
+            &node.device,
+            node.store.owner(),
+            *pinned,
+        ) {
+            Ok(client) => client,
+            Err(error) => {
+                // One unreachable peer must not abort the others: the whole
+                // point is that peers come and go.
+                println!("unreachable ({error})");
+                continue;
+            }
+        };
         daemon::present_claim(&node, target, &mut client);
 
         // The same path the daemon takes, including the choice of what a

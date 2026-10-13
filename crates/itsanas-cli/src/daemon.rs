@@ -266,9 +266,25 @@ fn open_the_router_port<'scope>(
             coordinator::set_found_address(Some(address));
             crate::upnp::renew(&gateway, port, shutdown);
         }
-        Err(why) => {
-            println!("itsanas: no port opened on the router ({why}); this machine dials out");
-        }
+        // A router that speaks no UPnP may speak NAT-PMP (HANDOVER §8 0u).
+        Err(why) => match crate::natpmp::open_port(port) {
+            Ok(mapping) => {
+                println!(
+                    "itsanas: the router opened port {port} (NAT-PMP); reachable at {}",
+                    mapping.address
+                );
+                coordinator::set_found_address(Some(mapping.address.clone()));
+                crate::natpmp::renew(mapping, port, shutdown, |address| {
+                    println!("itsanas: the router's address changed; now reachable at {address}");
+                    coordinator::set_found_address(Some(address));
+                });
+            }
+            Err(also) => {
+                println!(
+                    "itsanas: no port opened on the router ({why}; {also}); this machine dials out"
+                );
+            }
+        },
     });
 }
 
@@ -1466,7 +1482,7 @@ fn sync_once(
     // Bounded as a whole: one peer that stalls must not hold the round, and
     // with it the folder pass and every other peer (PEER_SESSION_BUDGET).
     let mut client = match PeerClient::connect_within(
-        peer,
+        itsanas_net::AddressList(peer),
         &node.device,
         node.store.owner(),
         expect,

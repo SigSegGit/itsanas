@@ -363,7 +363,8 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// same afternoon, and demonstrated by the sabotage run reaching the real
 /// daemon on the machine the test ran on.
 fn resolve_probe_target(address: &str) -> std::result::Result<Vec<SocketAddr>, String> {
-    let targets: Vec<SocketAddr> = match address.to_socket_addrs() {
+    let targets: Vec<SocketAddr> = match itsanas_tls::reach::AddressList(address).to_socket_addrs()
+    {
         Ok(found) => found.collect(),
         Err(error) => return Err(format!("{address} does not resolve: {error}")),
     };

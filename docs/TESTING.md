@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-12 — 1097 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 269 are red-team tests.**
+**Last updated: 2026-10-12 — 1102 test functions across 33 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 273 are red-team tests.**
 
-**981 of the 1097 tests have an entry of their own on this page** — an *entry*,
+**986 of the 1102 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -156,7 +156,7 @@ guarantee and is not one.
 | `itsanas-crypto` unit | 66 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-wire` unit | 17 |
-| `itsanas-tls` unit | 19 |
+| `itsanas-tls` unit | 20 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 171 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
@@ -173,10 +173,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 6 |
-| `itsanas-cli` unit | 125 |
+| `itsanas-cli` unit | 128 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 125 |
+| `itsanas-node` unit | 126 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -944,7 +944,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (125)
+# `itsanas-cli` — unit tests (128)
 
 ## `bench` — measuring this machine (4)
 
@@ -1127,6 +1127,16 @@ requests are tested on the bytes a router sends.
 | **`red_team_a_private_public_address_is_never_announced`** | Private, carrier-grade NAT and unspecified addresses are not taken for a public one, so a box behind a box never makes a node announce an address nobody outside can dial. Sabotaged (CGNAT removed): red. |
 | `the_mapping_request_says_what_a_router_expects` | The SOAP request has the control path, the `SOAPAction` and a Content-Length that matches its body. |
 
+
+## `natpmp` — the router's port, for routers without UPnP (3)
+
+`src/natpmp.rs`, tried after UPnP fails (HANDOVER §8 0u).
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_only_a_granting_answer_opens_a_port_or_names_an_address`** | Only a NAT-PMP answer of the right opcode, result 0, for this port and with a lifetime counts; a refusal, a truncated answer, a UDP mapping's answer, another port's or a deletion never makes the node announce an address nobody can dial; the router's external port is the one announced. Sabotaged (result code ignored): red. |
+| **`red_team_an_answer_from_another_machine_on_the_lan_is_ignored`** | An answer from any address but the gateway's port 5351 is not read, so another machine on the LAN cannot choose the address this node announces. Sabotaged (source not checked): red. |
+| `the_gateway_is_read_from_the_routing_table_or_guessed_on_the_lan` | The default route of `/proc/net/route` (little-endian hex), else the `.1` and `.254` of the local `/24`; a mapping is renewed at half the lease the router granted, never sooner than a minute. |
 ## `daemon` — pacing, and a vault whose disk drops (4)
 
 | Test | What it proves |
@@ -1231,14 +1241,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (142)
+# `itsanas-node` — a node on disk (143)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `coordinator` — publishing an address, and whose deletion a host believes (17)
+## `coordinator` — publishing an address, and whose deletion a host believes (18)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -1249,6 +1259,7 @@ anything.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_node_with_an_opened_port_and_ipv6_offers_both_and_every_one_is_dialable`** | A port opened by UPnP or NAT-PMP and a global IPv6 address make one list, both resolvable by a dialler, within the signed presence's 255 bytes (not on Windows); announced from the release after `ANNOUNCE_LISTS` is turned on. Sabotaged (IPv6 not appended): red. |
 | **`red_team_a_home_node_announces_its_global_ipv6_not_its_private_ipv4`** | With no `announce` and no port opened by UPnP, a node behind a home NAT announces its global IPv6 address rather than the private IPv4 only its LAN can dial (not on Windows, whose listener is IPv4 only); a public IPv4 address stays; link-local, unique-local, documentation and loopback addresses are never taken for global. Sabotaged (preference off): red. |
 | **`red_team_a_coordinator_cannot_make_a_host_drop_an_account_that_never_asked`** | A host frees an account's data only on a deletion the account itself signed, and only for an account it asked about: a forged tombstone (another key's signature over the victim's id) and an unasked one are ignored. Sabotaged (signature not checked): red. |
 | **`red_team_a_refusal_is_no_answer_rather_than_not_enrolled`** | §8 1c (ii), found by the redteam agent: a `Refused` reply to `Standing` (a rate limit, a caller not served) was read as "not enrolled" and ended every fresh confirmation at once. Only a `Standing` reply is about the device; a refusal is no answer. Sabotaged by mapping `Refused` to `Unenrolled`. |
@@ -1888,13 +1899,14 @@ The five remaining tests cover `Connection`, the generic `Read + Write` wrapper:
 
 ---
 
-# `itsanas-tls` — device authentication and listener limits (24)
+# `itsanas-tls` — device authentication and listener limits (25)
 
-Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, five in
+Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, six in
 `reach.rs`, five integration tests in `tests/handshake.rs`.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_an_address_list_is_capped_and_skips_what_does_not_parse`** | An announced address may list several, comma-separated (HANDOVER §8 0u); a dialler tries at most `MAX_LISTED` (4) of them, a bad entry does not hide a good one, an empty list is an error. Sabotaged (cap off): red. |
 | **`a_proof_from_one_session_is_worthless_in_another`** | The property the whole transport rests on. A man in the middle who terminates TLS has two sessions with two different exporters, so a captured proof cannot be relayed into the other one. If this test is ever weakened, authentication becomes replayable and nothing else in the crate catches it. |
 | **`the_payload_never_reaches_the_socket_in_plaintext`** | Records every byte actually written to the socket and scans it for a canary. Proves the encryption is on the wire, not merely configured. |
 | **`dialling_a_device_and_reaching_a_different_one_is_refused`** / `dialling_a_known_peer_refuses_a_different_answer` | An address that resolves to the wrong machine is refused rather than trusted — the coordinator hands out addresses and is not trusted to say who lives at one. Tested at both the proof layer and the socket layer. |
