@@ -455,6 +455,13 @@ Leaving `--keep` out means "keep everything here", which is the right answer for
 a laptop that is the only copy and the wrong one for a phone. It is bounded by
 the split all the same.
 
+**The vault on another disk** (`itsanas vault PATH`, see FIRST-STEPS): the
+service must start after that disk is mounted. On Linux add
+`RequiresMountsFor=/the/mount` to the unit (`systemctl --user edit itsanas`);
+the installers do not write it. Without it the node refuses to start until the
+mount is there, and systemd's restart retries. `clean --purge-account` removes
+`<home>`, not a vault configured elsewhere: delete that directory by hand.
+
 ## Removing it
 
 Every installer takes `--clean` (`-Clean` on Windows), and every one of them

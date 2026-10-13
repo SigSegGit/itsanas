@@ -164,6 +164,10 @@ pub struct Config {
     /// Optional on purpose: a node can be a pure host, offering space and
     /// holding other people's sealed data without syncing a folder of its own.
     pub folder: Option<PathBuf>,
+    /// Where the vault (what this node keeps for others) lives, if not
+    /// `<home>/vault`: another disk, a NAS (HANDOVER §8 0s). `None` keeps
+    /// every existing node where it is.
+    pub vault: Option<PathBuf>,
     /// The most of this account's own data to keep on this device.
     ///
     /// `None` is "all of it", which is what every machine wanted before devices
@@ -206,6 +210,7 @@ impl Default for Config {
             coordinator: None,
             coordinator_device: None,
             folder: None,
+            vault: None,
             keep_bytes: None,
             keep_order: Order::default(),
             keep_only: Vec::new(),
@@ -252,6 +257,9 @@ impl Config {
         }
         for only in &self.keep_only {
             let _ = writeln!(out, "keep_only = {only}");
+        }
+        if let Some(vault) = &self.vault {
+            let _ = writeln!(out, "vault = {}", vault.display());
         }
         if let Some(folder) = &self.folder {
             let _ = writeln!(out, "folder = {}", folder.display());
@@ -362,6 +370,7 @@ impl Config {
                     })?);
                 }
                 "folder" => config.folder = Some(PathBuf::from(value)),
+                "vault" => config.vault = Some(PathBuf::from(value)),
                 "coordinator" => config.coordinator = Some(value.to_owned()),
                 "coordinator_device" => config.coordinator_device = Some(value.to_owned()),
                 "peer" => peers.push(value.to_owned()),
@@ -377,7 +386,7 @@ impl Config {
                             "line {}: unknown setting {:?}. Known settings: ",
                             "username, pledge_bytes, split, keep_bytes, keep_order, ",
                             "keep_only, ",
-                            "listen, announce, folder, peer, ",
+                            "listen, announce, folder, vault, peer, ",
                             "coordinator, coordinator_device, updates"
                         ),
                         number + 1,
@@ -924,6 +933,7 @@ mod tests {
             keep_order: Order::Oldest,
             keep_only: vec!["Documents".to_owned(), "Photos/2026".to_owned()],
             folder: Some(PathBuf::from("/home/nicolas/ITSaNAS")),
+            vault: Some(PathBuf::from("/mnt/nas/itsanas-vault")),
             announce: Some("ngas.fr:9801".to_owned()),
             // Not the default, so the round trip covers the line being written.
             updates: Updates::Auto,

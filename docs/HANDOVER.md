@@ -1941,7 +1941,20 @@ Detail and measurements are in ROADMAP.md; this is the map.
    v. **A relay for two machines that cannot reach each other** (0o's
       phase 3): through a reachable member, data still sealed end to end.
       After 0u, and only if the fleet shows 0u falls short.
-   s. **The vault on another disk (a NAS), the default unchanged.** Asked
+   s. ✅ **The vault on another disk (a NAS), the default unchanged.**
+      Built 2026-10-13: `Config::vault`, `Node::vault_path`/`open_vault`
+      (marker `.itsanas-vault` = device id; a configured vault missing,
+      unmarked or foreign is refused, never recreated; the default gains the
+      marker), `itsanas vault [PATH]` (empty vault only, never adopts a
+      foreign directory), pledge free space measured on the vault's disk.
+      Red team on the diff: an unmounted mount point marked (now refused on
+      the home's disk without `--same-disk`), a marker without `vault.redb`,
+      read errors taken for absence, a vault inside the folder: all fixed.
+      Rodin: a NAS dropping while the daemon runs (chunks on the system
+      disk): `disk_room` gives 0 and the round stops the daemon. Four tests
+      (three red-team, each sabotaged red). Not done: moving the VM's
+      vault (Nicolas, later); the index on local disk with blobs on the
+      share; `clean` removing an external vault. Original text: Asked
       for by Nicolas on 2026-10-06, after growing the VM's disk: the VM is
       meant to host for the network from his NAS later, not from its image.
       He does **not** want it set up yet -- he wants the system *able* to

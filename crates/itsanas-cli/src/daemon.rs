@@ -291,7 +291,7 @@ pub fn run(
     // others are (`Request::Presences`). The round owns the book; the listener
     // answers from the copy each round leaves here.
     let board = SharedBoard::default();
-    let disk_room = disk_room(node.home.clone());
+    let disk_room = disk_room(node.vault_dir());
     let service = peer_service(node, &board, &disk_room);
 
     install_signal_handler()?;
@@ -894,21 +894,36 @@ fn check_standing(node: &Node) {
 }
 
 /// What the disk can still take beyond the reserve, read per offer.
-fn disk_room(home: std::path::PathBuf) -> impl Fn() -> Option<u64> + Sync {
+/// No room at all while the vault's marker is missing: a NAS that dropped
+/// while the daemon runs leaves an empty local mount point, and chunks written
+/// there land on the system disk and vanish under the mount when it returns
+/// (Rodin, 2026-10-13).
+fn disk_room(vault: std::path::PathBuf) -> impl Fn() -> Option<u64> + Sync {
     move || {
-        fs4::available_space(&home)
+        if !vault_present(&vault) {
+            return Some(0);
+        }
+        fs4::available_space(&vault)
             .ok()
             .map(|free| free.saturating_sub(itsanas_node::pledges::RESERVE))
     }
 }
 
+/// Whether the vault directory still carries its marker.
+pub(crate) fn vault_present(vault: &std::path::Path) -> bool {
+    vault.join(itsanas_node::node::VAULT_MARKER).is_file()
+}
+
 /// The pledge as far as the disk can still honour it (`pledges::keepable`):
 /// another program filling the disk must stop the hosting, not a write.
 fn keepable_pledge(node: &Node) -> u64 {
+    if !vault_present(&node.vault_dir()) {
+        return 0;
+    }
     itsanas_node::pledges::keepable(
         node.config.pledge_bytes,
         node.vault.held_bytes().unwrap_or(0),
-        fs4::available_space(&node.home).ok(),
+        fs4::available_space(node.vault_dir()).ok(),
     )
 }
 
@@ -973,6 +988,17 @@ fn one_round(
     scope: PolicyScope,
     folder: Option<&Folder>,
 ) -> (BTreeSet<DeviceId>, Option<String>) {
+    // The vault's disk dropped under a running daemon: stop, rather than run a
+    // round that writes hosted data to the local mount point. The service
+    // manager restarts it, and the start refuses until the disk is back.
+    if !vault_present(&node.vault_dir()) {
+        eprintln!(
+            "itsanas: the vault at {} lost its marker (is the disk still mounted?); stopping",
+            node.vault_dir().display()
+        );
+        shutdown.store(true, Ordering::SeqCst);
+        return (BTreeSet::new(), None);
+    }
     // The coordinator first, and only with a reason: this machine has not
     // published since it started, has moved, or owes its hourly publication
     // (`contact.rs`). First because nothing it decides depends on who this
@@ -1724,6 +1750,24 @@ fn install_signal_handler() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn red_team_a_vault_that_drops_while_running_takes_no_chunk() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let vault = dir.path().join("nas").join("vault");
+        std::fs::create_dir_all(&vault).expect("vault");
+        std::fs::write(vault.join(itsanas_node::node::VAULT_MARKER), "device").expect("marker");
+        let room = disk_room(vault.clone());
+        assert_ne!(room(), Some(0), "a mounted vault with room offered none");
+        // The NAS unmounts: an empty local mount point is left.
+        std::fs::remove_file(vault.join(itsanas_node::node::VAULT_MARKER)).expect("unmount");
+        assert_eq!(
+            room(),
+            Some(0),
+            "chunks were still accepted into a vault whose disk dropped: they would land on \
+             the system disk and vanish under the mount when it returns"
+        );
+    }
 
     #[test]
     fn a_panic_anywhere_in_the_scope_raises_the_shutdown_flag() {

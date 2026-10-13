@@ -30,6 +30,10 @@ use std::path::{Path, PathBuf};
 /// reads it says how old it is.
 pub const SNAPSHOT: &str = "status.snapshot";
 
+/// In a vault directory, the id of the device it belongs to: what tells a
+/// vault from an empty directory left by a disk that is not mounted.
+pub const VAULT_MARKER: &str = ".itsanas-vault";
+
 use itsanas_crypto::{
     DeviceKeys, KdfParams, Keystore, MasterSecret, SecretBytes, UserKeys,
     is_published_test_identity,
@@ -429,8 +433,18 @@ impl Node {
                 Self::account_pledge(&self.home, &self.config),
             ),
             elsewhere,
-            local_ceiling: Self::disk_room(free, self.config.pledge_bytes, held)
-                .map(|room| local.saturating_add(room)),
+            // The pledge is owed on the vault's disk: only when the vault
+            // shares the home's disk does it come out of the room for our own.
+            local_ceiling: Self::disk_room(
+                free,
+                if same_volume(&self.home, &self.vault_dir()).unwrap_or(true) {
+                    self.config.pledge_bytes
+                } else {
+                    0
+                },
+                held,
+            )
+            .map(|room| local.saturating_add(room)),
             folder_copy: self.folder_copy(local),
         }))?;
         Ok(())
@@ -655,7 +669,7 @@ impl Node {
             local_ceiling: None,
             folder_copy: FolderCopy::None,
         }))?;
-        let vault = Vault::open(home.join("vault"))?;
+        let vault = Self::open_vault(home, &config, &device.device_id())?;
 
         Ok(Self {
             home: home.to_owned(),
@@ -666,6 +680,91 @@ impl Node {
             user: UserKeys::derive(master),
             secrets: zeroize::Zeroizing::new(secrets),
         })
+    }
+
+    /// Where this node's vault lives: `config.vault`, or `<home>/vault`.
+    #[must_use]
+    pub fn vault_path(home: &Path, config: &Config) -> PathBuf {
+        config.vault.clone().unwrap_or_else(|| home.join("vault"))
+    }
+
+    /// Whether `a` and `b` are on one disk; `None` when that cannot be told.
+    #[must_use]
+    pub fn same_disk(a: &Path, b: &Path) -> Option<bool> {
+        same_volume(a, b)
+    }
+
+    /// This node's vault directory (see [`Self::vault_path`]).
+    #[must_use]
+    pub fn vault_dir(&self) -> PathBuf {
+        Self::vault_path(&self.home, &self.config)
+    }
+
+    /// Open the vault, refusing one that is not this node's.
+    ///
+    /// `Vault::open` creates what is missing, so a vault on a disk that is not
+    /// mounted would come back empty on the local disk: every chunk this node
+    /// hosts would look lost, audits would fail and the owners would
+    /// re-replicate everything (HANDOVER §8 0s). So a *configured* vault must
+    /// already exist and carry the marker [`VAULT_MARKER`] naming this device;
+    /// the default `<home>/vault` of a node that predates the marker gets one.
+    ///
+    /// # Errors
+    ///
+    /// A configured vault missing, unmarked or another device's; the store's.
+    pub fn open_vault(
+        home: &Path,
+        config: &Config,
+        device: &itsanas_crypto::DeviceId,
+    ) -> Result<Vault> {
+        let path = Self::vault_path(home, config);
+        let marker = path.join(VAULT_MARKER);
+        let mine = device.to_hex();
+        match std::fs::read_to_string(&marker) {
+            Ok(text) if text.trim() == mine => {
+                // A marker without its database is a partial copy or restore:
+                // opening it would start an empty index over whatever blobs
+                // survived, and every hosted chunk would look lost.
+                if config.vault.is_some() && !path.join("vault.redb").is_file() {
+                    return Err(NodeError::Config(format!(
+                        "the vault at {} has its marker but no vault.redb: a partial copy or \
+                         restore? Refusing to start an empty index over it",
+                        path.display()
+                    )));
+                }
+            }
+            Ok(_) => {
+                return Err(NodeError::Config(format!(
+                    "the vault at {} belongs to another device; refusing to use it",
+                    path.display()
+                )));
+            }
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                return Err(NodeError::Io {
+                    path: marker.clone(),
+                    source: error,
+                });
+            }
+            Err(_) if config.vault.is_some() => {
+                return Err(NodeError::Config(format!(
+                    "the vault at {} is not there or not this node's (no {VAULT_MARKER}): is the \
+                     disk mounted? Nothing was created there. For a new vault, set it with \
+                     `itsanas vault PATH`, which marks it",
+                    path.display()
+                )));
+            }
+            Err(_) => {
+                std::fs::create_dir_all(&path).map_err(|source| NodeError::Io {
+                    path: path.clone(),
+                    source,
+                })?;
+                std::fs::write(&marker, &mine).map_err(|source| NodeError::Io {
+                    path: marker.clone(),
+                    source,
+                })?;
+            }
+        }
+        Ok(Vault::open(&path)?)
     }
 
     /// Persist the configuration.
@@ -753,7 +852,7 @@ pub mod zeroize_phrase {
 
 /// The nearest ancestor of `path` that exists: a folder not created yet
 /// still has a volume, its parent's.
-fn existing_ancestor(path: &Path) -> &Path {
+pub(crate) fn existing_ancestor(path: &Path) -> &Path {
     path.ancestors()
         .find(|candidate| candidate.exists())
         .unwrap_or(path)
@@ -1475,5 +1574,68 @@ mod tests {
         let rendered = format!("{phrase:?}");
         assert_eq!(rendered, "Phrase(redacted)");
         assert!(!rendered.contains(phrase.as_str().split_whitespace().next().unwrap()));
+    }
+
+    #[test]
+    fn red_team_a_vault_on_a_dropped_disk_is_refused_never_recreated_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        let mount = dir.path().join("nas");
+        let (node, _phrase) = Node::create(&home, PASSPHRASE, "nicolas").unwrap();
+        let mut config = node.config.clone();
+        let device = node.store.device_id().to_hex();
+        drop(node);
+        config.vault = Some(mount.join("vault"));
+        config.save(&Node::config_path(&home)).unwrap();
+
+        // The mount dropped: the directory is missing, then empty.
+        assert!(
+            Node::open(&home, PASSPHRASE).is_err(),
+            "a configured vault that is not there was accepted"
+        );
+        assert!(
+            !mount.join("vault").exists(),
+            "an empty vault was created where the disk should have been: every hosted chunk \
+             would look lost and the owners would re-replicate all of it"
+        );
+        std::fs::create_dir_all(mount.join("vault")).unwrap();
+        assert!(
+            Node::open(&home, PASSPHRASE).is_err(),
+            "an empty, unmarked directory was taken"
+        );
+        assert!(
+            !mount.join("vault").join("vault.redb").exists(),
+            "a fresh vault was written into the empty mount point"
+        );
+
+        // A partial copy: this device's marker, no index.
+        std::fs::write(mount.join("vault").join(VAULT_MARKER), &device).unwrap();
+        assert!(
+            Node::open(&home, PASSPHRASE).is_err(),
+            "a marker without vault.redb was opened: an empty index over surviving blobs"
+        );
+        std::fs::write(mount.join("vault").join(VAULT_MARKER), "not-this-device").unwrap();
+        assert!(
+            Node::open(&home, PASSPHRASE).is_err(),
+            "another device's vault was opened as this node's"
+        );
+    }
+
+    #[test]
+    fn an_existing_node_keeps_its_vault_where_it_is_and_gains_the_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        let (node, _phrase) = Node::create(&home, PASSPHRASE, "nicolas").unwrap();
+        let device = node.store.device_id().to_hex();
+        drop(node);
+        // Every node built before the marker existed.
+        std::fs::remove_file(home.join("vault").join(VAULT_MARKER)).unwrap();
+        let reopened = Node::open(&home, PASSPHRASE).expect("an old node must still open");
+        assert_eq!(reopened.vault_dir(), home.join("vault"));
+        assert_eq!(
+            std::fs::read_to_string(home.join("vault").join(VAULT_MARKER)).unwrap(),
+            device,
+            "the default vault did not gain its marker"
+        );
     }
 }

@@ -105,9 +105,19 @@ pub fn short_of_pledge(home: &Path) -> bool {
         keepable(
             promise.pledge,
             promise.held,
-            fs4::available_space(home).ok(),
+            fs4::available_space(crate::node::existing_ancestor(&vault_of(home))).ok(),
         ) < promise.pledge
     })
+}
+
+/// Where the node at `home` keeps its vault, read from its configuration:
+/// the disk its pledge is owed on.
+#[must_use]
+pub fn vault_of(home: &Path) -> PathBuf {
+    crate::config::Config::load(&crate::Node::config_path(home)).map_or_else(
+        |_| home.join("vault"),
+        |config| crate::Node::vault_path(home, &config),
+    )
 }
 
 /// The shared directory, if one is configured.
@@ -159,7 +169,9 @@ pub fn others(
     if let Some(base) = home.parent() {
         for (name, sibling) in crate::config::node_homes(base) {
             let same = std::fs::canonicalize(&sibling).unwrap_or_else(|_| sibling.clone());
-            if same == me || !crate::node::same_volume(home, &sibling).unwrap_or(true) {
+            if same == me
+                || !crate::node::same_volume(&vault_of(home), &vault_of(&sibling)).unwrap_or(true)
+            {
                 continue;
             }
             if let Some(promise) = read_state(&sibling.join(STATE_FILE))
