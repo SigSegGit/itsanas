@@ -45,8 +45,9 @@ pub const MAX_PARKED_HOSTED: usize = 8;
 /// take every place.
 pub const MAX_PARKED_PER_ACCOUNT: usize = 2;
 
-/// Splices carried at once.
-pub const MAX_SPLICES: usize = 4;
+/// Splices carried at once in each pool, the own account's and the hosted
+/// ones': strangers holding theirs open cannot starve the account's own.
+pub const MAX_SPLICES_PER_POOL: usize = 2;
 
 /// Bytes a second the relay carries, all splices together: what it gives
 /// others is its owner's uplink.
@@ -91,38 +92,52 @@ pub(crate) struct Handoff {
     pub from: DeviceId,
 }
 
-struct Parked {
+struct Parked<H> {
     class: Class,
     ticket: u64,
-    hand: SyncSender<Handoff>,
+    hand: SyncSender<H>,
 }
 
 /// What a relay keeps: who is parked, how many splices run, the shared rate.
-#[derive(Default)]
-pub struct Desk {
-    parked: Mutex<HashMap<DeviceId, Parked>>,
+/// Generic over what is handed on only so its counting can be tested
+/// without sockets.
+pub(crate) struct Desk<H = Handoff> {
+    parked: Mutex<HashMap<DeviceId, Parked<H>>>,
     tickets: AtomicUsize,
-    splices: AtomicUsize,
+    /// Splices running, the own account's and the hosted ones'.
+    splices: [AtomicUsize; 2],
     /// When the shared rate next has room.
     next: Mutex<Option<Instant>>,
 }
 
-impl std::fmt::Debug for Desk {
+impl<H> Default for Desk<H> {
+    fn default() -> Self {
+        Self {
+            parked: Mutex::default(),
+            tickets: AtomicUsize::default(),
+            splices: [AtomicUsize::new(0), AtomicUsize::new(0)],
+            next: Mutex::default(),
+        }
+    }
+}
+
+impl<H> std::fmt::Debug for Desk<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Desk")
-            .field("splices", &self.splices.load(Ordering::Relaxed))
+            .field("own splices", &self.splices[0].load(Ordering::Relaxed))
+            .field("hosted splices", &self.splices[1].load(Ordering::Relaxed))
             .finish_non_exhaustive()
     }
 }
 
 /// A park's place, given up when dropped.
-pub(crate) struct Ticket<'a> {
-    desk: &'a Desk,
+pub(crate) struct Ticket<'a, H> {
+    desk: &'a Desk<H>,
     device: DeviceId,
     number: u64,
 }
 
-impl Drop for Ticket<'_> {
+impl<H> Drop for Ticket<'_, H> {
     fn drop(&mut self) {
         let mut parked = self.desk.lock();
         if parked
@@ -134,17 +149,67 @@ impl Drop for Ticket<'_> {
     }
 }
 
-/// A splice's place, given up when dropped.
-pub(crate) struct Splicing<'a>(&'a Desk);
+/// A splice's place in its pool, given up when dropped.
+pub(crate) struct Splicing<'a, H>(&'a Desk<H>, usize);
 
-impl Drop for Splicing<'_> {
+impl<H> Drop for Splicing<'_, H> {
     fn drop(&mut self) {
-        self.0.splices.fetch_sub(1, Ordering::Relaxed);
+        self.0.splices[self.1].fetch_sub(1, Ordering::Relaxed);
     }
 }
 
-impl Desk {
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<DeviceId, Parked>> {
+/// A park waiting to be handed a caller. Dropped without one -- the parked
+/// machine gone, the daemon stopping -- it gives back the place of any splice
+/// reserved for it in between, which would otherwise be lost for good.
+pub(crate) struct Waiting<'a, H> {
+    desk: &'a Desk<H>,
+    pool: usize,
+    pub(crate) handed: Receiver<H>,
+}
+
+impl<'a, H> Waiting<'a, H> {
+    /// The handoff's splice place, held for as long as it is carried.
+    pub(crate) const fn carrying(&self) -> Splicing<'a, H> {
+        Splicing(self.desk, self.pool)
+    }
+}
+
+impl<H> Drop for Waiting<'_, H> {
+    fn drop(&mut self) {
+        while self.handed.try_recv().is_ok() {
+            self.desk.splices[self.pool].fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// A splice reserved: the park taken off the desk, its place counted.
+pub(crate) struct Reserved<'a, H> {
+    desk: &'a Desk<H>,
+    pool: usize,
+    hand: SyncSender<H>,
+}
+
+impl<H> Reserved<'_, H> {
+    /// Hand the caller over. A park that went in between drops it, and the
+    /// caller's end-to-end handshake fails at once.
+    pub(crate) fn hand(self, handoff: H) {
+        if let Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) =
+            self.hand.try_send(handoff)
+        {
+            self.desk.splices[self.pool].fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+}
+
+const fn pool(class: Class) -> usize {
+    match class {
+        Class::Own => 0,
+        Class::Hosted(_) => 1,
+    }
+}
+
+impl<H> Desk<H> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<DeviceId, Parked<H>>> {
         self.parked.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -155,7 +220,7 @@ impl Desk {
         &self,
         device: DeviceId,
         class: Class,
-    ) -> Option<(Receiver<Handoff>, Ticket<'_>)> {
+    ) -> Option<(Waiting<'_, H>, Ticket<'_, H>)> {
         let mut parked = self.lock();
         parked.remove(&device);
         let in_pool =
@@ -181,7 +246,11 @@ impl Desk {
             },
         );
         Some((
-            receive,
+            Waiting {
+                desk: self,
+                pool: pool(class),
+                handed: receive,
+            },
             Ticket {
                 desk: self,
                 device,
@@ -190,44 +259,29 @@ impl Desk {
         ))
     }
 
-    /// Hand `handoff` to the park of `to`, which then carries it and nothing
-    /// else: one splice per park, the machine parks again for the next.
-    /// Gives the handoff back if there is no such park or no splice to spare.
-    /// Whether `to` is parked and a splice is to spare: asked before the
-    /// caller is told yes, since the connection cannot be handed and then
-    /// answered on.
-    pub(crate) fn can_hand(&self, to: DeviceId) -> bool {
-        self.splices.load(Ordering::Relaxed) < MAX_SPLICES && self.lock().contains_key(&to)
-    }
-
-    /// Hand `handoff` to the park of `to`, which then carries it and nothing
-    /// else: one splice per park, the machine parks again for the next.
-    /// `false` if the park went in between, or the splices ran out; the
-    /// caller's connection is then dropped, and its end-to-end handshake
-    /// fails at once.
-    pub(crate) fn hand(&self, to: DeviceId, handoff: Handoff) -> bool {
-        let Some(parked) = self.lock().remove(&to) else {
-            return false;
-        };
-        if self.splices.fetch_add(1, Ordering::Relaxed) >= MAX_SPLICES {
-            self.splices.fetch_sub(1, Ordering::Relaxed);
-            // Put back: a full relay is not a reason to lose the park.
-            self.lock().entry(to).or_insert(parked);
-            return false;
+    /// Reserve a splice to the park of `to` for a caller of `class`: only
+    /// within one pool and one account -- the relay's own machines to its
+    /// own, a hosted account's to that account's -- so a relay is no oracle
+    /// on who else is parked, and nobody else can use up a machine's park.
+    /// The park is taken off the desk (one splice per park; the machine
+    /// parks again for the next) and the splice counted, in one step, before
+    /// the caller is told yes.
+    pub(crate) fn reserve(&self, to: DeviceId, class: Class) -> Option<Reserved<'_, H>> {
+        let mut parked = self.lock();
+        if parked.get(&to).is_none_or(|p| p.class != class) {
+            return None;
         }
-        match parked.hand.try_send(handoff) {
-            Ok(()) => true,
-            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
-                self.splices.fetch_sub(1, Ordering::Relaxed);
-                false
-            }
+        let pool = pool(class);
+        if self.splices[pool].fetch_add(1, Ordering::Relaxed) >= MAX_SPLICES_PER_POOL {
+            self.splices[pool].fetch_sub(1, Ordering::Relaxed);
+            return None;
         }
-    }
-
-    /// The place of a splice [`Self::hand`] counted, given back when the
-    /// park carrying it drops this.
-    pub(crate) const fn splicing(&self) -> Splicing<'_> {
-        Splicing(self)
+        let hand = parked.remove(&to)?.hand;
+        Some(Reserved {
+            desk: self,
+            pool,
+            hand,
+        })
     }
 
     /// Wait until `bytes` fit in the shared rate.
@@ -357,7 +411,7 @@ mod tests {
 
     #[test]
     fn red_team_one_account_cannot_take_every_park_nor_push_out_the_relays_own() {
-        let desk = Desk::default();
+        let desk = Desk::<()>::default();
         let account = UserId::from_bytes([1; 32]);
         let mut held = Vec::new();
         for seed in 0..10 {
@@ -388,8 +442,51 @@ mod tests {
     }
 
     #[test]
+    fn red_team_a_caller_reaches_only_parks_of_its_own_pool_and_account() {
+        let desk = Desk::<()>::default();
+        let x = Class::Hosted(UserId::from_bytes([1; 32]));
+        let y = Class::Hosted(UserId::from_bytes([2; 32]));
+        let _own = desk.park(device(1), Class::Own).unwrap();
+        let _ys = desk.park(device(2), y).unwrap();
+        assert!(
+            desk.reserve(device(1), x).is_none() && desk.reserve(device(2), x).is_none(),
+            "a hosted account's device was spliced onto another account's park: an \
+             oracle on who is online, and a way to use up their parks"
+        );
+        assert!(desk.reserve(device(2), y).is_some());
+    }
+
+    #[test]
+    fn red_team_a_splice_reserved_for_a_park_that_died_gives_its_place_back() {
+        let desk = Desk::<()>::default();
+        for seed in 0..=u8::try_from(MAX_SPLICES_PER_POOL).unwrap() {
+            let (waiting, _ticket) = desk.park(device(seed), Class::Own).unwrap();
+            desk.reserve(device(seed), Class::Own)
+                .expect("a splice place was lost for good")
+                .hand(());
+            // The parked machine goes before taking the caller.
+            drop(waiting);
+        }
+        assert_eq!(desk.splices[0].load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn strangers_holding_their_splices_do_not_starve_the_own_account() {
+        let desk = Desk::<()>::default();
+        let x = Class::Hosted(UserId::from_bytes([1; 32]));
+        let mut held = Vec::new();
+        for seed in 0..=u8::try_from(MAX_SPLICES_PER_POOL).unwrap() {
+            let _ = desk.park(device(seed), x).map(|park| held.push(park));
+        }
+        let hosted: Vec<_> = (0..=2).filter_map(|s| desk.reserve(device(s), x)).collect();
+        assert!(hosted.len() <= MAX_SPLICES_PER_POOL);
+        let _own = desk.park(device(50), Class::Own).unwrap();
+        assert!(desk.reserve(device(50), Class::Own).is_some());
+    }
+
+    #[test]
     fn a_dropped_park_frees_its_place_and_a_reparked_device_replaces_its_old_one() {
-        let desk = Desk::default();
+        let desk = Desk::<()>::default();
         let account = UserId::from_bytes([1; 32]);
         let first = desk.park(device(1), Class::Hosted(account)).unwrap();
         let second = desk.park(device(1), Class::Hosted(account)).unwrap();
@@ -402,7 +499,7 @@ mod tests {
 
     #[test]
     fn the_shared_rate_holds_all_splices_together() {
-        let desk = Desk::default();
+        let desk = Desk::<()>::default();
         let start = Instant::now();
         // Three times a quarter of the rate, on top of the first free quarter.
         for _ in 0..4 {

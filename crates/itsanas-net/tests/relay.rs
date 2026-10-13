@@ -96,6 +96,13 @@ fn with_relay<T>(
             );
         });
         let _stop = Stop(&shutdown, address);
+        // The parker's connection is accepted before the body runs: one
+        // arriving after the stop would wait out its handshake timeout.
+        let witness = server.witness();
+        let until = Instant::now() + Duration::from_secs(5);
+        while witness.from_inside() == 0 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+        }
         body(address)
     })
 }

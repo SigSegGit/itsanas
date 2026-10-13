@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-12 — 1102 test functions across 33 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 273 are red-team tests.**
+**Last updated: 2026-10-12 — 1113 test functions across 34 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 278 are red-team tests.**
 
-**986 of the 1102 tests have an entry of their own on this page** — an *entry*,
+**997 of the 1113 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -162,8 +162,9 @@ guarantee and is not one.
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
-| `itsanas-net` unit | 46 |
+| `itsanas-net` unit | 53 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 58 |
+| `itsanas-net` relay (`tests/relay.rs`) | 4 |
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 121 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
@@ -755,7 +756,7 @@ about reading.
 | **`red_team_one_disk_check_call_holds_at_most_one_batch`** | Found by the CI reviewer on #218: the slice a round owes is 190 477 rows at a terabyte on an hourly policy, 12 MB of keys in one `Vec` on a 17 MiB machine. One call examines at most `MAX_CHECK_BATCH` and the daemon loops. Sabotaged by dropping the cap. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (46)
+# `itsanas-net` — unit tests (53)
 
 ## `protocol` — messages and challenges (12)
 
@@ -825,6 +826,18 @@ and is catalogued with that crate.
 | **`red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call`** | The refresh stage of §8 2c, which the honest test server cannot play: a tampered segment in the middle of one device's chain is refused by `put_segment`, the genuine prefix before it is kept, the rest of that chain dropped and the refusal reported -- not an error that ends the pull for every other device's chain. The strict `refresh` other callers use still errors. Sabotaged (the tolerated refusal turned off): red. |
 | `a_peer_that_already_held_our_data_has_earned_it` | The steady state of a host that has been storing for weeks: nothing to send, nothing to fetch, and still the most valuable peer this node knows. Requiring fresh transfer would demote every long-standing host to stranger the moment it caught up. |
 | `a_peer_that_accepted_our_data_has_earned_it` / `a_peer_that_served_us_our_own_work_has_earned_it` | The two ways a peer proves it is real: it stored something, or it gave us something of ours. |
+
+## `relay` — parks and splices (7)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_one_account_cannot_take_every_park_nor_push_out_the_relays_own`** | §8 0v. A relay's places are finite: one account's spare devices stop at `MAX_PARKED_PER_ACCOUNT`, hosted parks together stop at `MAX_PARKED_HOSTED`, and the relay's own account still parks after strangers filled theirs. |
+| **`red_team_a_caller_reaches_only_parks_of_its_own_pool_and_account`** | §8 0v, found by the red team on the diff: a splice joins a park only of the caller's own pool and account, so a hosted account cannot use the relay as an oracle on who else is online, nor use up another account's or the relay owner's parks. Sabotaged (class not compared): red. |
+| **`red_team_a_splice_reserved_for_a_park_that_died_gives_its_place_back`** | A splice reserved for a park whose machine went before taking the caller gives its place back; otherwise four such races closed the relay until restart. Sabotaged (no drain on drop): red. |
+| `strangers_holding_their_splices_do_not_starve_the_own_account` | Splices are counted per pool (`MAX_SPLICES_PER_POOL`): hosted callers holding theirs leave the own account's free. |
+| `a_dropped_park_frees_its_place_and_a_reparked_device_replaces_its_old_one` | A park ends when its ticket drops; a device parking again replaces its old park, and the stale ticket does not remove the fresh one. |
+| `the_shared_rate_holds_all_splices_together` | One byte rate is shared by every splice: four quarter-rate spends take at least 700 ms. |
+| `prefixed_gives_back_what_was_read_ahead_first` | Bytes read while recognising a request are handed back before the rest of the stream. |
 
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
@@ -896,6 +909,18 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_an_idle_due_walk_lists_nothing_and_keeps_the_records_fresh`** | §8 4c, the number the step exists for: a due walk listed the whole account per peer, 537 MB every 3.5 days at a terabyte. Against an agreeing real host, with every record aged and the walk due, it now asks about zero chunks, re-stamps every one, leaves every record fresh and stamps the walk. Sabotaged by listing everything on a due walk, and by skipping the re-stamp. |
 | **`red_team_a_host_that_lost_a_blob_behind_its_index_is_caught_by_the_next_due_walk`** | The downside §10 8 names, closed: a host's blob deleted behind its index, one pass of its disk check, and the owner's due walk lists the bucket that now differs, offers the chunk again and puts it back -- without listing the whole account. Sabotaged by the check keeping the row. |
 | **`red_team_a_peer_refused_on_push_cannot_be_hosted_by_being_pulled`** | Found by the redteam agent on §8 1c: the bound sat on `StoreChunk` and `StoreSegment`, and the hosting pull -- the peer naming owner and chunks, this node fetching them -- was checked against this node's pledge only. `host_for_bounded` asks the same bound before each chunk; against a bound that refuses, nothing is taken and the refusal is reported. Sabotaged by skipping it. |
+
+# `itsanas-net` — relay tests (4)
+
+A machine nobody can reach, over real sockets: R listens, B parks on R, A
+reaches B only through R. `tests/relay.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`a_machine_nobody_can_reach_syncs_through_a_relay`** | §8 0v. A full round from A reaches B through R, the session's peer is B (end to end), A holds B's file afterwards, and R kept nothing of what it carried. |
+| **`red_team_a_device_parked_on_the_relay_cannot_receive_another_devices_callers`** | Asking R for a device nobody parked as reaches nobody, with the refusal a stranger gets (`NOT_RELAYING`). |
+| **`red_team_a_relay_refuses_strangers_the_same_way_whether_or_not_the_target_is_parked`** | A caller outside the relay's account gets `NOT_RELAYING` even when the target is parked, so the refusal does not say who is parked. |
+| `a_relay_older_than_the_relay_protocol_is_never_asked_to_splice` | A relay below `PROTOCOL_WITH_RELAY` is refused client-side with `RELAY_TOO_OLD`; no splice request is sent. |
 
 # `itsanas-cli` — crash consistency (1, `#[ignore]`d)
 

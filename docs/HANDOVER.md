@@ -1960,8 +1960,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
       (its book) or an account whose claim R confirmed with the coordinator
       (`Owners::confirmed_account`); one refusal (`NOT_RELAYING`) whether the
       target is parked or not. Caps: 8 own parks, 8 hosted (2 per account),
-      4 splices, 1 MiB/s for all of them, 30 s idle, 300 s a splice; one
-      splice per park, B parks again. Transport generic over
+      2 splices per pool (own, hosted), 1 MiB/s for all of them, 30 s idle,
+      300 s a splice and for B's session over it; one splice per park, B
+      parks again. Red team on the diff: a reserved splice leaked when the
+      park died first (now `Waiting` gives it back), a hosted caller could
+      splice onto another account's or the owner's park (now same pool and
+      account only), the check and the handoff raced (now one `reserve`),
+      strangers could starve the own account's splices (now per pool): all
+      fixed. Open: a vanished parker is seen at the next keepalive (20 s). Transport generic over
       `itsanas_tls::Socket` (TCP or a session inside one). Rodin on the plan:
       no join token (splice onto the park), one shared rate, uniform
       refusals, per-account park cap, address `relay:<R id>` resolved from

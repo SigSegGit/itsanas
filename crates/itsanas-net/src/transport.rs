@@ -397,7 +397,7 @@ impl PeerServer {
         let class = service.relays_for(peer);
         match (request, class) {
             (Request::Park, Some(class)) => {
-                let Some((handed, _ticket)) = self.desk.park(peer, class) else {
+                let Some((waiting, _ticket)) = self.desk.park(peer, class) else {
                     connection.send(&Response::Refused(NOT_RELAYING.to_owned()))?;
                     return Ok(());
                 };
@@ -405,9 +405,9 @@ impl PeerServer {
                 let mut said = Instant::now();
                 loop {
                     // Woken every second so a stopping daemon lets its parks go.
-                    match handed.recv_timeout(Duration::from_secs(1)) {
+                    match waiting.handed.recv_timeout(Duration::from_secs(1)) {
                         Ok(handoff) => {
-                            let _splicing = self.desk.splicing();
+                            let _splicing = waiting.carrying();
                             connection.send(&Response::Incoming { from: handoff.from })?;
                             let (mut parked, parked_rest) = connection.into_parts();
                             let mut caller = handoff.stream;
@@ -434,17 +434,18 @@ impl PeerServer {
                     }
                 }
             }
-            (Request::Splice { to }, Some(_)) if to != peer && self.desk.can_hand(to) => {
+            (Request::Splice { to }, Some(class)) if to != peer => {
+                let Some(reserved) = self.desk.reserve(to, class) else {
+                    connection.send(&Response::Refused(NOT_RELAYING.to_owned()))?;
+                    return Ok(());
+                };
                 connection.send(&Response::Spliced)?;
                 let (stream, rest) = connection.into_parts();
-                let _ = self.desk.hand(
-                    to,
-                    crate::relay::Handoff {
-                        stream,
-                        rest,
-                        from: peer,
-                    },
-                );
+                reserved.hand(crate::relay::Handoff {
+                    stream,
+                    rest,
+                    from: peer,
+                });
                 Ok(())
             }
             _ => {
@@ -505,8 +506,13 @@ impl PeerServer {
             self.handshake_deadline,
             IO_TIMEOUT,
         )?;
+        // An ordinary session's budget: a caller, or the relay, trickling
+        // requests does not keep this machine from parking again.
+        let until = Instant::now() + PEER_SESSION_BUDGET;
         while let Some(request) = connection.receive::<Request>()? {
-            if !answer(&mut connection, &request, peer, true, service, shutdown)? {
+            if !answer(&mut connection, &request, peer, true, service, shutdown)?
+                || Instant::now() >= until
+            {
                 break;
             }
         }
