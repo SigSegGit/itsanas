@@ -982,7 +982,49 @@ pub fn address_now(config: &crate::config::Config, listen: &str) -> Option<Strin
             socket.connect(target).ok()?;
             socket.local_addr().ok()
         })
-        .map(|local| reachable_address(listen, local))
+        .map(|local| reachable_address(listen, prefer_global_ipv6(local, global_ipv6())))
+}
+
+/// This machine's global IPv6 address, if it has one: the local end of a UDP
+/// "connection" towards a public IPv6 address (no packet is sent).
+fn global_ipv6() -> Option<std::net::Ipv6Addr> {
+    let socket = std::net::UdpSocket::bind((std::net::Ipv6Addr::UNSPECIFIED, 0)).ok()?;
+    socket.connect(("2001:4860:4860::8888", 53)).ok()?;
+    match socket.local_addr().ok()?.ip() {
+        std::net::IpAddr::V6(v6) if is_global_ipv6(v6) => Some(v6),
+        _ => None,
+    }
+}
+
+/// Global unicast (`2000::/3`), not documentation (`2001:db8::/32`).
+fn is_global_ipv6(address: std::net::Ipv6Addr) -> bool {
+    let first = address.segments()[0];
+    (first & 0xe000) == 0x2000 && !(first == 0x2001 && address.segments()[1] == 0x0db8)
+}
+
+/// Which local address to announce when nothing better is known (no
+/// `announce`, no port opened by UPnP): a global IPv6 address over a private
+/// IPv4 one (HANDOVER §8 0u, first step). Behind a home NAT the IPv4 address
+/// is reachable from this LAN only, where peers find each other by beacon
+/// anyway; a global IPv6 address reaches this machine from any house with
+/// IPv6, with no forward, and the listener already takes both versions
+/// (`itsanas_tls::reach::listen_on`, not on Windows). A public IPv4 address
+/// (a server with no NAT) stays: everybody can dial it.
+#[must_use]
+pub fn prefer_global_ipv6(local: SocketAddr, global: Option<std::net::Ipv6Addr>) -> SocketAddr {
+    let private_v4 = match local.ip() {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64
+        }
+        std::net::IpAddr::V6(_) => false,
+    };
+    match global {
+        Some(v6) if private_v4 && cfg!(not(windows)) => SocketAddr::new(v6.into(), local.port()),
+        _ => local,
+    }
 }
 
 /// Ask the coordinator whether anybody outside can reach this machine.
@@ -1754,5 +1796,38 @@ mod tests {
             "a host would free an account on its coordinator's word alone, or one it never asked \
              about: a hostile coordinator could erase anybody's replicas"
         );
+    }
+
+    #[test]
+    fn red_team_a_home_node_announces_its_global_ipv6_not_its_private_ipv4() {
+        let v6: std::net::Ipv6Addr = "2a01:e0a:1:2::5".parse().unwrap();
+        let home: SocketAddr = "192.168.1.20:9797".parse().unwrap();
+        let server: SocketAddr = "203.0.113.7:9797".parse().unwrap();
+        let chosen = prefer_global_ipv6(home, Some(v6));
+        if cfg!(windows) {
+            assert_eq!(
+                chosen, home,
+                "Windows listens on IPv4 only: an IPv6 address it cannot answer"
+            );
+        } else {
+            assert_eq!(
+                chosen,
+                SocketAddr::new(v6.into(), 9797),
+                "a node behind a home NAT announced the address only its own LAN can dial, \
+                 though it has a global IPv6 one that needs no forward"
+            );
+        }
+        assert_eq!(
+            prefer_global_ipv6(server, Some(v6)),
+            server,
+            "a public IPv4 address, dialable by everybody, was replaced"
+        );
+        assert_eq!(prefer_global_ipv6(home, None), home);
+        for not_global in ["fe80::1", "fd00::1", "2001:db8::1", "::1"] {
+            assert!(
+                !is_global_ipv6(not_global.parse().unwrap()),
+                "{not_global} was taken for a global address and announced"
+            );
+        }
     }
 }

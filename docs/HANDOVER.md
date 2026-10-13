@@ -10,7 +10,7 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0u
-TITLE: reachable without forwards: hole punching (5b), after the fleet test of this session's work
+TITLE: reachable without forwards, next: NAT-PMP/PCP beside UPnP, then several signed addresses per device
 WRITTEN-AT: 2026-10-12
 BASE: 1bace7a
 -->
@@ -33,7 +33,7 @@ Found on my own diff: hosts first trusted the coordinator's word for a
 deletion; now the account's signature. Traps: CI's clippy is newer than the
 container's (`assert!(x.is_empty())` refused); a push to a non-designated
 branch left `step/pledge-per-disk` on the remote (the proxy refused its
-deletion; delete it by hand). Open: the tray colour ignores CANNOT KEEP;
+deletion; delete it by hand). Done after: the tray turns orange (`short`) on CANNOT KEEP.
 `clean.ps1 -PurgeFolder` never ran (no pwsh here); MCP waits for Nicolas.
 
 **2026-10-12, earlier: the tray's "Remove this machine..." (0w (7) closed).**
@@ -1923,6 +1923,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Mac from a signed release, then a second release reaching all of them
       by itself.
    u. **Reachable without port forwards: UPnP/NAT-PMP/PCP and IPv6.**
+      🟨 2026-10-13, first step, no wire change: with no `announce` and no
+      UPnP mapping, a node behind a home NAT announces its global IPv6
+      address instead of its private IPv4 (`coordinator::prefer_global_ipv6`,
+      red-team test sabotaged red; Linux and macOS, the dual-stack listener).
+      Next, in order: NAT-PMP/PCP beside UPnP (routers that speak no IGD);
+      then several signed addresses per device (`Presence.address` becomes a
+      signed list, appended last), so IPv4 and IPv6 are both offered; hole
+      punching (QUIC) only if the fleet shows those fall short. Windows over
+      IPv6 needs `SO_EXCLUSIVEADDRUSE` on a hand-built socket (`reach.rs`).
       Asked for by Nicolas on 2026-10-06 ("make the redirection unnecessary").
       A home node asks its box to open its port and announces what it got;
       a node with a global IPv6 address announces it too. Not planned in
