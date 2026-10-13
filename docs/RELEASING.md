@@ -42,6 +42,13 @@ node that does not take that release.
 
 ## Each version (Nicolas)
 
+Steps 2 to 4 are one command in Git Bash once step 1 is merged:
+`bash scripts/release.sh` (alias it: `alias itsanas-release='bash
+/d/GitHub/itsanas/scripts/release.sh'` in `~/.bashrc`). It updates `main`,
+tags the version `Cargo.toml` says, replaces a tag of that version left on
+another commit after asking, waits for the workflow, then runs
+`sign-release.ps1` on that tag.
+
 1. Bump `version` under `[workspace.package]` in `Cargo.toml`, merge.
 2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
 3. Wait for the **Release** workflow (about 20 minutes). It refuses a tag that
