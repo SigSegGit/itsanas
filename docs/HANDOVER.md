@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0u
-TITLE: reachable without forwards: measure on the fleet, then PCP or hole punching only if needed
-WRITTEN-AT: 2026-10-12
-BASE: 1bace7a
+NEXT: 8.0c
+TITLE: Nicolas tests v0.1.6 on the fleet by hand (reinstall, multi-account, relay, lists, vault, deletion)
+WRITTEN-AT: 2026-10-13
+BASE: b6eef5c
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,7 +20,19 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**2026-10-12, latest: one session, four PRs (Nicolas: "all of it here").**
+**2026-10-13, latest: 0s, 0u and 0v built; v0.1.6 for a hand test.**
+#264 vault on another disk (0s), #265 NAT-PMP and address lists (0u), #266
+relay net layer, #267 daemon parks and dials through relays, then this one:
+a host of another account as relay of last resort (`Contact::hosts_reached`,
+own machines first), `ANNOUNCE_LISTS` and `ANNOUNCE_RELAY` **on**, version
+0.1.6. Turned on because Nicolas reinstalls the whole fleet for the test: a
+machine older than 0.1.6 must not stay in it (it cannot dial a list or a
+`relay:` address). Rodin had the relay plan; the red team had each diff.
+Not verified anywhere real: a router's NAT-PMP, a relay across the
+internet, a NAS vault, deletion against the VM's coordinator. Next: the
+hand test (the protocol given in chat on 2026-10-13), then whatever fails.
+
+**2026-10-12: one session, four PRs (Nicolas: "all of it here").**
 (1) pledges per disk (#261): `itsanas-node` `pledges.rs`, `pledge.state` in
 each home and in `ITSANAS_PLEDGES_DIR` (Docker: `install/docker/pledges`),
 refusal naming the others, CANNOT KEEP in `status`, hosting stops at free
@@ -1987,10 +1999,22 @@ Detail and measurements are in ROADMAP.md; this is the map.
       stop waits up to `IO_TIMEOUT` for a quiet relay.
       Announcing `relay:<id>` is built but off (`ANNOUNCE_RELAY = false`,
       with `ANNOUNCE_LISTS`): a peer below protocol 9 cannot dial it.
-      **Next:** turn both on in the next release; choose a host of another
-      account when the account has no reachable machine (the relay side
-      already admits it, `Owners::confirmed_account`). Coordinator relay:
-      not built, only if measured.
+      **Third step, 2026-10-13:** a host of another account that stored for
+      this account or served it its work this round is a relay of last
+      resort, after every machine of the account (`Contact::hosts_reached`;
+      the relay admits it by `Owners::confirmed_account`, under the hosted
+      pool's caps). Announcing lists and `relay:` turned **on** in 0.1.6,
+      the release the fleet is reinstalled with. Red team with them on: a
+      hosted relay was in no caller's book (now `relay:<id>@<address>`,
+      the book's address preferred, the relay's key pinned either way), any
+      machine without `UPnP` parked even with a public address or a hand
+      forward (now only when nothing from outside ever arrived and the
+      direct address is private), hosts dropped at every quiet round (now
+      kept a day), one-shot commands dialled `relay:` as a socket (now
+      `connect_peer`), `relay:` counted public (now private). Open: the
+      IPv6 half of a list follows the system's temporary address, so a
+      machine may republish when it rotates. Coordinator relay: not
+      built, only if measured.
    s. ✅ **The vault on another disk (a NAS), the default unchanged.**
       Built 2026-10-13: `Config::vault`, `Node::vault_path`/`open_vault`
       (marker `.itsanas-vault` = device id; a configured vault missing,

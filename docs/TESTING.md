@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-12 — 1116 test functions across 34 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 281 are red-team tests.**
+**Last updated: 2026-10-12 — 1118 test functions across 34 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 283 are red-team tests.**
 
-**1000 of the 1116 tests have an entry of their own on this page** — an *entry*,
+**1002 of the 1118 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -156,7 +156,7 @@ guarantee and is not one.
 | `itsanas-crypto` unit | 66 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-wire` unit | 17 |
-| `itsanas-tls` unit | 20 |
+| `itsanas-tls` unit | 21 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 171 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
@@ -177,7 +177,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 128 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 127 |
+| `itsanas-node` unit | 128 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -1268,7 +1268,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (144)
+# `itsanas-node` — a node on disk (145)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1304,7 +1304,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (26)
+## `contact` — when the coordinator is dialled at all (27)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1314,7 +1314,8 @@ here reads a peer's clock or trusts the coordinator's order.
 
 | Test | What it proves |
 | --- | --- |
-| **`red_team_a_relayed_machine_is_dialled_at_the_relays_own_address_only`** | §8 0v. A `relay:<id>` presence is dialled through the relay at the relay's own address from the book; an announcer that names where to dial (`relay:<id>@host`) is not followed, an unknown relay is not dialled, and the relay chosen to park on is the first public, non-relay address. Sabotaged (private addresses allowed as relay): red. |
+| **`red_team_a_host_of_another_account_relays_only_after_the_accounts_own_machines`** | §8 0v. Hosts of other accounts the round reached and that proved themselves come after every machine of the account as relays, a host on a private address is never offered, and a quiet round does not drop a host (a day without proof does). Sabotaged (hosts first; hosts cleared every round): red. |
+| **`red_team_a_relay_the_account_knows_is_dialled_at_the_books_address`** | §8 0v. A `relay:<id>@<at>` presence is dialled through the relay at the book's address when the relay is a machine of the account, whatever address the presence carries; a host of another account, in no book, is dialled at the carried address with its key pinned; an unknown relay with no address is not dialled; the relay chosen to park on is the first public, non-relay address. Sabotaged (private addresses allowed as relay): red. |
 | **`a_machine_that_never_moves_dials_the_coordinator_once_an_hour`** | The number the step is justified by: 288 rounds of a Pi that never moves make 24 connections, 24 publications and 24 reads -- every read on a publication's connection, none on its own. |
 | **`red_team_a_machine_that_found_everybody_by_broadcast_still_publishes`** | The Rodin finding of 2026-09-21 against the first rule ("dial when the round reached nobody"): a Pi that found the VM by broadcast never published, and a laptop elsewhere could not find it. The rule is not given who was reached; publishing at start and hourly are each sabotaged and each turns this red. |
 | **`a_machine_that_changes_network_publishes_at_once`** | A laptop whose address changed publishes on the next round, not in an hour; an unchanged address inside the hour costs no connection; losing the route counts as a change. |
@@ -1927,13 +1928,14 @@ The five remaining tests cover `Connection`, the generic `Read + Write` wrapper:
 
 ---
 
-# `itsanas-tls` — device authentication and listener limits (25)
+# `itsanas-tls` — device authentication and listener limits (26)
 
-Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, six in
+Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
 `reach.rs`, five integration tests in `tests/handshake.rs`.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_relayed_address_is_never_counted_as_dialable`** | §8 0v: a `relay:<device>@<at>` presence counts as private -- it ranks after a direct address that works and `doctor` never counts it as dialable. Sabotaged (check off): red. |
 | **`red_team_an_address_list_is_capped_and_skips_what_does_not_parse`** | An announced address may list several, comma-separated (HANDOVER §8 0u); a dialler tries at most `MAX_LISTED` (4) of them, a bad entry does not hide a good one, an empty list is an error. Sabotaged (cap off): red. |
 | **`a_proof_from_one_session_is_worthless_in_another`** | The property the whole transport rests on. A man in the middle who terminates TLS has two sessions with two different exporters, so a captured proof cannot be relayed into the other one. If this test is ever weakened, authentication becomes replayable and nothing else in the crate catches it. |
 | **`the_payload_never_reaches_the_socket_in_plaintext`** | Records every byte actually written to the socket and scans it for a canary. Proves the encryption is on the wire, not merely configured. |
