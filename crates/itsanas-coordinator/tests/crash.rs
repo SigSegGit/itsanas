@@ -28,10 +28,13 @@ fn start(state: &std::path::Path) -> (Child, std::net::SocketAddr) {
         .stderr(Stdio::null())
         .spawn()
         .expect("start the coordinator");
-    let out = BufReader::new(child.stdout.take().expect("stdout"));
-    for line in out.lines() {
+    let mut out = BufReader::new(child.stdout.take().expect("stdout")).lines();
+    while let Some(line) = out.next() {
         let line = line.expect("read the coordinator's output");
         if let Some(address) = line.trim().strip_prefix("listening ") {
+            // Keep reading: with the pipe closed, the coordinator's next
+            // `println!` fails and it dies before serving (seen on Windows).
+            std::thread::spawn(move || out.for_each(drop));
             return (child, address.parse().expect("a socket address"));
         }
     }
