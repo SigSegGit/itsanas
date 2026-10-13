@@ -50,6 +50,10 @@ const DURABLE_EVERY_PUTS: u32 = 256;
 /// ...or this many bytes, whichever comes first: bounds the replay at open.
 const DURABLE_EVERY_BYTES: u64 = 64 << 20;
 
+/// No record is longer: a sealed chunk is at most 256 KiB, and the wire caps
+/// a frame at 8 MiB. A row claiming more is damaged, and is never allocated.
+const MAX_RECORD: u32 = 8 << 20;
+
 /// A pack is closed, and a new one started, past this size.
 pub const PACK_TARGET: u64 = 256 << 20;
 
@@ -185,10 +189,14 @@ impl Packs {
     fn place(&self, address: &ChunkId) -> Result<Option<Place>> {
         let txn = self.db.begin_read()?;
         let table = txn.open_table(CHUNKS)?;
-        table
+        let place = table
             .get(address.as_bytes().as_slice())?
             .map(|row| Place::decode(row.value()))
-            .transpose()
+            .transpose()?;
+        // A damaged row (an index that is not ours, a bit flipped): a length
+        // past any record or an offset before any header would allocate
+        // gigabytes, or underflow the seek. It reads as no record at all.
+        Ok(place.filter(|place| place.len <= MAX_RECORD && place.offset >= HEADER))
     }
 
     /// Whether `address` has a row whose record is there: its header read
@@ -242,7 +250,9 @@ impl Packs {
     /// Append `sealed` under `address`; `false` when already present.
     pub fn put(&self, address: &ChunkId, sealed: &[u8]) -> Result<bool> {
         let len = u32::try_from(sealed.len())
-            .map_err(|_| StoreError::Corrupt("a chunk too large for a pack record".to_owned()))?;
+            .ok()
+            .filter(|&len| len <= MAX_RECORD)
+            .ok_or_else(|| StoreError::Corrupt("a chunk too large for a pack record".to_owned()))?;
         let mut current = self
             .current
             .lock()
@@ -376,7 +386,7 @@ impl Packs {
                     .and_then(|_| file.read_exact(&mut header))
                     .map_err(|error| StoreError::io(path.clone(), error))?;
                 let len = u32::from_le_bytes(header[32..].try_into().unwrap_or_default());
-                if offset + HEADER + u64::from(len) > size {
+                if len > MAX_RECORD || offset + HEADER + u64::from(len) > size {
                     // Cut short by the crash: nothing follows it, and the
                     // next append goes after it.
                     offset = size;
@@ -887,6 +897,41 @@ mod tests {
             Some(&b"moved"[..])
         );
         assert!(!packs.pack_path(1).exists(), "the dead pack was kept");
+    }
+
+    #[test]
+    fn red_team_a_damaged_row_never_allocates_what_it_claims() {
+        // An index row claiming a 4 GiB record (or an offset before any
+        // header) is damage: allocating it took the node down, and the
+        // offset underflowed the seek.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packs = Packs::open(dir.path()).expect("open");
+        packs.put(&address(1), b"real").unwrap();
+        for bad in [
+            Place {
+                pack: 1,
+                offset: HEADER,
+                len: u32::MAX,
+            },
+            Place {
+                pack: 1,
+                offset: 3,
+                len: 4,
+            },
+        ] {
+            let txn = packs.db.begin_write().unwrap();
+            txn.open_table(CHUNKS)
+                .unwrap()
+                .insert(address(1).as_bytes().as_slice(), bad.encode().as_slice())
+                .unwrap();
+            txn.commit().unwrap();
+            assert_eq!(
+                packs.get(&address(1)).unwrap(),
+                None,
+                "a damaged row was read: {bad:?}"
+            );
+            assert!(!packs.contains(&address(1)));
+        }
     }
 
     #[test]
