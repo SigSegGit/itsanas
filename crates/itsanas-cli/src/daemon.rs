@@ -329,6 +329,9 @@ fn park_while_unreachable(
     // Relays that refused or closed the park, skipped until every one has.
     let mut failed: BTreeSet<DeviceId> = BTreeSet::new();
     while pause(PARK_PAUSE, shutdown) {
+        if !unreachable(node, server) {
+            continue;
+        }
         let me = node.store.device_id();
         let choices: Vec<_> = board
             .relays()
@@ -343,13 +346,13 @@ fn park_while_unreachable(
         };
         // Parked again after each caller, for as long as this machine is
         // still unreachable and the relay still the book's.
-        while coordinator::found_address().is_none()
+        while unreachable(node, server)
             && board
                 .relays()
                 .iter()
                 .any(|(d, a)| *d == relay && *a == address)
         {
-            coordinator::set_parked_on(Some(relay));
+            coordinator::set_parked_on(Some((relay, address.clone())));
             let parked = server.serve_parked(
                 itsanas_net::AddressList(&address),
                 relay,
@@ -357,15 +360,18 @@ fn park_while_unreachable(
                 &node.device,
                 shutdown,
             );
-            coordinator::set_parked_on(None);
+            // Kept set across re-parks, so the address announced does not
+            // flip at every caller; cleared once the park is given up.
             match parked {
                 Ok(true) if !shutdown.load(Ordering::Relaxed) => {}
                 Ok(true) => return,
                 Ok(false) => {
+                    coordinator::set_parked_on(None);
                     failed.insert(relay);
                     break;
                 }
                 Err(error) => {
+                    coordinator::set_parked_on(None);
                     failed.insert(relay);
                     let line = format!("itsanas: could not park on {address} ({error})");
                     if said.as_deref() != Some(&line) {
@@ -376,7 +382,25 @@ fn park_while_unreachable(
                 }
             }
         }
+        coordinator::set_parked_on(None);
     }
+}
+
+/// Whether nothing can dial this machine directly: no port the router
+/// opened, no caller from outside its network ever arrived, and the address
+/// it would publish is a private one. A machine with a public address, or a
+/// forward somebody made by hand, never parks: a relay is slower than a
+/// direct path, and an address replaced by `relay:` is one same-LAN
+/// machines would hairpin through.
+fn unreachable(node: &Node, server: &PeerServer) -> bool {
+    let listen = server
+        .local_addr()
+        .map(|bound| bound.to_string())
+        .unwrap_or_default();
+    coordinator::found_address().is_none()
+        && server.witness().from_outside() == 0
+        && coordinator::direct_address(&node.config, &listen)
+            .is_none_or(|address| itsanas_node::coordinator::is_private_address(&address))
 }
 
 /// Sleep `length`, a second at a time; `false` once stopping.
@@ -1149,7 +1173,10 @@ fn one_round(
     // wanted even if they are also on the local network — and being in
     // the configuration is itself the evidence that they are real, so
     // they are confirmed on contact without having to earn it.
-    let mut reached = dial_configured(node, shutdown, neighbourhood, scope);
+    // Hosts of other accounts that proved themselves this round, at the
+    // address that reached them: relays of last resort (§8 0v).
+    let mut hosts = Vec::new();
+    let mut reached = dial_configured(node, shutdown, neighbourhood, scope, &mut hosts);
 
     // The account's devices at the addresses the coordinator last gave, the
     // one that last worked first. Pinned: the coordinator supplies addresses
@@ -1205,9 +1232,11 @@ fn one_round(
             // earns a place a stranger cannot take.
             if outcome.earned_trust {
                 neighbourhood.confirm(outcome.device);
+                hosts.push((outcome.device, candidate.address.to_string()));
             }
         }
     }
+    contact.hosts_reached(hosts, Instant::now());
 
     (reached, announced)
 }
@@ -1338,6 +1367,7 @@ fn dial_configured(
     shutdown: &AtomicBool,
     neighbourhood: &Neighbourhood,
     scope: PolicyScope,
+    hosts: &mut Vec<(DeviceId, String)>,
 ) -> BTreeSet<DeviceId> {
     let mut reached = BTreeSet::new();
     let mut configured = node.config.peers.clone();
@@ -1347,6 +1377,9 @@ fn dial_configured(
             break;
         }
         if let Some(outcome) = sync_once(node, peer, None, None, true, false, scope) {
+            if outcome.earned_trust {
+                hosts.push((outcome.device, peer.clone()));
+            }
             neighbourhood.confirm(outcome.device);
             reached.insert(outcome.device);
         }

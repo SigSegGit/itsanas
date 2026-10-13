@@ -199,7 +199,17 @@ pub struct Contact {
     book: BTreeMap<DeviceId, Vec<Candidate>>,
     /// Whether anything worth writing changed since the last [`Self::save`].
     changed: bool,
+    /// Hosts of other accounts the last round reached and that stored for
+    /// this account or served it its own work, at the address that worked:
+    /// relays when no machine of the account can be reached (§8 0v). Not
+    /// kept on disk: a round finds them again.
+    hosts: Vec<(DeviceId, String, Instant)>,
 }
+
+/// How long a host found by [`Contact::hosts_reached`] stays a relay
+/// choice: a round that pushes nothing does not prove a host, and a relay
+/// that dropped out of the list at every quiet round would flap the park.
+pub const HOST_RELAY_FOR: Duration = Duration::from_secs(24 * 3600);
 
 impl Contact {
     /// A node that has published nothing and knows nobody.
@@ -571,25 +581,56 @@ impl Contact {
     /// Every machine [`Self::relay_choice`] could pick, best first: a
     /// first choice that refuses does not leave this node unreachable while
     /// another would take the park.
+    ///
+    /// The account's own machines first; then hosts of other accounts the
+    /// last round reached ([`Self::hosts_reached`]), which relay for an
+    /// account whose claim they confirmed, under a lower cap.
     #[must_use]
     pub fn relay_choices(&self) -> Vec<(DeviceId, String)> {
-        self.candidates()
-            .into_iter()
-            .filter(|(_, address)| {
-                !address.starts_with(RELAY_PREFIX) && !is_private_address(address)
-            })
-            .collect()
+        let mut choices: Vec<_> = self.candidates();
+        for (device, address, _) in &self.hosts {
+            if !choices.iter().any(|(known, _)| known == device) {
+                choices.push((*device, address.clone()));
+            }
+        }
+        choices.retain(|(_, address)| {
+            !address.starts_with(RELAY_PREFIX) && !is_private_address(address)
+        });
+        choices
     }
 
-    /// The relay behind an address `relay:<device>`, and where to dial it:
-    /// its own address from this book, never one the announcing machine
-    /// gave, so a stale or forged presence cannot send the caller elsewhere.
+    /// The hosts of other accounts this round reached and that proved
+    /// themselves, at `now`; kept [`HOST_RELAY_FOR`] after they last did.
+    pub fn hosts_reached(&mut self, hosts: Vec<(DeviceId, String)>, now: Instant) {
+        for (device, address) in hosts {
+            self.hosts.retain(|(known, _, _)| *known != device);
+            self.hosts.push((device, address, now));
+        }
+        self.hosts
+            .retain(|(_, _, seen)| now.saturating_duration_since(*seen) < HOST_RELAY_FOR);
+    }
+
+    /// The relay behind an address `relay:<device>@<address>`, and where to
+    /// dial it: its own address from this book when the relay is a machine
+    /// of the account, else the one carried in the address -- a host of
+    /// another account is in no book here. Either way the relay's key is
+    /// pinned on the dial (`connect_relayed`), so an address that leads
+    /// elsewhere reaches nobody.
     #[must_use]
     pub fn through(&self, address: &str) -> Option<(DeviceId, String)> {
-        let relay: DeviceId = address.strip_prefix(RELAY_PREFIX)?.parse().ok()?;
+        let rest = address.strip_prefix(RELAY_PREFIX)?;
+        let (id, carried) = rest
+            .split_once('@')
+            .map_or((rest, None), |(id, at)| (id, Some(at)));
+        let relay: DeviceId = id.parse().ok()?;
         self.candidates()
             .into_iter()
             .find(|(device, address)| *device == relay && !address.starts_with(RELAY_PREFIX))
+            .or_else(|| {
+                carried
+                    .filter(|at| !at.is_empty() && !at.starts_with(RELAY_PREFIX))
+                    .map(|at| (relay, at.to_owned()))
+            })
     }
 
     /// What this node may hand a peer of its account: every address it holds
@@ -832,11 +873,11 @@ mod tests {
     }
 
     #[test]
-    fn red_team_a_relayed_machine_is_dialled_at_the_relays_own_address_only() {
+    fn red_team_a_relay_the_account_knows_is_dialled_at_the_books_address() {
         let mut contact = Contact::new();
         let relay = device(3);
         let listed = vec![
-            (device(2), format!("{RELAY_PREFIX}{relay}")),
+            (device(2), format!("{RELAY_PREFIX}{relay}@203.0.113.5:9797")),
             (relay, "203.0.113.5:9797".to_owned()),
             (device(1), "192.168.1.4:9797".to_owned()),
             (
@@ -851,18 +892,67 @@ mod tests {
         );
         assert_eq!(
             contact.through(&format!("{RELAY_PREFIX}{relay}@198.51.100.9:9797")),
-            None,
-            "an announcer named where to dial its relay: a presence must not steer \
-             the caller to an address the relay never gave"
+            Some((relay, "203.0.113.5:9797".to_owned())),
+            "the address carried in a presence won over the book's for a relay of \
+             the account"
         );
         assert_eq!(
             contact.through(&format!("{RELAY_PREFIX}{}", device(9))),
             None
         );
+        // A host of another account is in no book: the carried address is
+        // all there is, and the relay's key is pinned on the dial.
+        assert_eq!(
+            contact.through(&format!("{RELAY_PREFIX}{}@198.51.100.9:9797", device(9))),
+            Some((device(9), "198.51.100.9:9797".to_owned()))
+        );
         assert_eq!(
             contact.relay_choice(),
             Some((relay, "203.0.113.5:9797".to_owned())),
             "a machine parked on a private address, or on another relay"
+        );
+    }
+
+    #[test]
+    fn red_team_a_host_of_another_account_relays_only_after_the_accounts_own_machines() {
+        let mut contact = Contact::new();
+        let own = device(3);
+        let host = device(1);
+        contact.read(
+            &[(own, "203.0.113.5:9797".to_owned())],
+            &[],
+            &[],
+            Instant::now(),
+        );
+        let now = Instant::now();
+        contact.hosts_reached(
+            vec![
+                (host, "198.51.100.7:9797".to_owned()),
+                (device(2), "192.168.1.2:9797".to_owned()),
+            ],
+            now,
+        );
+        assert_eq!(
+            contact.relay_choices(),
+            vec![
+                (own, "203.0.113.5:9797".to_owned()),
+                (host, "198.51.100.7:9797".to_owned())
+            ],
+            "a stranger's host was put before the account's own machine, or a host \
+             on a private address was offered as a relay"
+        );
+        // A quiet round proves nothing either way: the host stays.
+        contact.hosts_reached(Vec::new(), now + Duration::from_secs(300));
+        assert_eq!(
+            contact.relay_choices().len(),
+            2,
+            "a round that pushed nothing dropped the relay: the park would flap"
+        );
+        contact.hosts_reached(Vec::new(), now + HOST_RELAY_FOR);
+        assert_eq!(
+            contact.relay_choices().len(),
+            1,
+            "a host unseen for a day stayed"
         );
     }
 

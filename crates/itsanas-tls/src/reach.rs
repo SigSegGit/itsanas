@@ -48,6 +48,12 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 /// for and what this function trusts.
 #[must_use]
 pub fn is_private_address(address: &str) -> bool {
+    // A machine parked on a relay (`relay:<device>`, §8 0v) is not dialable
+    // from anywhere: it ranks after every direct address and counts as
+    // nothing `doctor` could dial.
+    if address.starts_with("relay:") {
+        return true;
+    }
     // A list (`AddressList`) is private if any entry is: the coordinator's
     // probe refuses it whole, and a dialler ranks it after the public ones.
     address
@@ -255,6 +261,17 @@ pub fn connect_within(addresses: &[SocketAddr], timeout: Duration) -> io::Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn red_team_a_relayed_address_is_never_counted_as_dialable() {
+        // §8 0v: `relay:<device>@<at>` reaches a machine only through its
+        // relay; counted public, it sorted before a LAN address that works
+        // and `doctor` counted it as a machine anybody could dial.
+        assert!(is_private_address(
+            "relay:0101010101010101010101010101010101010101010101010101010101010101@203.0.113.5:9797"
+        ));
+        assert!(!is_private_address("203.0.113.5:9797"));
+    }
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, TcpListener as StdListener};
 
     /// Whether this machine can use IPv6 at all, asked by doing it.

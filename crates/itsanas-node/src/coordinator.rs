@@ -378,26 +378,29 @@ pub fn found_address() -> Option<String> {
 
 /// The relay this process is parked on (§8 0v), set by the daemon's parking
 /// thread while the park holds.
-static PARKED_ON: std::sync::Mutex<Option<DeviceId>> = std::sync::Mutex::new(None);
+static PARKED_ON: std::sync::Mutex<Option<(DeviceId, String)>> = std::sync::Mutex::new(None);
 
-/// Say which relay this process is parked on, or that it is not.
-pub fn set_parked_on(relay: Option<DeviceId>) {
+/// Say which relay this process is parked on, and at what address, or that
+/// it is not.
+pub fn set_parked_on(relay: Option<(DeviceId, String)>) {
     *PARKED_ON
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = relay;
 }
 
-fn parked_on() -> Option<DeviceId> {
-    *PARKED_ON
+fn parked_on() -> Option<(DeviceId, String)> {
+    PARKED_ON
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
 }
 
-/// Whether this build announces `relay:<device>` while parked. Off for the
-/// reason [`ANNOUNCE_LISTS`] is: a peer older than protocol 9 cannot dial it,
-/// and an address it cannot parse is an address it loses. The park itself
-/// runs; turn this on with lists, once the fleet runs this release.
-pub const ANNOUNCE_RELAY: bool = false;
+/// Whether this build announces `relay:<device>` while parked. On, with
+/// [`ANNOUNCE_LISTS`], from the release the whole fleet is reinstalled with
+/// for its test (Nicolas, 2026-10-13): a peer older than protocol 9 cannot
+/// dial it, and an address it cannot parse is an address it loses -- so no
+/// machine older than this release belongs in that fleet.
+pub const ANNOUNCE_RELAY: bool = true;
 
 /// Publish where this device can be reached, and return what was published.
 ///
@@ -986,8 +989,21 @@ pub fn address_now(config: &crate::config::Config, listen: &str) -> Option<Strin
     if let Some(announce) = config.announce.clone() {
         return Some(announce);
     }
-    if let Some(relay) = parked_on().filter(|_| ANNOUNCE_RELAY && found_address().is_none()) {
-        return Some(format!("{}{relay}", crate::contact::RELAY_PREFIX));
+    if let Some((relay, at)) = parked_on().filter(|_| ANNOUNCE_RELAY && found_address().is_none()) {
+        // The relay's address rides along for a caller that does not know
+        // it (a host of another account); the relay's key is pinned on the
+        // dial, so a wrong address reaches nobody else.
+        return Some(format!("{}{relay}@{at}", crate::contact::RELAY_PREFIX));
+    }
+    direct_address(config, listen)
+}
+
+/// [`address_now`] as if this machine were parked nowhere: where it can be
+/// dialled directly, which is what decides whether it needs a relay at all.
+#[must_use]
+pub fn direct_address(config: &crate::config::Config, listen: &str) -> Option<String> {
+    if let Some(announce) = config.announce.clone() {
+        return Some(announce);
     }
     if let Some(found) = found_address() {
         if ANNOUNCE_LISTS {
@@ -1018,13 +1034,13 @@ pub fn address_now(config: &crate::config::Config, listen: &str) -> Option<Strin
         .map(|local| reachable_address(listen, prefer_global_ipv6(local, global_ipv6())))
 }
 
-/// Whether this build announces a list of addresses. Every build from this
-/// one *dials* a list (`itsanas_tls::reach::AddressList`); announcing one
-/// waits for the release after, because a peer older than this one cannot
-/// dial `"v4,[v6]"` and would lose the IPv4 route it has today -- and
-/// `updates = notify`, the default, means the fleet does not update by
-/// itself (Rodin, 2026-10-13). Turn on once every member runs this release.
-pub const ANNOUNCE_LISTS: bool = false;
+/// Whether this build announces a list of addresses. Every build since
+/// 0u *dials* a list (`itsanas_tls::reach::AddressList`); announcing one
+/// waited, because a peer older than that cannot dial `"v4,[v6]"` and would
+/// lose the IPv4 route it has today, and `updates = notify`, the default,
+/// means the fleet does not update by itself (Rodin, 2026-10-13). On from the
+/// release the whole fleet is reinstalled with (Nicolas, 2026-10-13).
+pub const ANNOUNCE_LISTS: bool = true;
 
 /// The address the router opened (`UPnP`, NAT-PMP), then this machine's global
 /// IPv6 address on the listening port, as one list (HANDOVER §8 0u): a peer

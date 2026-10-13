@@ -2440,12 +2440,8 @@ fn fetch_absent(node: &Node, path: &str) -> Result<Vec<u8>> {
     }
 
     for target in &node.config.peers {
-        let Ok(mut client) = PeerClient::connect(
-            itsanas_net::AddressList(target.as_str()),
-            &node.device,
-            node.store.owner(),
-            None,
-        ) else {
+        let Ok(mut client) = connect_peer(target.as_str(), &node.device, node.store.owner(), None)
+        else {
             continue;
         };
 
@@ -3112,12 +3108,7 @@ fn leave(home: &Path, drain_for: u64) -> Result<()> {
         if expect.is_some_and(|device| told.contains(&device)) {
             continue;
         }
-        let mut client = match PeerClient::connect(
-            itsanas_net::AddressList(address),
-            &node.device,
-            node.store.owner(),
-            *expect,
-        ) {
+        let mut client = match connect_peer(address, &node.device, node.store.owner(), *expect) {
             Ok(client) => client,
             Err(error) => {
                 println!("{address}: not told, unreachable ({error})");
@@ -3200,13 +3191,8 @@ fn drain(node: &Node, targets: &[(Option<DeviceId>, String)], minutes: u64) {
             if left.is_zero() {
                 break;
             }
-            let asked = match PeerClient::connect(
-                itsanas_net::AddressList(address),
-                &node.device,
-                node.store.owner(),
-                *expect,
-            )
-            .and_then(|mut client| client.draining(left.as_secs() + 60))
+            let asked = match connect_peer(address, &node.device, node.store.owner(), *expect)
+                .and_then(|mut client| client.draining(left.as_secs() + 60))
             {
                 Ok(Some(chunks)) => Asked::Exposed(chunks),
                 Ok(None) => Asked::TooOld,
@@ -3923,20 +3909,16 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
         print!("{target}: ");
         let _ = std::io::stdout().flush();
 
-        let mut client = match PeerClient::connect(
-            itsanas_net::AddressList(target.as_str()),
-            &node.device,
-            node.store.owner(),
-            *pinned,
-        ) {
-            Ok(client) => client,
-            Err(error) => {
-                // One unreachable peer must not abort the others: the whole
-                // point is that peers come and go.
-                println!("unreachable ({error})");
-                continue;
-            }
-        };
+        let mut client =
+            match connect_peer(target.as_str(), &node.device, node.store.owner(), *pinned) {
+                Ok(client) => client,
+                Err(error) => {
+                    // One unreachable peer must not abort the others: the whole
+                    // point is that peers come and go.
+                    println!("unreachable ({error})");
+                    continue;
+                }
+            };
         daemon::present_claim(&node, target, &mut client);
 
         // The same path the daemon takes, including the choice of what a
@@ -4357,6 +4339,32 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Dial `address`, or, for a machine parked on a relay (`relay:<id>@<at>`,
+/// §8 0v), dial it through that relay with `expect` pinned: what the
+/// one-shot commands share with the daemon's dialler.
+fn connect_peer(
+    address: &str,
+    device: &itsanas_crypto::DeviceKeys,
+    owner: itsanas_crypto::UserId,
+    expect: Option<DeviceId>,
+) -> itsanas_net::Result<PeerClient> {
+    let relayed = address
+        .strip_prefix(itsanas_node::contact::RELAY_PREFIX)
+        .and_then(|rest| rest.split_once('@'))
+        .and_then(|(id, at)| Some((id.parse::<DeviceId>().ok()?, at)));
+    match (relayed, expect) {
+        (Some((relay, at)), Some(target)) => PeerClient::connect_relayed(
+            itsanas_net::AddressList(at),
+            relay,
+            target,
+            device,
+            owner,
+            None,
+        ),
+        _ => PeerClient::connect(itsanas_net::AddressList(address), device, owner, expect),
+    }
 }
 
 #[cfg(test)]
