@@ -126,8 +126,12 @@ if (-not $tagExists) {
 Say "Waiting for the Release workflow on $tag (about 20 minutes)"
 $run = ''
 for ($i = 0; $i -lt 60 -and -not $run; $i++) {
-    $run = gh run list -R $Repo --workflow release.yml --branch $tag --limit 5 --json databaseId,createdAt `
-        -q "[.[] | select(.createdAt >= `"$pushedAt`")][0].databaseId // empty"
+    # Filtered here, not with gh's -q: Windows PowerShell 5 strips the double
+    # quotes inside a native command's argument, so a jq string literal
+    # (the date) arrived unquoted and jq refused it.
+    $runs = gh run list -R $Repo --workflow release.yml --branch $tag --limit 5 --json databaseId,createdAt | ConvertFrom-Json
+    $run = @($runs | Where-Object { -not $pushedAt -or ([datetime]$_.createdAt).ToUniversalTime() -ge [datetime]::Parse($pushedAt).ToUniversalTime() } |
+        Select-Object -First 1 | ForEach-Object { $_.databaseId })[0]
     if (-not $run) { Start-Sleep -Seconds 5 }
 }
 if (-not $run) { Stop-Plain "no Release run started for $tag after 5 minutes: https://github.com/$Repo/actions" }
