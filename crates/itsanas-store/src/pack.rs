@@ -421,6 +421,23 @@ impl Packs {
         Ok(())
     }
 
+    /// Make every row durable now, and move the mark to the end: what a
+    /// conversion does before the rename that switches a store to packs.
+    pub fn flush(&self) -> Result<()> {
+        let current = self
+            .current
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let txn = self.db.begin_write()?;
+        Self::write_mark(&txn, current.0, current.1)?;
+        txn.commit()?;
+        *self
+            .pending
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = (0, 0);
+        Ok(())
+    }
+
     /// Read the sealed bytes stored under `address`.
     ///
     /// A record that is not there to read -- cut short, or naming another

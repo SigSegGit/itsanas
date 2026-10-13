@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-13 — 1143 test functions across 36 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 305 are red-team tests.**
+**Last updated: 2026-10-13 — 1144 test functions across 36 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 306 are red-team tests.**
 
-**1027 of the 1143 tests have an entry of their own on this page** — an *entry*,
+**1028 of the 1144 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -160,7 +160,7 @@ guarantee and is not one.
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 181 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
-| `itsanas-store` packs (`tests/packs.rs`) | 1 |
+| `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
 | `itsanas-net` unit | 54 |
@@ -631,11 +631,12 @@ with `scripts/sabotage.py`: each defence below turned its test red.
 
 ---
 
-# `itsanas-store` — a whole store in packs (`tests/packs.rs`) (1)
+# `itsanas-store` — a whole store in packs (`tests/packs.rs`) (2)
 
 | Test | What it proves |
 | --- | --- |
 | `a_store_in_packs_writes_reads_checks_collects_and_reopens_with_no_file_per_chunk` | Through the real `Store`: write, remove, garbage-collect, deep integrity check and reopen all work on a store created in packs, and no blob file is written. |
+| `red_team_a_store_converted_to_packs_keeps_every_file_and_survives_a_crash_at_each_step` | A store in blob files converted by `BlobStore::convert_to_packs`: a half-made staging directory never switches the layout, the converted store reopens in packs with every file, and blob files left by a crash after the rename are cleared by the next call. Sabotage: skipping the copy turns it red. |
 
 ---
 

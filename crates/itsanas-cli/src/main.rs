@@ -577,6 +577,12 @@ enum Command {
         #[arg(long)]
         quick: bool,
     },
+    /// Move this node's chunks from one file each into pack files
+    /// (experimental: ROADMAP M10).
+    ///
+    /// Run with the daemon stopped. Safe to stop at any point: until the
+    /// last step the store stays as it was, and running it again finishes.
+    ConvertPacks,
     /// Reclaim space from files that were deleted or overwritten.
     Gc {
         /// How long a chunk must have been unreferenced, in seconds.
@@ -834,6 +840,7 @@ fn run() -> Result<()> {
         Command::Doctor { deep } => doctor(&home, deep),
         Command::Update { check } => update::command(&home, cli.instance.as_deref(), check),
         Command::Bench { size, quick } => bench::run(parse_size(&size)?, quick),
+        Command::ConvertPacks => convert_packs(&home),
         Command::Gc { grace } => gc(&home, grace),
     }
 }
@@ -4318,6 +4325,30 @@ fn doctor(home: &Path, deep: bool) -> Result<()> {
     Err(CliError::Usage(
         "integrity problems found (see above)".to_owned(),
     ))
+}
+
+fn convert_packs(home: &Path) -> Result<()> {
+    let store = itsanas_node::node::Node::store_path(home);
+    if itsanas_store::Store::is_locked(&store) {
+        return Err(CliError::Usage(
+            "the daemon holds this node: stop it, then run convert-packs again".to_owned(),
+        ));
+    }
+    let config = itsanas_node::config::Config::load(&itsanas_node::node::Node::config_path(home))?;
+    let mut roots = vec![store];
+    let owners = itsanas_node::node::Node::vault_path(home, &config).join("owners");
+    if let Ok(entries) = std::fs::read_dir(&owners) {
+        roots.extend(entries.filter_map(|entry| entry.ok().map(|e| e.path())));
+    }
+    let mut moved = 0u64;
+    for root in &roots {
+        moved += itsanas_store::BlobStore::convert_to_packs(root)?;
+    }
+    println!(
+        "{moved} chunks moved into pack files, across {} stores (this machine's and the ones it hosts)",
+        roots.len()
+    );
+    Ok(())
 }
 
 fn gc(home: &Path, grace: u64) -> Result<()> {
