@@ -129,7 +129,9 @@ fn a_machine_nobody_can_reach_syncs_through_a_relay() {
     let r = node(10);
     let b = node(11);
     let a = node(12);
-    b.store.write_file("from-b.txt", b"behind a closed router").unwrap();
+    b.store
+        .write_file("from-b.txt", b"behind a closed router")
+        .unwrap();
     b.store.flush_segment().unwrap();
 
     with_relay(&r, None, itsanas_net::PROTOCOL_VERSION, &b, |address| {
