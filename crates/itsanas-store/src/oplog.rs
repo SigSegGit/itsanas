@@ -589,6 +589,44 @@ mod tests {
     }
 
     #[test]
+    fn red_team_a_body_moved_under_a_new_segment_id_does_not_open() {
+        // The signature binds the segment id, but whoever signs can sign
+        // anything: a device key taken from a machine re-signs a genuine
+        // sealed body under a fresh id, to replay one edit as a second one.
+        // Only the seal itself can refuse that, because it was made for the
+        // original id and no other.
+        let keys = user(10);
+        let dev = device(10);
+        let mut envelope = SegmentEnvelope::create(
+            keys.oplog_root(),
+            keys.user_id(),
+            &dev,
+            None,
+            vec![entry(1, "a")],
+        )
+        .unwrap();
+
+        envelope.segment_id = random_object_id().unwrap();
+        let payload = SegmentEnvelope::signing_payload(
+            envelope.segment_id,
+            envelope.owner,
+            envelope.device,
+            envelope.first_sequence,
+            envelope.last_sequence,
+            envelope.previous,
+            &envelope.sealed_body,
+        );
+        envelope.signature = dev.sign(SEGMENT_SIGNING_DOMAIN, &payload);
+        envelope.verify_signature().expect("re-signed correctly");
+
+        assert!(
+            envelope.open(keys.oplog_root()).is_err(),
+            "a sealed body moved under another segment id opened: one edit \
+             can be replayed as many, each under an id of the replayer's choosing"
+        );
+    }
+
+    #[test]
     fn an_empty_segment_is_refused() {
         let keys = user(9);
         let dev = device(9);

@@ -2008,6 +2008,63 @@ fn a_round_that_deferred_nothing_does_not_replay_the_chain_next_time() {
     assert!(phone.store.read_file("doc.txt").expect("read").is_some());
 }
 
+#[test]
+fn red_team_a_file_refused_for_room_is_fetched_once_room_is_made() {
+    // A device short of disk defers the file rather than fill space its
+    // pledge owes other people. The applied markers must stay where they
+    // were: advanced past the deferred file, they would tell every later
+    // round that the chain has nothing left to apply, and the file would
+    // never arrive, even after the owner frees the space. The engine and
+    // the node halves are tested apart; this drives both through the wire.
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+
+    let content = a_file_of_many_chunks(4, 300_000);
+    laptop.store.write_file("big.bin", &content).expect("write");
+    laptop.store.flush_segment().expect("flush");
+
+    let ceiling = |bytes: Option<u64>| {
+        phone
+            .store
+            .set_write_budget(Some(itsanas_store::WriteBudget {
+                allowed: u64::MAX,
+                elsewhere: 0,
+                local_ceiling: bytes,
+                folder_copy: itsanas_store::FolderCopy::None,
+            }))
+            .expect("budget");
+    };
+    let pull = || {
+        with_server(&laptop, Pledge { bytes: 1 << 30 }, |address| {
+            let mut client = PeerClient::connect(address, &phone.device, phone.store.owner(), None)
+                .expect("dial");
+            session::pull(&phone.store, &phone.vault, &mut client).expect("pull")
+        })
+    };
+
+    ceiling(Some(10_000));
+    let report = pull();
+    assert!(
+        report.deferred > 0,
+        "a file past the disk ceiling was not deferred: {report:?}"
+    );
+    assert!(phone.store.read_file("big.bin").expect("read").is_none());
+    assert!(
+        phone.store.has_unapplied(&phone.vault).expect("check"),
+        "the round that deferred a file marked its chain applied"
+    );
+
+    ceiling(None);
+    let report = pull();
+    assert_eq!(report.deferred, 0, "{report:?}");
+    assert_eq!(
+        phone.store.read_file("big.bin").expect("read").as_deref(),
+        Some(&content[..]),
+        "room was made and the deferred file still never arrived"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Auditing: making a host prove it still has what it said it had
 // ---------------------------------------------------------------------------

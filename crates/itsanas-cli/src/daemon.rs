@@ -325,15 +325,82 @@ fn park_while_unreachable(
     {
         return;
     }
+    let site = Parking {
+        node,
+        server,
+        service,
+        board,
+        shutdown,
+    };
+    park_loop(&site, node.store.device_id(), shutdown, || {
+        pause(PARK_PAUSE, shutdown)
+    });
+}
+
+/// What the parking loop needs from the world, so its decisions can be
+/// driven by a test without a socket, a coordinator or a minute per look.
+trait ParkSite {
+    /// Whether nothing can dial this machine directly ([`fn@unreachable`]).
+    fn unreachable(&self) -> bool;
+    /// The relays the book knows, best first.
+    fn relays(&self) -> Vec<(DeviceId, String)>;
+    /// Park on `relay` until it hands over a caller (`Ok(true)`), goes quiet
+    /// or closes the park (`Ok(false)`), or refuses it (`Err`).
+    fn park(&self, relay: DeviceId, address: &str) -> itsanas_net::Result<bool>;
+    /// The relay this machine announces itself behind, if any.
+    fn announce(&self, relay: Option<(DeviceId, String)>);
+}
+
+/// The daemon's [`ParkSite`]: its listener, its book, the coordinator's
+/// announcement.
+struct Parking<'a> {
+    node: &'a Node,
+    server: &'a PeerServer,
+    service: &'a itsanas_net::PeerService<'a>,
+    board: &'a SharedBoard,
+    shutdown: &'a AtomicBool,
+}
+
+impl ParkSite for Parking<'_> {
+    fn unreachable(&self) -> bool {
+        unreachable(self.node, self.server)
+    }
+
+    fn relays(&self) -> Vec<(DeviceId, String)> {
+        self.board.relays()
+    }
+
+    fn park(&self, relay: DeviceId, address: &str) -> itsanas_net::Result<bool> {
+        self.server.serve_parked(
+            itsanas_net::AddressList(address),
+            relay,
+            self.service,
+            &self.node.device,
+            self.shutdown,
+        )
+    }
+
+    fn announce(&self, relay: Option<(DeviceId, String)>) {
+        coordinator::set_parked_on(relay);
+    }
+}
+
+/// The parking loop: one look per `wait()` (which says `false` once
+/// stopping), parked for as long as this machine is unreachable.
+fn park_loop(
+    site: &impl ParkSite,
+    me: DeviceId,
+    shutdown: &AtomicBool,
+    mut wait: impl FnMut() -> bool,
+) {
     let mut said: Option<String> = None;
     // Relays that refused or closed the park, skipped until every one has.
     let mut failed: BTreeSet<DeviceId> = BTreeSet::new();
-    while pause(PARK_PAUSE, shutdown) {
-        if !unreachable(node, server) {
+    while wait() {
+        if !site.unreachable() {
             continue;
         }
-        let me = node.store.device_id();
-        let choices: Vec<_> = board
+        let choices: Vec<_> = site
             .relays()
             .into_iter()
             .filter(|(d, _)| *d != me)
@@ -346,32 +413,25 @@ fn park_while_unreachable(
         };
         // Parked again after each caller, for as long as this machine is
         // still unreachable and the relay still the book's.
-        while unreachable(node, server)
-            && board
+        while site.unreachable()
+            && site
                 .relays()
                 .iter()
                 .any(|(d, a)| *d == relay && *a == address)
         {
-            coordinator::set_parked_on(Some((relay, address.clone())));
-            let parked = server.serve_parked(
-                itsanas_net::AddressList(&address),
-                relay,
-                service,
-                &node.device,
-                shutdown,
-            );
             // Kept set across re-parks, so the address announced does not
             // flip at every caller; cleared once the park is given up.
-            match parked {
+            site.announce(Some((relay, address.clone())));
+            match site.park(relay, &address) {
                 Ok(true) if !shutdown.load(Ordering::Relaxed) => {}
                 Ok(true) => return,
                 Ok(false) => {
-                    coordinator::set_parked_on(None);
+                    site.announce(None);
                     failed.insert(relay);
                     break;
                 }
                 Err(error) => {
-                    coordinator::set_parked_on(None);
+                    site.announce(None);
                     failed.insert(relay);
                     let line = format!("itsanas: could not park on {address} ({error})");
                     if said.as_deref() != Some(&line) {
@@ -382,7 +442,7 @@ fn park_while_unreachable(
                 }
             }
         }
-        coordinator::set_parked_on(None);
+        site.announce(None);
     }
 }
 
@@ -1952,6 +2012,145 @@ fn install_signal_handler() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A scripted world for [`park_loop`]: each park pops the next answer
+    /// (and may make the machine reachable), every park and announcement is
+    /// written down.
+    struct FakeSite {
+        unreachable: std::cell::Cell<bool>,
+        relays: Vec<(DeviceId, String)>,
+        answers: std::cell::RefCell<std::collections::VecDeque<(Option<bool>, bool)>>,
+        parks: std::cell::RefCell<Vec<DeviceId>>,
+        announced: std::cell::RefCell<Vec<Option<DeviceId>>>,
+    }
+
+    impl FakeSite {
+        /// `answers`: per park, `Some(served)` or `None` for a refusal, and
+        /// whether the machine is reachable once it returns.
+        fn new(relays: &[DeviceId], answers: &[(Option<bool>, bool)]) -> Self {
+            Self {
+                unreachable: std::cell::Cell::new(true),
+                relays: relays
+                    .iter()
+                    .map(|d| (*d, format!("203.0.113.{}:9797", d.as_bytes()[0])))
+                    .collect(),
+                answers: std::cell::RefCell::new(answers.iter().copied().collect()),
+                parks: std::cell::RefCell::default(),
+                announced: std::cell::RefCell::default(),
+            }
+        }
+
+        fn parks(&self) -> Vec<DeviceId> {
+            self.parks.borrow().clone()
+        }
+    }
+
+    impl ParkSite for FakeSite {
+        fn unreachable(&self) -> bool {
+            self.unreachable.get()
+        }
+
+        fn relays(&self) -> Vec<(DeviceId, String)> {
+            self.relays.clone()
+        }
+
+        fn park(&self, relay: DeviceId, _address: &str) -> itsanas_net::Result<bool> {
+            self.parks.borrow_mut().push(relay);
+            let (served, reachable) = self
+                .answers
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or((Some(false), false));
+            if reachable {
+                self.unreachable.set(false);
+            }
+            served.ok_or_else(|| {
+                itsanas_net::NetError::Io(std::io::Error::other("refused by the relay"))
+            })
+        }
+
+        fn announce(&self, relay: Option<(DeviceId, String)>) {
+            self.announced.borrow_mut().push(relay.map(|(d, _)| d));
+        }
+    }
+
+    fn id(byte: u8) -> DeviceId {
+        DeviceId::from_bytes([byte; 32])
+    }
+
+    /// Run `looks` looks of the loop over `site`, as device `me`.
+    fn park_looks(site: &FakeSite, me: DeviceId, looks: usize) {
+        let stop = AtomicBool::new(false);
+        let mut left = looks;
+        park_loop(site, me, &stop, || {
+            let more = left > 0;
+            left = left.saturating_sub(1);
+            more
+        });
+    }
+
+    #[test]
+    fn red_team_a_relay_that_closes_the_park_is_passed_over_for_the_next() {
+        // A relay that keeps closing parks (full, or going down) would be
+        // dialled at every look while a second one sat unused: this machine
+        // unreachable for as long as the first stays broken.
+        let site = FakeSite::new(&[id(1), id(2)], &[(Some(false), false), (None, false)]);
+        park_looks(&site, id(9), 3);
+        assert_eq!(
+            site.parks()[..2],
+            [id(1), id(2)],
+            "the relay that closed the park was asked again before the other"
+        );
+    }
+
+    #[test]
+    fn red_team_once_every_relay_has_failed_the_first_is_tried_again() {
+        // The skip list is a rotation, not a ban: a relay that was down an
+        // hour ago is the one to use when it is the only one.
+        let site = FakeSite::new(&[id(1)], &[(None, false), (Some(false), false)]);
+        park_looks(&site, id(9), 3);
+        assert!(
+            site.parks().len() >= 2,
+            "a machine with one relay stopped parking for good after one refusal: {:?}",
+            site.parks()
+        );
+    }
+
+    #[test]
+    fn red_team_a_machine_never_parks_on_itself() {
+        // The book lists the account's machines, this one included; parking
+        // on itself is a socket to its own listener and no way in.
+        let site = FakeSite::new(&[id(9), id(1)], &[]);
+        park_looks(&site, id(9), 2);
+        assert!(
+            !site.parks().contains(&id(9)),
+            "the machine parked on itself: {:?}",
+            site.parks()
+        );
+    }
+
+    #[test]
+    fn red_team_a_parked_machine_parks_again_after_each_caller_and_withdraws_when_reached() {
+        // One caller per park: without parking again the second caller finds
+        // nobody. And once a direct path exists (the router opened a port),
+        // the `relay:` address must leave the presence, or callers keep
+        // taking the slow road through a third machine.
+        let site = FakeSite::new(
+            &[id(1)],
+            &[(Some(true), false), (Some(true), false), (Some(true), true)],
+        );
+        park_looks(&site, id(9), 2);
+        assert_eq!(
+            site.parks(),
+            vec![id(1); 3],
+            "the machine did not park again after a caller, or kept parking once reachable"
+        );
+        assert_eq!(
+            site.announced.borrow().last().copied(),
+            Some(None),
+            "a machine reachable again still announces itself behind a relay"
+        );
+    }
 
     #[test]
     fn red_team_a_vault_that_drops_while_running_takes_no_chunk() {

@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1125 test functions, 9 of them `#[ignore]`d into the slow job, and 290 of
+**1131 test functions, 9 of them `#[ignore]`d into the slow job, and 296 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -776,7 +776,8 @@ device and reaching a different one is refused.
     `note_all_applied` only after a round with nothing deferred), so every
     round replays the peers' chains until the disk is freed. Required -- an
     advanced marker would never retry the file -- and it costs a replay a
-    round; no test drives `NoRoom` through `session::pull` itself.
+    round; `red_team_a_file_refused_for_room_is_fetched_once_room_is_made`
+    drives it through `session::pull` over a socket.
   - **The refresh fails open**: the daemon and `itsanas sync` print a
     `bound_writes` error and pull under the last bound (none if there never
     was one); Android's sync stops on it instead.
@@ -1738,8 +1739,8 @@ device roster to check `envelope.device` against.
 
 **Not examined or not tested here, named:** a segment for another owner is
 refused twice (`open_segment`'s owner check, then the AEAD) and no test can
-tell the two apart; a body moved under a *new* segment id fails the AEAD and
-has no test of its own; a chain served out of order is refused by
+tell the two apart; a body moved under a *new* segment id fails the AEAD
+(`red_team_a_body_moved_under_a_new_segment_id_does_not_open`); a chain served out of order is refused by
 `validate_chain` as a break, which refuses that chain rather than reordering
 it; a hostile host stalling a round with one segment that fails any check
 above is fixed on the ordinary pull by §8 2c (next paragraph); a version vector that wins over or
