@@ -191,10 +191,52 @@ impl Packs {
             .transpose()
     }
 
-    /// Whether `address` has a row.
+    /// Whether `address` has a row whose record is there: its header read
+    /// back, as the file layout stats the file. A row whose record is gone
+    /// or names another address is dropped, as [`Self::get`] does, so the
+    /// disk check and repair see a lost chunk as lost.
     #[must_use]
     pub fn contains(&self, address: &ChunkId) -> bool {
-        matches!(self.place(address), Ok(Some(_)))
+        let Ok(Some(place)) = self.place(address) else {
+            return false;
+        };
+        let mut header = [0u8; HEADER_LEN];
+        let read = File::open(self.pack_path(place.pack)).and_then(|mut file| {
+            file.seek(SeekFrom::Start(place.offset - HEADER))?;
+            file.read_exact(&mut header)
+        });
+        let whole = read.is_ok()
+            && header[..32] == address.as_bytes()[..]
+            && header[32..] == place.len.to_le_bytes();
+        if !whole
+            && read.as_ref().is_err_and(|e| {
+                e.kind() != std::io::ErrorKind::UnexpectedEof
+                    && e.kind() != std::io::ErrorKind::NotFound
+            })
+        {
+            // An I/O failure is not evidence of loss: say no, keep the row.
+            return false;
+        }
+        if !whole {
+            let _ = self.remove(address);
+        }
+        whole
+    }
+
+    /// Damage `address`'s record the way a disk does, behind the index: a
+    /// test hook, as [`crate::BlobStore::damage`] is for every layout.
+    pub fn damage(&self, address: &ChunkId) -> Result<()> {
+        let Some(place) = self.place(address)? else {
+            return Ok(());
+        };
+        let path = self.pack_path(place.pack);
+        let mut file = OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .map_err(|error| StoreError::io(path.clone(), error))?;
+        file.seek(SeekFrom::Start(place.offset - HEADER))
+            .and_then(|_| file.write_all(&[0u8; 32]))
+            .map_err(|error| StoreError::io(path, error))
     }
 
     /// Append `sealed` under `address`; `false` when already present.
@@ -370,26 +412,44 @@ impl Packs {
     }
 
     /// Read the sealed bytes stored under `address`.
+    ///
+    /// A record that is not there to read -- cut short, or naming another
+    /// address -- is treated as the file layout treats a lost blob file: its
+    /// row is dropped and the chunk reads as missing, so repair fetches it
+    /// from a holder and `put` can store it again. An error here would
+    /// instead have left a row that `contains` believes and nothing ever
+    /// replaces (Rodin, 2026-10-13). Other I/O errors stay errors.
     pub fn get(&self, address: &ChunkId) -> Result<Option<Vec<u8>>> {
         let Some(place) = self.place(address)? else {
             return Ok(None);
         };
         let path = self.pack_path(place.pack);
-        let mut file = File::open(&path).map_err(|error| StoreError::io(path.clone(), error))?;
         let mut header = [0u8; HEADER_LEN];
         let mut bytes = vec![0u8; place.len as usize];
-        file.seek(SeekFrom::Start(place.offset - HEADER))
-            .and_then(|_| file.read_exact(&mut header))
-            .and_then(|()| file.read_exact(&mut bytes))
-            .map_err(|error| StoreError::io(path.clone(), error))?;
+        let read = File::open(&path).and_then(|mut file| {
+            file.seek(SeekFrom::Start(place.offset - HEADER))?;
+            file.read_exact(&mut header)?;
+            file.read_exact(&mut bytes)
+        });
+        match read {
+            Ok(()) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::NotFound
+                ) =>
+            {
+                self.remove(address)?;
+                return Ok(None);
+            }
+            Err(error) => return Err(StoreError::io(path, error)),
+        }
         // The record names its own address: a row pointing at the wrong bytes
-        // (a damaged index, a pack rewritten under it) is caught here rather
+        // (a damaged pack, a pack rewritten under it) is caught here rather
         // than handed on as somebody else's chunk.
         if header[..32] != address.as_bytes()[..] || header[32..] != place.len.to_le_bytes() {
-            return Err(StoreError::Corrupt(format!(
-                "pack {} does not hold {address} where its index says",
-                place.pack
-            )));
+            self.remove(address)?;
+            return Ok(None);
         }
         Ok(Some(bytes))
     }
@@ -722,7 +782,7 @@ mod tests {
     }
 
     #[test]
-    fn red_team_a_row_naming_the_wrong_bytes_is_refused_not_served() {
+    fn red_team_a_damaged_record_reads_as_missing_so_repair_can_replace_it() {
         // A damaged pack, or a row left pointing where another record now is,
         // must never hand one chunk's bytes out as another's.
         let dir = tempfile::tempdir().expect("temp dir");
@@ -733,9 +793,23 @@ mod tests {
         let mut bytes = fs::read(&path).unwrap();
         bytes[0] ^= 0xff; // the first record's address
         fs::write(&path, &bytes).unwrap();
-        assert!(
-            matches!(packs.get(&address(1)), Err(StoreError::Corrupt(_))),
+        assert_eq!(
+            packs.get(&address(1)).unwrap(),
+            None,
             "bytes whose header names another address were served"
+        );
+        // Missing, as a lost blob file is: repair can store it again.
+        assert!(
+            !packs.contains(&address(1)),
+            "the row of a damaged record was kept"
+        );
+        assert!(
+            packs.put(&address(1), b"first").unwrap(),
+            "the repair could not store it again"
+        );
+        assert_eq!(
+            packs.get(&address(1)).unwrap().as_deref(),
+            Some(&b"first"[..])
         );
         assert_eq!(
             packs.get(&address(2)).unwrap().as_deref(),

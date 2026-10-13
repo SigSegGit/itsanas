@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1141 test functions, 9 of them `#[ignore]`d into the slow job, and 303 of
+**1142 test functions, 9 of them `#[ignore]`d into the slow job, and 304 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1275,10 +1275,14 @@ faults, fixed before merge: compaction removed a row before writing its copy
 (a crash between lost the chunk; now copy, then move the row in one durable
 commit, `red_team_compaction_never_leaves_a_chunk_without_bytes_its_row_names`);
 the vault never compacted (now once per full disk-check pass); one unreadable
-record stopped every later compaction (now skipped). **Open before packs are
-the default:** a damaged record reads as an error, not as missing, so repair
-never fetches it and `doctor`'s shallow check does not see it (the 13 tests
-that damage a blob file have no pack equivalent yet); on Windows a live clone
+record stopped every later compaction (now skipped). **Since 2026-10-13 (second batch):**
+a damaged record reads as missing and its row is dropped (`get` and
+`contains`, which now reads the record's header back as the file layout
+stats the file), so repair and the disk check treat it as a lost blob; the
+tests that lost a blob by deleting its file now go through
+`BlobStore::damage`, and every one passes in packs too -- left failing in
+packs are only the four about blob files themselves (their path, their
+staging). **Open before packs are the default:** on Windows a live clone
 of a `BlobStore` keeps the index open while `forget_owner` deletes the
 directory, untried; no conversion of existing stores; the gain unmeasured
 where it is claimed (Windows, Defender).

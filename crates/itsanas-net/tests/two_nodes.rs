@@ -472,8 +472,11 @@ fn a_disk_that_quietly_lost_a_block_gets_it_back_from_a_host() {
     // wants the chunk, which is exactly what makes this a fault rather than a
     // deletion.
     let lost = chunks[chunks.len() / 2];
-    let blob = owner.store.blobs().path_of(&lost);
-    std::fs::remove_file(&blob).expect("remove the blob behind the store's back");
+    owner
+        .store
+        .blobs()
+        .damage(&lost)
+        .expect("remove the blob behind the store's back");
 
     assert!(
         owner.store.read_file("thesis.bin").is_err(),
@@ -537,7 +540,7 @@ fn red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost() {
 
     // Lose several blocks, so the queue is not empty and the sweep cannot miss.
     for chunk in chunks.iter().take(3) {
-        std::fs::remove_file(owner.store.blobs().path_of(chunk)).expect("lose a block");
+        owner.store.blobs().damage(chunk).expect("lose a block");
     }
     let found = owner.store.verify_integrity(false).expect("doctor");
     assert_eq!(
@@ -614,7 +617,7 @@ fn what_doctor_finds_is_what_repair_fixes_first() {
     });
 
     let lost = chunks[chunks.len() - 1];
-    std::fs::remove_file(owner.store.blobs().path_of(&lost)).expect("lose a block");
+    owner.store.blobs().damage(&lost).expect("lose a block");
     assert_eq!(
         owner.store.loss_count().expect("count"),
         0,
@@ -954,7 +957,7 @@ fn red_team_a_host_cannot_answer_a_repair_request_with_rubbish() {
     }
 
     let lost = chunks[0];
-    std::fs::remove_file(owner.store.blobs().path_of(&lost)).expect("lose a block");
+    owner.store.blobs().damage(&lost).expect("lose a block");
 
     let mut forged = 0;
     for _ in 0..12 {
@@ -3566,7 +3569,7 @@ fn red_team_a_host_that_lost_a_blob_behind_its_index_is_caught_by_the_next_due_w
                 .join(owner.to_hex()),
         )
         .unwrap();
-        std::fs::remove_file(blobs.path_of(&victim)).unwrap();
+        blobs.damage(&victim).unwrap();
         assert!(!host.vault.has_chunk(owner, &victim).unwrap());
 
         // One pass of the host's rolling check.

@@ -105,15 +105,15 @@ impl BlobStore {
             .join(format!("{hex}.{BLOB_EXTENSION}"))
     }
 
-    /// Where `address` lives on disk.
-    ///
-    /// Public so a test can damage a blob the way a disk does: behind the
-    /// store's back, leaving the index still wanting it. Removing it through
-    /// the API would be a deletion, which is a different thing entirely and not
-    /// the fault repair exists for.
-    #[must_use]
-    pub fn path_of(&self, address: &ChunkId) -> PathBuf {
-        self.path_for(address)
+    /// Lose `address` the way a disk does, behind the store's back: its blob
+    /// file deleted, or its pack record overwritten. A test hook for every
+    /// layout, where a file path only fits blob files.
+    pub fn damage(&self, address: &ChunkId) -> Result<()> {
+        if let Some(packs) = &self.packs {
+            return packs.damage(address);
+        }
+        let path = self.path_for(address);
+        fs::remove_file(&path).map_err(|error| StoreError::io(path, error))
     }
 
     /// Whether this store already holds `address`.

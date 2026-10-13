@@ -51,7 +51,7 @@ fn a_reply_too_large_to_be_a_chunk_is_refused_without_decrypting_it() {
         .get(&address)
         .expect("blobs")
         .expect("the chunk this node just wrote");
-    std::fs::remove_file(store.blobs().path_of(&address)).expect("lose it");
+    store.blobs().damage(&address).expect("lose it");
 
     let oversized = vec![0u8; (256 * 1024) + 4096];
     assert!(
@@ -1936,7 +1936,7 @@ fn red_team_a_node_does_not_tell_its_own_account_it_holds_what_its_disk_lost() {
     );
 
     let lost = chunks[0];
-    fs::remove_file(store.blobs().path_of(&lost)).unwrap();
+    store.blobs().damage(&lost).unwrap();
     let (missing, next) = store.check_disk(None, chunks.len() + 1).unwrap();
     assert_eq!(
         (missing, next),
