@@ -771,6 +771,7 @@ dependencies = [
  "ctrlc",
  "itsanas-coord",
  "itsanas-crypto",
+ "tempfile",
 ]
 
 [[package]]

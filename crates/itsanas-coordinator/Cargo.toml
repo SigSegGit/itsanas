@@ -18,5 +18,8 @@ ctrlc = "3.5.0"
 itsanas-coord = { version = "0.1.0", path = "../itsanas-coord" }
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
 
+[dev-dependencies]
+tempfile = "3.23.0"
+
 [lints]
 workspace = true

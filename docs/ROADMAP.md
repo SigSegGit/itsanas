@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1123 test functions, 9 of them `#[ignore]`d into the slow job, and 288 of
+**1124 test functions, 9 of them `#[ignore]`d into the slow job, and 289 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -260,7 +260,7 @@ What is missing before this is a *network* rather than a personal sync tool:
   Recorded here rather than in a comment because it is a product decision with
   a size, not a bug with a patch.
 
-- **Nothing tests the coordinator against a crash.** `announce` was changed on
+- ✅ **Fixed 2026-10-13: a coordinator killed outright keeps every account and enrolment it confirmed** (`crates/itsanas-coordinator/tests/crash.rs`, `red_team_a_coordinator_killed_mid_round_keeps_every_account_it_confirmed`: the real binary, killed after a non-durable announce, its state reopened from the test; sabotaged by making every write non-durable: red). Was: **Nothing tests the coordinator against a crash.** `announce` was changed on
   2026-09-06 to commit without waiting for the disk, on the reasoning that a
   presence announcement is a heartbeat the next round restores, while the
   writes that cannot be reconstructed -- accounts, enrolments, escrow,
