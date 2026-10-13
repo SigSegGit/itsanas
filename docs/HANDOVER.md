@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0c
 TITLE: Nicolas tests v0.1.7 on the fleet by hand (reinstall, multi-account, relay, lists, vault, deletion)
 WRITTEN-AT: 2026-10-13
-BASE: 35b6884
+BASE: 75db3e5
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,7 +20,16 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**2026-10-13, latest: 0.1.7, five fixes in one PR (Nicolas: "more change per
+**2026-10-13, latest, while 0c waits:** #272 (the coordinator killed
+outright keeps every account and enrolment it confirmed). Then a report
+fix: file names with bidirectional overrides (`invoice<U+202E>fdp.exe`) are
+escaped in `scan`/`sync`/daemon logs (`shown` in `itsanas-folder`); the
+"newline forges a log line" suspicion was already stopped by the store's
+control-character refusal, now tested. ROADMAP's sweep section still said
+`held_for_others` and refused stores walk the vault: both stale, corrected.
+Trap: `char::is_control` does not cover U+202A-202E / U+2066-2069.
+
+**2026-10-13: 0.1.7, five fixes in one PR (Nicolas: "more change per
 iteration").** (1) **0.1.6 never published `relay:` nor a list**:
 `published_address` returned the router's port only while `address_now`
 (used to decide *whether* to publish) had the new rule; now both go through

@@ -1606,9 +1606,10 @@ cleared on a clean drop -- and left set by a write that failed after its blob,
 or an open whose rebuild failed; finding it set, the next open rebuilds index
 and total from the directories and sweeps staging leftovers. The cost: one
 walk per start after an unclean stop, which is most starts on Android and a
-Windows daemon stopped by the Task Scheduler. What is left: `Node::held_for_others` still walks our
-*own* account's blobs in the vault (`stats_for`), and `itsanas status` still
-walks, on purpose — it is the check the total is tested against.
+Windows daemon stopped by the Task Scheduler. `Node::held_for_others` reads
+the running totals too (`Vault::held_bytes` less `held_bytes_for` our own
+account), no longer `stats_for`; `itsanas status` still walks, on purpose —
+it is the check the total is tested against.
 
 **One peer could hold the inbound listener — fixed 2026-09-17, with what is
 left.** The peer server handled one connection at a time, so a single silent
@@ -1640,9 +1641,9 @@ coordinator always did. That error was not reproduced and has no test. **An auth
 keypair) can keep a session busy with valid requests; there is still no
 per-connection request cap on the peer protocol, and a round pushing a large
 account legitimately needs many requests on one connection. **Refused stores
-now queue**: every `StoreChunk` takes the storing lock and then walks the vault
-(the finding above), so a peer spamming offers it knows will be refused delays
-honest stores by as much. The running total for chunks would make both cheap.
+queue behind the storing lock**, but since 2026-09-30 (HANDOVER §8 3b) the
+pledge check under it reads the running total rather than walking the vault,
+so a refused offer costs a lookup, not a walk.
 
 ✅ **`itsanas pledge` and the Android setters keep the split** (2026-09-30,
 HANDOVER §8 3a). `keep`, `pledge`, `space --apply` and the phone's `setKeep` /
