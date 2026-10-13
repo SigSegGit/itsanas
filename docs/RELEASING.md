@@ -44,7 +44,7 @@ node that does not take that release.
 
 All of it is one command in PowerShell, `scripts\release.ps1 -Pr <the PR
 bumping the version>` (or double-click `scripts\release.cmd` to release `main`
-as it is). It waits for the PR's CI and merges it, updates `main`, tags the
+as it is). It turns on the PR's auto-merge and waits until GitHub has merged it, updates `main`, tags the
 version `Cargo.toml` says, deletes a tag of that version left on another
 commit and its draft, waits for the workflow, then runs `sign-release.ps1`:
 the only questions come at the end, after a beep. The steps by hand:

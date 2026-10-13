@@ -34,8 +34,16 @@ anywhere in this run" is a success. Any other skip, a pending check or a
 red one is not green. (Nicolas, 2026-10-07; a docs-only PR skips six jobs
 by design and was otherwise never mergeable by a session.)
 
-**Merge without asking.** When a PR's CI is green by the rule above,
-Claude Code merges it itself, whoever opened it, marking a draft ready first.
+**Merge without asking: GitHub does it.** `main` requires the single check
+*No warnings anywhere in this run* (which passes only on the rule above), and
+the repository allows auto-merge (Nicolas, 2026-10-13: no session should be
+woken just to press the button). So a session that opens a PR marks it ready
+and enables auto-merge, squash, in the same breath (`enable_pr_auto_merge`,
+or `gh pr merge N --auto --squash`), and does not come back for the merge.
+It stays on the PR only to fix a red CI or answer a review. Before this, when
+a PR's CI was green by the rule above, Claude Code merged it itself, whoever
+opened it, marking a draft ready first; that still applies to a PR opened
+before auto-merge, or one whose auto-merge was turned off.
 It asks Nicolas only when it has a concrete reason to doubt the merge, and
 then says what that reason is. Asking for a routine merge costs him a round
 trip for nothing. (Nicolas, 2026-10-12.)
