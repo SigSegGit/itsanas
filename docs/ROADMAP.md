@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1124 test functions, 9 of them `#[ignore]`d into the slow job, and 289 of
+**1125 test functions, 9 of them `#[ignore]`d into the slow job, and 290 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1079,8 +1079,10 @@ deletion removed it from both. Both folders ended byte-identical.
   a create, and a file renamed *and* edited in one pass, or one of two identical
   copies, still reads as a deletion and an addition, because the bytes do not
   say which became which. ⬜ Not on Android: the app shows no per-file report.
-  ⬜ Paths are printed raw: a file name holding a newline could forge a line
-  in the log (older than this, suspected by `itsanas-redteam`, not tested).
+  A file name cannot forge or disguise a line (2026-10-13,
+  `red_team_a_file_name_cannot_forge_or_disguise_a_line_in_the_log`): the
+  store refuses a name with a control character, and the report escapes
+  bidirectional overrides, which the store accepts.
 - **Symlinks are skipped, never followed** — a link inside the folder pointing
   at `~/.ssh` would otherwise quietly upload a private key.
 - **Atomic writes.** A torn file in a synced folder is worse than a missing one:
@@ -1604,9 +1606,10 @@ cleared on a clean drop -- and left set by a write that failed after its blob,
 or an open whose rebuild failed; finding it set, the next open rebuilds index
 and total from the directories and sweeps staging leftovers. The cost: one
 walk per start after an unclean stop, which is most starts on Android and a
-Windows daemon stopped by the Task Scheduler. What is left: `Node::held_for_others` still walks our
-*own* account's blobs in the vault (`stats_for`), and `itsanas status` still
-walks, on purpose — it is the check the total is tested against.
+Windows daemon stopped by the Task Scheduler. `Node::held_for_others` reads
+the running totals too (`Vault::held_bytes` less `held_bytes_for` our own
+account), no longer `stats_for`; `itsanas status` still walks, on purpose —
+it is the check the total is tested against.
 
 **One peer could hold the inbound listener — fixed 2026-09-17, with what is
 left.** The peer server handled one connection at a time, so a single silent
@@ -1638,9 +1641,9 @@ coordinator always did. That error was not reproduced and has no test. **An auth
 keypair) can keep a session busy with valid requests; there is still no
 per-connection request cap on the peer protocol, and a round pushing a large
 account legitimately needs many requests on one connection. **Refused stores
-now queue**: every `StoreChunk` takes the storing lock and then walks the vault
-(the finding above), so a peer spamming offers it knows will be refused delays
-honest stores by as much. The running total for chunks would make both cheap.
+queue behind the storing lock**, but since 2026-09-30 (HANDOVER §8 3b) the
+pledge check under it reads the running total rather than walking the vault,
+so a refused offer costs a lookup, not a walk.
 
 ✅ **`itsanas pledge` and the Android setters keep the split** (2026-09-30,
 HANDOVER §8 3a). `keep`, `pledge`, `space --apply` and the phone's `setKeep` /
