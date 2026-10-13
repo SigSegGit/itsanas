@@ -351,10 +351,90 @@ pub fn published_address(
     listen: &str,
     local: SocketAddr,
 ) -> String {
-    match config.announce.clone().or_else(found_address) {
-        Some(announce) => announce,
+    publishable(
+        config,
+        listen,
+        local,
+        found_address(),
+        relayed_address(),
+        global_ipv6,
+    )
+}
+
+/// [`published_address`] with this process's state passed in, so the rule
+/// is tested without the statics it reads.
+fn publishable(
+    config: &crate::config::Config,
+    listen: &str,
+    local: SocketAddr,
+    found: Option<String>,
+    relayed: Option<String>,
+    ipv6: impl Fn() -> Option<std::net::Ipv6Addr>,
+) -> String {
+    if let Some(announce) = config.announce.clone() {
+        return announce;
+    }
+    // What `address_now` says, for the same reasons: a park, then the
+    // router's port with the global IPv6 address. This one used to return
+    // only the router's port, so a 0.1.6 node compared a `relay:` or a list
+    // with itself and published neither.
+    if let Some(relayed) = relayed {
+        return relayed;
+    }
+    match found {
+        Some(found) if ANNOUNCE_LISTS => {
+            let port = listen.parse::<SocketAddr>().ok().map(|l| l.port());
+            with_global_ipv6(&found, ipv6(), port)
+        }
+        Some(found) => found,
         None => reachable_address(listen, local),
     }
+}
+
+/// `relay:<relay>@<its address>` while this process is parked and has no
+/// port of its own, if this build announces it.
+fn relayed_address() -> Option<String> {
+    let (relay, at) = parked_on().filter(|_| ANNOUNCE_RELAY && found_address().is_none())?;
+    // The relay's address rides along for a caller that does not know it (a
+    // host of another account); the relay's key is pinned on the dial, so a
+    // wrong address reaches nobody else.
+    Some(format!("{}{relay}@{at}", crate::contact::RELAY_PREFIX))
+}
+
+/// When to date a presence signed now: never before the last one this
+/// machine signed (kept in `presence.last` in its home). A Pi rebooted with
+/// no clock into 1970 signed presences older than the one its peers hold,
+/// which they refused as stale until NTP came back: the machine was
+/// unreachable for that long. Its own record moves forward instead.
+const CLOCK_FLOOR: u64 = 1_767_225_600; // 2026-01-01
+
+/// [`presence_time`]'s rule, without the file.
+fn next_presence_time(last: u64, now: u64) -> u64 {
+    // A clock before this code was written is a clock that has not been
+    // set (no RTC, no NTP yet): move on from the last presence. A record
+    // ahead of a clock that *is* set came from a clock that ran ahead; kept,
+    // it would date every later presence past what peers accept, for ever.
+    let clock_set = now >= CLOCK_FLOOR;
+    if clock_set && last > now.saturating_add(itsanas_coord::claim::MAX_CLOCK_SKEW) {
+        now
+    } else {
+        now.max(last.saturating_add(1))
+    }
+}
+
+fn presence_time(node: &Node, now: u64) -> u64 {
+    let path = node.home.join("presence.last");
+    let last = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| text.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+    // A clock before this code was written is a clock that has not been
+    // set (no RTC, no NTP yet): move on from the last presence. A record
+    // ahead of a clock that *is* set came from a clock that ran ahead; kept,
+    // it would date every later presence past what peers accept, for ever.
+    let at = next_presence_time(last, now);
+    let _ = std::fs::write(&path, at.to_string());
+    at
 }
 
 /// An address this process found it is reachable at -- the router opened its
@@ -416,7 +496,7 @@ pub fn announce(node: &Node, address: &str, now: u64) -> Result<String> {
     let presence = Presence {
         device: node.store.device_id(),
         address: address.clone(),
-        at_unix: now,
+        at_unix: presence_time(node, now),
     }
     .sign(&node.device);
 
@@ -923,7 +1003,7 @@ pub fn contact(node: &Node, listen: &str, now: u64, due: &Due) -> Result<Contact
         let presence = Presence {
             device: node.store.device_id(),
             address: address.clone(),
-            at_unix: now,
+            at_unix: presence_time(node, now),
         }
         .sign(&node.device);
         match client.ask(&Request::Announce(Box::new(presence)))? {
@@ -989,11 +1069,8 @@ pub fn address_now(config: &crate::config::Config, listen: &str) -> Option<Strin
     if let Some(announce) = config.announce.clone() {
         return Some(announce);
     }
-    if let Some((relay, at)) = parked_on().filter(|_| ANNOUNCE_RELAY && found_address().is_none()) {
-        // The relay's address rides along for a caller that does not know
-        // it (a host of another account); the relay's key is pinned on the
-        // dial, so a wrong address reaches nobody else.
-        return Some(format!("{}{relay}@{at}", crate::contact::RELAY_PREFIX));
+    if let Some(relayed) = relayed_address() {
+        return Some(relayed);
     }
     direct_address(config, listen)
 }
@@ -1067,9 +1144,55 @@ fn global_ipv6() -> Option<std::net::Ipv6Addr> {
     let socket = std::net::UdpSocket::bind((std::net::Ipv6Addr::UNSPECIFIED, 0)).ok()?;
     socket.connect(("2001:4860:4860::8888", 53)).ok()?;
     match socket.local_addr().ok()?.ip() {
-        std::net::IpAddr::V6(v6) if is_global_ipv6(v6) => Some(v6),
+        std::net::IpAddr::V6(v6) if is_global_ipv6(v6) => Some(
+            std::fs::read_to_string("/proc/net/if_inet6")
+                .ok()
+                .and_then(|table| stable_ipv6(v6, &table))
+                .unwrap_or(v6),
+        ),
         _ => None,
     }
+}
+
+/// The stable address beside `chosen` when `chosen` is a temporary one
+/// (RFC 4941), from Linux's `/proc/net/if_inet6`. The kernel picks the
+/// temporary address as the source, and it rotates within a day: announced,
+/// it made the machine republish at each rotation and left peers dialling an
+/// address it had dropped. Same interface and same /64, global, neither
+/// temporary, deprecated nor tentative. `None` when `chosen` is not
+/// temporary or nothing stable sits beside it.
+fn stable_ipv6(chosen: std::net::Ipv6Addr, table: &str) -> Option<std::net::Ipv6Addr> {
+    const TEMPORARY: u32 = 0x01;
+    const UNUSABLE: u32 = TEMPORARY | 0x20 | 0x40; // deprecated, tentative
+    let rows: Vec<(std::net::Ipv6Addr, &str, u32)> = table
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let [hex, _index, _prefix, scope, flags, name] = fields[..] else {
+                return None;
+            };
+            let bits = u128::from_str_radix(hex, 16).ok()?;
+            (scope == "00").then_some(())?;
+            Some((
+                std::net::Ipv6Addr::from(bits),
+                name,
+                u32::from_str_radix(flags, 16).ok()?,
+            ))
+        })
+        .collect();
+    let (_, interface, flags) = rows.iter().find(|(address, _, _)| *address == chosen)?;
+    if flags & TEMPORARY == 0 {
+        return None;
+    }
+    let net = |a: &std::net::Ipv6Addr| a.segments()[..4].to_vec();
+    rows.iter()
+        .find(|(address, name, flags)| {
+            name == interface
+                && flags & UNUSABLE == 0
+                && net(address) == net(&chosen)
+                && is_global_ipv6(*address)
+        })
+        .map(|(address, _, _)| *address)
 }
 
 /// Global unicast (`2000::/3`), not documentation (`2001:db8::/32`).
@@ -1528,6 +1651,82 @@ mod tests {
     use itsanas_crypto::SecretBytes;
 
     use super::*;
+
+    #[test]
+    fn red_team_what_is_published_is_the_relay_or_the_list_not_only_the_port() {
+        // 0.1.6 compared `relay:` and lists with itself and published only
+        // the router's port: nobody could reach a parked machine.
+        let config = crate::config::Config::default();
+        let local: SocketAddr = "192.168.1.5:9797".parse().unwrap();
+        let relay = "relay:aa@203.0.113.5:9797".to_owned();
+        assert_eq!(
+            publishable(
+                &config,
+                "0.0.0.0:9797",
+                local,
+                None,
+                Some(relay.clone()),
+                || None
+            ),
+            relay
+        );
+        let v6: std::net::Ipv6Addr = "2a01:e0a0:1:2::42".parse().unwrap();
+        let listed = publishable(
+            &config,
+            "0.0.0.0:9797",
+            local,
+            Some("198.51.100.1:9797".to_owned()),
+            None,
+            || Some(v6),
+        );
+        // Windows' listener takes IPv4 only: no IPv6 half there.
+        let expected = if cfg!(windows) {
+            "198.51.100.1:9797".to_owned()
+        } else {
+            "198.51.100.1:9797,[2a01:e0a0:1:2::42]:9797".to_owned()
+        };
+        assert_eq!(listed, expected);
+    }
+
+    #[test]
+    fn red_team_a_machine_rebooted_into_1970_still_dates_its_presence_after_the_last() {
+        // Its peers hold a presence from before the reboot and refuse an
+        // older one as stale: it was unreachable until NTP came back.
+        let before = 1_800_000_000;
+        assert_eq!(next_presence_time(before, 12), before + 1);
+        assert_eq!(next_presence_time(before, before + 60), before + 60);
+        assert_eq!(
+            next_presence_time(before + 100_000, before),
+            before,
+            "a record left by a clock that ran ahead dated every later presence \
+             past what peers accept"
+        );
+    }
+
+    #[test]
+    fn red_team_a_temporary_ipv6_address_is_replaced_by_the_stable_one_beside_it() {
+        // §8 0u: announcing the system's temporary address made a machine
+        // republish at every rotation, and peers dial an address it dropped.
+        let table = "\
+20010db8aaaa00000000000000000001 02 40 00 00 eth0
+2a01e0a0000100020000000000000099 02 40 00 01 eth0
+2a01e0a0000100020000000000000043 02 40 00 20 eth0
+2a01e0a0000100020000000000000042 02 40 00 00 eth0
+fe800000000000000000000000000001 02 40 20 80 eth0
+";
+        let temporary: std::net::Ipv6Addr = "2a01:e0a0:1:2::99".parse().unwrap();
+        assert_eq!(
+            stable_ipv6(temporary, table),
+            Some("2a01:e0a0:1:2::42".parse().unwrap()),
+            "the temporary address was kept, or a deprecated one taken"
+        );
+        let stable: std::net::Ipv6Addr = "2a01:e0a0:1:2::42".parse().unwrap();
+        assert_eq!(
+            stable_ipv6(stable, table),
+            None,
+            "a stable choice was changed"
+        );
+    }
 
     fn a_claim(revoked: bool) -> SignedClaim {
         let owner =

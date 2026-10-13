@@ -403,9 +403,29 @@ impl PeerServer {
                 };
                 connection.send(&Response::Parked)?;
                 let mut said = Instant::now();
+                // The parked machine says nothing after `Park`: a read that
+                // ends is a machine gone, seen within a second rather than
+                // at the next keepalive, so a caller is never spliced onto
+                // a dead park. A read that times out is the park holding.
+                connection.stream().set_read_timeout(Some(PARK_LISTEN))?;
                 loop {
+                    match connection.receive::<Request>() {
+                        Err(itsanas_wire::StreamError::Io(error)) if timed_out(&error) => {}
+                        Ok(None) | Err(_) => return Ok(()),
+                        Ok(Some(_)) => {
+                            connection.send(&Response::Refused(NOT_RELAYING.to_owned()))?;
+                            return Ok(());
+                        }
+                    }
                     // Woken every second so a stopping daemon lets its parks go.
-                    match waiting.handed.recv_timeout(Duration::from_secs(1)) {
+                    match waiting.handed.try_recv().map_err(|error| match error {
+                        std::sync::mpsc::TryRecvError::Empty => {
+                            std::sync::mpsc::RecvTimeoutError::Timeout
+                        }
+                        std::sync::mpsc::TryRecvError::Disconnected => {
+                            std::sync::mpsc::RecvTimeoutError::Disconnected
+                        }
+                    }) {
                         Ok(handoff) => {
                             let _splicing = waiting.carrying();
                             connection.send(&Response::Incoming { from: handoff.from })?;
@@ -485,16 +505,33 @@ impl PeerServer {
             Response::Refused(reason) => return Err(NetError::Refused(reason)),
             _ => return Err(NetError::UnexpectedResponse { expected: "parked" }),
         }
+        // Woken every second, so a stopping daemon lets go at once rather
+        // than after a read timeout; a relay silent past two keepalives is
+        // a relay gone.
+        client
+            .connection
+            .stream()
+            .set_read_timeout(Some(PARK_LISTEN))?;
+        let mut heard = Instant::now();
         loop {
-            match client.connection.receive::<Response>()? {
-                Some(Response::Parked) if !shutdown.load(Ordering::Relaxed) => {}
-                Some(Response::Incoming { .. }) => break,
-                Some(_) => {
+            if shutdown.load(Ordering::Relaxed) {
+                return Ok(false);
+            }
+            match client.connection.receive::<Response>() {
+                Err(itsanas_wire::StreamError::Io(error)) if timed_out(&error) => {
+                    if heard.elapsed() > 2 * crate::relay::KEEPALIVE + PARK_LISTEN {
+                        return Ok(false);
+                    }
+                }
+                Err(error) => return Err(error.into()),
+                Ok(Some(Response::Parked)) => heard = Instant::now(),
+                Ok(Some(Response::Incoming { .. })) => break,
+                Ok(Some(_)) => {
                     return Err(NetError::UnexpectedResponse {
                         expected: "incoming",
                     });
                 }
-                None => return Ok(false),
+                Ok(None) => return Ok(false),
             }
         }
         let (stream, rest) = client.into_parts();
@@ -520,6 +557,18 @@ impl PeerServer {
         }
         Ok(true)
     }
+}
+
+/// How long a park's side waits on its socket before looking at anything
+/// else: the other side gone, a caller handed, the daemon stopping.
+const PARK_LISTEN: Duration = Duration::from_secs(1);
+
+/// A read that ran out of time, which on a park is the ordinary case.
+fn timed_out(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+    )
 }
 
 /// Answer one request; `false` when the connection is to close.

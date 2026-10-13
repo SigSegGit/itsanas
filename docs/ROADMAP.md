@@ -1502,13 +1502,13 @@ The `itsanas-redteam` pass over the autonomous run of 2026-09-30/10-01 found
 eight; five were fixed with red-team tests (PR of 2026-10-01). These three are
 open, each with the scenario that hurts:
 
-- **The vault rebuild after an unclean exit holds every blob in one map.**
+- ✅ **Fixed 2026-10-13 (0.1.7): the rebuild streams in batches of 4096 rows** (`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`). Was: **The vault rebuild after an unclean exit holds every blob in one map.**
   `Vault::open` walks every owner's blobs into a `BTreeMap` (64-byte key + 8
   bytes each) before it writes: about 16 million entries, 1.2 GB of RAM plus
   map overhead, for a terabyte hosted in 64 KiB chunks. On a 4 GB Pi after a
   power cut the open fails or swaps, `Node::open` fails, and the service
   crash-loops. Streaming the rebuild in batches is the fix.
-- **The relay orders presences by the device's own clock on the behind
+- ✅ **Fixed 2026-10-13 (0.1.7) at the source: a machine never dates a presence before the last one it signed** (`presence.last`; `red_team_a_machine_rebooted_into_1970_still_dates_its_presence_after_the_last`). Was: **The relay orders presences by the device's own clock on the behind
   side** (DESIGN §6 clock rule): a Pi rebooted with no RTC into 1970 announces
   presences dated before the one held for it, and stays relay-blind until its
   clock passes the held value -- i.e. until NTP comes back.

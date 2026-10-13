@@ -253,6 +253,11 @@ pub struct VaultStats {
 }
 
 /// `owner ‖ chunk`, so one owner's chunks are a contiguous, ordered range.
+/// Rows the rebuild after an unclean exit writes, or checks, per
+/// transaction: what it holds in memory at once. Two under test, so the
+/// small vaults the tests build cross many batch boundaries.
+const REBUILD_BATCH: usize = if cfg!(test) { 2 } else { 4096 };
+
 fn chunk_key(owner: UserId, chunk: &ChunkId) -> [u8; 64] {
     let mut out = [0u8; 64];
     out[..32].copy_from_slice(owner.as_bytes().as_slice());
@@ -783,44 +788,43 @@ impl Vault {
         }
         fault("rebuilding")?;
 
-        let mut on_disk: std::collections::BTreeMap<[u8; 64], u64> =
+        // In batches, never the whole vault in memory: a terabyte hosted in
+        // 64 KiB chunks is 16 million rows, and the map this used to build
+        // (1.2 GB) failed or swapped on a 4 GB Pi after a power cut, so the
+        // node crash-looped. Safe to stop anywhere: `OPEN` stays set until
+        // the whole rebuild is done, so the next open walks again.
+        let owners = self.owners()?;
+        let mut per_owner: std::collections::BTreeMap<[u8; 32], u64> =
             std::collections::BTreeMap::new();
-        for owner in self.owners()? {
-            let blobs = self.blobs_for(owner)?;
+        for owner in &owners {
+            let blobs = self.blobs_for(*owner)?;
             // A crash mid-write also leaves its staging file, counted by
             // nothing and never reclaimed unless swept here.
             blobs.sweep_staging()?;
-            for address in blobs.addresses()? {
+            let mut batch: Vec<([u8; 64], u64)> = Vec::with_capacity(REBUILD_BATCH);
+            let mut bytes = 0u64;
+            blobs.for_each_address(&mut |address| {
                 if let Some(size) = blobs.size_of(&address)? {
-                    on_disk.insert(chunk_key(owner, &address), size);
+                    batch.push((chunk_key(*owner, &address), size));
+                    bytes = bytes.saturating_add(size);
                 }
+                if batch.len() >= REBUILD_BATCH {
+                    self.insert_rows(&std::mem::take(&mut batch))?;
+                }
+                Ok(())
+            })?;
+            self.insert_rows(&batch)?;
+            if bytes > 0 {
+                per_owner.insert(*owner.as_bytes(), bytes);
             }
         }
+        self.remove_stale_rows(&owners)?;
 
         let txn = self.db.begin_write()?;
         {
-            let mut table = txn.open_table(CHUNKS)?;
-            let mut stale = Vec::new();
-            for row in table.iter()? {
-                let (key, _) = row?;
-                if !on_disk.contains_key(key.value()) {
-                    stale.push(key.value().to_vec());
-                }
-            }
-            for key in stale {
-                table.remove(key.as_slice())?;
-            }
-            let mut total = 0u64;
-            let mut per_owner: std::collections::BTreeMap<[u8; 32], u64> =
-                std::collections::BTreeMap::new();
-            for (key, size) in &on_disk {
-                table.insert(key.as_slice(), *size)?;
-                total = total.saturating_add(*size);
-                let mut owner = [0u8; 32];
-                owner.copy_from_slice(&key[..32]);
-                let entry = per_owner.entry(owner).or_default();
-                *entry = entry.saturating_add(*size);
-            }
+            let total = per_owner
+                .values()
+                .fold(0u64, |sum, b| sum.saturating_add(*b));
             let mut totals = txn.open_table(TOTALS)?;
             totals.insert(CHUNK_BYTES, total)?;
             totals.insert(OWNER_TOTALS, 1)?;
@@ -833,6 +837,81 @@ impl Vault {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// One batch of the rebuild's rows, in its own transaction.
+    fn insert_rows(&self, rows: &[([u8; 64], u64)]) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let txn = self.db.begin_write()?;
+        {
+            let mut table = txn.open_table(CHUNKS)?;
+            for (key, size) in rows {
+                table.insert(key.as_slice(), *size)?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Remove the rows whose blob is gone, or whose owner the vault no longer
+    /// lists, a batch at a time: the directories are the authority.
+    fn remove_stale_rows(&self, owners: &[UserId]) -> Result<()> {
+        let mut after: Option<Vec<u8>> = None;
+        loop {
+            let mut stale = Vec::new();
+            let mut last = None;
+            {
+                let txn = self.db.begin_read()?;
+                let table = txn.open_table(CHUNKS)?;
+                let rows = match &after {
+                    Some(key) => table.range::<&[u8]>((
+                        std::ops::Bound::Excluded(key.as_slice()),
+                        std::ops::Bound::Unbounded,
+                    ))?,
+                    None => table.range::<&[u8]>(..)?,
+                };
+                for row in rows.take(REBUILD_BATCH) {
+                    let (key, _) = row?;
+                    let key = key.value().to_vec();
+                    if !self.row_has_blob(&key, owners)? {
+                        stale.push(key.clone());
+                    }
+                    last = Some(key);
+                }
+            }
+            if !stale.is_empty() {
+                let txn = self.db.begin_write()?;
+                {
+                    let mut table = txn.open_table(CHUNKS)?;
+                    for key in &stale {
+                        table.remove(key.as_slice())?;
+                    }
+                }
+                txn.commit()?;
+            }
+            match last {
+                Some(key) => after = Some(key),
+                None => return Ok(()),
+            }
+        }
+    }
+
+    fn row_has_blob(&self, key: &[u8], owners: &[UserId]) -> Result<bool> {
+        if key.len() != 64 {
+            return Ok(false);
+        }
+        let owner = UserId::from_slice(&key[..32])?;
+        if !owners.contains(&owner) {
+            return Ok(false);
+        }
+        let mut chunk = [0u8; 32];
+        chunk.copy_from_slice(&key[32..]);
+        Ok(self
+            .blobs_for(owner)?
+            .size_of(&ChunkId::from_bytes(chunk))?
+            .is_some())
     }
 
     /// Total up the segments a vault already holds, once.
@@ -1755,6 +1834,42 @@ mod tests {
             !staging.exists(),
             "a crash's staging file survived the rebuild: disk the pledge never counts"
         );
+    }
+
+    #[test]
+    fn red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary() {
+        // The rebuild after an unclean exit no longer holds the vault in one
+        // map (1.2 GB for a terabyte, a crash loop on a Pi); written and
+        // checked two rows at a time here, it must still end where one pass did.
+        let dir = tempfile::tempdir().unwrap();
+        let alice = keys(26).user_id();
+        let bob = keys(27).user_id();
+        let vault = Vault::open(dir.path()).unwrap();
+        let mut kept = Vec::new();
+        for n in 1..=9u8 {
+            let chunk = ChunkId::from_bytes([n; 32]);
+            vault
+                .put_chunk(alice, &chunk, &vec![n; 100 * usize::from(n)])
+                .unwrap();
+            vault.put_chunk(bob, &chunk, &[n; 10]).unwrap();
+            if n % 2 == 1 {
+                kept.push(chunk);
+            }
+        }
+        let blobs = vault.blobs_for(alice).unwrap();
+        for n in (2..=8u8).step_by(2) {
+            blobs.remove(&ChunkId::from_bytes([n; 32])).unwrap();
+        }
+        vault.abandon();
+
+        let vault = Vault::open(dir.path()).unwrap();
+        assert_eq!(
+            vault.chunks_for(alice).unwrap(),
+            kept,
+            "a batch boundary kept a row whose blob is gone, or lost one that is there"
+        );
+        assert_eq!(vault.chunks_for(bob).unwrap().len(), 9);
+        assert_total_is_the_walk(&vault, "a rebuild in batches");
     }
 
     /// Run `body` with a failure injected at `point`.
