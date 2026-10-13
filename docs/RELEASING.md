@@ -42,12 +42,12 @@ node that does not take that release.
 
 ## Each version (Nicolas)
 
-Steps 2 to 4 are one command in Git Bash once step 1 is merged:
-`bash scripts/release.sh` (alias it: `alias itsanas-release='bash
-/d/GitHub/itsanas/scripts/release.sh'` in `~/.bashrc`). It updates `main`,
-tags the version `Cargo.toml` says, replaces a tag of that version left on
-another commit after asking, waits for the workflow, then runs
-`sign-release.ps1` on that tag.
+All of it is one command in PowerShell, `scripts\release.ps1 -Pr <the PR
+bumping the version>` (or double-click `scripts\release.cmd` to release `main`
+as it is). It waits for the PR's CI and merges it, updates `main`, tags the
+version `Cargo.toml` says, deletes a tag of that version left on another
+commit and its draft, waits for the workflow, then runs `sign-release.ps1`:
+the only questions come at the end, after a beep. The steps by hand:
 
 1. Bump `version` under `[workspace.package]` in `Cargo.toml`, merge.
 2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
