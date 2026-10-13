@@ -658,6 +658,15 @@ impl itsanas_net::Owners for ClaimBook {
     ) -> Result<(), String> {
         ClaimBook::admits(self, caller, owner, incoming, store, vault, host_pledge)
     }
+
+    fn confirmed_account(&self, caller: DeviceId) -> Option<UserId> {
+        self.lock()
+            .get(&caller)
+            .and_then(|held| match held.standing {
+                Standing::Live(at) if at.elapsed() < STANDING_FOR => Some(held.owner),
+                _ => None,
+            })
+    }
 }
 
 #[cfg(test)]

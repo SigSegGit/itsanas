@@ -116,6 +116,13 @@ pub trait Owners: Sync {
         vault: &Vault,
         host_pledge: u64,
     ) -> std::result::Result<(), String>;
+
+    /// The account `caller` is a device of, if its claim was presented here
+    /// and confirmed by the coordinator lately: who a host relays for
+    /// (§8 0v). `None` by default: relay for nobody but the own account.
+    fn confirmed_account(&self, _caller: DeviceId) -> Option<UserId> {
+        None
+    }
 }
 
 /// What a host that bounds accounts answers a device that has presented no
@@ -123,6 +130,10 @@ pub trait Owners: Sync {
 /// client that left it out to escape the bound.
 pub const UPDATE_REQUIRED: &str =
     "this host stores only for devices that present their account's claim: update ITSaNAS";
+
+fn not_relayed() -> Response {
+    Response::Refused(crate::relay::NOT_RELAYED.to_owned())
+}
 
 /// What a node that keeps no book answers [`Request::Presences`] with.
 pub const NO_BOOK: &str = "this node relays no presences";
@@ -272,6 +283,29 @@ impl<'a> PeerService<'a> {
     /// [`Response::Refused`], because turning a peer's bad request into a local
     /// error would let a peer decide when this node stops working. `Err` is
     /// reserved for this node's own storage failing.
+    /// Whether this node relays for `caller` (§8 0v), and in which pool: a
+    /// machine of its own account, or of an account it hosts for and has
+    /// confirmed with the coordinator. Anybody else is refused, the same way
+    /// whether or not the device asked for is parked here.
+    #[must_use]
+    pub fn relays_for(&self, caller: DeviceId) -> Option<crate::relay::Class> {
+        if self
+            .relay
+            .is_some_and(|relay| relay.presences_for(caller).is_some())
+        {
+            return Some(crate::relay::Class::Own);
+        }
+        self.owners
+            .and_then(|owners| owners.confirmed_account(caller))
+            .map(crate::relay::Class::Hosted)
+    }
+
+    /// The account this node's store is for.
+    #[must_use]
+    pub fn owner(&self) -> UserId {
+        self.store.owner()
+    }
+
     pub fn handle(&self, request: &Request, caller: DeviceId) -> Result<Response> {
         if !request.is_acceptable() {
             return Ok(Response::Refused("malformed request".to_owned()));
@@ -416,6 +450,9 @@ impl<'a> PeerService<'a> {
             Request::Claim { claim } => Ok(self.claim(caller, claim)),
 
             Request::Draining { seconds } => self.draining(caller, *seconds),
+
+            // The transport takes these first; here, a relayed session asks.
+            Request::Park | Request::Splice { .. } => Ok(not_relayed()),
 
             Request::Hosted { chunks } => {
                 // A claim, recorded and then checked. The storage challenges

@@ -48,11 +48,13 @@ use std::{
 use itsanas_crypto::{ChunkId, DeviceId, DeviceKeys, ObjectId, UserId};
 use itsanas_store::SegmentEnvelope;
 use itsanas_tls::{
-    Authenticated, Identity,
+    Authenticated, Identity, Socket,
     limits::{ConnectionLimits, Slot},
     reach::{connect_to_one_of, listen_on},
 };
 use itsanas_wire::Connection;
+
+use crate::relay::NOT_RELAYING;
 
 use crate::{
     error::{NetError, Result},
@@ -89,10 +91,17 @@ pub const PEER_SESSION_BUDGET: Duration = Duration::from_secs(300);
 /// of the budget, and fails once nothing is. Without a budget it behaves as a
 /// plain socket under [`IO_TIMEOUT`], which is what interactive commands want:
 /// somebody watching `itsanas sync` can stop it themselves.
-#[derive(Debug)]
 pub struct Budgeted {
-    stream: TcpStream,
+    stream: Box<dyn Socket>,
     until: Option<Instant>,
+}
+
+impl std::fmt::Debug for Budgeted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Budgeted")
+            .field("until", &self.until)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Budgeted {
@@ -108,6 +117,15 @@ impl Budgeted {
             ));
         }
         Ok(Some(left.min(IO_TIMEOUT)))
+    }
+}
+
+impl Socket for Budgeted {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_read_timeout(timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_write_timeout(timeout)
     }
 }
 
@@ -184,6 +202,7 @@ pub struct PeerServer {
     config: Arc<rustls_config::Server>,
     handshake_deadline: Duration,
     witness: Arc<Witness>,
+    desk: crate::relay::Desk,
 }
 
 /// Keeps the rustls type out of this module's public signatures.
@@ -205,6 +224,7 @@ impl PeerServer {
             config: identity.server_config()?,
             handshake_deadline: HANDSHAKE_DEADLINE,
             witness: Arc::new(Witness::default()),
+            desk: crate::relay::Desk::default(),
         })
     }
 
@@ -339,34 +359,194 @@ impl PeerServer {
         let within_limit = slot.claim_device(peer);
 
         loop {
-            let request: Request = match connection.receive()? {
-                Some(request) => request,
+            let Some(request) = connection.receive::<Request>()? else {
                 // A clean close between requests is how a peer says goodbye.
-                None => return Ok(()),
+                return Ok(());
             };
-
-            // Read before refusing, never the other way round: closing a socket
-            // with unread data makes Windows reset it, which discards the
-            // refusal and leaves the caller reading "connection aborted".
-            if !within_limit {
-                connection.send(&Response::Refused(TOO_MANY_FROM_DEVICE.to_owned()))?;
-                return Ok(());
-            }
-
-            // `peer` is who TLS proved is on the other end, and it used to be
-            // dropped on the line above with `let _ = peer;`. Answering
-            // `Request::Hosted` needs it: recording that somebody holds a chunk
-            // is worthless if you cannot say who.
-            let response = service.handle(&request, peer)?;
-            connection.send(&response)?;
-
-            // Between requests, so a peer that keeps asking cannot keep a
-            // stopping daemon alive.
-            if shutdown.load(Ordering::Relaxed) {
-                return Ok(());
+            match request {
+                Request::Park | Request::Splice { .. } if within_limit => {
+                    // The connection stops carrying requests either way.
+                    return self.relay(connection, request, peer, service, shutdown);
+                }
+                request => {
+                    if !answer(
+                        &mut connection,
+                        &request,
+                        peer,
+                        within_limit,
+                        service,
+                        shutdown,
+                    )? {
+                        return Ok(());
+                    }
+                }
             }
         }
     }
+
+    /// A park or a splice (§8 0v), from a caller this node relays for; the
+    /// same refusal to anybody else, parked or not.
+    fn relay(
+        &self,
+        mut connection: Connection<crate::relay::Outer>,
+        request: Request,
+        peer: DeviceId,
+        service: &PeerService<'_>,
+        shutdown: &AtomicBool,
+    ) -> Result<()> {
+        let class = service.relays_for(peer);
+        match (request, class) {
+            (Request::Park, Some(class)) => {
+                let Some((waiting, _ticket)) = self.desk.park(peer, class) else {
+                    connection.send(&Response::Refused(NOT_RELAYING.to_owned()))?;
+                    return Ok(());
+                };
+                connection.send(&Response::Parked)?;
+                let mut said = Instant::now();
+                loop {
+                    // Woken every second so a stopping daemon lets its parks go.
+                    match waiting.handed.recv_timeout(Duration::from_secs(1)) {
+                        Ok(handoff) => {
+                            let _splicing = waiting.carrying();
+                            connection.send(&Response::Incoming { from: handoff.from })?;
+                            let (mut parked, parked_rest) = connection.into_parts();
+                            let mut caller = handoff.stream;
+                            parked.write_all(&handoff.rest)?;
+                            caller.write_all(&parked_rest)?;
+                            self.desk.pump(
+                                &mut caller,
+                                &mut parked,
+                                crate::relay::SPLICE_BUDGET,
+                                crate::relay::SPLICE_IDLE,
+                            );
+                            return Ok(());
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            if shutdown.load(Ordering::Relaxed) {
+                                return Ok(());
+                            }
+                            if said.elapsed() >= crate::relay::KEEPALIVE {
+                                connection.send(&Response::Parked)?;
+                                said = Instant::now();
+                            }
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+                    }
+                }
+            }
+            (Request::Splice { to }, Some(class)) if to != peer => {
+                let Some(reserved) = self.desk.reserve(to, class) else {
+                    connection.send(&Response::Refused(NOT_RELAYING.to_owned()))?;
+                    return Ok(());
+                };
+                connection.send(&Response::Spliced)?;
+                let (stream, rest) = connection.into_parts();
+                reserved.hand(crate::relay::Handoff {
+                    stream,
+                    rest,
+                    from: peer,
+                });
+                Ok(())
+            }
+            _ => {
+                connection.send(&Response::Refused(NOT_RELAYING.to_owned()))?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Park on `relay` and serve, over the splice, the one caller it hands
+    /// on (§8 0v); returns once that caller is done or the park is lost.
+    /// The daemon calls it again, with a pause, for as long as this node is
+    /// reachable only that way.
+    ///
+    /// The caller proves itself again over the splice: who the relay says
+    /// it is ([`Response::Incoming`]) is not taken.
+    ///
+    /// # Errors
+    ///
+    /// A relay that refuses, is too old, or cannot be reached.
+    pub fn serve_parked(
+        &self,
+        relay: impl ToSocketAddrs,
+        relay_device: DeviceId,
+        service: &PeerService<'_>,
+        device: &DeviceKeys,
+        shutdown: &AtomicBool,
+    ) -> Result<()> {
+        let mut client = PeerClient::connect(relay, device, service.owner(), Some(relay_device))?;
+        if client.spoken < crate::protocol::PROTOCOL_WITH_RELAY {
+            return Err(NetError::Refused(crate::relay::RELAY_TOO_OLD.to_owned()));
+        }
+        match client.request(&Request::Park)? {
+            Response::Parked => {}
+            Response::Refused(reason) => return Err(NetError::Refused(reason)),
+            _ => return Err(NetError::UnexpectedResponse { expected: "parked" }),
+        }
+        loop {
+            match client.connection.receive::<Response>()? {
+                Some(Response::Parked) if !shutdown.load(Ordering::Relaxed) => {}
+                Some(Response::Incoming { .. }) => break,
+                Some(_) => {
+                    return Err(NetError::UnexpectedResponse {
+                        expected: "incoming",
+                    });
+                }
+                None => return Ok(()),
+            }
+        }
+        let (stream, rest) = client.into_parts();
+        let Authenticated {
+            peer,
+            mut connection,
+        } = itsanas_tls::accept_within(
+            &self.config,
+            device,
+            crate::relay::Prefixed::new(rest, stream),
+            self.handshake_deadline,
+            IO_TIMEOUT,
+        )?;
+        // An ordinary session's budget: a caller, or the relay, trickling
+        // requests does not keep this machine from parking again.
+        let until = Instant::now() + PEER_SESSION_BUDGET;
+        while let Some(request) = connection.receive::<Request>()? {
+            if !answer(&mut connection, &request, peer, true, service, shutdown)?
+                || Instant::now() >= until
+            {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Answer one request; `false` when the connection is to close.
+fn answer<S: Read + Write>(
+    connection: &mut Connection<S>,
+    request: &Request,
+    peer: DeviceId,
+    within_limit: bool,
+    service: &PeerService<'_>,
+    shutdown: &AtomicBool,
+) -> Result<bool> {
+    // Read before refusing, never the other way round: closing a socket
+    // with unread data makes Windows reset it, which discards the
+    // refusal and leaves the caller reading "connection aborted".
+    if !within_limit {
+        connection.send(&Response::Refused(TOO_MANY_FROM_DEVICE.to_owned()))?;
+        return Ok(false);
+    }
+
+    // `peer` is who TLS proved is on the other end, and it used to be
+    // dropped on the line above with `let _ = peer;`. Answering
+    // `Request::Hosted` needs it: recording that somebody holds a chunk
+    // is worthless if you cannot say who.
+    let response = service.handle(request, peer)?;
+    connection.send(&response)?;
+
+    // Between requests, so a peer that keeps asking cannot keep a
+    // stopping daemon alive.
+    Ok(!shutdown.load(Ordering::Relaxed))
 }
 
 /// How long a caller has, in total, to complete TLS and prove its device key.
@@ -498,11 +678,75 @@ impl PeerClient {
         stream.set_read_timeout(Some(IO_TIMEOUT))?;
         stream.set_write_timeout(Some(IO_TIMEOUT))?;
         stream.set_nodelay(true)?;
-        let stream = Budgeted {
-            stream,
-            until: budget.map(|budget| Instant::now() + budget),
-        };
+        let until = budget.map(|budget| Instant::now() + budget);
+        Self::establish(
+            Budgeted {
+                stream: Box::new(stream),
+                until,
+            },
+            device,
+            owner,
+            expect,
+        )
+    }
 
+    /// Reach `target` through `relay`, a peer it has parked on (§8 0v).
+    ///
+    /// The relay is dialled and proven like any peer, asked to splice, and
+    /// then a second, end-to-end session is run over the splice, with
+    /// `target` pinned: the relay passes ciphertext it cannot read, and a
+    /// relay answering in `target`'s place fails that session's proof.
+    ///
+    /// # Errors
+    ///
+    /// The relay's refusal, a relay older than
+    /// [`crate::protocol::PROTOCOL_WITH_RELAY`], or anything `connect` fails on.
+    pub fn connect_relayed(
+        relay: impl ToSocketAddrs,
+        relay_device: DeviceId,
+        target: DeviceId,
+        device: &DeviceKeys,
+        owner: UserId,
+        budget: Option<Duration>,
+    ) -> Result<Self> {
+        let mut outer = Self::connect_within(relay, device, owner, Some(relay_device), budget)?;
+        if outer.spoken < crate::protocol::PROTOCOL_WITH_RELAY {
+            return Err(NetError::Refused(crate::relay::RELAY_TOO_OLD.to_owned()));
+        }
+        match outer.request(&Request::Splice { to: target })? {
+            Response::Spliced => {}
+            Response::Refused(reason) => return Err(NetError::Refused(reason)),
+            _ => {
+                return Err(NetError::UnexpectedResponse {
+                    expected: "spliced",
+                });
+            }
+        }
+        let (stream, rest) = outer.connection.into_parts();
+        let until = budget.map(|budget| Instant::now() + budget);
+        Self::establish(
+            Budgeted {
+                stream: Box::new(crate::relay::Prefixed::new(rest, stream)),
+                until,
+            },
+            device,
+            owner,
+            Some(target),
+        )
+    }
+
+    /// The stream back, and what was read past the last message: a park
+    /// becomes a splice (§8 0v).
+    pub(crate) fn into_parts(self) -> (itsanas_tls::session::ClientStream<Budgeted>, Vec<u8>) {
+        self.connection.into_parts()
+    }
+
+    fn establish(
+        stream: Budgeted,
+        device: &DeviceKeys,
+        owner: UserId,
+        expect: Option<DeviceId>,
+    ) -> Result<Self> {
         let identity = Identity::generate()?;
         let Authenticated { peer, connection } =
             itsanas_tls::connect(&identity.client_config()?, device, stream, expect)?;
