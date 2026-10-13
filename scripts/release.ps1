@@ -10,8 +10,9 @@
 
       1. goes to the checkout this script lives in; refuses uncommitted
          changes rather than guess what to do with them;
-      2. with -Pr: waits for that PR's CI, marks it ready, squash-merges it
-         (a red check stops everything);
+      2. with -Pr: marks that PR ready, turns on GitHub's auto-merge and
+         waits until GitHub has merged it (a red required check stops
+         everything);
       3. brings local main up to origin/main;
       4. takes the tag from Cargo.toml's [workspace.package] version, so the
          Release workflow's version check cannot refuse it. Refuses a
@@ -69,16 +70,22 @@ if (git status --porcelain) {
 }
 
 if ($Pr -gt 0) {
-    Say "Waiting for the CI of PR #$Pr"
-    # A check the workflow planned to skip counts as passed for gh, as for
-    # AGENTS.md; give GitHub a moment to register the checks of a fresh push.
-    Start-Sleep -Seconds 10
-    Invoke-Checked "PR #${Pr}: a check failed, nothing merged (gh pr checks $Pr -R $Repo)" {
-        gh pr checks $Pr -R $Repo --watch --interval 30 --fail-fast
-    }
-    Say "Merging PR #$Pr"
+    # GitHub merges it once `No warnings anywhere in this run` passes (main
+    # requires that check, auto-merge is allowed): enable that, then wait for
+    # the merge rather than judge the checks here.
+    Say "PR #${Pr}: auto-merge on, waiting for its CI and the merge"
     gh pr ready $Pr -R $Repo 2>$null | Out-Null
-    Invoke-Checked "PR #${Pr} could not be merged" { gh pr merge $Pr -R $Repo --squash --delete-branch=false }
+    Invoke-Checked "PR #${Pr}: auto-merge could not be enabled" { gh pr merge $Pr -R $Repo --auto --squash }
+    while ($true) {
+        $state = gh pr view $Pr -R $Repo --json state -q .state
+        if ($state -eq 'MERGED') { break }
+        if ($state -eq 'CLOSED') { Stop-Plain "PR #$Pr was closed without merging" }
+        # A failed required check leaves the PR open and blocked for good.
+        if (gh pr checks $Pr -R $Repo --required 2>$null | Select-String -Pattern '\bfail' -Quiet) {
+            Stop-Plain "PR #${Pr}: CI failed, nothing merged (gh pr checks $Pr -R $Repo)"
+        }
+        Start-Sleep -Seconds 30
+    }
 }
 
 Say 'Updating main'
