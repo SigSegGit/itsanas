@@ -456,7 +456,9 @@ impl PeerServer {
     }
 
     /// Park on `relay` and serve, over the splice, the one caller it hands
-    /// on (§8 0v); returns once that caller is done or the park is lost.
+    /// on (§8 0v); returns once that caller is done (`true`) or the relay
+    /// closed the park with nobody (`false`, which the caller backs off on:
+    /// a relay that closes every park must not be dialled in a loop).
     /// The daemon calls it again, with a pause, for as long as this node is
     /// reachable only that way.
     ///
@@ -473,7 +475,7 @@ impl PeerServer {
         service: &PeerService<'_>,
         device: &DeviceKeys,
         shutdown: &AtomicBool,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let mut client = PeerClient::connect(relay, device, service.owner(), Some(relay_device))?;
         if client.spoken < crate::protocol::PROTOCOL_WITH_RELAY {
             return Err(NetError::Refused(crate::relay::RELAY_TOO_OLD.to_owned()));
@@ -492,7 +494,7 @@ impl PeerServer {
                         expected: "incoming",
                     });
                 }
-                None => return Ok(()),
+                None => return Ok(false),
             }
         }
         let (stream, rest) = client.into_parts();
@@ -516,7 +518,7 @@ impl PeerServer {
                 break;
             }
         }
-        Ok(())
+        Ok(true)
     }
 }
 

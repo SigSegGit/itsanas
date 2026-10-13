@@ -1971,10 +1971,25 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `itsanas_tls::Socket` (TCP or a session inside one). Rodin on the plan:
       no join token (splice onto the park), one shared rate, uniform
       refusals, per-account park cap, address `relay:<R id>` resolved from
-      R's own presence. **Next: the daemon** -- pick R (own reachable
-      machine, else a host), park while no public address, announce
-      `relay:<id>` once the fleet speaks 9 (gated like `ANNOUNCE_LISTS`),
-      and dial through it when a direct dial fails. Coordinator relay:
+      R's own presence. **Second step built 2026-10-13, the daemon:**
+      `park_while_unreachable` (no `announce`, no port the router opened,
+      a coordinator; `ITSANAS_NO_RELAY` turns it off) parks on
+      `Contact::relay_choice` -- the account's first machine with a public,
+      non-relay address -- and parks again after each caller; the dialler
+      reaches a `relay:<id>` presence through `Contact::through`, at the
+      relay's own address from the book, never one the announcer gave.
+      Red team on the diff: a relay closing every park was redialled in a
+      loop (now `serve_parked` says whether a caller was served, and the
+      daemon backs off), the park outlived the router opening a port (now
+      re-checked before each re-park), one refusing relay blocked parking
+      for good (now the next is tried), a `relay:` address with no known
+      relay was dialled as a socket (now refused at once): fixed. Open: a
+      stop waits up to `IO_TIMEOUT` for a quiet relay.
+      Announcing `relay:<id>` is built but off (`ANNOUNCE_RELAY = false`,
+      with `ANNOUNCE_LISTS`): a peer below protocol 9 cannot dial it.
+      **Next:** turn both on in the next release; choose a host of another
+      account when the account has no reachable machine (the relay side
+      already admits it, `Owners::confirmed_account`). Coordinator relay:
       not built, only if measured.
    s. ✅ **The vault on another disk (a NAS), the default unchanged.**
       Built 2026-10-13: `Config::vault`, `Node::vault_path`/`open_vault`
