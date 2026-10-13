@@ -272,6 +272,25 @@ impl<'a> CoordService<'a> {
         }
     }
 
+    /// One more escrow fetch of `username`: memory first (cheap, and what
+    /// bounds a flood), then the disk, which a restart does not clear.
+    fn escrow_allowed(
+        &self,
+        limiter: &mut EscrowLimiter,
+        username: &str,
+        now: Instant,
+        now_unix: u64,
+    ) -> Result<bool> {
+        Ok(limiter.allow(username, now)
+            && self.directory.count_escrow_attempt(
+                username,
+                now_unix,
+                ESCROW_ATTEMPTS,
+                ESCROW_WINDOW.as_secs(),
+                ESCROW_TRACKED,
+            )?)
+    }
+
     pub fn handle(
         &self,
         request: &Request,
@@ -363,7 +382,7 @@ impl<'a> CoordService<'a> {
                 if username.len() > MAX_WIRE_USERNAME {
                     return Ok(Response::Refused("username too long".to_owned()));
                 }
-                if !limiter.allow(username, now) {
+                if !self.escrow_allowed(limiter, username, now, now_unix)? {
                     // The same answer whether the name exists or not: a
                     // limiter that only triggered on real accounts would be a
                     // free oracle for which names are worth attacking.

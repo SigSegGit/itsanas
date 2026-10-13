@@ -276,7 +276,16 @@ impl<'a> Updater<'a> {
         }
         let (bytes, signature) = self.fetch_manifest("latest/download")?;
         match itsanas_release::verify_release(&bytes, &signature, trust, self.running) {
-            Ok(manifest) => Ok(Found::Available(manifest)),
+            // A build `install` will refuse is not told of an update: a source
+            // build outside `target/` used to hear "update available" every
+            // day, then be refused by `itsanas update` (HANDOVER §9). The
+            // price is this second manifest, and only when one is newer.
+            Ok(manifest) => {
+                match self.installed_from_release(trust, self.target.unwrap_or_default()) {
+                    Ok(()) => Ok(Found::Available(manifest)),
+                    Err(why) => Ok(Found::NotFromRelease(why.to_string())),
+                }
+            }
             Err(ReleaseError::NotNewer { .. }) => Ok(Found::UpToDate(self.running)),
             Err(other) => Err(refused(&other)),
         }

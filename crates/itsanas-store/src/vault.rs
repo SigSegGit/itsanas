@@ -735,6 +735,15 @@ impl Vault {
             }
         }
         txn.commit()?;
+        // A full pass done: give back the space of what was removed since,
+        // for owners whose chunks are in packs (blob files gave it back at
+        // removal). Once a pass, not per removal: a compaction moves up to a
+        // pack's worth of bytes, which a request must not wait for.
+        if reached_end {
+            for owner in self.owners()? {
+                self.blobs_for(owner)?.compact()?;
+            }
+        }
         Ok(check)
     }
 
