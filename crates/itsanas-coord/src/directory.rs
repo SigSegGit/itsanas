@@ -107,6 +107,18 @@ const INVITATIONS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("inv
 /// and a departure are different facts and the regulation that will read them
 /// has not been written: keeping them apart now is what leaves it free.
 const DEPARTURES: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("departures");
+/// A deleted account's name -> the unix time it is free again. Deleting does
+/// not free a name at once, so creating and deleting the same name in a loop
+/// buys nothing, and a friend's list does not show a stranger under a name it
+/// knew until a year has passed (Rodin, 2026-10-12).
+const RETIRED: TableDefinition<'_, &str, u64> = TableDefinition::new("retired_names");
+/// A deleted account's key -> its own signed request: the tombstone hosts ask
+/// about at their rounds, so a host that was offline when it happened still
+/// frees what it kept, and checks the account's signature before it does.
+const DELETED: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("deleted_accounts");
+
+/// How long a deleted account's name stays retired.
+pub const NAME_RETIRED_FOR: u64 = 365 * 24 * 3600;
 
 /// What [`Directory::forget_account`] removed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -307,6 +319,8 @@ impl Directory {
             let _ = txn.open_table(USAGE)?;
             let _ = txn.open_table(AVAILABILITY)?;
             let _ = txn.open_table(DEPARTURES)?;
+            let _ = txn.open_table(RETIRED)?;
+            let _ = txn.open_table(DELETED)?;
         }
         txn.commit()?;
 
@@ -349,6 +363,7 @@ impl Directory {
         signed.verify()?;
 
         let joiner = signed.registration.user.id;
+        self.refuse_if_retired(&signed.registration.username, joiner, now)?;
         let held = self.account_of(joiner)?;
         let returning = held.is_some();
 
@@ -615,6 +630,78 @@ impl Directory {
         };
         txn.commit()?;
         Ok(Some(forgotten))
+    }
+
+    /// Refuse a deleted account's key for ever, and its name until it is free.
+    fn refuse_if_retired(&self, name: &str, user: UserId, now: u64) -> Result<()> {
+        let txn = self.db.begin_read()?;
+        if txn
+            .open_table(DELETED)?
+            .get(user.as_bytes().as_slice())?
+            .is_some()
+        {
+            return Err(CoordError::Deleted);
+        }
+        if let Some(until) = txn.open_table(RETIRED)?.get(name)?.map(|v| v.value())
+            && until > now
+        {
+            return Err(CoordError::Retired {
+                name: name.to_owned(),
+                until,
+            });
+        }
+        Ok(())
+    }
+
+    /// Delete an account at its own request (HANDOVER §8 0w (8), option A).
+    ///
+    /// The tombstone and the retired name are written first, in their own
+    /// transaction: a crash after them leaves an account that cannot come back
+    /// and whose hosts free its chunks, never one half-forgotten and free to
+    /// be taken. Then the account is forgotten as `forget_account` does.
+    ///
+    /// # Errors
+    ///
+    /// A bad or stale signature, a name that is not this key's account, the
+    /// database's.
+    pub fn delete_account(&self, signed: &crate::claim::SignedDeletion, now: u64) -> Result<()> {
+        signed.verify(now)?;
+        let user = signed.deletion.user;
+        let name = signed.deletion.username.as_str();
+        match self.account_of(user)? {
+            Some(account) if account.username == name => {}
+            _ => return Err(CoordError::NoSuchAccount(name.to_owned())),
+        }
+        let txn = self.db.begin_write()?;
+        {
+            txn.open_table(DELETED)?.insert(
+                user.as_bytes().as_slice(),
+                postcard::to_stdvec(signed)?.as_slice(),
+            )?;
+            txn.open_table(RETIRED)?
+                .insert(name, now.saturating_add(NAME_RETIRED_FOR))?;
+        }
+        txn.commit()?;
+        self.forget_account(name)?;
+        Ok(())
+    }
+
+    /// Which of `users` were deleted: what a host asks before freeing what it
+    /// keeps for them.
+    ///
+    /// # Errors
+    ///
+    /// The database's.
+    pub fn deleted_among(&self, users: &[UserId]) -> Result<Vec<crate::claim::SignedDeletion>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(DELETED)?;
+        let mut out = Vec::new();
+        for user in users {
+            if let Some(value) = table.get(user.as_bytes().as_slice())? {
+                out.push(postcard::from_bytes(value.value())?);
+            }
+        }
+        Ok(out)
     }
 
     /// Turn escrow on or off for a member.
@@ -2886,5 +2973,109 @@ mod tests {
         let directory = Directory::open(&path).unwrap();
         assert!(directory.account("nicolas").unwrap().is_some());
         assert_eq!(directory.live_claims().unwrap().len(), 1);
+    }
+
+    fn deletion(owner: &UserKeys, name: &str, at: u64) -> crate::claim::SignedDeletion {
+        crate::claim::Deletion {
+            user: owner.user_id(),
+            username: name.to_owned(),
+            at_unix: at,
+        }
+        .sign(owner)
+    }
+
+    fn try_register(
+        directory: &Directory,
+        name: &str,
+        owner: &UserKeys,
+        now: u64,
+    ) -> Result<Account> {
+        let signed = Registration {
+            username: name.to_owned(),
+            user: owner.public(),
+            issued_unix: now,
+        }
+        .sign(owner);
+        directory.register(&signed, now)
+    }
+
+    #[test]
+    fn red_team_a_deleted_name_stays_retired_a_year_and_its_old_key_never_returns() {
+        let (_dir, directory) = directory();
+        let first = user(61);
+        let stranger = user(62);
+        register(&directory, "nicolas", &first);
+        directory
+            .delete_account(&deletion(&first, "nicolas", NOW), NOW)
+            .expect("delete");
+        assert!(directory.account("nicolas").unwrap().is_none());
+
+        assert!(
+            matches!(
+                try_register(&directory, "nicolas", &stranger, NOW + 1),
+                Err(CoordError::Retired { .. })
+            ),
+            "a deleted name was free at once: a stranger would appear as nicolas in the lists of \
+             people who knew him, and create/delete in a loop would cycle the name at will"
+        );
+        assert!(
+            matches!(
+                try_register(&directory, "another", &first, NOW + 1),
+                Err(CoordError::Deleted)
+            ),
+            "a deleted account's key registered again: its hosts, told it was deleted, would \
+             hold its chunks for a key that is back"
+        );
+        assert!(
+            try_register(&directory, "nicolas", &stranger, NOW + NAME_RETIRED_FOR + 1).is_ok(),
+            "a retired name never came back, so a deletion took it from everyone for ever"
+        );
+    }
+
+    #[test]
+    fn red_team_only_the_account_itself_freshly_deletes_it() {
+        let (_dir, directory) = directory();
+        let owner = user(63);
+        let other = user(64);
+        register(&directory, "camille", &owner);
+        register(&directory, "eve", &other);
+
+        let mut forged = deletion(&other, "camille", NOW);
+        forged.deletion.user = owner.user_id();
+        for (attempt, why) in [
+            (forged, "a deletion signed by another account's key"),
+            (
+                deletion(&owner, "camille", NOW - crate::claim::MAX_DELETION_AGE - 1),
+                "a stale, kept request",
+            ),
+            (
+                deletion(&other, "camille", NOW),
+                "a request naming somebody else's account",
+            ),
+        ] {
+            assert!(
+                directory.delete_account(&attempt, NOW).is_err(),
+                "{why} deleted an account"
+            );
+        }
+        assert!(directory.account("camille").unwrap().is_some());
+        assert_eq!(
+            directory
+                .deleted_among(&[owner.user_id(), other.user_id()])
+                .unwrap(),
+            Vec::new()
+        );
+
+        directory
+            .delete_account(&deletion(&owner, "camille", NOW), NOW)
+            .expect("delete");
+        let told = directory
+            .deleted_among(&[owner.user_id(), other.user_id()])
+            .unwrap();
+        assert_eq!(
+            told.iter().map(|d| d.deletion.user).collect::<Vec<_>>(),
+            vec![owner.user_id()],
+            "a host asking which of its owners were deleted was not told, so it kept their chunks"
+        );
     }
 }

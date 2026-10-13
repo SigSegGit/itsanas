@@ -753,3 +753,87 @@ mod tests {
         );
     }
 }
+
+/// Domain string for an account's own request to be deleted.
+pub const DELETION_DOMAIN: &str = "itsanas v1 account deletion";
+
+/// How old a deletion request may be when it arrives. Short: a request is
+/// sent at once, and one kept for later should not be good for later.
+pub const MAX_DELETION_AGE: u64 = 600;
+
+/// An account's request to be deleted (HANDOVER §8 0w (8), option A).
+///
+/// Signed with the **account's** key, which only the 24 words and the
+/// keystores hold: a device key cannot delete the account it belongs to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Deletion {
+    pub user: UserId,
+    pub username: String,
+    pub at_unix: u64,
+}
+
+/// A [`Deletion`] with the account's signature over it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignedDeletion {
+    pub deletion: Deletion,
+    pub signature: Signature,
+}
+
+impl Deletion {
+    fn payload(&self) -> Vec<u8> {
+        let name = self.username.as_bytes();
+        let mut out = Vec::with_capacity(32 + 4 + name.len() + 8);
+        out.extend_from_slice(self.user.as_bytes());
+        out.extend_from_slice(&u32::try_from(name.len()).unwrap_or(u32::MAX).to_le_bytes());
+        out.extend_from_slice(name);
+        out.extend_from_slice(&self.at_unix.to_le_bytes());
+        out
+    }
+
+    /// Sign with the account's own key.
+    #[must_use]
+    pub fn sign(self, user: &UserKeys) -> SignedDeletion {
+        let signature = user.sign(DELETION_DOMAIN, &self.payload());
+        SignedDeletion {
+            deletion: self,
+            signature,
+        }
+    }
+}
+
+impl SignedDeletion {
+    /// The account's signature alone, whatever the date: what a host checks
+    /// on a tombstone its coordinator hands it, so a coordinator cannot make
+    /// hosts drop an account that never asked to be deleted.
+    pub fn verify_origin(&self) -> Result<()> {
+        verify(
+            self.deletion.user.as_bytes(),
+            DELETION_DOMAIN,
+            &self.deletion.payload(),
+            self.signature,
+        )
+        .map_err(|_| CoordError::BadSignature("deletion"))
+    }
+
+    /// Check the account's signature, and that the request is fresh.
+    pub fn verify(&self, now: u64) -> Result<()> {
+        if self.deletion.at_unix > now.saturating_add(MAX_CLOCK_SKEW) {
+            return Err(CoordError::FromTheFuture {
+                issued: self.deletion.at_unix,
+                now,
+            });
+        }
+        if now.saturating_sub(self.deletion.at_unix) > MAX_DELETION_AGE {
+            return Err(CoordError::Rejected(
+                "this deletion request is too old; sign a new one",
+            ));
+        }
+        verify(
+            self.deletion.user.as_bytes(),
+            DELETION_DOMAIN,
+            &self.deletion.payload(),
+            self.signature,
+        )
+        .map_err(|_| CoordError::BadSignature("deletion"))
+    }
+}

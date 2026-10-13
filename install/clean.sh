@@ -5,6 +5,7 @@
 #   sh install/clean.sh              # show what would go, change nothing
 #   sh install/clean.sh --yes        # remove the programs and the service
 #   sh install/clean.sh --yes --purge-account   # and the account, after a drain
+#   sh install/clean.sh --yes --purge-account --purge-folder  # and the synced folder
 #   sudo sh install/clean.sh --yes --purge-coordinator  # a coordinator host
 #   sh install/clean.sh --yes --instance bob   # one named instance, nothing else
 #
@@ -35,6 +36,7 @@ set -eu
 
 DO_IT=0
 PURGE=0
+PURGE_FOLDER=0
 DRAIN_FOR=30
 PURGE_COORD=0
 PREFIX="${ITSANAS_PREFIX:-$HOME/.local}"
@@ -55,6 +57,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --yes|-y) DO_IT=1; shift ;;
         --purge-account) PURGE=1; shift ;;
+        --purge-folder) PURGE_FOLDER=1; shift ;;
         --drain-for)
             # Checked here, not by `leave`: a bad value there fails the drain
             # and the purge would go on without one.
@@ -121,6 +124,32 @@ each_tray_file() {
     IFS=$saved_ifs
 }
 
+# The synced folder of $NODE_HOME, for --purge-folder: read from its config,
+# and only a directory holding the folder's marker (.itsanas-folder), so a
+# config pointing at a home directory or a disk root never empties it.
+synced_folder() {
+    [ "$PURGE_FOLDER" -eq 1 ] && [ -f "$1/config" ] || return 0
+    found=$(sed -n 's/^folder = //p' "$1/config" | head -n 1)
+    [ -n "$found" ] && [ -f "$found/.itsanas-folder" ] && printf '%s\n' "$found"
+    return 0
+}
+
+plan_folder() {
+    [ "$PURGE_FOLDER" -eq 1 ] || return 0
+    folder=$(synced_folder "$1")
+    if [ -n "$folder" ]; then
+        plan "REMOVE $folder - the synced folder and every file in it, on this machine"
+    else
+        plan "no synced folder of this node to remove (none set, or no .itsanas-folder marker in it)"
+    fi
+}
+
+remove_folder() {
+    folder=$(synced_folder "$1")
+    [ -n "$folder" ] && rm -rf "$folder" && say "synced folder removed: $folder"
+    return 0
+}
+
 # The account is about to go, and with it what this machine holds for other
 # members: drain first (§8 0w (7)), with the service already stopped because
 # one process at a time holds a node. `leave` asks each owner to re-place what
@@ -148,6 +177,11 @@ drain_before_purge() {
         warn "the drain did not run; the owners stop counting this machine after their next audits"
     fi
 }
+
+if [ "$PURGE_FOLDER" -eq 1 ] && [ "$PURGE" -ne 1 ]; then
+    say "--purge-folder goes with --purge-account: the folder of an account that stays is its own business"
+    exit 2
+fi
 
 # One named instance, and nothing that other nodes on this machine share: the
 # programs, the unit template and the other instances stay.
@@ -178,6 +212,7 @@ if [ -n "$INSTANCE" ]; then
     if [ -d "$NODE_HOME" ]; then
         if [ "$PURGE" -eq 1 ]; then
             plan "REMOVE $NODE_HOME - the sealed master secret and every chunk of this instance"
+            plan_folder "$NODE_HOME"
         else
             plan "keep $NODE_HOME (pass --purge-account to remove it)"
         fi
@@ -199,6 +234,7 @@ if [ -n "$INSTANCE" ]; then
     rm -f "$SECRET" "$AGENT"
     each_tray_file remove_tray_file
     if [ "$PURGE" -eq 1 ] && [ -d "$NODE_HOME" ]; then
+        remove_folder "$NODE_HOME"
         rm -rf "$NODE_HOME"
     fi
     say "instance $INSTANCE removed"
@@ -274,6 +310,7 @@ if [ -d "$NODE_HOME" ]; then
     if [ "$PURGE" -eq 1 ]; then
         plan "REMOVE $NODE_HOME — the sealed master secret and every chunk on this machine"
         plan "anything here and nowhere else is gone for good"
+        plan_folder "$NODE_HOME"
     else
         plan "keep $NODE_HOME (pass --purge-account to remove it)"
     fi
@@ -386,6 +423,7 @@ done
 say "passphrase files removed"
 
 if [ "$PURGE" -eq 1 ] && [ -d "$NODE_HOME" ]; then
+    remove_folder "$NODE_HOME"
     rm -rf "$NODE_HOME"
     say "account removed from $NODE_HOME"
 elif [ -d "$NODE_HOME" ]; then

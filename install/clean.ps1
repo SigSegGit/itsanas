@@ -25,11 +25,15 @@
     powershell -ExecutionPolicy Bypass -File install\clean.ps1
     powershell -ExecutionPolicy Bypass -File install\clean.ps1 -Yes
     powershell -ExecutionPolicy Bypass -File install\clean.ps1 -Yes -PurgeAccount
+    powershell -ExecutionPolicy Bypass -File install\clean.ps1 -Yes -PurgeAccount -PurgeFolder
 #>
 [CmdletBinding()]
 param(
     [switch]$Yes,
     [switch]$PurgeAccount,
+    # With -PurgeAccount: the account's synced folder too, and only a folder
+    # holding the .itsanas-folder marker.
+    [switch]$PurgeFolder,
     # Minutes -PurgeAccount waits for the owners to re-place what this machine
     # holds for them alone (`itsanas leave --drain-for`). 0 skips the drain.
     [ValidateRange(0, 120)][int]$DrainFor = 30,
@@ -60,6 +64,40 @@ function Invoke-DrainBeforePurge([string]$secretFile) {
     if ($LASTEXITCODE -ne 0) { Write-Warning "the drain did not run; the owners stop counting this machine after their next audits" }
     Remove-Item Env:ITSANAS_PASSPHRASE -ErrorAction SilentlyContinue
 }
+if ($PurgeFolder -and -not $PurgeAccount) {
+    Write-Host "-PurgeFolder goes with -PurgeAccount: the folder of an account that stays is its own business"
+    exit 2
+}
+
+# The synced folder of a node, for -PurgeFolder: its config's `folder = `
+# line, and only a directory holding the marker, so a config pointing at a
+# home directory or a drive root never empties it.
+function Get-SyncedFolder([string]$nodeHome) {
+    if (-not $PurgeFolder) { return $null }
+    $config = Join-Path $nodeHome 'config'
+    if (-not (Test-Path -LiteralPath $config)) { return $null }
+    $line = Get-Content -LiteralPath $config | Where-Object { $_.StartsWith('folder = ') } | Select-Object -First 1
+    if (-not $line) { return $null }
+    $folder = $line.Substring(9)
+    if (Test-Path -LiteralPath (Join-Path $folder '.itsanas-folder')) { return $folder }
+    return $null
+}
+
+function Show-FolderPlan([string]$nodeHome) {
+    if (-not $PurgeFolder) { return }
+    $folder = Get-SyncedFolder $nodeHome
+    if ($folder) { Plan "REMOVE $folder - the synced folder and every file in it, on this machine" }
+    else { Plan "no synced folder of this node to remove (none set, or no .itsanas-folder marker in it)" }
+}
+
+function Remove-SyncedFolder([string]$nodeHome) {
+    $folder = Get-SyncedFolder $nodeHome
+    if ($folder) {
+        Remove-Item -LiteralPath $folder -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "synced folder removed: $folder"
+    }
+}
+
 $taskName = 'ITSaNAS'
 # Where provision.ps1 puts the tray icon's logon shortcut: "ITSaNAS tray.lnk"
 # for the default node, "ITSaNAS tray (NAME).lnk" for an instance. The name
@@ -89,7 +127,7 @@ if ($Instance) {
     if ($task) { Plan "stop and remove the task '$taskName'" } else { Plan "no task named '$taskName'" }
     foreach ($file in $files) { if (Test-Path $file) { Plan "remove $file" } }
     if (Test-Path $NodeHome) {
-        if ($PurgeAccount) { Plan "REMOVE $NodeHome - the sealed master secret and every chunk of this instance" }
+        if ($PurgeAccount) { Plan "REMOVE $NodeHome - the sealed master secret and every chunk of this instance"; Show-FolderPlan $NodeHome }
         else { Plan "keep $NodeHome (pass -PurgeAccount to remove it)" }
     } else { Plan "no node at $NodeHome" }
     if (-not $Yes) {
@@ -104,6 +142,7 @@ if ($Instance) {
     Invoke-DrainBeforePurge "$state\passphrase-$Instance.txt"
     foreach ($file in $files) { Remove-Item $file -Force -ErrorAction SilentlyContinue }
     if ($PurgeAccount -and (Test-Path $NodeHome)) {
+        Remove-SyncedFolder $NodeHome
         Remove-Item $NodeHome -Recurse -Force -ErrorAction SilentlyContinue
     }
     Write-Host "instance $Instance removed"
@@ -152,6 +191,7 @@ if (Test-Path $NodeHome) {
     if ($PurgeAccount) {
         Plan "REMOVE $NodeHome - the sealed master secret and every chunk on this machine"
         Plan "anything here and nowhere else is gone for good"
+        Show-FolderPlan $NodeHome
     } else {
         Plan "keep $NodeHome (pass -PurgeAccount to remove it)"
     }
@@ -200,6 +240,7 @@ foreach ($link in $trayLinks) { Remove-Item -LiteralPath $link.FullName -Force -
 if ($trayLinks.Count -gt 0) { Write-Host "tray icons no longer start at logon" }
 
 if ($PurgeAccount -and (Test-Path $NodeHome)) {
+    Remove-SyncedFolder $NodeHome
     Remove-Item $NodeHome -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "account removed from $NodeHome"
 } elseif (Test-Path $NodeHome) {

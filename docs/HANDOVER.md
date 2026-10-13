@@ -9,8 +9,8 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0w
-TITLE: (8) account deletion, closed question to Nicolas first
+NEXT: 8.0u
+TITLE: reachable without forwards: hole punching (5b), after the fleet test of this session's work
 WRITTEN-AT: 2026-10-12
 BASE: 1bace7a
 -->
@@ -20,7 +20,23 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**2026-10-12, latest: the tray's "Remove this machine..." (0w (7) closed).**
+**2026-10-12, latest: one session, four PRs (Nicolas: "all of it here").**
+(1) pledges per disk (#261): `itsanas-node` `pledges.rs`, `pledge.state` in
+each home and in `ITSANAS_PLEDGES_DIR` (Docker: `install/docker/pledges`),
+refusal naming the others, CANNOT KEEP in `status`, hosting stops at free
+space minus 256 MiB. (2) setup: "set up another account" (`/api/another`,
+never an existing home), done steps hide their fields and say so in the
+page's language; `clean --purge-folder` / `-PurgeFolder` (marked folders
+only). (3) account deletion, 0w (8) above. Rodin on the plan: name retired a
+year (not 30 days), IP limits useless, tombstone held at the coordinator.
+Found on my own diff: hosts first trusted the coordinator's word for a
+deletion; now the account's signature. Traps: CI's clippy is newer than the
+container's (`assert!(x.is_empty())` refused); a push to a non-designated
+branch left `step/pledge-per-disk` on the remote (the proxy refused its
+deletion; delete it by hand). Open: the tray colour ignores CANNOT KEEP;
+`clean.ps1 -PurgeFolder` never ran (no pwsh here); MCP waits for Nicolas.
+
+**2026-10-12, earlier: the tray's "Remove this machine..." (0w (7) closed).**
 All three trays, one menu (`check-installers.sh`). Also merged today: #258
 (the drain), #259 (AGENTS: merge a green PR without asking). NEXT (8)
 needs Nicolas's closed answer before code. Asked by Nicolas 2026-10-08 and
@@ -1837,7 +1853,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
          Red-team expected (0f (f)): a machine that is the only confirmed
          holder of a chunk refuses to finish and names the owners affected
          by count, never by name.
-      8. **Account deletion.** Needs Nicolas's answer first, as a closed
+      8. ✅ **Account deletion** (2026-10-12, Nicolas: option A, the name freed,
+         "careful with the old name and with create/delete loops"). `itsanas
+         delete-account --confirm NAME`: drains as `leave`, then sends a
+         `SignedDeletion` (account key, fresh within 10 min) to the
+         coordinator, which writes the tombstone, retires the name for a year
+         (`NAME_RETIRED_FOR`), refuses the deleted key for ever, then forgets
+         the account. Hosts ask `Request::Deleted` every six hours about the
+         owners they hold for and free them (`Vault::forget_owner`) only on
+         the account's own signature, so a coordinator cannot erase anybody's
+         replicas; a machine of the deleted account records its departure
+         and stops. Five red-team tests, each sabotaged red. Not verified:
+         against a real coordinator (protocol appended last: an old
+         coordinator hangs up and nothing is deleted). Original question:
          question: what becomes of the account's data on other members'
          disks (a tombstone signed by the account, and hosts free it), of
          the data this account's machines host for others (re-homed first,

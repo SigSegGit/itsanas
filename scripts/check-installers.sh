@@ -872,6 +872,30 @@ else
 fi
 rm -rf "$bed"
 
+# --purge-folder takes the synced folder of the account it removes, and only a
+# folder holding the marker: a config pointing at a home or a disk root must
+# never be emptied by a clean-up (asked by Nicolas, 2026-10-08).
+pf=$(mktemp -d)
+mkdir -p "$pf/.itsanas-b" "$pf/My F" "$pf/plain" "$pf/.itsanas-c"
+: > "$pf/.itsanas-b/keystore.bin"; : > "$pf/.itsanas-c/keystore.bin"
+: > "$pf/My F/.itsanas-folder"; : > "$pf/My F/a file"; : > "$pf/plain/kept"
+printf 'folder = %s\n' "$pf/My F" > "$pf/.itsanas-b/config"
+printf 'folder = %s\n' "$pf/plain" > "$pf/.itsanas-c/config"
+for i in b c; do
+    env HOME="$pf" PATH=/usr/bin:/bin timeout 30 sh install/clean.sh --instance "$i" --yes \
+        --purge-account --purge-folder --drain-for 0 </dev/null >/dev/null 2>&1
+done
+if [ -e "$pf/My F" ]; then
+    bad "clean.sh --purge-folder left the synced folder of the account it removed"
+elif [ ! -e "$pf/plain/kept" ]; then
+    bad "clean.sh --purge-folder emptied a folder with no .itsanas-folder marker"
+elif env HOME="$pf" sh install/clean.sh --purge-folder </dev/null >/dev/null 2>&1; then
+    bad "clean.sh accepted --purge-folder without --purge-account"
+else
+    say "clean.sh --purge-folder removes the account's marked folder, and nothing unmarked"
+fi
+rm -rf "$pf"
+
 # ------------------------------------------------- the PATH line, added once
 #
 # HANDOVER §8 3e. On the first real Mac the install succeeded and `itsanas` was

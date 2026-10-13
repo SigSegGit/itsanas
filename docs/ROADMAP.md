@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1086 test functions, 9 of them `#[ignore]`d into the slow job, and 259 of
+**1092 test functions, 9 of them `#[ignore]`d into the slow job, and 265 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1403,15 +1403,15 @@ Major step: Rodin on the plan before the code.
 
 ### Next, asked by Nicolas — 2026-10-08
 
-- **The MCP server** Nicolas is creating on GitHub: to be improved with him
+- ⬜ **The MCP server** Nicolas is creating on GitHub: to be improved with him
   once it is in the repository (scope to be written down then).
-- **Setup, reliable with several accounts on one machine.** Seen on Windows
+- 🟨 **Setup, reliable with several accounts on one machine** (2026-10-12: the page offers "set up another account" under a new instance name, never an existing home; done steps hide their fields). Seen on Windows
   and on the VM: an old account's node makes every step "Already done", a
   second account needs `--instance` that the web setup does not offer, and a
   pledge ignores the other instances (above). The setup should list the
   instances it finds, offer "add another account" or "replace this one",
   and never mix two.
-- **Account removal that removes everything.** Today `clean.ps1` / `clean.sh`
+- ✅ **Account removal that removes everything** (2026-10-12: `clean --purge-account --purge-folder`; and `itsanas delete-account` deletes the account itself, name retired a year). Today `clean.ps1` / `clean.sh`
   keep the account unless `-PurgeAccount`, and the synced folder always.
   Since 2026-10-12 `clean.sh --purge-account` / `clean.ps1 -PurgeAccount`
   run `itsanas leave --drain-for` first (§8 0w (7)); the tray entry is not

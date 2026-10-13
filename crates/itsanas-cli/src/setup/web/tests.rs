@@ -117,6 +117,7 @@ fn backends(seen: &Seen, home: &Path) -> Backends {
             service
         }),
         name: |_, name| Ok(name == "taken"),
+        another: |_| Ok(()),
     }
 }
 
@@ -798,6 +799,7 @@ fn while_a_window_is_open_the_page_is_told_so_and_a_closed_window_says_what_to_d
             service
         }),
         name: |_, _| Ok(false),
+        another: |_| Ok(()),
     };
     let server = Server::bind(&home, None, Mode::Setup, dir.path(), backends).expect("bind");
     let ctx = Arc::clone(&server.ctx);
@@ -1115,5 +1117,35 @@ fn every_text_of_the_page_has_a_french_translation() {
         untranslated.is_empty(),
         "a French speaker would read these in English, in the middle of French ones: \
          add them to i18n.js: {untranslated:#?}"
+    );
+}
+
+#[test]
+fn red_team_another_account_never_takes_the_home_of_one_already_here() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join(".itsanas");
+    let taken = dir.path().join(".itsanas-two");
+    for existing in [&home, &taken] {
+        std::fs::create_dir_all(existing).expect("home");
+        std::fs::write(existing.join("keystore.bin"), b"x").expect("keystore");
+    }
+    let page = Page::start(&home, dir.path(), Mode::Setup, &Seen::default());
+    for (name, status, why) in [
+        ("two", 409, "the home of another account on this computer"),
+        ("Two+Words", 400, "a name that is no instance name"),
+        ("passphrase", 400, "the default node's passphrase file"),
+    ] {
+        assert_eq!(
+            page.api("POST", "/api/another", &format!("name={name}"))
+                .status,
+            status,
+            "setting up another account was let into {why}: two accounts would share one \
+             home, or one would open the other's keys"
+        );
+    }
+    assert_eq!(
+        page.api("POST", "/api/another", "name=three").status,
+        200,
+        "a free name was refused, so a second account could not be set up from the page"
     );
 }

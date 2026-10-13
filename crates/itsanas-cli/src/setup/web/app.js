@@ -274,11 +274,23 @@
     } catch (e) { if (line) { line.textContent = e.message; } else { say(e.message); } }
   }
 
+  const DONE_SAID = {
+    machine: 'This machine is already set up.',
+    account: 'This account is already on this machine; its keys were not touched.',
+    folder: 'The folder is already chosen and kept in step.',
+    pledge: 'The space offered is already set; change it later in Settings.',
+    updates: 'Updates are already set.',
+    registration: 'This machine is already known to the coordinator.',
+  };
+
   function showDone(engine, said) {
     done[engine] = true;
     const note = document.querySelector('[data-done-for="' + engine + '"]');
     if (note) {
-      note.textContent = 'Already done: ' + said.replace(/^done:\s*/, '');
+      // A sentence in the page's language; the engine's own words (paths,
+      // names, in English) stay on hover rather than in the middle of it.
+      note.textContent = t(DONE_SAID[engine] || 'Already done on this machine.');
+      note.title = said.replace(/^done:\s*/, '');
       note.hidden = false;
     }
   }
@@ -292,8 +304,10 @@
       // engine skips what is done whatever the page sends.
     }
     $('account-questions').hidden = Boolean(done.account);
-    if (done.pledge) { $('pledge').value = ''; }
-    if (done.folder) { $('folder').value = ''; }
+    // A done step shows no field to fill: it looked as if it had to be
+    // answered again, with a default that was not the value in force.
+    if (done.pledge) { $('pledge').value = ''; $('pledge-questions').hidden = true; }
+    if (done.folder) { $('folder').value = ''; $('folder-questions').hidden = true; }
   }
 
   function setupForm() {
@@ -462,6 +476,16 @@
     document.querySelectorAll('input[name="account"]').forEach(function (radio) {
       radio.addEventListener('change', function () { $('join-only').hidden = accountKind() !== 'join'; nameChanged(); });
     });
+    if (state.mode === 'setup' && state.account_here) {
+      $('account-here').textContent = state.account_here;
+      $('another').hidden = false;
+      $('another-start').addEventListener('click', async function () {
+        try {
+          await api('POST', '/api/another', { name: $('another-name').value.trim() });
+          $('another-said').textContent = t('The setup of the other account opened in a new page.');
+        } catch (e) { $('another-said').textContent = e.message; }
+      });
+    }
     $('start').addEventListener('click', startSetup);
     $('restart').addEventListener('click', startSetup);
     $('retry').addEventListener('click', retry);
