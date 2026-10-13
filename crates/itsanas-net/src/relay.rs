@@ -512,6 +512,62 @@ mod tests {
         );
     }
 
+    fn pair() -> (TcpStream, TcpStream) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let near = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        (near, listener.accept().unwrap().0)
+    }
+
+    #[test]
+    fn red_team_a_splice_ends_when_idle_or_out_of_budget_and_carries_both_ways() {
+        let desk = Desk::<()>::default();
+        let (mut a_far, mut a) = pair();
+        let (mut b, mut b_far) = pair();
+        a_far.write_all(b"ping").unwrap();
+        b_far.write_all(b"pong").unwrap();
+        let start = Instant::now();
+        desk.pump(
+            &mut a,
+            &mut b,
+            Duration::from_secs(5),
+            Duration::from_millis(200),
+        );
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "an idle splice held its place past its idle limit"
+        );
+        let mut got = [0u8; 4];
+        b_far.read_exact(&mut got).unwrap();
+        assert_eq!(&got, b"ping");
+        a_far.read_exact(&mut got).unwrap();
+        assert_eq!(&got, b"pong");
+
+        // A caller that keeps a trickle going still stops at the budget.
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !stop.load(Ordering::Relaxed) {
+                    if a_far.write_all(b".").is_err() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            });
+            let start = Instant::now();
+            desk.pump(
+                &mut a,
+                &mut b,
+                Duration::from_millis(400),
+                Duration::from_secs(5),
+            );
+            stop.store(true, Ordering::Relaxed);
+            assert!(
+                start.elapsed() < Duration::from_secs(2),
+                "a trickled splice outlived its budget"
+            );
+        });
+    }
+
     #[test]
     fn prefixed_gives_back_what_was_read_ahead_first() {
         let mut stream = Prefixed::new(b"ab".to_vec(), &b"cd"[..]);

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-12 — 1113 test functions across 34 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 278 are red-team tests.**
+**Last updated: 2026-10-12 — 1114 test functions across 34 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 279 are red-team tests.**
 
-**997 of the 1113 tests have an entry of their own on this page** — an *entry*,
+**998 of the 1114 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -162,7 +162,7 @@ guarantee and is not one.
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
-| `itsanas-net` unit | 53 |
+| `itsanas-net` unit | 54 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 58 |
 | `itsanas-net` relay (`tests/relay.rs`) | 4 |
 | `itsanas-placement` unit | 34 |
@@ -756,7 +756,7 @@ about reading.
 | **`red_team_one_disk_check_call_holds_at_most_one_batch`** | Found by the CI reviewer on #218: the slice a round owes is 190 477 rows at a terabyte on an hourly policy, 12 MB of keys in one `Vec` on a 17 MiB machine. One call examines at most `MAX_CHECK_BATCH` and the daemon loops. Sabotaged by dropping the cap. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (53)
+# `itsanas-net` — unit tests (54)
 
 ## `protocol` — messages and challenges (12)
 
@@ -827,13 +827,14 @@ and is catalogued with that crate.
 | `a_peer_that_already_held_our_data_has_earned_it` | The steady state of a host that has been storing for weeks: nothing to send, nothing to fetch, and still the most valuable peer this node knows. Requiring fresh transfer would demote every long-standing host to stranger the moment it caught up. |
 | `a_peer_that_accepted_our_data_has_earned_it` / `a_peer_that_served_us_our_own_work_has_earned_it` | The two ways a peer proves it is real: it stored something, or it gave us something of ours. |
 
-## `relay` — parks and splices (7)
+## `relay` — parks and splices (8)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_one_account_cannot_take_every_park_nor_push_out_the_relays_own`** | §8 0v. A relay's places are finite: one account's spare devices stop at `MAX_PARKED_PER_ACCOUNT`, hosted parks together stop at `MAX_PARKED_HOSTED`, and the relay's own account still parks after strangers filled theirs. |
 | **`red_team_a_caller_reaches_only_parks_of_its_own_pool_and_account`** | §8 0v, found by the red team on the diff: a splice joins a park only of the caller's own pool and account, so a hosted account cannot use the relay as an oracle on who else is online, nor use up another account's or the relay owner's parks. Sabotaged (class not compared): red. |
 | **`red_team_a_splice_reserved_for_a_park_that_died_gives_its_place_back`** | A splice reserved for a park whose machine went before taking the caller gives its place back; otherwise four such races closed the relay until restart. Sabotaged (no drain on drop): red. |
+| **`red_team_a_splice_ends_when_idle_or_out_of_budget_and_carries_both_ways`** | The pump carries bytes both ways over real sockets, closes a splice idle past `SPLICE_IDLE`, and one kept alive by a trickle at its budget. Sabotaged (idle ignored): red. |
 | `strangers_holding_their_splices_do_not_starve_the_own_account` | Splices are counted per pool (`MAX_SPLICES_PER_POOL`): hosted callers holding theirs leave the own account's free. |
 | `a_dropped_park_frees_its_place_and_a_reparked_device_replaces_its_old_one` | A park ends when its ticket drops; a device parking again replaces its old park, and the stale ticket does not remove the fresh one. |
 | `the_shared_rate_holds_all_splices_together` | One byte rate is shared by every splice: four quarter-rate spends take at least 700 ms. |
