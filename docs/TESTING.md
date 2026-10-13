@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-13 — 1123 test functions across 34 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 288 are red-team tests.**
+**Last updated: 2026-10-13 — 1124 test functions across 35 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 289 are red-team tests.**
 
-**1007 of the 1123 tests have an entry of their own on this page** — an *entry*,
+**1008 of the 1124 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -168,6 +168,7 @@ guarantee and is not one.
 | `itsanas-placement` unit | 34 |
 | `itsanas-coord` unit | 121 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 16 |
+| `itsanas-coordinator` crash (`tests/crash.rs`) | 1 |
 | `itsanas-discover` unit | 43 |
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
@@ -2037,6 +2038,12 @@ a withdrawal it could not otherwise know of. In `service.rs`.
 | **`red_team_standing_answers_the_withdrawal_not_the_claim_presented`** | A withdrawn device re-signs a live claim and presents it; the coordinator answers with the withdrawal it holds. Sabotaged by echoing the presented claim. |
 | **`red_team_standing_tells_nothing_about_a_device_the_caller_was_not_shown`** | A claim that does not verify is refused, and one signed under another account than the device's own is answered `None`: the question cannot be asked about a device the caller was never shown. Sabotaged by dropping either check. |
 | `standing_answers_a_live_device_with_its_claim_and_an_unknown_one_with_nothing` | The ordinary answers: a live device's claim, and nothing for a device never enrolled. |
+
+# `itsanas-coordinator` crash (`tests/crash.rs`) -- the real binary, killed (1)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_coordinator_killed_mid_round_keeps_every_account_it_confirmed`** | Spawns the real `itsanas-coordinator`, registers an account, claims a device, announces (the one `Durability::None` write), kills the process outright (SIGKILL, `TerminateProcess` on Windows) and reopens `directory.redb` from the test: the account is present and `enrolled_counts` is (1, 1). Sabotaged by making every directory write non-durable: red. An in-process reopen could not tell them apart, because redb flushes on drop. |
 
 # `itsanas-node` withdrawals (`tests/withdrawals.rs`) — the host's half, against a real coordinator (4)
 
