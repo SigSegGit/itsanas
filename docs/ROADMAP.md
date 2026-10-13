@@ -1282,10 +1282,13 @@ stats the file), so repair and the disk check treat it as a lost blob; the
 tests that lost a blob by deleting its file now go through
 `BlobStore::damage`, and every one passes in packs too -- left failing in
 packs are only the four about blob files themselves (their path, their
-staging). **Open before packs are the default:** on Windows a live clone
-of a `BlobStore` keeps the index open while `forget_owner` deletes the
-directory, untried; conversion of an existing store is built (`itsanas convert-packs`, `BlobStore::convert_to_packs`: copy into a staging directory, one rename switches the layout, then the blob files go; red-team tested at each crash point) but never run on a real node; the gain unmeasured
-where it is claimed (Windows, Defender).
+staging). **Open before packs are the default:** conversion of an existing store is built (`itsanas convert-packs`, `BlobStore::convert_to_packs`: copy into a staging directory, one rename switches the layout, then the blob files go; red-team tested at each crash point) but never run on a real node; **measured on Windows 11 with Defender on (Nicolas,
+2026-10-14, `itsanas bench --size 256M`, three runs each): packs write 44-55
+MiB/s against 20-24 MiB/s for blob files (2.2x), read 468-534 against
+299-431 MiB/s, a 32 MiB photo burst 0.8-0.9 s against 1.5-1.75 s;** and the
+store and net suites pass in packs on Windows but for the four tests about
+blob files themselves, which settles the open-index-while-deleting question
+the vault tests exercise.
 
 **Decision: pack files, and not urgently.** Chunks append into large segment files, with an index
 in redb mapping chunk to (pack, offset, length). One `fsync` per closed pack
