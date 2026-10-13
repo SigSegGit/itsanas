@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0c
-TITLE: Nicolas tests v0.1.6 on the fleet by hand (reinstall, multi-account, relay, lists, vault, deletion)
+TITLE: Nicolas tests v0.1.7 on the fleet by hand (reinstall, multi-account, relay, lists, vault, deletion)
 WRITTEN-AT: 2026-10-13
-BASE: b6eef5c
+BASE: 35b6884
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,7 +20,24 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**2026-10-13, latest: 0s, 0u and 0v built; v0.1.6 for a hand test.**
+**2026-10-13, latest: 0.1.7, five fixes in one PR (Nicolas: "more change per
+iteration").** (1) **0.1.6 never published `relay:` nor a list**:
+`published_address` returned the router's port only while `address_now`
+(used to decide *whether* to publish) had the new rule; now both go through
+`publishable`. Test that 0.1.7 is the one on the fleet, not 0.1.6. (2) The
+vault rebuild after an unclean exit streams in batches (ROADMAP finding).
+(3) Presences are never dated before the last this machine signed
+(`presence.last`; a Pi rebooted into 1970 stayed unreachable until NTP).
+(4) Parks: the parked side stops within a second and drops a relay silent
+for two keepalives; the relay sees a parker gone within a second. (5) The
+IPv6 half of a list is the stable address beside the kernel's temporary one
+(`/proc/net/if_inet6`, Linux only). Red team on the diff: `presence.last`
+written in place (now aside then renamed, one signer at a time), a relayed
+dial waiting up to a second for the park's read (now 50 ms), an address over
+the coordinator's 255-byte cap published and refused every round (now the
+direct address instead), the stale-row scan's owner lookup (now a set).
+
+**2026-10-13: 0s, 0u and 0v built; v0.1.6 for a hand test.**
 #264 vault on another disk (0s), #265 NAT-PMP and address lists (0u), #266
 relay net layer, #267 daemon parks and dials through relays, then this one:
 a host of another account as relay of last resort (`Contact::hosts_reached`,
@@ -1996,7 +2013,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       re-checked before each re-park), one refusing relay blocked parking
       for good (now the next is tried), a `relay:` address with no known
       relay was dialled as a socket (now refused at once): fixed. Open: a
-      stop waits up to `IO_TIMEOUT` for a quiet relay.
+      stop waited up to `IO_TIMEOUT` for a quiet relay (fixed in 0.1.7:
+      a second).
       Announcing `relay:<id>` is built but off (`ANNOUNCE_RELAY = false`,
       with `ANNOUNCE_LISTS`): a peer below protocol 9 cannot dial it.
       **Third step, 2026-10-13:** a host of another account that stored for
@@ -2011,9 +2029,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
       forward (now only when nothing from outside ever arrived and the
       direct address is private), hosts dropped at every quiet round (now
       kept a day), one-shot commands dialled `relay:` as a socket (now
-      `connect_peer`), `relay:` counted public (now private). Open: the
-      IPv6 half of a list follows the system's temporary address, so a
-      machine may republish when it rotates. Coordinator relay: not
+      `connect_peer`), `relay:` counted public (now private). The IPv6
+      half of a list followed the system's temporary address (fixed in
+      0.1.7 on Linux, `stable_ipv6`). Coordinator relay: not
       built, only if measured.
    s. ✅ **The vault on another disk (a NAS), the default unchanged.**
       Built 2026-10-13: `Config::vault`, `Node::vault_path`/`open_vault`

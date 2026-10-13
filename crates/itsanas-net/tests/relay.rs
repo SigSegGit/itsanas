@@ -279,3 +279,60 @@ fn red_team_a_relay_that_closes_the_park_with_nobody_is_told_apart_from_a_caller
         "a park closed with nobody read as a caller served: {parked:?}"
     );
 }
+
+#[test]
+fn red_team_a_parked_machine_lets_go_at_once_and_the_relay_sees_it_gone() {
+    // A stopping daemon waited out a 30 s read on its park, and the relay
+    // learned a parker was gone only at its next keepalive -- splicing
+    // callers onto a dead park meanwhile.
+    let r = node(60);
+    let b = node(61);
+    let a = node(62);
+    let book = Book(None);
+    let server = PeerServer::bind("127.0.0.1:0").unwrap();
+    let address = server.local_addr().unwrap();
+    let shutdown = AtomicBool::new(false);
+    let parker_stop = AtomicBool::new(false);
+    let service = PeerService::new(&r.store, &r.vault, Pledge::gigabytes(1)).with_relay(&book);
+    let parked_server = PeerServer::bind("127.0.0.1:0").unwrap();
+    let parked_service = PeerService::new(&b.store, &b.vault, Pledge::gigabytes(1));
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let _ = server.serve_until(&service, &r.device, &shutdown);
+        });
+        let _stop = Stop(&shutdown, address);
+        let parker = scope.spawn(|| {
+            parked_server.serve_parked(
+                address,
+                r.store.device_id(),
+                &parked_service,
+                &b.device,
+                &parker_stop,
+            )
+        });
+        let witness = server.witness();
+        while witness.from_inside() == 0 {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        let stopping = Instant::now();
+        parker_stop.store(true, Ordering::Relaxed);
+        let _ = parker.join().unwrap();
+        assert!(
+            stopping.elapsed() < Duration::from_secs(3),
+            "a parked machine took {:?} to stop",
+            stopping.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(1500));
+        let refused = PeerClient::connect_relayed(
+            address,
+            r.store.device_id(),
+            b.store.device_id(),
+            &a.device,
+            a.store.owner(),
+            Some(Duration::from_secs(10)),
+        )
+        .expect_err("a caller was spliced onto a park whose machine had gone");
+        assert!(refused.to_string().contains(NOT_RELAYING), "{refused}");
+    });
+}

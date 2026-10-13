@@ -162,6 +162,38 @@ impl BlobStore {
         Ok(found)
     }
 
+    /// Every address this store holds, handed to `visit` one at a time:
+    /// [`Self::addresses`] without holding them all, for a walk over a vault
+    /// of millions (a terabyte in 64 KiB chunks is 16 million).
+    pub fn for_each_address(&self, visit: &mut dyn FnMut(ChunkId) -> Result<()>) -> Result<()> {
+        Self::visit(&self.blobs, visit)
+    }
+
+    fn visit(directory: &Path, visit: &mut dyn FnMut(ChunkId) -> Result<()>) -> Result<()> {
+        let entries = match fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(StoreError::io(directory.to_owned(), error)),
+        };
+        for entry in entries {
+            let entry = entry.map_err(|error| StoreError::io(directory.to_owned(), error))?;
+            let path = entry.path();
+            if path.is_dir() {
+                Self::visit(&path, visit)?;
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some(BLOB_EXTENSION) {
+                continue;
+            }
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                && let Ok(address) = stem.parse::<ChunkId>()
+            {
+                visit(address)?;
+            }
+        }
+        Ok(())
+    }
+
     fn walk(directory: &Path, out: &mut Vec<ChunkId>) -> Result<()> {
         let entries = match fs::read_dir(directory) {
             Ok(entries) => entries,

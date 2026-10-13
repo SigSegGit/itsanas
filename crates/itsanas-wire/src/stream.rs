@@ -76,6 +76,12 @@ impl<S: Read + Write> Connection<S> {
         }
     }
 
+    /// The stream underneath, to set its timeouts.
+    #[must_use]
+    pub const fn stream(&self) -> &S {
+        &self.stream
+    }
+
     /// The stream back, with any bytes already read past the last message:
     /// once a relay splices it, what follows is no longer frames, and a read
     /// ahead must be handed on, not lost.
