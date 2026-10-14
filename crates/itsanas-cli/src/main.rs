@@ -755,6 +755,7 @@ fn run() -> Result<()> {
         return done;
     }
     let home = resolve_home(cli.instance.as_deref(), cli.home)?;
+    let _ = PROMPT_FOR.set(prompt_label(&home, &cli.command));
 
     match cli.command {
         Command::Init { username } => init(&home, &username),
@@ -865,6 +866,37 @@ fn setup_command(home: &Path, instance: Option<&str>, command: Command) -> Resul
 // Passphrase handling
 // ---------------------------------------------------------------------------
 
+/// Which node a passphrase prompt is for, set once in `run`.
+///
+/// "Passphrase:" alone was what three accounts on one machine each printed
+/// (Nicolas, 2026-10-14): a person sharing the machine could not tell whose
+/// keys a prompt was about to open, nor type the right one.
+static PROMPT_FOR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The account a prompt names: the username of the node at `home` when it
+/// has one, the one being created or joined otherwise, and the home itself.
+fn prompt_label(home: &Path, command: &Command) -> String {
+    let named = match command {
+        Command::Init { username } | Command::Login { username, .. } => Some(username.clone()),
+        _ => itsanas_node::config::Config::load(&Node::config_path(home))
+            .ok()
+            .map(|config| config.username)
+            .filter(|name| !name.is_empty()),
+    };
+    match named {
+        Some(name) => format!("'{name}' ({})", home.display()),
+        None => home.display().to_string(),
+    }
+}
+
+/// The prompt for `what`, naming the account it unlocks.
+fn prompt_text(what: &str, label: Option<&str>) -> String {
+    match label {
+        Some(label) => format!("{what} for {label}: "),
+        None => format!("{what}: "),
+    }
+}
+
 /// Obtain the passphrase, from the environment or by prompting.
 fn passphrase(confirm: bool) -> Result<String> {
     if let Ok(value) = std::env::var(PASSPHRASE_ENV) {
@@ -879,17 +911,22 @@ fn passphrase(confirm: bool) -> Result<String> {
         )));
     }
 
-    let entered = rpassword::prompt_password("Passphrase: ").map_err(|error| CliError::Io {
-        path: PathBuf::from("<terminal>"),
-        source: error,
-    })?;
-
-    if confirm {
-        let again =
-            rpassword::prompt_password("Confirm passphrase: ").map_err(|error| CliError::Io {
+    let label = PROMPT_FOR.get().map(String::as_str);
+    let entered =
+        rpassword::prompt_password(prompt_text("Passphrase", label)).map_err(|error| {
+            CliError::Io {
                 path: PathBuf::from("<terminal>"),
                 source: error,
-            })?;
+            }
+        })?;
+
+    if confirm {
+        let again = rpassword::prompt_password(prompt_text("Confirm passphrase", label)).map_err(
+            |error| CliError::Io {
+                path: PathBuf::from("<terminal>"),
+                source: error,
+            },
+        )?;
         if again != entered {
             return Err(CliError::Usage("the passphrases did not match".to_owned()));
         }
@@ -4401,6 +4438,24 @@ fn connect_peer(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn red_team_a_passphrase_prompt_names_the_account_it_unlocks() {
+        // Three accounts on one machine each asked "Passphrase:" (Nicolas,
+        // 2026-10-14). Sabotage: drop the label and this goes red.
+        let base = tempfile::tempdir().unwrap();
+        let home = base.path().join(".itsanas-test");
+        let label = prompt_label(
+            &home,
+            &Command::Init {
+                username: "test".to_owned(),
+            },
+        );
+        let text = prompt_text("Passphrase", Some(&label));
+        assert!(text.contains("'test'"), "{text}");
+        assert!(text.contains(".itsanas-test"), "{text}");
+        assert_eq!(prompt_text("Passphrase", None), "Passphrase: ");
+    }
+
+    #[test]
     fn red_team_a_drain_never_counts_an_owner_it_could_not_ask_as_done() {
         // The drain's last sentence is what a person reads before switching
         // off for good. An owner that was unreachable, or too old to be asked,
@@ -4431,8 +4486,9 @@ mod tests {
     use super::{
         Asked, Command, DeviceId, SNAPSHOT, brief_status, control, departure_refusal, describe_age,
         drain_summary, first_free_port, instances_report, looks_like_a_closed_pipe,
-        migrate_unnamed, phrase_grid, phrase_words, record_departure, refuse_if_departed, register,
-        rejoin, resolve_device, set_pledge, sibling_ports, snapshot_status, steer, sync_folder,
+        migrate_unnamed, phrase_grid, phrase_words, prompt_label, prompt_text, record_departure,
+        refuse_if_departed, register, rejoin, resolve_device, set_pledge, sibling_ports,
+        snapshot_status, steer, sync_folder,
     };
 
     /// `itsanas sync` names a refused chain on its summary line, and says

@@ -47,9 +47,9 @@ curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/clea
     || fail "download clean.sh"
 for d in "$HOME"/.itsanas-*; do
     [ -d "$d" ] || continue
-    sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 --instance "${d##*/.itsanas-}" >/dev/null
+    sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 --instance "${d##*/.itsanas-}" </dev/null >/dev/null
 done
-sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 >/dev/null
+sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 </dev/null >/dev/null
 rm -f "$HOME/fleet-reset.sh" "$HOME/provision.sh" "$HOME/itsanas-reset.sh" "$HOME"/*mots*.txt
 # The systemd coordinator is root's, so clean.sh run as this user leaves it.
 if [ -e /etc/systemd/system/itsanas-coordinator.service ] || [ -e /usr/local/bin/itsanas-coordinator ]; then
@@ -77,7 +77,7 @@ DOCKER_DIR="$CHECKOUT/install/docker"
 
 say; say "== 3/5 The coordinator"
 if [ "$ROLE" = vm ]; then
-    [ -f "$COORD_STATE/device.key" ] || fail "$COORD_STATE/device.key is missing: the pinned identity would be lost"
+    sudo test -f "$COORD_STATE/device.key" || fail "$COORD_STATE/device.key is missing: the pinned identity would be lost"
     sudo chown -R 65532:65532 "$COORD_STATE"
     $SUDO docker compose -f "$DOCKER_DIR/compose.yml" up -d --build || fail "coordinator build or start"
     sleep 3
