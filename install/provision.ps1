@@ -447,7 +447,15 @@ if (-not $NoTask) {
         $acl.SetAccessRuleProtection($true, $false)
         $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
             $env:USERNAME, 'FullControl', 'Allow')))
-        ([System.IO.FileInfo]$pending).SetAccessControl($acl)
+        # Windows PowerShell 5.1 (.NET Framework) has the method on FileInfo;
+        # PowerShell 7 (.NET) moved it to FileSystemAclExtensions, and calling
+        # the old one there failed every passphrase file (Nicolas, 2026-10-14).
+        $info = [System.IO.FileInfo]$pending
+        if ($info.PSObject.Methods.Name -contains 'SetAccessControl') {
+            $info.SetAccessControl($acl)
+        } else {
+            [System.IO.FileSystemAclExtensions]::SetAccessControl($info, $acl)
+        }
         $lockedDown = $true
     } catch {
         # Keep the reason. An empty catch here is what made this take an hour

@@ -19,6 +19,9 @@ try {
     foreach ($script in 'clean.ps1', 'get.ps1', 'provision.ps1') {
         Invoke-RestMethod "$raw/$script" -OutFile (Join-Path $work $script)
     }
+    # Beside provision.ps1, where it looks for the tray icon to install.
+    Invoke-RestMethod 'https://raw.githubusercontent.com/SigSegGit/itsanas/main/scripts/itsanas-tray.ps1' `
+        -OutFile (Join-Path $work 'itsanas-tray.ps1')
 
     Write-Host "`n== 1/3 Removing every ITSaNAS account on this PC"
     Get-ChildItem $env:USERPROFILE -Directory -Filter '.itsanas-*' -Force | ForEach-Object {
@@ -49,6 +52,9 @@ try {
         $env:ITSANAS_PASSPHRASE = $pass
         $phrase = Join-Path $work "phrase-$acct.txt"
         Read-Host "Paste the 24 words of '$acct' (one line), then Enter" | Set-Content $phrase
+        # provision.ps1 leaves ITSANAS_HOME set to the node it made; the next
+        # account would then be refused for disagreeing with it.
+        Remove-Item Env:ITSANAS_HOME -ErrorAction SilentlyContinue
         $instance = @{}
         if ($acct -ne 'nicolas') { $instance.Instance = $acct }
         & "$work\provision.ps1" -NoInstall @instance -PhraseFile $phrase -Username $acct -Pledge 10G -Keep 3G `
@@ -62,10 +68,11 @@ try {
     Write-Host "`n== Done. One id per account; it must be the same on every machine:"
     foreach ($acct in $accounts) {
         $env:ITSANAS_PASSPHRASE = $passes[$acct]
+        Remove-Item Env:ITSANAS_HOME -ErrorAction SilentlyContinue
         $id = if ($acct -eq 'nicolas') { itsanas whoami 2>&1 } else { itsanas --instance $acct whoami 2>&1 }
         Write-Host ("{0,-10} {1}" -f $acct, ($id | Select-Object -Last 1))
     }
 } finally {
-    Remove-Item Env:ITSANAS_PASSPHRASE -ErrorAction SilentlyContinue
+    Remove-Item Env:ITSANAS_PASSPHRASE, Env:ITSANAS_HOME -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
 }
