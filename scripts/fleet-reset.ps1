@@ -22,6 +22,9 @@ try {
     # Beside provision.ps1, where it looks for the tray icon to install.
     Invoke-RestMethod 'https://raw.githubusercontent.com/SigSegGit/itsanas/main/scripts/itsanas-tray.ps1' `
         -OutFile (Join-Path $work 'itsanas-tray.ps1')
+    # And the logo it draws on, which provision.ps1 copies beside the program.
+    Invoke-RestMethod 'https://raw.githubusercontent.com/SigSegGit/itsanas/main/docs/assets/itsanas.ico' `
+        -OutFile (Join-Path $work 'itsanas.ico')
 
     Write-Host "`n== 1/3 Removing every ITSaNAS account on this PC"
     Get-ChildItem $env:USERPROFILE -Directory -Filter '.itsanas-*' -Force | ForEach-Object {

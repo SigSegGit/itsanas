@@ -181,6 +181,16 @@ function Invoke-Itsanas([string[]]$Arguments) {
 # provision.ps1) with a small dot of the state's colour in its corner, drawn
 # once per colour. Without the .ico (an old install), the dot alone, as before:
 # a tray that shows nothing is worse than one that shows a plain dot.
+# The account this icon is for, from `itsanas instances` ("NAME: account A, ..."):
+# three accounts on one PC drew three identical icons, so a click could open
+# the wrong person's folder (Nicolas, 2026-10-14). Its initial goes on the
+# icon and its name in the tooltip and the dialogs.
+$nodeName = if ($Instance) { $Instance } else { '(unnamed)' }
+$nodeLine = @(Invoke-Itsanas @('instances')) | Where-Object { $_ -like "${nodeName}:*" } | Select-Object -First 1
+$account = if ($nodeLine -and $nodeLine -match ': account ([^,\s]+),') { $Matches[1] } else { $Instance }
+if ($account) { $label = "ITSaNAS $account" }
+$initial = if ($account) { $account.Substring(0, 1).ToUpper() } else { '' }
+
 $icoPath = Join-Path $PSScriptRoot 'itsanas.ico'
 $base = $null
 if (Test-Path -LiteralPath $icoPath) {
@@ -200,6 +210,15 @@ foreach ($pair in @(@('green', 46, 160, 67), @('blue', 47, 111, 235), @('orange'
         $graphics.FillEllipse($brush, 9, 9, 6, 6)
     } else {
         $graphics.FillEllipse($brush, 1, 1, 14, 14)
+    }
+    if ($initial) {
+        # The account's initial, top left, white on dark: legible at 16 px
+        # and away from the state dot in the other corner.
+        $graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+        $graphics.FillRectangle((New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(230, 20, 40, 60))), 0, 0, 9, 10)
+        $font = New-Object System.Drawing.Font 'Segoe UI', 6.5, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Point)
+        $graphics.DrawString($initial, $font, [System.Drawing.Brushes]::White, -1, -1)
+        $font.Dispose()
     }
     $graphics.Dispose(); $brush.Dispose()
     $icons[$pair[0]] = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
