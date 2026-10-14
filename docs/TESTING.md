@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-13 — 1144 test functions across 36 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 306 are red-team tests.**
+**Last updated: 2026-10-14 — 1145 test functions across 36 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 307 are red-team tests.**
 
-**1028 of the 1144 tests have an entry of their own on this page** — an *entry*,
+**1029 of the 1145 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -176,7 +176,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 132 |
+| `itsanas-cli` unit | 133 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 131 |
@@ -1004,7 +1004,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (132)
+# `itsanas-cli` — unit tests (133)
 
 ## `bench` — measuring this machine (4)
 
@@ -1215,7 +1215,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds (35)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account (36)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1259,6 +1259,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `a_refused_chain_is_said_on_the_sync_line` | `itsanas sync`'s summary names a device chain the peer served and this node refused (§8 2c), and adds nothing when there is none; without it the round reads as a finished sync with one device's changes left out. Sabotaged (the line dropped from `deferred_note`): red. |
 | **`red_team_pledge_under_what_keep_needs_is_refused_and_saves_nothing`** | `itsanas pledge 1M` on a node keeping 20 GiB is refused with the `space --pledge .. --keep .. --apply` command, and neither the node file nor the node in memory changes; with no keep the same pledge goes through, so the setter is not one that refuses everything (HANDOVER §8 3a). Sabotaged (the `check_split` call in `set_pledge` dropped, or moved below the assignment; `check_split` always `Ok`): red. |
 | `a_timed_pause_shows_paused_only_while_it_holds` | Status --brief, which every tray reads, says paused only while the pause holds, so an expired timed pause never shows a blue icon over a node that is syncing again. |
+| **`red_team_a_passphrase_prompt_names_the_account_it_unlocks`** | The passphrase prompt reads `Passphrase for 'NAME' (HOME): `, not `Passphrase:`, so three accounts on one machine are told apart; with no label it stays `Passphrase: `. Sabotage: drop the label and it goes red. |
 
 # `itsanas-policy` — when to sync, and how much (23)
 
