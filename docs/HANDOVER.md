@@ -20,6 +20,18 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-14: the fleet reinstalled from scratch.** The VM and the Pi run
+ITSaNAS in Docker (`scripts/fleet-docker.sh vm|pi`): on the VM the coordinator
+in Docker keeps the pinned key `2cfb515f…`, and each machine runs one client
+container per account (nicolas, test, mandarine) on ports 9797-9799, restart
+`unless-stopped`, one passphrase per account. The laptop runs native through
+`scripts/fleet-reset.ps1`, with three tray icons showing the logo and the
+account initial. Old Docker installs were found and removed on the VM and the
+Pi. The VM disk was grown to 200 GB. Raspberry Pi OS needs `cgroup_memory=1`
+for container memory caps: the script now adds it, and a reboot is needed.
+The NAS vault on the Freebox SMB share is judged unsafe for `vault.redb`
+(the Freebox has no NFS).
+
 **2026-10-13, latest: 0.1.8, the version for the hand test (0c).** Test
 0.1.8, not 0.1.7: it is 0.1.7 plus what follows, no wire change. (1) The
 daemon's parking loop (§8 0v) is `park_loop` over a `ParkSite` trait, so its

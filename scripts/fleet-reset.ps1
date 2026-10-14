@@ -70,10 +70,12 @@ try {
 
     Write-Host "`n== Done. One id per account; it must be the same on every machine:"
     foreach ($acct in $accounts) {
-        $env:ITSANAS_PASSPHRASE = $passes[$acct]
-        Remove-Item Env:ITSANAS_HOME -ErrorAction SilentlyContinue
-        $id = if ($acct -eq 'nicolas') { itsanas whoami 2>&1 } else { itsanas --instance $acct whoami 2>&1 }
-        Write-Host ("{0,-10} {1}" -f $acct, ($id | Select-Object -Last 1))
+        # From the daemon's log: the running daemon holds the node, so `whoami`
+        # beside it is refused ("Only one process at a time").
+        $log = if ($acct -eq 'nicolas') { "$env:LOCALAPPDATA\itsanas\daemon.log" } else { "$env:LOCALAPPDATA\itsanas\daemon-$acct.log" }
+        $id = Select-String -Path $log -Pattern 'user id\s+([0-9a-f]{64})' -ErrorAction SilentlyContinue |
+            Select-Object -Last 1 | ForEach-Object { $_.Matches[0].Groups[1].Value }
+        Write-Host ("{0,-10} {1}" -f $acct, $(if ($id) { $id } else { "(not in $log yet)" }))
     }
 } finally {
     Remove-Item Env:ITSANAS_PASSPHRASE, Env:ITSANAS_HOME -ErrorAction SilentlyContinue
