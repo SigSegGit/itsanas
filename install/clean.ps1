@@ -40,6 +40,9 @@ param(
     # One named instance only: its task, passphrase file, wrapper, logs and, with
     # -PurgeAccount, its node. The programs and the other nodes stay.
     [string]$Instance = '',
+    # Remove an account without its passphrase: for a scripted wipe of one's
+    # own machine only (scripts/fleet-reset.ps1).
+    [switch]$WithoutPassphrase,
     [string]$NodeHome = $(if ($Instance) { "$env:USERPROFILE\.itsanas-$Instance" } elseif ($env:ITSANAS_HOME) { $env:ITSANAS_HOME } else { "$env:USERPROFILE\.itsanas" })
 )
 
@@ -63,6 +66,27 @@ function Invoke-DrainBeforePurge([string]$secretFile) {
     & $exe --home $NodeHome leave --drain-for $DrainFor
     if ($LASTEXITCODE -ne 0) { Write-Warning "the drain did not run; the owners stop counting this machine after their next audits" }
     Remove-Item Env:ITSANAS_PASSPHRASE -ErrorAction SilentlyContinue
+}
+# Deleting an account takes its passphrase, typed (or ITSANAS_PASSPHRASE from
+# the caller), never the task's file: on a PC several people share, one of
+# them cleaning up must not remove another's node by mistake (Nicolas,
+# 2026-10-14). Against someone with this Windows login it is no lock: they can
+# delete the folder by hand; separate Windows accounts are.
+function Assert-Passphrase {
+    if (-not $PurgeAccount -or -not (Test-Path "$NodeHome\keystore.bin")) { return }
+    if ($WithoutPassphrase) { Write-Warning "-WithoutPassphrase: removing $NodeHome without checking it is yours"; return }
+    $exe = Join-Path $programs 'itsanas.exe'
+    if (-not (Test-Path $exe)) {
+        Write-Host "no itsanas.exe here to check the passphrase of $NodeHome with; nothing was removed."
+        Write-Host 'Pass -WithoutPassphrase to remove it unchecked.'
+        exit 1
+    }
+    & $exe --home $NodeHome check-passphrase
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "that is not the passphrase of ${NodeHome}: nothing was removed."
+        Write-Host 'Lost it? Restore the account elsewhere from its 24 words; this node can then go with -WithoutPassphrase.'
+        exit 1
+    }
 }
 if ($PurgeFolder -and -not $PurgeAccount) {
     Write-Host "-PurgeFolder goes with -PurgeAccount: the folder of an account that stays is its own business"
@@ -135,6 +159,7 @@ if ($Instance) {
         Write-Host "Nothing was changed. Add -Yes to do it."
         exit 0
     }
+    Assert-Passphrase
     if ($task) {
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -207,6 +232,9 @@ if (-not $Yes) {
     Write-Host "Nothing was changed. Add -Yes to do it."
     exit 0
 }
+
+# Before anything stops: a refused passphrase leaves the PC as it was.
+Assert-Passphrase
 
 Write-Host ""
 

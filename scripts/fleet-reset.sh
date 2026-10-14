@@ -39,9 +39,9 @@ done
 echo; echo "== 1/4 Removing every ITSaNAS account on this machine"
 for d in "$HOME"/.itsanas-*; do
     [ -d "$d" ] || continue
-    sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 --instance "${d##*/.itsanas-}"
+    sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 --without-passphrase --instance "${d##*/.itsanas-}"
 done
-sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0
+sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 --without-passphrase
 rm -fv "$HOME"/*mots*.txt "$HOME"/itsanas-phrase*.txt 2>/dev/null
 
 echo; echo "== 2/4 The coordinator"

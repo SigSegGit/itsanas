@@ -47,9 +47,9 @@ curl -fsSL https://raw.githubusercontent.com/SigSegGit/itsanas/main/install/clea
     || fail "download clean.sh"
 for d in "$HOME"/.itsanas-*; do
     [ -d "$d" ] || continue
-    sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 --instance "${d##*/.itsanas-}" </dev/null >/dev/null
+    sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 --without-passphrase --instance "${d##*/.itsanas-}" </dev/null >/dev/null
 done
-sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 </dev/null >/dev/null
+sh "$WORK/clean.sh" --yes --purge-account --purge-folder --drain-for 0 --without-passphrase </dev/null >/dev/null
 rm -f "$HOME/fleet-reset.sh" "$HOME/provision.sh" "$HOME/itsanas-reset.sh" "$HOME"/*mots*.txt
 # The systemd coordinator is root's, so clean.sh run as this user leaves it.
 if [ -e /etc/systemd/system/itsanas-coordinator.service ] || [ -e /usr/local/bin/itsanas-coordinator ]; then

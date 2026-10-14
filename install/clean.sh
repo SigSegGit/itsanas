@@ -8,6 +8,7 @@
 #   sh install/clean.sh --yes --purge-account --purge-folder  # and the synced folder
 #   sudo sh install/clean.sh --yes --purge-coordinator  # a coordinator host
 #   sh install/clean.sh --yes --instance bob   # one named instance, nothing else
+#   (--purge-account asks the account's passphrase; --without-passphrase skips it)
 #
 # Why this exists
 # ---------------
@@ -39,6 +40,7 @@ PURGE=0
 PURGE_FOLDER=0
 DRAIN_FOR=30
 PURGE_COORD=0
+SKIP_PASSPHRASE=0
 PREFIX="${ITSANAS_PREFIX:-$HOME/.local}"
 NODE_HOME="${ITSANAS_HOME:-$HOME/.itsanas}"
 INSTANCE=""
@@ -65,6 +67,7 @@ while [ $# -gt 0 ]; do
             case "$DRAIN_FOR" in ''|*[!0-9]*) say "--drain-for takes minutes, a whole number"; exit 2 ;; esac
             shift 2 ;;
         --purge-coordinator) PURGE_COORD=1; shift ;;
+        --without-passphrase) SKIP_PASSPHRASE=1; shift ;;
         --prefix) PREFIX="$2"; shift 2 ;;
         --prefix=*) PREFIX="${1#--prefix=}"; shift ;;
         --home) NODE_HOME="$2"; shift 2 ;;
@@ -150,6 +153,31 @@ remove_folder() {
     return 0
 }
 
+# Deleting an account takes its passphrase, typed (or ITSANAS_PASSPHRASE from
+# the caller), never the service's file: on a machine several people share,
+# one of them cleaning up must not remove another's node by mistake (Nicolas,
+# 2026-10-14). It guards against mistakes, not against someone with this
+# login, who can delete the directory by hand. --without-passphrase is for a
+# scripted wipe of one's own machine (scripts/fleet-*).
+require_passphrase() {
+    [ "$PURGE" -eq 1 ] && [ -f "$NODE_HOME/keystore.bin" ] || return 0
+    if [ "$SKIP_PASSPHRASE" -eq 1 ]; then
+        warn "--without-passphrase: removing $NODE_HOME without checking it is yours"
+        return 0
+    fi
+    check_exe="$PREFIX/bin/itsanas"
+    [ -x "$check_exe" ] || check_exe=$(command -v itsanas 2>/dev/null) || {
+        say "no itsanas program here to check the passphrase of $NODE_HOME with;"
+        say "nothing was removed. Pass --without-passphrase to remove it unchecked."
+        exit 1
+    }
+    if ! "$check_exe" --home "$NODE_HOME" check-passphrase; then
+        say "that is not the passphrase of $NODE_HOME: nothing was removed."
+        say "Lost it? Restore the account elsewhere from its 24 words; this node can then go with --without-passphrase."
+        exit 1
+    fi
+}
+
 # The account is about to go, and with it what this machine holds for other
 # members: drain first (§8 0w (7)), with the service already stopped because
 # one process at a time holds a node. `leave` asks each owner to re-place what
@@ -224,6 +252,7 @@ if [ -n "$INSTANCE" ]; then
         say "Nothing was changed. Add --yes to do it."
         exit 0
     fi
+    require_passphrase
     if command -v systemctl >/dev/null 2>&1; then
         systemctl --user disable --now "$SERVICE" >/dev/null 2>&1 || true
     fi
@@ -373,6 +402,9 @@ if [ "$DO_IT" -eq 0 ]; then
     say "Nothing was changed. Add --yes to do it."
     exit 0
 fi
+
+# Before anything stops: a refused passphrase leaves the machine as it was.
+require_passphrase
 
 say ""
 

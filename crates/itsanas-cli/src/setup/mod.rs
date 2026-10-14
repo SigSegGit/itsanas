@@ -385,6 +385,25 @@ impl<'a> Setup<'a> {
                     .parent()
                     .map_or_else(String::new, |dir| dir.display().to_string())
             ),
+            // The account on this machine is a new one under a name the network
+            // already gives to other keys: a person who meant to join their own
+            // account (Nicolas, 2026-10-14). Retrying registration never helps.
+            (Step::Registration, error)
+                if error
+                    .to_string()
+                    .contains("already registered to a different key") =>
+            {
+                format!(
+                    "this machine made a NEW account under a name that already exists. To use \
+                     the existing account instead, remove this one and join with its 24 words: \
+                     install/clean --purge-account{}, then `itsanas login --username NAME`, then \
+                     run setup again",
+                    self.answers
+                        .instance
+                        .as_deref()
+                        .map_or_else(String::new, |name| format!(" --instance {name}"))
+                )
+            }
             (Step::Registration, _) => {
                 "check the coordinator's address and that it runs; if it admits members by \
                  invitation, ask one for a code (`itsanas invite`) and give it as invite = ..."

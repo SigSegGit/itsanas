@@ -232,6 +232,11 @@ enum Command {
     Interval { every: Option<String> },
     /// Show this account's public identity.
     Whoami,
+    /// Check this node's passphrase and nothing else; exit 0 when it opens the
+    /// keystore. What `install/clean` asks before deleting an account, so one
+    /// person cannot remove another's node on a shared machine by mistake.
+    /// Runs beside the daemon: it reads the keystore, not the store.
+    CheckPassphrase,
     /// List the nodes on this machine: account, home, folder, daemon.
     Instances,
     /// Rename the unnamed node `~/.itsanas` to `~/.itsanas-ACCOUNT`.
@@ -796,6 +801,7 @@ fn run() -> Result<()> {
             unreachable!("answered before a home is resolved")
         }
         Command::Whoami => whoami(&home),
+        Command::CheckPassphrase => check_passphrase(&home),
         Command::Ls => list(&home),
         Command::Put { path, source } => put(&home, &path, &source),
         Command::Get { path, destination } => get(&home, &path, destination.as_deref()),
@@ -2326,6 +2332,15 @@ fn registered_with(home: &Path) -> Option<String> {
         .ok()
         .map(|text| text.trim().to_owned())
         .filter(|text| !text.is_empty())
+}
+
+fn check_passphrase(home: &Path) -> Result<()> {
+    if !Node::exists(home) {
+        return Err(CliError::NoNode(home.to_path_buf()));
+    }
+    let identity = itsanas_node::node::Identity::open(home, &passphrase(false)?)?;
+    println!("passphrase accepted for {}", identity.config.username);
+    Ok(())
 }
 
 fn whoami(home: &Path) -> Result<()> {
