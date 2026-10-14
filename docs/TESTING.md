@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-14 — 1145 test functions across 36 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 307 are red-team tests.**
+**Last updated: 2026-10-14 — 1146 test functions across 36 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 308 are red-team tests.**
 
-**1029 of the 1145 tests have an entry of their own on this page** — an *entry*,
+**1030 of the 1146 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -176,7 +176,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 133 |
+| `itsanas-cli` unit | 134 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 131 |
@@ -1004,7 +1004,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (133)
+# `itsanas-cli` — unit tests (134)
 
 ## `bench` — measuring this machine (4)
 
@@ -1077,7 +1077,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_a_username_already_taken_is_refused_before_any_key_is_written`** | With a coordinator that already holds the name, the account step fails before any keystore is written or any word shown, and says the name is taken. Sabotaged (check ignored): red. |
 | **`red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`** | The built-in coordinator's device id is pinned (and parses), so a machine answering at its name that is not it is refused; another coordinator gets no pin. Sabotaged (pin never applied): red. |
 
-## `update::tests` — the self-update: only a signed, newer, intact release replaces the program (13)
+## `update::tests` — the self-update: only a signed, newer, intact release replaces the program (14)
 
 `crates/itsanas-cli/src/update.rs` (tests in `update/tests.rs`). `itsanas
 update [--check]` and the daemon's daily look. The tests serve a fake release
@@ -1099,6 +1099,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | **`red_team_a_download_whose_hash_differs_is_refused`** | A binary swapped on the server after signing (same size, one bit) is "not the file that was signed". Sabotaged (download not checked): red. |
 | **`red_team_a_truncated_update_is_never_put_in_place`** | Half the binary is "incomplete", never put in place: half a program is a machine that no longer starts. Sabotaged (as above): red. |
 | **`red_team_a_build_not_installed_from_a_release_never_updates_itself`** | A program whose bytes are not its own version's released binary (built from source) refuses to update; one running under a cargo `target/` directory does not even look. Sabotaged (origin check removed; target/ test removed): red both. The same test also holds `check()` to the same answer: a source build is told `NotFromRelease`, not "update available" it will then refuse every day, while a release install still hears `Available` (sabotaged: `Available` on error, red). |
+| **`red_team_a_network_drop_never_calls_a_release_install_a_source_build`** | `check` fetches the manifest twice: the newest, then the running version's own, to learn whether this program is that release. When the second fetch fails for want of a network, the check fails "could not check for an update", to be retried; it used to answer `NotFromRelease`, telling a release install it never updates itself. Only a 404 (the server answering that there is no such release) means not-from-release. Sabotaged by treating every fetch error as missing: red. |
 | `without_a_pinned_key_nothing_is_fetched` | With no key (`trust: None`, as in every build before the key was pinned), `check` answers "no key" without one request: a build that can trust nothing does not ask. |
 | **`red_team_a_failed_swap_puts_the_old_program_back`** | The replace is two renames; when the second fails the first is undone and the old program is where the service starts it; when the first fails nothing moved. Sabotaged (no rollback): red. |
 | `the_daily_look_follows_the_setting` | `off` makes no request and clears the notice; `notify` writes the version `status` shows and installs nothing; `auto` installs and clears the notice. |

@@ -320,6 +320,39 @@ fn red_team_a_build_not_installed_from_a_release_never_updates_itself() {
     );
 }
 
+/// A network that answers the first fetch and drops the rest.
+struct Dropping<'a>(&'a Served);
+
+impl Fetch for Dropping<'_> {
+    fn get(&self, path: &str, to: &Path, max_bytes: u64) -> Result<(), String> {
+        if path.starts_with("download/v") {
+            return Err(format!(
+                "could not download {path}: Could not resolve host: github.com"
+            ));
+        }
+        self.0.get(path, to, max_bytes)
+    }
+}
+
+#[test]
+fn red_team_a_network_drop_never_calls_a_release_install_a_source_build() {
+    // Rodin, 2026-10-13: the second fetch failing for want of a network made
+    // `check` answer "not installed from a release, never updates itself" to
+    // a program that was. It must fail the check instead, to be retried.
+    // Sabotage: treat every fetch error as "missing".
+    let world = World::new();
+    world.publish("0.2.0", NEW_PROGRAM);
+    let dropping = Dropping(&world.served);
+    let updater = Updater {
+        fetch: &dropping,
+        ..world.updater()
+    };
+    match updater.check() {
+        Err(error) => assert!(error.to_string().contains("could not check"), "{error}"),
+        other => panic!("a network drop was reported as {other:?}"),
+    }
+}
+
 #[test]
 fn without_a_pinned_key_nothing_is_fetched() {
     let world = World::new();

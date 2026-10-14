@@ -115,6 +115,12 @@ pub(crate) fn curl_command(path: &str, to: &Path, max_bytes: u64) -> Command {
     command
 }
 
+/// Whether a fetch failed because the server answered that the file is not
+/// there (HTTP 404, as `curl --fail` reports it), not because nothing answered.
+fn is_missing(error: &str) -> bool {
+    error.contains("returned error: 404") || error.contains("404 ")
+}
+
 /// Read a downloaded file, refusing one larger than `max`: the cap `curl`
 /// enforces is not the only way a file reaches that path.
 fn read_capped(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
@@ -283,7 +289,10 @@ impl<'a> Updater<'a> {
             Ok(manifest) => {
                 match self.installed_from_release(trust, self.target.unwrap_or_default()) {
                     Ok(()) => Ok(Found::Available(manifest)),
-                    Err(why) => Ok(Found::NotFromRelease(why.to_string())),
+                    Err(why) if why.to_string().contains("not installed from a release") => {
+                        Ok(Found::NotFromRelease(why.to_string()))
+                    }
+                    Err(failed) => Err(failed),
                 }
             }
             Err(ReleaseError::NotNewer { .. }) => Ok(Found::UpToDate(self.running)),
@@ -302,7 +311,18 @@ impl<'a> Updater<'a> {
         };
         let (bytes, signature) = self
             .fetch_manifest(&format!("download/v{}", self.running))
-            .map_err(|error| not_ours(format!("no release {}: {error}", self.running)))?;
+            .map_err(|error| {
+                // Only an answer from the server ("no such release") says the
+                // program is not a release's. A network that failed between
+                // two fetches said nothing, and calling that "never updates
+                // itself" told a release install the opposite of the truth
+                // (Rodin, 2026-10-13).
+                if is_missing(&error.to_string()) {
+                    not_ours(format!("no release {}: {error}", self.running))
+                } else {
+                    CliError::Usage(format!("could not check for an update: {error}"))
+                }
+            })?;
         let own = itsanas_release::verify_signed(&bytes, &signature, trust)
             .map_err(|error| not_ours(format!("release {}: {error}", self.running)))?;
         let entry = own
