@@ -28,9 +28,9 @@ try {
 
     Write-Host "`n== 1/3 Removing every ITSaNAS account on this PC"
     Get-ChildItem $env:USERPROFILE -Directory -Filter '.itsanas-*' -Force | ForEach-Object {
-        & "$work\clean.ps1" -Yes -PurgeAccount -PurgeFolder -DrainFor 0 -Instance $_.Name.Substring(9)
+        & "$work\clean.ps1" -Yes -PurgeAccount -PurgeFolder -DrainFor 0 -WithoutPassphrase -Instance $_.Name.Substring(9)
     }
-    & "$work\clean.ps1" -Yes -PurgeAccount -PurgeFolder -DrainFor 0
+    & "$work\clean.ps1" -Yes -PurgeAccount -PurgeFolder -DrainFor 0 -WithoutPassphrase
     Get-ChildItem "$env:USERPROFILE\Documents\ITSaNAS", "$env:USERPROFILE\Desktop" -Filter '*mots*.txt' -ErrorAction SilentlyContinue |
         ForEach-Object { Write-Host "  removed $($_.FullName)"; Remove-Item $_.FullName -Force }
 

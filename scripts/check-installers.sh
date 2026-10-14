@@ -883,9 +883,16 @@ printf 'folder = %s\n' "$pf/My F" > "$pf/.itsanas-b/config"
 printf 'folder = %s\n' "$pf/plain" > "$pf/.itsanas-c/config"
 for i in b c; do
     env HOME="$pf" PATH=/usr/bin:/bin timeout 30 sh install/clean.sh --instance "$i" --yes \
-        --purge-account --purge-folder --drain-for 0 </dev/null >/dev/null 2>&1
+        --purge-account --purge-folder --drain-for 0 --without-passphrase </dev/null >/dev/null 2>&1
 done
-if [ -e "$pf/My F" ]; then
+# Without the passphrase (and no program to check one with) an account stays:
+# one person on a shared machine must not remove another's by mistake.
+mkdir -p "$pf/.itsanas-d"; : > "$pf/.itsanas-d/keystore.bin"
+env HOME="$pf" PATH=/usr/bin:/bin timeout 30 sh install/clean.sh --instance d --yes \
+    --purge-account --drain-for 0 </dev/null >/dev/null 2>&1
+if [ ! -e "$pf/.itsanas-d/keystore.bin" ]; then
+    bad "clean.sh --purge-account removed an account without its passphrase"
+elif [ -e "$pf/My F" ]; then
     bad "clean.sh --purge-folder left the synced folder of the account it removed"
 elif [ ! -e "$pf/plain/kept" ]; then
     bad "clean.sh --purge-folder emptied a folder with no .itsanas-folder marker"
