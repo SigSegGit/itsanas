@@ -169,7 +169,11 @@ if (-not (Test-Path -LiteralPath $exe)) { $exe = Join-Path $env:LOCALAPPDATA 'Pr
 if (-not (Test-Path -LiteralPath $exe)) { $exe = 'itsanas' }
 
 function Invoke-Itsanas([string[]]$Arguments) {
-    $all = Get-CliArguments $Arguments
+    # @(...): with no -Instance a one-word command comes back from the function
+    # as a lone string, and splatting a string passes it letter by letter
+    # (`itsanas i n s t a n c e s`). Only the unnamed node's icon lost its
+    # folder that way (Nicolas, 2026-10-14).
+    $all = @(Get-CliArguments $Arguments)
     try { return (& $exe @all 2>$null) } catch { return $null }
 }
 
