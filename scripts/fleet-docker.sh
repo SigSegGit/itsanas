@@ -103,6 +103,23 @@ else
     say "  not on this machine (the VM runs it)"
 fi
 
+# Without the memory controller every cap in the compose files is dropped
+# ("Your kernel does not support memory limit capabilities", the Pi on
+# 2026-10-14): Raspberry Pi OS ships it off. Turned on here, once; it takes
+# effect at the next boot, and the containers come back by themselves.
+REBOOT_FOR_LIMITS=0
+if [ -r /sys/fs/cgroup/cgroup.controllers ] && ! grep -qw memory /sys/fs/cgroup/cgroup.controllers; then
+    for cmdline in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
+        [ -f "$cmdline" ] || continue
+        if ! grep -q 'cgroup_memory=1' "$cmdline"; then
+            sudo sed -i '1 s/$/ cgroup_enable=memory cgroup_memory=1/' "$cmdline"
+            say "  memory limits enabled in $cmdline (they apply after a reboot)"
+        fi
+        REBOOT_FOR_LIMITS=1
+        break
+    done
+fi
+
 say; say "== 4/5 The client image (a Raspberry Pi takes a while: it compiles)"
 $SUDO docker compose -f "$DOCKER_DIR/compose.client.yml" -p itsanas-build build || fail "client image build"
 
@@ -158,3 +175,7 @@ for acct in $ACCOUNTS; do
     $SUDO docker logs "itsanas-$acct-client-1" 2>&1 | sed -n 's/^ *user id *//p' | head -1
 done
 $SUDO docker ps --filter name=itsanas --format '  {{.Names}}  {{.Status}}'
+if [ "$REBOOT_FOR_LIMITS" -eq 1 ]; then
+    say; say "  REBOOT this machine (sudo reboot) so the containers' memory limits apply;"
+    say "  they restart by themselves (restart: unless-stopped)."
+fi
