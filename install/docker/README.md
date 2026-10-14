@@ -38,6 +38,14 @@ it moved. Each night, as the checkout's owner (who must be in the `docker`
 group): `crontab -e`, then
 `0 4 * * * sh $HOME/itsanas/install/docker/update.sh >> $HOME/itsanas-update.log 2>&1`.
 
+## The fleet in one line per machine
+
+`scripts/fleet-docker.sh vm|pi` removes every native install (nodes, vaults,
+services, the systemd coordinator; the VM keeps its pinned `device.key`), runs
+the coordinator (vm) and one client per account with its own data directory,
+port (9797, 9798, 9799) and mode-600 env file (`ITSANAS_ENV_FILE`): one
+passphrase per account.
+
 ## A client in Docker (any Linux, the Raspberry Pi included)
 
 `compose.client.yml` runs one member node, apart from the coordinator. It uses
