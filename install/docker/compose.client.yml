@@ -18,7 +18,8 @@ services:
     # opens the box's port, neither of which crosses Docker's bridge.
     network_mode: host
     user: "${ITSANAS_UID:-1000}:${ITSANAS_GID:-1000}"
-    env_file: client.env
+    # One file per account: three people on one machine have three passphrases.
+    env_file: ${ITSANAS_ENV_FILE:-client.env}
     # One directory for every project on this machine: each client publishes
     # its pledge there, so two accounts cannot promise the same free space
     # (a container cannot see another's home). Keep it on the data disk.

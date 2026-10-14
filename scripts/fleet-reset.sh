@@ -70,15 +70,18 @@ export PATH="$HOME/.local/bin:$PATH"
 itsanas --version
 
 echo; echo "== 4/4 The accounts: $ACCOUNTS"
-read -r -s -p "Passphrase for THIS machine (all its accounts): " PASS; echo
-read -r -s -p "Again: " PASS2; echo
-if [ -z "$PASS" ] || [ "$PASS" != "$PASS2" ]; then
-    echo "They differ or are empty. Run again: bash ~/fleet-reset.sh $ROLE"
-    exit 1
-fi
-
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 for acct in $ACCOUNTS; do
     echo; echo "---------- account $acct ----------"
+    # One passphrase per account, as three people sharing a machine would
+    # have: the test must show an instance never opens another's keys.
+    while :; do
+        read -r -s -p "Passphrase for '$acct' on this machine: " PASS; echo
+        read -r -s -p "Again: " PASS2; echo
+        [ -n "$PASS" ] && [ "$PASS" = "$PASS2" ] && break
+        echo "They differ or are empty; again."
+    done
+    printf -v "PASS_${acct//-/_}" '%s' "$PASS"
     inst=()
     [ "$acct" = nicolas ] || inst=(--instance "$acct")
     phrase=()
@@ -103,5 +106,6 @@ for acct in $ACCOUNTS; do
     inst=()
     [ "$acct" = nicolas ] || inst=(--instance "$acct")
     printf '%-10s ' "$acct"
-    ITSANAS_PASSPHRASE="$PASS" itsanas "${inst[@]}" whoami 2>&1 | tail -1
+    var="PASS_${acct//-/_}"
+    ITSANAS_PASSPHRASE="${!var}" itsanas "${inst[@]}" whoami 2>&1 | tail -1
 done

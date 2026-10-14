@@ -34,17 +34,19 @@ try {
     itsanas --version
 
     Write-Host "`n== 3/3 The accounts: $($accounts -join ', ')"
-    $p1 = Read-Host -AsSecureString 'Passphrase for THIS PC (all its accounts)'
-    $p2 = Read-Host -AsSecureString 'Again'
-    $pass = [Net.NetworkCredential]::new('', $p1).Password
-    if (-not $pass -or $pass -ne [Net.NetworkCredential]::new('', $p2).Password) {
-        Write-Host 'They differ or are empty. Run the line again.'
-        return
-    }
-    $env:ITSANAS_PASSPHRASE = $pass
-
+    $passes = @{}
     foreach ($acct in $accounts) {
         Write-Host "`n---------- account $acct ----------"
+        # One passphrase per account, as three people sharing a PC would have.
+        do {
+            $p1 = Read-Host -AsSecureString "Passphrase for '$acct' on this PC"
+            $p2 = Read-Host -AsSecureString 'Again'
+            $pass = [Net.NetworkCredential]::new('', $p1).Password
+            $same = $pass -and $pass -eq [Net.NetworkCredential]::new('', $p2).Password
+            if (-not $same) { Write-Host 'They differ or are empty; again.' }
+        } until ($same)
+        $passes[$acct] = $pass
+        $env:ITSANAS_PASSPHRASE = $pass
         $phrase = Join-Path $work "phrase-$acct.txt"
         Read-Host "Paste the 24 words of '$acct' (one line), then Enter" | Set-Content $phrase
         $instance = @{}
@@ -59,6 +61,7 @@ try {
 
     Write-Host "`n== Done. One id per account; it must be the same on every machine:"
     foreach ($acct in $accounts) {
+        $env:ITSANAS_PASSPHRASE = $passes[$acct]
         $id = if ($acct -eq 'nicolas') { itsanas whoami 2>&1 } else { itsanas --instance $acct whoami 2>&1 }
         Write-Host ("{0,-10} {1}" -f $acct, ($id | Select-Object -Last 1))
     }
