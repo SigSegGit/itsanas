@@ -65,6 +65,17 @@ if [ "$ROLE" != vm ] && [ -d "$COORD_STATE" ]; then
     sudo rm -rf "$COORD_STATE"
     say "  an old coordinator's state on this machine removed"
 fi
+# Earlier Docker installs: containers this script does not run (an older
+# compose with fixed names, as on the Pi on 2026-10-14) and the data they
+# kept beside the compose file. Ours are left running on a re-run.
+keep="^itsanas-coordinator$|^itsanas-(nicolas|test|mandarine)-client-1$"
+for name in $($SUDO docker ps -a --format '{{.Names}}' 2>/dev/null | grep -i itsanas | grep -Ev "$keep"); do
+    $SUDO docker rm -f "$name" >/dev/null && say "  old container $name removed"
+done
+for old in "$HOME"/itsanas/install/docker/data* "$HOME"/itsanas/install/docker/ITSaNAS* "$HOME"/itsanas/install/docker/client.env; do
+    [ -e "$old" ] || continue
+    rm -rf "$old" && say "  old Docker data $old removed"
+done
 say "  ok: no native node, service or binary left"
 
 say; say "== 2/5 The checkout the images are built from ($CHECKOUT)"
@@ -140,8 +151,10 @@ for acct in $ACCOUNTS; do
 done
 
 say; say "== Done. One id per account; it must be the same on every machine:"
+# Read from the container's log rather than asked: the running daemon holds
+# the node, so `whoami` beside it is refused.
 for acct in $ACCOUNTS; do
     printf '%-10s ' "$acct"
-    $SUDO docker exec "itsanas-$acct-client-1" itsanas whoami 2>&1 | tail -1
+    $SUDO docker logs "itsanas-$acct-client-1" 2>&1 | sed -n 's/^ *user id *//p' | head -1
 done
 $SUDO docker ps --filter name=itsanas --format '  {{.Names}}  {{.Status}}'
