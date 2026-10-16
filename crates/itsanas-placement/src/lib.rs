@@ -37,10 +37,25 @@
 //! slots — which is the same proportional-to-capacity property the float
 //! formula was for, computed in a way that every machine agrees on bit for bit.
 
+pub mod liveness;
 pub mod nodeset;
+pub mod release;
 pub mod repair;
+pub mod roster;
 pub mod spreading;
+pub mod target;
+pub mod uptime;
 
+#[cfg(test)]
+mod fixtures;
+
+pub use liveness::{LOST_AFTER_CEILING, LOST_AFTER_FLOOR, lost_after, lost_after_hours};
 pub use nodeset::{MAX_SLOTS, NodeSet, PlacementError, StorageNode};
+pub use release::release_holder;
 pub use repair::{AtRisk, Census, DEFAULT_REPLICATION_FLOOR, Push, RepairPlan, plan};
+pub use roster::{Host, Roster};
 pub use spreading::{Blocked, SHARE_DIVISOR, Spreading, critical_mass, space_needed, spreading};
+pub use target::{Account, GOAL, Goal, Holding, Verdict, Want, assess, want};
+pub use uptime::{
+    MIN_ATTEMPTED_HOURS, MIN_SPAN_HOURS, PerMille, Unit, Uptime, WINDOW_HOURS, miss_ppm,
+};

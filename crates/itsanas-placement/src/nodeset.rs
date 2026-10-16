@@ -19,6 +19,35 @@ const PLACEMENT_DOMAIN: &str = "itsanas v1 chunk placement";
 /// attack.
 pub const MAX_SLOTS: u32 = 64;
 
+/// The highest hash this node produces for a chunk, across its slots.
+///
+/// Taking the maximum over a node's slots is what makes the weighting
+/// exact: the chance that the single highest value in the whole swarm
+/// belongs to a given node is precisely that node's share of the slots.
+///
+/// Shared with [`crate::roster`], so the availability-weighted order and the
+/// capacity-weighted one hash identically: two scorings of the same device
+/// that drifted apart would be two placements nobody could reconcile.
+pub(crate) fn score(device: &DeviceId, slots: u32, owner: UserId, chunk: &ChunkId) -> [u8; 32] {
+    let mut best = [0u8; 32];
+
+    for slot in 0..slots {
+        let digest = blake3::Hasher::new_derive_key(PLACEMENT_DOMAIN)
+            .update(device.as_bytes())
+            .update(&slot.to_le_bytes())
+            .update(owner.as_bytes())
+            .update(chunk.as_bytes())
+            .finalize();
+
+        let candidate: [u8; 32] = *digest.as_bytes();
+        if candidate > best {
+            best = candidate;
+        }
+    }
+
+    best
+}
+
 /// Everything that can go wrong building a node set.
 #[derive(Debug, thiserror::Error)]
 pub enum PlacementError {
@@ -122,31 +151,6 @@ impl NodeSet {
             .map_or(0, |index| self.slots[index])
     }
 
-    /// The highest hash this node produces for a chunk, across its slots.
-    ///
-    /// Taking the maximum over a node's slots is what makes the weighting
-    /// exact: the chance that the single highest value in the whole swarm
-    /// belongs to a given node is precisely that node's share of the slots.
-    fn score(node: &StorageNode, slots: u32, owner: UserId, chunk: &ChunkId) -> [u8; 32] {
-        let mut best = [0u8; 32];
-
-        for slot in 0..slots {
-            let digest = blake3::Hasher::new_derive_key(PLACEMENT_DOMAIN)
-                .update(node.device.as_bytes())
-                .update(&slot.to_le_bytes())
-                .update(owner.as_bytes())
-                .update(chunk.as_bytes())
-                .finalize();
-
-            let candidate: [u8; 32] = *digest.as_bytes();
-            if candidate > best {
-                best = candidate;
-            }
-        }
-
-        best
-    }
-
     /// Which nodes should hold this chunk, best first.
     ///
     /// Returns at most `count` nodes, and fewer only when the swarm is smaller
@@ -181,7 +185,7 @@ impl NodeSet {
             .iter()
             .zip(&self.slots)
             .filter(|(node, _)| node.owner != owner)
-            .map(|(node, slots)| (Self::score(node, *slots, owner, chunk), node.device))
+            .map(|(node, slots)| (score(&node.device, *slots, owner, chunk), node.device))
             .collect();
 
         ranked.sort_by(|left, right| {
@@ -289,21 +293,63 @@ mod tests {
 
     #[test]
     fn no_floating_point_is_involved() {
-        // The reason this module exists in the shape it does. `f64::ln` is
+        // The reason this crate exists in the shape it does. `f64::ln` is
         // libm-dependent and two platforms can differ in the last ulp, which
-        // would make two machines disagree about where a chunk lives.
-        let source = include_str!("nodeset.rs");
-        let code = source
-            .split("#[cfg(test)]")
-            .next()
-            .expect("there is code before the tests");
+        // would make two machines disagree about where a chunk lives — or, for
+        // the availability modules, about whether a chunk is short or which
+        // holder to release. Every module is scanned, because a float slipped
+        // into a module nobody listed here would be exactly as silent.
+        let modules = [
+            ("lib.rs", include_str!("lib.rs")),
+            ("nodeset.rs", include_str!("nodeset.rs")),
+            ("repair.rs", include_str!("repair.rs")),
+            ("spreading.rs", include_str!("spreading.rs")),
+            ("uptime.rs", include_str!("uptime.rs")),
+            ("liveness.rs", include_str!("liveness.rs")),
+            ("target.rs", include_str!("target.rs")),
+            ("roster.rs", include_str!("roster.rs")),
+            ("release.rs", include_str!("release.rs")),
+        ];
 
-        for banned in ["f64", "f32", ".ln(", ".log", ".powf", ".sqrt"] {
-            assert!(
-                !code.contains(banned),
-                "{banned:?} appears in the placement logic; scores must be \
-                 computed identically on every platform"
-            );
+        for (name, source) in modules {
+            let before_tests = source
+                .split("#[cfg(test)]")
+                .next()
+                .expect("there is code before the tests");
+            // Comments may name the float formula they replaced (lib.rs
+            // does); only code is held to the rule.
+            let code: String = before_tests
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            for banned in ["f64", "f32", ".ln(", ".log", ".powf", ".sqrt"] {
+                assert!(
+                    !code.contains(banned),
+                    "{banned:?} appears in {name}; placement must be \
+                     computed identically on every platform"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_float_guard_lists_every_module_of_the_crate() {
+        // A new module added to lib.rs but not to the guard above would be
+        // unguarded without anyone noticing.
+        let lib = include_str!("lib.rs");
+        let guard = include_str!("nodeset.rs");
+        for line in lib.lines() {
+            if let Some(module) = line
+                .strip_prefix("pub mod ")
+                .and_then(|rest| rest.strip_suffix(';'))
+            {
+                assert!(
+                    guard.contains(&format!("include_str!(\"{module}.rs\")")),
+                    "module {module} is not scanned by no_floating_point_is_involved"
+                );
+            }
         }
     }
 

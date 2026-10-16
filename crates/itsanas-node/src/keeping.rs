@@ -39,7 +39,7 @@
 use std::collections::BTreeSet;
 
 use itsanas_crypto::ChunkId;
-use itsanas_net::{PeerClient, protocol::MAX_HAVE_BATCH, session};
+use itsanas_net::{PeerClient, Placement, protocol::MAX_HAVE_BATCH, session};
 use itsanas_policy::keeping::{Candidate, Keeping, Left};
 use itsanas_store::{Presence, Release, Store, Vault};
 
@@ -95,6 +95,41 @@ pub fn round(
     client: &mut PeerClient,
     scope: session::Scope,
 ) -> Result<(session::RoundReport, KeepingReport)> {
+    round_placed(store, vault, keeping, client, scope, None)
+}
+
+/// [`round`], pushing by the round's `placement` when there is one.
+///
+/// `None` is `placement = everyone` and takes exactly the path [`round`]
+/// always took. `Some` changes the push and nothing else: what this device
+/// fetches and keeps of its own account is the budget's business, not
+/// placement's, which only decides where *copies for others to hold* go.
+///
+/// # Errors
+///
+/// If the peer fails, or the store cannot be read or written.
+pub fn round_placed(
+    store: &Store,
+    vault: &Vault,
+    keeping: &Keeping,
+    client: &mut PeerClient,
+    scope: session::Scope,
+    placement: Option<&Placement>,
+) -> Result<(session::RoundReport, KeepingReport)> {
+    if let Some(placement) = placement
+        && keeping.is_everything()
+    {
+        // `session::round_scoped` with the push placed: the same three steps
+        // in the same order, so a measured round differs from an everyone
+        // round only in what is offered.
+        store.note_seen(&client.peer_device())?;
+        let push = session::push_placed(store, client, scope, Some(placement))?;
+        let pull = session::pull_scoped(store, vault, client, scope)?;
+        return Ok((
+            session::RoundReport { push, pull },
+            KeepingReport::default(),
+        ));
+    }
     if keeping.is_everything() {
         // Every machine with room takes this path, and it is the path this
         // project had before budgets existed. The selective one costs a second
@@ -109,7 +144,7 @@ pub fn round(
     // acknowledgements count as copies. Same reason as `session::round_scoped`.
     store.note_seen(&client.peer_device())?;
 
-    let push = session::push_scoped(store, client, scope)?;
+    let push = session::push_placed(store, client, scope, placement)?;
     let fetched = session::refresh(store, vault, client)?;
 
     let mut report = KeepingReport::default();

@@ -1003,6 +1003,38 @@ fn red_team_a_host_cannot_answer_a_repair_request_with_rubbish() {
 
 #[test]
 fn a_replacement_device_pulls_a_whole_corpus_back_from_a_stranger() {
+    replacement_pulls_a_whole_corpus_back(false);
+}
+
+/// The same restore when the lost machine placed its content by measured
+/// availability: a stranger it never measured is outside the roster, and
+/// still takes every chunk that had no proven copy anywhere.
+#[test]
+fn a_replacement_device_pulls_a_whole_corpus_back_from_a_stranger_in_measured_mode() {
+    replacement_pulls_a_whole_corpus_back(true);
+}
+
+/// A plain push, or one placed by measured availability from `store`'s own
+/// records, as the daemon does in `measured`.
+fn push_measured_or_not(
+    store: &Store,
+    client: &mut PeerClient,
+    measured: bool,
+) -> session::PushReport {
+    if !measured {
+        return session::push(store, client).expect("push");
+    }
+    let placement = itsanas_net::Placement::build(
+        store,
+        std::collections::BTreeSet::new(),
+        &std::collections::BTreeMap::new(),
+        itsanas_store::now_unix(),
+    )
+    .expect("placement");
+    session::push_placed(store, client, session::Scope::Everything, Some(&placement)).expect("push")
+}
+
+fn replacement_pulls_a_whole_corpus_back(measured: bool) {
     // MVP acceptance test D, the half that was never checked. Recovery from
     // username and passphrase restores the *account* — the user id, the keys,
     // the ability to speak. It says nothing at all about whether the files come
@@ -1049,7 +1081,7 @@ fn a_replacement_device_pulls_a_whole_corpus_back_from_a_stranger() {
             let mut client =
                 PeerClient::connect(address, &doomed.device, doomed.store.owner(), None)
                     .expect("dial");
-            let report = session::push(&doomed.store, &mut client).expect("push");
+            let report = push_measured_or_not(&doomed.store, &mut client, measured);
             assert!(report.chunks_accepted > 0, "the host took nothing");
         });
         // And now the machine is gone: its store, its blobs, its device key.

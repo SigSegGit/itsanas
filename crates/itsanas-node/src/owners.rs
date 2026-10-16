@@ -90,8 +90,9 @@ const RECOUNT_EVERY: Duration = Duration::from_secs(60);
 /// walk the whole book (redteam).
 const RECOUNT_ON_REFUSAL: Duration = Duration::from_secs(1);
 
-/// What a host answers an account past what its pledge earns.
-pub const ACCOUNT_FULL: &str = "this account has stored here what its pledge earns";
+/// What a host answers an account past what its pledge earns. Defined in the
+/// net crate, whose client and service both read it back.
+pub use itsanas_net::service::ACCOUNT_FULL;
 /// What a host answers when the share lent on promises is used up.
 pub const UNPROVEN_FULL: &str =
     "this host lends no more on promises alone: host something for it to earn more";
@@ -266,6 +267,25 @@ impl ClaimBook {
         }
         asked.push_back(Instant::now());
         true
+    }
+
+    /// Whose each device that presented a claim here is, as its signed claim
+    /// says: what placement reads to tell two hosts of one account from two
+    /// of different accounts.
+    ///
+    /// Every held claim, confirmed or not. The signature already proves the
+    /// account issued it; the coordinator's word is about whether it still
+    /// stands, which matters for storing and not for "these two machines are
+    /// one household". Leaving the unconfirmed out would make them
+    /// `Unknown`, which placement merges into one account anyway -- the
+    /// conservative side, but a less exact one. Bounded by the book's
+    /// capacity, so a round never copies more than [`MAX_CLAIMS`] rows.
+    #[must_use]
+    pub fn accounts(&self) -> BTreeMap<DeviceId, UserId> {
+        self.lock()
+            .iter()
+            .map(|(device, held)| (*device, held.owner))
+            .collect()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<DeviceId, Held>> {
@@ -667,6 +687,14 @@ impl itsanas_net::Owners for ClaimBook {
                 _ => None,
             })
     }
+
+    /// The test `admits` puts a store to, before any question of room: a
+    /// claim for `owner` presented by `caller`, confirmed lately and not
+    /// withdrawn. A device whose standing lapsed may no longer store for the
+    /// account, so it may no longer mark the account's chunks either.
+    fn speaks_for(&self, caller: DeviceId, owner: UserId) -> bool {
+        self.confirmed_account(caller) == Some(owner)
+    }
 }
 
 #[cfg(test)]
@@ -779,6 +807,48 @@ mod tests {
         host.store.record_holders(&chunks, &device).unwrap();
         host.store.note_audit(&device, true).unwrap();
         host.store.bytes_held_by(&device).unwrap()
+    }
+
+    #[test]
+    fn placement_reads_each_presented_device_as_the_account_its_claim_names() {
+        // Two hosts of one household must read as one account to placement,
+        // or a chunk counts as spread over two accounts while one power cut
+        // takes both. Sabotage: key the map by owner, or drop unconfirmed.
+        let host = host();
+        let (alice, bob) = (account(0xA1), account(0xB0));
+        present(&host, &alice, 0x21, 700);
+        presents(&host, &alice, 0x22, 700);
+        present(&host, &bob, 0x23, 700);
+
+        let accounts = host.book.accounts();
+        assert_eq!(accounts.len(), 3);
+        assert_eq!(accounts[&device(0x21)], alice.user_id());
+        assert_eq!(accounts[&device(0x22)], alice.user_id());
+        assert_eq!(accounts[&device(0x23)], bob.user_id());
+        assert!(!accounts.contains_key(&device(0x99)));
+    }
+
+    #[test]
+    fn red_team_only_a_confirmed_device_of_the_account_speaks_for_it() {
+        // What lets a device mark an account's chunks evictable on this
+        // host. A device of another account, one never confirmed, and one
+        // whose claim was withdrawn must not; the account's live device must.
+        // Sabotages: answer `confirmed_account(..).is_some()`; ignore the
+        // standing.
+        use itsanas_net::Owners as _;
+        let host = host();
+        let (alice, bob) = (account(0xA1), account(0xB0));
+        present(&host, &alice, 0x11, 700);
+        present(&host, &bob, 0x12, 700);
+        presents(&host, &alice, 0x13, 700);
+        present(&host, &alice, 0x14, 700);
+        host.book.note(device(0x14), Verdict::Withdrawn);
+
+        assert!(host.book.speaks_for(device(0x11), alice.user_id()));
+        assert!(!host.book.speaks_for(device(0x12), alice.user_id()));
+        assert!(!host.book.speaks_for(device(0x13), alice.user_id()));
+        assert!(!host.book.speaks_for(device(0x14), alice.user_id()));
+        assert!(!host.book.speaks_for(device(0x99), alice.user_id()));
     }
 
     #[test]

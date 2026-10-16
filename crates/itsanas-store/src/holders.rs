@@ -537,6 +537,20 @@ const _: () = assert!(
     "the window is two missed refresh opportunities, and that derivation is the      only reason this number is defensible"
 );
 
+// Placement's per-host window and this ledger's two windows are one design.
+// The window's floor is the record lifetime, so a host that has gone quiet is
+// treated as lost by placement exactly when its records stop counting here;
+// and the window's ceiling stays inside `CONFIRMED_FOR`, so placement never
+// counts on a host the ledger has already stopped confirming.
+const _: () = assert!(
+    LIVE_FOR == itsanas_placement::LOST_AFTER_FLOOR,
+    "placement's shortest lost-after window must be the ledger's record lifetime"
+);
+const _: () = assert!(
+    itsanas_placement::LOST_AFTER_CEILING < CONFIRMED_FOR,
+    "placement may never wait for a host longer than the ledger confirms it"
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;

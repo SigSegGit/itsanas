@@ -93,6 +93,52 @@ fn parse_updates(value: &str, line: usize) -> Result<Updates> {
     })
 }
 
+/// How this node chooses where its account's chunks go (placement spec §0.4).
+///
+/// `Everyone` by default, and it must stay exactly today's behaviour: every
+/// reachable host is offered everything. `Measured` places by the availability
+/// this device measured itself. Measurement and the `status` lines run in both,
+/// so a member can read the figures before choosing to act on them -- turning
+/// on a placement whose inputs nobody had seen would be trusting it blind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PlacementMode {
+    /// Offer every chunk to every host reached, as before placement existed.
+    #[default]
+    Everyone,
+    /// Offer a host only the chunks whose target wants it.
+    Measured,
+}
+
+impl PlacementMode {
+    /// The word written in the configuration.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Everyone => "everyone",
+            Self::Measured => "measured",
+        }
+    }
+
+    /// Parse `everyone` or `measured`.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "everyone" => Some(Self::Everyone),
+            "measured" => Some(Self::Measured),
+            _ => None,
+        }
+    }
+}
+
+/// The `placement` line, or why it is wrong.
+fn parse_placement(value: &str, line: usize) -> Result<PlacementMode> {
+    PlacementMode::parse(value).ok_or_else(|| {
+        NodeError::Config(format!(
+            "line {line}: placement must be everyone or measured, found {value:?}"
+        ))
+    })
+}
+
 /// Default pledge when a node has not chosen one: nothing.
 ///
 /// Hosting for other people is opt-in. A node that has not said how much space
@@ -196,6 +242,8 @@ pub struct Config {
     pub keep_only: Vec<String>,
     /// What the daemon does about a newer release.
     pub updates: Updates,
+    /// How the daemon places this account's chunks on other people's hosts.
+    pub placement: PlacementMode,
 }
 
 impl Default for Config {
@@ -215,6 +263,7 @@ impl Default for Config {
             keep_order: Order::default(),
             keep_only: Vec::new(),
             updates: Updates::default(),
+            placement: PlacementMode::default(),
         }
     }
 }
@@ -278,6 +327,11 @@ impl Config {
         // node that never changed it.
         if self.updates != Updates::default() {
             let _ = writeln!(out, "updates = {}", self.updates.name());
+        }
+        // Same rule as `updates`: an older binary refuses the key, so a node
+        // that never chose measured placement must not write it.
+        if self.placement != PlacementMode::default() {
+            let _ = writeln!(out, "placement = {}", self.placement.name());
         }
 
         out
@@ -375,6 +429,7 @@ impl Config {
                 "coordinator_device" => config.coordinator_device = Some(value.to_owned()),
                 "peer" => peers.push(value.to_owned()),
                 "updates" => config.updates = parse_updates(value, number + 1)?,
+                "placement" => config.placement = parse_placement(value, number + 1)?,
                 other => {
                     // A backslash continuation here reached the repository with
                     // its second continuation eaten, so this line printed
@@ -387,7 +442,7 @@ impl Config {
                             "username, pledge_bytes, split, keep_bytes, keep_order, ",
                             "keep_only, ",
                             "listen, announce, folder, vault, peer, ",
-                            "coordinator, coordinator_device, updates"
+                            "coordinator, coordinator_device, updates, placement"
                         ),
                         number + 1,
                         other
@@ -937,9 +992,39 @@ mod tests {
             announce: Some("ngas.fr:9801".to_owned()),
             // Not the default, so the round trip covers the line being written.
             updates: Updates::Auto,
+            placement: PlacementMode::Measured,
         };
 
         assert_eq!(Config::parse(&config.render()).unwrap(), config);
+    }
+
+    #[test]
+    fn placement_is_everyone_unless_the_file_says_measured() {
+        // Everyone is today's behaviour; a node upgraded in place must keep it
+        // until its owner chooses otherwise, and must not write a line an
+        // older binary would refuse.
+        assert_eq!(Config::default().placement, PlacementMode::Everyone);
+        assert_eq!(
+            Config::parse("").unwrap().placement,
+            PlacementMode::Everyone
+        );
+        assert!(!Config::default().render().contains("placement"));
+        let measured = Config::parse("placement = measured").unwrap();
+        assert_eq!(measured.placement, PlacementMode::Measured);
+        assert_eq!(
+            Config::parse(&measured.render()).unwrap().placement,
+            PlacementMode::Measured
+        );
+    }
+
+    #[test]
+    fn red_team_an_unknown_placement_is_refused_naming_the_two_choices() {
+        // Read as everyone, a typo would leave a member believing their copies
+        // were placed by measurement when nothing measured had been applied.
+        let error = Config::parse("placement = smart").unwrap_err().to_string();
+        assert!(error.contains("everyone"), "{error}");
+        assert!(error.contains("measured"), "{error}");
+        assert!(error.contains("line 1"), "{error}");
     }
 
     #[test]

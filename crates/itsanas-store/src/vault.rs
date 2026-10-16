@@ -27,6 +27,15 @@
 //! exactly where the check belongs. What the vault can do is refuse to accept
 //! more than it agreed to store, which is a quota question rather than an
 //! authenticity one.
+//!
+//! # What the vault removes, and for whom
+//!
+//! Nothing on a peer's say-so. An owner may *mark* chunks it has copies of to
+//! spare ([`Vault::mark_evictable`]); the vault removes marked chunks only when
+//! asked to make room for that same owner ([`Vault::evict_marked`]), oldest
+//! mark first, and never one owner's chunks to make room for another's. Who
+//! may mark is the host's bound to decide, not the vault's: the vault only
+//! caps how many marks an owner makes a day, whoever made them.
 
 use std::path::{Path, PathBuf};
 
@@ -123,6 +132,58 @@ const OWNER_TOTALS: &str = "owner_totals";
 /// would otherwise start from the top every time and never reach the end.
 const CHECK_CURSOR: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("vault_check_cursor");
 const CHECK_CURSOR_KEY: &str = "chunks";
+
+/// `owner ‖ chunk` → when the owner marked it evictable, on this host's clock.
+///
+/// A mark, not a deletion: the owner names a copy it has to spare, and the
+/// chunk stays, served and challenged like any other, until that owner is
+/// refused for room here ([`Vault::evict_marked`]). An owner that is never
+/// short of room here loses nothing to a mark, and an owner that changes its
+/// mind stores the chunk again, which removes the mark ([`Vault::put_chunk`]).
+/// Only chunks this vault holds are marked, so the table is never larger than
+/// [`CHUNKS`].
+const EVICTABLE: TableDefinition<'_, &[u8], u64> = TableDefinition::new("vault_evictable");
+
+/// `owner ‖ marked_at ‖ chunk`: the marks of [`EVICTABLE`] in the order they
+/// are evicted, oldest first, so making room reads one short range instead of
+/// every mark an owner has.
+const EVICTION_ORDER: TableDefinition<'_, &[u8], ()> = TableDefinition::new("vault_eviction_order");
+
+/// `owner` → `(day, marks made that day)`, on this host's clock: what
+/// [`MAX_EVICTABLE_PER_DAY`] counts.
+const EVICT_QUOTA: TableDefinition<'_, &[u8], (u64, u64)> =
+    TableDefinition::new("vault_evict_quota");
+
+/// Most chunks one owner may mark evictable here in one day of this host's
+/// clock, whichever of its devices marks them.
+///
+/// Every device of an account holds the account key, so a device that has
+/// turned hostile -- stolen, or withdrawn and not yet known to be -- speaks for
+/// the account as well as an honest one until its standing lapses. Uncapped,
+/// one session marks everything this host holds for the account and a few
+/// stores of junk evict it, while the account's honest devices still count
+/// those copies: the ledger overstates, which is the error this system must
+/// not make. Capped, such a device takes a day to cost 4096 chunks here, and
+/// the audit and the owner's own walks have that day to notice. Four batches
+/// of `MAX_HAVE_BATCH`: an honest owner marks at most one batch per host per
+/// round, and only on a host that refused it for room.
+pub const MAX_EVICTABLE_PER_DAY: u32 = 4096;
+
+/// Most marked chunks one call to [`Vault::evict_marked`] removes, whatever
+/// it was asked to free.
+///
+/// The call runs under the host's storing lock, on the path of a store that
+/// was refused for room, so every other connection's store waits for it. An
+/// honest call frees one chunk's worth -- a few marked chunks. An owner that
+/// marked thousands of one-byte chunks would otherwise make one store remove
+/// all of them while the host stood still.
+pub const MAX_EVICT_PER_CALL: usize = 256;
+
+/// Seconds in the day [`MAX_EVICTABLE_PER_DAY`] counts over.
+const DAY: u64 = 24 * 60 * 60;
+
+/// Bytes in an [`EVICTION_ORDER`] key.
+const ORDER_KEY_LEN: usize = 32 + 8 + 32;
 
 /// Most rows one call to [`Vault::check_disk`] or `Store::check_disk`
 /// examines, whatever it is asked for.
@@ -282,6 +343,39 @@ fn chunk_from_key(bytes: &[u8]) -> Option<ChunkId> {
     Some(ChunkId::from_bytes(chunk))
 }
 
+/// `owner ‖ marked_at ‖ chunk`, big-endian, so one owner's marks are a
+/// contiguous range in the order they were made.
+fn order_key(owner: UserId, marked_at: u64, chunk: &ChunkId) -> [u8; ORDER_KEY_LEN] {
+    let mut out = [0u8; ORDER_KEY_LEN];
+    out[..32].copy_from_slice(owner.as_bytes().as_slice());
+    out[32..40].copy_from_slice(&marked_at.to_be_bytes());
+    out[40..].copy_from_slice(chunk.as_bytes().as_slice());
+    out
+}
+
+fn order_range(owner: UserId) -> ([u8; ORDER_KEY_LEN], [u8; ORDER_KEY_LEN]) {
+    let mut low = [0u8; ORDER_KEY_LEN];
+    low[..32].copy_from_slice(owner.as_bytes().as_slice());
+    let mut high = [0xFFu8; ORDER_KEY_LEN];
+    high[..32].copy_from_slice(owner.as_bytes().as_slice());
+    (low, high)
+}
+
+/// Drop `owner`'s mark on `address`, if there is one, inside `txn`: called in
+/// the transaction that stores or removes the chunk, so a mark never outlives
+/// the decision it was about.
+fn unmark(txn: &redb::WriteTransaction, owner: UserId, address: &ChunkId) -> Result<()> {
+    let marked_at = txn
+        .open_table(EVICTABLE)?
+        .remove(chunk_key(owner, address).as_slice())?
+        .map(|at| at.value());
+    if let Some(at) = marked_at {
+        txn.open_table(EVICTION_ORDER)?
+            .remove(order_key(owner, at, address).as_slice())?;
+    }
+    Ok(())
+}
+
 impl Vault {
     /// Open or create a vault at `root`.
     ///
@@ -301,6 +395,11 @@ impl Vault {
             let _ = txn.open_table(TOTALS)?;
             let _ = txn.open_table(OWNER_CHUNK_BYTES)?;
             let _ = txn.open_table(CHECK_CURSOR)?;
+            // Created here, not on first write: a vault from before eviction
+            // has none of them, and a read of a missing table is an error.
+            let _ = txn.open_table(EVICTABLE)?;
+            let _ = txn.open_table(EVICTION_ORDER)?;
+            let _ = txn.open_table(EVICT_QUOTA)?;
         }
         txn.commit()?;
 
@@ -394,6 +493,10 @@ impl Vault {
                 mine.saturating_sub(old.unwrap_or(0)).saturating_add(size),
             )?;
         }
+        // Stored again, so wanted again: an owner that re-sends a chunk it
+        // marked is counting this copy, and evicting it later would take a
+        // copy the owner believes in.
+        unmark(&txn, owner, address)?;
         txn.commit()?;
         unsure.defuse();
         Ok(stored)
@@ -430,9 +533,163 @@ impl Vault {
                 per_owner.insert(key, mine.saturating_sub(old))?;
             }
         }
+        // A mark is about a chunk held here; one that is gone has none.
+        unmark(&txn, owner, address)?;
         txn.commit()?;
         unsure.defuse();
         Ok(removed)
+    }
+
+    /// Mark those of `chunks` this vault holds for `owner` as evictable to make
+    /// room for `owner` ([`Self::evict_marked`]), at most
+    /// [`MAX_EVICTABLE_PER_DAY`] new marks per owner per day of `now`.
+    ///
+    /// Returns how many of `chunks` are marked now -- by this call or an
+    /// earlier one, each counted once. A chunk not held is not marked: a mark
+    /// on nothing would let a later store of that chunk arrive evictable. A
+    /// chunk already marked keeps its first mark, so its place in the
+    /// eviction order cannot be refreshed by asking again.
+    ///
+    /// Who may ask is not decided here: the caller (the peer service) only
+    /// calls this for a device its bound says speaks for `owner`.
+    ///
+    /// # Errors
+    ///
+    /// The database's.
+    pub fn mark_evictable(&self, owner: UserId, chunks: &[ChunkId], now: u64) -> Result<u32> {
+        let today = now / DAY;
+        let asked: std::collections::BTreeSet<&ChunkId> = chunks.iter().collect();
+        let txn = self.db.begin_write()?;
+        let marked = {
+            let held = txn.open_table(CHUNKS)?;
+            let mut marks = txn.open_table(EVICTABLE)?;
+            let mut order = txn.open_table(EVICTION_ORDER)?;
+            let mut quota = txn.open_table(EVICT_QUOTA)?;
+            let key = owner.as_bytes().as_slice();
+            // A clock that steps back stays on the day it had reached:
+            // setting it back must not buy a fresh day's marks.
+            let (day, mut made) = match quota.get(key)?.map(|row| row.value()) {
+                Some((counted, made)) if counted >= today => (counted, made),
+                _ => (today, 0),
+            };
+            let mut marked = 0u32;
+            for chunk in asked {
+                let row = chunk_key(owner, chunk);
+                if marks.get(row.as_slice())?.is_some() {
+                    marked = marked.saturating_add(1);
+                    continue;
+                }
+                if held.get(row.as_slice())?.is_none() || made >= u64::from(MAX_EVICTABLE_PER_DAY) {
+                    continue;
+                }
+                marks.insert(row.as_slice(), now)?;
+                order.insert(order_key(owner, now, chunk).as_slice(), ())?;
+                made += 1;
+                marked = marked.saturating_add(1);
+            }
+            quota.insert(key, (day, made))?;
+            marked
+        };
+        txn.commit()?;
+        Ok(marked)
+    }
+
+    /// Whether `owner` has marked `address` evictable here.
+    ///
+    /// # Errors
+    ///
+    /// The database's.
+    pub fn is_evictable(&self, owner: UserId, address: &ChunkId) -> Result<bool> {
+        let txn = self.db.begin_read()?;
+        Ok(txn
+            .open_table(EVICTABLE)?
+            .get(chunk_key(owner, address).as_slice())?
+            .is_some())
+    }
+
+    /// Remove `owner`'s marked chunks, oldest mark first, until `bytes_needed`
+    /// are freed or [`MAX_EVICT_PER_CALL`] chunks have gone; returns the bytes
+    /// freed.
+    ///
+    /// Only `owner`'s: the caller is making room for `owner`, and a mark is
+    /// that owner's word about its own copies, never permission to drop
+    /// somebody else's. Sizes are the index's, the same ones the totals the
+    /// pledge reads are made of, so what this returns is what those totals
+    /// lose. A mark whose chunk is no longer indexed frees nothing and is
+    /// dropped.
+    ///
+    /// # Errors
+    ///
+    /// The database's or the filesystem's.
+    pub fn evict_marked(&self, owner: UserId, bytes_needed: u64) -> Result<u64> {
+        if bytes_needed == 0 {
+            return Ok(0);
+        }
+        // Held from the choice to the commit, so no store of a chosen chunk
+        // -- which would unmark it -- lands in between and is then deleted.
+        let _writing = self.chunk_writes();
+        let chosen: Vec<([u8; ORDER_KEY_LEN], ChunkId)> = {
+            let txn = self.db.begin_read()?;
+            let order = txn.open_table(EVICTION_ORDER)?;
+            let held = txn.open_table(CHUNKS)?;
+            let (low, high) = order_range(owner);
+            let mut chosen = Vec::new();
+            let mut room = 0u64;
+            for row in order.range(low.as_slice()..=high.as_slice())? {
+                if room >= bytes_needed || chosen.len() >= MAX_EVICT_PER_CALL {
+                    break;
+                }
+                let (key, _) = row?;
+                let Ok(key) = <[u8; ORDER_KEY_LEN]>::try_from(key.value()) else {
+                    continue;
+                };
+                let mut chunk = [0u8; 32];
+                chunk.copy_from_slice(&key[40..]);
+                let chunk = ChunkId::from_bytes(chunk);
+                let size = held
+                    .get(chunk_key(owner, &chunk).as_slice())?
+                    .map_or(0, |size| size.value());
+                room = room.saturating_add(size);
+                chosen.push((key, chunk));
+            }
+            chosen
+        };
+        if chosen.is_empty() {
+            return Ok(0);
+        }
+
+        let unsure = Unsure::arm(&self.suspect);
+        let blobs = self.blobs_for(owner)?;
+        for (_, chunk) in &chosen {
+            blobs.remove(chunk)?;
+        }
+        let txn = self.db.begin_write()?;
+        let freed = {
+            let mut table = txn.open_table(CHUNKS)?;
+            let mut marks = txn.open_table(EVICTABLE)?;
+            let mut order = txn.open_table(EVICTION_ORDER)?;
+            let mut freed = 0u64;
+            for (key, chunk) in &chosen {
+                let row = chunk_key(owner, chunk);
+                let old = table.remove(row.as_slice())?.map_or(0, |old| old.value());
+                freed = freed.saturating_add(old);
+                marks.remove(row.as_slice())?;
+                order.remove(key.as_slice())?;
+            }
+            freed
+        };
+        {
+            let mut totals = txn.open_table(TOTALS)?;
+            let total = totals.get(CHUNK_BYTES)?.map_or(0, |total| total.value());
+            totals.insert(CHUNK_BYTES, total.saturating_sub(freed))?;
+            let mut per_owner = txn.open_table(OWNER_CHUNK_BYTES)?;
+            let key = owner.as_bytes().as_slice();
+            let mine = per_owner.get(key)?.map_or(0, |total| total.value());
+            per_owner.insert(key, mine.saturating_sub(freed))?;
+        }
+        txn.commit()?;
+        unsure.defuse();
+        Ok(freed)
     }
 
     /// Free everything held for `owner`: its chunks, then its log chains.
@@ -466,9 +723,17 @@ impl Vault {
             }
         }
         while self.remove_batch(HEADS, &first, &last)? == FORGET_BATCH {}
-        for definition in [CHAIN_LENGTHS, CHAIN_BYTES] {
-            while self.remove_batch_u64(definition, &first, &last)? == FORGET_BATCH {}
+        for definition in [CHAIN_LENGTHS, CHAIN_BYTES, EVICTABLE] {
+            while self.remove_batch(definition, &first, &last)? == FORGET_BATCH {}
         }
+        // The chunks took their marks with them; what is left is marks on
+        // chunks the index had already lost, and the day's count, which a
+        // returning account must not inherit.
+        while self.remove_batch(EVICTION_ORDER, &first, &last)? == FORGET_BATCH {}
+        let txn = self.db.begin_write()?;
+        txn.open_table(EVICT_QUOTA)?
+            .remove(owner.as_bytes().as_slice())?;
+        txn.commit()?;
         // The owner's own blob directory, now empty of chunks: left behind it
         // keeps the owner in `owners()`, and every later round asks about it.
         let directory = self.root.join("owners").join(owner.to_hex());
@@ -481,33 +746,9 @@ impl Vault {
     }
 
     /// Remove up to [`FORGET_BATCH`] keys in `first..=last`; how many went.
-    fn remove_batch(
+    fn remove_batch<V: redb::Value + 'static>(
         &self,
-        definition: TableDefinition<'_, &[u8], &[u8]>,
-        first: &[u8],
-        last: &[u8],
-    ) -> Result<u64> {
-        let txn = self.db.begin_write()?;
-        let removed = {
-            let mut table = txn.open_table(definition)?;
-            let keys: Vec<Vec<u8>> = table
-                .range(first..=last)?
-                .take(usize::try_from(FORGET_BATCH).unwrap_or(usize::MAX))
-                .map(|row| row.map(|(key, _)| key.value().to_vec()))
-                .collect::<std::result::Result<_, _>>()?;
-            for key in &keys {
-                table.remove(key.as_slice())?;
-            }
-            keys.len() as u64
-        };
-        txn.commit()?;
-        Ok(removed)
-    }
-
-    /// [`Self::remove_batch`] for the tables keyed by chain with a count.
-    fn remove_batch_u64(
-        &self,
-        definition: TableDefinition<'_, &[u8], u64>,
+        definition: TableDefinition<'_, &[u8], V>,
         first: &[u8],
         last: &[u8],
     ) -> Result<u64> {
@@ -717,6 +958,7 @@ impl Vault {
                     continue;
                 };
                 check.removed += 1;
+                unmark(&txn, owner, &address)?;
                 let total = totals.get(CHUNK_BYTES)?.map_or(0, |total| total.value());
                 totals.insert(CHUNK_BYTES, total.saturating_sub(old))?;
                 let mine = per_owner
@@ -2169,5 +2411,175 @@ mod tests {
         );
         assert_eq!(vault.chunk_summary(owner).unwrap(), before);
         assert_eq!(vault.chunk_rows().unwrap(), 3);
+    }
+
+    fn chunk(byte: u8) -> ChunkId {
+        ChunkId::from_bytes([byte; 32])
+    }
+
+    const MARKED_AT: u64 = 1_800_000_000;
+
+    #[test]
+    fn red_team_a_mark_on_a_chunk_not_held_marks_nothing() {
+        // A mark on nothing would let a later store of that chunk arrive
+        // already evictable, so the next refusal for room takes a copy the
+        // owner just sent and counts. Sabotage: drop the `held` check.
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        vault.put_chunk(owner, &chunk(1), &[1; 10]).unwrap();
+
+        assert_eq!(
+            vault
+                .mark_evictable(owner, &[chunk(1), chunk(2)], MARKED_AT)
+                .unwrap(),
+            1
+        );
+        vault.put_chunk(owner, &chunk(2), &[2; 10]).unwrap();
+        assert!(!vault.is_evictable(owner, &chunk(2)).unwrap());
+        assert!(vault.is_evictable(owner, &chunk(1)).unwrap());
+    }
+
+    #[test]
+    fn a_marked_chunk_that_is_stored_again_is_no_longer_evictable() {
+        // An owner that re-sends a chunk it marked counts this copy again;
+        // evicting it would take a copy the owner believes in. Sabotage: drop
+        // the `unmark` in `put_chunk`.
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        for byte in 1..=3 {
+            vault.put_chunk(owner, &chunk(byte), &[byte; 10]).unwrap();
+        }
+        vault
+            .mark_evictable(owner, &[chunk(1), chunk(2), chunk(3)], MARKED_AT)
+            .unwrap();
+        vault.put_chunk(owner, &chunk(2), &[2; 10]).unwrap();
+
+        assert!(!vault.is_evictable(owner, &chunk(2)).unwrap());
+        assert_eq!(vault.evict_marked(owner, u64::MAX).unwrap(), 20);
+        assert!(vault.has_chunk(owner, &chunk(2)).unwrap());
+        assert!(!vault.has_chunk(owner, &chunk(1)).unwrap());
+        assert!(!vault.has_chunk(owner, &chunk(3)).unwrap());
+    }
+
+    #[test]
+    fn red_team_eviction_never_takes_another_owners_chunks() {
+        // A mark is one owner's word about its own copies. Making room for
+        // that owner by dropping somebody else's would lose a copy nobody
+        // agreed to lose. Sabotage: range over every owner's marks.
+        let (_dir, vault) = vault();
+        let (alice, bob) = (keys(1).user_id(), keys(2).user_id());
+        vault.put_chunk(alice, &chunk(1), &[1; 10]).unwrap();
+        vault.put_chunk(bob, &chunk(2), &[2; 10]).unwrap();
+        vault.mark_evictable(bob, &[chunk(2)], MARKED_AT).unwrap();
+
+        assert_eq!(vault.evict_marked(alice, 10).unwrap(), 0);
+        assert!(vault.has_chunk(bob, &chunk(2)).unwrap());
+        assert_eq!(vault.held_bytes_for(bob).unwrap(), 10);
+    }
+
+    #[test]
+    fn eviction_takes_the_oldest_marks_first_and_stops_when_there_is_room() {
+        // Freeing more than asked loses copies for nothing; the totals must
+        // fall by exactly what went, or the pledge reads a host as fuller
+        // than it is. Sabotage: ignore `bytes_needed`.
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        for byte in 1..=4 {
+            vault.put_chunk(owner, &chunk(byte), &[byte; 10]).unwrap();
+        }
+        // Marked out of address order, so oldest-first is not address order.
+        vault.mark_evictable(owner, &[chunk(3)], MARKED_AT).unwrap();
+        vault
+            .mark_evictable(owner, &[chunk(1)], MARKED_AT + 1)
+            .unwrap();
+        vault
+            .mark_evictable(owner, &[chunk(2)], MARKED_AT + 2)
+            .unwrap();
+
+        assert_eq!(vault.evict_marked(owner, 15).unwrap(), 20);
+        assert!(!vault.has_chunk(owner, &chunk(3)).unwrap());
+        assert!(!vault.has_chunk(owner, &chunk(1)).unwrap());
+        assert!(vault.has_chunk(owner, &chunk(2)).unwrap());
+        assert!(vault.has_chunk(owner, &chunk(4)).unwrap());
+        assert_eq!(vault.held_bytes_for(owner).unwrap(), 20);
+        assert_eq!(vault.held_bytes().unwrap(), 20);
+    }
+
+    #[test]
+    fn red_team_an_owner_marks_at_most_a_days_cap_even_with_its_clock_set_back() {
+        // A device of the account turned hostile would otherwise mark all the
+        // account holds here in one session. Sabotages: skip the cap; reset
+        // the count when the day number goes down.
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        let many: Vec<ChunkId> = (0..MAX_EVICTABLE_PER_DAY + 2)
+            .map(|i| {
+                let mut bytes = [0u8; 32];
+                bytes[..4].copy_from_slice(&i.to_be_bytes());
+                ChunkId::from_bytes(bytes)
+            })
+            .collect();
+        {
+            // Held, without a blob each: only the index decides what is held.
+            let txn = vault.db.begin_write().unwrap();
+            {
+                let mut table = txn.open_table(CHUNKS).unwrap();
+                for id in &many {
+                    table.insert(chunk_key(owner, id).as_slice(), 1).unwrap();
+                }
+            }
+            txn.commit().unwrap();
+        }
+        let today = 20_000 * DAY;
+        let (first, rest) = many.split_at(MAX_EVICTABLE_PER_DAY as usize);
+
+        assert_eq!(
+            vault.mark_evictable(owner, first, today).unwrap(),
+            MAX_EVICTABLE_PER_DAY
+        );
+        assert_eq!(vault.mark_evictable(owner, rest, today + 60).unwrap(), 0);
+        assert_eq!(vault.mark_evictable(owner, rest, today - DAY).unwrap(), 0);
+        assert_eq!(vault.mark_evictable(owner, rest, today + DAY).unwrap(), 2);
+    }
+
+    #[test]
+    fn forgetting_an_owner_forgets_its_marks_and_its_days_count() {
+        // A returning account must not find its old chunks' marks waiting,
+        // nor a day's cap already spent. Sabotage: leave EVICT_QUOTA alone.
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        vault.put_chunk(owner, &chunk(1), &[1; 10]).unwrap();
+        vault.mark_evictable(owner, &[chunk(1)], MARKED_AT).unwrap();
+        vault.forget_owner(owner).unwrap();
+
+        let txn = vault.db.begin_read().unwrap();
+        assert!(txn.open_table(EVICTABLE).unwrap().is_empty().unwrap());
+        assert!(txn.open_table(EVICTION_ORDER).unwrap().is_empty().unwrap());
+        assert!(txn.open_table(EVICT_QUOTA).unwrap().is_empty().unwrap());
+    }
+
+    #[test]
+    fn a_vault_from_before_eviction_opens_and_marks() {
+        // An older vault has none of the eviction tables, and a read of a
+        // missing table is an error: every `MayEvict` and every refusal for
+        // room would fail. Sabotage: drop the `open_table` lines in `open`.
+        let dir = tempfile::tempdir().unwrap();
+        let owner = keys(1).user_id();
+        {
+            let vault = Vault::open(dir.path()).unwrap();
+            vault.put_chunk(owner, &chunk(1), &[1; 10]).unwrap();
+            let txn = vault.db.begin_write().unwrap();
+            txn.delete_table(EVICTABLE).unwrap();
+            txn.delete_table(EVICTION_ORDER).unwrap();
+            txn.delete_table(EVICT_QUOTA).unwrap();
+            txn.commit().unwrap();
+        }
+        let vault = Vault::open(dir.path()).unwrap();
+        assert!(!vault.is_evictable(owner, &chunk(1)).unwrap());
+        assert_eq!(vault.evict_marked(owner, 10).unwrap(), 0);
+        assert_eq!(
+            vault.mark_evictable(owner, &[chunk(1)], MARKED_AT).unwrap(),
+            1
+        );
     }
 }

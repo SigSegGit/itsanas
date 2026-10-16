@@ -23,6 +23,8 @@
 //! the key is not reachable from there.
 
 pub mod error;
+mod placed;
+pub mod placement;
 pub mod protocol;
 pub mod relay;
 pub mod service;
@@ -33,12 +35,13 @@ pub use itsanas_tls::reach::AddressList;
 pub use itsanas_wire as wire;
 
 pub use error::{NetError, Result};
+pub use placement::{CensusReport, Evaluation, Placement, PlacementSlot};
 pub use protocol::{Head, PROTOCOL_VERSION, Request, Response, challenge_holds, challenge_proof};
-pub use service::{Owners, PeerService, Pledge, Relay, UPDATE_REQUIRED};
+pub use service::{ACCOUNT_FULL, Owners, PeerService, Pledge, Relay, UPDATE_REQUIRED};
 pub use session::{
     AuditReport, CHALLENGES_PER_ROUND, HostReport, PushReport, RoundReport, Scope, audit,
-    drain_vault, fetch_only, host_for, pull, pull_scoped, push, push_scoped, refresh, round,
-    round_scoped,
+    drain_vault, fetch_only, host_for, pull, pull_scoped, push, push_placed, push_scoped, refresh,
+    round, round_scoped,
 };
 pub use transport::{IO_TIMEOUT, Offer, PEER_SESSION_BUDGET, PeerClient, PeerServer, Refusal};
 pub use wire::{FrameReader, MAX_FRAME_LEN, WIRE_VERSION};

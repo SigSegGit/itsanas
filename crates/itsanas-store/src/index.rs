@@ -27,6 +27,10 @@ use crate::{
     reliability::Reliability,
 };
 
+mod placement;
+pub use placement::{CensusRow, ShortPage, TRIGGER_LIMIT};
+use placement::{DEVICE_UPTIME, RELEASED, SHORT_SINCE};
+
 /// Path → postcard-encoded [`FileEntry`].
 const FILES: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("files");
 /// Chunk address → how many file slots reference it.
@@ -392,6 +396,12 @@ impl Index {
             let _ = txn.open_table(HOLDER_COUNTS)?;
             let _ = txn.open_table(PROBES)?;
             let _ = txn.open_table(LOSSES)?;
+            // Placement's tables. Created here like every other, so a store
+            // written before them reads as "no rings, nothing queued" rather
+            // than failing its first read.
+            let _ = txn.open_table(DEVICE_UPTIME)?;
+            let _ = txn.open_table(SHORT_SINCE)?;
+            let _ = txn.open_table(RELEASED)?;
         }
         txn.commit()?;
 
@@ -631,7 +641,12 @@ impl Index {
                 *delta.entry(chunk.to_bytes()).or_default() += 1;
             }
 
-            newly_unreferenced = Self::apply_reference_delta(&mut refs, &mut unreferenced, &delta)?;
+            newly_unreferenced = Self::apply_reference_delta(
+                &mut refs,
+                &mut unreferenced,
+                &mut txn.open_table(SHORT_SINCE)?,
+                &delta,
+            )?;
 
             files.insert(path, encoded.as_slice())?;
 
@@ -688,8 +703,12 @@ impl Index {
                         *delta.entry(chunk.to_bytes()).or_default() -= 1;
                     }
 
-                    let dropped =
-                        Self::apply_reference_delta(&mut refs, &mut unreferenced, &delta)?;
+                    let dropped = Self::apply_reference_delta(
+                        &mut refs,
+                        &mut unreferenced,
+                        &mut txn.open_table(SHORT_SINCE)?,
+                        &delta,
+                    )?;
                     files.remove(path)?;
                     dropped
                 }
@@ -734,8 +753,12 @@ impl Index {
                         *delta.entry(chunk.to_bytes()).or_default() -= 1;
                     }
 
-                    let dropped =
-                        Self::apply_reference_delta(&mut refs, &mut unreferenced, &delta)?;
+                    let dropped = Self::apply_reference_delta(
+                        &mut refs,
+                        &mut unreferenced,
+                        &mut txn.open_table(SHORT_SINCE)?,
+                        &delta,
+                    )?;
                     files.remove(path)?;
                     dropped
                 }
@@ -1104,6 +1127,10 @@ impl Index {
         let txn = self.db.begin_write()?;
         {
             txn.open_table(DRAINING)?.insert(key, until)?;
+            // Its copies stop counting now; the chunks they leave short are
+            // queued in the same transaction, so a crash cannot leave a drain
+            // granted and nothing working to replace what it takes away.
+            Self::enqueue_device_in(&txn, device, now)?;
         }
         txn.commit()?;
         Ok(true)
@@ -1421,6 +1448,8 @@ impl Index {
             refs.remove(chunk.as_bytes().as_slice())?;
             unreferenced.remove(chunk.as_bytes().as_slice())?;
         }
+        // Out of the live set, so out of placement's queue too.
+        Self::purge_chunk_in(&txn, chunk)?;
         txn.commit()?;
         Ok(())
     }
@@ -1463,6 +1492,9 @@ impl Index {
             refs.remove(chunk.as_bytes().as_slice())?;
             unreferenced.remove(chunk.as_bytes().as_slice())?;
         }
+        // A collected chunk left in the queue would be "short" for ever, and
+        // the safety net would keep trying to place data nobody wants.
+        Self::purge_chunk_in(&txn, chunk)?;
         txn.commit()?;
         Ok(())
     }
@@ -1476,6 +1508,7 @@ impl Index {
     fn apply_reference_delta(
         refs: &mut redb::Table<'_, &'static [u8], u64>,
         unreferenced: &mut redb::Table<'_, &'static [u8], u64>,
+        short: &mut redb::Table<'_, &'static [u8], u64>,
         delta: &BTreeMap<[u8; 32], i64>,
     ) -> Result<Vec<ChunkId>> {
         let mut dropped = Vec::new();
@@ -1492,6 +1525,14 @@ impl Index {
             let updated = u64::try_from(updated).unwrap_or(0);
 
             refs.insert(key, updated)?;
+
+            // A chunk's first reference is the moment it has no copy anywhere
+            // but here. Queued in this transaction, one insert per new chunk,
+            // so a crash cannot leave a new chunk that nothing will place
+            // until the census happens to reach it.
+            if current == 0 && updated > 0 && short.get(key)?.is_none() {
+                short.insert(key, timestamp)?;
+            }
 
             if updated == 0 {
                 unreferenced.insert(key, timestamp)?;
@@ -1697,14 +1738,11 @@ impl Index {
     /// # Errors
     ///
     /// If the index cannot be written.
+    /// Also marks the hour in `device`'s uptime ring, in the same
+    /// transaction: a ring written separately could miss the hour of a crash
+    /// between the two and read a host as absent when it answered.
     pub fn note_seen(&self, device: &DeviceId, now: u64) -> Result<()> {
-        let txn = self.db.begin_write()?;
-        {
-            txn.open_table(DEVICE_SEEN)?
-                .insert(device.as_bytes().as_slice(), now)?;
-        }
-        txn.commit()?;
-        Ok(())
+        self.note_seen_in(device, now)
     }
 
     /// This node's clock when `device` last answered, or `None`.
@@ -1720,6 +1758,7 @@ impl Index {
 
     pub fn note_audit(&self, device: &DeviceId, passed: bool, now: u64) -> Result<Reliability> {
         let mut record = self.reliability(device)?;
+        let was_paused = record.paused;
         if passed {
             record.passed_one();
         } else {
@@ -1739,6 +1778,12 @@ impl Index {
             if passed {
                 txn.open_table(PROBES)?
                     .remove(device.as_bytes().as_slice())?;
+            }
+            // Only the transition: a paused host's copies stop being worth
+            // counting, and re-queueing on every further failure would walk
+            // its records once per round for as long as it stays paused.
+            if record.paused && !was_paused {
+                Self::enqueue_device_in(&txn, device, now)?;
             }
         }
         txn.commit()?;
@@ -1916,6 +1961,8 @@ impl Index {
             let mut holders = txn.open_table(HOLDERS)?;
             let mut holdings = txn.open_table(HOLDINGS)?;
             let mut counts = txn.open_table(HOLDER_COUNTS)?;
+            let refs = txn.open_table(CHUNK_REFS)?;
+            let mut short = txn.open_table(SHORT_SINCE)?;
             for chunk in chunks {
                 let tag = holders::audit_tag(&self.audit_key, chunk);
                 if holders
@@ -1923,6 +1970,10 @@ impl Index {
                     .is_some()
                 {
                     bump(&mut counts, device, -1)?;
+                    // One copy fewer: may now be short. Queued only when a
+                    // record was really removed, so a peer answering
+                    // "missing" about chunks it never had queues nothing.
+                    placement::enqueue_in(&mut short, &refs, chunk, now_unix())?;
                 }
                 holdings.remove(holders::by_device(device, &tag, chunk).as_slice())?;
             }
@@ -1946,6 +1997,12 @@ impl Index {
                 .is_some()
             {
                 bump(&mut txn.open_table(HOLDER_COUNTS)?, device, -1)?;
+                placement::enqueue_in(
+                    &mut txn.open_table(SHORT_SINCE)?,
+                    &txn.open_table(CHUNK_REFS)?,
+                    chunk,
+                    now_unix(),
+                )?;
             }
             txn.open_table(HOLDINGS)?
                 .remove(holders::by_device(device, &tag, chunk).as_slice())?;
@@ -1984,10 +2041,17 @@ impl Index {
                 .remove(device.as_bytes().as_slice())?;
             txn.open_table(DRAINING)?
                 .remove(device.as_bytes().as_slice())?;
+            // Every chunk it held is one copy down. This walk was already
+            // here, over exactly these rows, so queueing them costs a lookup
+            // each and no second pass.
+            let refs = txn.open_table(CHUNK_REFS)?;
+            let mut short = txn.open_table(SHORT_SINCE)?;
+            let now = now_unix();
             for chunk in doomed {
                 let tag = holders::audit_tag(&self.audit_key, &chunk);
                 holders.remove(holders::key(&chunk, device).as_slice())?;
                 holdings.remove(holders::by_device(device, &tag, &chunk).as_slice())?;
+                placement::enqueue_in(&mut short, &refs, &chunk, now)?;
             }
         }
         txn.commit()?;
