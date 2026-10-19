@@ -262,20 +262,26 @@ jobs:
         if: runner.os == 'Windows' && needs.changes.outputs.tests == 'true'
         shell: pwsh
         run: |
-          # The runner image does not always leave imdisk on PATH (2026-10-19:
-          # "imdisk is not recognized" before any test ran). Look for it where
-          # the toolkit installs it; without it, tests use the normal TEMP.
-          choco install imdisk-toolkit --no-progress -y | Out-Null
-          $imdisk = (Get-Command imdisk -ErrorAction SilentlyContinue).Source
-          if (-not $imdisk) { $imdisk = "$env:SystemRoot\System32\imdisk.exe" }
+                    # Without the RAM disk the redb-heavy tests run 30-50x slower and
+          # time out (2026-10-19: a placement test hit 60 s on the default
+          # TEMP), so a failed install fails here, with choco's own output,
+          # rather than as a confusing test timeout later. choco is retried:
+          # its feed times out on hosted runners.
+          $imdisk = "$env:SystemRoot\System32\imdisk.exe"
+          for ($try = 1; $try -le 3 -and -not (Test-Path $imdisk); $try++) {
+            "choco install imdisk-toolkit, attempt $try"
+            choco install imdisk-toolkit --no-progress -y
+            "choco exit code $LASTEXITCODE"
+            if (-not (Test-Path $imdisk)) { Start-Sleep -Seconds (10 * $try) }
+          }
           if (-not (Test-Path $imdisk)) {
-            "::warning::imdisk not installed; tests keep the default TEMP"
-            exit 0
+            "::error::imdisk.exe is not in System32 after 3 choco attempts"
+            exit 1
           }
           & $imdisk -a -s 3G -m R: -p "/fs:ntfs /q /y"
           if ($LASTEXITCODE -ne 0) {
-            "::warning::RAM disk not created; tests keep the default TEMP"
-            exit 0
+            "::error::imdisk could not create the RAM disk (exit $LASTEXITCODE)"
+            exit 1
           }
           New-Item -ItemType Directory -Force R:\tmp | Out-Null
           "TMP=R:\tmp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
