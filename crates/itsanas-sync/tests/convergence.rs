@@ -984,3 +984,61 @@ fn version_vectors_order_sequential_writes_and_flag_concurrent_ones() {
          one of them is about to be silently discarded"
     );
 }
+
+#[test]
+fn red_team_an_armed_roster_applies_no_chain_from_a_key_the_account_never_claimed() {
+    // HANDOVER §10 7. A host holding a genuine segment of this account can
+    // name a free keypair of its own as the signer: the envelope verifies,
+    // the body opens, and the owner replays its own operations -- every
+    // release undone. The engine cannot tell a re-signed body from an honest
+    // one; it can tell a signer the account never claimed. The Pi stands for
+    // that signer here: until the laptop's roster names it, nothing it signed
+    // is applied, and once a claim admits it, everything is.
+    let swarm = swarm();
+    let laptop = swarm.device(LAPTOP).store();
+    laptop.admit_member(&laptop.device_id(), false).unwrap();
+
+    swarm.device(PI).write("plan.txt", b"from the Pi").unwrap();
+    swarm.device(PI).publish().unwrap();
+    let report = swarm.device(LAPTOP).sync().unwrap();
+    assert_eq!(
+        report.adopted, 0,
+        "a chain from an unclaimed key was applied: {report:?}"
+    );
+    assert_eq!(report.unrostered_chains, 1, "{report:?}");
+    assert!(swarm.device(LAPTOP).read("plan.txt").unwrap().is_none());
+
+    let pi = swarm.device(PI).store().device_id();
+    laptop.admit_member(&pi, false).unwrap();
+    swarm.device(LAPTOP).sync().unwrap();
+    assert_eq!(
+        swarm.device(LAPTOP).read("plan.txt").unwrap().as_deref(),
+        Some(&b"from the Pi"[..]),
+        "a sibling admitted later was still left out"
+    );
+
+    // A revocation is final: the Pi's later work is no longer applied.
+    laptop.admit_member(&pi, true).unwrap();
+    laptop.admit_member(&pi, false).unwrap();
+    swarm
+        .device(PI)
+        .write("after.txt", b"after the theft")
+        .unwrap();
+    swarm.device(PI).publish().unwrap();
+    swarm.device(LAPTOP).sync().unwrap();
+    assert!(
+        swarm.device(LAPTOP).read("after.txt").unwrap().is_none(),
+        "a withdrawn device was readmitted by a later claim"
+    );
+}
+
+#[test]
+fn an_unarmed_roster_gates_nothing() {
+    // A store no claim was ever admitted to is a test fixture or a tool, not
+    // a node: `Node::open` arms it. Gating there would refuse every sibling.
+    let swarm = swarm();
+    swarm.device(PI).write("plan.txt", b"from the Pi").unwrap();
+    swarm.device(PI).publish().unwrap();
+    swarm.device(LAPTOP).sync().unwrap();
+    assert!(swarm.device(LAPTOP).read("plan.txt").unwrap().is_some());
+}

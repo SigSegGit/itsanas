@@ -32,7 +32,7 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 10;
+pub const PROTOCOL_VERSION: u16 = 11;
 
 /// The oldest version this node will still talk to.
 ///
@@ -138,6 +138,14 @@ pub const PROTOCOL_WITH_RELAY: u16 = 9;
 /// have released there, which is the conservative side -- more copies, never
 /// fewer -- and the host stays as full for that account as it was.
 pub const PROTOCOL_WITH_EVICTION: u16 = 10;
+
+/// The first version in which a host hands an account the claims its devices
+/// presented ([`Request::Claims`]), so the account's other machines can admit
+/// a sibling they never met to their roster (HANDOVER §10 7).
+///
+/// A peer at 10 is not asked: the owner learns siblings only from sessions
+/// with them, and a chain from one it never met waits.
+pub const PROTOCOL_WITH_ROSTER: u16 = 11;
 
 /// Largest encoded claim a host reads. A `SignedClaim` is two ids, three
 /// integers, a flag and a signature: under 200 bytes.
@@ -388,6 +396,14 @@ pub enum Request {
     ///
     /// Appended last: postcard numbers variants by position.
     MayEvict { owner: UserId, chunks: Vec<ChunkId> },
+    /// The claims devices of `owner` presented here, as presented
+    /// ([`Response::Claims`]). Only to a caller that presented a claim for
+    /// `owner` itself: who belongs to an account is the account's business.
+    /// The caller verifies each signature; a host can withhold a claim and
+    /// cannot forge one.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Claims { owner: UserId },
 }
 
 /// What a peer answers.
@@ -467,6 +483,12 @@ pub enum Response {
     MayEvict {
         marked: u32,
     },
+    /// The answer to [`Request::Claims`]: at most
+    /// `itsanas_store::vault::MAX_CLAIMS_PER_ANSWER` claims, each at most
+    /// [`MAX_CLAIM_BYTES`].
+    ///
+    /// Appended last: postcard numbers variants by position.
+    Claims(Vec<Vec<u8>>),
 }
 
 /// How far one device's chain has advanced, as a peer reports it.
@@ -632,6 +654,7 @@ mod tests {
                 owner: user(),
                 chunks: vec![ChunkId::from_bytes([11; 32])],
             },
+            Request::Claims { owner: user() },
         ]
     }
 
@@ -665,6 +688,7 @@ mod tests {
             Request::Park => {}
             Request::Splice { .. } => {}
             Request::MayEvict { .. } => {}
+            Request::Claims { .. } => {}
         }
     }
 
@@ -710,6 +734,7 @@ mod tests {
             Response::Incoming { from: device() },
             Response::Spliced,
             Response::MayEvict { marked: 7 },
+            Response::Claims(vec![vec![1, 2], Vec::new()]),
         ];
 
         for response in responses {
@@ -854,6 +879,7 @@ mod tests {
             Request::Park => 16,
             Request::Splice { .. } => 17,
             Request::MayEvict { .. } => 18,
+            Request::Claims { .. } => 19,
         }
     }
 
@@ -877,6 +903,7 @@ mod tests {
             Response::Incoming { .. } => 14,
             Response::Spliced => 15,
             Response::MayEvict { .. } => 16,
+            Response::Claims(_) => 17,
         }
     }
 
@@ -925,6 +952,7 @@ mod tests {
             Response::Incoming { from: device() },
             Response::Spliced,
             Response::MayEvict { marked: 0 },
+            Response::Claims(Vec::new()),
         ];
         let numbered: std::collections::BTreeSet<u8> =
             responses.iter().map(response_number).collect();
@@ -1036,8 +1064,9 @@ mod tests {
     fn eviction_is_a_verb_of_the_current_version_and_of_no_older_one() {
         // The client gates `MayEvict` on this number; a version bump that
         // forgot it would send the verb to a peer that closes the connection
-        // on it. Sabotage: leave `PROTOCOL_VERSION` at 9.
-        assert_eq!(PROTOCOL_WITH_EVICTION, PROTOCOL_VERSION);
+        // on it. Sabotage: leave `PROTOCOL_VERSION` at 10.
+        assert_eq!(PROTOCOL_WITH_ROSTER, PROTOCOL_VERSION);
+        const { assert!(PROTOCOL_WITH_ROSTER > PROTOCOL_WITH_EVICTION) };
         const { assert!(PROTOCOL_WITH_EVICTION > PROTOCOL_WITH_RELAY) };
     }
 

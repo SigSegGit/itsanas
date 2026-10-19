@@ -2508,6 +2508,7 @@ fn fetch_absent(node: &Node, path: &str) -> Result<Vec<u8>> {
         else {
             continue;
         };
+        let _ = node.introduce(&mut client, itsanas_discover::now_unix());
 
         if session::fetch_only(&node.store, &node.vault, &mut client, &wanted).is_err() {
             continue;

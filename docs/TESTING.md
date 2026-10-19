@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-19 — 1259 test functions across 38 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 357 are red-team tests.**
+**Last updated: 2026-10-19 — 1264 test functions across 38 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 361 are red-team tests.**
 
-**1143 of the 1259 tests have an entry of their own on this page** — an *entry*,
+**1148 of the 1264 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -162,7 +162,7 @@ guarantee and is not one.
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 12 |
-| `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
+| `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-net` unit | 63 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 60 |
 | `itsanas-net` relay (`tests/relay.rs`) | 6 |
@@ -181,7 +181,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 143 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 135 |
+| `itsanas-node` unit | 138 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -212,11 +212,11 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 37 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 53 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 52 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 54 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 25 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 46 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 26 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 47 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 71 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -762,7 +762,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 
 ---
 
-# `itsanas-sync` — convergence tests (24)
+# `itsanas-sync` — convergence tests (26)
 
 The M3 exit criteria. Real stores, real chunking, real sealing, real signatures;
 only the network is simulated. Nothing uses randomness or wall-clock time, so a
@@ -770,6 +770,8 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_an_armed_roster_applies_no_chain_from_a_key_the_account_never_claimed`** | HANDOVER §10 7. With the roster armed, a chain from a key no claim of the account names is not applied (counted as an unrostered chain), is applied once that device is admitted, and stops being applied for good once it is revoked. Stands in for a host re-signing a lifted body under its own key. |
+| `an_unarmed_roster_gates_nothing` | A store no claim was ever admitted to (a fixture, not a node) applies every chain, as before. |
 | **`a_host_that_loses_everything_is_survivable_because_the_devices_still_have_it`** | The premise the architecture rests on, as a scenario rather than a sentence in a design document: hosts are blind *and* untrustworthy, so one losing its whole disk must cost nothing but bandwidth. Written because `Cloud::forget_all_chunks` existed for exactly this and nothing called it — an anticipated scenario that was never written down. |
 | **`a_device_that_is_offline_publishes_nothing_and_blocks_nobody`** | The ordinary state of this network: most machines are off most of the time. An offline device must not stop the others converging, and must not appear to have published work it never sent. |
 | **`a_device_that_never_comes_back_still_gets_its_work_to_everyone_else`** | The scenario the whole architecture exists for. The Pi writes at 3am, publishes, and is switched off permanently; the laptop and VM still converge on its work, having never spoken to it. |
@@ -872,7 +874,7 @@ about reading.
 | **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
 | **`red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host`** | `MayEvict` carries at most 1024 chunks; a longer list is refused at decode. |
-| `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), appended so older numbers are unchanged. |
+| `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`, the current version), appended so older numbers are unchanged. |
 
 ## `service` — what a peer may obtain (30)
 
@@ -1435,7 +1437,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (152)
+# `itsanas-node` — a node on disk (155)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1512,10 +1514,11 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk, and where its vault lives (23)
+## `node` — identity on disk, and where its vault lives (24)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_an_open_node_admits_to_its_roster_only_what_its_account_signed`** | `Node::create`/`open` arm the roster with this device; `admit_roster` admits a sibling on this account's signature, never a claim signed by another key or naming another account, and a revocation sticks. |
 | **`red_team_a_vault_on_a_dropped_disk_is_refused_never_recreated_empty`** | A configured vault (`vault = PATH`, HANDOVER §8 0s) whose directory is missing or empty, as when a NAS mount drops, refuses to open and creates nothing there, so hosted chunks are never mistaken for lost; another device's marker is refused too. Sabotaged twice (configured check off; marker contents ignored): red. |
 | `an_existing_node_keeps_its_vault_where_it_is_and_gains_the_marker` | A node built before the marker opens `<home>/vault` as before and gains `.itsanas-vault`. |
 | **`the_keys_can_be_read_while_the_store_is_held_by_another_process`** | Only one process may hold a node's store, and the daemon holds it on every machine that is working — so anything that opened a `Node` refused to run on exactly the machines somebody asks about, including `doctor`, which is what a person runs *because* something is wrong. Stopping the daemon to ask then changes the answer: a node that is not running is not listening, so "can anybody reach me" comes back no, for a reason that is the asking. `Identity::open` reads the keystore and the config, neither of which is locked. |
@@ -1540,7 +1543,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
 | **`red_team_a_pledge_under_what_keep_needs_is_refused`** | `Node::check_split`, the one rule `keep`, `pledge`, `space --apply` and the phone's setters ask: a 1 MiB pledge for a 20 GiB keep is refused, naming the pledge that earns it (which is then accepted) and the command `itsanas space --pledge 47G --keep 20G --apply`; a keep inside the joining allowance, or no keep, needs no pledge; a stricter 20/80 split in the node's config refuses what 30/70 allows. Sabotaged (`check_split` always `Ok`; `allowed_for` reading `Split::DEFAULT`): red. |
 
-## `owners` — what a host stores for each account (29)
+## `owners` — what a host stores for each account (31)
 
 §8 1c (2026-10-04). A host used to bound only itself, so a client that pledged
 nothing was served until every host was full. Now a device presents its
@@ -1551,6 +1554,8 @@ contradicted; and what goes beyond what proof earns comes out of one share,
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_host_hands_an_account_its_roster_and_nobody_else`** | `Request::Claims` returns the claims a host kept for an account only to a device that presented a claim for that account; one that presented nothing, or another account's, gets an empty answer. |
+| **`red_team_a_sibling_presenting_here_joins_the_roster_and_a_stranger_does_not`** | A machine only ever pushed to learns its siblings from the claims they present; another account's device presenting here joins nothing. |
 | **`red_team_a_device_that_presents_no_claim_stores_nothing`** | A rebuilt client leaves the claim out and says it is old; it is told to update. Sabotaged by admitting a caller the book does not know. |
 | **`red_team_a_claim_for_another_device_is_refused`** | A claim presented by a device other than the one it names lends nothing. Sabotaged by dropping the device check. |
 | **`red_team_an_account_stores_at_most_three_sevenths_of_its_pledge`** | The 30/70 bargain held by the host: pledge 700, 299 stored, one more byte taken, two refused with the numbers. Sabotaged by no allowance. |

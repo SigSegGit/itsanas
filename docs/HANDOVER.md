@@ -20,6 +20,19 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-19, night: hostile servers, the roster (§10 7, integrity half).**
+Rodin, on the plan: the claim must travel with the chain, or a VM that never
+met the laptop waits for ever behind the Pi. So hosts keep presented claims
+in the vault (`vault_claims`, bounded) and hand an account its own
+(`Request::Claims`, protocol 11, only to a device that presented a claim for
+it); a host's own claim, returned when presenting, admits it when it is a
+sibling; a sibling presenting to a node that never dials is admitted on the
+spot. Found by the release-only daemon tests: without that last rule a node
+that is only pushed to applied nothing. Seven tests, six red-team, each
+sabotaged red. Not built: the read scoping (§10 7), an end-to-end socket test
+of a VM learning a laptop through a Pi; and a withdrawn device on a network
+with no coordinator still reads with its old claim (§9).
+
 **2026-10-19, night: durability by household, and §8 6(b).** Nicolas
 answered §10 16: accounts seen from one network are one household for
 durability (`households` in `target.rs`, union-find on account or network).
@@ -2917,6 +2930,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
   removed when a device is forgotten; never on the wire or at the
   coordinator. Still, a copied store says which networks a member's hosts
   live on.
+- **A withdrawn device keeps its old claim.** Revocation reaches a node only
+  when it sees the revoked claim (a session, a host, the coordinator). On a
+  network with no coordinator a withdrawn machine that keeps its old claim is
+  still admitted where the withdrawal never arrived.
 - **No file-level sharing between users.** Not needed for mutual storage;
   `UserKeys::agree` exists, is tested, and is deliberately unused until it is.
 
@@ -3000,7 +3017,16 @@ Detail and measurements are in ROADMAP.md; this is the map.
    **Decided 2026-10-05 (Nicolas): option 2, the account device roster.**
    Since 2026-10-01 (§8 2d) an account has at most 5 live devices, enforced
    by the coordinator: option 2's roster would be at most five entries, a
-   bounded object to sign and ship. That prepares it; nothing of it is built.
+   bounded object to sign and ship. **The integrity half is built (2026-10-19):**
+   the roster is made of the existing `NodeClaim`s, kept per account in the
+   store, armed at `Node::open`, fed by sessions, by hosts' own claims and by
+   `Request::Claims` (protocol 11); an unrostered chain waits. **Left: the read
+   scoping** (ROADMAP "reads are not scoped to the account"): answer `Heads`,
+   `Segments`, `Chunk`, `HaveChunks`, `ChunkSummary` and `Challenge` for an
+   owner only to a caller whose presented claim names it
+   (`Owners::presented_for`, which exists now), with `PeerService::new`
+   taking an `Owners` so the default is structural, and a test that fails on
+   a request naming an owner that is in no scope list.
 
 8. ✅ **May an agreeing bucket hash re-stamp holder records?** (§8 4c.) **Decided 2026-10-04, yes, with the host-side check**, under Nicolas's delegation for no-brainers once the downside was closed: the summary is read from the vault index, `HaveChunks` from the file, so an honest host whose disk lost files kept agreeing; the rolling check makes its summary as good as the walk. A dishonest host gains nothing: `HaveChunks` was self-reported too. The question as it stood: Today
    records are re-stamped only by a listing, and the full walk that lists

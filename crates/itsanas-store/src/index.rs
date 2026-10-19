@@ -95,6 +95,13 @@ const PEER_FULL: TableDefinition<'_, &[u8], u64> = TableDefinition::new("peer_fu
 /// over-replicates for ever. `Leaving` removes the row with the records.
 const DRAINING: TableDefinition<'_, &[u8], u64> = TableDefinition::new("draining_until");
 
+/// Device → 1 if a claim signed by this account names it, 0 if a revocation
+/// did. This account's device roster (HANDOVER §10 7): a chain signed by a
+/// device not here is not applied once the roster has any row, so a host that
+/// re-signs a lifted body under its own key replays nothing. A revocation is
+/// final, like the claim it answers.
+const ROSTER: TableDefinition<'_, &[u8], u8> = TableDefinition::new("account_roster");
+
 /// Device → the head of that device's chain when it was last applied with
 /// nothing left over.
 ///
@@ -404,6 +411,7 @@ impl Index {
             let _ = txn.open_table(RELEASED)?;
             let _ = txn.open_table(DEVICE_PASSED)?;
             let _ = txn.open_table(DEVICE_NETWORK)?;
+            let _ = txn.open_table(ROSTER)?;
         }
         txn.commit()?;
 
@@ -2040,6 +2048,51 @@ impl Index {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// Admit `device` to this account's roster, or mark it revoked. The
+    /// caller has verified the claim's signature against this account; a
+    /// revocation is never undone by a later admission.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn admit_member(&self, device: &DeviceId, revoked: bool) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut roster = txn.open_table(ROSTER)?;
+            let key = device.as_bytes().as_slice();
+            let already_revoked = roster.get(key)?.is_some_and(|row| row.value() == 0);
+            if !already_revoked {
+                roster.insert(key, u8::from(!revoked))?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Whether the roster has any row: an unarmed roster (a store no claim
+    /// was ever admitted to, which a node never is once open) gates nothing.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn roster_armed(&self) -> Result<bool> {
+        let txn = self.db.begin_read()?;
+        Ok(!txn.open_table(ROSTER)?.is_empty()?)
+    }
+
+    /// Whether `device` is a live member of this account's roster.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn is_member(&self, device: &DeviceId) -> Result<bool> {
+        let txn = self.db.begin_read()?;
+        Ok(txn
+            .open_table(ROSTER)?
+            .get(device.as_bytes().as_slice())?
+            .is_some_and(|row| row.value() == 1))
     }
 
     /// Drop every record naming `device`, whatever the chunk.

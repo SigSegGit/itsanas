@@ -1156,6 +1156,33 @@ impl PeerClient {
         }
     }
 
+    /// The claims devices of `owner` presented to this host, unverified:
+    /// the caller checks every signature before believing one. Empty from a
+    /// host older than [`crate::protocol::PROTOCOL_WITH_ROSTER`] (not asked),
+    /// one that keeps none, or one this device has not presented a claim to
+    /// for `owner` in this session.
+    ///
+    /// # Errors
+    ///
+    /// If the connection failed or the answer was out of bounds.
+    pub fn claims(&mut self, owner: UserId) -> Result<Vec<Vec<u8>>> {
+        if self.spoken < crate::protocol::PROTOCOL_WITH_ROSTER {
+            return Ok(Vec::new());
+        }
+        match self.request(&Request::Claims { owner })? {
+            Response::Claims(claims)
+                if claims.len() <= itsanas_store::vault::MAX_CLAIMS_PER_ANSWER
+                    && claims
+                        .iter()
+                        .all(|claim| claim.len() <= crate::protocol::MAX_CLAIM_BYTES) =>
+            {
+                Ok(claims)
+            }
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse { expected: "claims" }),
+        }
+    }
+
     /// Ask which of `addresses` the peer lacks.
     pub fn missing_chunks(
         &mut self,

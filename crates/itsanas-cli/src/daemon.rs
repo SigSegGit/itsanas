@@ -1908,8 +1908,13 @@ fn sync_once(
 /// behind a router is never dialled, so this is the only way it learns whose
 /// the hosts it pulls for are, and what they offer.
 pub(crate) fn present_claim(node: &Node, peer: &str, client: &mut PeerClient) {
+    let mut siblings = Vec::new();
     match client.present_claim(node.claim_bytes(itsanas_discover::now_unix())) {
         Ok(Some(theirs)) => {
+            // The host's own claim: a sibling of this account when it says so,
+            // which is the only way a machine behind a router learns one it
+            // dials and that never dials it.
+            siblings.push(theirs.clone());
             if let Err(why) = owners(node).take(client.peer_device(), &theirs, &node.vault) {
                 println!("{peer}: its own claim does not check out ({why}); not hosting for it");
             }
@@ -1918,6 +1923,14 @@ pub(crate) fn present_claim(node: &Node, peer: &str, client: &mut PeerClient) {
         Err(error) => {
             println!("{peer}: refused this device's claim ({error}); it will store nothing here");
         }
+    }
+    // This account's roster, before any chain is applied this session: the
+    // host itself if it is ours, the siblings it knows, and the ones that
+    // presented here. Asked after presenting, which is what the host answers
+    // on.
+    siblings.extend(client.claims(node.store.owner()).unwrap_or_default());
+    if let Err(error) = node.admit_roster(&siblings) {
+        println!("{peer}: this account's device list could not be updated ({error})");
     }
 }
 

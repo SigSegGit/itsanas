@@ -384,6 +384,7 @@ fn fetch(node: &Node, path: &str) -> Result<Vec<u8>, Failure> {
         ) else {
             continue;
         };
+        let _ = node.introduce(&mut client, itsanas_discover::now_unix());
 
         if itsanas_net::session::fetch_only(&node.store, &node.vault, &mut client, &wanted).is_err()
         {
@@ -506,6 +507,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_sync(
                     unreachable.push(target.clone());
                     continue;
                 };
+                let _ = node.introduce(&mut client, itsanas_discover::now_unix());
 
                 match itsanas_node::round(
                     &node.store,

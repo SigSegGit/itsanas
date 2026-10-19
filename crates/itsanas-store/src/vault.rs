@@ -149,6 +149,22 @@ const EVICTABLE: TableDefinition<'_, &[u8], u64> = TableDefinition::new("vault_e
 /// every mark an owner has.
 const EVICTION_ORDER: TableDefinition<'_, &[u8], ()> = TableDefinition::new("vault_eviction_order");
 
+/// Device → owner ‖ the claim bytes that device presented here, as presented.
+///
+/// Kept so a host can hand an account its own roster (HANDOVER §10 7): the
+/// owner's other machines verify each claim themselves, so a host can
+/// withhold one and never forge one. Opaque here; the node layer parses.
+const CLAIMS: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("vault_claims");
+
+/// Most claims kept, of all accounts: a device key costs nothing to mint, so
+/// a table any caller grows needs a ceiling. Full, a new device is not kept
+/// and the owner's other machines learn its claim from it directly.
+pub const MAX_KEPT_CLAIMS: u64 = 4096;
+
+/// Most claims handed out for one account in one answer: five live devices
+/// and their withdrawn predecessors.
+pub const MAX_CLAIMS_PER_ANSWER: usize = 16;
+
 /// `owner` → `(day, marks made that day)`, on this host's clock: what
 /// [`MAX_EVICTABLE_PER_DAY`] counts.
 const EVICT_QUOTA: TableDefinition<'_, &[u8], (u64, u64)> =
@@ -414,6 +430,7 @@ impl Vault {
             // has none of them, and a read of a missing table is an error.
             let _ = txn.open_table(EVICTABLE)?;
             let _ = txn.open_table(EVICTION_ORDER)?;
+            let _ = txn.open_table(CLAIMS)?;
             let _ = txn.open_table(EVICT_QUOTA)?;
         }
         txn.commit()?;
@@ -877,6 +894,49 @@ impl Vault {
             held = held.saturating_add(bytes.value());
         }
         Ok(held)
+    }
+
+    /// Keep the claim `device` presented for `owner`, replacing its last one.
+    /// Not kept when [`MAX_KEPT_CLAIMS`] devices are already kept.
+    ///
+    /// # Errors
+    ///
+    /// The database's.
+    pub fn keep_claim(&self, device: DeviceId, owner: UserId, claim: &[u8]) -> Result<()> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut claims = txn.open_table(CLAIMS)?;
+            let key = device.as_bytes().as_slice();
+            if claims.get(key)?.is_none() && claims.len()? >= MAX_KEPT_CLAIMS {
+                return Ok(());
+            }
+            let mut row = owner.as_bytes().to_vec();
+            row.extend_from_slice(claim);
+            claims.insert(key, row.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// The claims kept for `owner`, at most [`MAX_CLAIMS_PER_ANSWER`].
+    ///
+    /// # Errors
+    ///
+    /// The database's.
+    pub fn claims_for(&self, owner: UserId) -> Result<Vec<Vec<u8>>> {
+        let txn = self.db.begin_read()?;
+        let mut out = Vec::new();
+        for row in txn.open_table(CLAIMS)?.iter()? {
+            let (_, value) = row?;
+            let bytes = value.value();
+            if bytes.len() > 32 && bytes[..32] == *owner.as_bytes() {
+                out.push(bytes[32..].to_vec());
+                if out.len() == MAX_CLAIMS_PER_ANSWER {
+                    break;
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// What this vault holds for one owner -- chunks and segments -- without
