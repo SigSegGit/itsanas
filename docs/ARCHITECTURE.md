@@ -167,11 +167,18 @@ Properties that matter here:
 - **Owner affinity.** A user's own devices are always preferred replicas, so
   reading your own data never depends on anyone else being online.
 
-**What placement does not do yet.** It weights by pledged capacity and nothing
-else. It has no notion of an *anchor* — a node that is actually up — so nothing
-guarantees a replica lands somewhere reachable while your own machines sleep.
-Durability and availability are separate purchases and only the first is
-implemented; [ECONOMICS.md](ECONOMICS.md) §2 has the arithmetic and the gap.
+**Availability, behind a switch.** The configuration line
+`placement = everyone | measured` (default `everyone`) chooses. `everyone` offers
+every chunk to every host reached and weights by pledged capacity and nothing
+else, so nothing guarantees a replica lands somewhere reachable while your own
+machines sleep. `measured` weights by what this device measured of each host
+(a 28-day ring per device, always recorded and shown by `status` in both modes)
+and wants a chunk on hosts until two other accounts hold it and the chance that
+none is reachable is at most 1 %. A host asked to make room may be told by peer
+protocol 10 (`MayEvict`) that it can evict a chunk of that same account; that
+marks, and never deletes. Durability and availability are separate purchases;
+[ECONOMICS.md](ECONOMICS.md) §2 has the arithmetic, and `measured` has not run on
+the fleet.
 
 ### 4.2 Redundancy
 

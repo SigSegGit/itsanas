@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-14 — 1146 test functions across 36 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 308 are red-team tests.**
+**Last updated: 2026-10-19 — 1246 test functions across 38 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 347 are red-team tests.**
 
-**1030 of the 1146 tests have an entry of their own on this page** — an *entry*,
+**1130 of the 1246 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,15 +158,17 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 21 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 181 |
+| `itsanas-store` unit | 214 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
-| `itsanas-net` unit | 54 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 59 |
+| `itsanas-net` unit | 62 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 60 |
 | `itsanas-net` relay (`tests/relay.rs`) | 6 |
-| `itsanas-placement` unit | 34 |
+| `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
+| `itsanas-net` placement (`tests/placement.rs`) | 14 |
+| `itsanas-placement` unit | 64 |
 | `itsanas-coord` unit | 123 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 17 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 1 |
@@ -176,10 +178,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 134 |
+| `itsanas-cli` unit | 142 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 131 |
+| `itsanas-node` unit | 135 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -435,7 +437,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (154, plus the 27 vault tests below)
+# `itsanas-store` — unit tests (178, plus the 36 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -505,6 +507,37 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | `recording_a_batch_matches_recording_one_at_a_time` | A sync round commits once rather than once per chunk, which on an SD card is most of the time spent. |
 | `recording_an_empty_batch_does_nothing_rather_than_opening_a_transaction` | A quiet round costs no write. |
 | **`red_team_the_holder_count_follows_the_ledger_through_every_path`** | §8 1c reads how much an account proved it hosts from `holder_counts`, kept in the transaction that writes each holder row. Record, refresh, every forget path and `forget_device` move it exactly; a refresh is not counted twice; another device's count does not move. Sabotaged by dropping the decrement in `forget_holders`. |
+
+## `placement` — rings, the short queue, the census, releases (24)
+
+What placement needs of the ledger: how long a device has been seen, which chunks are found short, one ordered pass over every live chunk, and which copies were given back. All tables are created on open.
+
+| Test | What it proves |
+| --- | --- |
+| `note_seen_writes_the_ring_and_the_contact_together` | The uptime ring is written in the transaction that notes the contact, so a crash cannot leave a device seen and unmeasured. |
+| `a_ring_is_rewritten_only_when_the_observation_changes_it` | A repeated sighting in the same hour writes nothing. |
+| `the_latest_hour_written_never_moves_back_with_the_clock` | `latest_hour_written` is a high-water mark; a release refuses to run when the clock reads earlier than it. |
+| **`red_team_a_stranger_never_gets_a_ring`** | `note_seen_if_known` and `note_unreached` create nothing for an unknown device, so free keys cannot fill the table. |
+| `a_known_device_is_noted_reached_or_not` | A dial that fails counts against a device already known, and a success counts for it. |
+| `a_chunk_s_first_reference_queues_it_and_a_second_does_not_add_a_row` | A chunk enters the short queue on its first reference (0 to 1), in the transaction that takes it. |
+| `forgetting_holders_queues_only_the_records_really_removed` | `forget_holders` queues the chunks it removed a record for, not the ones it was asked about and did not hold. |
+| `a_device_leaving_queues_every_chunk_it_held` | `forget_device` for a leaving device queues its recorded chunks. |
+| `a_draining_device_queues_its_chunks_with_the_grant` | `note_draining` queues the device's recorded chunks. |
+| `a_host_paused_by_its_audits_queues_its_chunks_once` | The audit transition into paused queues the host's chunks; a second failed audit does not. |
+| **`red_team_a_trigger_walks_a_bounded_number_of_records`** | A device holding a very large number of records cannot make one transaction walk them all. |
+| `a_chunk_outside_the_live_set_is_never_queued` | A deleted chunk is not queued. |
+| `the_queue_keeps_the_first_time_a_chunk_was_found_short` | Re-queueing keeps the original time, which the 24-hour safety net reads. |
+| `collecting_a_chunk_takes_it_off_the_queue_and_the_release_records` | Garbage collection purges the queue entry and the release records. |
+| `the_queue_is_read_from_a_random_start_and_wraps` | A session reads a page from a random start and wraps, so a queue longer than a page is eventually all seen. |
+| `the_census_starts_at_random_wraps_and_covers_every_chunk_once_a_pass` | The cursor in META, a random start when absent; one pass visits every live chunk once. |
+| `two_censuses_with_different_random_starts_begin_in_different_places` | Two fresh stores do not both begin at the first chunk. |
+| `census_pages_and_holder_stamps_match_the_ledger` | The merged pages agree with the holder rows and their stamps. |
+| `the_placement_tables_are_created_on_open_of_a_store_written_before_them` | An older store opens, and the new tables exist. |
+| **`red_team_a_released_copy_is_not_re_recorded_on_the_hosts_word`** | After a release, a summary that still lists the chunk does not put the record back until the release has aged out. |
+| **`red_team_a_lone_far_future_note_moves_no_ring_and_no_latest_hour`** | One observation with a clock years ahead resets nothing and does not poison the high-water mark that blocks releases. |
+| **`red_team_everyone_mode_never_grows_the_short_queue`** | The queue is a `measured` structure only; what `everyone` does is unchanged. |
+| **`red_team_an_inbound_session_does_not_change_everyones_count`** | Noting an inbound session adds no holder record and changes no replica count. |
+| `rings_queue_and_releases_survive_reopening` | Rings, the queue and releases are on disk. |
 
 ## `summary` — do we hold the same chunks? (6)
 
@@ -749,7 +782,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (27 of the store's unit tests)
+# `itsanas-store` — the vault (36 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -779,6 +812,15 @@ about reading.
 | **`red_team_a_write_that_fails_after_its_blob_is_rebuilt_after_a_clean_close`** | Found by `itsanas-redteam`: a blob written whose commit then fails (ENOSPC on redb) leaves an uncounted blob, and a later *clean* shutdown cleared the mark and blessed the drift for good. A write that does not reach its commit, by error or panic, now marks the vault suspect and the close stays unclean. Fails when `Drop` ignores the mark or the guard is defused early. |
 | **`red_team_an_open_that_fails_mid_rebuild_leaves_the_vault_unclean`** | Also `itsanas-redteam`: an open whose rebuild failed (an antivirus lock, a permission) dropped the half-built vault through the clean close, so the retry trusted the total it never fixed. The vault is suspect until `open` returns. Fails when it starts unsuspect. |
 | `a_vault_from_before_the_total_is_totalled_at_open` | An upgraded vault has index rows and no total; reading it as 0 would hand the pledge back in full. Fails when a missing total is not rebuilt. |
+| **`red_team_a_mark_on_a_chunk_not_held_marks_nothing`** | Permission to evict covers only chunks this vault holds for that owner. |
+| **`red_team_an_expired_mark_is_neither_evicted_nor_answered_marked`** | Marks lapse. |
+| **`red_team_eviction_deletes_nothing_when_the_marks_cannot_cover_the_need`** | If marked chunks cannot free enough, nothing is removed. |
+| `a_marked_chunk_that_is_stored_again_is_no_longer_evictable` | `put_chunk` of a marked chunk unmarks it. |
+| **`red_team_eviction_never_takes_another_owners_chunks`** | `evict_marked(owner, ..)` removes only that owner's marked chunks. |
+| `eviction_takes_the_oldest_marks_first_and_stops_when_there_is_room` | Oldest mark first, stopping as soon as the need is covered. |
+| **`red_team_an_owner_marks_at_most_a_days_cap_even_with_its_clock_set_back`** | `MAX_EVICTABLE_PER_DAY` (4096) per owner, counted on the host's clock. |
+| `forgetting_an_owner_forgets_its_marks_and_its_days_count` | `forget_owner` clears marks and quota. |
+| `a_vault_from_before_eviction_opens_and_marks` | The new tables are created on open of an older vault. |
 
 ---
 | **`red_team_a_blob_lost_behind_the_index_is_found_within_one_pass`** | §8 4c. The summary an owner compares is read from the vault's index, and since 4c an agreeing summary re-stamps records without asking: a blob gone from the disk behind the index left the summary agreeing for ever. One pass of `Vault::check_disk` removes the row, the summary changes, and the pledge stops counting the bytes. Sabotaged by keeping the row. |
@@ -787,9 +829,9 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (54)
+# `itsanas-net` — unit tests (62)
 
-## `protocol` — messages and challenges (12)
+## `protocol` — messages and challenges (14)
 
 | Test | What it proves |
 | --- | --- |
@@ -805,8 +847,10 @@ about reading.
 | **`red_team_every_variant_keeps_its_number_on_the_wire`** | postcard writes a variant as its position. Version 4 inserted `Response::ChunkSummary` before `WantHosted` and `Refused`, so a version-2 peer's `WantHosted` decoded as a `ChunkSummary` — "Hit the end of buffer" on every round of the fleet for a week — and its `Refused` as a `WantHosted`. Round trips cannot see this, since both ends compile the same enum; this pins the deployed numbers. Append, never insert. |
 | **`red_team_a_peer_from_before_the_current_wire_order_is_refused_at_hello`** | Versions 2 and 3 share the old order, so the floor is 4: such a peer is refused at the hello with a line naming both versions, instead of every later answer decoding as the wrong message. |
 | `a_refusal_carries_no_secret_material` | Documents that `Refused` is operator-facing only. |
+| **`red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host`** | `MayEvict` carries at most 1024 chunks; a longer list is refused at decode. |
+| `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), appended so older numbers are unchanged. |
 
-## `service` — what a peer may obtain (25)
+## `service` — what a peer may obtain (29)
 
 | Test | What it proves |
 | --- | --- |
@@ -835,13 +879,24 @@ about reading.
 | **`red_team_presences_are_answered_to_the_device_tls_proved_and_no_other`** | `Request::Presences` carries nothing: who may ask is the device the connection proved, handed to the book as `caller`. The member gets its rows; any other device gets `NOT_YOURS`. Sabotaged by asking the book about a fixed device instead of the caller. |
 | **`red_team_a_host_that_bounds_accounts_asks_before_every_store`** | §8 1c: with `with_owners`, both `StoreChunk` and `StoreSegment` ask the bound, a claim is credited to the device TLS proved, never another, and a host answers it with its own claim (`claiming`) so a machine that is never dialled can bound what it pulls. Sabotaged four ways: skip the gate on chunks, on segments, credit a fixed device, answer without the host's claim. |
 | `an_answer_never_exceeds_what_the_receiver_accepts` | The client refuses a padded answer whole, so the service trims its own to `MAX_RELAYED_ROWS` rows of at most `MAX_RELAYED_ROW_BYTES`: a book past the bounds costs rows, never the answer. |
+| **`red_team_permission_to_evict_is_refused_from_another_account_a_stranger_and_with_no_bound`** | `MayEvict` is honoured only from a caller the `Owners` gate confirms speaks for `owner`; another account's device, an unconfirmed one, and a host with no gate are refused. |
+| **`red_team_a_marked_chunk_is_answered_missing_and_left_out_of_the_summary`** | A chunk its owner released reads as absent to that owner's next audit and summary, so the owner does not count it. |
+| **`red_team_eviction_is_asked_for_the_real_overage`** | Evicting for an `ACCOUNT_FULL` store frees what the incoming chunk exceeds the cap by, not a blanket amount. |
+| `a_full_account_makes_room_from_its_own_marks_and_never_from_anothers` | A store refused for `ACCOUNT_FULL` evicts that account's marked chunks and is admitted once more; it never touches another account. |
 
-## `transport` — binding and serving (2)
+## `transport` — binding and serving (3)
 
 | Test | What it proves |
 | --- | --- |
 | `binding_a_public_address_no_longer_needs_an_override` | Documents a deliberate *removal*. Binding a public address used to be refused, because the transport leaked chunk identifiers and sizes to anyone on the path. TLS closed that, so the refusal became cargo cult and was deleted. The test exists so that nobody restores the refusal believing it was ever a security control. |
 | `loopback_still_binds` | The ordinary case did not regress while the above changed. |
+| `a_host_that_has_no_room_for_this_account_is_not_reported_as_rejecting_it` | `Refusal::AccountFull` is distinct from rejection; a full peer is ineligible for both refusals and is not marked as rejecting the account. |
+
+## `placed` — which records a session reads (1)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_hosts_records_are_read_from_a_random_start_and_all_reached`** | Release and the released-chunk refresh read one page of a host's records per session; from a fixed start a host holding more than a page would only ever have its first page released or refreshed. The page starts at random and every record is reached. Sabotaged by starting `holdings_from_random` at `None`. |
 
 Authentication is not tested here. It lives one layer down, in `itsanas-tls`,
 and is catalogued with that crate.
@@ -874,7 +929,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (59)
+# `itsanas-net` — two-node tests (60)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -935,6 +990,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_a_host_that_refuses_everything_is_not_reported_as_nothing_to_send`** | Found by the acceptance bench, whose E, F and G failed on nodes that had pledged nothing while every round said there was nothing to send. The push report counts refusals apart from "already held" and names the reason — `PledgeFull` for the host's `PLEDGE_EXHAUSTED`, which both sides share as one constant. Fails when the count or the reason is dropped. |
 | `a_larger_file_survives_the_wire_byte_for_byte` | Multi-chunk fetch and reassembly. |
 | `a_peer_asking_about_an_unknown_user_gets_an_empty_answer` | No invented chains over the wire either. |
+| `a_replacement_device_pulls_a_whole_corpus_back_from_a_stranger_in_measured_mode` | The restore test again with `placement = measured`: a stranger the restored account never measured is outside the roster and still takes every chunk that had no proven copy anywhere. |
 
 ---
 
@@ -956,6 +1012,36 @@ reaches B only through R. `tests/relay.rs`.
 | **`red_team_a_relay_refuses_strangers_the_same_way_whether_or_not_the_target_is_parked`** | A caller outside the relay's account gets `NOT_RELAYING` even when the target is parked, so the refusal does not say who is parked. |
 | **`red_team_a_parked_machine_lets_go_at_once_and_the_relay_sees_it_gone`** | A parked machine whose park is closed stops within 3 s, and the relay then refuses a splice to the gone parker. Sabotaged by a relay that ignores a closed park. |
 | `a_relay_older_than_the_relay_protocol_is_never_asked_to_splice` | A relay below `PROTOCOL_WITH_RELAY` is refused client-side with `RELAY_TOO_OLD`; no splice request is sent. |
+
+# `itsanas-net` — eviction on the wire (2)
+
+Real sockets. `tests/eviction.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_peer_speaking_protocol_9_is_never_asked_to_evict`** | `PeerClient::may_evict` returns `None` below protocol 10 and sends nothing. |
+| **`red_team_only_the_device_tls_proved_speaks_for_the_account_on_the_wire`** | A device presenting another account's name is refused; the account comes from the TLS-proved device, never from the request. |
+
+# `itsanas-net` — availability-aware placement (`tests/placement.rs`) (14)
+
+Real stores and sockets, `placement = measured`. `everyone` is covered by the rest of the suite, which is unchanged.
+
+| Test | What it proves |
+| --- | --- |
+| `chunks_spread_over_five_hosts_about_evenly` | With five eligible hosts the shares are about even. |
+| `a_host_full_under_either_refusal_falls_through_to_the_next` | Full under the pledge or under the account cap alike, a host is passed over. |
+| `a_chunk_with_no_proven_copy_goes_to_the_first_host_reached` | No delay for a chunk with no proven remote holder: today's first-host behaviour is kept. |
+| **`red_team_the_safety_net_waits_a_day_and_serves_only_durability`** | A chunk short for durability goes to any eligible host only after 24 hours short. |
+| **`red_team_a_capped_chunk_short_only_on_availability_is_not_sent_everywhere`** | A chunk at the 12-copy cap, or short only on availability, is not offered to all. |
+| `the_due_walk_restamps_on_recorded_only_digests_and_asks_only_recorded_chunks` | The due walk compares digests of the chunks recorded for the peer, restamps on agreement, and on a difference asks about those chunks only. |
+| **`red_team_release_needs_a_local_copy_and_margin_and_happens_once_per_confirmed_window`** | Release requires a local copy, the margin, and at most one release of a (chunk, host) per `CONFIRMED_FOR`. |
+| **`red_team_release_is_never_sent_to_a_protocol_9_peer`** | A host below protocol 10 gets no release and no record is dropped. |
+| `an_inbound_only_host_is_measured_from_the_sessions_it_opens` | A host behind a NAT, never dialled, is measured from its own inbound sessions. |
+| **`red_team_a_stranger_dialling_in_gets_no_ring`** | An inbound session from an unknown device creates no ring. |
+| `want_hosted_offers_the_caller_its_share_only_in_measured_mode` | `WantHosted` offers the caller the chunks it is in `want` for, and offers everything as before in `everyone`. |
+| **`red_team_release_needs_an_audit_passed_within_live_for`** | A copy on a host that has not passed an audit within `LIVE_FOR` is not released. |
+| **`red_team_a_session_that_moves_nothing_evaluates_each_queued_chunk_once`** | A session with no capacity does not re-evaluate the same queued chunk. |
+| **`red_team_want_hosted_is_measured_once_a_round_and_never_for_a_stranger`** | The roster is built once per round; a caller outside it is offered only chunks with no proven remote holder. |
 
 # `itsanas-cli` — crash consistency (1, `#[ignore]`d)
 
@@ -1004,7 +1090,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (134)
+# `itsanas-cli` — unit tests (142)
 
 ## `bench` — measuring this machine (4)
 
@@ -1262,6 +1348,19 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `a_timed_pause_shows_paused_only_while_it_holds` | Status --brief, which every tray reads, says paused only while the pause holds, so an expired timed pause never shows a blue icon over a node that is syncing again. |
 | **`red_team_a_passphrase_prompt_names_the_account_it_unlocks`** | The passphrase prompt reads `Passphrase for 'NAME' (HOME): `, not `Passphrase:`, so three accounts on one machine are told apart; with no label it stays `Passphrase: `. Sabotage: drop the label and it goes red. |
 
+## `placing` — the measurement shown, and the daemon's share of placement (8)
+
+| Test | What it proves |
+| --- | --- |
+| `a_device_with_weeks_of_history_reads_its_share_its_gap_and_its_window` | `status` prints "up N % (D days observed), longest absence H h, presumed lost after ..." from the ring. |
+| **`red_team_a_device_seen_for_three_hours_gets_no_percentage`** | Short history prints "not enough history yet". |
+| `a_long_gap_widens_the_window_up_to_thirteen_days` | The printed window follows `lost_after`. |
+| `everyone_shows_the_measurement_and_no_queue` | In `everyone` the measurement lines print and the short-queue line does not. |
+| `measured_shows_the_short_queue_and_the_census_slice` | In `measured`, "N chunks short of their target" and census progress print. |
+| **`red_team_an_own_device_known_only_by_its_claim_is_still_own`** | A device known only by a claim of the same account is own, so it is never placed. |
+| `measured_fills_the_slot_and_runs_the_census_and_everyone_empties_it` | The shared `Placement` slot is filled per round and the census runs in `measured`; in `everyone` the slot is empty. |
+| **`red_team_a_failed_dial_counts_against_a_known_device_and_writes_nothing_for_a_stranger`** | Dial failures become `note_unreached` for known devices only. |
+
 # `itsanas-policy` — when to sync, and how much (23)
 
 `src/lib.rs`. A decision table with an argument attached to every row, and no
@@ -1307,7 +1406,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (148)
+# `itsanas-node` — a node on disk (152)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1412,7 +1511,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
 | **`red_team_a_pledge_under_what_keep_needs_is_refused`** | `Node::check_split`, the one rule `keep`, `pledge`, `space --apply` and the phone's setters ask: a 1 MiB pledge for a 20 GiB keep is refused, naming the pledge that earns it (which is then accepted) and the command `itsanas space --pledge 47G --keep 20G --apply`; a keep inside the joining allowance, or no keep, needs no pledge; a stricter 20/80 split in the node's config refuses what 30/70 allows. Sabotaged (`check_split` always `Ok`; `allowed_for` reading `Split::DEFAULT`): red. |
 
-## `owners` — what a host stores for each account (27)
+## `owners` — what a host stores for each account (29)
 
 §8 1c (2026-10-04). A host used to bound only itself, so a client that pledged
 nothing was served until every host was full. Now a device presents its
@@ -1450,6 +1549,8 @@ contradicted; and what goes beyond what proof earns comes out of one share,
 | **`red_team_a_device_cannot_store_under_another_accounts_name`** | A device stores only for the account its claim names -- the host's own included, whose devices are exempt. Sabotaged by dropping the check. |
 | **`red_team_empty_claims_cannot_lock_newcomers_out`** | Found by the redteam agent: free keys fill the book with claims that store nothing. A full book forgets one whose account holds nothing here. Sabotaged by refusing when full. |
 | `a_claim_is_checked_for_its_signer_not_its_date` | Found by the redteam agent: a host on a Pi with no clock reads 1970 and would refuse every claim. `verify_origin`, as for presences. Sabotaged by checking the date (ten tests go red). |
+| **`red_team_placement_reads_only_confirmed_claims_as_accounts`** | Which account a device belongs to, for placement, comes only from a confirmed claim; an unconfirmed one is `Account::Unknown`. |
+| **`red_team_only_a_confirmed_device_of_the_account_speaks_for_it`** | The `MayEvict` gate: only a confirmed device of the account speaks for it. |
 
 ## `keeping` — a round on a device short of room (3)
 
@@ -1477,7 +1578,7 @@ not read, the pledge kept whatever the free space.
 | **`red_team_a_disk_that_filled_up_stops_taking_chunks_before_the_last_byte`** | When the disk can no longer hold the pledge, the host takes no more chunks than free space minus a 256 MiB reserve, and `status` says CANNOT KEEP. |
 | `its_own_entries_are_not_counted_against_itself` | A node's own published promise is never counted against it. |
 
-## `config` — settings (26)
+## `config` — settings (28)
 
 | Test | What it proves |
 | --- | --- |
@@ -1501,6 +1602,8 @@ not read, the pledge kept whatever the free space.
 | `a_config_round_trips` / `comments_and_blank_lines_are_ignored` / `several_peers_accumulate` / `a_missing_file_reads_as_defaults` | The format works. |
 | **`a_listen_address_nobody_can_bind_is_refused_when_the_file_is_read`** | A `listen` line was stored without being parsed, so `listen = localhost:9797` was accepted and failed later at `serve`. Under systemd with `Restart=on-failure` that is a unit dying every thirty seconds with the reason in a journal nobody opens. The test carries its own control: the same file with a bindable address must still load. |
 | `an_address_that_loads_is_stored_exactly_as_written` | Validation does not rewrite the value. IPv6 has several spellings of one address, and a node that publishes one form while its owner reads another has two answers to one question. |
+| `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
+| **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 
 # `itsanas-android` — the JNI boundary (10)
 
@@ -1568,9 +1671,9 @@ an account several machines hold.
 | **`red_team_a_file_shorter_than_windows_believes_is_refused_not_padded`** | The one a red-team sweep found, and the one the manual test could not. The placeholder's size is written once from the catalogue and nothing calls `PrjUpdateFileIfNeeded`, while the sync loop in the same process keeps adopting newer versions from peers — so a file that shrinks on another machine leaves Windows asking for the old length. `Source::read` returned `()`, so a short fill was invisible, and the whole buffer went to `PrjWriteFileData` regardless. The tail was **uninitialised heap**: most likely the plaintext of a file hydrated a moment earlier through the same allocator, arriving inside a different file. The buffer is zeroed now, `read` returns a count, and a short answer stops. **The `SAFETY:` comment above it said the tail was padding Windows discards** — the gate checks that a reason is written, not that it is true. |
 | **`red_team_a_read_past_the_end_serves_nothing_rather_than_zeros`** | The same fault at its extreme: an offset past the content fills nothing at all. Padding would hand back a block of zeros that reads as a legitimate hole in a sparse file. |
 
-# `itsanas-placement` — unit tests (34)
+# `itsanas-placement` — unit tests (64)
 
-## `nodeset` — where a chunk belongs (16)
+## `nodeset` — where a chunk belongs (17)
 
 | Test | What it proves |
 | --- | --- |
@@ -1592,6 +1695,7 @@ an account several machines hold.
 | `identical_capacities_distribute_evenly` | No node is starved; none is favoured. |
 | `a_swarm_smaller_than_the_replication_factor_returns_everyone` / `an_empty_swarm_places_nothing_rather_than_panicking` / `asking_for_zero_replicas_returns_none` | Edges. |
 | `duplicate_and_zero_capacity_nodes_are_refused` | Malformed membership is rejected at construction. |
+| `the_float_guard_lists_every_module_of_the_crate` | `no_floating_point_is_involved` scans the sources it `include_str!`s, and it listed `nodeset.rs` alone; the new modules do availability arithmetic, where one `f64` would make two machines disagree about a chunk. This test reads every `pub mod` in `lib.rs` and fails when the guard does not `include_str!` it, so a module added later cannot be left unscanned without a red test. |
 
 ## `repair` — noticing a chunk is running out of copies (13)
 
@@ -1609,6 +1713,64 @@ an account several machines hold.
 | `a_fully_replicated_chunk_needs_nothing` | No make-work. |
 | `a_plan_is_deterministic_and_ordered` | Two nodes produce comparable plans, so an operator can diff two logs. |
 | `an_empty_census_produces_an_empty_plan` / `nothing_is_planned_when_no_node_is_reachable` | Edges. |
+
+## `uptime` — what this device saw of another, hour by hour (11)
+
+Availability is measured here, on this clock, from this node's own sessions; the coordinator's `AvailabilityRecord` is never read. A ring of 672 hours (28 days) per device.
+
+| Test | What it proves |
+| --- | --- |
+| **`hours_this_node_did_not_try_are_not_counted_against_a_device`** | A laptop this node never dialled for a day is not a laptop that was down for a day: an hour counts only when this node tried (or the device reached it), so a node that was itself asleep does not report its peers as absent. |
+| `noting_the_same_observation_twice_changes_nothing` | `note` says whether anything changed, and callers write only then: a session that sees the same device many times in an hour costs one write. |
+| **`a_clock_stepping_back_never_erases_the_history`** | A clock set back is ignored entirely, never a reset. Otherwise one bad NTP step would turn four weeks of evidence into "no history" and the device would drop out of every placement. |
+| `a_forward_jump_past_the_window_starts_over` | The other direction: a jump forward past the window starts a fresh ring, because nothing in the old one describes the present. |
+| `hours_older_than_the_window_fall_out_of_the_ring` | Slots are reused as the window slides; hour 673 does not still count hour 1. |
+| `a_figure_needs_a_week_and_a_day_of_attempts` | No percentage until 7 days are known and 24 hours attempted. A device seen for three hours is "not enough history yet", not 100 %. |
+| **`a_current_absence_past_the_window_reads_as_zero`** | A device seen 99 % of the time that has not been seen for longer than its lost-after window reads as 0, so a machine that died last week stops counting as a copy at once. |
+| `the_longest_gap_is_between_two_sightings` | The gap that sets a device's window is measured between two seen hours inside the window; the open absence at the end is the other test's business. |
+| **`unknown_availability_counts_as_unreachable`** | A unit with no figure counts as 0 (miss = 1 000 000 ppm). An unknown must never read as a pass; a fresh device is not a reliable one. |
+| **`correlated_hosts_need_more_copies_than_independent_ones_with_the_same_averages`** | Two hosts that are each up half the time, but always the same half, miss the chunk half the time; two independent ones, a quarter. `miss_ppm` takes the worse of the independent product and the empirical share of hours when none was seen. |
+| `a_union_sees_what_any_member_saw` | An account's own machines are one unit: attempted OR, seen OR, first hour the earliest, last hour the latest. |
+
+## `liveness` — how long silence is believed (2)
+
+| Test | What it proves |
+| --- | --- |
+| **`the_window_grows_with_a_hosts_own_history_and_never_past_thirteen_days`** | The window is twice the longest gap the device has shown, clamped between 7 days (`LIVE_FOR`) and 13 days (under `CONFIRMED_FOR`). A laptop that sleeps for a weekend is not lost on Monday; nothing is waited for longer than the confirmation lasts. |
+| **`red_team_a_host_with_no_history_gets_the_floor_not_the_ceiling`** | Unknown history reads as the shortest window: believing a stranger for thirteen days would be the generous direction. |
+
+## `roster` — who is a candidate, and in what order (4)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_ranking_weight_goes_only_to_proven_hosts_with_a_week_of_history`** | Slots 2 to 4 (availability quartiles) go only to a host that passed an audit and has a known figure. Otherwise an always-on Sybil would earn extra weight by existing. |
+| `availability_quartiles_set_the_slots` | A proven host with a known figure gets 1 to 4 slots by quartile; one without gets 1. |
+| `ineligible_hosts_are_ordered_but_not_ranked` | `order` lists every host (release needs the lowest-ranked holder even if it is now full); `ranked` lists only eligible ones. |
+| `the_order_does_not_depend_on_how_the_roster_was_built` | The same hosts built in any order and with duplicates give the same ranking, so every own device computes the same answer. |
+
+## `target` — how many copies are enough (8)
+
+The goal: two other accounts, a miss probability of at most 1 % (10 000 ppm), at most 12 remote copies.
+
+| Test | What it proves |
+| --- | --- |
+| `two_proven_reliable_accounts_satisfy_the_goal` | The ordinary good case reads satisfied and wants nobody. |
+| `own_devices_count_as_one_unit_and_never_for_durability` | The account's other machines help availability as one unit and never count towards "two other accounts": a household is one disk failure away from nothing. |
+| **`red_team_two_throwaway_devices_of_unknown_accounts_are_one_account`** | Every device whose account is unknown is one account, so two free keys do not make two accounts. |
+| **`red_team_an_unproven_holder_satisfies_nothing`** | A record from a host that never passed an audit counts for neither durability nor availability. |
+| `durability_needs_one_holder_seen_recently` | Two proven accounts, none seen within `LIVE_FOR`: not durable. |
+| `the_cap_stops_the_search` | `want` stops at 12 remote copies and reports unsatisfied-but-capped, rather than recruiting every host for a chunk no host can make safe. |
+| `distinct_accounts_come_first` | The first pass takes only hosts of accounts not yet represented, so the second copy lands with someone else. |
+| `a_satisfied_chunk_wants_nobody` | No make-work: placement only adds copies, and adds none when the goal is met. |
+
+## `release` — which copy may be given back (4)
+
+| Test | What it proves |
+| --- | --- |
+| `release_picks_the_lowest_ranked_holder_and_only_with_margin` | A holder is named only if the others still leave one account more than the goal and a quarter of the goal's miss probability. |
+| **`red_team_a_holder_whose_loss_breaks_the_margin_is_skipped_for_the_next`** | The lowest-ranked holder is not released if that breaks the margin; the next one is considered. |
+| **`red_team_concurrent_own_devices_never_release_below_the_goal`** | Every own device computes the same single holder, so two machines of one account releasing at once cannot take two copies away. |
+| **`red_team_own_devices_and_unlisted_holders_are_never_released`** | Only strict-evidence off-account holders can be named; own devices and holders the caller did not vouch for never are. |
 
 ---
 

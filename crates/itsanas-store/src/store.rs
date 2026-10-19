@@ -1301,6 +1301,35 @@ impl Store {
         self.index.record_holders(chunks, device, now)
     }
 
+    /// Arm the short queue for `measured`, or disarm and empty it for
+    /// `everyone`. See [`Index::set_placement_measured`].
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read or written.
+    pub fn set_placement_measured(&self, measured: bool) -> Result<()> {
+        self.index.set_placement_measured(measured)
+    }
+
+    /// When `device` last passed a storage audit here, if it has.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn last_passed(&self, device: &DeviceId) -> Result<Option<u64>> {
+        self.index.last_passed(device)
+    }
+
+    /// Record that `device` accepted these chunks in a `StoreChunk` just
+    /// now: unlike [`Self::record_holders`], this ends any release of them.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn record_stored_at(&self, chunks: &[ChunkId], device: &DeviceId, now: u64) -> Result<()> {
+        self.index.record_stored(chunks, device, now)
+    }
+
     /// Every other device known to hold `chunk`.
     pub fn remote_holders(&self, chunk: &ChunkId) -> Result<Vec<Holder>> {
         self.index.remote_holders(chunk)
@@ -1485,6 +1514,100 @@ impl Store {
 
     pub fn forget_holder(&self, chunk: &ChunkId, device: &DeviceId) -> Result<()> {
         self.index.forget_holder(chunk, device)
+    }
+
+    // ------------------------------------------------------------ placement
+
+    /// Note that this node tried `device` and did not reach it. Known devices
+    /// only. See [`Index::note_unreached`].
+    pub fn note_unreached_at(&self, device: &DeviceId, now: u64) -> Result<bool> {
+        self.index.note_unreached(device, now)
+    }
+
+    /// [`Store::note_seen_at`] for an inbound session: known devices only.
+    pub fn note_seen_if_known_at(&self, device: &DeviceId, now: u64) -> Result<bool> {
+        self.index.note_seen_if_known(device, now)
+    }
+
+    /// `device`'s uptime ring, as this node has observed it.
+    pub fn uptime(&self, device: &DeviceId) -> Result<Option<itsanas_placement::Uptime>> {
+        self.index.uptime(device)
+    }
+
+    /// Every uptime ring this node keeps, sorted by device.
+    pub fn uptimes(&self) -> Result<Vec<(DeviceId, itsanas_placement::Uptime)>> {
+        self.index.uptimes()
+    }
+
+    /// The highest hour any ring was written at. See
+    /// [`Index::latest_hour_written`].
+    pub fn latest_hour_written(&self) -> Result<u64> {
+        self.index.latest_hour_written()
+    }
+
+    /// Queue `chunks` as possibly short of their placement goal.
+    pub fn enqueue_short(&self, chunks: &[ChunkId], now: u64) -> Result<()> {
+        self.index.enqueue_short(chunks, now)
+    }
+
+    /// Take `chunks` off the short queue.
+    pub fn settle_short(&self, chunks: &[ChunkId]) -> Result<()> {
+        self.index.settle_short(chunks)
+    }
+
+    /// A page of the short queue. See [`Index::short_page`].
+    pub fn short_page(
+        &self,
+        after: Option<&ChunkId>,
+        limit: usize,
+    ) -> Result<crate::index::ShortPage> {
+        self.index.short_page(after, limit)
+    }
+
+    /// How many chunks are queued as possibly short.
+    pub fn short_count(&self) -> Result<u64> {
+        self.index.short_count()
+    }
+
+    /// The queued chunk at or after `cursor`, wrapping.
+    pub fn short_near(&self, cursor: &ChunkId) -> Result<Option<ChunkId>> {
+        self.index.short_near(cursor)
+    }
+
+    /// A page of live chunks with their holders. See [`Index::census_page`].
+    pub fn census_page(
+        &self,
+        after: Option<&ChunkId>,
+        limit: usize,
+    ) -> Result<(Vec<crate::index::CensusRow>, Option<ChunkId>)> {
+        self.index.census_page(after, limit)
+    }
+
+    /// The next `limit` chunks of the rolling census from a caller-drawn
+    /// start. See [`Index::census_next`]. The daemon sizes the page with
+    /// [`rows_per_round`](crate::holders::rows_per_round) and the caller
+    /// draws the start, so a test can fix it.
+    pub fn census_next(
+        &self,
+        limit: usize,
+        random: &ChunkId,
+    ) -> Result<Vec<crate::index::CensusRow>> {
+        self.index.census_next(limit, random)
+    }
+
+    /// Every other device recorded as holding `chunk`, with its stamp.
+    pub fn holders_with_stamps(&self, chunk: &ChunkId) -> Result<Vec<(DeviceId, u64)>> {
+        self.index.holders_with_stamps(chunk)
+    }
+
+    /// Record that this node released `device`'s copy of `chunks`.
+    pub fn note_released(&self, chunks: &[ChunkId], device: &DeviceId, now: u64) -> Result<()> {
+        self.index.note_released(chunks, device, now)
+    }
+
+    /// When this node last released `device`'s copy of `chunk`.
+    pub fn released_at(&self, chunk: &ChunkId, device: &DeviceId) -> Result<Option<u64>> {
+        self.index.released_at(chunk, device)
     }
 
     /// Stop counting `device` towards replication until `until` (capped at

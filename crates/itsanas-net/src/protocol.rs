@@ -32,7 +32,7 @@ use itsanas_store::SegmentEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Protocol version, negotiated in the opening exchange.
-pub const PROTOCOL_VERSION: u16 = 9;
+pub const PROTOCOL_VERSION: u16 = 10;
 
 /// The oldest version this node will still talk to.
 ///
@@ -129,6 +129,15 @@ pub const PROTOCOL_WITH_DRAINING: u16 = 8;
 /// and is never told to dial a `relay:` address: that waits, like
 /// several addresses did, until the fleet speaks 9.
 pub const PROTOCOL_WITH_RELAY: u16 = 9;
+
+/// The first version in which an owner can tell a host which of its chunks
+/// the host may evict to make room for that owner ([`Request::MayEvict`]).
+///
+/// A peer at 9 does not know the request and would close the connection on
+/// it, so it is never asked: the owner keeps counting the copies it would
+/// have released there, which is the conservative side -- more copies, never
+/// fewer -- and the host stays as full for that account as it was.
+pub const PROTOCOL_WITH_EVICTION: u16 = 10;
 
 /// Largest encoded claim a host reads. A `SignedClaim` is two ids, three
 /// integers, a flag and a signature: under 200 bytes.
@@ -356,6 +365,29 @@ pub enum Request {
     ///
     /// Appended last: postcard numbers variants by position.
     Splice { to: DeviceId },
+    /// "Of what you hold for `owner`, these you may evict to make room for
+    /// `owner` -- and only for `owner`."
+    ///
+    /// # Why an owner says this, and why it removes nothing
+    ///
+    /// A host that has stored what an account's pledge earns refuses that
+    /// account's next chunk, however many of the chunks it already holds the
+    /// owner has copies of to spare elsewhere. Without this the account is
+    /// stuck: the spare copies keep the room the short ones need. With it the
+    /// owner marks spares, and the host evicts marked chunks, oldest mark
+    /// first, only when that same account is refused for room
+    /// (`Vault::evict_marked`) -- never for anyone else's data and never
+    /// because a peer asked. The answer is [`Response::MayEvict`].
+    ///
+    /// Who may say it is decided by the host from the device TLS proved:
+    /// one its bound confirms speaks for `owner` (`Owners::speaks_for`), of
+    /// another account than the host's own. A host that bounds nobody lets
+    /// nobody mark. At most [`MAX_HAVE_BATCH`] chunks, and the host caps the
+    /// marks per account per day (`Vault::mark_evictable`), so a device of
+    /// the account that turns hostile empties a host only slowly.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    MayEvict { owner: UserId, chunks: Vec<ChunkId> },
 }
 
 /// What a peer answers.
@@ -427,6 +459,14 @@ pub enum Response {
     ///
     /// Appended last: postcard numbers variants by position.
     Spliced,
+    /// How many of the chunks a [`Request::MayEvict`] named are now marked
+    /// evictable: held here and marked, by this request or an earlier one.
+    /// A chunk not held, or past the day's cap, is not counted.
+    ///
+    /// Appended last: postcard numbers variants by position.
+    MayEvict {
+        marked: u32,
+    },
 }
 
 /// How far one device's chain has advanced, as a peer reports it.
@@ -486,9 +526,12 @@ impl Request {
             // rows, in the table `Store::release` reads before deleting the
             // last local copy. The asymmetry was the tell: somebody bounded the
             // message that *removes* records and not the one that *adds* them.
-            Self::Dropped { chunks, .. } | Self::Hosted { chunks, .. } => {
-                !chunks.is_empty() && chunks.len() <= MAX_HAVE_BATCH
-            }
+            //
+            // `MayEvict` joins them for the same reason: it changes state on
+            // the host for every id it names.
+            Self::Dropped { chunks, .. }
+            | Self::Hosted { chunks, .. }
+            | Self::MayEvict { chunks, .. } => !chunks.is_empty() && chunks.len() <= MAX_HAVE_BATCH,
             Self::Claim { claim } => !claim.is_empty() && claim.len() <= MAX_CLAIM_BYTES,
             Self::HaveChunks { addresses, .. } => {
                 !addresses.is_empty() && addresses.len() <= MAX_HAVE_BATCH
@@ -585,6 +628,10 @@ mod tests {
             Request::Draining { seconds: 1800 },
             Request::Park,
             Request::Splice { to: device() },
+            Request::MayEvict {
+                owner: user(),
+                chunks: vec![ChunkId::from_bytes([11; 32])],
+            },
         ]
     }
 
@@ -617,6 +664,7 @@ mod tests {
             Request::Draining { .. } => {}
             Request::Park => {}
             Request::Splice { .. } => {}
+            Request::MayEvict { .. } => {}
         }
     }
 
@@ -661,6 +709,7 @@ mod tests {
             Response::Parked,
             Response::Incoming { from: device() },
             Response::Spliced,
+            Response::MayEvict { marked: 7 },
         ];
 
         for response in responses {
@@ -804,6 +853,7 @@ mod tests {
             Request::Draining { .. } => 15,
             Request::Park => 16,
             Request::Splice { .. } => 17,
+            Request::MayEvict { .. } => 18,
         }
     }
 
@@ -826,6 +876,7 @@ mod tests {
             Response::Parked => 13,
             Response::Incoming { .. } => 14,
             Response::Spliced => 15,
+            Response::MayEvict { .. } => 16,
         }
     }
 
@@ -873,6 +924,7 @@ mod tests {
             Response::Parked,
             Response::Incoming { from: device() },
             Response::Spliced,
+            Response::MayEvict { marked: 0 },
         ];
         let numbered: std::collections::BTreeSet<u8> =
             responses.iter().map(response_number).collect();
@@ -952,6 +1004,41 @@ mod tests {
             }
             .is_acceptable()
         );
+    }
+
+    #[test]
+    fn red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host() {
+        // `MayEvict` marks a row on the host for every id it names. Unbounded,
+        // one frame of eight megabytes is a quarter of a million rows written
+        // under the host's lock -- the hole `Hosted` had until a red-team
+        // sweep. Sabotage: leave `MayEvict` out of the bounded arm.
+        let chunk = ChunkId::from_bytes([12; 32]);
+        let asking = |chunks: Vec<ChunkId>| Request::MayEvict {
+            owner: user(),
+            chunks,
+        };
+
+        assert!(
+            asking(vec![chunk; MAX_HAVE_BATCH]).is_acceptable(),
+            "a full legitimate batch was refused"
+        );
+        assert!(
+            !asking(vec![chunk; MAX_HAVE_BATCH + 1]).is_acceptable(),
+            "an unbounded list of chunks to mark was accepted"
+        );
+        assert!(
+            !asking(Vec::new()).is_acceptable(),
+            "an empty list is a wasted round trip, not a message"
+        );
+    }
+
+    #[test]
+    fn eviction_is_a_verb_of_the_current_version_and_of_no_older_one() {
+        // The client gates `MayEvict` on this number; a version bump that
+        // forgot it would send the verb to a peer that closes the connection
+        // on it. Sabotage: leave `PROTOCOL_VERSION` at 9.
+        assert_eq!(PROTOCOL_WITH_EVICTION, PROTOCOL_VERSION);
+        const { assert!(PROTOCOL_WITH_EVICTION > PROTOCOL_WITH_RELAY) };
     }
 
     #[test]

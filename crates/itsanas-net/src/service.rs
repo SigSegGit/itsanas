@@ -18,7 +18,7 @@
 //! than secrecy: request limits, quota, and refusing to store things it did not
 //! agree to store.
 
-use itsanas_crypto::{DeviceId, UserId};
+use itsanas_crypto::{ChunkId, DeviceId, UserId};
 use itsanas_store::{Store, Vault};
 
 use crate::{
@@ -35,6 +35,17 @@ use crate::{
 /// say "that host has no room" rather than "that host said no". Changing the
 /// text makes every deployed client report a full host as a hostile one.
 pub const PLEDGE_EXHAUSTED: &str = "pledged capacity exhausted";
+
+/// What a host answers an account past what its pledge earns there (§8 1c),
+/// followed by the figures, for the operator's log.
+///
+/// Here rather than in the node's claim book, which writes it, because the
+/// offering side reads it back: `PeerClient` matches it as a prefix and turns
+/// it into [`crate::transport::Refusal::AccountFull`], and this service reads
+/// it to know when evicting the account's marked chunks can make room. Two
+/// copies of the text would drift, and a full account would read as a host
+/// that rejects what it is sent.
+pub const ACCOUNT_FULL: &str = "this account has stored here what its pledge earns";
 
 /// How much foreign data this node has agreed to hold, in bytes.
 ///
@@ -123,6 +134,15 @@ pub trait Owners: Sync {
     fn confirmed_account(&self, _caller: DeviceId) -> Option<UserId> {
         None
     }
+
+    /// Whether `caller` speaks for `owner` here: its claim for `owner` was
+    /// presented and its standing confirmed, the test [`Self::admits`] puts a
+    /// store to. What lets a device mark `owner`'s chunks evictable
+    /// ([`Request::MayEvict`]). `false` by default: an implementation that
+    /// does not say lets nobody mark, which costs room, never copies.
+    fn speaks_for(&self, _caller: DeviceId, _owner: UserId) -> bool {
+        false
+    }
 }
 
 /// What a host that bounds accounts answers a device that has presented no
@@ -134,6 +154,11 @@ pub const UPDATE_REQUIRED: &str =
 fn not_relayed() -> Response {
     Response::Refused(crate::relay::NOT_RELAYED.to_owned())
 }
+
+/// What a host answers a [`Request::MayEvict`] from a device it does not
+/// count as speaking for that account, or when it bounds nobody.
+pub const NOT_YOURS_TO_EVICT: &str =
+    "this host lets only a confirmed device of that account mark its chunks evictable";
 
 /// What a node that keeps no book answers [`Request::Presences`] with.
 pub const NO_BOOK: &str = "this node relays no presences";
@@ -152,6 +177,9 @@ pub struct PeerService<'a> {
     pledge: Pledge,
     relay: Option<&'a dyn Relay>,
     owners: Option<&'a dyn Owners>,
+    /// The round's placement, swapped in by the daemon; empty, or absent,
+    /// and `WantHosted` answers as before placement.
+    placement: Option<&'a crate::placement::PlacementSlot>,
     /// This host's own claim, encoded, sent back to a device that presents
     /// one ([`Request::Claim`]).
     own_claim: Option<Vec<u8>>,
@@ -189,6 +217,7 @@ impl<'a> PeerService<'a> {
             pledge,
             relay: None,
             owners: None,
+            placement: None,
             own_claim: None,
             disk_room: None,
             protocol: PROTOCOL_VERSION,
@@ -229,6 +258,25 @@ impl<'a> PeerService<'a> {
     pub fn with_owners(mut self, owners: &'a dyn Owners) -> Self {
         self.owners = Some(owners);
         self
+    }
+
+    /// Answer `WantHosted` with the caller's share of the round's placement
+    /// in `slot`, whenever the daemon has put one there (`measured`).
+    #[must_use]
+    pub fn with_placement(mut self, slot: &'a crate::placement::PlacementSlot) -> Self {
+        self.placement = Some(slot);
+        self
+    }
+
+    /// Note that `caller` opened an authenticated session here, once per
+    /// session: for a host behind a router this is the only evidence of it
+    /// the owner ever gets. Only for a device already known -- a ring per
+    /// caller would be a table any stranger grows with fresh keys -- and a
+    /// failed write costs a measurement, never the session.
+    pub fn note_session(&self, caller: DeviceId) {
+        let _ = self
+            .store
+            .note_seen_if_known_at(&caller, itsanas_store::now_unix());
     }
 
     /// Answer a presented claim with `claim`, this host's own, so the
@@ -334,9 +382,19 @@ impl<'a> PeerService<'a> {
             Request::Chunk { owner, address } => Ok(Response::Chunk(self.chunk(*owner, address)?)),
 
             Request::HaveChunks { owner, addresses } => {
+                // A marked chunk is answered missing: "have" would let the
+                // owner re-stamp the copy it released, and count it after the
+                // eviction. A re-offer then goes through `put_chunk`, which
+                // unmarks (red team, HIGH 1).
+                let marked = if *owner == self.store.owner() {
+                    std::collections::BTreeSet::new()
+                } else {
+                    self.vault
+                        .marked_among(*owner, addresses, itsanas_store::now_unix())?
+                };
                 let mut missing = Vec::new();
                 for address in addresses {
-                    if self.chunk(*owner, address)?.is_none() {
+                    if marked.contains(address) || self.chunk(*owner, address)?.is_none() {
                         missing.push(*address);
                     }
                 }
@@ -347,17 +405,7 @@ impl<'a> PeerService<'a> {
                 owner,
                 address,
                 sealed,
-            } => {
-                let _storing = self.storing_lock();
-                if self.would_exceed_pledge(sealed.len())? {
-                    return Ok(Response::Refused(PLEDGE_EXHAUSTED.to_owned()));
-                }
-                if let Some(refusal) = self.refused_for_owner(caller, *owner, sealed.len()) {
-                    return Ok(refusal);
-                }
-                self.vault.put_chunk(*owner, address, sealed)?;
-                Ok(Response::Stored { accepted: true })
-            }
+            } => self.store_chunk(caller, *owner, address, sealed),
 
             Request::StoreSegment { envelope } => {
                 let _storing = self.storing_lock();
@@ -393,7 +441,7 @@ impl<'a> PeerService<'a> {
                 None => Ok(Response::Refused("chunk not held".to_owned())),
             },
 
-            Request::WantHosted { limit } => self.want_hosted(*limit),
+            Request::WantHosted { limit } => self.want_hosted(*limit, caller),
 
             Request::ChunkSummary { owner } => {
                 // Over the same set this node would answer `HaveChunks` from:
@@ -408,7 +456,8 @@ impl<'a> PeerService<'a> {
                 let digests = if *owner == self.store.owner() {
                     self.store.held_summary()?
                 } else {
-                    self.vault.chunk_summary(*owner)?
+                    self.vault
+                        .chunk_summary_at(*owner, itsanas_store::now_unix())?
                 };
                 Ok(Response::ChunkSummary(digests))
             }
@@ -454,6 +503,8 @@ impl<'a> PeerService<'a> {
             // The transport takes these first; here, a relayed session asks.
             Request::Park | Request::Splice { .. } => Ok(not_relayed()),
 
+            Request::MayEvict { owner, chunks } => self.may_evict(caller, *owner, chunks),
+
             Request::Hosted { chunks } => {
                 // A claim, recorded and then checked. The storage challenges
                 // this node already runs are what turn it into evidence: a peer
@@ -480,6 +531,80 @@ impl<'a> PeerService<'a> {
             .note_draining(&caller, now.saturating_add(seconds), now)?;
         let chunks = self.store.exposed_by(&caller, now)?;
         Ok(Response::Exposed { chunks })
+    }
+
+    /// Store one chunk for `owner`, within the host's pledge and the
+    /// account's bound, evicting the account's own marked chunks first when
+    /// the bound is what refuses it.
+    fn store_chunk(
+        &self,
+        caller: DeviceId,
+        owner: UserId,
+        address: &ChunkId,
+        sealed: &[u8],
+    ) -> Result<Response> {
+        let _storing = self.storing_lock();
+        if self.would_exceed_pledge(sealed.len())? {
+            return Ok(Response::Refused(PLEDGE_EXHAUSTED.to_owned()));
+        }
+        if let Some(refusal) = self.refused_for_owner(caller, owner, sealed.len()) {
+            // The account's share here is spent. If the owner marked
+            // copies it has to spare, they make room for this one --
+            // the account trades its own spare copy for its own short
+            // one -- and the bound is asked once more, so eviction
+            // never lets an account store past what it earns. Any
+            // other refusal evicts nothing: a full pledge is the
+            // host's, not the account's, and a device with no claim
+            // has no say over the account's chunks.
+            let full = matches!(&refusal, Response::Refused(why) if why.starts_with(ACCOUNT_FULL));
+            // The real overage, not only the incoming size: an account
+            // already past its share (its allowance shrank) is refused again
+            // after freeing one chunk's worth, and those copies were evicted
+            // for nothing (red team, LOW).
+            let needed = match &refusal {
+                Response::Refused(why) => overage(why, sealed.len() as u64),
+                _ => sealed.len() as u64,
+            };
+            if !full
+                || self
+                    .vault
+                    .evict_marked(owner, needed, itsanas_store::now_unix())?
+                    == 0
+            {
+                return Ok(refusal);
+            }
+            if let Some(refusal) = self.refused_for_owner(caller, owner, sealed.len()) {
+                return Ok(refusal);
+            }
+        }
+        self.vault.put_chunk(owner, address, sealed)?;
+        Ok(Response::Stored { accepted: true })
+    }
+
+    /// Mark `chunks` of `owner` evictable for `owner`, if `caller` speaks for
+    /// `owner` and `owner` is another account than this node's.
+    ///
+    /// Fails closed: a host that bounds nobody has no way to tell who speaks
+    /// for an account, and a stranger allowed to mark could have the
+    /// account's next store evict copies the account still counts. Its own
+    /// account is refused too: this node's own chunks are its store's, not
+    /// the vault's, and nothing here may remove them.
+    fn may_evict(&self, caller: DeviceId, owner: UserId, chunks: &[ChunkId]) -> Result<Response> {
+        let allowed = owner != self.store.owner()
+            && self
+                .owners
+                .is_some_and(|owners| owners.speaks_for(caller, owner));
+        if !allowed {
+            return Ok(Response::Refused(NOT_YOURS_TO_EVICT.to_owned()));
+        }
+        // The storing lock, as for a store: a mark lands between a store's
+        // check and its write otherwise, and an eviction it triggers then
+        // takes a chunk just stored.
+        let _storing = self.storing_lock();
+        let marked = self
+            .vault
+            .mark_evictable(owner, chunks, itsanas_store::now_unix())?;
+        Ok(Response::MayEvict { marked })
     }
 
     /// Take the claim `caller` presented, if this host bounds accounts.
@@ -526,22 +651,64 @@ impl<'a> PeerService<'a> {
     /// Bounded twice: by what the caller asked for, and by a ceiling here. A
     /// peer that asks for everything gets a page, because the alternative is
     /// letting a caller decide how much work this node does in one answer.
-    fn want_hosted(&self, limit: u32) -> Result<Response> {
+    fn want_hosted(&self, limit: u32, caller: DeviceId) -> Result<Response> {
         const CEILING: usize = 64;
 
         let wanted = (limit as usize).min(CEILING);
-        let at_risk = self
-            .store
-            .under_replicated(itsanas_store::REPLICATION_TARGET, itsanas_store::now_unix())?;
-
-        Ok(Response::WantHosted {
-            owner: self.store.owner(),
-            chunks: at_risk
+        // Cloned out of the lock at once: evaluating holds no lock the
+        // daemon's swap would wait on.
+        let placement = self
+            .placement
+            .and_then(|slot| slot.read().ok().and_then(|held| held.clone()))
+            // Own devices get everything, as before placement existed.
+            .filter(|placement| !placement.is_own(&caller));
+        let chunks = match placement {
+            // A host of the roster, once per round: each answer evaluates a
+            // page of the queue, and a caller allowed to ask on every
+            // connection, or a stranger with no share at all, would set this
+            // node's CPU to work as often as it liked (red team, MEDIUM 6).
+            Some(placement) if placement.take_pull(&caller) => {
+                self.share_of(&placement, caller, wanted)?
+            }
+            Some(_) => Vec::new(),
+            None => self
+                .store
+                .under_replicated(itsanas_store::REPLICATION_TARGET, itsanas_store::now_unix())?
                 .into_iter()
                 .take(wanted)
                 .map(|risk| risk.chunk)
                 .collect(),
+        };
+
+        Ok(Response::WantHosted {
+            owner: self.store.owner(),
+            chunks,
         })
+    }
+
+    /// `caller`'s share of the short queue under `placement`: what a push to
+    /// it would offer, at most `wanted`. One page of the queue, as a push
+    /// reads: a host that pulls is not sent everything short, which is what
+    /// turned five hosts into five full copies.
+    fn share_of(
+        &self,
+        placement: &crate::placement::Placement,
+        caller: DeviceId,
+        wanted: usize,
+    ) -> Result<Vec<ChunkId>> {
+        let mut share = Vec::new();
+        for (chunk, since) in crate::placed::short_page(self.store)? {
+            if share.len() >= wanted {
+                break;
+            }
+            if !self.store.has_chunk(&chunk) {
+                continue; // released here: nothing to hand over
+            }
+            if placement.offers(&caller, &placement.evaluate(self.store, &chunk)?, since) {
+                share.push(chunk);
+            }
+        }
+        Ok(share)
     }
 
     /// Chain tips, from both this node's own log and its vault.
@@ -638,6 +805,27 @@ impl<'a> PeerService<'a> {
         let held = self.vault.held_bytes()?;
         Ok(held.saturating_add(incoming as u64) > self.pledge.bytes)
     }
+}
+
+/// Bytes an account-full refusal says must go before `incoming` fits:
+/// `mine + incoming - allowance`, read from "`{why}: {mine} of {allowance}
+/// bytes ...`". Falls back to `incoming` for a message of another shape,
+/// which is what was asked before and never more than the store needs.
+fn overage(why: &str, incoming: u64) -> u64 {
+    let figures = why
+        .split_once(": ")
+        .map(|(_, rest)| rest.split(' ').collect::<Vec<_>>());
+    if let Some(words) = figures
+        && words.len() >= 3
+        && words[1] == "of"
+        && let (Ok(mine), Ok(allowance)) = (words[0].parse::<u64>(), words[2].parse::<u64>())
+    {
+        let over = mine.saturating_add(incoming).saturating_sub(allowance);
+        if over > 0 {
+            return over;
+        }
+    }
+    incoming
 }
 
 #[cfg(test)]
@@ -1525,5 +1713,265 @@ mod tests {
             "a host answered a claim without its own, so a machine that is never \
              dialled can never learn whose the hosts it pulls for are"
         );
+    }
+
+    /// Bob's device speaks for Bob, and Bob may hold `room` bytes here.
+    struct Bound {
+        speaks: std::collections::BTreeMap<DeviceId, UserId>,
+        room: u64,
+    }
+
+    impl Owners for Bound {
+        fn present(&self, _: DeviceId, _: &[u8], _: &Vault) -> std::result::Result<(), String> {
+            Ok(())
+        }
+        fn admits(
+            &self,
+            caller: DeviceId,
+            owner: UserId,
+            incoming: u64,
+            _store: &Store,
+            vault: &Vault,
+            _host_pledge: u64,
+        ) -> std::result::Result<(), String> {
+            if self.speaks.get(&caller) != Some(&owner) {
+                return Err(UPDATE_REQUIRED.to_owned());
+            }
+            let mine = vault.held_bytes_for(owner).map_err(|e| e.to_string())?;
+            if mine.saturating_add(incoming) > self.room {
+                return Err(format!("{ACCOUNT_FULL}: {mine} of {} bytes", self.room));
+            }
+            Ok(())
+        }
+        fn speaks_for(&self, caller: DeviceId, owner: UserId) -> bool {
+            self.speaks.get(&caller) == Some(&owner)
+        }
+    }
+
+    fn bob() -> UserId {
+        UserKeys::derive(&MasterSecret::from_bytes([0xB0; 32])).user_id()
+    }
+
+    fn carol() -> UserId {
+        UserKeys::derive(&MasterSecret::from_bytes([0xC0; 32])).user_id()
+    }
+
+    const BOBS: DeviceId = DeviceId::from_bytes([0x41; 32]);
+    const CAROLS: DeviceId = DeviceId::from_bytes([0x42; 32]);
+
+    fn bound(room: u64) -> Bound {
+        Bound {
+            speaks: [(BOBS, bob()), (CAROLS, carol())].into_iter().collect(),
+            room,
+        }
+    }
+
+    fn store_for(owner: UserId, byte: u8) -> Request {
+        Request::StoreChunk {
+            owner,
+            address: ChunkId::from_bytes([byte; 32]),
+            sealed: vec![byte; 10],
+        }
+    }
+
+    fn may_evict(owner: UserId, bytes: &[u8]) -> Request {
+        Request::MayEvict {
+            owner,
+            chunks: bytes
+                .iter()
+                .map(|b| ChunkId::from_bytes([*b; 32]))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn red_team_permission_to_evict_is_refused_from_another_account_a_stranger_and_with_no_bound() {
+        // A mark lets the account's next store remove a copy the account
+        // still counts. Anyone but a device that speaks for the account --
+        // Carol's device naming Bob, a device in no book, any device on a
+        // host that bounds nobody, or a device naming this host's own
+        // account -- must mark nothing. Sabotages: skip `speaks_for`; treat a
+        // host without `Owners` as open; drop the own-account check.
+        let node = node(&alice(), 3);
+        let gate = bound(1_000);
+        let bounded = service(&node).with_owners(&gate);
+        let open = service(&node);
+        bounded.handle(&store_for(bob(), 1), BOBS).unwrap();
+        let refused = Response::Refused(NOT_YOURS_TO_EVICT.to_owned());
+
+        let stranger = DeviceId::from_bytes([0x43; 32]);
+        assert_eq!(
+            bounded.handle(&may_evict(bob(), &[1]), CAROLS).unwrap(),
+            refused
+        );
+        assert_eq!(
+            bounded.handle(&may_evict(bob(), &[1]), stranger).unwrap(),
+            refused
+        );
+        assert_eq!(open.handle(&may_evict(bob(), &[1]), BOBS).unwrap(), refused);
+        let mine = Bound {
+            speaks: [(BOBS, node.store.owner())].into_iter().collect(),
+            room: 1_000,
+        };
+        assert_eq!(
+            service(&node)
+                .with_owners(&mine)
+                .handle(&may_evict(node.store.owner(), &[1]), BOBS)
+                .unwrap(),
+            refused,
+            "a device marked this host's own account's chunks"
+        );
+        assert!(
+            !node
+                .vault
+                .is_evictable(bob(), &ChunkId::from_bytes([1; 32]))
+                .unwrap()
+        );
+
+        assert_eq!(
+            bounded.handle(&may_evict(bob(), &[1, 2]), BOBS).unwrap(),
+            Response::MayEvict { marked: 1 },
+            "the account's own device was not let mark the one chunk held"
+        );
+    }
+
+    #[test]
+    fn red_team_a_marked_chunk_is_answered_missing_and_left_out_of_the_summary() {
+        // A host that still says "have" for a chunk it is about to evict has
+        // the owner re-stamp the copy it just released, and count it after
+        // the eviction. Answered missing, and summarised as absent, the owner
+        // re-offers it, and that store unmarks it. Sabotages: answer
+        // `HaveChunks` from the blobs alone; summarise every row.
+        let node = node(&alice(), 5);
+        let gate = bound(1_000);
+        let service = service(&node).with_owners(&gate);
+        for byte in [1, 2] {
+            service.handle(&store_for(bob(), byte), BOBS).unwrap();
+        }
+        let summary = |service: &super::PeerService<'_>| {
+            service
+                .handle(&Request::ChunkSummary { owner: bob() }, BOBS)
+                .unwrap()
+        };
+        let before = summary(&service);
+        service.handle(&may_evict(bob(), &[1]), BOBS).unwrap();
+
+        let have = Request::HaveChunks {
+            owner: bob(),
+            addresses: vec![ChunkId::from_bytes([1; 32]), ChunkId::from_bytes([2; 32])],
+        };
+        assert_eq!(
+            service.handle(&have, BOBS).unwrap(),
+            Response::Missing(vec![ChunkId::from_bytes([1; 32])])
+        );
+        assert_ne!(summary(&service), before, "a marked chunk was summarised");
+
+        // The re-offer goes through `put_chunk`, which unmarks.
+        service.handle(&store_for(bob(), 1), BOBS).unwrap();
+        assert_eq!(
+            service.handle(&have, BOBS).unwrap(),
+            Response::Missing(Vec::new())
+        );
+        assert_eq!(summary(&service), before);
+    }
+
+    #[test]
+    fn red_team_eviction_is_asked_for_the_real_overage() {
+        // An account already past its share (its allowance shrank) needs
+        // more freed than the incoming chunk. Asking for the incoming size
+        // evicts one chunk, is refused anyway, and the copy went for
+        // nothing. Sabotage: ask `evict_marked` for `sealed.len()`.
+        assert_eq!(super::overage("account full: 50 of 20 bytes", 10), 40);
+        assert_eq!(super::overage("account full: 15 of 20 bytes", 10), 5);
+        assert_eq!(super::overage("something else", 10), 10);
+
+        let node = node(&alice(), 6);
+        let gate = bound(1_000);
+        let roomy = service(&node).with_owners(&gate);
+        for byte in 1..=4 {
+            roomy.handle(&store_for(bob(), byte), BOBS).unwrap();
+        }
+        roomy.handle(&may_evict(bob(), &[1, 2, 3]), BOBS).unwrap();
+        // Bob's share shrinks to 20 bytes: he holds 40, wants 10 more, and
+        // 30 must go. His three marks cover it.
+        let tight = bound(20);
+        let tight = service(&node).with_owners(&tight);
+        assert_eq!(
+            tight.handle(&store_for(bob(), 5), BOBS).unwrap(),
+            Response::Stored { accepted: true }
+        );
+        assert_eq!(node.vault.held_bytes_for(bob()).unwrap(), 20);
+    }
+
+    #[test]
+    fn a_full_account_makes_room_from_its_own_marks_and_never_from_anothers() {
+        // Bob is at his share; Carol has marked spares. Bob's store must not
+        // evict Carol's, and must evict his own only once his account is the
+        // one refused for room. Sabotages: evict for any refusal; evict
+        // before asking the bound; evict across owners.
+        let node = node(&alice(), 4);
+        let gate = bound(20);
+        let service = service(&node).with_owners(&gate);
+        for byte in [1, 2] {
+            assert_eq!(
+                service.handle(&store_for(bob(), byte), BOBS).unwrap(),
+                Response::Stored { accepted: true }
+            );
+            service.handle(&store_for(carol(), byte), CAROLS).unwrap();
+        }
+        service
+            .handle(&may_evict(carol(), &[1, 2]), CAROLS)
+            .unwrap();
+
+        match service.handle(&store_for(bob(), 3), BOBS).unwrap() {
+            Response::Refused(why) => assert!(why.starts_with(ACCOUNT_FULL), "{why}"),
+            other => panic!("Bob stored past his share on Carol's marks: {other:?}"),
+        }
+        assert_eq!(node.vault.held_bytes_for(carol()).unwrap(), 20);
+
+        // A device with no say gets the same refusal and evicts nothing.
+        service.handle(&may_evict(bob(), &[1]), BOBS).unwrap();
+        let stranger = DeviceId::from_bytes([0x43; 32]);
+        assert_eq!(
+            service.handle(&store_for(bob(), 3), stranger).unwrap(),
+            Response::Refused(UPDATE_REQUIRED.to_owned())
+        );
+        assert!(
+            node.vault
+                .has_chunk(bob(), &ChunkId::from_bytes([1; 32]))
+                .unwrap()
+        );
+
+        // Not full: a store that fits evicts nothing even with marks waiting.
+        let roomy = bound(1_000);
+        let roomy = super::PeerService::new(&node.store, &node.vault, Pledge::gigabytes(1))
+            .with_owners(&roomy);
+        roomy.handle(&store_for(bob(), 4), BOBS).unwrap();
+        assert!(
+            node.vault
+                .has_chunk(bob(), &ChunkId::from_bytes([1; 32]))
+                .unwrap()
+        );
+        node.vault
+            .remove_chunk(bob(), &ChunkId::from_bytes([4; 32]))
+            .unwrap();
+
+        assert_eq!(
+            service.handle(&store_for(bob(), 3), BOBS).unwrap(),
+            Response::Stored { accepted: true },
+            "Bob's own spare did not make room for Bob"
+        );
+        assert!(
+            !node
+                .vault
+                .has_chunk(bob(), &ChunkId::from_bytes([1; 32]))
+                .unwrap()
+        );
+        assert!(
+            node.vault
+                .has_chunk(bob(), &ChunkId::from_bytes([2; 32]))
+                .unwrap()
+        );
+        assert_eq!(node.vault.held_bytes_for(bob()).unwrap(), 20);
     }
 }

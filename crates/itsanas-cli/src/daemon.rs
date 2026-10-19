@@ -808,6 +808,7 @@ fn sync_loop(
                 &mut outage,
                 scope,
                 folder.as_ref().map(|(folder, _)| folder),
+                interval,
             );
             last_round = Some(Instant::now());
             board.replace(contact.board());
@@ -1056,6 +1057,9 @@ fn peer_service<'a>(
     .with_disk_room(disk_room)
     // Whose each device is and what it offers, as its claim said (§8 1c).
     .with_owners(owners(node))
+    // Empty in `everyone`, so `WantHosted` answers as it always did; in
+    // `measured` each round swaps its placement in (`placing::begin_round`).
+    .with_placement(crate::placing::slot())
     .claiming(node.claim_bytes(itsanas_discover::now_unix()))
 }
 
@@ -1200,6 +1204,7 @@ fn one_round(
     outage: &mut Outage,
     scope: PolicyScope,
     folder: Option<&Folder>,
+    interval: Duration,
 ) -> (BTreeSet<DeviceId>, Option<String>) {
     // The vault's disk dropped under a running daemon: stop, rather than run a
     // round that writes hosted data to the local mount point. The service
@@ -1228,6 +1233,24 @@ fn one_round(
     if !shutdown.load(Ordering::Relaxed) {
         check_standing(node);
     }
+
+    // Placement for the whole round, after the coordinator so its claims are
+    // the freshest this round will have, before the first dial so every push
+    // of the round ranks with the same one (`placing`).
+    let accounts = owners(node).accounts();
+    let own = crate::placing::own_devices(
+        contact.candidates().into_iter().map(|(device, _)| device),
+        &accounts,
+        node.store.owner(),
+    );
+    crate::placing::begin_round(
+        node.config.placement,
+        &node.store,
+        own,
+        &accounts,
+        itsanas_discover::now_unix(),
+        interval.as_secs(),
+    );
 
     // Configured peers next: somebody typed those in, so they are
     // wanted even if they are also on the local network — and being in
@@ -1739,6 +1762,7 @@ fn sync_once(
             if announce_failure {
                 println!("{peer}: unreachable ({error})");
             }
+            crate::placing::unreached(&node.store, expect);
             return None;
         }
     };
@@ -1830,12 +1854,16 @@ fn sync_once(
         PolicyScope::Metadata | PolicyScope::Nothing => session::Scope::Metadata,
         PolicyScope::Everything => session::Scope::Everything,
     };
-    let earned_trust = match crate::keeping::round(
+    // The round's placement, the same `Arc` for every push of the round;
+    // `None` in `everyone`, which is the push as it always was.
+    let placement = crate::placing::current();
+    let earned_trust = match crate::keeping::round_placed(
         &node.store,
         &node.vault,
         &node.config.keeping(),
         &mut client,
         wire,
+        placement.as_deref(),
     ) {
         Ok((report, keeping)) => {
             report_round(peer, &report);

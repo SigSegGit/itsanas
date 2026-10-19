@@ -188,24 +188,33 @@ first-class placement rule rather than a special-cased favour: any member who
 runs an always-on machine becomes an anchor automatically, with no
 configuration, no blessing and no central decision.
 
-> ⚠️ **Not built.** `accounting.rs` computes `is_anchor` and `has_anchor` from
-> measured availability, and that part is tested. **`itsanas-placement` knows
-> nothing about anchors**: `NodeSet::replicas_for` takes an owner, a chunk and a
-> count, and weights only by pledged capacity. Nothing today guarantees that one
-> replica lands on a machine that is up. Wiring this is part of M5 and needs the
-> node set a coordinator would publish — see [ROADMAP.md](ROADMAP.md) M5/M6.
+> 🟨 **Built another way, behind a switch.** `accounting.rs` still computes
+> `is_anchor` and `has_anchor` from the coordinator's measured availability, and
+> only to label a member's standing; placement does not read them.
+> `placement = measured` (default `everyone`, which is unchanged) places by what
+> *this device* measured: a chunk is wanted on hosts until it has copies on two
+> other accounts and a probability of at most 1 % that none of its holders is
+> reachable (`two_proven_reliable_accounts_satisfy_the_goal`,
+> `correlated_hosts_need_more_copies_than_independent_ones_with_the_same_averages`).
+> There is no 0.90 threshold: see [DESIGN.md](DESIGN.md) §5, "Anchors". ⬜ Not run
+> on the fleet, and with the default nothing guarantees that one replica lands
+> on a machine that is up.
 
 ### A network with no anchors ⬜ **specified only**
 
 The intended behaviour: placement falls back to three replicas chosen normally,
 the coordinator marks the swarm `anchorless`, and clients warn that files may be
-unreadable when peers are asleep. Data stays safe; it is just not always
+unreadable when peers are asleep. (With `placement = measured` the nearest
+thing that runs is `status` saying how many chunks are short of their target
+(`measured_shows_the_short_queue_and_the_census_slice`) and the copy cap of 12;
+the `anchorless` marking and the warning to the member are still not built.) Data stays safe; it is just not always
 reachable, and the member is told so. Failing loudly is the whole point — the
 alternative is discovering it at the moment you need a file.
 
-None of the warning exists yet. There is no coordinator and placement has no
-anchor concept, so **today every swarm is the anchorless case and nothing says
-so**. That is the honest reading of the current state: durability is
+None of the warning exists yet. Placement has no anchor concept, so with the
+default `placement = everyone` **every swarm is the anchorless case and nothing
+says so**; with `measured`, `status` counts the chunks short of their target,
+which is a number and not yet a warning. That is the honest reading of the current state: durability is
 implemented, availability is not, and the silence is the part to fix first —
 before the placement rule, because a wrong belief about availability is worse
 than a known absence of it.
@@ -293,18 +302,24 @@ This is tolerated, deliberately, and bounded:
   accident: the decision that risks *data* must never depend on a number an
   untrusted party produced. An owner records which peers hold each of its
   chunks, from peers it has itself reached — see [DESIGN.md](DESIGN.md) §8. The
-  *recording* is built; the *choosing* is not, and at a household size the
-  policy is "offer to every peer", which is correct by accident. A lie about uptime can therefore cost fairness and
-  cannot cost a replica.
+  *recording* is built. The *choosing* is built behind `placement = measured`
+  (default `everyone`, "offer to every peer", correct by accident at a
+  household size), and its availability input is what this device measured
+  from its own sessions, never a number a coordinator or another peer reported
+  (`unknown_availability_counts_as_unreachable`,
+  `red_team_a_stranger_never_gets_a_ring`). A lie about uptime can therefore
+  cost fairness and cannot cost a replica.
 
   > Owner-recorded placement is **built**: the `HOLDERS` table records which
   > peers hold each chunk, filled on every sync round, and `itsanas status`
   > reports whether the data exists anywhere but this disk.
   >
-  > ⚠️ The intended reliability input — preferring hosts that answered **this
-  > node's own** storage challenges, which no third party can forge — is not.
-  > The challenge protocol works and is tested; nothing records the result, so
-  > there is no reputation to consult.
+  > The reliability input — hosts that answered **this node's own** storage
+  > challenges, which no third party can forge — is read by `measured`: only a
+  > holder with a passed audit, not paused, counts, and extra ranking weight
+  > goes only to such hosts with a week of history
+  > (`red_team_an_unproven_holder_satisfies_nothing`,
+  > `red_team_ranking_weight_goes_only_to_proven_hosts_with_a_week_of_history`).
 - Members pin the last node set they saw and can change coordinator without
   losing anything, because the coordinator holds no data and no keys.
 
@@ -493,7 +508,7 @@ number is decided here and nothing consumes it.
 | --- | --- | --- | --- |
 | `accounting::Split::DEFAULT` | 30/70 (`C = 7/3`) | Judgement: break-even is 33/67; this leaves about a sixth in slack | live, and local only: `keep`/`space` read it, nothing on the network does |
 | `repair::DEFAULT_REPLICATION_FLOOR` | 3 | Judgement: smallest R where one loss is not an emergency | live |
-| `accounting::ANCHOR_AVAILABILITY_PER_MILLE` | 900 (0.90) | Judgement | live, but only to *label* an anchor — placement never reads it |
+| `accounting::ANCHOR_AVAILABILITY_PER_MILLE` | 900 (0.90) | Judgement | live, but only to *label* an anchor — placement never reads it (`measured` placement uses this device's own rings, DESIGN §5) |
 | `accounting::AVAILABILITY_FLOOR_PER_MILLE` | 50 (0.05) | Judgement: stops a holiday becoming a default | **read only by tests** — see §1 |
 | `accounting::GRACE_SECONDS` | 14 days | Judgement: longer than a holiday | **read only by tests** — see §1 |
 | `accounting::DEFAULT_AFTER_SECONDS` | 60 days | Judgement: shorter than a forgotten machine | **read only by tests** — see §1 |

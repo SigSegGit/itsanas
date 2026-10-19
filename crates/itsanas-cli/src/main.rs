@@ -16,6 +16,7 @@ mod control;
 mod daemon;
 mod discovery;
 mod natpmp;
+mod placing;
 mod setup;
 mod update;
 mod upnp;
@@ -1574,6 +1575,10 @@ fn render_status(node: &Node) -> Result<String> {
     w!("  placements     {} recorded", store.holder_records);
 
     report_unreliable_peers(node)?;
+
+    // In every mode: the figures are read before anyone acts on them.
+    w!();
+    out.push_str(&placing::report(node.config.placement, &node.store)?);
     // The vault holds two different things. Reporting them as one number
     // tells the operator they are hosting for a stranger when they are only
     // relaying their own account between their own machines.
@@ -2953,6 +2958,9 @@ pub(crate) fn describe_refusal(push: &itsanas_net::PushReport) -> Option<String>
         // Not "its log says why": a peer logs nothing about what it refuses,
         // and the first version of this line sent people to read a journal
         // that had nothing in it.
+        itsanas_net::Refusal::AccountFull => {
+            "this account has stored there what its pledge earns; pledge more, or let it evict spare copies"
+        }
         itsanas_net::Refusal::Rejected => {
             "it rejected them: a segment that does not verify, or does not follow its chain"
         }

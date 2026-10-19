@@ -61,7 +61,7 @@ use crate::{
     protocol::{
         Head, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, PROTOCOL_WITH_CHUNK_SUMMARY,
         PROTOCOL_WITH_CLAIMS, PROTOCOL_WITH_DRAINING, PROTOCOL_WITH_DROP_NOTICES,
-        PROTOCOL_WITH_LEAVING, PROTOCOL_WITH_PRESENCES, Request, Response,
+        PROTOCOL_WITH_EVICTION, PROTOCOL_WITH_LEAVING, PROTOCOL_WITH_PRESENCES, Request, Response,
     },
     service::PeerService,
 };
@@ -357,6 +357,9 @@ impl PeerServer {
         )?;
 
         let within_limit = slot.claim_device(peer);
+        if within_limit {
+            service.note_session(peer);
+        }
 
         loop {
             let Some(request) = connection.receive::<Request>()? else {
@@ -545,6 +548,7 @@ impl PeerServer {
             self.handshake_deadline,
             IO_TIMEOUT,
         )?;
+        service.note_session(peer);
         // An ordinary session's budget: a caller, or the relay, trickling
         // requests does not keep this machine from parking again.
         let until = Instant::now() + PEER_SESSION_BUDGET;
@@ -665,6 +669,16 @@ pub enum Refusal {
     PledgeFull,
     /// Any other refusal: a segment that does not verify or does not chain.
     Rejected,
+    /// It has room, but not for this account: the account has stored there
+    /// what its pledge earns (§8 1c).
+    ///
+    /// Kept apart from [`Self::Rejected`], which it used to read as, because
+    /// the two call for opposite answers. A rejection says something was
+    /// wrong with what was sent. This says the account's share on that host
+    /// is spent: the owner can pledge more, or let the host evict copies it
+    /// has to spare ([`PeerClient::may_evict`]), and the host is no worse a
+    /// place for the account's data than before.
+    AccountFull,
 }
 
 impl Offer {
@@ -674,6 +688,11 @@ impl Offer {
             Response::Stored { accepted: false } => Ok(Self::AlreadyHeld),
             Response::Refused(reason) if reason == crate::service::PLEDGE_EXHAUSTED => {
                 Ok(Self::Refused(Refusal::PledgeFull))
+            }
+            // A prefix, not an equality: the host appends what the account
+            // holds and what it earned, for the operator's log.
+            Response::Refused(reason) if reason.starts_with(crate::service::ACCOUNT_FULL) => {
+                Ok(Self::Refused(Refusal::AccountFull))
             }
             Response::Refused(_) => Ok(Self::Refused(Refusal::Rejected)),
             _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
@@ -1020,6 +1039,39 @@ impl PeerClient {
         }
     }
 
+    /// Tell the peer which of the chunks it holds for `owner` it may evict to
+    /// make room for `owner` ([`Request::MayEvict`]), and learn how many of
+    /// them it now holds marked.
+    ///
+    /// `None`, having sent nothing, when the peer is too old to know the verb
+    /// ([`PROTOCOL_WITH_EVICTION`]): an older peer closes the connection on a
+    /// request it cannot decode, and the round still needed it. The caller
+    /// then keeps counting those copies, which is what happened before this
+    /// existed. `Some(0)`, having sent nothing, for an empty list.
+    ///
+    /// Batched by the caller: the request carries at most `MAX_HAVE_BATCH`
+    /// chunks, and a longer one is refused as malformed.
+    ///
+    /// # Errors
+    ///
+    /// If the peer refuses -- it does not count this device as one that
+    /// speaks for `owner`, or bounds nobody -- or answers something else.
+    pub fn may_evict(&mut self, owner: UserId, chunks: Vec<ChunkId>) -> Result<Option<u32>> {
+        if self.spoken < PROTOCOL_WITH_EVICTION {
+            return Ok(None);
+        }
+        if chunks.is_empty() {
+            return Ok(Some(0));
+        }
+        match self.request(&Request::MayEvict { owner, chunks })? {
+            Response::MayEvict { marked } => Ok(Some(marked)),
+            Response::Refused(reason) => Err(NetError::Refused(reason)),
+            _ => Err(NetError::UnexpectedResponse {
+                expected: "chunks marked evictable",
+            }),
+        }
+    }
+
     /// Ask the peer where the account's machines are, as it knows them.
     ///
     /// `None` when the peer cannot tell: it is older than
@@ -1167,6 +1219,38 @@ mod tests {
         // reports `::` and accepts both families. What this test is about is
         // that the bind is not refused.
         assert!(server.local_addr().unwrap().ip().is_unspecified());
+    }
+
+    #[test]
+    fn a_host_that_has_no_room_for_this_account_is_not_reported_as_rejecting_it() {
+        // The two refusals call for opposite answers: a rejection means what
+        // was sent is wrong, a full account means its share there is spent,
+        // and only the second is answered by letting the host evict spares.
+        // Sabotage: drop the `ACCOUNT_FULL` arm in `Offer::from_response`.
+        let full = format!(
+            "{}: 300 of 300 bytes (pledged 700, proved 0)",
+            crate::service::ACCOUNT_FULL
+        );
+        assert_eq!(
+            Offer::from_response(Response::Refused(full)).unwrap(),
+            Offer::Refused(Refusal::AccountFull),
+            "a full account read as a host that rejects what it is sent"
+        );
+        assert_eq!(
+            Offer::from_response(Response::Refused(
+                crate::service::PLEDGE_EXHAUSTED.to_owned()
+            ))
+            .unwrap(),
+            Offer::Refused(Refusal::PledgeFull)
+        );
+        assert_eq!(
+            Offer::from_response(Response::Refused(
+                crate::service::UPDATE_REQUIRED.to_owned()
+            ))
+            .unwrap(),
+            Offer::Refused(Refusal::Rejected),
+            "a refusal that is not about room read as one that is"
+        );
     }
 
     #[test]

@@ -12,6 +12,7 @@ description = "Peer protocol and transport for ITSaNAS"
 blake3 = "1.8.7"
 getrandom = "0.4.3"
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
+itsanas-placement = { version = "0.1.0", path = "../itsanas-placement" }
 itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
 itsanas-tls = { version = "0.1.0", path = "../itsanas-tls" }
 rustls = { version = "0.23.35", default-features = false }

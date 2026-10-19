@@ -409,30 +409,53 @@ property the ordered version did not have at any fraction. The ledger's second
 key ordering is what makes the draw a seek rather than a scan; see
 `holders.rs`.
 
-### Anchors: decided, not built
+### Anchors: replaced by a measured miss probability
 
 Replication buys durability. It does not buy availability, and conflating the
 two produces absurd numbers: with a replica online a quarter of the time,
 reaching 99 % availability needs `ln(0.01) / ln(0.75)` ≈ **16 replicas**.
 
-The decision is therefore to buy them separately: three replicas for durability —
-a switched-off laptop still holds the bytes — plus at least one replica on a
-node that is actually up, an *anchor*, which any always-on machine becomes
-automatically.
+The decision is to buy them separately: copies for durability — a switched-off
+laptop still holds the bytes — and enough reachable copies for availability.
+The first version of that decision was a single *anchor*, a node above 90 %
+availability, fed by a number the coordinator publishes. It is not what was
+built, for the reason in the constraint below.
 
-**None of that is implemented.** `NodeSet::replicas_for` takes an owner, a chunk
-and a count; it has no availability input and no anchor concept. `is_anchor`
-exists only in `coord::accounting`, where it labels a member's standing. Wiring
-the rule into placement needs the signed node set a coordinator would publish,
-so it is blocked behind M6 — see [ROADMAP.md](ROADMAP.md).
+**Built, behind `placement = measured`; the default, `everyone`, is unchanged.**
+Each device measures the others itself, from its own sessions, on its own
+clock: a ring of the last 672 hours (28 days) per device, counting an hour only
+if this node tried to reach it or it reached this node, and giving a figure only
+after 7 days known and 24 hours attempted
+(`hours_this_node_did_not_try_are_not_counted_against_a_device`,
+`a_figure_needs_a_week_and_a_day_of_attempts`). A chunk is satisfied when it is
 
-One constraint on how it gets wired, worth fixing now because it is easy to get
-backwards: **measured availability may affect entitlement, never placement.**
-Placement must stay computable from the signed node set alone, so the decision
-that risks data never depends on the untrusted coordinator's opinion of who is
-reliable. An anchor rule that reads a coordinator-published availability number
-would violate this; one that reads a locally observed challenge history would
-not. [ECONOMICS.md](ECONOMICS.md) §3 carries the argument.
+- *durable*: proven copies on at least two other accounts, one seen within
+  `LIVE_FOR`; every device of unknown account is one account
+  (`red_team_two_throwaway_devices_of_unknown_accounts_are_one_account`), and a
+  holder that never passed this node's audit counts for nothing
+  (`red_team_an_unproven_holder_satisfies_nothing`);
+- *available*: the probability that none of its holders is reachable is at most
+  1 % (10 000 ppm), the owner's other devices counting as one unit and never for
+  durability (`own_devices_count_as_one_unit_and_never_for_durability`),
+  holders that go dark together counting for less than independent ones
+  (`correlated_hosts_need_more_copies_than_independent_ones_with_the_same_averages`),
+  and an unknown availability counting as unreachable
+  (`unknown_availability_counts_as_unreachable`);
+
+and the search stops at 12 remote copies (`the_cap_stops_the_search`). There is
+no threshold that makes a node an anchor: an always-on host lowers the miss
+probability more than a laptop does, and a network without one is asked for more
+copies, to the cap. All of it is integer arithmetic; the float guard scans every
+module (`the_float_guard_lists_every_module_of_the_crate`).
+
+The constraint, in its sharper form: **availability anyone else reports never
+reaches placement; what this device measured does.** Placement does not read the
+coordinator's `AvailabilityRecord`, and the roster is built from this device's
+rings, its audits and the accounts its host table confirms
+(`red_team_placement_reads_only_confirmed_claims_as_accounts`). ⬜ No test yet
+fails if a coordinator type is passed to the roster builder; today the crate has
+no dependency on `itsanas-coord`. [ECONOMICS.md](ECONOMICS.md) §3 carries the
+argument.
 
 ### Owner affinity
 
@@ -886,14 +909,22 @@ repairs when the count drops. Rendezvous hashing survives as the rule for
 *choosing* targets — it still spreads load proportionally over the peers an
 owner knows — but it no longer requires the world to agree.
 
-> **Recorded, not yet chosen.** The ledger is built and filled on every sync
-> round. Nothing selects replicas from it: `session::push` offers everything to
-> every peer, so at a household size the placement policy is "everyone", which
-> happens to be right. `under_replicated` feeds `itsanas status` and drives
-> nothing. At thirty peers, pushing to all of them means thirty copies of
-> everything and contradicts the contribution split in
-> [ECONOMICS.md](ECONOMICS.md) §1 — so a real selection step is needed before
-> the network grows, not before it works.
+> **Recorded, and now chosen, if asked.** The ledger is built and filled on
+> every sync round. With the default, `placement = everyone`, nothing selects
+> replicas from it: `session::push` offers everything to every peer, so at a
+> household size the placement policy is "everyone", which happens to be right,
+> and `under_replicated` feeds `itsanas status` and drives nothing. At thirty
+> peers, pushing to all of them means thirty copies of everything and
+> contradicts the contribution split in [ECONOMICS.md](ECONOMICS.md) §1. With
+> `placement = measured` (peer protocol 10) a host is offered a chunk only when
+> the target wants it (`want_hosted_offers_the_caller_its_share_only_in_measured_mode`,
+> `chunks_spread_over_five_hosts_about_evenly`), a chunk with no proven remote
+> copy still goes to the first host reached
+> (`a_chunk_with_no_proven_copy_goes_to_the_first_host_reached`), and a host that
+> holds more than the target wants may be told it may evict this account's
+> copy, under space pressure only (`MayEvict`: marks, never a deletion; see
+> HANDOVER §6). ⬜ `measured` has not been run on the fleet and is not the
+> default.
 
 This is not a concession. Third-party repair was never possible anyway: a host
 holds opaque bytes and cannot read an owner's log to learn what is missing.
