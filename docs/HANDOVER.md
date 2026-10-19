@@ -22,10 +22,12 @@ never for this file.
 
 **2026-10-19, later: §8 7(b), merged after #289.** The roster builder cannot
 see a coordinator type: `red_team_no_coordinator_crate_can_reach_the_roster_builder`
-(`itsanas-net/tests/placement.rs`) walks the path dependencies of
-`itsanas-net` and `itsanas-placement` (normal ones only, not dev) and fails if
-`itsanas-coord` or `itsanas-coordinator` appears. Sabotaged by adding
-`itsanas-coord` to `itsanas-wire`'s dependencies: red, naming the closure.
+(`itsanas-net/tests/placement.rs`) walks the workspace dependencies of
+`itsanas-net` and `itsanas-placement` by name (normal ones only, not dev or
+build) and fails if `itsanas-coord` or `itsanas-coordinator` appears. Sabotaged
+in `itsanas-wire` with four spellings (inline `path`, `.workspace = true`, a
+`[dependencies.x]` table, a `package =` rename): each red; the same in
+`[dev-dependencies]` stays green.
 `NEXT` stays 0c, which is Nicolas's; while it waits, 7(c) and 7(d) can be
 taken in order. Traps this time: clippy 1.99 (CI) rejects
 `assert!(x.is_empty())` on collections; `imdisk` can vanish from the

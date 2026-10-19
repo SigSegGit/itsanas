@@ -836,9 +836,14 @@ fn red_team_want_hosted_is_measured_once_a_round_and_never_for_a_stranger() {
     assert_eq!(placement.evaluations(), spent);
 }
 
-/// The crates whose normal (not dev) dependencies `crate` pulls in through
-/// the workspace, by path, itself included.
-fn path_closure(crates: &std::path::Path, start: &str) -> BTreeSet<String> {
+/// The workspace crates that `start` pulls in through its normal (not dev,
+/// not build) dependencies, itself included.
+///
+/// Read by dependency *name*, not by `path`, so every way of spelling one is
+/// caught: `x = { path = .. }`, `x.workspace = true`, a `[dependencies.x]`
+/// table, a `package = "x"` rename. A name with a directory under `crates/` is
+/// a workspace crate and is walked in turn.
+fn workspace_closure(crates: &std::path::Path, start: &str) -> BTreeSet<String> {
     let mut seen = BTreeSet::new();
     let mut todo = vec![start.to_owned()];
     while let Some(name) = todo.pop() {
@@ -848,19 +853,43 @@ fn path_closure(crates: &std::path::Path, start: &str) -> BTreeSet<String> {
         let manifest = std::fs::read_to_string(crates.join(&name).join("Cargo.toml"))
             .unwrap_or_else(|error| panic!("{name}/Cargo.toml: {error}"));
         let mut normal = false;
-        for line in manifest.lines().map(str::trim) {
-            if line.starts_with('[') {
-                // `[dependencies]` and `[target.'cfg(..)'.dependencies]` ship;
-                // `[dev-dependencies]` and `[build-dependencies]` do not run
-                // in the daemon.
-                normal = line.ends_with("dependencies]")
-                    && !line.contains("dev-dependencies")
-                    && !line.contains("build-dependencies");
-                continue;
+        for raw in manifest.lines() {
+            let line: String = raw
+                .split('#')
+                .next()
+                .unwrap_or_default()
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect();
+            let mut names = Vec::new();
+            if let Some(header) = line.strip_prefix('[') {
+                let header = header.trim_matches(|c| c == '[' || c == ']');
+                let parts: Vec<&str> = header.split('.').collect();
+                let at = parts.iter().position(|part| *part == "dependencies");
+                normal = at.is_some();
+                // `[dependencies.x]`, `[target.'..'.dependencies.x]`.
+                if let Some(at) = at
+                    && let Some(table) = parts.get(at + 1)
+                {
+                    names.push((*table).to_owned());
+                }
+            } else if normal && let Some((key, value)) = line.split_once('=') {
+                names.push(key.split('.').next().unwrap_or_default().to_owned());
+                if let Some(rest) = value.split("package=").nth(1) {
+                    names.push(
+                        rest.trim_matches(|c| c == '"' || c == '\'')
+                            .split(['"', '\''])
+                            .next()
+                            .unwrap_or_default()
+                            .to_owned(),
+                    );
+                }
             }
-            if normal && let Some((_, rest)) = line.split_once("path = \"../") {
-                let dependency = rest.split('"').next().unwrap_or_default();
-                todo.push(dependency.to_owned());
+            for found in names {
+                let found = found.trim_matches(|c| c == '"' || c == '\'').to_owned();
+                if crates.join(&found).join("Cargo.toml").is_file() {
+                    todo.push(found);
+                }
             }
         }
     }
@@ -879,7 +908,7 @@ fn red_team_no_coordinator_crate_can_reach_the_roster_builder() {
         .expect("crates directory")
         .to_path_buf();
     for root in ["itsanas-net", "itsanas-placement"] {
-        let closure = path_closure(&crates, root);
+        let closure = workspace_closure(&crates, root);
         assert!(
             closure.contains("itsanas-placement") && closure.contains("itsanas-crypto"),
             "the manifest walk found nothing under {root} ({closure:?}): this test would pass blind"
