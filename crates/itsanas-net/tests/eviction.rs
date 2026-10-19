@@ -43,6 +43,10 @@ fn node(master: u8, device_seed: u8) -> Node {
 struct OneSpeaker(DeviceId, UserId);
 
 impl itsanas_net::Owners for OneSpeaker {
+    fn may_read(&self, _: itsanas_crypto::DeviceId, _: itsanas_crypto::UserId) -> bool {
+        true
+    }
+
     fn present(&self, _: DeviceId, _: &[u8], _: &Vault) -> Result<(), String> {
         Ok(())
     }

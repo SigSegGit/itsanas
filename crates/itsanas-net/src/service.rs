@@ -91,6 +91,79 @@ pub trait Relay: Sync {
     fn presences_for(&self, caller: DeviceId) -> Option<Vec<Vec<u8>>>;
 }
 
+/// The refusal to a read for an account the caller has not shown it belongs
+/// to. Names the fix, because the usual cause is an older client.
+pub const NOT_YOUR_ACCOUNT: &str = "present this account's claim first: only its own devices read what is held for it \
+     (update ITSaNAS on this machine if it already is one)";
+
+/// The account a request reads from this host, if it reads one.
+///
+/// Exhaustive on purpose: a request added without a decision here does not
+/// compile, and a reading one wrongly put in the second arm is what
+/// `red_team_every_request_naming_an_account_is_scoped_or_says_why_not` reads.
+#[must_use]
+pub const fn read_owner(request: &Request) -> Option<UserId> {
+    match request {
+        Request::Heads { owner }
+        | Request::Segments { owner, .. }
+        | Request::Chunk { owner, .. }
+        | Request::HaveChunks { owner, .. }
+        | Request::ChunkSummary { owner }
+        | Request::Challenge { owner, .. }
+        | Request::Claims { owner } => Some(*owner),
+        // Writes, bounded by `Owners::admits` and the pledge; `Dropped`,
+        // `Leaving` and `Draining` act on the caller's own records only;
+        // `MayEvict` needs `speaks_for`; the rest name no account.
+        Request::StoreChunk { .. }
+        | Request::StoreSegment { .. }
+        | Request::Dropped { .. }
+        | Request::MayEvict { .. }
+        | Request::Hello { .. }
+        | Request::WantHosted { .. }
+        | Request::Hosted { .. }
+        | Request::Leaving
+        | Request::Presences
+        | Request::Claim { .. }
+        | Request::Draining { .. }
+        | Request::Park
+        | Request::Splice { .. } => None,
+    }
+}
+
+/// An [`Owners`] that bounds nobody and lets every caller read every account.
+///
+/// For tests of transport, sync and placement, which are about something
+/// else; never for a node (`red_team_no_node_serves_with_the_unscoped_owners`
+/// greps the crates that run one).
+#[derive(Clone, Copy, Debug)]
+pub struct Unscoped;
+
+impl Owners for Unscoped {
+    fn present(&self, _: DeviceId, _: &[u8], _: &Vault) -> std::result::Result<(), String> {
+        Ok(())
+    }
+
+    fn admits(
+        &self,
+        _: DeviceId,
+        _: UserId,
+        _: u64,
+        _: &Store,
+        _: &Vault,
+        _: u64,
+    ) -> std::result::Result<(), String> {
+        Ok(())
+    }
+
+    fn confirmed_account(&self, _: DeviceId) -> Option<UserId> {
+        None
+    }
+
+    fn may_read(&self, _: DeviceId, _: UserId) -> bool {
+        true
+    }
+}
+
 /// How a host decides how much it stores for one account (§8 1c).
 ///
 /// A trait for the reason [`Relay`] is one: the claims are the coordinator's
@@ -117,6 +190,15 @@ pub trait Owners: Sync {
     /// default, which scopes everything that asks to nobody.
     fn presented_for(&self, _caller: DeviceId) -> Option<UserId> {
         None
+    }
+
+    /// Whether `caller` may read what this host holds for `owner`: its
+    /// segments, heads, chunks, summaries and audit proofs. A device of that
+    /// account, by a claim it presented ([`Self::presented_for`]); nobody
+    /// else, a host of the same account included (ROADMAP, "reads are not
+    /// scoped to the account").
+    fn may_read(&self, caller: DeviceId, owner: UserId) -> bool {
+        self.presented_for(caller) == Some(owner)
     }
 
     /// Whether `caller` may store `incoming` more bytes for `owner` here.
@@ -361,6 +443,23 @@ impl<'a> PeerService<'a> {
             .map(crate::relay::Class::Hosted)
     }
 
+    /// The refusal to a malformed request, or to a read for an account
+    /// `caller` has not shown it belongs to.
+    fn refused_before_reading(&self, request: &Request, caller: DeviceId) -> Option<Response> {
+        if !request.is_acceptable() {
+            return Some(Response::Refused("malformed request".to_owned()));
+        }
+        // Every request that reads what this host holds for an account is
+        // answered only to a device of that account. Before peer protocol 11
+        // anybody who knew a user id read its device list, every envelope and
+        // the sealed chunks from any host of it.
+        let owner = read_owner(request)?;
+        let allowed = self
+            .owners
+            .is_some_and(|owners| owners.may_read(caller, owner));
+        (!allowed).then(|| Response::Refused(NOT_YOUR_ACCOUNT.to_owned()))
+    }
+
     /// The account this node's store is for.
     #[must_use]
     pub fn owner(&self) -> UserId {
@@ -368,8 +467,8 @@ impl<'a> PeerService<'a> {
     }
 
     pub fn handle(&self, request: &Request, caller: DeviceId) -> Result<Response> {
-        if !request.is_acceptable() {
-            return Ok(Response::Refused("malformed request".to_owned()));
+        if let Some(refusal) = self.refused_before_reading(request, caller) {
+            return Ok(refusal);
         }
 
         match request {
@@ -517,7 +616,6 @@ impl<'a> PeerService<'a> {
             Request::Park | Request::Splice { .. } => Ok(not_relayed()),
 
             Request::MayEvict { owner, chunks } => self.may_evict(caller, *owner, chunks),
-
             Request::Claims { owner } => self.claims(caller, *owner),
 
             Request::Hosted { chunks } => {
@@ -916,7 +1014,7 @@ mod tests {
     }
 
     fn service(node: &Node) -> PeerService<'_> {
-        PeerService::new(&node.store, &node.vault, Pledge::gigabytes(1))
+        PeerService::new(&node.store, &node.vault, Pledge::gigabytes(1)).with_owners(&Unscoped)
     }
 
     fn alice() -> MasterSecret {
@@ -950,6 +1048,93 @@ mod tests {
         assert_eq!(
             host.store.network_since(&known, 0).expect("read"),
             itsanas_placement::Network::of(public)
+        );
+    }
+
+    #[test]
+    fn red_team_a_host_that_bounds_nobody_serves_no_read() {
+        // The default is the safe side: a service built without an `Owners`
+        // cannot tell an account's device from a stranger, so it reads to
+        // nobody. Every request `read_owner` names is checked here.
+        let node = node(&alice(), 10);
+        let bare = PeerService::new(&node.store, &node.vault, Pledge::gigabytes(1));
+        let owner = node.store.owner();
+        let address = ChunkId::from_bytes([3; 32]);
+        for request in [
+            Request::Heads { owner },
+            Request::Segments {
+                owner,
+                device: node.store.device_id(),
+                after: None,
+                limit: 1,
+            },
+            Request::Chunk { owner, address },
+            Request::HaveChunks {
+                owner,
+                addresses: vec![address],
+            },
+            Request::ChunkSummary { owner },
+            Request::Challenge {
+                owner,
+                address,
+                nonce: [1; 32],
+            },
+            Request::Claims { owner },
+        ] {
+            assert_eq!(
+                read_owner(&request),
+                Some(owner),
+                "{request:?} is not classed as a read"
+            );
+            assert_eq!(
+                bare.handle_from_test(&request).unwrap(),
+                Response::Refused(NOT_YOUR_ACCOUNT.to_owned()),
+                "{request:?} was served by a host that cannot tell who asks"
+            );
+        }
+    }
+
+    #[test]
+    fn red_team_no_node_serves_with_the_unscoped_owners() {
+        // `Unscoped` exists for tests. A node built with it would serve every
+        // account to anyone, so the code that runs one must never name it.
+        // Each file is cut off at its `#[cfg(test)] mod tests`.
+        let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let mut checked = 0;
+        for krate in ["itsanas-cli", "itsanas-node", "itsanas-android"] {
+            let mut stack = vec![crates.join(krate).join("src")];
+            while let Some(dir) = stack.pop() {
+                for entry in std::fs::read_dir(&dir).unwrap() {
+                    let path = entry.unwrap().path();
+                    if path.is_dir() {
+                        stack.push(path);
+                    } else if path.extension().is_some_and(|ext| ext == "rs")
+                        && !path.ends_with("tests.rs")
+                    {
+                        let text = std::fs::read_to_string(&path).unwrap();
+                        // Only the test module goes: a `#[cfg(test)]` helper
+                        // higher up must not hide the code after it.
+                        let code = text
+                            .split("#[cfg(test)]\nmod tests")
+                            .next()
+                            .unwrap_or_default();
+                        assert!(
+                            !code.contains("Unscoped"),
+                            "{} names `Unscoped` outside its tests: that node serves every \
+                             account to anyone",
+                            path.display()
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            checked > 20,
+            "the scan found {checked} files: it would pass blind"
         );
     }
 
@@ -1329,7 +1514,8 @@ mod tests {
         node.store.write_file("mine.txt", b"my own file").unwrap();
         node.store.flush_segment().unwrap();
 
-        let service = PeerService::new(&node.store, &node.vault, Pledge::NONE);
+        let service =
+            PeerService::new(&node.store, &node.vault, Pledge::NONE).with_owners(&Unscoped);
 
         match service
             .handle_from_test(&Request::Heads {
@@ -1689,6 +1875,10 @@ mod tests {
     }
 
     impl Owners for Gate {
+        fn may_read(&self, _: DeviceId, _: UserId) -> bool {
+            true
+        }
+
         fn present(
             &self,
             caller: DeviceId,
@@ -1807,6 +1997,10 @@ mod tests {
     }
 
     impl Owners for Bound {
+        fn may_read(&self, _: DeviceId, _: UserId) -> bool {
+            true
+        }
+
         fn present(&self, _: DeviceId, _: &[u8], _: &Vault) -> std::result::Result<(), String> {
             Ok(())
         }

@@ -73,7 +73,8 @@ fn a_member_who_publishes_an_address_only_their_lan_can_dial_is_told_why() {
         let server = PeerServer::bind("127.0.0.1:0").expect("bind");
         let listening = server.local_addr().expect("address");
         let shutdown = AtomicBool::new(false);
-        let service = PeerService::new(&node.store, &node.vault, Pledge::gigabytes(1));
+        let service = PeerService::new(&node.store, &node.vault, Pledge::gigabytes(1))
+            .with_owners(&itsanas_net::Unscoped);
 
         std::thread::scope(|scope| {
             scope.spawn(|| {

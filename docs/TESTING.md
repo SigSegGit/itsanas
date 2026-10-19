@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-19 — 1264 test functions across 38 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 361 are red-team tests.**
+**Last updated: 2026-10-19 — 1267 test functions across 38 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 364 are red-team tests.**
 
-**1148 of the 1264 tests have an entry of their own on this page** — an *entry*,
+**1151 of the 1267 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -163,7 +163,7 @@ guarantee and is not one.
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
-| `itsanas-net` unit | 63 |
+| `itsanas-net` unit | 65 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 60 |
 | `itsanas-net` relay (`tests/relay.rs`) | 6 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
@@ -181,7 +181,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 143 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 138 |
+| `itsanas-node` unit | 139 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -212,7 +212,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 37 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 53 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 54 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 57 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 26 |
@@ -855,7 +855,7 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (63)
+# `itsanas-net` — unit tests (65)
 
 ## `protocol` — messages and challenges (14)
 
@@ -876,10 +876,12 @@ about reading.
 | **`red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host`** | `MayEvict` carries at most 1024 chunks; a longer list is refused at decode. |
 | `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`, the current version), appended so older numbers are unchanged. |
 
-## `service` — what a peer may obtain (30)
+## `service` — what a peer may obtain (32)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_host_that_bounds_nobody_serves_no_read`** | A service built without an `Owners` refuses every read `read_owner` names (`Heads`, `Segments`, `Chunk`, `HaveChunks`, `ChunkSummary`, `Challenge`, `Claims`) with `NOT_YOUR_ACCOUNT`: the default is the safe side. |
+| **`red_team_no_node_serves_with_the_unscoped_owners`** | `Unscoped`, the test double that lets anyone read, is named nowhere in the CLI, node or Android code outside their test modules. Its first version cut each file at the first `#[cfg(test)]` and missed code after a test helper in `daemon.rs`; sabotage found it. |
 | **`what_a_peer_fetches_is_useless_without_the_key`** | The reason there is no access-control list. The served bytes contain no plaintext, and a stranger's keys cannot open them. |
 | **`a_node_stores_and_serves_a_strangers_chunk_without_reading_it`** | The mutual-storage bargain in one test: the host serves back exactly what it took, cannot open it, and the guest can. |
 | **`a_host_that_discarded_a_chunk_cannot_fake_the_proof`** | Deleting to save space is detected. |
@@ -1437,7 +1439,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (155)
+# `itsanas-node` — a node on disk (156)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1543,7 +1545,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | `the_wrong_passphrase_does_not_open_the_node` | Indistinguishable from a tampered keystore, on purpose. |
 | **`red_team_a_pledge_under_what_keep_needs_is_refused`** | `Node::check_split`, the one rule `keep`, `pledge`, `space --apply` and the phone's setters ask: a 1 MiB pledge for a 20 GiB keep is refused, naming the pledge that earns it (which is then accepted) and the command `itsanas space --pledge 47G --keep 20G --apply`; a keep inside the joining allowance, or no keep, needs no pledge; a stricter 20/80 split in the node's config refuses what 30/70 allows. Sabotaged (`check_split` always `Ok`; `allowed_for` reading `Split::DEFAULT`): red. |
 
-## `owners` — what a host stores for each account (31)
+## `owners` — what a host stores for each account (32)
 
 §8 1c (2026-10-04). A host used to bound only itself, so a client that pledged
 nothing was served until every host was full. Now a device presents its
@@ -1554,6 +1556,7 @@ contradicted; and what goes beyond what proof earns comes out of one share,
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_nobody_but_the_account_reads_what_a_host_holds_for_it`** | Through the real `ClaimBook`: every read of an account is refused to a device that presented nothing and to a device of another account (a fellow host), and answered to the account's own device once it presented its claim. |
 | **`red_team_a_host_hands_an_account_its_roster_and_nobody_else`** | `Request::Claims` returns the claims a host kept for an account only to a device that presented a claim for that account; one that presented nothing, or another account's, gets an empty answer. |
 | **`red_team_a_sibling_presenting_here_joins_the_roster_and_a_stranger_does_not`** | A machine only ever pushed to learns its siblings from the claims they present; another account's device presenting here joins nothing. |
 | **`red_team_a_device_that_presents_no_claim_stores_nothing`** | A rebuilt client leaves the claim out and says it is old; it is told to update. Sabotaged by admitting a caller the book does not know. |
