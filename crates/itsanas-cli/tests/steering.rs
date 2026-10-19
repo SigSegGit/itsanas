@@ -391,3 +391,80 @@ fn red_team_a_timed_pause_ends_by_itself_without_resume() {
         daemon.log()
     );
 }
+
+/// A vault on a USB disk lent to the network: unplugged under a running
+/// daemon, the daemon must not run a round onto the bare mount point, must
+/// not exit (a laptop has no service manager to restart it), and must come
+/// back by itself when the disk does.
+// Unix only, for the reason the vault's own unplug test gives: Windows will
+// not rename a directory the daemon holds a file open in.
+#[cfg(unix)]
+#[test]
+#[ignore = "one Argon2id derivation and a running daemon; the release job runs it"]
+fn red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it() {
+    let base = tempfile::tempdir().expect("temp dir");
+    let (home, _folder, _) = node_with_folder(base.path(), "usb");
+    let disk = base.path().join("usb-disk");
+    std::fs::create_dir(&disk).expect("the disk");
+    let vault = disk.join("vault");
+    run(
+        &home,
+        &["vault", vault.to_str().expect("utf-8"), "--same-disk"],
+    );
+
+    let mut daemon = Daemon::start(&home, base.path().join("daemon.log"));
+    daemon.address();
+
+    let away = base.path().join("usb-disk-unplugged");
+    std::fs::rename(&disk, &away).expect("unplug");
+    run(&home, &["sync-now"]);
+    let deadline = Instant::now() + PATIENCE;
+    while !daemon.log().contains("this machine is away") && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(
+        daemon.log().contains("this machine is away"),
+        "the daemon did not notice its vault's disk had gone\n--- daemon log\n{}",
+        daemon.log()
+    );
+    assert!(
+        daemon.child.try_wait().expect("child").is_none(),
+        "the daemon exited instead of waiting for its disk\n--- daemon log\n{}",
+        daemon.log()
+    );
+    assert!(
+        !vault.exists(),
+        "a vault was recreated on the bare mount point: {:?}\n--- daemon log\n{}",
+        walkdir_list(&disk),
+        daemon.log()
+    );
+
+    std::fs::rename(&away, &disk).expect("plug back");
+    let deadline = Instant::now() + PATIENCE;
+    while daemon.log().matches("serving").count() < 2 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(
+        daemon.log().contains("is back") && daemon.log().matches("serving").count() >= 2,
+        "the daemon did not resume when the disk came back\n--- daemon log\n{}",
+        daemon.log()
+    );
+}
+
+#[cfg(unix)]
+fn walkdir_list(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path.clone());
+                }
+                out.push(path);
+            }
+        }
+    }
+    out
+}

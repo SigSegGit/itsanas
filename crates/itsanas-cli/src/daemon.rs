@@ -201,6 +201,26 @@ impl Drop for StopEverythingOnDrop<'_> {
 /// call, and cannot borrow a local.
 static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
+/// Set with [`SHUTDOWN`] when a run stops because the vault's disk went, not
+/// because somebody asked: `itsanas daemon` then waits for the disk and runs
+/// again, instead of exiting.
+static PAUSED_FOR_VAULT: AtomicBool = AtomicBool::new(false);
+
+/// Whether the run that just returned stopped for the vault's disk; clears
+/// the stop so the next run starts. A Ctrl-C during the pause still wins.
+pub(crate) fn resume_after_vault_pause() -> bool {
+    if PAUSED_FOR_VAULT.swap(false, Ordering::SeqCst) {
+        SHUTDOWN.store(false, Ordering::SeqCst);
+        return true;
+    }
+    false
+}
+
+/// Whether somebody asked this process to stop.
+pub(crate) fn asked_to_stop() -> bool {
+    SHUTDOWN.load(Ordering::SeqCst) && !PAUSED_FOR_VAULT.load(Ordering::SeqCst)
+}
+
 /// Set by the daily update look when it installed a new program: the daemon
 /// then exits with a failure code so its service starts the new one.
 static UPDATED: AtomicBool = AtomicBool::new(false);
@@ -1206,14 +1226,15 @@ fn one_round(
     folder: Option<&Folder>,
     interval: Duration,
 ) -> (BTreeSet<DeviceId>, Option<String>) {
-    // The vault's disk dropped under a running daemon: stop, rather than run a
-    // round that writes hosted data to the local mount point. The service
-    // manager restarts it, and the start refuses until the disk is back.
+    // The vault's disk dropped under a running daemon: stop this run, rather
+    // than run a round that writes hosted data to the local mount point.
+    // `itsanas daemon` then waits for the disk and starts again by itself.
     if !vault_present(&node.vault_dir()) {
         eprintln!(
-            "itsanas: the vault at {} lost its marker (is the disk still mounted?); stopping",
+            "itsanas: the vault at {} lost its marker (was the disk unplugged?); pausing",
             node.vault_dir().display()
         );
+        PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
         shutdown.store(true, Ordering::SeqCst);
         return (BTreeSet::new(), None);
     }
@@ -2042,12 +2063,21 @@ fn report_round(peer: &str, report: &session::RoundReport) {
 }
 
 fn install_signal_handler() -> Result<()> {
+    // Once per process: a run that resumes after its vault's disk came back
+    // installs nothing new, and `ctrlc` refuses a second handler.
+    static INSTALLED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    if INSTALLED.get().is_some() {
+        return Ok(());
+    }
     ctrlc::set_handler(|| {
+        PAUSED_FOR_VAULT.store(false, Ordering::SeqCst);
         SHUTDOWN.store(true, Ordering::Relaxed);
         println!();
         println!("stopping — finishing the current round…");
     })
-    .map_err(|error| CliError::Usage(format!("could not install a signal handler: {error}")))
+    .map_err(|error| CliError::Usage(format!("could not install a signal handler: {error}")))?;
+    let _ = INSTALLED.set(());
+    Ok(())
 }
 
 #[cfg(test)]

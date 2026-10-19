@@ -10,15 +10,24 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0c
-TITLE: Nicolas tests v0.1.8 on the fleet by hand (reinstall, multi-account, relay, lists, vault, deletion)
+TITLE: Nicolas tests main on the fleet by hand for a week (reinstall, multi-account, relay, lists, vault, removable disks, deletion), with placement = measured (7a)
 WRITTEN-AT: 2026-10-19
-BASE: c010f68
+BASE: 4f8006a
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-19, late: removable disks (§8 8).** Four uses in one PR: a vault
+on a USB disk that comes and goes, a folder on a removable disk (already
+0l), a cold copy (`itsanas backup`), a vault moved between disks (`itsanas
+vault --move`). The release-only test of an unplugged vault found two bugs
+on its first run: the vault rebuilt `owners/<id>/blobs` on the bare mount
+point while shutting down, and a second daemon run inherited the stop flag
+(and could not reinstall the Ctrl-C handler). Next: 8.0c and 7(a) together,
+a week of real use on every platform.
 
 **2026-10-19, night: hostile clients, reads scoped to the account.** The
 confidentiality half of §10 7: `read_owner` lists every request that reads an
@@ -49,8 +58,8 @@ answered §10 16: accounts seen from one network are one household for
 durability (`households` in `target.rs`, union-find on account or network).
 6(b) built as a map of red-team tests by attack surface rather than a move
 (see §8 6b for why); the TESTING table is checked by `check-counts.py`.
-Next on Nicolas's word: hostile clients and servers before removable disks,
-then 8.0c and 7(a) together on a week of real use.
+Hostile clients and servers, then removable disks, are done; 8.0c and 7(a)
+together on a week of real use come next.
 
 **2026-10-19, evening: §8 7(d), the warning.** The census counts chunks short
 on availability with nothing left to try (`want` unsatisfied: every eligible
@@ -2884,6 +2893,21 @@ Detail and measurements are in ROADMAP.md; this is the map.
    the coordinator's swarm-wide marking stays ⬜, and must never feed
    placement (§6). Not before (a): changing
    the default.
+
+8. ✅ **Removable disks.** Built 2026-10-19, all four uses Nicolas listed:
+   (a) a vault on a USB disk lent to the network: unplugged, `itsanas daemon`
+   writes nothing on the bare mount point (`Vault::blobs_for` refuses without
+   `vault.redb`), says this machine is away, waits and resumes by itself;
+   while it waits the machine is simply away, which its hosts' audits read as
+   unreachable, never as lost data. Left: own-account sync also stops while
+   the disk is out, because segments from siblings land in the vault; a
+   laptop that lends a USB disk it unplugs daily syncs only while it is in.
+   (b) a synced folder on a removable disk: already 0l, nothing new.
+   (c) `itsanas backup export|restore DIR`: segments, chunks and claims,
+   sealed; restore needs the account (24 words) and no peer; every chunk is
+   verified against its address on the way into the store (AI review).
+   (d) `itsanas vault NEW --move`: copy under a staging name, count files and
+   bytes, rename, reopen and compare `held_bytes`, keep the original.
 
 ## 9. Known gaps, deliberately open
 

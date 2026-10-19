@@ -11,6 +11,7 @@
 //! the coordinator to say who the peers are. Recorded in `docs/ROADMAP.md`
 //! rather than glossed over.
 
+mod backup;
 mod bench;
 mod control;
 mod daemon;
@@ -125,6 +126,15 @@ enum DeviceCommand {
         /// The device to withdraw.
         device: String,
     },
+}
+
+/// What `itsanas backup` does.
+#[derive(Debug, Subcommand)]
+enum BackupAction {
+    /// Write this account's cold copy into DIR (empty or new).
+    Export { dir: PathBuf },
+    /// Read a cold copy of this account from DIR and apply it.
+    Restore { dir: PathBuf },
 }
 
 #[derive(Subcommand)]
@@ -281,6 +291,21 @@ enum Command {
         /// on the local disk that looks like a fine new vault.
         #[arg(long)]
         same_disk: bool,
+        /// Move a vault that holds data to PATH: copied, checked, then
+        /// switched to. The old directory is left where it was, to delete by
+        /// hand once the node runs from the new one. Run it with the daemon
+        /// stopped; a running daemon holds the vault and the move is refused.
+        #[arg(long = "move")]
+        move_data: bool,
+    },
+    /// A cold copy of this account, for a disk that goes in a drawer.
+    ///
+    /// `export` writes every segment, every chunk this machine holds and the
+    /// devices' claims, all sealed as a host holds them; `restore` reads one
+    /// back into this node with no peer at all. The 24 words are not in it.
+    Backup {
+        #[command(subcommand)]
+        action: BackupAction,
     },
     /// Set, or show, the directory kept in step with this account.
     ///
@@ -808,7 +833,12 @@ fn run() -> Result<()> {
         Command::Get { path, destination } => get(&home, &path, destination.as_deref()),
         Command::Rm { path } => remove(&home, &path),
         Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
-        Command::Vault { path, same_disk } => vault(&home, path.as_deref(), same_disk),
+        Command::Backup { action } => backup_command(&home, action),
+        Command::Vault {
+            path,
+            same_disk,
+            move_data,
+        } => vault(&home, path.as_deref(), same_disk, move_data),
         Command::Scan { deep } => scan(&home, deep),
         Command::Space {
             pledge,
@@ -3010,7 +3040,36 @@ fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
 /// coordinator. The name check comes first and alone: a mistyped command must
 /// cost nothing.
 /// `itsanas vault [PATH]`.
-fn vault(home: &Path, path: Option<&Path>, same_disk: bool) -> Result<()> {
+fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
+    let node = open(home)?;
+    match action {
+        BackupAction::Export { dir } => {
+            let moved = backup::export(&node, &dir)?;
+            println!(
+                "backed up {} segments and {} chunks ({}) to {}",
+                moved.segments,
+                moved.chunks,
+                format_size(moved.bytes),
+                dir.display()
+            );
+            println!("sealed as hosts hold it: the 24 words are what opens it, keep them apart");
+        }
+        BackupAction::Restore { dir } => {
+            let (moved, report) = backup::restore(&node, &dir)?;
+            println!(
+                "read {} segments and {} chunks ({}) from {}; {} file(s) adopted",
+                moved.segments,
+                moved.chunks,
+                format_size(moved.bytes),
+                dir.display(),
+                report.adopted
+            );
+        }
+    }
+    Ok(())
+}
+
+fn vault(home: &Path, path: Option<&Path>, same_disk: bool, move_data: bool) -> Result<()> {
     let mut node = open(home)?;
     let Some(path) = path else {
         let dir = node.vault_dir();
@@ -3033,14 +3092,16 @@ fn vault(home: &Path, path: Option<&Path>, same_disk: bool) -> Result<()> {
         println!("vault already at {}", wanted.display());
         return Ok(());
     }
-    // An automatic copy of tens of GB, half done when a disk drops, is how
-    // hosted data gets lost: a full vault is moved by hand, daemon stopped.
+    if move_data {
+        return move_vault(node, &wanted, same_disk);
+    }
+    // A vault that holds data moves only with `--move`, which copies and
+    // checks before switching: a bare path change would strand it.
     if node.vault.held_bytes()? > 0 {
         return Err(CliError::Usage(format!(
-            "the vault at {} holds data: stop the daemon, move that directory to {}, then run \
-             `itsanas vault {}` again",
+            "the vault at {} holds data: `itsanas vault {} --move` copies it there and switches \
+             once the copy checks out",
             node.vault_dir().display(),
-            wanted.display(),
             wanted.display()
         )));
     }
@@ -3052,26 +3113,139 @@ fn vault(home: &Path, path: Option<&Path>, same_disk: bool) -> Result<()> {
     Ok(())
 }
 
+/// Copy this node's vault to `wanted`, check the copy, and switch to it.
+///
+/// Copied under a temporary name and renamed into place only when complete,
+/// so a disk that drops mid-copy leaves no half vault that a later start
+/// could take for a whole one. Checked twice: every file and byte arrived,
+/// and the copy opens and holds what the original held. The original is left
+/// in place: deleting tens of GB is the person's decision, once the node has
+/// run from the new disk.
+fn move_vault(node: Node, wanted: &Path, same_disk: bool) -> Result<()> {
+    check_vault_target(&node, wanted, same_disk)?;
+    let from = node.vault_dir();
+    let held = node.vault.held_bytes()?;
+    let config_path = Node::config_path(&node.home);
+    // Closed before copying: Windows will not read a database another handle
+    // has locked, and a copy of a file still open for writing is a guess.
+    drop(node);
+    if std::fs::read_dir(wanted).is_ok_and(|mut entries| entries.next().is_some()) {
+        return Err(CliError::Usage(format!(
+            "{} is not empty; the vault moves into an empty or new directory",
+            wanted.display()
+        )));
+    }
+    let staging = wanted.with_extension("itsanas-copy");
+    let _ = std::fs::remove_dir_all(&staging);
+    let copied = copy_tree(&from, &staging)?;
+    let original = tree_size(&from)?;
+    if copied != original {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(CliError::Usage(format!(
+            "the copy to {} came out at {} files, {} bytes against {} files, {} bytes: nothing \
+             was switched",
+            staging.display(),
+            copied.0,
+            copied.1,
+            original.0,
+            original.1
+        )));
+    }
+    let switched = (|| {
+        if wanted.exists() {
+            std::fs::remove_dir(wanted)?;
+        }
+        std::fs::rename(&staging, wanted)
+    })();
+    if let Err(source) = switched {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(CliError::Io {
+            path: wanted.to_owned(),
+            source,
+        });
+    }
+    let reopened = itsanas_store::Vault::open(wanted)?.held_bytes()?;
+    if reopened != held {
+        return Err(CliError::Usage(format!(
+            "the copy at {} holds {reopened} bytes against {held}: the node still uses {}",
+            wanted.display(),
+            from.display()
+        )));
+    }
+    let mut config = config::Config::load(&config_path)?;
+    config.vault = Some(wanted.to_owned());
+    config.save(&config_path)?;
+    println!(
+        "vault moved to {} ({} files, {}); the daemon uses it from its next start",
+        wanted.display(),
+        copied.0,
+        format_size(copied.1)
+    );
+    println!(
+        "the old copy is still at {}: delete it once the node runs from the new one",
+        from.display()
+    );
+    Ok(())
+}
+
+/// Copy the directory tree `from` to `to`; (files, bytes) copied.
+fn copy_tree(from: &Path, to: &Path) -> Result<(u64, u64)> {
+    let io = |path: &Path| {
+        let path = path.to_owned();
+        move |source| CliError::Io { path, source }
+    };
+    let mut count = (0, 0);
+    let mut stack = vec![(from.to_path_buf(), to.to_path_buf())];
+    while let Some((source, target)) = stack.pop() {
+        std::fs::create_dir_all(&target).map_err(io(&target))?;
+        for entry in std::fs::read_dir(&source).map_err(io(&source))? {
+            let entry = entry.map_err(io(&source))?;
+            let (inner, outer) = (entry.path(), target.join(entry.file_name()));
+            if entry.file_type().map_err(io(&inner))?.is_dir() {
+                stack.push((inner, outer));
+            } else {
+                count.0 += 1;
+                count.1 += std::fs::copy(&inner, &outer).map_err(io(&inner))?;
+            }
+        }
+    }
+    // On the target's disk, not in a cache: the switch follows.
+    Ok(count)
+}
+
+/// (files, bytes) under `root`.
+fn tree_size(root: &Path) -> Result<(u64, u64)> {
+    let mut count = (0, 0);
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).map_err(|source| CliError::Io {
+            path: dir.clone(),
+            source,
+        })? {
+            let entry = entry.map_err(|source| CliError::Io {
+                path: dir.clone(),
+                source,
+            })?;
+            let meta = entry.metadata().map_err(|source| CliError::Io {
+                path: entry.path(),
+                source,
+            })?;
+            if meta.is_dir() {
+                stack.push(entry.path());
+            } else {
+                count.0 += 1;
+                count.1 += meta.len();
+            }
+        }
+    }
+    Ok(count)
+}
+
 /// Point `node` at an empty or new directory `wanted`, marked as its own.
 /// A directory that holds anything, or another device's vault, is refused:
 /// adopting it would mix what two nodes hold, or another node's hosted data.
 fn set_vault(node: &mut Node, wanted: &Path, same_disk: bool) -> Result<()> {
-    // Inside the home, the store or the synced folder, other people's sealed
-    // chunks would be synced as this account's files, or mixed with its own.
-    let inside = |outer: &Path| wanted.starts_with(outer);
-    if inside(&node.home) || node.config.folder.as_deref().is_some_and(inside) {
-        return Err(CliError::Usage(format!(
-            "{} is inside this node's home or synced folder; the vault goes elsewhere",
-            wanted.display()
-        )));
-    }
-    if !same_disk && Node::same_disk(&node.home, wanted).unwrap_or(true) {
-        return Err(CliError::Usage(format!(
-            "{} is on the same disk as this node's home: if it is a NAS mount point, the NAS is \
-             not mounted. Mount it and retry, or add --same-disk if this is meant",
-            wanted.display()
-        )));
-    }
+    check_vault_target(node, wanted, same_disk)?;
     let io = |path: &Path| {
         let path = path.to_owned();
         move |source| CliError::Io { path, source }
@@ -3107,6 +3281,28 @@ fn set_vault(node: &mut Node, wanted: &Path, same_disk: bool) -> Result<()> {
     }
     node.config.vault = Some(wanted.to_owned());
     node.save_config()?;
+    Ok(())
+}
+
+/// Where a vault may not go: inside the home or the synced folder, or on the
+/// home's disk without `--same-disk`.
+fn check_vault_target(node: &Node, wanted: &Path, same_disk: bool) -> Result<()> {
+    // Inside the home, the store or the synced folder, other people's sealed
+    // chunks would be synced as this account's files, or mixed with its own.
+    let inside = |outer: &Path| wanted.starts_with(outer);
+    if inside(&node.home) || node.config.folder.as_deref().is_some_and(inside) {
+        return Err(CliError::Usage(format!(
+            "{} is inside this node's home or synced folder; the vault goes elsewhere",
+            wanted.display()
+        )));
+    }
+    if !same_disk && Node::same_disk(&node.home, wanted).unwrap_or(true) {
+        return Err(CliError::Usage(format!(
+            "{} is on the same disk as this node's home: if it is a NAS mount point, the NAS is \
+             not mounted. Mount it and retry, or add --same-disk if this is meant",
+            wanted.display()
+        )));
+    }
     Ok(())
 }
 
@@ -3426,13 +3622,56 @@ fn start_daemon(
         eprintln!("itsanas: {why}");
         return Ok(());
     }
-    daemon::run(
-        &open(home)?,
-        listen,
-        interval.map(|seconds| std::time::Duration::from_secs(seconds.max(1))),
-        metered,
-        discovery,
-    )
+    let interval = interval.map(|seconds| std::time::Duration::from_secs(seconds.max(1)));
+    let passphrase = passphrase(false)?;
+    // A vault on a removable disk comes and goes. Unplugged, this machine is
+    // simply away -- its hosts' audits read it as unreachable, never as a
+    // host that lost their data -- and it comes back by itself when the disk
+    // does, with no service manager needed to restart it.
+    loop {
+        if !Node::exists(home) {
+            return Err(CliError::NoNode(home.to_path_buf()));
+        }
+        let node = match Node::open(home, &passphrase) {
+            Err(CliError::VaultAbsent(path)) => {
+                if !wait_for_vault(&path) {
+                    return Ok(());
+                }
+                continue;
+            }
+            other => other?,
+        };
+        daemon::run(&node, listen, interval, metered, discovery)?;
+        if !daemon::resume_after_vault_pause() {
+            return Ok(());
+        }
+        let path = node.vault_dir();
+        drop(node);
+        if !wait_for_vault(&path) {
+            return Ok(());
+        }
+    }
+}
+
+/// Wait until `vault` carries its marker again, saying so once. `false` if
+/// somebody asked the process to stop meanwhile.
+fn wait_for_vault(vault: &Path) -> bool {
+    eprintln!(
+        "itsanas: the vault's disk at {} is not there; this machine is away until it is \
+         plugged back in, and resumes by itself then. Nothing is lost meanwhile.",
+        vault.display()
+    );
+    while !daemon::vault_present(vault) {
+        if daemon::asked_to_stop() {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    eprintln!(
+        "itsanas: the vault's disk is back at {}; resuming",
+        vault.display()
+    );
+    true
 }
 
 fn refuse_if_departed(home: &Path) -> Result<()> {
@@ -4461,6 +4700,132 @@ fn connect_peer(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn red_team_a_cold_copy_rebuilds_the_account_on_a_new_device_and_nowhere_else() {
+        // A disk in a drawer: the laptop exports, a new machine recovered
+        // from the 24 words restores with no peer anywhere, and gets the
+        // files back. A node of another account is refused the same copy
+        // before it touches anything.
+        let base = tempfile::tempdir().expect("temp dir");
+        let (laptop, phrase) =
+            itsanas_node::Node::create(&base.path().join("laptop"), "a passphrase", "camille")
+                .expect("create");
+        laptop
+            .store
+            .write_file("notes/plan.txt", b"the only copy")
+            .expect("write");
+        laptop.store.flush_segment().expect("flush");
+        let copy = base.path().join("drawer");
+        let moved = super::backup::export(&laptop, &copy).expect("export");
+        assert!(moved.chunks > 0 && moved.segments > 0, "{moved:?}");
+        assert!(
+            super::backup::export(&laptop, &copy).is_err(),
+            "an export overwrote a directory that already held a backup"
+        );
+
+        let (stranger, _) =
+            itsanas_node::Node::create(&base.path().join("stranger"), "a passphrase", "mallory")
+                .expect("create");
+        assert!(
+            super::backup::restore(&stranger, &copy).is_err(),
+            "another account's node took this account's backup"
+        );
+        assert!(
+            stranger
+                .store
+                .read_file("notes/plan.txt")
+                .expect("read")
+                .is_none()
+        );
+
+        let rebuilt = itsanas_node::Node::restore(
+            &base.path().join("rebuilt"),
+            "a passphrase",
+            "camille",
+            phrase.as_str(),
+        )
+        .expect("recover from the words");
+        // A chunk swapped on the backup disk is refused, not kept.
+        let forged = copy.join("chunks").join("ff".repeat(32));
+        std::fs::write(&forged, b"not a chunk of this account").expect("forge");
+        let (moved, report) = super::backup::restore(&rebuilt, &copy).expect("restore");
+        assert_eq!(
+            moved.chunks + 1,
+            std::fs::read_dir(copy.join("chunks")).unwrap().count()
+        );
+        assert_eq!(report.adopted, 1, "{report:?}");
+        assert_eq!(
+            rebuilt
+                .store
+                .read_file("notes/plan.txt")
+                .expect("read")
+                .as_deref(),
+            Some(&b"the only copy"[..]),
+            "the cold copy did not bring the file back"
+        );
+    }
+
+    #[test]
+    fn red_team_moving_a_vault_copies_checks_switches_and_keeps_the_original() {
+        // Changing disks: the hosted data arrives whole on the new one, the
+        // node uses it from then on, and the old copy stays until a person
+        // deletes it. A target that already holds something is refused and
+        // nothing is switched.
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join("home");
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        let owner =
+            itsanas_crypto::UserKeys::derive(&itsanas_crypto::MasterSecret::from_bytes([9; 32]))
+                .user_id();
+        let address = itsanas_crypto::ChunkId::from_bytes([4; 32]);
+        node.vault
+            .put_chunk(owner, &address, b"someone's sealed chunk")
+            .expect("store");
+        let old = node.vault_dir();
+
+        let occupied = base.path().join("occupied");
+        std::fs::create_dir(&occupied).expect("dir");
+        std::fs::write(occupied.join("photo.jpg"), b"x").expect("file");
+        assert!(
+            super::move_vault(node, &occupied, true).is_err(),
+            "a vault was moved into a directory that held something"
+        );
+        assert!(
+            !occupied.with_extension("itsanas-copy").exists(),
+            "a refused move copied the whole vault before refusing"
+        );
+
+        let node = itsanas_node::Node::open(&home, "a passphrase").expect("reopen");
+        assert_eq!(
+            node.vault_dir(),
+            old,
+            "a refused move switched the vault anyway"
+        );
+        let new = base.path().join("new-disk").join("vault");
+        std::fs::create_dir_all(new.parent().expect("parent")).expect("disk");
+        super::move_vault(node, &new, true).expect("move");
+
+        let node = itsanas_node::Node::open(&home, "a passphrase").expect("reopen");
+        assert_eq!(node.vault_dir(), new);
+        assert_eq!(
+            node.vault
+                .get_chunk(owner, &address)
+                .expect("read")
+                .as_deref(),
+            Some(&b"someone's sealed chunk"[..]),
+            "the moved vault lost what it held"
+        );
+        assert!(
+            old.join("vault.redb").is_file(),
+            "the original was deleted by the move"
+        );
+        assert!(
+            !new.with_extension("itsanas-copy").exists(),
+            "the staging copy was left behind"
+        );
+    }
+
     #[test]
     fn red_team_a_passphrase_prompt_names_the_account_it_unlocks() {
         // Three accounts on one machine each asked "Passphrase:" (Nicolas,

@@ -18,6 +18,18 @@ pub enum NodeError {
     #[error("{0}")]
     Config(String),
 
+    /// A configured vault whose disk is not there: unplugged, unmounted.
+    /// Its own variant so the daemon can wait for the disk instead of
+    /// exiting (a USB disk lent to the network comes and goes).
+    #[error(
+        "the vault at {} is not there or not this node's (no {}): is the disk \
+         mounted? Nothing was created there. For a new vault, set it with \
+         `itsanas vault PATH`, which marks it",
+        .0.display(),
+        crate::node::VAULT_MARKER
+    )]
+    VaultAbsent(PathBuf),
+
     #[error("cryptographic failure: {0}")]
     Crypto(#[from] itsanas_crypto::CryptoError),
 

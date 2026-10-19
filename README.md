@@ -41,7 +41,7 @@ reboots — and your data stays available and stays in sync.
 > Joining is by invitation from an existing member, also tested between two
 > machines through a real coordinator.
 >
-> 1267 tests, 364 of them red-team — a red-team test **passes when the attack
+> 1271 tests, 368 of them red-team — a red-team test **passes when the attack
 > fails**. See [docs/TESTING.md](docs/TESTING.md), which lists every one of them
 > with the property it establishes.
 >
