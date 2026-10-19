@@ -196,6 +196,29 @@ These counts are mechanical — regenerate them with
 `cargo test --workspace -- --list`. If this table disagrees with that command,
 the table is the bug.
 
+## Red-team tests by attack surface
+
+Every `red_team_*` test belongs to one surface, by the file it lives in
+(`scripts/redteam_surfaces.py`; HANDOVER §8 6b). `check-counts.py` fails when
+a file with red-team tests is on no surface, or on two, or when a count below
+is wrong. Run one surface, ignored tests included, with
+`python3 scripts/redteam_surfaces.py run <surface>`. A file that mixes surfaces
+counts for the one most of its tests attack: `itsanas-net/tests/two_nodes.rs`
+is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
+
+| Surface | What it attacks | Red-team tests |
+| --- | --- | --- |
+| `wire` | peer and coordinator framing, versions, verb numbering | 5 |
+| `tls` | handshakes, session limits | 4 |
+| `identity` | keys, accounts, devices, claims, invitations | 37 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 53 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 52 |
+| `placement-audit` | where copies go, audits, reliability, release | 40 |
+| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 25 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 46 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 71 |
+
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
 what a test would catch, it should not exist.** A test that passes whether or

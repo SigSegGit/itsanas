@@ -20,6 +20,14 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-19, night: durability by household, and §8 6(b).** Nicolas
+answered §10 16: accounts seen from one network are one household for
+durability (`households` in `target.rs`, union-find on account or network).
+6(b) built as a map of red-team tests by attack surface rather than a move
+(see §8 6b for why); the TESTING table is checked by `check-counts.py`.
+Next on Nicolas's word: hostile clients and servers before removable disks,
+then 8.0c and 7(a) together on a week of real use.
+
 **2026-10-19, evening: §8 7(d), the warning.** The census counts chunks short
 on availability with nothing left to try (`want` unsatisfied: every eligible
 host counted, or the cap) as `unreachable`, and `status` prints a `warning`
@@ -2802,7 +2810,16 @@ Detail and measurements are in ROADMAP.md; this is the map.
       "Selective CI" has the table. Each run's plan was read from its
       summary and matched `check-ci-scope.py`.
 
-   b. **Red-team tests by attack surface.** Fix the list in
+   b. ✅ **Red-team tests by attack surface.** Built 2026-10-19 another way
+      than written below, decided alone and reported: a **map**, not a move
+      (`scripts/redteam_surfaces.py`, ten surfaces, by file). Most red-team
+      tests reach private items, so moving them meant widening APIs for
+      tests; CI is already selective by crate and runs in under ten minutes
+      since the RAM disk, so the per-surface CI split below is not built
+      either. `check-counts.py` fails on a file with red-team tests on no
+      surface, on two, or on a wrong count in the TESTING table (both
+      sabotaged red); `redteam_surfaces.py run <surface>` runs one surface,
+      ignored tests included. The plan as written: Fix the list in
       `docs/TESTING.md` -- suggested: wire/framing, identity & claims,
       coordinator, host storage & quotas, placement & audit, discovery/LAN,
       TLS, local store & crash, sync convergence, installers. Move each
