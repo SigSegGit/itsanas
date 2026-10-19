@@ -165,8 +165,11 @@ fn keystore(home: &Path) -> PathBuf {
 }
 
 fn words_of(text: &str) -> BTreeSet<String> {
-    text.split(|c: char| !c.is_ascii_alphabetic())
-        .filter(|token| !token.is_empty())
+    // Split on what is not a letter or digit, then drop tokens with a digit:
+    // a hex id printed by setup ("3add9f...") split on its digits read as the
+    // recovery word "add" whenever the phrase drew it (CI, 2026-10-19).
+    text.split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|token| !token.is_empty() && token.chars().all(|c| c.is_ascii_alphabetic()))
         .map(str::to_lowercase)
         .collect()
 }
