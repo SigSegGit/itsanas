@@ -77,11 +77,13 @@ fn with_relay<T>(
     let address = server.local_addr().unwrap();
     let shutdown = AtomicBool::new(false);
     let service = PeerService::new(&relay.store, &relay.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped)
         .with_relay(&book)
         .speaking_at_most(protocol);
     // B's own listener is never dialled: it is here for its TLS identity.
     let parked_server = PeerServer::bind("127.0.0.1:0").unwrap();
-    let parked_service = PeerService::new(&parker.store, &parker.vault, Pledge::gigabytes(1));
+    let parked_service = PeerService::new(&parker.store, &parker.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped);
     std::thread::scope(|scope| {
         scope.spawn(|| {
             let _ = server.serve_until(&service, &relay.device, &shutdown);
@@ -250,9 +252,12 @@ fn red_team_a_relay_that_closes_the_park_with_nobody_is_told_apart_from_a_caller
     let address = server.local_addr().unwrap();
     let shutdown = AtomicBool::new(false);
     let parker_stop = AtomicBool::new(false);
-    let service = PeerService::new(&r.store, &r.vault, Pledge::gigabytes(1)).with_relay(&book);
+    let service = PeerService::new(&r.store, &r.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped)
+        .with_relay(&book);
     let parked_server = PeerServer::bind("127.0.0.1:0").unwrap();
-    let parked_service = PeerService::new(&b.store, &b.vault, Pledge::gigabytes(1));
+    let parked_service = PeerService::new(&b.store, &b.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped);
     let parked = std::thread::scope(|scope| {
         scope.spawn(|| {
             let _ = server.serve_until(&service, &r.device, &shutdown);
@@ -293,9 +298,12 @@ fn red_team_a_parked_machine_lets_go_at_once_and_the_relay_sees_it_gone() {
     let address = server.local_addr().unwrap();
     let shutdown = AtomicBool::new(false);
     let parker_stop = AtomicBool::new(false);
-    let service = PeerService::new(&r.store, &r.vault, Pledge::gigabytes(1)).with_relay(&book);
+    let service = PeerService::new(&r.store, &r.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped)
+        .with_relay(&book);
     let parked_server = PeerServer::bind("127.0.0.1:0").unwrap();
-    let parked_service = PeerService::new(&b.store, &b.vault, Pledge::gigabytes(1));
+    let parked_service = PeerService::new(&b.store, &b.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped);
     std::thread::scope(|scope| {
         scope.spawn(|| {
             let _ = server.serve_until(&service, &r.device, &shutdown);

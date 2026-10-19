@@ -96,7 +96,8 @@ fn push_to(me: &Node, host: &Node, service: &PeerService<'_>, placement: &Placem
 
 /// Push with a plain, unbounded host service.
 fn push_plain(me: &Node, host: &Node, placement: &Placement) -> PushReport {
-    let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1));
+    let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped);
     push_to(me, host, &service, placement)
 }
 
@@ -105,6 +106,10 @@ fn push_plain(me: &Node, host: &Node, placement: &Placement) -> PushReport {
 struct AccountFullFor(DeviceId, UserId);
 
 impl itsanas_net::Owners for AccountFullFor {
+    fn may_read(&self, _: itsanas_crypto::DeviceId, _: itsanas_crypto::UserId) -> bool {
+        true
+    }
+
     fn present(&self, _: DeviceId, _: &[u8], _: &Vault) -> Result<(), String> {
         Ok(())
     }
@@ -261,6 +266,7 @@ fn a_host_full_under_either_refusal_falls_through_to_the_next() {
             PeerService::new(&full.store, &full.vault, Pledge::gigabytes(1)).with_owners(&gate)
         } else {
             PeerService::new(&full.store, &full.vault, Pledge::bytes(0))
+                .with_owners(&itsanas_net::Unscoped)
         };
         let expected = if account_full {
             Refusal::AccountFull
@@ -406,7 +412,8 @@ fn the_due_walk_restamps_on_recorded_only_digests_and_asks_only_recorded_chunks(
     let host = node(0xB1, 11);
     serving(
         &host,
-        &PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1)),
+        &PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+            .with_owners(&itsanas_net::Unscoped),
         |address| {
             let mut client =
                 PeerClient::connect(address, &me.device, me.store.owner(), None).expect("dial");
@@ -659,7 +666,8 @@ fn an_inbound_only_host_is_measured_from_the_sessions_it_opens() {
     let before = me.store.uptime(&host.id()).unwrap().expect("a ring");
     assert_eq!(before.last_seen_hour(), Some(long_ago / HOUR));
 
-    let service = PeerService::new(&me.store, &me.vault, Pledge::gigabytes(1));
+    let service = PeerService::new(&me.store, &me.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped);
     dial_in(&host, &me, &service, |client| {
         client.heads(me.store.owner())
     })
@@ -679,7 +687,8 @@ fn red_team_a_stranger_dialling_in_gets_no_ring() {
     // `note_seen_if_known_at`.
     let me = node(0xA1, 1);
     let stranger = node(0xB1, 11);
-    let service = PeerService::new(&me.store, &me.vault, Pledge::gigabytes(1));
+    let service = PeerService::new(&me.store, &me.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped);
     dial_in(&stranger, &me, &service, |client| {
         client.heads(me.store.owner())
     })
@@ -722,8 +731,9 @@ fn want_hosted_offers_the_caller_its_share_only_in_measured_mode() {
     me.store.enqueue_short(&fresh, now - HOUR).unwrap();
 
     let slot = PlacementSlot::default();
-    let service =
-        PeerService::new(&me.store, &me.vault, Pledge::gigabytes(1)).with_placement(&slot);
+    let service = PeerService::new(&me.store, &me.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped)
+        .with_placement(&slot);
     let ask = || {
         let (owner, mut chunks) =
             dial_in(&host, &me, &service, |client| client.want_hosted(64)).expect("want");
@@ -820,8 +830,9 @@ fn red_team_want_hosted_is_measured_once_a_round_and_never_for_a_stranger() {
     let slot = PlacementSlot::default();
     let placement = std::sync::Arc::new(placement(&me, &accounts, now));
     *slot.write().unwrap() = Some(placement.clone());
-    let service =
-        PeerService::new(&me.store, &me.vault, Pledge::gigabytes(1)).with_placement(&slot);
+    let service = PeerService::new(&me.store, &me.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped)
+        .with_placement(&slot);
     let ask = |who: &Node| {
         dial_in(who, &me, &service, |client| client.want_hosted(64))
             .expect("want")

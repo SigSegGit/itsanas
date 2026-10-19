@@ -20,6 +20,17 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-19, night: hostile clients, reads scoped to the account.** The
+confidentiality half of §10 7: `read_owner` lists every request that reads an
+account (exhaustive match, so a new verb needs a decision), and the service
+answers those only to a device whose presented claim names the account.
+Clients already present before reading (daemon, `sync`, fetch, Android via
+`Node::introduce`). A fleet must move to this version together: an older
+client reads nothing and is told to update. Trap: the guard that keeps the
+`Unscoped` test double out of node code cut each file at the first
+`#[cfg(test)]` and was blind to everything after a test helper in
+`daemon.rs`; sabotage showed it.
+
 **2026-10-19, night: hostile servers, the roster (§10 7, integrity half).**
 Rodin, on the plan: the claim must travel with the chain, or a VM that never
 met the laptop waits for ever behind the Pi. So hosts keep presented claims
@@ -3020,13 +3031,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
    bounded object to sign and ship. **The integrity half is built (2026-10-19):**
    the roster is made of the existing `NodeClaim`s, kept per account in the
    store, armed at `Node::open`, fed by sessions, by hosts' own claims and by
-   `Request::Claims` (protocol 11); an unrostered chain waits. **Left: the read
-   scoping** (ROADMAP "reads are not scoped to the account"): answer `Heads`,
-   `Segments`, `Chunk`, `HaveChunks`, `ChunkSummary` and `Challenge` for an
-   owner only to a caller whose presented claim names it
-   (`Owners::presented_for`, which exists now), with `PeerService::new`
-   taking an `Owners` so the default is structural, and a test that fails on
-   a request naming an owner that is in no scope list.
+   `Request::Claims` (protocol 11); an unrostered chain waits. **The read
+   scoping is built too (2026-10-19):** every read `read_owner` names is
+   answered only to a device whose presented claim names the account
+   (`Owners::may_read`); a service with no `Owners` reads to nobody. Kept
+   `Option<Owners>` with a refusing default rather than a mandatory
+   constructor argument (Rodin's suggestion): the same safety, without
+   rewriting thirty constructions; tests pass `Unscoped`, which no node may
+   name (`red_team_no_node_serves_with_the_unscoped_owners`). ✅ both halves.
 
 8. ✅ **May an agreeing bucket hash re-stamp holder records?** (§8 4c.) **Decided 2026-10-04, yes, with the host-side check**, under Nicolas's delegation for no-brainers once the downside was closed: the summary is read from the vault index, `HaveChunks` from the file, so an honest host whose disk lost files kept agreeing; the rolling check makes its summary as good as the walk. A dishonest host gains nothing: `HaveChunks` was self-reported too. The question as it stood: Today
    records are re-stamped only by a listing, and the full walk that lists

@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1264 test functions, 9 of them `#[ignore]`d into the slow job, and 361 of
+**1267 test functions, 9 of them `#[ignore]`d into the slow job, and 364 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1849,12 +1849,12 @@ stops it, and the test:
 | Read a path or a byte of content on a host | sealed chunk and sealed segment body | `the_sealed_body_does_not_leak_the_path_in_plaintext`, `the_hosts_hold_everything_and_can_read_none_of_it` |
 | Learn from a repair request which chunks exist only on hosts | asked only of peers the ledger records as holders | `red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost` |
 | Two accounts' identical files matched by chunk sizes | nothing | ⬜ **open**, the fingerprint above; padding measured and rejected 2026-10-06, keyed chunking decided (HANDOVER §8 3c) |
-| **A stranger reads any account's metadata from any host** | nothing | ⬜ **open**, below |
+| **A stranger reads any account's metadata from any host** | the account roster: every read is answered only to a device whose presented claim names the account | ✅ **fixed** 2026-10-19, `red_team_nobody_but_the_account_reads_what_a_host_holds_for_it` |
 | Operation count per publish | nothing: `first_sequence`..`last_sequence` in the clear | ⬜ **by design**, `validate_chain` needs them |
 | Size and time of each edit | nothing: body length, chunk count and when they arrive | ⬜ **by design**, ARCHITECTURE §8 |
 | An error a peer provokes echoes a local path | refusal texts are fixed strings or `put_segment`'s errors, none of which carries a path (`StoreError::Io` is not returned there) | read, no test |
 
-**Open, named, not fixed: reads are not scoped to the account.** `handle`
+**Fixed 2026-10-19 (peer protocol 11): reads are scoped to the account.** Every read (`read_owner` in `service.rs`) is answered only to a device whose presented claim names its account, a service with no `Owners` reads to nobody, and an older client that presents nothing is told to update. What follows is the hole as it was: `handle`
 answers `Heads`, `Segments`, `Chunk`, `HaveChunks` and `ChunkSummary` for
 whatever `owner` the request names, and TLS proves only a device key that
 anybody can generate (`itsanas-tls` asks no client certificate). So anyone

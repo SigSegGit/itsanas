@@ -805,13 +805,13 @@ mod tests {
 
         assert_eq!(
             ask(0x23).unwrap(),
-            Response::Claims(Vec::new()),
+            Response::Refused(itsanas_net::NOT_YOUR_ACCOUNT.to_owned()),
             "a device that presented nothing was told"
         );
         assert!(!matches!(present(0x24, &mallory), Response::Refused(_)));
         assert_eq!(
             ask(0x24).unwrap(),
-            Response::Claims(Vec::new()),
+            Response::Refused(itsanas_net::NOT_YOUR_ACCOUNT.to_owned()),
             "a device of another account was handed this account's devices"
         );
 
@@ -855,6 +855,76 @@ mod tests {
             !host.store.may_apply_chain_of(&device(0x32)).unwrap(),
             "a device of another account joined this account's roster by presenting"
         );
+    }
+
+    #[test]
+    fn red_team_nobody_but_the_account_reads_what_a_host_holds_for_it() {
+        // ROADMAP, "reads are not scoped to the account": anyone who knew a
+        // user id -- every host of it does -- read its device list, every
+        // envelope and the sealed chunks from any host. Now every read names
+        // its account and is answered only to a device whose presented claim
+        // does: not a stranger, not a device of another account (a fellow
+        // host), not this host's own peers of other accounts.
+        use itsanas_net::{NOT_YOUR_ACCOUNT, PeerService, Pledge, Request, Response};
+        let host = host();
+        let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+            .with_owners(&host.book);
+        let (alice, mallory) = (account(0x0A), account(0x0B));
+        let owner = alice.user_id();
+        let address = ChunkId::from_bytes([3; 32]);
+        let reads = [
+            Request::Heads { owner },
+            Request::Segments {
+                owner,
+                device: device(0x41),
+                after: None,
+                limit: 1,
+            },
+            Request::Chunk { owner, address },
+            Request::HaveChunks {
+                owner,
+                addresses: vec![address],
+            },
+            Request::ChunkSummary { owner },
+            Request::Challenge {
+                owner,
+                address,
+                nonce: [1; 32],
+            },
+            Request::Claims { owner },
+        ];
+        service
+            .handle(
+                &Request::Claim {
+                    claim: claim(&mallory, 0x42, 100, false),
+                },
+                device(0x42),
+            )
+            .unwrap();
+        for request in &reads {
+            for caller in [device(0x40), device(0x42)] {
+                assert_eq!(
+                    service.handle(request, caller).unwrap(),
+                    Response::Refused(NOT_YOUR_ACCOUNT.to_owned()),
+                    "{request:?} was answered to a device that is not alice's"
+                );
+            }
+        }
+        service
+            .handle(
+                &Request::Claim {
+                    claim: claim(&alice, 0x41, 100, false),
+                },
+                device(0x41),
+            )
+            .unwrap();
+        for request in &reads {
+            assert_ne!(
+                service.handle(request, device(0x41)).unwrap(),
+                Response::Refused(NOT_YOUR_ACCOUNT.to_owned()),
+                "{request:?} was refused to alice's own device"
+            );
+        }
     }
 
     /// Present a claim and have the coordinator confirm it, as a round does.

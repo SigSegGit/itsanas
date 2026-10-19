@@ -88,7 +88,8 @@ fn with_server<T>(
     let address = server.local_addr().expect("local address");
     let shutdown = AtomicBool::new(false);
 
-    let service = PeerService::new(&server_node.store, &server_node.vault, pledge);
+    let service = PeerService::new(&server_node.store, &server_node.vault, pledge)
+        .with_owners(&itsanas_net::Unscoped);
 
     std::thread::scope(|scope| {
         scope.spawn(|| {
@@ -130,6 +131,7 @@ fn red_team_a_peer_speaking_protocol_5_is_never_asked_for_presences() {
         let address = server.local_addr().expect("local address");
         let shutdown = AtomicBool::new(false);
         let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+            .with_owners(&itsanas_net::Unscoped)
             .with_relay(&relay)
             .speaking_at_most(version);
 
@@ -1265,7 +1267,8 @@ fn red_team_a_trickled_handshake_is_cut_off_by_the_node_listener() {
         .with_handshake_deadline(std::time::Duration::from_millis(300));
     let address = server.local_addr().expect("local address");
     let shutdown = AtomicBool::new(false);
-    let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1));
+    let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped);
 
     std::thread::scope(|scope| {
         scope.spawn(|| {
@@ -3646,6 +3649,10 @@ fn chunks_victim(author: &Node) -> ChunkId {
 struct RefuseAll;
 
 impl itsanas_net::Owners for RefuseAll {
+    fn may_read(&self, _: itsanas_crypto::DeviceId, _: itsanas_crypto::UserId) -> bool {
+        true
+    }
+
     fn present(
         &self,
         _caller: itsanas_crypto::DeviceId,

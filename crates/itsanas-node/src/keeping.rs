@@ -351,7 +351,8 @@ mod tests {
         let server = PeerServer::bind("127.0.0.1:0").expect("bind loopback");
         let address = server.local_addr().expect("local address");
         let shutdown = AtomicBool::new(false);
-        let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1));
+        let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+            .with_owners(&itsanas_net::Unscoped);
 
         std::thread::scope(|scope| {
             scope.spawn(|| {
