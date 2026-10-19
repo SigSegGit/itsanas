@@ -262,7 +262,7 @@ jobs:
         if: runner.os == 'Windows' && needs.changes.outputs.tests == 'true'
         shell: pwsh
         run: |
-                    # Without the RAM disk the redb-heavy tests run 30-50x slower and
+          # Without the RAM disk the redb-heavy tests run 30-50x slower and
           # time out (2026-10-19: a placement test hit 60 s on the default
           # TEMP), so a failed install fails here, with choco's own output,
           # rather than as a confusing test timeout later. choco is retried:
