@@ -976,7 +976,10 @@ fn red_team_two_hosts_seen_from_one_network_lately_count_as_one_for_availability
     let together = placement(&me, &accounts, now)
         .evaluate(&me.store, &chunk)
         .unwrap();
-    assert!(together.verdict.durable, "durability still counts accounts");
+    assert!(
+        !together.verdict.durable,
+        "two accounts behind one router counted as two households"
+    );
     assert!(
         !together.verdict.available,
         "two hosts behind one router counted as independent: {:?}",

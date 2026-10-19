@@ -1,7 +1,7 @@
 # Test Catalogue
 
 **Last updated: 2026-10-19 — 1259 test functions across 38 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 356 are red-team tests.**
+`#[ignore]`d, plus 2 doctests. 357 are red-team tests.**
 
 **1143 of the 1259 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
@@ -1044,7 +1044,7 @@ Real stores and sockets, `placement = measured`. `everyone` is covered by the re
 | **`red_team_release_needs_an_audit_passed_within_live_for`** | A copy on a host that has not passed an audit within `LIVE_FOR` is not released. |
 | **`red_team_a_session_that_moves_nothing_evaluates_each_queued_chunk_once`** | A session with no capacity does not re-evaluate the same queued chunk. |
 | **`red_team_want_hosted_is_measured_once_a_round_and_never_for_a_stranger`** | The roster is built once per round; a caller outside it is offered only chunks with no proven remote holder. |
-| **`red_team_two_hosts_seen_from_one_network_lately_count_as_one_for_availability`** | §8 7c through the store and `Placement::build`: two accounts missed at different sessions satisfy a chunk; recorded on one /24 within `LIVE_FOR` they leave it short on availability (still durable); the same rows older than `LIVE_FOR` change nothing. |
+| **`red_team_two_hosts_seen_from_one_network_lately_count_as_one_for_availability`** | §8 7c through the store and `Placement::build`: two accounts missed at different sessions satisfy a chunk; recorded on one /24 within `LIVE_FOR` they leave it short on availability and on durability (one household); the same rows older than `LIVE_FOR` change nothing. |
 | **`red_team_a_census_counts_the_chunks_no_host_can_make_reachable`** | §8 7d. Two accounts up half the time at the same hours, both already holding: the census counts every chunk `unreachable`; one always-on host added brings it to zero. |
 | **`red_team_no_coordinator_crate_can_reach_the_roster_builder`** | Neither `itsanas-net` nor `itsanas-placement` pulls in `itsanas-coord` or `itsanas-coordinator` through its normal dependencies, so a coordinator's presence figures cannot become a ranked `Uptime`. |
 
@@ -1767,9 +1767,9 @@ The goal: two other accounts, a miss probability of at most 1 % (10 000 ppm), at
 | `durability_needs_one_holder_seen_recently` | Two proven accounts, none seen within `LIVE_FOR`: not durable. |
 | `the_cap_stops_the_search` | `want` stops at 12 remote copies and reports unsatisfied-but-capped, rather than recruiting every host for a chunk no host can make safe. |
 | `distinct_accounts_come_first` | The first pass takes only hosts of accounts not yet represented, so the second copy lands with someone else. |
-| **`red_team_two_holders_behind_one_router_count_as_one_for_availability`** | Two accounts each up 95 % at different hours: 0.25 % miss on two networks, 5 % (the better member) on one /24; durability unchanged; no known network groups nothing. |
+| **`red_team_two_holders_behind_one_router_count_as_one_for_availability`** | Two accounts each up 95 % at different hours: 0.25 % miss on two networks, 5 % (the better member) on one /24, and one household for durability; no known network groups nothing. |
 | **`red_team_a_second_copy_goes_to_another_network_before_the_same_one`** | Between two new accounts, `want` passes over the better-ranked host on the held copy's network. |
-| `a_new_account_still_comes_before_a_new_network` | A new account on the same network beats a new network of an account already holding: durability first. |
+| **`red_team_a_new_account_behind_the_same_router_is_not_a_new_household`** | A new account on the held copy's network is not a new household; `want` prefers the new network, and one household stays unsatisfied. |
 | `a_satisfied_chunk_wants_nobody` | No make-work: placement only adds copies, and adds none when the goal is met. |
 
 ## `network` — "same network" as a proxy for hosts that go dark together (4)

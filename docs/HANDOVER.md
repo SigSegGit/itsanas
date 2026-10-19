@@ -41,8 +41,8 @@ either is, which is the independence the network argues against. Store:
 service-side known check reads green when removed because the store repeats
 it, so the store's test is the one that bites. Not covered by a test: that
 the parked side of a splice passes `None` (`transport.rs`, the splice
-accept). Open for Nicolas, §10: whether two accounts on one network count as
-two for durability.
+accept). Durability: answered by Nicolas the same evening (§10 16), accounts
+seen from one network are one household (`households` in `target.rs`).
 
 **2026-10-19, later: §8 7(b), merged after #289.** The roster builder cannot
 see a coordinator type: `red_team_no_coordinator_crate_can_reach_the_roster_builder`
@@ -3097,11 +3097,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
    backup. It would give the coordinator a data-plane role, against
    ROADMAP's "control-plane only" and its storage and bandwidth cost;
    to be weighed (and Rodin'd) before anything is built.
-16. **Two accounts on one network: one copy or two, for durability?** (§8
-   7c, raised by Rodin.) Durability counts accounts, so two members on one
-   Freebox satisfy "two other accounts" and burn in the same fire. 7(c) groups
-   them for availability only. Counting them as one account too would make
-   every chunk of a household look for a third house.
+16. ✅ **Two accounts on one network: one household.** Answered by Nicolas
+   on 2026-10-19: they fall together, so they count as one for durability
+   too. Built the same day (`households` in `itsanas-placement/src/target.rs`:
+   accounts merged when they share a network). The cost, accepted: a
+   household with no outside host is never durable, and its chunks go to any
+   eligible host after `SAFETY_GRACE`.
 
 ## 11. Working style Nicolas expects
 
