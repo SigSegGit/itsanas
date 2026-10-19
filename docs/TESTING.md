@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-19 — 1246 test functions across 38 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 347 are red-team tests.**
+**Last updated: 2026-10-19 — 1247 test functions across 38 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 348 are red-team tests.**
 
-**1130 of the 1246 tests have an entry of their own on this page** — an *entry*,
+**1131 of the 1247 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -167,7 +167,7 @@ guarantee and is not one.
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 60 |
 | `itsanas-net` relay (`tests/relay.rs`) | 6 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
-| `itsanas-net` placement (`tests/placement.rs`) | 14 |
+| `itsanas-net` placement (`tests/placement.rs`) | 15 |
 | `itsanas-placement` unit | 64 |
 | `itsanas-coord` unit | 123 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 17 |
@@ -1022,7 +1022,7 @@ Real sockets. `tests/eviction.rs`.
 | **`red_team_a_peer_speaking_protocol_9_is_never_asked_to_evict`** | `PeerClient::may_evict` returns `None` below protocol 10 and sends nothing. |
 | **`red_team_only_the_device_tls_proved_speaks_for_the_account_on_the_wire`** | A device presenting another account's name is refused; the account comes from the TLS-proved device, never from the request. |
 
-# `itsanas-net` — availability-aware placement (`tests/placement.rs`) (14)
+# `itsanas-net` — availability-aware placement (`tests/placement.rs`) (15)
 
 Real stores and sockets, `placement = measured`. `everyone` is covered by the rest of the suite, which is unchanged.
 
@@ -1042,6 +1042,7 @@ Real stores and sockets, `placement = measured`. `everyone` is covered by the re
 | **`red_team_release_needs_an_audit_passed_within_live_for`** | A copy on a host that has not passed an audit within `LIVE_FOR` is not released. |
 | **`red_team_a_session_that_moves_nothing_evaluates_each_queued_chunk_once`** | A session with no capacity does not re-evaluate the same queued chunk. |
 | **`red_team_want_hosted_is_measured_once_a_round_and_never_for_a_stranger`** | The roster is built once per round; a caller outside it is offered only chunks with no proven remote holder. |
+| **`red_team_no_coordinator_crate_can_reach_the_roster_builder`** | Neither `itsanas-net` nor `itsanas-placement` pulls in `itsanas-coord` or `itsanas-coordinator` through its normal dependencies, so a coordinator's presence figures cannot become a ranked `Uptime`. |
 
 # `itsanas-cli` — crash consistency (1, `#[ignore]`d)
 

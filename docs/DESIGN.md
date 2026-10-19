@@ -452,9 +452,10 @@ The constraint, in its sharper form: **availability anyone else reports never
 reaches placement; what this device measured does.** Placement does not read the
 coordinator's `AvailabilityRecord`, and the roster is built from this device's
 rings, its audits and the accounts its host table confirms
-(`red_team_placement_reads_only_confirmed_claims_as_accounts`). ⬜ No test yet
-fails if a coordinator type is passed to the roster builder; today the crate has
-no dependency on `itsanas-coord`. [ECONOMICS.md](ECONOMICS.md) §3 carries the
+(`red_team_placement_reads_only_confirmed_claims_as_accounts`). Neither
+`itsanas-net`, where the roster is built, nor `itsanas-placement` can name a
+coordinator type: `red_team_no_coordinator_crate_can_reach_the_roster_builder`
+fails if either pulls in `itsanas-coord` or `itsanas-coordinator`. [ECONOMICS.md](ECONOMICS.md) §3 carries the
 argument.
 
 ### Owner affinity
