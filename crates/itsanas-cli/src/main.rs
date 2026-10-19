@@ -3634,10 +3634,13 @@ fn start_daemon(
         }
         let node = match Node::open(home, &passphrase) {
             Err(CliError::VaultAbsent(path)) => {
-                if !wait_for_vault(&path) {
-                    return Ok(());
-                }
-                continue;
+                eprintln!(
+                    "itsanas: the vault's disk at {} is not there; this machine syncs its own \
+                     files and hosts nobody until it is plugged back in, then carries on by \
+                     itself. Nothing is lost meanwhile.",
+                    path.display()
+                );
+                Node::open_away(home, &passphrase)?
             }
             other => other?,
         };
@@ -3645,33 +3648,7 @@ fn start_daemon(
         if !daemon::resume_after_vault_pause() {
             return Ok(());
         }
-        let path = node.vault_dir();
-        drop(node);
-        if !wait_for_vault(&path) {
-            return Ok(());
-        }
     }
-}
-
-/// Wait until `vault` carries its marker again, saying so once. `false` if
-/// somebody asked the process to stop meanwhile.
-fn wait_for_vault(vault: &Path) -> bool {
-    eprintln!(
-        "itsanas: the vault's disk at {} is not there; this machine is away until it is \
-         plugged back in, and resumes by itself then. Nothing is lost meanwhile.",
-        vault.display()
-    );
-    while !daemon::vault_present(vault) {
-        if daemon::asked_to_stop() {
-            return false;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(500));
-    }
-    eprintln!(
-        "itsanas: the vault's disk is back at {}; resuming",
-        vault.display()
-    );
-    true
 }
 
 fn refuse_if_departed(home: &Path) -> Result<()> {

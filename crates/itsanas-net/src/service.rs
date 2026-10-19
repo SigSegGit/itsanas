@@ -96,6 +96,23 @@ pub trait Relay: Sync {
 pub const NOT_YOUR_ACCOUNT: &str = "present this account's claim first: only its own devices read what is held for it \
      (update ITSaNAS on this machine if it already is one)";
 
+/// The refusal of a node whose vault's disk is away (a USB disk unplugged)
+/// to anything about another account's data. Its own words, because a caller
+/// must read it as "not here", never as "lost your data": an audit answered
+/// with it is no failed audit (`PeerClient::challenge`).
+pub const HOSTING_AWAY: &str = "this machine's hosting disk is away; ask again later";
+
+/// The account whose hosted data a request touches on this node, if any:
+/// what an away node refuses ([`HOSTING_AWAY`]).
+#[must_use]
+pub fn hosted_owner(request: &Request) -> Option<UserId> {
+    match request {
+        Request::StoreChunk { owner, .. } | Request::MayEvict { owner, .. } => Some(*owner),
+        Request::StoreSegment { envelope } => Some(envelope.owner),
+        _ => read_owner(request),
+    }
+}
+
 /// The account a request reads from this host, if it reads one.
 ///
 /// Exhaustive on purpose: a request added without a decision here does not
@@ -273,6 +290,9 @@ pub struct PeerService<'a> {
     /// This host's own claim, encoded, sent back to a device that presents
     /// one ([`Request::Claim`]).
     own_claim: Option<Vec<u8>>,
+    /// This node's vault's disk is away: it serves its own account and
+    /// nobody else's ([`HOSTING_AWAY`]).
+    away: bool,
     /// What the disk can still take, when the host knows (a pledge the disk
     /// can no longer hold must stop the chunks, not fail their write).
     disk_room: Option<&'a (dyn Fn() -> Option<u64> + Sync)>,
@@ -308,6 +328,7 @@ impl<'a> PeerService<'a> {
             relay: None,
             owners: None,
             placement: None,
+            away: false,
             own_claim: None,
             disk_room: None,
             protocol: PROTOCOL_VERSION,
@@ -372,6 +393,13 @@ impl<'a> PeerService<'a> {
         {
             let _ = self.store.note_network_at(&caller, network, now);
         }
+    }
+
+    /// Serve as a node whose vault's disk is away: its own account only.
+    #[must_use]
+    pub const fn hosting_away(mut self, away: bool) -> Self {
+        self.away = away;
+        self
     }
 
     /// Answer a presented claim with `claim`, this host's own, so the
@@ -448,6 +476,9 @@ impl<'a> PeerService<'a> {
     fn refused_before_reading(&self, request: &Request, caller: DeviceId) -> Option<Response> {
         if !request.is_acceptable() {
             return Some(Response::Refused("malformed request".to_owned()));
+        }
+        if self.away && hosted_owner(request).is_some_and(|owner| owner != self.store.owner()) {
+            return Some(Response::Refused(HOSTING_AWAY.to_owned()));
         }
         // Every request that reads what this host holds for an account is
         // answered only to a device of that account. Before peer protocol 11
@@ -1048,6 +1079,63 @@ mod tests {
         assert_eq!(
             host.store.network_since(&known, 0).expect("read"),
             itsanas_placement::Network::of(public)
+        );
+    }
+
+    #[test]
+    fn red_team_an_away_node_serves_its_own_account_and_refuses_hosting_as_away() {
+        // A USB vault unplugged: the node's own files keep syncing, and
+        // every request about another account's data gets `HOSTING_AWAY`,
+        // which an owner reads as "not here" -- never an audit "not held",
+        // which would pause a host that only had its disk out.
+        let node = node(&alice(), 10);
+        let away = service(&node).hosting_away(true);
+        let stranger = UserKeys::derive(&MasterSecret::from_bytes([0xB0; 32])).user_id();
+        let address = ChunkId::from_bytes([3; 32]);
+        let refused = Response::Refused(HOSTING_AWAY.to_owned());
+        for request in [
+            Request::Challenge {
+                owner: stranger,
+                address,
+                nonce: [1; 32],
+            },
+            Request::Chunk {
+                owner: stranger,
+                address,
+            },
+            Request::HaveChunks {
+                owner: stranger,
+                addresses: vec![address],
+            },
+            Request::StoreChunk {
+                owner: stranger,
+                address,
+                sealed: vec![0; 8],
+            },
+        ] {
+            assert_eq!(
+                away.handle_from_test(&request).unwrap(),
+                refused,
+                "{request:?}"
+            );
+        }
+        assert_ne!(
+            away.handle_from_test(&Request::Heads {
+                owner: node.store.owner()
+            })
+            .unwrap(),
+            refused,
+            "an away node stopped serving its own account"
+        );
+        assert_ne!(
+            service(&node)
+                .handle_from_test(&Request::Chunk {
+                    owner: stranger,
+                    address
+                })
+                .unwrap(),
+            refused,
+            "a node with its disk in said it was away"
         );
     }
 

@@ -38,7 +38,8 @@ pub use error::{NetError, Result};
 pub use placement::{CensusReport, Evaluation, Placement, PlacementSlot};
 pub use protocol::{Head, PROTOCOL_VERSION, Request, Response, challenge_holds, challenge_proof};
 pub use service::{
-    ACCOUNT_FULL, NOT_YOUR_ACCOUNT, Owners, PeerService, Pledge, Relay, UPDATE_REQUIRED, Unscoped,
+    ACCOUNT_FULL, HOSTING_AWAY, NOT_YOUR_ACCOUNT, Owners, PeerService, Pledge, Relay,
+    UPDATE_REQUIRED, Unscoped,
 };
 pub use session::{
     AuditReport, CHALLENGES_PER_ROUND, HostReport, PushReport, RoundReport, Scope, audit,

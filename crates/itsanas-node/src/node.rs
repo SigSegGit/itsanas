@@ -123,7 +123,15 @@ pub struct Node {
     /// Kept so that an escrow copy can be sealed under a different label
     /// without deriving anything a second time. Zeroized with the node.
     pub secrets: zeroize::Zeroizing<Vec<u8>>,
+    /// Opened while its configured vault's disk is not there
+    /// ([`Node::open_away`]): `vault` is an empty stand-in in the home, and
+    /// this machine hosts nothing for anyone until the disk is back.
+    pub away: bool,
 }
+
+/// Where the stand-in vault of a node whose vault's disk is away lives,
+/// under the home. Emptied at every such opening.
+pub const AWAY_VAULT: &str = "vault-while-away";
 
 /// Everything but the secrets, and the secrets as a length.
 ///
@@ -162,6 +170,7 @@ impl fmt::Debug for Node {
             .field("device", &self.device)
             .field("user", &self.user)
             .field("secrets_len", &self.secrets.len())
+            .field("away", &self.away)
             .finish_non_exhaustive()
     }
 }
@@ -607,6 +616,24 @@ impl Node {
 
     /// Open an existing node.
     pub fn open(home: &Path, passphrase: &str) -> Result<Self> {
+        Self::open_as(home, passphrase, false)
+    }
+
+    /// Open a node whose configured vault's disk is not there (a USB disk
+    /// unplugged): its own files keep syncing, through an empty stand-in
+    /// vault under the home ([`AWAY_VAULT`]), and it hosts nothing.
+    /// Whatever the stand-in gathers (siblings' segments and chunks on their
+    /// way to this store) is thrown away at the next opening; it is all
+    /// still on the machines that sent it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Node::open`], and if the stand-in cannot be made.
+    pub fn open_away(home: &Path, passphrase: &str) -> Result<Self> {
+        Self::open_as(home, passphrase, true)
+    }
+
+    fn open_as(home: &Path, passphrase: &str, away: bool) -> Result<Self> {
         let keystore_path = Self::keystore_path(home);
         let bytes = match std::fs::read(&keystore_path) {
             Ok(bytes) => bytes,
@@ -631,7 +658,7 @@ impl Node {
         let device = DeviceKeys::from_seed(&SecretBytes::new(secrets.device_seed));
 
         let config = Config::load(&Self::config_path(home))?;
-        Self::assemble(home, config, &master, &device, plaintext)
+        Self::assemble_as(home, config, &master, &device, plaintext, away)
     }
 
     fn assemble(
@@ -640,6 +667,17 @@ impl Node {
         master: &MasterSecret,
         device: &DeviceKeys,
         secrets: Vec<u8>,
+    ) -> Result<Self> {
+        Self::assemble_as(home, config, master, device, secrets, false)
+    }
+
+    fn assemble_as(
+        home: &Path,
+        config: Config,
+        master: &MasterSecret,
+        device: &DeviceKeys,
+        secrets: Vec<u8>,
+        away: bool,
     ) -> Result<Self> {
         let user = UserKeys::derive(master);
 
@@ -669,7 +707,11 @@ impl Node {
             local_ceiling: None,
             folder_copy: FolderCopy::None,
         }))?;
-        let vault = Self::open_vault(home, &config, &device.device_id())?;
+        let vault = if away {
+            Self::stand_in_vault(home, &device.device_id())?
+        } else {
+            Self::open_vault(home, &config, &device.device_id())?
+        };
         // Arms this account's roster: from now on a chain signed by a key no
         // claim of this account names is not applied here (HANDOVER §10 7).
         store.admit_member(&device.device_id(), false)?;
@@ -682,7 +724,24 @@ impl Node {
             device: DeviceKeys::from_seed(&device.seed()),
             user: UserKeys::derive(master),
             secrets: zeroize::Zeroizing::new(secrets),
+            away,
         })
+    }
+
+    /// A fresh, empty vault under the home for a node whose own is away.
+    fn stand_in_vault(home: &Path, device: &itsanas_crypto::DeviceId) -> Result<Vault> {
+        let path = home.join(AWAY_VAULT);
+        let io = |source| NodeError::Io {
+            path: path.clone(),
+            source,
+        };
+        match std::fs::remove_dir_all(&path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(io(error)),
+            _ => {}
+        }
+        std::fs::create_dir_all(&path).map_err(io)?;
+        std::fs::write(path.join(VAULT_MARKER), device.to_hex()).map_err(io)?;
+        Ok(Vault::open(&path)?)
     }
 
     /// Start a session the way every client must: present this device's

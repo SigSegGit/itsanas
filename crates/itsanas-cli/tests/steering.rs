@@ -393,17 +393,16 @@ fn red_team_a_timed_pause_ends_by_itself_without_resume() {
 }
 
 /// A vault on a USB disk lent to the network: unplugged under a running
-/// daemon, the daemon must not run a round onto the bare mount point, must
-/// not exit (a laptop has no service manager to restart it), and must come
-/// back by itself when the disk does.
-// Unix only, for the reason the vault's own unplug test gives: Windows will
-// not rename a directory the daemon holds a file open in.
+/// daemon, the daemon must not write onto the bare mount point and must not
+/// exit (a laptop has no service manager to restart it). It keeps syncing
+/// this account's own files meanwhile, and hosts again by itself, within
+/// seconds, when the disk comes back.
 #[cfg(unix)]
 #[test]
 #[ignore = "one Argon2id derivation and a running daemon; the release job runs it"]
 fn red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it() {
     let base = tempfile::tempdir().expect("temp dir");
-    let (home, _folder, _) = node_with_folder(base.path(), "usb");
+    let (home, folder, _) = node_with_folder(base.path(), "usb");
     let disk = base.path().join("usb-disk");
     std::fs::create_dir(&disk).expect("the disk");
     let vault = disk.join("vault");
@@ -412,26 +411,24 @@ fn red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it(
         &["vault", vault.to_str().expect("utf-8"), "--same-disk"],
     );
 
-    let mut daemon = Daemon::start(&home, base.path().join("daemon.log"));
+    let daemon = Daemon::start(&home, base.path().join("daemon.log"));
     daemon.address();
+    let (_, before) = wait_for(&home, &daemon, "the daemon never reported", |_| true);
 
     let away = base.path().join("usb-disk-unplugged");
     std::fs::rename(&disk, &away).expect("unplug");
-    run(&home, &["sync-now"]);
-    let deadline = Instant::now() + PATIENCE;
-    while !daemon.log().contains("this machine is away") && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    assert!(
-        daemon.log().contains("this machine is away"),
-        "the daemon did not notice its vault's disk had gone\n--- daemon log\n{}",
-        daemon.log()
-    );
-    assert!(
-        daemon.child.try_wait().expect("child").is_none(),
-        "the daemon exited instead of waiting for its disk\n--- daemon log\n{}",
-        daemon.log()
-    );
+    let said = |what: &str| {
+        let deadline = Instant::now() + PATIENCE;
+        while !daemon.log().contains(what) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        assert!(
+            daemon.log().contains(what),
+            "the daemon never said {what:?}\n--- daemon log\n{}",
+            daemon.log()
+        );
+    };
+    said("syncs its own files and hosts nobody");
     assert!(
         !vault.exists(),
         "a vault was recreated on the bare mount point: {:?}\n--- daemon log\n{}",
@@ -439,14 +436,24 @@ fn red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it(
         daemon.log()
     );
 
+    // Away, its own files still go in.
+    std::fs::write(folder.join("written-while-away.txt"), b"still syncing").expect("file");
+    wait_for(
+        &home,
+        &daemon,
+        "a file written while the disk was away was not taken in",
+        |(_, files)| files > before,
+    );
+
     std::fs::rename(&away, &disk).expect("plug back");
+    said("hosting again");
     let deadline = Instant::now() + PATIENCE;
-    while daemon.log().matches("serving").count() < 2 && Instant::now() < deadline {
+    while daemon.log().matches("serving").count() < 3 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(200));
     }
     assert!(
-        daemon.log().contains("is back") && daemon.log().matches("serving").count() >= 2,
-        "the daemon did not resume when the disk came back\n--- daemon log\n{}",
+        daemon.log().matches("serving").count() >= 3,
+        "the daemon did not serve again on its real vault\n--- daemon log\n{}",
         daemon.log()
     );
 }
