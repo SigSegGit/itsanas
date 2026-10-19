@@ -125,6 +125,10 @@ pub struct CensusReport {
     pub short: usize,
     /// Taken off the queue as satisfied.
     pub settled: usize,
+    /// Short on availability with nothing left to try: every eligible host
+    /// already counted, or the copy cap reached. What no further round can
+    /// fix, and what the member is warned about (§8 7d, ECONOMICS §2).
+    pub unreachable: usize,
 }
 
 impl Placement {
@@ -304,10 +308,17 @@ impl Placement {
         let page = store.census_next(rows, &ChunkId::from_bytes(bytes))?;
         let mut short = Vec::new();
         let mut settled = Vec::new();
+        let mut unreachable = 0;
         for (chunk, stamps) in &page {
-            if self.evaluate_stamps(chunk, stamps).verdict.satisfied() {
+            let evaluation = self.evaluate_stamps(chunk, stamps);
+            if evaluation.verdict.satisfied() {
                 settled.push(*chunk);
             } else {
+                // Durability is a matter of time (a host comes back, the
+                // safety net widens); availability with every host already
+                // counted is the network's ceiling.
+                unreachable +=
+                    usize::from(!evaluation.verdict.available && !evaluation.want.satisfied);
                 short.push(*chunk);
             }
         }
@@ -317,6 +328,7 @@ impl Placement {
             examined: page.len(),
             short: short.len(),
             settled: settled.len(),
+            unreachable,
         })
     }
 

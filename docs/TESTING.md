@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-19 — 1257 test functions across 38 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 354 are red-team tests.**
+**Last updated: 2026-10-19 — 1259 test functions across 38 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 356 are red-team tests.**
 
-**1141 of the 1257 tests have an entry of their own on this page** — an *entry*,
+**1143 of the 1259 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -167,7 +167,7 @@ guarantee and is not one.
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 60 |
 | `itsanas-net` relay (`tests/relay.rs`) | 6 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
-| `itsanas-net` placement (`tests/placement.rs`) | 16 |
+| `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
 | `itsanas-coord` unit | 123 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 17 |
@@ -178,7 +178,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 142 |
+| `itsanas-cli` unit | 143 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 135 |
@@ -1024,7 +1024,7 @@ Real sockets. `tests/eviction.rs`.
 | **`red_team_a_peer_speaking_protocol_9_is_never_asked_to_evict`** | `PeerClient::may_evict` returns `None` below protocol 10 and sends nothing. |
 | **`red_team_only_the_device_tls_proved_speaks_for_the_account_on_the_wire`** | A device presenting another account's name is refused; the account comes from the TLS-proved device, never from the request. |
 
-# `itsanas-net` — availability-aware placement (`tests/placement.rs`) (16)
+# `itsanas-net` — availability-aware placement (`tests/placement.rs`) (17)
 
 Real stores and sockets, `placement = measured`. `everyone` is covered by the rest of the suite, which is unchanged.
 
@@ -1045,6 +1045,7 @@ Real stores and sockets, `placement = measured`. `everyone` is covered by the re
 | **`red_team_a_session_that_moves_nothing_evaluates_each_queued_chunk_once`** | A session with no capacity does not re-evaluate the same queued chunk. |
 | **`red_team_want_hosted_is_measured_once_a_round_and_never_for_a_stranger`** | The roster is built once per round; a caller outside it is offered only chunks with no proven remote holder. |
 | **`red_team_two_hosts_seen_from_one_network_lately_count_as_one_for_availability`** | §8 7c through the store and `Placement::build`: two accounts missed at different sessions satisfy a chunk; recorded on one /24 within `LIVE_FOR` they leave it short on availability (still durable); the same rows older than `LIVE_FOR` change nothing. |
+| **`red_team_a_census_counts_the_chunks_no_host_can_make_reachable`** | §8 7d. Two accounts up half the time at the same hours, both already holding: the census counts every chunk `unreachable`; one always-on host added brings it to zero. |
 | **`red_team_no_coordinator_crate_can_reach_the_roster_builder`** | Neither `itsanas-net` nor `itsanas-placement` pulls in `itsanas-coord` or `itsanas-coordinator` through its normal dependencies, so a coordinator's presence figures cannot become a ranked `Uptime`. |
 
 # `itsanas-cli` — crash consistency (1, `#[ignore]`d)
@@ -1094,7 +1095,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (142)
+# `itsanas-cli` — unit tests (143)
 
 ## `bench` — measuring this machine (4)
 
@@ -1352,7 +1353,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `a_timed_pause_shows_paused_only_while_it_holds` | Status --brief, which every tray reads, says paused only while the pause holds, so an expired timed pause never shows a blue icon over a node that is syncing again. |
 | **`red_team_a_passphrase_prompt_names_the_account_it_unlocks`** | The passphrase prompt reads `Passphrase for 'NAME' (HOME): `, not `Passphrase:`, so three accounts on one machine are told apart; with no label it stays `Passphrase: `. Sabotage: drop the label and it goes red. |
 
-## `placing` — the measurement shown, and the daemon's share of placement (8)
+## `placing` — the measurement shown, and the daemon's share of placement (9)
 
 | Test | What it proves |
 | --- | --- |
@@ -1360,7 +1361,8 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_a_device_seen_for_three_hours_gets_no_percentage`** | Short history prints "not enough history yet". |
 | `a_long_gap_widens_the_window_up_to_thirteen_days` | The printed window follows `lost_after`. |
 | `everyone_shows_the_measurement_and_no_queue` | In `everyone` the measurement lines print and the short-queue line does not. |
-| `measured_shows_the_short_queue_and_the_census_slice` | In `measured`, "N chunks short of their target" and census progress print. |
+| `measured_shows_the_short_queue_and_the_census_slice` | In `measured`, "N chunks short of their target" and census progress print, and no warning when nothing is stuck. |
+| **`red_team_a_network_that_cannot_reach_99_percent_says_so`** | §8 7d. Chunks the census found short on availability with nothing left to try print as a `warning` line saying those files may be unreadable while the other machines are off; `everyone` prints none. |
 | **`red_team_an_own_device_known_only_by_its_claim_is_still_own`** | A device known only by a claim of the same account is own, so it is never placed. |
 | `measured_fills_the_slot_and_runs_the_census_and_everyone_empties_it` | The shared `Placement` slot is filled per round and the census runs in `measured`; in `everyone` the slot is empty. |
 | **`red_team_a_failed_dial_counts_against_a_known_device_and_writes_nothing_for_a_stranger`** | Dial failures become `note_unreached` for known devices only. |

@@ -20,6 +20,14 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-19, evening: §8 7(d), the warning.** The census counts chunks short
+on availability with nothing left to try (`want` unsatisfied: every eligible
+host counted, or the cap) as `unreachable`, and `status` prints a `warning`
+line for them in `measured`. Durability shortfalls are not counted: those
+wait for a host to come back or for the safety net. Not built: the
+coordinator's `anchorless` marking, nor a warning on Android or in the tray.
+Both red-team tests sabotaged red.
+
 **2026-10-19, evening: §8 7(c), "same network".** Plan by Nicolas ("rank +
 count as one"), amended by Rodin: a key per private /24 and per unique-local
 /64, never one "LAN" key; 100.64.0.0/10 (Tailscale) groups nothing; a row
@@ -2829,8 +2837,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
    (2026-10-19, `itsanas-placement/src/network.rs`; hosts seen lately from one
    /24 or /48 are one availability unit worth their best member, `want` tries
    a new network after a new account; overlay 100.64/10, loopback and link
-   local group nothing; relayed sessions record nothing); (d) ⬜ the
-   `anchorless` warning to the member (ECONOMICS §2). Not before (a): changing
+   local group nothing; relayed sessions record nothing); (d) ✅ the
+   `anchorless` warning to the member (ECONOMICS §2), client side only
+   (2026-10-19: `CensusReport::unreachable`, a `warning` line in `status`);
+   the coordinator's swarm-wide marking stays ⬜, and must never feed
+   placement (§6). Not before (a): changing
    the default.
 
 ## 9. Known gaps, deliberately open

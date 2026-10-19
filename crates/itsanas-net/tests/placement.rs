@@ -983,3 +983,41 @@ fn red_team_two_hosts_seen_from_one_network_lately_count_as_one_for_availability
         together.verdict
     );
 }
+
+#[test]
+fn red_team_a_census_counts_the_chunks_no_host_can_make_reachable() {
+    // §8 7d. Two accounts up about half the time, at the same hours: every
+    // host already holds the chunk, so nothing left can lower the miss, and
+    // the census must say so instead of calling it merely "short". Adding a
+    // host that is always on takes the count back to zero.
+    let now = now_unix();
+    let me = node(0xA1, 1);
+    let chunks = write(&me, "notes/two.bin", 9, 64 << 10);
+    let mut accounts = BTreeMap::new();
+    for (device, account) in [(fake(0x41), 0x51), (fake(0x42), 0x52)] {
+        history(&me.store, &device, now, |index| index % 2 == 0);
+        me.store.note_audit(&device, true).expect("audit");
+        accounts.insert(device, user(account));
+        me.store.record_holders_at(&chunks, &device, now).unwrap();
+    }
+    let stuck = placement(&me, &accounts, now)
+        .census(&me.store, 1000)
+        .unwrap();
+    assert_eq!(stuck.examined, chunks.len());
+    assert_eq!(
+        stuck.unreachable,
+        chunks.len(),
+        "a network that cannot reach 99 % reported nothing: {stuck:?}"
+    );
+
+    let anchor = fake(0x43);
+    proven(&me.store, &anchor, now);
+    accounts.insert(anchor, user(0x53));
+    let helped = placement(&me, &accounts, now)
+        .census(&me.store, 1000)
+        .unwrap();
+    assert_eq!(
+        helped.unreachable, 0,
+        "an always-on host is something to try: {helped:?}"
+    );
+}

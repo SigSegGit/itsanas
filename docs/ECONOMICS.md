@@ -207,15 +207,20 @@ the coordinator marks the swarm `anchorless`, and clients warn that files may be
 unreadable when peers are asleep. (With `placement = measured` the nearest
 thing that runs is `status` saying how many chunks are short of their target
 (`measured_shows_the_short_queue_and_the_census_slice`) and the copy cap of 12;
-the `anchorless` marking and the warning to the member are still not built.) Data stays safe; it is just not always
+and, since 2026-10-19, a `warning` line in `status` for the chunks no host left
+can make 99 % reachable, saying those files may be unreadable while the other
+machines are off (`red_team_a_network_that_cannot_reach_99_percent_says_so`,
+`red_team_a_census_counts_the_chunks_no_host_can_make_reachable`). The
+coordinator's `anchorless` marking of the swarm is still not built.) Data stays safe; it is just not always
 reachable, and the member is told so. Failing loudly is the whole point — the
 alternative is discovering it at the moment you need a file.
 
-None of the warning exists yet. Placement has no anchor concept, so with the
-default `placement = everyone` **every swarm is the anchorless case and nothing
-says so**; with `measured`, `status` counts the chunks short of their target,
-which is a number and not yet a warning. That is the honest reading of the current state: durability is
-implemented, availability is not, and the silence is the part to fix first —
+The warning exists only in `measured`. Placement has no anchor concept, so with
+the default `placement = everyone` **every swarm is the anchorless case and
+nothing says so**; with `measured`, `status` names the chunks no host can make
+99 % reachable in a `warning` line, on the CLI only (not on Android, not in the
+tray). That is the honest reading of the current state: durability is
+implemented, availability is opt-in, and the silence is the part to fix first —
 before the placement rule, because a wrong belief about availability is worse
 than a known absence of it.
 
