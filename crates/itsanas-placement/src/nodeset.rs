@@ -306,6 +306,7 @@ mod tests {
             ("spreading.rs", include_str!("spreading.rs")),
             ("uptime.rs", include_str!("uptime.rs")),
             ("liveness.rs", include_str!("liveness.rs")),
+            ("network.rs", include_str!("network.rs")),
             ("target.rs", include_str!("target.rs")),
             ("roster.rs", include_str!("roster.rs")),
             ("release.rs", include_str!("release.rs")),

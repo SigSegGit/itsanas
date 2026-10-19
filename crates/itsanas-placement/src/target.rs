@@ -17,14 +17,20 @@
 //! - **Count throwaway devices as accounts.** Every device of an unknown
 //!   account is the *same* [`Account::Unknown`]: ten fresh identities are one
 //!   stranger, not ten.
+//! - **Count one network as many.** Proven holders last seen from one
+//!   [`Network`] count for availability as one unit, as good as its best
+//!   member: one router, one power cut. Never for durability, which stays a count of
+//!   accounts (whether two accounts in one house are two is Nicolas's call,
+//!   HANDOVER §10). A holder with no known network is a unit of its own.
 //! - **Search without end.** [`Goal::cap`] remote copies is where the answer
 //!   becomes "short" instead of a thirtieth copy.
 
 use crate::liveness::lost_after_hours;
+use crate::network::Network;
 use crate::uptime::{Unit, Uptime, miss_ppm};
 use itsanas_crypto::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// What a chunk should reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +73,8 @@ pub struct Holding<'a> {
     pub proven: bool,
     /// Seen within the store's `LIVE_FOR`.
     pub recent: bool,
+    /// Where this node last saw it from, if lately and directly.
+    pub network: Option<Network>,
 }
 
 /// How a chunk stands.
@@ -92,8 +100,9 @@ impl Verdict {
 /// Assess a chunk from its holdings (this node excluded).
 ///
 /// durable = ≥ `goal.accounts` distinct accounts among proven off-account
-/// holders, at least one of them recent. available = `miss_ppm` over each
-/// proven off-account holder plus one union unit for every own device ≤
+/// holders, at least one of them recent. available = `miss_ppm` over one unit
+/// per proven off-account holder with no known network, one unit per network
+/// among the others (its best member), and one union unit for every own device ≤
 /// `goal.miss_ppm`. capped = remote ≥ `goal.cap`.
 #[must_use]
 pub fn assess(holdings: &[Holding<'_>], goal: &Goal, now_hour: u64) -> Verdict {
@@ -116,13 +125,38 @@ pub fn assess(holdings: &[Holding<'_>], goal: &Goal, now_hour: u64) -> Verdict {
     let any_own = holdings.iter().any(|holding| holding.own);
     let own_union = Uptime::union(&own_rings);
 
-    let mut units: Vec<Unit<'_>> = proven
-        .iter()
-        .map(|holding| Unit {
-            uptime: holding.uptime,
-            lost_after_hours: lost_after_hours(holding.uptime),
+    let mut alone: Vec<Option<&Uptime>> = Vec::new();
+    let mut by_network: BTreeMap<Network, Vec<Option<&Uptime>>> = BTreeMap::new();
+    for holding in &proven {
+        match holding.network {
+            Some(network) => by_network.entry(network).or_default().push(holding.uptime),
+            None => alone.push(holding.uptime),
+        }
+    }
+    // A network is as good as its best member, no better: it is assumed to go
+    // dark at once. Not the union of its members, as for own devices: the
+    // union of two hosts behind one router is up whenever either is, which
+    // is exactly the independence a shared network is evidence against.
+    let unions: Vec<Option<&Uptime>> = by_network
+        .values()
+        .map(|members| {
+            members.iter().flatten().copied().max_by_key(|ring| {
+                ring.availability(now_hour, lost_after_hours(Some(ring)))
+                    .unwrap_or(0)
+            })
         })
         .collect();
+    let mut units: Vec<Unit<'_>> = alone
+        .iter()
+        .map(|uptime| Unit {
+            uptime: *uptime,
+            lost_after_hours: lost_after_hours(*uptime),
+        })
+        .collect();
+    units.extend(unions.iter().map(|best| Unit {
+        uptime: *best,
+        lost_after_hours: lost_after_hours(*best),
+    }));
     if any_own {
         units.push(Unit {
             uptime: own_union.as_ref(),
@@ -149,21 +183,22 @@ pub struct Want {
     pub satisfied: bool,
 }
 
-/// Greedy over `ranked` (eligible hosts not holding the chunk, best first):
-/// first only hosts whose account is not yet represented, then any. Each
-/// added host counts as a proven, recent holder with its own uptime. Stops
-/// when satisfied or when remote copies reach `goal.cap`.
+/// Greedy over `ranked` (eligible hosts not holding the chunk, best first), in
+/// four passes: a new account on a new network, a new account, a new network,
+/// then any. Each added host counts as a proven, recent holder with its own
+/// uptime. Stops when satisfied or when remote copies reach `goal.cap`.
 ///
 /// Accounts first, because two copies with one stranger are one decision
-/// away from zero; the second pass is for availability, once durability has
-/// had every chance.
+/// away from zero; networks next, because two copies behind one router are
+/// one power cut away from none reachable. A host with no known network is
+/// always "new": nothing says it shares one.
 #[must_use]
 pub fn want(holdings: &[Holding<'_>], ranked: &[Holding<'_>], goal: &Goal, now_hour: u64) -> Want {
     let mut current: Vec<Holding<'_>> = holdings.to_vec();
     let mut hosts = Vec::new();
     let mut verdict = assess(&current, goal, now_hour);
 
-    for distinct_only in [true, false] {
+    for (new_account, new_network) in [(true, true), (true, false), (false, true), (false, false)] {
         for candidate in ranked {
             if verdict.satisfied() || verdict.capped {
                 return Want {
@@ -180,7 +215,11 @@ pub fn want(holdings: &[Holding<'_>], ranked: &[Holding<'_>], goal: &Goal, now_h
             let represented = current.iter().any(|holding| {
                 !holding.own && holding.proven && holding.account == candidate.account
             });
-            if distinct_only && represented {
+            let network_held = candidate.network.is_some()
+                && current.iter().any(|holding| {
+                    !holding.own && holding.proven && holding.network == candidate.network
+                });
+            if (new_account && represented) || (new_network && network_held) {
                 continue;
             }
             current.push(Holding {
@@ -215,6 +254,7 @@ mod tests {
             uptime,
             proven: true,
             recent: true,
+            network: None,
         }
     }
 
@@ -382,6 +422,77 @@ mod tests {
         let wanted = want(&[], &ranked, &GOAL, NOW);
         assert_eq!(wanted.hosts, vec![device(1), device(4)]);
         assert!(wanted.satisfied);
+    }
+
+    fn on<'a>(network: &str, holding: Holding<'a>) -> Holding<'a> {
+        Holding {
+            network: crate::Network::of(network.parse().unwrap()),
+            ..holding
+        }
+    }
+
+    #[test]
+    fn red_team_two_holders_behind_one_router_count_as_one_for_availability() {
+        // Two accounts, each up 95 % of the hours, down at different ones:
+        // as independent holders, 0.25 % miss and satisfied. Seen from one
+        // /24 they are one unit as good as the better of them, 5 % miss: one
+        // power cut takes both, and the chunk needs a third copy elsewhere.
+        let a = steady(NOW, 950, 0);
+        let b = steady(NOW, 950, 50);
+        let apart = [
+            on("203.0.113.7", holding(1, known(1), Some(&a))),
+            on("198.51.100.7", holding(2, known(2), Some(&b))),
+        ];
+        assert!(assess(&apart, &GOAL, NOW).satisfied(), "two networks");
+        let together = [
+            on("203.0.113.7", holding(1, known(1), Some(&a))),
+            on("203.0.113.99", holding(2, known(2), Some(&b))),
+        ];
+        let verdict = assess(&together, &GOAL, NOW);
+        assert!(
+            verdict.durable,
+            "durability still counts accounts: {verdict:?}"
+        );
+        assert!(
+            !verdict.available,
+            "two holders on one network read as independent: {verdict:?}"
+        );
+        assert_eq!(verdict.miss_ppm, 50_000);
+        // No network known is no evidence of sharing one.
+        let unknown = [
+            holding(1, known(1), Some(&a)),
+            holding(2, known(2), Some(&b)),
+        ];
+        assert!(assess(&unknown, &GOAL, NOW).satisfied());
+    }
+
+    #[test]
+    fn red_team_a_second_copy_goes_to_another_network_before_the_same_one() {
+        // Host 2 is ranked before host 3, a new account either way; only
+        // host 3 is off the network the first copy is on.
+        let rings: Vec<Uptime> = (0..3).map(|phase| steady(NOW, 990, phase * 25)).collect();
+        let held = [on("203.0.113.1", holding(1, known(1), Some(&rings[0])))];
+        let ranked = [
+            on("203.0.113.2", holding(2, known(2), Some(&rings[1]))),
+            on("198.51.100.3", holding(3, known(3), Some(&rings[2]))),
+        ];
+        let wanted = want(&held, &ranked, &GOAL, NOW);
+        assert_eq!(wanted.hosts, vec![device(3)]);
+        assert!(wanted.satisfied);
+    }
+
+    #[test]
+    fn a_new_account_still_comes_before_a_new_network() {
+        // Host 2 is a new network but the same account as the copy held;
+        // host 3 is a new account on the same network. Durability first.
+        let rings: Vec<Uptime> = (0..3).map(|phase| steady(NOW, 990, phase * 25)).collect();
+        let held = [on("203.0.113.1", holding(1, known(1), Some(&rings[0])))];
+        let ranked = [
+            on("198.51.100.2", holding(2, known(1), Some(&rings[1]))),
+            on("203.0.113.3", holding(3, known(3), Some(&rings[2]))),
+        ];
+        let wanted = want(&held, &ranked, &GOAL, NOW);
+        assert_eq!(wanted.hosts.first(), Some(&device(3)), "{wanted:?}");
     }
 
     #[test]

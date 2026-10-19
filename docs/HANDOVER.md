@@ -12,13 +12,37 @@ contract.
 NEXT: 8.0c
 TITLE: Nicolas tests v0.1.8 on the fleet by hand (reinstall, multi-account, relay, lists, vault, deletion)
 WRITTEN-AT: 2026-10-19
-BASE: c1429a2
+BASE: c010f68
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-19, evening: §8 7(d), the warning.** The census counts chunks short
+on availability with nothing left to try (`want` unsatisfied: every eligible
+host counted, or the cap) as `unreachable`, and `status` prints a `warning`
+line for them in `measured`. Durability shortfalls are not counted: those
+wait for a host to come back or for the safety net. Not built: the
+coordinator's `anchorless` marking, nor a warning on Android or in the tray.
+Both red-team tests sabotaged red.
+
+**2026-10-19, evening: §8 7(c), "same network".** Plan by Nicolas ("rank +
+count as one"), amended by Rodin: a key per private /24 and per unique-local
+/64, never one "LAN" key; 100.64.0.0/10 (Tailscale) groups nothing; a row
+counts only within `LIVE_FOR`. One change from the plan, found while writing
+the test: a network counts as its **best member**, not the union of its
+rings, because the union of two hosts behind one router is up whenever
+either is, which is the independence the network argues against. Store:
+`device_network` (known devices only, removed by `forget_device`); net:
+`PeerClient::direct_address`, `note_session(caller, from)`,
+`session::note_contact`. Ten tests, six red-team, each sabotaged: the
+service-side known check reads green when removed because the store repeats
+it, so the store's test is the one that bites. Not covered by a test: that
+the parked side of a splice passes `None` (`transport.rs`, the splice
+accept). Open for Nicolas, §10: whether two accounts on one network count as
+two for durability.
 
 **2026-10-19, later: §8 7(b), merged after #289.** The roster builder cannot
 see a coordinator type: `red_team_no_coordinator_crate_can_reach_the_roster_builder`
@@ -51,8 +75,7 @@ marks and never deletes (§6). Tests: 100 new, 39 of them red-team
 `tests/eviction.rs`). Decided by Nicolas on 2026-10-14: the §6 row is now
 "availability anyone else reports never reaches placement; what this device
 measured does". **Not done:** `measured` has not run on the fleet and is not
-the default (§8 item 7); the observed public address as a "same network"
-proxy is not used.
+the default (§8 item 7).
 
 **2026-10-14: the fleet reinstalled from scratch.** The VM and the Pi run
 ITSaNAS in Docker (`scripts/fleet-docker.sh vm|pi`): on the VM the coordinator
@@ -2810,8 +2833,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
    `status` figures (`up N %`, `longest absence`, chunks short) for a week
    first; (b) ✅ a test that fails when a coordinator type reaches the roster
    builder (`red_team_no_coordinator_crate_can_reach_the_roster_builder`,
-   2026-10-19); (c) ⬜ the "same network" proxy for correlated hosts; (d) ⬜ the
-   `anchorless` warning to the member (ECONOMICS §2). Not before (a): changing
+   2026-10-19); (c) ✅ the "same network" proxy for correlated hosts
+   (2026-10-19, `itsanas-placement/src/network.rs`; hosts seen lately from one
+   /24 or /48 are one availability unit worth their best member, `want` tries
+   a new network after a new account; overlay 100.64/10, loopback and link
+   local group nothing; relayed sessions record nothing); (d) ✅ the
+   `anchorless` warning to the member (ECONOMICS §2), client side only
+   (2026-10-19: `CensusReport::unreachable`, a `warning` line in `status`);
+   the coordinator's swarm-wide marking stays ⬜, and must never feed
+   placement (§6). Not before (a): changing
    the default.
 
 ## 9. Known gaps, deliberately open
@@ -2865,6 +2895,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
   M9's third measurement showed the *daily* experience is already fine — a Word
   document saves in 29 ms on the laptop and 10 ms on the aarch64 VM; the
   small machine wins because a save is dominated by one file per chunk.
+- **A store now knows which /24 each known host was last seen from** (§8
+  7c, `device_network`). A prefix, never an address, for known devices only,
+  removed when a device is forgotten; never on the wire or at the
+  coordinator. Still, a copied store says which networks a member's hosts
+  live on.
 - **No file-level sharing between users.** Not needed for mutual storage;
   `UserKeys::agree` exists, is tested, and is deliberately unused until it is.
 
@@ -3062,6 +3097,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
    backup. It would give the coordinator a data-plane role, against
    ROADMAP's "control-plane only" and its storage and bandwidth cost;
    to be weighed (and Rodin'd) before anything is built.
+16. **Two accounts on one network: one copy or two, for durability?** (§8
+   7c, raised by Rodin.) Durability counts accounts, so two members on one
+   Freebox satisfy "two other accounts" and burn in the same fire. 7(c) groups
+   them for availability only. Counting them as one account too would make
+   every chunk of a household look for a third house.
 
 ## 11. Working style Nicolas expects
 

@@ -238,6 +238,18 @@ pub fn render(
                      ({} short, {} settled)",
                     report.examined, report.short, report.settled
                 );
+                if report.unreachable > 0 {
+                    // Loud on purpose: a wrong belief that files are reachable
+                    // is worse than knowing they may not be (ECONOMICS §2).
+                    let _ = writeln!(
+                        out,
+                        "  warning         {} of them cannot be made 99 % reachable with the \
+                         machines this network has: those files may be unreadable while \
+                         the other machines are off. They are still stored; a machine \
+                         that stays on would fix it.",
+                        report.unreachable
+                    );
+                }
             }
             None => {
                 let _ = writeln!(out, "  census          not run by this process yet");
@@ -331,6 +343,7 @@ mod tests {
                 examined: 12,
                 short: 3,
                 settled: 9,
+                unreachable: 0,
             },
             live: 4000,
         };
@@ -342,6 +355,36 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("no device measured yet"), "{text}");
+        assert!(
+            !text.contains("warning"),
+            "no warning when nothing is stuck: {text}"
+        );
+    }
+
+    #[test]
+    fn red_team_a_network_that_cannot_reach_99_percent_says_so() {
+        // §8 7d: silence is the failure. Chunks that no host left can make
+        // 99 % reachable are named as a warning, not folded into "short".
+        let census = Census {
+            report: CensusReport {
+                examined: 12,
+                short: 3,
+                settled: 9,
+                unreachable: 2,
+            },
+            live: 4000,
+        };
+        let text = render(PlacementMode::Measured, &[], 3, Some(census), START * HOUR);
+        assert!(
+            text.contains("warning         2 of them cannot be made 99 % reachable"),
+            "{text}"
+        );
+        assert!(
+            text.contains("may be unreadable while the other machines are off"),
+            "{text}"
+        );
+        let everyone = render(PlacementMode::Everyone, &[], 3, Some(census), START * HOUR);
+        assert!(!everyone.contains("warning"), "{everyone}");
     }
 
     #[test]

@@ -272,11 +272,16 @@ impl<'a> PeerService<'a> {
     /// session: for a host behind a router this is the only evidence of it
     /// the owner ever gets. Only for a device already known -- a ring per
     /// caller would be a table any stranger grows with fresh keys -- and a
-    /// failed write costs a measurement, never the session.
-    pub fn note_session(&self, caller: DeviceId) {
-        let _ = self
-            .store
-            .note_seen_if_known_at(&caller, itsanas_store::now_unix());
+    /// failed write costs a measurement, never the session. `from` is the
+    /// socket's address for a direct session, `None` through a relay; its
+    /// network is what groups hosts behind one router (§8 7c).
+    pub fn note_session(&self, caller: DeviceId, from: Option<std::net::IpAddr>) {
+        let now = itsanas_store::now_unix();
+        if let Ok(true) = self.store.note_seen_if_known_at(&caller, now)
+            && let Some(network) = from.and_then(itsanas_placement::Network::of)
+        {
+            let _ = self.store.note_network_at(&caller, network, now);
+        }
     }
 
     /// Answer a presented claim with `claim`, this host's own, so the
@@ -866,6 +871,36 @@ mod tests {
 
     fn alice() -> MasterSecret {
         MasterSecret::from_bytes([0xA1; 32])
+    }
+
+    #[test]
+    fn red_team_only_a_direct_session_from_a_known_device_records_its_network() {
+        // §8 7c. The network groups hosts behind one router; a relay's
+        // address, a loopback or a stranger must group nobody.
+        let host = node(&alice(), 1);
+        let service = service(&host);
+        let known = DeviceKeys::from_seed(&SecretBytes::new([2; 32])).device_id();
+        let stranger = DeviceKeys::from_seed(&SecretBytes::new([3; 32])).device_id();
+        let public: std::net::IpAddr = "203.0.113.7".parse().expect("address");
+        host.store.note_seen(&known).expect("known");
+
+        service.note_session(stranger, Some(public));
+        assert_eq!(host.store.network_since(&stranger, 0).expect("read"), None);
+
+        service.note_session(known, None);
+        assert_eq!(
+            host.store.network_since(&known, 0).expect("read"),
+            None,
+            "a relayed session recorded the relay's network as the caller's"
+        );
+        service.note_session(known, Some("127.0.0.1".parse().expect("address")));
+        assert_eq!(host.store.network_since(&known, 0).expect("read"), None);
+
+        service.note_session(known, Some(public));
+        assert_eq!(
+            host.store.network_since(&known, 0).expect("read"),
+            itsanas_placement::Network::of(public)
+        );
     }
 
     #[test]

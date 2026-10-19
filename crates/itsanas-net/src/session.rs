@@ -227,6 +227,25 @@ pub fn round(store: &Store, vault: &Vault, client: &mut PeerClient) -> Result<Ro
 
 /// One round, both directions, at `scope`.
 ///
+/// Record that `client`'s peer answered: its ring and last contact, and,
+/// for a direct session, the network it answered from (§8 7c).
+///
+/// # Errors
+///
+/// If the store cannot be written.
+pub fn note_contact(store: &Store, client: &PeerClient) -> Result<()> {
+    let device = client.peer_device();
+    let now = itsanas_store::now_unix();
+    store.note_seen(&device)?;
+    if let Some(network) = client
+        .direct_address()
+        .and_then(itsanas_placement::Network::of)
+    {
+        store.note_network_at(&device, network, now)?;
+    }
+    Ok(())
+}
+
 /// # Errors
 ///
 /// If the peer fails, or the store cannot be written.
@@ -240,7 +259,7 @@ pub fn round_scoped(
     // say is beside the point: the acknowledgements it made in the past count
     // as copies only while it is known to be there, and being answered is what
     // knowing consists of.
-    store.note_seen(&client.peer_device())?;
+    note_contact(store, client)?;
 
     let push = push_scoped(store, client, scope)?;
     let pull = pull_scoped(store, vault, client, scope)?;

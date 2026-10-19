@@ -345,6 +345,7 @@ impl PeerServer {
         mut slot: Slot<'_>,
         shutdown: &AtomicBool,
     ) -> Result<()> {
+        let from = stream.peer_addr().ok().map(|address| address.ip());
         let Authenticated {
             peer,
             mut connection,
@@ -358,7 +359,7 @@ impl PeerServer {
 
         let within_limit = slot.claim_device(peer);
         if within_limit {
-            service.note_session(peer);
+            service.note_session(peer, from);
         }
 
         loop {
@@ -548,7 +549,9 @@ impl PeerServer {
             self.handshake_deadline,
             IO_TIMEOUT,
         )?;
-        service.note_session(peer);
+        // Spliced: the socket is the relay's, so the caller's network is not
+        // known here.
+        service.note_session(peer, None);
         // An ordinary session's budget: a caller, or the relay, trickling
         // requests does not keep this machine from parking again.
         let until = Instant::now() + PEER_SESSION_BUDGET;
@@ -710,6 +713,9 @@ pub struct PeerClient {
     /// peer, and sending it would fail the connection rather than the feature.
     /// Every caller of a newer request asks this first.
     spoken: u16,
+    /// The address the socket reached, for a direct session only: over a
+    /// splice it would be the relay's, which says nothing about the peer.
+    direct: Option<std::net::IpAddr>,
 }
 
 impl std::fmt::Debug for PeerClient {
@@ -752,6 +758,7 @@ impl PeerClient {
         stream.set_read_timeout(Some(IO_TIMEOUT))?;
         stream.set_write_timeout(Some(IO_TIMEOUT))?;
         stream.set_nodelay(true)?;
+        let direct = stream.peer_addr().ok().map(|address| address.ip());
         let until = budget.map(|budget| Instant::now() + budget);
         Self::establish(
             Budgeted {
@@ -761,6 +768,7 @@ impl PeerClient {
             device,
             owner,
             expect,
+            direct,
         )
     }
 
@@ -806,6 +814,7 @@ impl PeerClient {
             device,
             owner,
             Some(target),
+            None,
         )
     }
 
@@ -820,6 +829,7 @@ impl PeerClient {
         device: &DeviceKeys,
         owner: UserId,
         expect: Option<DeviceId>,
+        direct: Option<std::net::IpAddr>,
     ) -> Result<Self> {
         let identity = Identity::generate()?;
         let Authenticated { peer, connection } =
@@ -829,6 +839,7 @@ impl PeerClient {
             connection,
             peer_device: peer,
             spoken: MIN_PROTOCOL_VERSION,
+            direct,
         };
 
         // Version negotiation after authentication, so an incompatible peer
@@ -864,6 +875,13 @@ impl PeerClient {
     #[must_use]
     pub const fn peer_device(&self) -> DeviceId {
         self.peer_device
+    }
+
+    /// The address this session reached the peer at, if it reached it
+    /// directly; `None` through a relay.
+    #[must_use]
+    pub const fn direct_address(&self) -> Option<std::net::IpAddr> {
+        self.direct
     }
 
     /// The protocol version both sides settled on.

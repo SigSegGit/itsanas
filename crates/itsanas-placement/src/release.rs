@@ -77,6 +77,7 @@ mod tests {
             uptime: Some(uptime),
             proven: true,
             recent: true,
+            network: None,
         }
     }
 
