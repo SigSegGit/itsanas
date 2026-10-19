@@ -481,7 +481,22 @@ impl Vault {
     /// Separate directories rather than one namespace keyed by owner, so that
     /// evicting a user who left, or auditing how much space one peer occupies,
     /// is a directory operation rather than a full scan.
+    ///
+    /// Refused while `vault.redb` is not at the root: the vault's disk was
+    /// unplugged or unmounted under a running node, and creating the owner's
+    /// directories would rebuild a vault on the bare mount point, on the
+    /// system disk, where every chunk then looks lost (found by
+    /// `red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it`).
     fn blobs_for(&self, owner: UserId) -> Result<BlobStore> {
+        if !self.root.join("vault.redb").is_file() {
+            return Err(StoreError::io(
+                self.root.clone(),
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "the vault's disk is not there (unplugged or unmounted)",
+                ),
+            ));
+        }
         BlobStore::open(self.root.join("owners").join(owner.to_hex()))
     }
 
@@ -1689,6 +1704,26 @@ mod tests {
 
     fn keys(byte: u8) -> UserKeys {
         UserKeys::derive(&MasterSecret::from_bytes([byte; 32]))
+    }
+
+    #[test]
+    fn red_team_a_vault_whose_disk_went_writes_nothing_on_the_bare_mount_point() {
+        // A USB disk unplugged under a running node: the open database
+        // handle keeps working, but creating an owner's directories would
+        // rebuild a vault on the system disk, where it would vanish under
+        // the disk when it came back.
+        let base = tempfile::tempdir().expect("temp dir");
+        let root = base.path().join("disk").join("vault");
+        let vault = Vault::open(&root).expect("open");
+        let owner = keys(1).user_id();
+        let address = ChunkId::from_bytes([7; 32]);
+        std::fs::rename(base.path().join("disk"), base.path().join("unplugged")).expect("unplug");
+        assert!(vault.put_chunk(owner, &address, b"sealed").is_err());
+        assert!(vault.get_chunk(owner, &address).is_err() || !root.exists());
+        assert!(
+            !root.exists(),
+            "the vault rebuilt itself on the bare mount point"
+        );
     }
 
     fn device(byte: u8) -> DeviceKeys {

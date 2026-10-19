@@ -800,12 +800,7 @@ impl Node {
                 });
             }
             Err(_) if config.vault.is_some() => {
-                return Err(NodeError::Config(format!(
-                    "the vault at {} is not there or not this node's (no {VAULT_MARKER}): is the \
-                     disk mounted? Nothing was created there. For a new vault, set it with \
-                     `itsanas vault PATH`, which marks it",
-                    path.display()
-                )));
+                return Err(NodeError::VaultAbsent(path));
             }
             Err(_) => {
                 std::fs::create_dir_all(&path).map_err(|source| NodeError::Io {

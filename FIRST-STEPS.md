@@ -215,8 +215,20 @@ present its claim.
 drive): `itsanas vault /mnt/nas/itsanas-vault`, while the vault is still
 empty. The pledge is then checked against that disk. Use a disk that locks
 files (a local disk, iSCSI, NFS v4 with locking); SMB is not supported until
-measured. If that disk is not mounted when the node starts, it refuses to
-start rather than make an empty vault elsewhere.
+measured. If that disk is not there (a USB disk unplugged, a NAS not
+mounted), `itsanas daemon` writes nothing anywhere else: it says this machine
+is away, waits, and carries on by itself when the disk comes back. Your own
+files do not sync on this machine while it waits.
+
+**To move a vault that already holds data** to another disk, stop the daemon
+and run `itsanas vault /new/place --move`: it copies, checks the copy, then
+switches, and leaves the old directory for you to delete.
+
+**A copy in a drawer.** `itsanas backup export /media/usb/itsanas` writes your
+whole account there, sealed as hosts hold it; `itsanas backup restore
+/media/usb/itsanas` on a machine set up from your 24 words brings it back with
+no other machine online. Keep the words apart from the disk: the copy is
+useless without them.
 
 ### 3. Point it at a folder, and run it
 
