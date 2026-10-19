@@ -423,7 +423,7 @@ fn the_due_walk_restamps_on_recorded_only_digests_and_asks_only_recorded_chunks(
     let report = push_plain(&me, &host, &placement(&me, &accounts, now));
     assert_eq!(report.chunks_asked_about, 0, "{report:?}");
     assert_eq!(report.holders_restamped, held.len(), "{report:?}");
-    assert!(!extra.is_empty());
+    assert_ne!(extra, [] as [itsanas_crypto::ChunkId; 0]);
 
     let lost = held[0];
     assert!(host.vault.remove_chunk(me.store.owner(), &lost).unwrap());
@@ -615,7 +615,7 @@ fn red_team_release_is_never_sent_to_a_protocol_9_peer() {
     // stands. Sabotage: forget the records before `may_evict` answers.
     let fixture = Release::new();
     let chosen = fixture.chosen();
-    assert!(!chosen.is_empty());
+    assert_ne!(chosen, [] as [itsanas_crypto::ChunkId; 0]);
     let report = fixture.push(PROTOCOL_WITH_EVICTION - 1, fixture.now);
     assert_eq!(report.refusal, Some(Refusal::AccountFull), "{report:?}");
     assert_eq!(report.released, 0, "{report:?}");
@@ -685,7 +685,10 @@ fn red_team_a_stranger_dialling_in_gets_no_ring() {
     })
     .expect("heads");
     assert_eq!(me.store.uptime(&stranger.id()).unwrap(), None);
-    assert!(me.store.uptimes().unwrap().is_empty());
+    assert_eq!(
+        me.store.uptimes().unwrap(),
+        [] as [(itsanas_crypto::DeviceId, itsanas_placement::uptime::Uptime); 0]
+    );
 }
 
 #[test]

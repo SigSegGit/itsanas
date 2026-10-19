@@ -365,7 +365,7 @@ mod tests {
 
         // A chunk already at the cap wants nobody.
         let full = want(&ranked[..GOAL.cap], &ranked[GOAL.cap..], &GOAL, NOW);
-        assert!(full.hosts.is_empty());
+        assert_eq!(full.hosts, [] as [itsanas_crypto::DeviceId; 0]);
     }
 
     #[test]

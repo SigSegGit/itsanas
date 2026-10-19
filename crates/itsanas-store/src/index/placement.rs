@@ -873,7 +873,7 @@ mod tests {
 
     fn settle_everything(index: &Index) {
         index.settle_short(&queued(index)).expect("settle");
-        assert!(queued(index).is_empty());
+        assert_eq!(queued(index), [] as [itsanas_crypto::ChunkId; 0]);
     }
 
     #[test]
@@ -935,7 +935,10 @@ mod tests {
         }
         assert_eq!(index.uptime(&stranger).expect("read"), None);
         assert_eq!(index.last_seen(&stranger).expect("read"), None);
-        assert!(index.uptimes().expect("read").is_empty());
+        assert_eq!(
+            index.uptimes().expect("read"),
+            [] as [(itsanas_crypto::DeviceId, itsanas_placement::Uptime); 0]
+        );
         assert_eq!(index.latest_hour_written().expect("read"), 0);
     }
 
@@ -1088,7 +1091,7 @@ mod tests {
             .record_holder(&chunk(9), &device(5), T0)
             .expect("record");
         index.forget_holder(&chunk(9), &device(5)).expect("forget");
-        assert!(queued(&index).is_empty());
+        assert_eq!(queued(&index), [] as [itsanas_crypto::ChunkId; 0]);
     }
 
     #[test]
@@ -1247,11 +1250,9 @@ mod tests {
         index
             .record_holders(&[chunk(1)], &host, T0 + HOUR)
             .expect("have");
-        assert!(
-            index
-                .holders_with_stamps(&chunk(1))
-                .expect("read")
-                .is_empty()
+        assert_eq!(
+            index.holders_with_stamps(&chunk(1)).expect("read"),
+            [] as [(itsanas_crypto::DeviceId, u64); 0]
         );
 
         // Past the window, its word counts again.
