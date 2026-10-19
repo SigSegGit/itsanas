@@ -122,7 +122,7 @@ pub fn round_placed(
         // `session::round_scoped` with the push placed: the same three steps
         // in the same order, so a measured round differs from an everyone
         // round only in what is offered.
-        store.note_seen(&client.peer_device())?;
+        session::note_contact(store, client)?;
         let push = session::push_placed(store, client, scope, Some(placement))?;
         let pull = session::pull_scoped(store, vault, client, scope)?;
         return Ok((
@@ -142,7 +142,7 @@ pub fn round_placed(
 
     // A round that got this far spoke to the peer, which is what makes its past
     // acknowledgements count as copies. Same reason as `session::round_scoped`.
-    store.note_seen(&client.peer_device())?;
+    session::note_contact(store, client)?;
 
     let push = session::push_placed(store, client, scope, placement)?;
     let fetched = session::refresh(store, vault, client)?;

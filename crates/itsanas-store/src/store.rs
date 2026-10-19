@@ -1529,6 +1529,26 @@ impl Store {
         self.index.note_seen_if_known(device, now)
     }
 
+    /// Record the network `device` was seen from over a direct session. Known
+    /// devices only. See [`Index::note_network`].
+    pub fn note_network_at(
+        &self,
+        device: &DeviceId,
+        network: itsanas_placement::Network,
+        now: u64,
+    ) -> Result<bool> {
+        self.index.note_network(device, network, now)
+    }
+
+    /// The network `device` was last seen from, if at or after `since`.
+    pub fn network_since(
+        &self,
+        device: &DeviceId,
+        since: u64,
+    ) -> Result<Option<itsanas_placement::Network>> {
+        self.index.network_since(device, since)
+    }
+
     /// `device`'s uptime ring, as this node has observed it.
     pub fn uptime(&self, device: &DeviceId) -> Result<Option<itsanas_placement::Uptime>> {
         self.index.uptime(device)

@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1247 test functions, 9 of them `#[ignore]`d into the slow job, and 348 of
+**1257 test functions, 9 of them `#[ignore]`d into the slow job, and 354 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -149,8 +149,12 @@ What is missing before this is a *network* rather than a personal sync tool:
   3. ✅ **Select for independence.** The worse of the independent product and
      the share of hours when none of the holders was seen
      (`correlated_hosts_need_more_copies_than_independent_ones_with_the_same_averages`),
-     and distinct accounts first (`distinct_accounts_come_first`). The observed
-     public address as a proxy for "same network" is not used: ⬜ not built.
+     and distinct accounts first (`distinct_accounts_come_first`). Hosts seen
+     lately from one network (/24, /48; overlays and loopback excluded) are
+     one availability unit worth their best member, and a new network is
+     tried after a new account
+     (`red_team_two_holders_behind_one_router_count_as_one_for_availability`,
+     `red_team_a_second_copy_goes_to_another_network_before_the_same_one`).
 
   Built, and not yet run on the fleet: `placement` defaults to `everyone`,
   which behaves as before. Placement only adds copies; the one removal, a

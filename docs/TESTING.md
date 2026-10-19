@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-19 — 1247 test functions across 38 binaries, 9 of them
-`#[ignore]`d, plus 2 doctests. 348 are red-team tests.**
+**Last updated: 2026-10-19 — 1257 test functions across 38 binaries, 9 of them
+`#[ignore]`d, plus 2 doctests. 354 are red-team tests.**
 
-**1131 of the 1247 tests have an entry of their own on this page** — an *entry*,
+**1141 of the 1257 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,17 +158,17 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 21 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 214 |
+| `itsanas-store` unit | 215 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 24 |
-| `itsanas-net` unit | 62 |
+| `itsanas-net` unit | 63 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 60 |
 | `itsanas-net` relay (`tests/relay.rs`) | 6 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
-| `itsanas-net` placement (`tests/placement.rs`) | 15 |
-| `itsanas-placement` unit | 64 |
+| `itsanas-net` placement (`tests/placement.rs`) | 16 |
+| `itsanas-placement` unit | 71 |
 | `itsanas-coord` unit | 123 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 17 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 1 |
@@ -437,7 +437,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (178, plus the 36 vault tests below)
+# `itsanas-store` — unit tests (179, plus the 36 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -508,7 +508,7 @@ by anybody. See [DESIGN.md](DESIGN.md) §8.
 | `recording_an_empty_batch_does_nothing_rather_than_opening_a_transaction` | A quiet round costs no write. |
 | **`red_team_the_holder_count_follows_the_ledger_through_every_path`** | §8 1c reads how much an account proved it hosts from `holder_counts`, kept in the transaction that writes each holder row. Record, refresh, every forget path and `forget_device` move it exactly; a refresh is not counted twice; another device's count does not move. Sabotaged by dropping the decrement in `forget_holders`. |
 
-## `placement` — rings, the short queue, the census, releases (24)
+## `placement` — rings, the short queue, the census, releases (25)
 
 What placement needs of the ledger: how long a device has been seen, which chunks are found short, one ordered pass over every live chunk, and which copies were given back. All tables are created on open.
 
@@ -517,6 +517,7 @@ What placement needs of the ledger: how long a device has been seen, which chunk
 | `note_seen_writes_the_ring_and_the_contact_together` | The uptime ring is written in the transaction that notes the contact, so a crash cannot leave a device seen and unmeasured. |
 | `a_ring_is_rewritten_only_when_the_observation_changes_it` | A repeated sighting in the same hour writes nothing. |
 | `the_latest_hour_written_never_moves_back_with_the_clock` | `latest_hour_written` is a high-water mark; a release refuses to run when the clock reads earlier than it. |
+| **`red_team_a_stranger_leaves_no_network_and_a_stale_one_groups_nothing`** | §8 7c. No network row for an unknown device; a row older than the window asked for reads as none; a move replaces the old network; `forget_device` deletes the row. |
 | **`red_team_a_stranger_never_gets_a_ring`** | `note_seen_if_known` and `note_unreached` create nothing for an unknown device, so free keys cannot fill the table. |
 | `a_known_device_is_noted_reached_or_not` | A dial that fails counts against a device already known, and a success counts for it. |
 | `a_chunk_s_first_reference_queues_it_and_a_second_does_not_add_a_row` | A chunk enters the short queue on its first reference (0 to 1), in the transaction that takes it. |
@@ -829,7 +830,7 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (62)
+# `itsanas-net` — unit tests (63)
 
 ## `protocol` — messages and challenges (14)
 
@@ -850,7 +851,7 @@ about reading.
 | **`red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host`** | `MayEvict` carries at most 1024 chunks; a longer list is refused at decode. |
 | `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), appended so older numbers are unchanged. |
 
-## `service` — what a peer may obtain (29)
+## `service` — what a peer may obtain (30)
 
 | Test | What it proves |
 | --- | --- |
@@ -865,6 +866,7 @@ about reading.
 | `a_storage_challenge_passes_when_held_and_fails_when_not` | Both directions. |
 | `a_node_that_pledged_nothing_still_serves_its_own_data` | Hosting nothing must not break syncing your own devices. |
 | `heads_for_an_unknown_owner_are_empty_rather_than_an_error` | No invented chains. |
+| **`red_team_only_a_direct_session_from_a_known_device_records_its_network`** | §8 7c. A session from a stranger, a relayed one (no address) and a loopback one record no network; a direct session from a known device records its /24. The known-device check is the store's: removing the service's own leaves it green, which is the store's test biting. |
 | `hello_reports_this_nodes_device_and_agrees_on_a_version` | The opening exchange. |
 | **`red_team_a_peer_can_only_withdraw_records_about_itself`** | `Dropped` corrects a ledger, which is the shape of request that becomes an attack if the subject is taken from the message. A host able to say "device B no longer holds these" could make an owner believe its data is unreplicated, or erase the record of the only holder that still has it. The subject is the connection's proven device and cannot be named in the request at all. |
 | **`a_segment_already_held_is_answered_not_stored`** | `accepted` has to be what happened, not what the call returned. Mapping `Ok(_)` to accepted made every idle round look like a round that had moved something, so the daemon printed a line every five minutes on a quiet fleet — which is how an operator learns to stop reading the log. |
@@ -1022,7 +1024,7 @@ Real sockets. `tests/eviction.rs`.
 | **`red_team_a_peer_speaking_protocol_9_is_never_asked_to_evict`** | `PeerClient::may_evict` returns `None` below protocol 10 and sends nothing. |
 | **`red_team_only_the_device_tls_proved_speaks_for_the_account_on_the_wire`** | A device presenting another account's name is refused; the account comes from the TLS-proved device, never from the request. |
 
-# `itsanas-net` — availability-aware placement (`tests/placement.rs`) (15)
+# `itsanas-net` — availability-aware placement (`tests/placement.rs`) (16)
 
 Real stores and sockets, `placement = measured`. `everyone` is covered by the rest of the suite, which is unchanged.
 
@@ -1042,6 +1044,7 @@ Real stores and sockets, `placement = measured`. `everyone` is covered by the re
 | **`red_team_release_needs_an_audit_passed_within_live_for`** | A copy on a host that has not passed an audit within `LIVE_FOR` is not released. |
 | **`red_team_a_session_that_moves_nothing_evaluates_each_queued_chunk_once`** | A session with no capacity does not re-evaluate the same queued chunk. |
 | **`red_team_want_hosted_is_measured_once_a_round_and_never_for_a_stranger`** | The roster is built once per round; a caller outside it is offered only chunks with no proven remote holder. |
+| **`red_team_two_hosts_seen_from_one_network_lately_count_as_one_for_availability`** | §8 7c through the store and `Placement::build`: two accounts missed at different sessions satisfy a chunk; recorded on one /24 within `LIVE_FOR` they leave it short on availability (still durable); the same rows older than `LIVE_FOR` change nothing. |
 | **`red_team_no_coordinator_crate_can_reach_the_roster_builder`** | Neither `itsanas-net` nor `itsanas-placement` pulls in `itsanas-coord` or `itsanas-coordinator` through its normal dependencies, so a coordinator's presence figures cannot become a ranked `Uptime`. |
 
 # `itsanas-cli` — crash consistency (1, `#[ignore]`d)
@@ -1672,7 +1675,7 @@ an account several machines hold.
 | **`red_team_a_file_shorter_than_windows_believes_is_refused_not_padded`** | The one a red-team sweep found, and the one the manual test could not. The placeholder's size is written once from the catalogue and nothing calls `PrjUpdateFileIfNeeded`, while the sync loop in the same process keeps adopting newer versions from peers — so a file that shrinks on another machine leaves Windows asking for the old length. `Source::read` returned `()`, so a short fill was invisible, and the whole buffer went to `PrjWriteFileData` regardless. The tail was **uninitialised heap**: most likely the plaintext of a file hydrated a moment earlier through the same allocator, arriving inside a different file. The buffer is zeroed now, `read` returns a count, and a short answer stops. **The `SAFETY:` comment above it said the tail was padding Windows discards** — the gate checks that a reason is written, not that it is true. |
 | **`red_team_a_read_past_the_end_serves_nothing_rather_than_zeros`** | The same fault at its extreme: an offset past the content fills nothing at all. Padding would hand back a block of zeros that reads as a legitimate hole in a sparse file. |
 
-# `itsanas-placement` — unit tests (64)
+# `itsanas-placement` — unit tests (71)
 
 ## `nodeset` — where a chunk belongs (17)
 
@@ -1749,7 +1752,7 @@ Availability is measured here, on this clock, from this node's own sessions; the
 | `ineligible_hosts_are_ordered_but_not_ranked` | `order` lists every host (release needs the lowest-ranked holder even if it is now full); `ranked` lists only eligible ones. |
 | `the_order_does_not_depend_on_how_the_roster_was_built` | The same hosts built in any order and with duplicates give the same ranking, so every own device computes the same answer. |
 
-## `target` — how many copies are enough (8)
+## `target` — how many copies are enough (11)
 
 The goal: two other accounts, a miss probability of at most 1 % (10 000 ppm), at most 12 remote copies.
 
@@ -1762,7 +1765,21 @@ The goal: two other accounts, a miss probability of at most 1 % (10 000 ppm), at
 | `durability_needs_one_holder_seen_recently` | Two proven accounts, none seen within `LIVE_FOR`: not durable. |
 | `the_cap_stops_the_search` | `want` stops at 12 remote copies and reports unsatisfied-but-capped, rather than recruiting every host for a chunk no host can make safe. |
 | `distinct_accounts_come_first` | The first pass takes only hosts of accounts not yet represented, so the second copy lands with someone else. |
+| **`red_team_two_holders_behind_one_router_count_as_one_for_availability`** | Two accounts each up 95 % at different hours: 0.25 % miss on two networks, 5 % (the better member) on one /24; durability unchanged; no known network groups nothing. |
+| **`red_team_a_second_copy_goes_to_another_network_before_the_same_one`** | Between two new accounts, `want` passes over the better-ranked host on the held copy's network. |
+| `a_new_account_still_comes_before_a_new_network` | A new account on the same network beats a new network of an account already holding: durability first. |
 | `a_satisfied_chunk_wants_nobody` | No make-work: placement only adds copies, and adds none when the goal is met. |
+
+## `network` — "same network" as a proxy for hosts that go dark together (4)
+
+§8 7c. What a host was seen from, as a prefix this node keeps to itself.
+
+| Test | What it proves |
+| --- | --- |
+| `one_ipv4_slash_24_or_ipv6_slash_48_is_one_network` | /24 in IPv4, /48 in IPv6, a mapped IPv4 read as IPv4. |
+| `a_private_range_is_never_the_public_one_with_the_same_digits` | Private ranges are their own /24, unique-local IPv6 its /64, and the tag keeps them apart from public prefixes. |
+| **`red_team_an_overlay_or_a_loopback_address_names_no_network`** | 100.64.0.0/10 (Tailscale, CGNAT), loopback, link local, unspecified and broadcast group nothing: one key for a tailnet would make a world-wide fleet one unit and ask every chunk for the cap. |
+| `the_store_encoding_round_trips_and_an_unknown_tag_groups_nothing` | The 17 store bytes round-trip; an unknown tag or a short row reads as no network. |
 
 ## `release` — which copy may be given back (4)
 

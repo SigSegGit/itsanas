@@ -20,6 +20,12 @@
 //! - **Place on own devices.** They get everything, as before placement
 //!   existed; they are left out of the roster and count only as one unit of
 //!   availability, never for durability.
+//! - **Group by an address it did not see.** A host's network is the one
+//!   this node's own socket reached it at or was reached from, over a
+//!   direct session, within [`LIVE_FOR`]. Dialled addresses may come from
+//!   the coordinator, but a session that completed on one is this node's
+//!   observation that the device answers there, not the coordinator's
+//!   word; a relayed session records nothing.
 //! - **Believe an unknown device.** A holder not in the roster is
 //!   [`Account::Unknown`] and unproven: it counts towards the cap and for
 //!   nothing else.
@@ -183,6 +189,9 @@ impl Placement {
                 eligible: reliability.worth_sending_to() && !full && !draining,
                 proven: reliability.passed > 0 && !reliability.paused && !draining,
                 recent,
+                // Only a network seen within `LIVE_FOR`: an old row may name
+                // an address since handed to somebody else.
+                network: store.network_since(&device, live_since)?,
             });
         }
         Ok(Self {
@@ -419,6 +428,7 @@ impl Placement {
                 uptime: self.own_rings.get(device),
                 proven: false,
                 recent: false,
+                network: None,
             });
         }
         Some(self.roster.get(device).map_or(
@@ -429,6 +439,7 @@ impl Placement {
                 uptime: None,
                 proven: false,
                 recent: false,
+                network: None,
             },
             Self::of_host,
         ))
@@ -442,6 +453,7 @@ impl Placement {
             uptime: host.uptime.as_ref(),
             proven: host.proven,
             recent: host.recent,
+            network: host.network,
         }
     }
 }

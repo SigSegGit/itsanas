@@ -29,7 +29,7 @@ use crate::{
 
 mod placement;
 pub use placement::{CensusRow, ShortPage, TRIGGER_LIMIT};
-use placement::{DEVICE_PASSED, DEVICE_UPTIME, RELEASED, SHORT_SINCE};
+use placement::{DEVICE_NETWORK, DEVICE_PASSED, DEVICE_UPTIME, RELEASED, SHORT_SINCE};
 
 /// Path → postcard-encoded [`FileEntry`].
 const FILES: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("files");
@@ -403,6 +403,7 @@ impl Index {
             let _ = txn.open_table(SHORT_SINCE)?;
             let _ = txn.open_table(RELEASED)?;
             let _ = txn.open_table(DEVICE_PASSED)?;
+            let _ = txn.open_table(DEVICE_NETWORK)?;
         }
         txn.commit()?;
 
@@ -2070,6 +2071,9 @@ impl Index {
             txn.open_table(HOLDER_COUNTS)?
                 .remove(device.as_bytes().as_slice())?;
             txn.open_table(DRAINING)?
+                .remove(device.as_bytes().as_slice())?;
+            // Where a device that left was, is nobody's business any more.
+            txn.open_table(DEVICE_NETWORK)?
                 .remove(device.as_bytes().as_slice())?;
             // Every chunk it held is one copy down. This walk was already
             // here, over exactly these rows, so queueing them costs a lookup

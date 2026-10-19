@@ -38,6 +38,7 @@
 //! formula was for, computed in a way that every machine agrees on bit for bit.
 
 pub mod liveness;
+pub mod network;
 pub mod nodeset;
 pub mod release;
 pub mod repair;
@@ -50,6 +51,7 @@ pub mod uptime;
 mod fixtures;
 
 pub use liveness::{LOST_AFTER_CEILING, LOST_AFTER_FLOOR, lost_after, lost_after_hours};
+pub use network::{NETWORK_BYTES, Network};
 pub use nodeset::{MAX_SLOTS, NodeSet, PlacementError, StorageNode};
 pub use release::release_holder;
 pub use repair::{AtRisk, Census, DEFAULT_REPLICATION_FLOOR, Push, RepairPlan, plan};

@@ -38,6 +38,8 @@ pub struct Host {
     pub proven: bool,
     /// Seen within the store's `LIVE_FOR`.
     pub recent: bool,
+    /// Where this node last saw it from, if lately and directly.
+    pub network: Option<crate::Network>,
 }
 
 /// The round's hosts, sorted by device, with their slots.
@@ -152,6 +154,7 @@ mod tests {
             eligible: true,
             proven,
             recent: true,
+            network: None,
         }
     }
 

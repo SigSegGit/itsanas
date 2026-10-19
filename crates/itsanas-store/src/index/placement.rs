@@ -19,7 +19,7 @@
 //!   transaction that noticed; the census reaches the rest within one pass.
 
 use itsanas_crypto::{ChunkId, DeviceId};
-use itsanas_placement::Uptime;
+use itsanas_placement::{NETWORK_BYTES, Network, Uptime};
 use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
 
 use super::{CHUNK_REFS, DEVICE_SEEN, HOLDERS, HOLDINGS, Index, META};
@@ -33,6 +33,16 @@ use crate::{error::Result, holders};
 /// week, which is cheaper than guessing at old bytes.
 pub(super) const DEVICE_UPTIME: TableDefinition<'_, &[u8], &[u8]> =
     TableDefinition::new("device_uptime");
+
+/// Device → [`Network::to_bytes`] ‖ this node's clock (little endian) when it
+/// last saw that device from that network, over a direct session (§8 7c).
+///
+/// One row per device this node already knows, like the rings, and only a
+/// prefix, never an address: a store that leaves the machine says which /24
+/// a friend's house is on, not which host in it. Kept apart from the ring so a
+/// change of network does not rewrite the ring's bytes.
+pub(super) const DEVICE_NETWORK: TableDefinition<'_, &[u8], &[u8]> =
+    TableDefinition::new("device_network");
 
 /// Chunk → this node's clock when it was first found possibly short.
 ///
@@ -310,6 +320,25 @@ fn apply(
 }
 
 /// Whether this node has had to do with `device`: a ring, or a contact.
+/// A network row: `None` when absent or written by a version whose tag this
+/// one does not know.
+fn read_network(
+    table: &impl ReadableTable<&'static [u8], &'static [u8]>,
+    device: &DeviceId,
+) -> Result<Option<(Network, u64)>> {
+    let Some(value) = table.get(device.as_bytes().as_slice())? else {
+        return Ok(None);
+    };
+    let bytes = value.value();
+    if bytes.len() != NETWORK_BYTES + 8 {
+        return Ok(None);
+    }
+    let mut at = [0u8; 8];
+    at.copy_from_slice(&bytes[NETWORK_BYTES..]);
+    Ok(Network::from_bytes(&bytes[..NETWORK_BYTES])
+        .map(|network| (network, u64::from_le_bytes(at))))
+}
+
 fn known(
     rings: &impl ReadableTable<&'static [u8], &'static [u8]>,
     seen: &impl ReadableTable<&'static [u8], u64>,
@@ -407,6 +436,56 @@ impl Index {
         )?;
         txn.commit()?;
         Ok(true)
+    }
+
+    /// Record that `device` was seen from `network` at `now`. Only for a
+    /// device already known, for the same reason as its ring, and only a
+    /// write when the network changed or the stamp is an hour old. Returns
+    /// whether the device was known.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read or written.
+    pub fn note_network(&self, device: &DeviceId, network: Network, now: u64) -> Result<bool> {
+        {
+            let txn = self.db.begin_read()?;
+            if !known(
+                &txn.open_table(DEVICE_UPTIME)?,
+                &txn.open_table(DEVICE_SEEN)?,
+                device,
+            )? {
+                return Ok(false);
+            }
+            if let Some((held, at)) = read_network(&txn.open_table(DEVICE_NETWORK)?, device)?
+                && held == network
+                && hour_of(at) == hour_of(now)
+            {
+                return Ok(true);
+            }
+        }
+        let mut row = [0u8; NETWORK_BYTES + 8];
+        row[..NETWORK_BYTES].copy_from_slice(&network.to_bytes());
+        row[NETWORK_BYTES..].copy_from_slice(&now.to_le_bytes());
+        let txn = self.db.begin_write()?;
+        txn.open_table(DEVICE_NETWORK)?
+            .insert(device.as_bytes().as_slice(), row.as_slice())?;
+        txn.commit()?;
+        Ok(true)
+    }
+
+    /// The network `device` was last seen from, if at or after `since`.
+    ///
+    /// A stale row groups nothing: a box's address is handed to another
+    /// customer after a reconnection, and a laptop that left the office a
+    /// month ago is not behind its router any more.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn network_since(&self, device: &DeviceId, since: u64) -> Result<Option<Network>> {
+        let txn = self.db.begin_read()?;
+        Ok(read_network(&txn.open_table(DEVICE_NETWORK)?, device)?
+            .and_then(|(network, at)| (at >= since).then_some(network)))
     }
 
     /// `device`'s ring, or `None` if this node has never observed it.
@@ -915,6 +994,47 @@ mod tests {
         index.note_seen(&device(7), T0 + 5 * HOUR).expect("seen");
         index.note_seen(&device(8), T0).expect("seen");
         assert_eq!(index.latest_hour_written().expect("read"), T0 / HOUR + 5);
+    }
+
+    fn network(text: &str) -> Network {
+        Network::of(text.parse().expect("address")).expect("a network")
+    }
+
+    #[test]
+    fn red_team_a_stranger_leaves_no_network_and_a_stale_one_groups_nothing() {
+        let (_dir, index) = index();
+        let stranger = device(9);
+        assert!(
+            !index
+                .note_network(&stranger, network("203.0.113.7"), T0)
+                .expect("note")
+        );
+        assert_eq!(index.network_since(&stranger, 0).expect("read"), None);
+
+        let host = device(1);
+        index.note_seen(&host, T0).expect("seen");
+        assert!(
+            index
+                .note_network(&host, network("203.0.113.7"), T0)
+                .expect("note")
+        );
+        assert_eq!(
+            index.network_since(&host, T0).expect("read"),
+            Some(network("203.0.113.9"))
+        );
+        // Older than the window the caller asks for: no longer evidence.
+        assert_eq!(index.network_since(&host, T0 + 1).expect("read"), None);
+        // A move is recorded, and the old network is gone with it.
+        index
+            .note_network(&host, network("198.51.100.7"), T0 + HOUR)
+            .expect("note");
+        assert_eq!(
+            index.network_since(&host, T0).expect("read"),
+            Some(network("198.51.100.1"))
+        );
+        // A device that leaves takes its row with it.
+        index.forget_device(&host).expect("forget");
+        assert_eq!(index.network_since(&host, 0).expect("read"), None);
     }
 
     #[test]

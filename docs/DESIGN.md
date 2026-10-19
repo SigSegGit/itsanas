@@ -439,6 +439,10 @@ after 7 days known and 24 hours attempted
   durability (`own_devices_count_as_one_unit_and_never_for_durability`),
   holders that go dark together counting for less than independent ones
   (`correlated_hosts_need_more_copies_than_independent_ones_with_the_same_averages`),
+  holders this node saw lately from one network (an IPv4 /24, an IPv6 /48;
+  never an overlay, a loopback or a relayed session) counting as one unit
+  worth their best member
+  (`red_team_two_holders_behind_one_router_count_as_one_for_availability`),
   and an unknown availability counting as unreachable
   (`unknown_availability_counts_as_unreachable`);
 
