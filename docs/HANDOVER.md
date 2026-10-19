@@ -11,14 +11,26 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas tests v0.1.8 on the fleet by hand (reinstall, multi-account, relay, lists, vault, deletion)
-WRITTEN-AT: 2026-10-13
-BASE: d6c8468
+WRITTEN-AT: 2026-10-19
+BASE: c1429a2
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-10-19, later: §8 7(b), merged after #289.** The roster builder cannot
+see a coordinator type: `red_team_no_coordinator_crate_can_reach_the_roster_builder`
+(`itsanas-net/tests/placement.rs`) walks the path dependencies of
+`itsanas-net` and `itsanas-placement` (normal ones only, not dev) and fails if
+`itsanas-coord` or `itsanas-coordinator` appears. Sabotaged by adding
+`itsanas-coord` to `itsanas-wire`'s dependencies: red, naming the closure.
+`NEXT` stays 0c, which is Nicolas's; while it waits, 7(c) and 7(d) can be
+taken in order. Traps this time: clippy 1.99 (CI) rejects
+`assert!(x.is_empty())` on collections; `imdisk` can vanish from the
+Windows runner's PATH, and the RAM-disk step now warns and keeps TEMP;
+`words_of` in the setup leak test read hex ids as words.
 
 **2026-10-19: availability-aware placement, behind `placement = measured`
 (branch `ccr-4c4e999e-2aize1`; spec v3, amended by Rodin and the red team).**
@@ -37,9 +49,7 @@ marks and never deletes (§6). Tests: 100 new, 39 of them red-team
 `tests/eviction.rs`). Decided by Nicolas on 2026-10-14: the §6 row is now
 "availability anyone else reports never reaches placement; what this device
 measured does". **Not done:** `measured` has not run on the fleet and is not
-the default (§8 item 7); ⬜ no test fails if a coordinator type is passed to the
-roster builder (the crate has no dependency on `itsanas-coord`, and the float
-guard is the only source scan); the observed public address as a "same network"
+the default (§8 item 7); the observed public address as a "same network"
 proxy is not used.
 
 **2026-10-14: the fleet reinstalled from scratch.** The VM and the Pi run
@@ -2796,8 +2806,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
    default `everyone`; peer protocol 10 `MayEvict`. Left, in order: (a) ⬜ run
    `measured` on the fleet before it is ever the default, and read the
    `status` figures (`up N %`, `longest absence`, chunks short) for a week
-   first; (b) ⬜ a test that fails when a coordinator type reaches the roster
-   builder; (c) ⬜ the "same network" proxy for correlated hosts; (d) ⬜ the
+   first; (b) ✅ a test that fails when a coordinator type reaches the roster
+   builder (`red_team_no_coordinator_crate_can_reach_the_roster_builder`,
+   2026-10-19); (c) ⬜ the "same network" proxy for correlated hosts; (d) ⬜ the
    `anchorless` warning to the member (ECONOMICS §2). Not before (a): changing
    the default.
 

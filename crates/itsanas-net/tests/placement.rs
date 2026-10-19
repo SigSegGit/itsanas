@@ -835,3 +835,61 @@ fn red_team_want_hosted_is_measured_once_a_round_and_never_for_a_stranger() {
     assert!(ask(&host).is_empty(), "a second measured answer this round");
     assert_eq!(placement.evaluations(), spent);
 }
+
+/// The crates whose normal (not dev) dependencies `crate` pulls in through
+/// the workspace, by path, itself included.
+fn path_closure(crates: &std::path::Path, start: &str) -> BTreeSet<String> {
+    let mut seen = BTreeSet::new();
+    let mut todo = vec![start.to_owned()];
+    while let Some(name) = todo.pop() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let manifest = std::fs::read_to_string(crates.join(&name).join("Cargo.toml"))
+            .unwrap_or_else(|error| panic!("{name}/Cargo.toml: {error}"));
+        let mut normal = false;
+        for line in manifest.lines().map(str::trim) {
+            if line.starts_with('[') {
+                // `[dependencies]` and `[target.'cfg(..)'.dependencies]` ship;
+                // `[dev-dependencies]` and `[build-dependencies]` do not run
+                // in the daemon.
+                normal = line.ends_with("dependencies]")
+                    && !line.contains("dev-dependencies")
+                    && !line.contains("build-dependencies");
+                continue;
+            }
+            if normal && let Some((_, rest)) = line.split_once("path = \"../") {
+                let dependency = rest.split('"').next().unwrap_or_default();
+                todo.push(dependency.to_owned());
+            }
+        }
+    }
+    seen
+}
+
+#[test]
+fn red_team_no_coordinator_crate_can_reach_the_roster_builder() {
+    // §6: availability anyone else reports never reaches placement. The roster
+    // is built in `Placement::build` from this node's store alone; that holds
+    // only while no crate that builds or feeds it can name a coordinator type.
+    // A dependency on `itsanas-coord` anywhere below `itsanas-net` would let a
+    // coordinator's presence figures be turned into `Uptime` and ranked on.
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("crates directory")
+        .to_path_buf();
+    for root in ["itsanas-net", "itsanas-placement"] {
+        let closure = path_closure(&crates, root);
+        assert!(
+            closure.contains("itsanas-placement") && closure.contains("itsanas-crypto"),
+            "the manifest walk found nothing under {root} ({closure:?}): this test would pass blind"
+        );
+        for coordinator in ["itsanas-coord", "itsanas-coordinator"] {
+            assert!(
+                !closure.contains(coordinator),
+                "{root} now depends on {coordinator} ({closure:?}): a coordinator's view of who is \
+                 online could reach the roster and decide where copies go"
+            );
+        }
+    }
+}
