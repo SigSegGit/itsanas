@@ -26,7 +26,9 @@ on a USB disk that comes and goes, a folder on a removable disk (already
 vault --move`). The release-only test of an unplugged vault found two bugs
 on its first run: the vault rebuilt `owners/<id>/blobs` on the bare mount
 point while shutting down, and a second daemon run inherited the stop flag
-(and could not reinstall the Ctrl-C handler). Next: 8.0c and 7(a) together,
+(and could not reinstall the Ctrl-C handler). An absent disk no longer
+pauses the daemon: it runs on a stand-in vault, so own files sync, and refuses
+to host others as away (§8 8(a)). Next: 8.0c and 7(a) together,
 a week of real use on every platform.
 
 **2026-10-19, night: hostile clients, reads scoped to the account.** The
@@ -2897,11 +2899,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
 8. ✅ **Removable disks.** Built 2026-10-19, all four uses Nicolas listed:
    (a) a vault on a USB disk lent to the network: unplugged, `itsanas daemon`
    writes nothing on the bare mount point (`Vault::blobs_for` refuses without
-   `vault.redb`), says this machine is away, waits and resumes by itself;
-   while it waits the machine is simply away, which its hosts' audits read as
-   unreachable, never as lost data. Left: own-account sync also stops while
-   the disk is out, because segments from siblings land in the vault; a
-   laptop that lends a USB disk it unplugs daily syncs only while it is in.
+   `vault.redb`), says this machine is away, opens a stand-in vault in
+   `home/vault-while-away` (`Node::open_away`), syncs its own files and refuses
+   to host others with `HOSTING_AWAY`; its hosts' audits read that as an error,
+   never a failed audit or lost data
+   (`red_team_an_audit_answered_away_is_no_failed_audit`). When the disk
+   returns it prints "hosting again" and restarts on it. Nothing left open.
    (b) a synced folder on a removable disk: already 0l, nothing new.
    (c) `itsanas backup export|restore DIR`: segments, chunks and claims,
    sealed; restore needs the account (24 words) and no peer; every chunk is

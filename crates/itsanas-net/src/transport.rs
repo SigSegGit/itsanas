@@ -1241,6 +1241,10 @@ impl PeerClient {
             Response::ChallengeProof(proof) => {
                 Ok(crate::protocol::challenge_holds(&nonce, expected, &proof))
             }
+            // Away is not lost: the round ends without an audit verdict.
+            Response::Refused(why) if why == crate::service::HOSTING_AWAY => {
+                Err(NetError::Refused(why))
+            }
             Response::Refused(_) => Ok(false),
             _ => Err(NetError::UnexpectedResponse {
                 expected: "challenge proof",

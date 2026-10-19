@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-19 — 1271 test functions across 38 binaries, 10 of them
-`#[ignore]`d, plus 2 doctests. 368 are red-team tests.**
+**Last updated: 2026-10-19 — 1273 test functions across 38 binaries, 10 of them
+`#[ignore]`d, plus 2 doctests. 370 are red-team tests.**
 
-**1155 of the 1271 tests have an entry of their own on this page** — an *entry*,
+**1157 of the 1273 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -163,8 +163,8 @@ guarantee and is not one.
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
-| `itsanas-net` unit | 65 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 60 |
+| `itsanas-net` unit | 66 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 61 |
 | `itsanas-net` relay (`tests/relay.rs`) | 6 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
@@ -212,10 +212,10 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 37 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 53 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 58 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 59 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 26 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 47 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 74 |
 
@@ -856,7 +856,7 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (65)
+# `itsanas-net` — unit tests (66)
 
 ## `protocol` — messages and challenges (14)
 
@@ -877,11 +877,12 @@ about reading.
 | **`red_team_a_permission_to_evict_is_bounded_like_every_list_that_changes_a_host`** | `MayEvict` carries at most 1024 chunks; a longer list is refused at decode. |
 | `eviction_is_a_verb_of_the_current_version_and_of_no_older_one` | `MayEvict` exists from protocol 10 (`PROTOCOL_WITH_EVICTION`), `Claims` from 11 (`PROTOCOL_WITH_ROSTER`, the current version), appended so older numbers are unchanged. |
 
-## `service` — what a peer may obtain (32)
+## `service` — what a peer may obtain (33)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_a_host_that_bounds_nobody_serves_no_read`** | A service built without an `Owners` refuses every read `read_owner` names (`Heads`, `Segments`, `Chunk`, `HaveChunks`, `ChunkSummary`, `Challenge`, `Claims`) with `NOT_YOUR_ACCOUNT`: the default is the safe side. |
+| **`red_team_an_away_node_serves_its_own_account_and_refuses_hosting_as_away`** | A node opened on the stand-in vault (`Node::open_away`, in `home/vault-while-away`) because the real disk is absent still serves its own account's sync, and refuses to host any other account with `HOSTING_AWAY`. Sabotaged (hosts as normal; own account refused): red. |
 | **`red_team_no_node_serves_with_the_unscoped_owners`** | `Unscoped`, the test double that lets anyone read, is named nowhere in the CLI, node or Android code outside their test modules. Its first version cut each file at the first `#[cfg(test)]` and missed code after a test helper in `daemon.rs`; sabotage found it. |
 | **`what_a_peer_fetches_is_useless_without_the_key`** | The reason there is no access-control list. The served bytes contain no plaintext, and a stranger's keys cannot open them. |
 | **`a_node_stores_and_serves_a_strangers_chunk_without_reading_it`** | The mutual-storage bargain in one test: the host serves back exactly what it took, cannot open it, and the guest can. |
@@ -959,7 +960,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (60)
+# `itsanas-net` — two-node tests (61)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -992,6 +993,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`a_file_deleted_elsewhere_is_never_offered_for_download`** | A client that listed a file deleted last week, and fetched it when tapped, would have resurrected it. |
 | `a_metadata_round_offers_the_log_but_sends_no_chunks` | The upload direction: a photo taken on mobile data does not upload itself, and the peer still learns it happened. |
 | **`two_nodes_sync_a_file_over_a_real_socket`** | The M4 exit criterion. |
+| **`red_team_an_audit_answered_away_is_no_failed_audit`** | A host whose vault disk is away answers an audit with `Refused(HOSTING_AWAY)` ("this machine's hosting disk is away; ask again later"). The audit client maps that refusal to `Err`, the same as an unreachable host, never to a failed audit that would count against it. Sabotaged (refusal read as a failed audit): red. |
 | **`red_team_a_trickled_handshake_is_cut_off_by_the_node_listener`** | The deadline is unit-tested in `itsanas-tls`; this proves the node's listener applies it. Going back to plain `accept` left every other test green, which is how the Rodin audit of 2026-09-17 found the gap. Fails when the listener ignores its deadline. |
 | **`red_team_a_peer_speaking_protocol_5_is_never_asked_for_presences`** | A machine not yet on protocol 6 does not know `Presences`: asking costs a refusal a round, or a dropped connection if it misparses. `PeerService::speaking_at_most(5)` stands in for it and a counting `Relay` records every question: a v6 service is asked once (the control), a v5 one never, and the client reads its silence as `None`. Sabotaged (the client's `spoken < 6` gate removed): red. |
 | **`red_team_connections_that_say_nothing_do_not_stop_a_node_serving_others`** | The listener served one connection at a time, so one silent TCP connection held it for the thirty-second read timeout, and one every thirty seconds made the node undialable for everybody, for free. Harmless on a home network, an off switch on a forwarded port. With three silent connections open, an honest peer must authenticate and get an answer within five seconds. Fails, after thirty seconds, when the listener is made serial again. |
@@ -1116,7 +1118,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 | Test | What it proves |
 | --- | --- |
-| **`red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it`** | Unix only (Windows will not rename a directory holding an open file). A vault on a USB disk unplugged under a running daemon: the daemon writes nothing on the bare mount point, does not exit, says this machine is away, and serves again by itself when the disk returns. Found two bugs on its first run: `Vault::blobs_for` rebuilt `owners/<id>/blobs` on the mount point, and the second run inherited the stop flag. |
+| **`red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it`** | Unix only (Windows will not rename a directory holding an open file). A vault on a USB disk unplugged under a running daemon: the daemon writes nothing on the bare mount point, does not exit, opens a stand-in vault in `home/vault-while-away` (`Node::open_away`), keeps syncing its own files, refuses to host others with `HOSTING_AWAY`, and prints "hosting again" and restarts on the real vault when the disk returns. Sabotaged. Rewritten on 2026-10-19 for away mode. Found two bugs on its first run: `Vault::blobs_for` rebuilt `owners/<id>/blobs` on the mount point, and the second run inherited the stop flag. |
 | **`red_team_a_paused_daemon_takes_in_no_file_until_resumed`** | A daemon started paused: a file written into the folder is not taken into the store while it loops (two snapshots three seconds apart both say `files 0`), and is after `itsanas resume`. The unit tests in `control` prove the decisions; this proves the loop obeys them -- the CI reviewer's finding on #243: deleting the loop's guard passed every unit test. Sabotaged (`take_in` called while paused): red, with the two below. |
 | **`red_team_a_pause_landing_mid_round_takes_in_no_file`** | A pause asked for while a round is under way. A "peer" the test owns accepts the daemon's connection and says nothing, holding the round open; the pause and a new file arrive; the peer lets go. The folder scans inside and at the end of the round re-read the pause, so the store still holds nothing. Sabotaged (either re-read removed): red. Not covered: `halted` stopping the dials to further peers, which needs a second one. |
 | **`red_team_a_paused_daemon_adopts_nothing_its_own_devices_push`** | The paused node's listener keeps serving, by design, so a second device of the account (restored from the 24 words `init` printed) pushes a file into its vault; the store must not adopt it until `resume`. It asserts the push really sent something -- its first run passed on nothing, because a node with no pledge refuses its own account's push. **The test the first version of this guard needed:** a `match` arm that ignored the vault drain's result while the drain ran anyway. Sabotaged (that version put back): red. |

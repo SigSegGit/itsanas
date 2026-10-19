@@ -3768,3 +3768,46 @@ fn red_team_a_peer_that_trickles_cannot_hold_the_caller_past_its_budget() {
         "the budget was 2 s and the caller was held {took:?}"
     );
 }
+
+/// A host whose vault's disk is away answers an audit `HOSTING_AWAY`. The
+/// owner must read that as "not here" -- an error that ends the audit with
+/// no verdict -- and never as "not held", which would count a failed audit
+/// against a host that only had its USB disk out. A plain refusal still is a
+/// failed audit, which is the control.
+#[test]
+fn red_team_an_audit_answered_away_is_no_failed_audit() {
+    let host = node(&alice(), 91);
+    let me = node(&MasterSecret::from_bytes([0xB0; 32]), 92);
+    let address = itsanas_crypto::ChunkId::from_bytes([5; 32]);
+    let server = PeerServer::bind("127.0.0.1:0").expect("bind loopback");
+    let at = server.local_addr().expect("local address");
+    let shutdown = AtomicBool::new(false);
+    let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped)
+        .hosting_away(true);
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let _ = server.serve_until(&service, &host.device, &shutdown);
+        });
+        let _stop = StopOnDrop(&shutdown, at);
+        let mut client =
+            PeerClient::connect(at, &me.device, me.store.owner(), None).expect("connect");
+        match client.challenge(me.store.owner(), address, [7; 32], b"sealed") {
+            Err(itsanas_net::NetError::Refused(why)) => {
+                assert_eq!(why, itsanas_net::HOSTING_AWAY);
+            }
+            other => panic!("an away host's audit read as {other:?}, not as absence"),
+        }
+    });
+
+    with_server(&host, Pledge::gigabytes(1), |at| {
+        let mut client =
+            PeerClient::connect(at, &me.device, me.store.owner(), None).expect("connect");
+        assert!(
+            !client
+                .challenge(me.store.owner(), address, [7; 32], b"sealed")
+                .expect("a verdict"),
+            "a chunk the host does not hold passed its audit"
+        );
+    });
+}

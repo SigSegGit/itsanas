@@ -216,11 +216,6 @@ pub(crate) fn resume_after_vault_pause() -> bool {
     false
 }
 
-/// Whether somebody asked this process to stop.
-pub(crate) fn asked_to_stop() -> bool {
-    SHUTDOWN.load(Ordering::SeqCst) && !PAUSED_FOR_VAULT.load(Ordering::SeqCst)
-}
-
 /// Set by the daily update look when it installed a new program: the daemon
 /// then exits with a failure code so its service starts the new one.
 static UPDATED: AtomicBool = AtomicBool::new(false);
@@ -865,6 +860,27 @@ fn sync_loop(
 
         let next_sync = last_round.map_or_else(Instant::now, |last| last + interval);
         wait_for_work(folder.as_ref(), next_sync, shutdown);
+        // Looked at every couple of seconds, not once a round: a disk plugged
+        // back in should be hosting again in seconds, not in an hour.
+        // And the other way: unplugged, this run stops at once and the next
+        // one serves this account alone, rather than an hour of rounds onto
+        // the bare mount point.
+        let present = vault_present(&node.vault_dir());
+        if node.away == present {
+            if present {
+                eprintln!(
+                    "itsanas: the vault's disk is back at {}; hosting again",
+                    node.vault_dir().display()
+                );
+            } else {
+                eprintln!(
+                    "itsanas: the vault at {} lost its marker (was the disk unplugged?); pausing",
+                    node.vault_dir().display()
+                );
+            }
+            PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
+            shutdown.store(true, Ordering::SeqCst);
+        }
     }
 }
 
@@ -1077,6 +1093,7 @@ fn peer_service<'a>(
     .with_disk_room(disk_room)
     // Whose each device is and what it offers, as its claim said (§8 1c).
     .with_owners(owners(node))
+    .hosting_away(node.away)
     // Empty in `everyone`, so `WantHosted` answers as it always did; in
     // `measured` each round swaps its placement in (`placing::begin_round`).
     .with_placement(crate::placing::slot())
@@ -1229,7 +1246,18 @@ fn one_round(
     // The vault's disk dropped under a running daemon: stop this run, rather
     // than run a round that writes hosted data to the local mount point.
     // `itsanas daemon` then waits for the disk and starts again by itself.
-    if !vault_present(&node.vault_dir()) {
+    // Away, the disk coming back is the news: this run stops, and `itsanas
+    // daemon` opens the node again on its real vault.
+    if node.away && vault_present(&node.vault_dir()) {
+        eprintln!(
+            "itsanas: the vault's disk is back at {}; hosting again",
+            node.vault_dir().display()
+        );
+        PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
+        shutdown.store(true, Ordering::SeqCst);
+        return (BTreeSet::new(), None);
+    }
+    if !node.away && !vault_present(&node.vault_dir()) {
         eprintln!(
             "itsanas: the vault at {} lost its marker (was the disk unplugged?); pausing",
             node.vault_dir().display()
