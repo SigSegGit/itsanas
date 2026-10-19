@@ -262,8 +262,21 @@ jobs:
         if: runner.os == 'Windows' && needs.changes.outputs.tests == 'true'
         shell: pwsh
         run: |
+          # The runner image does not always leave imdisk on PATH (2026-10-19:
+          # "imdisk is not recognized" before any test ran). Look for it where
+          # the toolkit installs it; without it, tests use the normal TEMP.
           choco install imdisk-toolkit --no-progress -y | Out-Null
-          imdisk -a -s 3G -m R: -p "/fs:ntfs /q /y"
+          $imdisk = (Get-Command imdisk -ErrorAction SilentlyContinue).Source
+          if (-not $imdisk) { $imdisk = "$env:SystemRoot\System32\imdisk.exe" }
+          if (-not (Test-Path $imdisk)) {
+            "::warning::imdisk not installed; tests keep the default TEMP"
+            exit 0
+          }
+          & $imdisk -a -s 3G -m R: -p "/fs:ntfs /q /y"
+          if ($LASTEXITCODE -ne 0) {
+            "::warning::RAM disk not created; tests keep the default TEMP"
+            exit 0
+          }
           New-Item -ItemType Directory -Force R:\tmp | Out-Null
           "TMP=R:\tmp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "TEMP=R:\tmp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
