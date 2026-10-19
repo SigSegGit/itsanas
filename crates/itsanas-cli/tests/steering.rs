@@ -396,6 +396,9 @@ fn red_team_a_timed_pause_ends_by_itself_without_resume() {
 /// daemon, the daemon must not run a round onto the bare mount point, must
 /// not exit (a laptop has no service manager to restart it), and must come
 /// back by itself when the disk does.
+// Unix only, for the reason the vault's own unplug test gives: Windows will
+// not rename a directory the daemon holds a file open in.
+#[cfg(unix)]
 #[test]
 #[ignore = "one Argon2id derivation and a running daemon; the release job runs it"]
 fn red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it() {
@@ -448,6 +451,7 @@ fn red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it(
     );
 }
 
+#[cfg(unix)]
 fn walkdir_list(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];

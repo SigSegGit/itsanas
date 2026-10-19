@@ -1706,6 +1706,10 @@ mod tests {
         UserKeys::derive(&MasterSecret::from_bytes([byte; 32]))
     }
 
+    // Unix only: Windows refuses to rename a directory holding an open file,
+    // so an unplug cannot be simulated there; an unplugged disk is a gone
+    // drive letter, which `Vault::blobs_for` meets the same way.
+    #[cfg(unix)]
     #[test]
     fn red_team_a_vault_whose_disk_went_writes_nothing_on_the_bare_mount_point() {
         // A USB disk unplugged under a running node: the open database

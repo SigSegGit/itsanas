@@ -3121,9 +3121,14 @@ fn vault(home: &Path, path: Option<&Path>, same_disk: bool, move_data: bool) -> 
 /// and the copy opens and holds what the original held. The original is left
 /// in place: deleting tens of GB is the person's decision, once the node has
 /// run from the new disk.
-fn move_vault(mut node: Node, wanted: &Path, same_disk: bool) -> Result<()> {
+fn move_vault(node: Node, wanted: &Path, same_disk: bool) -> Result<()> {
+    check_vault_target(&node, wanted, same_disk)?;
     let from = node.vault_dir();
     let held = node.vault.held_bytes()?;
+    let config_path = Node::config_path(&node.home);
+    // Closed before copying: Windows will not read a database another handle
+    // has locked, and a copy of a file still open for writing is a guess.
+    drop(node);
     if std::fs::read_dir(wanted).is_ok_and(|mut entries| entries.next().is_some()) {
         return Err(CliError::Usage(format!(
             "{} is not empty; the vault moves into an empty or new directory",
@@ -3167,7 +3172,9 @@ fn move_vault(mut node: Node, wanted: &Path, same_disk: bool) -> Result<()> {
             from.display()
         )));
     }
-    set_vault(&mut node, wanted, same_disk)?;
+    let mut config = config::Config::load(&config_path)?;
+    config.vault = Some(wanted.to_owned());
+    config.save(&config_path)?;
     println!(
         "vault moved to {} ({} files, {}); the daemon uses it from its next start",
         wanted.display(),
@@ -3238,22 +3245,7 @@ fn tree_size(root: &Path) -> Result<(u64, u64)> {
 /// A directory that holds anything, or another device's vault, is refused:
 /// adopting it would mix what two nodes hold, or another node's hosted data.
 fn set_vault(node: &mut Node, wanted: &Path, same_disk: bool) -> Result<()> {
-    // Inside the home, the store or the synced folder, other people's sealed
-    // chunks would be synced as this account's files, or mixed with its own.
-    let inside = |outer: &Path| wanted.starts_with(outer);
-    if inside(&node.home) || node.config.folder.as_deref().is_some_and(inside) {
-        return Err(CliError::Usage(format!(
-            "{} is inside this node's home or synced folder; the vault goes elsewhere",
-            wanted.display()
-        )));
-    }
-    if !same_disk && Node::same_disk(&node.home, wanted).unwrap_or(true) {
-        return Err(CliError::Usage(format!(
-            "{} is on the same disk as this node's home: if it is a NAS mount point, the NAS is \
-             not mounted. Mount it and retry, or add --same-disk if this is meant",
-            wanted.display()
-        )));
-    }
+    check_vault_target(node, wanted, same_disk)?;
     let io = |path: &Path| {
         let path = path.to_owned();
         move |source| CliError::Io { path, source }
@@ -3289,6 +3281,28 @@ fn set_vault(node: &mut Node, wanted: &Path, same_disk: bool) -> Result<()> {
     }
     node.config.vault = Some(wanted.to_owned());
     node.save_config()?;
+    Ok(())
+}
+
+/// Where a vault may not go: inside the home or the synced folder, or on the
+/// home's disk without `--same-disk`.
+fn check_vault_target(node: &Node, wanted: &Path, same_disk: bool) -> Result<()> {
+    // Inside the home, the store or the synced folder, other people's sealed
+    // chunks would be synced as this account's files, or mixed with its own.
+    let inside = |outer: &Path| wanted.starts_with(outer);
+    if inside(&node.home) || node.config.folder.as_deref().is_some_and(inside) {
+        return Err(CliError::Usage(format!(
+            "{} is inside this node's home or synced folder; the vault goes elsewhere",
+            wanted.display()
+        )));
+    }
+    if !same_disk && Node::same_disk(&node.home, wanted).unwrap_or(true) {
+        return Err(CliError::Usage(format!(
+            "{} is on the same disk as this node's home: if it is a NAS mount point, the NAS is \
+             not mounted. Mount it and retry, or add --same-disk if this is meant",
+            wanted.display()
+        )));
+    }
     Ok(())
 }
 
