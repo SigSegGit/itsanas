@@ -172,7 +172,10 @@ pub fn restore(node: &Node, dir: &Path) -> Result<(Moved, itsanas_sync::SyncRepo
         };
         let path: PathBuf = entry.path();
         let sealed = std::fs::read(&path).map_err(io(&path))?;
-        if node.vault.put_chunk(owner, &address, &sealed)? {
+        // Into the store, verified against its address as any pulled chunk
+        // is: a chunk swapped on the backup disk is refused here and never
+        // kept, let alone served to a sibling.
+        if node.store.accept_chunk(&address, &sealed)? {
             moved.chunks += 1;
             moved.bytes += sealed.len() as u64;
         }

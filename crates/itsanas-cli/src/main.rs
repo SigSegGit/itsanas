@@ -4745,7 +4745,14 @@ mod tests {
             phrase.as_str(),
         )
         .expect("recover from the words");
-        let (_, report) = super::backup::restore(&rebuilt, &copy).expect("restore");
+        // A chunk swapped on the backup disk is refused, not kept.
+        let forged = copy.join("chunks").join("ff".repeat(32));
+        std::fs::write(&forged, b"not a chunk of this account").expect("forge");
+        let (moved, report) = super::backup::restore(&rebuilt, &copy).expect("restore");
+        assert_eq!(
+            moved.chunks + 1,
+            std::fs::read_dir(copy.join("chunks")).unwrap().count()
+        );
         assert_eq!(report.adopted, 1, "{report:?}");
         assert_eq!(
             rebuilt

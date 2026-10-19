@@ -2904,8 +2904,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
    laptop that lends a USB disk it unplugs daily syncs only while it is in.
    (b) a synced folder on a removable disk: already 0l, nothing new.
    (c) `itsanas backup export|restore DIR`: segments, chunks and claims,
-   sealed; restore needs the account (24 words) and no peer. Left: restored
-   chunks stay in the vault as well as in the store until a later clean.
+   sealed; restore needs the account (24 words) and no peer; every chunk is
+   verified against its address on the way into the store (AI review).
    (d) `itsanas vault NEW --move`: copy under a staging name, count files and
    bytes, rename, reopen and compare `held_bytes`, keep the original.
 
