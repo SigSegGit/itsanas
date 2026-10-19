@@ -15,7 +15,7 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M3 Sync engine | `itsanas-sync` | ✅ **done** |
 | M4 Network transport | `itsanas-wire`, `itsanas-tls`, `itsanas-net` | ✅ **done** |
 | M4b Local discovery | `itsanas-discover` | ✅ **done** |
-| M5 Placement and repair | `itsanas-placement` | 🟨 **decided, not executed** |
+| M5 Placement and repair | `itsanas-placement` | 🟨 **placement by measured availability built behind `placement = measured` (default `everyone`); not run on the fleet** |
 | M6 Coordinator | `itsanas-coord`, `itsanas-coordinator` | ✅ **done** |
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** |
 | M8 Three-device bring-up | — | ⬜ not started |
@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1146 test functions, 9 of them `#[ignore]`d into the slow job, and 308 of
+**1246 test functions, 9 of them `#[ignore]`d into the slow job, and 347 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -115,30 +115,47 @@ What is missing before this is a *network* rather than a personal sync tool:
   least `k` are up is the tail of `Binomial(n, a)`, and the target has to be
   solved from the availability rather than written down as a constant.
 
-  `REPLICATION_TARGET = 3` is therefore a placeholder that happens to suit a
-  household of machines that are nearly always on. It is wrong for a network of
-  laptops, and wrongly reassuring, which is worse.
+  `REPLICATION_TARGET = 3` is a placeholder that suits a household of machines
+  that are nearly always on. It is wrong for a network of laptops, and wrongly
+  reassuring, which is worse. With `placement = measured` the number of copies
+  is no longer that constant (the three steps below, built 2026-10-19); with
+  the default, `placement = everyone`, nothing has changed and the placeholder
+  is still what `under_replicated` counts against.
 
   **Independence is the harder half.** Thirty holders in one timezone, on one
   ISP, or on one power grid are not thirty independent chances -- they go dark
   together, and a binomial computed as if they were independent overstates
-  availability exactly when it matters. The coordinator already measures
-  per-device availability (`AvailabilityRecord`,
-  `staying_up_raises_availability_and_going_away_lowers_it`); what it does not
-  do is look for *correlation* between them, which is the only way to tell
-  thirty chances from one chance thirty times.
+  availability exactly when it matters. The coordinator measures per-device
+  availability (`AvailabilityRecord`,
+  `staying_up_raises_availability_and_going_away_lowers_it`), and placement
+  does not read it: what it reads is what *this device* measured from its own
+  sessions (`hours_this_node_did_not_try_are_not_counted_against_a_device`).
 
-  Three things have to exist, in this order:
+  Three things had to exist, in this order, and all three are now built behind
+  `placement = measured` (2026-10-19, HANDOVER §8 item 7):
 
-  1. **Report reachable copies, not copies.** A node knows its holders and the
-     coordinator knows their availability; the expected number reachable is
-     computable today and is not computed.
-  2. **Derive the target from measured availability** instead of a constant, so
-     a network of laptops asks for more copies than a network of servers.
-  3. **Select for independence.** Uptime histories that rise and fall together
-     are one holder wearing several hats. The observed public address, which the
-     coordinator sees and currently discards, is a first proxy for "same
-     network"; correlated uptime is the general one.
+  1. ✅ **Report reachable copies, not copies.** `miss_ppm` is the probability
+     that none of a chunk's proven holders is reachable
+     (`unknown_availability_counts_as_unreachable`); `status` prints each
+     device's measured share, longest absence and presumed-lost window
+     (`a_device_with_weeks_of_history_reads_its_share_its_gap_and_its_window`),
+     and, in `measured`, how many chunks are short of their target
+     (`measured_shows_the_short_queue_and_the_census_slice`).
+  2. ✅ **Derive the target from measured availability** instead of a constant.
+     The goal is copies on at least two other accounts and a miss probability
+     of at most 1 % (10 000 ppm), capped at 12 remote copies
+     (`two_proven_reliable_accounts_satisfy_the_goal`, `the_cap_stops_the_search`),
+     so a network of laptops asks for more copies than a network of servers.
+  3. ✅ **Select for independence.** The worse of the independent product and
+     the share of hours when none of the holders was seen
+     (`correlated_hosts_need_more_copies_than_independent_ones_with_the_same_averages`),
+     and distinct accounts first (`distinct_accounts_come_first`). The observed
+     public address as a proxy for "same network" is not used: ⬜ not built.
+
+  Built, and not yet run on the fleet: `placement` defaults to `everyone`,
+  which behaves as before. Placement only adds copies; the one removal, a
+  host's permission to evict (peer protocol 10, `MayEvict`), marks chunks and
+  never deletes (`red_team_eviction_deletes_nothing_when_the_marks_cannot_cover_the_need`).
 
   **A device can now say how much of its own account to hold.** `itsanas keep
   2G` sets a budget, and content beyond it is *never downloaded* rather than

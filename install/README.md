@@ -419,6 +419,12 @@ They are bound to each other and to the disk:
   once, as `itsanas-coord::accounting::Split::DEFAULT`. A node may tighten it
   with a `split = own/network` line in its configuration file, and never loosen
   it: a split keeping more than 30/70 for the owner is refused.
+- Where a chunk's copies go is the `placement` line of the same file:
+  `placement = everyone` (the default, and what a file without the line means)
+  offers every chunk to every host reached; `placement = measured` offers a host
+  only the chunks that, by what this machine has measured of the hosts, still
+  need a copy there. Anything else is refused when the file is read. The
+  measurement and the `status` lines that show it run in both.
 - For the first thirty days a new member may keep **10 GiB** whatever they
   pledge, so a machine can be useful before it has earned anything.
 - Neither number may exceed what the disk the node sits on can actually give,

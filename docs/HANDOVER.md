@@ -20,6 +20,28 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-19: availability-aware placement, behind `placement = measured`
+(branch `ccr-4c4e999e-2aize1`; spec v3, amended by Rodin and the red team).**
+Peer protocol 10 (`PROTOCOL_VERSION = 10`, `PROTOCOL_WITH_EVICTION`) appends
+`MayEvict`. Config `placement = everyone | measured`, default `everyone`, which
+behaves as before, `under_replicated` included. Measurement (a 672-hour uptime
+ring per device, written in `note_seen`'s transaction, only for devices already
+known) and the `status` lines are always on. In `measured` a chunk is wanted on
+hosts until two other accounts hold it, at most 1 % chance that none is
+reachable, at most 12 remote copies. New: the short queue and the census in
+the store, `Placement` in `itsanas-net`, `MayEvict` marks and
+`evict_marked` in the vault, `AccountFull` as a refusal of its own. Placement
+only adds copies. The one removal path is a host's permission to evict, and it
+marks and never deletes (§6). Tests: 100 new, 39 of them red-team
+(`docs/TESTING.md`: `itsanas-placement` unit 34 to 64, `tests/placement.rs`,
+`tests/eviction.rs`). Decided by Nicolas on 2026-10-14: the §6 row is now
+"availability anyone else reports never reaches placement; what this device
+measured does". **Not done:** `measured` has not run on the fleet and is not
+the default (§8 item 7); ⬜ no test fails if a coordinator type is passed to the
+roster builder (the crate has no dependency on `itsanas-coord`, and the float
+guard is the only source scan); the observed public address as a "same network"
+proxy is not used.
+
 **2026-10-14: the fleet reinstalled from scratch.** The VM and the Pi run
 ITSaNAS in Docker (`scripts/fleet-docker.sh vm|pi`): on the VM the coordinator
 in Docker keeps the pinned key `2cfb515f…`, and each machine runs one client
@@ -792,7 +814,11 @@ Each of these has a test that fails if it is:
 | Concurrent edits keep both, winner chosen by a deterministic total order | A rule two devices could disagree about makes them overwrite each other forever | `the_winner_is_the_same_whichever_side_asks` |
 | A concurrent delete loses to an edit | An unexpected file costs a second; a lost edit is unrecoverable | `a_delete_racing_an_edit_never_destroys_the_edit` |
 | The network never deletes data as a punishment | Total economic failure returns a member to a local backup, nothing worse | `only_default_permits_reclaiming_...` |
-| Availability affects entitlement, never placement | The decision that risks data must not depend on the untrusted coordinator | ECONOMICS.md §3; placement takes no availability input |
+| Availability anyone else reports never reaches placement; what this device measured does. Decided by Nicolas, 2026-10-14 (it replaced "availability affects entitlement, never placement") | The decision that risks data must not depend on a number an untrusted party produced; what this node saw of a host over its own sessions, on its own clock, is not that. The coordinator's `AvailabilityRecord` is never read | ECONOMICS.md §3; `hours_this_node_did_not_try_are_not_counted_against_a_device`; `unknown_availability_counts_as_unreachable`; `no_floating_point_is_involved` with `the_float_guard_lists_every_module_of_the_crate`. ⬜ No test yet greps the roster builder for a coordinator type |
+| Placement only adds copies | The one way placement could lose data is by taking a copy away, so there is exactly one removal path (next two rows) and a satisfied chunk asks for nothing | `a_satisfied_chunk_wants_nobody`; `repair_never_plans_a_deletion` |
+| A `MayEvict` mark never deletes; it is honoured only for the same account, and an owner marks at most 4096 chunks a day | A mark is permission, used only when that account's own next store hits `ACCOUNT_FULL`; a stranger or another account must not be able to empty a host, and a clock set back must not buy a fresh day | `red_team_eviction_deletes_nothing_when_the_marks_cannot_cover_the_need`; `red_team_permission_to_evict_is_refused_from_another_account_a_stranger_and_with_no_bound`; `red_team_eviction_never_takes_another_owners_chunks`; `red_team_an_owner_marks_at_most_a_days_cap_even_with_its_clock_set_back`; `red_team_a_peer_speaking_protocol_9_is_never_asked_to_evict` |
+| A release (the owner letting a host go) needs an audit passed within `LIVE_FOR`, a margin of one account and a quarter of the miss goal beyond the target, and a margin that already counts the account's own devices | Releasing on a stale record, or letting two own devices each release "the" spare copy, ends below the target. The owner stops counting the copy at once, conservatively, and releases a (chunk, host) once per `CONFIRMED_FOR` | `red_team_release_needs_an_audit_passed_within_live_for`; `release_picks_the_lowest_ranked_holder_and_only_with_margin`; `red_team_concurrent_own_devices_never_release_below_the_goal`; `red_team_release_needs_a_local_copy_and_margin_and_happens_once_per_confirmed_window` |
+| `placement = everyone` is exactly today's behaviour, and the default | Turning placement on trusts inputs nobody had seen; measurement and `status` run in both so a member reads the figures first | `placement_is_everyone_unless_the_file_says_measured`; `red_team_everyone_mode_never_grows_the_short_queue`; `red_team_an_inbound_session_does_not_change_everyones_count`; the existing `two_nodes.rs` suite unchanged |
 | The vault takes no keys in any constructor | "A host cannot read what it stores" is structural, not a matter of nobody having written the call | `vault.rs` has no key parameter anywhere |
 | Symlinks are skipped, never followed | A link to `~/.ssh` inside the folder would upload a private key | `symlinks_are_skipped_rather_than_followed` |
 | Completing a handshake earns a peer nothing | Device keys are free keypairs, so authenticating identifies a peer and vouches for nothing. Treating it as trust turns the anti-flood measure into the flood's best tool | `red_team_a_flood_of_authenticating_strangers_cannot_take_over_the_table`, `red_team_a_peer_that_only_answered_the_phone_has_earned_nothing` |
@@ -2764,6 +2790,16 @@ Detail and measurements are in ROADMAP.md; this is the map.
       2026-10-06 for `main` to run in full unconditionally, and the full run
       on `main` is half of what catches environment breaks (ROADMAP,
       "Selective CI"). Asked in §10 item 11; do not build before the answer.
+
+7. ✅ **Availability-aware placement.** Built 2026-10-19 (see §0; spec v3,
+   ROADMAP "reachable copies" three steps). `placement = everyone | measured`,
+   default `everyone`; peer protocol 10 `MayEvict`. Left, in order: (a) ⬜ run
+   `measured` on the fleet before it is ever the default, and read the
+   `status` figures (`up N %`, `longest absence`, chunks short) for a week
+   first; (b) ⬜ a test that fails when a coordinator type reaches the roster
+   builder; (c) ⬜ the "same network" proxy for correlated hosts; (d) ⬜ the
+   `anchorless` warning to the member (ECONOMICS §2). Not before (a): changing
+   the default.
 
 ## 9. Known gaps, deliberately open
 

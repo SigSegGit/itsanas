@@ -41,7 +41,7 @@ reboots — and your data stays available and stays in sync.
 > Joining is by invitation from an existing member, also tested between two
 > machines through a real coordinator.
 >
-> 1146 tests, 308 of them red-team — a red-team test **passes when the attack
+> 1246 tests, 347 of them red-team — a red-team test **passes when the attack
 > fails**. See [docs/TESTING.md](docs/TESTING.md), which lists every one of them
 > with the property it establishes.
 >
@@ -139,7 +139,7 @@ nothing is lost.
 | `itsanas-discover` | Serverless discovery: signed announcements on the local network | **implemented** |
 | `itsanas-tls` | TLS 1.3 with device authentication bound to the channel, no certificate authority | **implemented** |
 | `itsanas-net` | Peer protocol, encrypted transport, sync sessions, proof-of-storage challenges | **implemented** |
-| `itsanas-placement` | Rendezvous hashing, replication targets, repair planning | **implemented** (execution pending) |
+| `itsanas-placement` | Rendezvous hashing, replication targets, repair planning | **implemented**: rendezvous order, repair planning, and availability-aware targets behind `placement = measured` (default `everyone`) |
 | `itsanas-coord` | Device claims and revocation, measured availability, accounting, directory, coordinator protocol and server | **implemented** |
 | `itsanas-coordinator` | The coordinator binary: address book and escrow locker | **implemented** |
 | `itsanas-policy` | When and how much to sync: metered connections, battery, attention | **implemented** |
