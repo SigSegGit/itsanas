@@ -50,6 +50,14 @@ pub(super) const SHORT_SINCE: TableDefinition<'_, &[u8], u64> = TableDefinition:
 /// re-stored would turn two owners' disagreement into a loop.
 pub(super) const RELEASED: TableDefinition<'_, &[u8], u64> = TableDefinition::new("released");
 
+/// Device → this node's clock when that device last passed a storage audit.
+///
+/// What release's strict evidence reads: a host that passed once, long ago,
+/// keeps `Reliability.passed > 0` for ever, and a copy released on that is
+/// released on a guess.
+pub(super) const DEVICE_PASSED: TableDefinition<'_, &[u8], u64> =
+    TableDefinition::new("device_passed");
+
 /// `META` key: the last chunk the census returned (exclusive cursor).
 const CENSUS_CURSOR: &str = "census_cursor";
 /// `META` key: the highest hour any ring was written at.
@@ -70,34 +78,72 @@ const fn hour_of(now: u64) -> u64 {
     now / SECONDS_PER_HOUR
 }
 
+/// `META` key: set (1) while the daemon runs `placement = measured`.
+const QUEUE_ARMED: &str = "placement_measured";
+
+/// The short queue, opened in a write transaction together with whether it
+/// may grow.
+///
+/// Every trigger writes through this, so one flag decides them all. In
+/// `everyone` nothing ever works the queue off, and a queue that only grows
+/// (a row per new chunk, per forgotten record) is a table the size of the
+/// account kept for nothing (red team, 5a). Removals are always allowed.
+pub(super) struct ShortQueue<'txn> {
+    table: redb::Table<'txn, &'static [u8], u64>,
+    armed: bool,
+}
+
+impl<'txn> ShortQueue<'txn> {
+    /// Open the queue in `txn`. `META` is read and closed again before the
+    /// queue is opened, so a caller may open `META` itself afterwards.
+    pub(super) fn open(txn: &'txn redb::WriteTransaction) -> Result<Self> {
+        let armed = Index::read_u64(&txn.open_table(META)?, QUEUE_ARMED)? == 1;
+        Ok(Self {
+            table: txn.open_table(SHORT_SINCE)?,
+            armed,
+        })
+    }
+
+    /// Queue `key` at `now` unless it is already queued or the queue is not
+    /// armed.
+    pub(super) fn insert_new(&mut self, key: &[u8], now: u64) -> Result<()> {
+        if self.armed && self.table.get(key)?.is_none() {
+            self.table.insert(key, now)?;
+        }
+        Ok(())
+    }
+}
+
 /// Add `chunk` to the queue if it is live and not already queued.
 ///
 /// Keeping the first timestamp is the point (see [`SHORT_SINCE`]), so an
 /// existing entry is left alone. A chunk outside `CHUNK_REFS` is refused
 /// because nothing would ever settle it.
 pub(super) fn enqueue_in(
-    short: &mut redb::Table<'_, &'static [u8], u64>,
+    short: &mut ShortQueue<'_>,
     refs: &impl ReadableTable<&'static [u8], u64>,
     chunk: &ChunkId,
     now: u64,
 ) -> Result<()> {
     let key = chunk.as_bytes().as_slice();
-    if refs.get(key)?.is_none() || short.get(key)?.is_some() {
+    if !short.armed || refs.get(key)?.is_none() {
         return Ok(());
     }
-    short.insert(key, now)?;
-    Ok(())
+    short.insert_new(key, now)
 }
 
 /// Enqueue up to [`TRIGGER_LIMIT`] of the chunks `device` is recorded as
 /// holding. Returns how many rows were looked at.
 pub(super) fn enqueue_device(
-    short: &mut redb::Table<'_, &'static [u8], u64>,
+    short: &mut ShortQueue<'_>,
     refs: &impl ReadableTable<&'static [u8], u64>,
     holdings: &impl ReadableTable<&'static [u8], u64>,
     device: &DeviceId,
     now: u64,
 ) -> Result<usize> {
+    if !short.armed {
+        return Ok(0);
+    }
     let mut seen = 0;
     for row in holdings.range(
         holders::device_range_start(device).as_slice()
@@ -115,6 +161,113 @@ pub(super) fn enqueue_device(
     Ok(seen)
 }
 
+/// `META` key: an hour far ahead of [`LATEST_HOUR`] that one note claimed,
+/// waiting for a second to agree before any ring is moved to it.
+const PENDING_JUMP: &str = "uptime_pending_jump";
+
+/// The largest step forward one note may take on its own, in hours.
+///
+/// A clock that jumps a year ahead for one reading resets every ring it
+/// touches (a gap past the window), and `LATEST_HOUR` then makes release
+/// refuse for a year after the clock comes back. A week is more than any
+/// real gap between two notes of a running node; a node that was really off
+/// longer is confirmed by its very next note.
+pub const MAX_UNCONFIRMED_JUMP_HOURS: u64 = 7 * 24;
+
+/// How close a second note must be to a pending jump to confirm it.
+const JUMP_AGREES_HOURS: u64 = 24;
+
+/// The node clock's standing in `META`, read once per note.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Clock {
+    latest: u64,
+    pending: u64,
+}
+
+impl Clock {
+    fn read(meta: &impl ReadableTable<&'static str, &'static [u8]>) -> Result<Self> {
+        Ok(Self {
+            latest: Index::read_u64(meta, LATEST_HOUR)?,
+            pending: Index::read_u64(meta, PENDING_JUMP)?,
+        })
+    }
+
+    /// Whether a note at `hour` may move rings, and the clock after it.
+    ///
+    /// Within [`MAX_UNCONFIRMED_JUMP_HOURS`] of the latest hour (or before
+    /// any), yes, and a pending jump is dropped: the glitch did not repeat.
+    /// Further ahead, only when a pending jump within [`JUMP_AGREES_HOURS`]
+    /// before it agrees; otherwise this note becomes the pending jump and
+    /// moves nothing.
+    const fn judge(self, hour: u64) -> (bool, Self) {
+        let ordinary =
+            self.latest == 0 || hour <= self.latest.saturating_add(MAX_UNCONFIRMED_JUMP_HOURS);
+        let confirmed =
+            self.pending != 0 && hour >= self.pending && hour - self.pending <= JUMP_AGREES_HOURS;
+        if ordinary || confirmed {
+            (
+                true,
+                Self {
+                    latest: self.latest,
+                    pending: 0,
+                },
+            )
+        } else {
+            (
+                false,
+                Self {
+                    latest: self.latest,
+                    pending: hour,
+                },
+            )
+        }
+    }
+}
+
+/// What one observation would write: the ring (if it changes), and the
+/// clock (if it changes).
+struct Plan {
+    ring: Option<Uptime>,
+    clock: Option<Clock>,
+}
+
+impl Plan {
+    const fn writes(&self) -> bool {
+        self.ring.is_some() || self.clock.is_some()
+    }
+}
+
+/// Plan one observation of a device whose ring is `existing`, in `hour`.
+fn plan(existing: Option<Uptime>, clock: Clock, hour: u64, seen: bool) -> Plan {
+    let (accepted, mut after) = clock.judge(hour);
+    let ring = if accepted {
+        let fresh = existing.is_none();
+        let mut ring = existing.unwrap_or_else(|| Uptime::new(hour));
+        (ring.note(hour, seen) || fresh).then_some(ring)
+    } else {
+        None
+    };
+    // The latest hour advances only from a note that was accepted and
+    // written: a rejected far-future note must not drag it along.
+    if ring.is_some() && hour > after.latest {
+        after.latest = hour;
+    }
+    Plan {
+        ring,
+        clock: (after != clock).then_some(after),
+    }
+}
+
+fn read_ring(
+    rings: &impl ReadableTable<&'static [u8], &'static [u8]>,
+    device: &DeviceId,
+) -> Result<Option<Uptime>> {
+    match rings.get(device.as_bytes().as_slice())? {
+        Some(value) => Ok(Some(postcard::from_bytes(value.value())?)),
+        None => Ok(None),
+    }
+}
+
 /// Note one observation of `device` in `now`'s hour, writing only on change.
 ///
 /// Returns whether the ring was written. The caller decides whether the device
@@ -127,22 +280,32 @@ fn note_ring(
     now: u64,
     seen: bool,
 ) -> Result<bool> {
-    let hour = hour_of(now);
-    let key = device.as_bytes().as_slice();
-    let existing: Option<Uptime> = match rings.get(key)? {
-        Some(value) => Some(postcard::from_bytes(value.value())?),
-        None => None,
-    };
-    let fresh = existing.is_none();
-    let mut ring = existing.unwrap_or_else(|| Uptime::new(hour));
-    if !ring.note(hour, seen) && !fresh {
+    let planned = plan(
+        read_ring(rings, device)?,
+        Clock::read(meta)?,
+        hour_of(now),
+        seen,
+    );
+    apply(rings, meta, device, &planned)
+}
+
+fn apply(
+    rings: &mut redb::Table<'_, &'static [u8], &'static [u8]>,
+    meta: &mut redb::Table<'_, &'static str, &'static [u8]>,
+    device: &DeviceId,
+    planned: &Plan,
+) -> Result<bool> {
+    if let Some(clock) = planned.clock {
+        meta.insert(LATEST_HOUR, clock.latest.to_le_bytes().as_slice())?;
+        meta.insert(PENDING_JUMP, clock.pending.to_le_bytes().as_slice())?;
+    }
+    let Some(ring) = &planned.ring else {
         return Ok(false);
-    }
-    rings.insert(key, postcard::to_stdvec(&ring)?.as_slice())?;
-    let latest = Index::read_u64(meta, LATEST_HOUR)?;
-    if hour > latest {
-        meta.insert(LATEST_HOUR, hour.to_le_bytes().as_slice())?;
-    }
+    };
+    rings.insert(
+        device.as_bytes().as_slice(),
+        postcard::to_stdvec(ring)?.as_slice(),
+    )?;
     Ok(true)
 }
 
@@ -200,6 +363,14 @@ impl Index {
     /// [`Index::note_seen`] for an inbound session: only for a device already
     /// known, so a stranger dialling in leaves no row. Returns whether it was.
     ///
+    /// Only the ring, never `DEVICE_SEEN`: contact there is what every
+    /// liveness question reads, `under_replicated` in `everyone` among them,
+    /// and an inbound session (which proves nothing about what the peer
+    /// holds) must not change how `everyone` counts copies (red team, 5b).
+    /// Read first, and a write transaction only for a known device whose
+    /// ring or clock this note changes: an inbound session per connection
+    /// would otherwise be a commit per connection.
+    ///
     /// # Errors
     ///
     /// If the index cannot be read or written.
@@ -208,25 +379,34 @@ impl Index {
     }
 
     fn note_if_known(&self, device: &DeviceId, now: u64, seen: bool) -> Result<bool> {
-        let txn = self.db.begin_write()?;
-        let noted;
         {
-            let mut rings = txn.open_table(DEVICE_UPTIME)?;
-            let mut contact = txn.open_table(DEVICE_SEEN)?;
-            noted = known(&rings, &contact, device)?;
-            if noted {
-                if seen {
-                    contact.insert(device.as_bytes().as_slice(), now)?;
-                }
-                note_ring(&mut rings, &mut txn.open_table(META)?, device, now, seen)?;
+            let txn = self.db.begin_read()?;
+            let rings = txn.open_table(DEVICE_UPTIME)?;
+            if !known(&rings, &txn.open_table(DEVICE_SEEN)?, device)? {
+                return Ok(false);
+            }
+            let planned = plan(
+                read_ring(&rings, device)?,
+                Clock::read(&txn.open_table(META)?)?,
+                hour_of(now),
+                seen,
+            );
+            if !planned.writes() {
+                return Ok(true);
             }
         }
-        if noted {
-            txn.commit()?;
-        } else {
-            txn.abort()?;
-        }
-        Ok(noted)
+        // Planned again inside the write: another session may have written
+        // between the read and here, and the read's plan would undo it.
+        let txn = self.db.begin_write()?;
+        note_ring(
+            &mut txn.open_table(DEVICE_UPTIME)?,
+            &mut txn.open_table(META)?,
+            device,
+            now,
+            seen,
+        )?;
+        txn.commit()?;
+        Ok(true)
     }
 
     /// `device`'s ring, or `None` if this node has never observed it.
@@ -289,11 +469,41 @@ impl Index {
         }
         let txn = self.db.begin_write()?;
         {
+            let mut short = ShortQueue::open(&txn)?;
             let refs = txn.open_table(CHUNK_REFS)?;
-            let mut short = txn.open_table(SHORT_SINCE)?;
             for chunk in chunks {
                 enqueue_in(&mut short, &refs, chunk, now)?;
             }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// Arm the short queue (`measured`) or disarm and empty it (`everyone`).
+    ///
+    /// The daemon calls this every round with its mode; it writes only on a
+    /// change. Emptied on the way back to `everyone`, because nothing settles
+    /// the queue there and its timestamps would be stale on the next switch:
+    /// a chunk queued a month ago reads as a month short, past the safety
+    /// grace, and goes to every eligible host.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read or written.
+    pub fn set_placement_measured(&self, measured: bool) -> Result<()> {
+        let armed = {
+            let txn = self.db.begin_read()?;
+            Self::read_u64(&txn.open_table(META)?, QUEUE_ARMED)? == 1
+        };
+        if armed == measured && (measured || self.short_count()? == 0) {
+            return Ok(());
+        }
+        let txn = self.db.begin_write()?;
+        txn.open_table(META)?
+            .insert(QUEUE_ARMED, u64::from(measured).to_le_bytes().as_slice())?;
+        if !measured {
+            txn.delete_table(SHORT_SINCE)?;
+            let _ = txn.open_table(SHORT_SINCE)?;
         }
         txn.commit()?;
         Ok(())
@@ -472,6 +682,75 @@ impl Index {
         Ok(())
     }
 
+    /// Of `chunks`, those whose copy on `device` this node has not released
+    /// within [`holders::CONFIRMED_FOR`] of `now`, in the order given.
+    pub(super) fn not_released(
+        &self,
+        chunks: &[ChunkId],
+        device: &DeviceId,
+        now: u64,
+    ) -> Result<Vec<ChunkId>> {
+        if chunks.is_empty() {
+            return Ok(Vec::new());
+        }
+        let txn = self.db.begin_read()?;
+        let released = txn.open_table(RELEASED)?;
+        let mut out = Vec::with_capacity(chunks.len());
+        for chunk in chunks {
+            let recent = released
+                .get(holders::key(chunk, device).as_slice())?
+                .is_some_and(|at| now.saturating_sub(at.value()) < holders::CONFIRMED_FOR);
+            if !recent {
+                out.push(*chunk);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Forget that this node released `device`'s copy of each of `chunks`:
+    /// the host has just stored them again.
+    pub(super) fn clear_released(&self, chunks: &[ChunkId], device: &DeviceId) -> Result<()> {
+        // Read first: almost every store is of a chunk never released, and a
+        // commit per accepted batch to remove nothing is what the ledger's
+        // read-before-write rule exists to avoid.
+        {
+            let txn = self.db.begin_read()?;
+            let released = txn.open_table(RELEASED)?;
+            let mut any = false;
+            for chunk in chunks {
+                any |= released
+                    .get(holders::key(chunk, device).as_slice())?
+                    .is_some();
+            }
+            if !any {
+                return Ok(());
+            }
+        }
+        let txn = self.db.begin_write()?;
+        {
+            let mut released = txn.open_table(RELEASED)?;
+            for chunk in chunks {
+                released.remove(holders::key(chunk, device).as_slice())?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// When `device` last passed a storage audit here, if it has since this
+    /// table existed.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn last_passed(&self, device: &DeviceId) -> Result<Option<u64>> {
+        let txn = self.db.begin_read()?;
+        Ok(txn
+            .open_table(DEVICE_PASSED)?
+            .get(device.as_bytes().as_slice())?
+            .map(|value| value.value()))
+    }
+
     /// When this node last released `device`'s copy of `chunk`, if it has.
     ///
     /// # Errors
@@ -508,7 +787,7 @@ impl Index {
         now: u64,
     ) -> Result<usize> {
         enqueue_device(
-            &mut txn.open_table(SHORT_SINCE)?,
+            &mut ShortQueue::open(txn)?,
             &txn.open_table(CHUNK_REFS)?,
             &txn.open_table(HOLDINGS)?,
             device,
@@ -521,7 +800,7 @@ impl Index {
     #[cfg(test)]
     pub(super) fn drop_placement_tables_for_test(&self) {
         let txn = self.db.begin_write().unwrap();
-        for name in ["device_uptime", "short_since", "released"] {
+        for name in ["device_uptime", "short_since", "released", "device_passed"] {
             txn.delete_table(TableDefinition::<&[u8], &[u8]>::new(name))
                 .unwrap();
         }
@@ -556,6 +835,9 @@ mod tests {
     fn index() -> (tempfile::TempDir, Index) {
         let dir = tempfile::tempdir().expect("temp dir");
         let index = Index::open(dir.path().join("index.redb"), key()).expect("open");
+        // Armed, as `measured` arms it: most tests here are about what the
+        // triggers queue.
+        index.set_placement_measured(true).expect("arm");
         (dir, index)
     }
 
@@ -671,7 +953,9 @@ mod tests {
         let ring = index.uptime(&known).expect("read").expect("ring");
         assert_eq!(ring.attempted_hours(), 3);
         assert_eq!(ring.seen_hours(), 2);
-        assert_eq!(index.last_seen(&known).expect("read"), Some(T0 + 2 * HOUR));
+        // The inbound session moved the ring only: contact is what
+        // `everyone` counts copies by, and an inbound session proves nothing.
+        assert_eq!(index.last_seen(&known).expect("read"), Some(T0));
 
         // Known by contact alone (a holder record), with no ring yet.
         index
@@ -944,11 +1228,130 @@ mod tests {
     }
 
     #[test]
+    fn red_team_a_released_copy_is_not_re_recorded_on_the_hosts_word() {
+        // The host still answers "have" until it evicts; re-stamping then
+        // would count, for LIVE_FOR, a copy about to be deleted. Only a fresh
+        // store it accepted brings the record back. Sabotages: drop
+        // `not_released` from `record_holders`; or `clear_released` from
+        // `record_stored`.
+        let (_dir, index) = index();
+        let host = device(5);
+        index
+            .record_holders(&[chunk(1)], &host, T0)
+            .expect("record");
+        index.forget_holders(&[chunk(1)], &host).expect("forget");
+        index
+            .note_released(&[chunk(1)], &host, T0)
+            .expect("released");
+
+        index
+            .record_holders(&[chunk(1)], &host, T0 + HOUR)
+            .expect("have");
+        assert!(
+            index
+                .holders_with_stamps(&chunk(1))
+                .expect("read")
+                .is_empty()
+        );
+
+        // Past the window, its word counts again.
+        let after = T0 + holders::CONFIRMED_FOR;
+        index
+            .record_holders(&[chunk(1)], &host, after)
+            .expect("have");
+        assert_eq!(index.holders_with_stamps(&chunk(1)).expect("read").len(), 1);
+
+        // A fresh store ends the release at once.
+        index.forget_holders(&[chunk(2)], &host).expect("noop");
+        index
+            .note_released(&[chunk(2)], &host, T0)
+            .expect("released");
+        index
+            .record_stored(&[chunk(2)], &host, T0 + HOUR)
+            .expect("stored");
+        assert_eq!(index.holders_with_stamps(&chunk(2)).expect("read").len(), 1);
+        assert_eq!(index.released_at(&chunk(2), &host).expect("read"), None);
+    }
+
+    #[test]
+    fn red_team_a_lone_far_future_note_moves_no_ring_and_no_latest_hour() {
+        // One reading a year ahead would reset every ring it touched and set
+        // LATEST_HOUR a year on, so release refused for a year after the
+        // clock came back. Sabotage: accept every forward jump in `judge`.
+        let (_dir, index) = index();
+        let d = device(7);
+        index.note_seen(&d, T0).expect("seen");
+        let ring = index.uptime(&d).expect("read").expect("ring");
+        let glitch = T0 + 365 * 24 * HOUR;
+        index.note_seen(&d, glitch).expect("glitch");
+        assert_eq!(index.uptime(&d).expect("read"), Some(ring));
+        assert_eq!(index.latest_hour_written().expect("read"), T0 / HOUR);
+
+        // The clock comes back: the next ordinary note works as usual.
+        index.note_seen(&d, T0 + HOUR).expect("back");
+        assert_eq!(index.latest_hour_written().expect("read"), T0 / HOUR + 1);
+
+        // A node really off for a month: two agreeing notes accept the jump.
+        let month = T0 + 30 * 24 * HOUR;
+        index.note_seen(&d, month).expect("first");
+        assert_eq!(index.latest_hour_written().expect("read"), T0 / HOUR + 1);
+        index.note_seen(&d, month + HOUR).expect("second");
+        assert_eq!(index.latest_hour_written().expect("read"), month / HOUR + 1);
+    }
+
+    #[test]
+    fn red_team_everyone_mode_never_grows_the_short_queue() {
+        // In `everyone` nothing works the queue off: every trigger writing a
+        // row would be a table the size of the account kept for nothing.
+        // And switching back to `everyone` empties what `measured` left.
+        // Sabotages: drop the `armed` check in `enqueue_in`/`insert_new`;
+        // drop the clear in `set_placement_measured`.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let index = Index::open(dir.path().join("index.redb"), key()).expect("open");
+        file(&index, "a", &[chunk(1), chunk(2)]);
+        index
+            .record_holders(&[chunk(1)], &device(5), T0)
+            .expect("record");
+        index.forget_device(&device(5)).expect("leave");
+        index.enqueue_short(&[chunk(2)], T0).expect("enqueue");
+        assert_eq!(index.short_count().expect("count"), 0);
+
+        index.set_placement_measured(true).expect("arm");
+        file(&index, "b", &[chunk(3)]);
+        assert_eq!(index.short_count().expect("count"), 1);
+        index.set_placement_measured(false).expect("disarm");
+        assert_eq!(index.short_count().expect("count"), 0);
+        file(&index, "c", &[chunk(4)]);
+        assert_eq!(index.short_count().expect("count"), 0);
+    }
+
+    #[test]
+    fn red_team_an_inbound_session_does_not_change_everyones_count() {
+        // `everyone` must behave exactly as before placement. Contact is what
+        // `under_replicated` reads for liveness, and an inbound session proves
+        // nothing about what the peer holds: refreshed by one, a host gone
+        // quiet a week ago would count again and repair would stop. Sabotage:
+        // write `DEVICE_SEEN` in `note_if_known`.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let index = Index::open(dir.path().join("index.redb"), key()).expect("open");
+        file(&index, "a", &[chunk(1)]);
+        index
+            .record_holders(&[chunk(1)], &device(5), T0)
+            .expect("record");
+        let now = T0 + holders::LIVE_FOR + HOUR;
+        let before = index.under_replicated(2, now).expect("count");
+        assert!(index.note_seen_if_known(&device(5), now).expect("inbound"));
+        assert_eq!(index.under_replicated(2, now).expect("count"), before);
+        assert_eq!(index.last_seen(&device(5)).expect("read"), Some(T0));
+    }
+
+    #[test]
     fn rings_queue_and_releases_survive_reopening() {
         let dir = tempfile::tempdir().expect("temp dir");
         let path = dir.path().join("index.redb");
         {
             let index = Index::open(&path, key()).expect("open");
+            index.set_placement_measured(true).expect("arm");
             file(&index, "a", &[chunk(1)]);
             index.note_seen(&device(2), T0).expect("seen");
             index

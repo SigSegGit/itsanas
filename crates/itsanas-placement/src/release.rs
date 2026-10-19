@@ -8,30 +8,41 @@
 //! What this module refuses to do:
 //!
 //! - **Release below margin.** What stays must clear the goal with room to
-//!   spare: one account more than [`crate::target::Goal::accounts`] and a
-//!   quarter of the miss budget. Two own devices may release two copies of
-//!   one chunk on two hosts in the same hour; the margin is what keeps that
-//!   race above the goal instead of under it.
-//! - **Let own devices disagree on the choice.** It is always the
-//!   lowest-ranked qualifying holder in rendezvous order, which every own
-//!   device computes the same from the same evidence.
+//!   spare: a quarter of the miss budget, and one account more than
+//!   [`crate::target::Goal::accounts`] **per own device that may release**.
+//!   Own devices decide independently, each from its own roster and its own
+//!   measurements, so they do *not* reliably pick the same holder: two of
+//!   them may each release a different copy of one chunk in the same hour.
+//!   With `n` own devices live, `n` copies may go at once, and only a margin
+//!   of `n` accounts above the goal keeps that race at or above it.
+//! - **Pick arbitrarily.** It is the lowest-ranked qualifying holder in
+//!   rendezvous order, so devices that do share evidence agree, and the
+//!   margin covers the ones that do not.
 //! - **Judge on soft evidence.** The caller passes only strictly fresh
-//!   holdings (proven within `LIVE_FOR`, recently confirmed, no extended
-//!   liveness window); this module trusts that and adds nothing looser.
+//!   holdings (an audit passed within `LIVE_FOR`, a record newer than
+//!   `REFRESH_AFTER`, no extended liveness window); this module trusts that
+//!   and adds nothing looser.
 
 use crate::target::{Goal, Holding, assess};
 use itsanas_crypto::DeviceId;
 
 /// The holder to release for this chunk, if any: among off-account holders,
-/// the **lowest** in `order` whose removal leaves at least `goal.accounts + 1`
-/// distinct accounts and a miss of at most `goal.miss_ppm / 4`.
+/// the **lowest** in `order` whose removal leaves at least
+/// `goal.accounts + releasers` distinct accounts and a miss of at most
+/// `goal.miss_ppm / 4`.
+///
+/// `releasers` is how many of this account's devices may be releasing at
+/// once (the live own devices, this one included; at least one): each may
+/// take one copy of the chunk, so `releasers` copies may go together.
 #[must_use]
 pub fn release_holder(
     strict: &[Holding<'_>],
     order: &[DeviceId],
     goal: &Goal,
+    releasers: usize,
     now_hour: u64,
 ) -> Option<DeviceId> {
+    let floor = goal.accounts.saturating_add(releasers.max(1));
     order.iter().rev().copied().find(|candidate| {
         if !strict
             .iter()
@@ -45,7 +56,7 @@ pub fn release_holder(
             .copied()
             .collect();
         let verdict = assess(&remaining, goal, now_hour);
-        verdict.accounts > goal.accounts && verdict.miss_ppm <= goal.miss_ppm / 4
+        verdict.accounts >= floor && verdict.miss_ppm <= goal.miss_ppm / 4
     })
 }
 
@@ -84,11 +95,14 @@ mod tests {
         let order = [device(3), device(1), device(4), device(2)];
 
         // Four accounts: dropping any one leaves three, well inside 2 500 ppm.
-        assert_eq!(release_holder(&held, &order, &GOAL, NOW), Some(device(2)));
+        assert_eq!(
+            release_holder(&held, &order, &GOAL, 1, NOW),
+            Some(device(2))
+        );
 
         // Three accounts: dropping one leaves two, which meets the goal but
         // not the margin. Nothing is released.
-        assert_eq!(release_holder(&held[..3], &order, &GOAL, NOW), None);
+        assert_eq!(release_holder(&held[..3], &order, &GOAL, 1, NOW), None);
     }
 
     #[test]
@@ -109,9 +123,43 @@ mod tests {
 
         let order = [device(1), device(2), device(4), device(3)];
         assert_eq!(
-            release_holder(&with_extra, &order, &GOAL, NOW),
+            release_holder(&with_extra, &order, &GOAL, 1, NOW),
             Some(device(4))
         );
+    }
+
+    #[test]
+    fn red_team_concurrent_own_devices_never_release_below_the_goal() {
+        // Five accounts. Own devices decide on their own rosters, so each may
+        // take a different copy in the same hour. With the old fixed margin
+        // (goal + 1) four own devices all release and leave one account;
+        // scaled by the releasers, any number releasing at once leaves the
+        // goal.
+        let rings: Vec<Uptime> = (0..5).map(|phase| steady(NOW, 990, phase * 20)).collect();
+        let held: Vec<Holding<'_>> = (0..5)
+            .map(|index| {
+                holding(
+                    index + 1,
+                    u8::try_from(index + 1).unwrap(),
+                    &rings[usize::from(index)],
+                )
+            })
+            .collect();
+        let order = [device(1), device(2), device(3), device(4), device(5)];
+        assert_eq!(
+            release_holder(&held, &order, &GOAL, 2, NOW),
+            Some(device(5))
+        );
+        assert_eq!(release_holder(&held, &order, &GOAL, 3, NOW), None);
+        for releasers in 1..=5 {
+            if release_holder(&held, &order, &GOAL, releasers, NOW).is_some() {
+                assert!(
+                    held.len() - releasers >= GOAL.accounts,
+                    "{releasers} releasers would leave {} accounts",
+                    held.len() - releasers
+                );
+            }
+        }
     }
 
     #[test]
@@ -132,8 +180,11 @@ mod tests {
         });
         // The own device is ranked lowest; it must be passed over.
         let order = [device(1), device(2), device(3), device(4), device(5)];
-        assert_eq!(release_holder(&held, &order, &GOAL, NOW), Some(device(4)));
+        assert_eq!(
+            release_holder(&held, &order, &GOAL, 1, NOW),
+            Some(device(4))
+        );
         // A device not in the order is not a candidate.
-        assert_eq!(release_holder(&held, &[device(7)], &GOAL, NOW), None);
+        assert_eq!(release_holder(&held, &[device(7)], &GOAL, 1, NOW), None);
     }
 }

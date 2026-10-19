@@ -21,13 +21,17 @@
 //!   verb back; this module then keeps every record.
 
 use itsanas_crypto::{ChunkId, DeviceId};
-use itsanas_store::{Store, holders::CONFIRMED_FOR, summary};
+use itsanas_store::{
+    Store,
+    holders::{self, CONFIRMED_FOR},
+    summary,
+};
 
 use crate::{
     error::{NetError, Result},
     placement::Placement,
     protocol::MAX_HAVE_BATCH,
-    session::{Full, PushReport, ask, bucket_chunks, refresh_released},
+    session::{Full, PushReport, ask, bucket_chunks, refresh_released_page},
     transport::PeerClient,
 };
 
@@ -53,7 +57,11 @@ pub(crate) fn push(
     let wanting = short_round(store, client, report, placement, &mut full)?;
 
     if placed {
-        report.holders_recorded += refresh_released(store, client, &peer)?;
+        // One page from a random start, not every record: a host holding a
+        // million of this account's chunks would otherwise be asked about
+        // all of them on every session (red team, MEDIUM 7).
+        let page = holdings_from_random(store, &peer, MAX_HAVE_BATCH)?;
+        report.holders_recorded += refresh_released_page(store, client, &peer, page)?;
         if full.share_spent && wanting > 0 {
             release(store, client, report, placement, wanting)?;
         }
@@ -146,6 +154,9 @@ fn short_round(
     }
     let peer = client.peer_device();
 
+    // Each chunk evaluated once here, and again only if this session gave
+    // the peer a copy of it: re-evaluating every offer whatever happened
+    // doubled the CPU of a session that moved nothing (red team, MEDIUM 6).
     let mut offer = Vec::new();
     let mut wanted = Vec::new();
     for (chunk, since) in short_page(store)? {
@@ -165,12 +176,18 @@ fn short_round(
         return Ok(0);
     }
 
+    let before = store.with_record(&offer, &peer)?;
     for batch in offer.chunks(MAX_HAVE_BATCH) {
         ask(store, client, report, batch, full)?;
     }
 
+    let gained: Vec<ChunkId> = store
+        .with_record(&offer, &peer)?
+        .into_iter()
+        .filter(|chunk| !before.contains(chunk))
+        .collect();
     let mut settled = Vec::new();
-    for chunk in &offer {
+    for chunk in &gained {
         if placement.evaluate(store, chunk)?.verdict.satisfied() {
             settled.push(*chunk);
         }
@@ -179,6 +196,24 @@ fn short_round(
 
     let recorded = store.with_record(&wanted, &peer)?;
     Ok(wanted.len() - recorded.len())
+}
+
+/// Up to `limit` of the chunks recorded on `peer`, from a random point in
+/// its audit order, wrapping, never one twice: a fixed start would read the
+/// same head of a large host's records on every session and never reach
+/// the rest.
+fn holdings_from_random(store: &Store, peer: &DeviceId, limit: usize) -> Result<Vec<ChunkId>> {
+    let mut cursor = [0u8; holders::AUDIT_TAG_LEN];
+    getrandom::fill(&mut cursor)
+        .map_err(|error| NetError::Refused(format!("no entropy for a records start: {error}")))?;
+    let start = holders::device_cursor(peer, &cursor);
+    let (mut page, next) = store.holdings_page(peer, Some(start.as_slice()), limit)?;
+    if next.is_none() && page.len() < limit {
+        let seen: std::collections::BTreeSet<ChunkId> = page.iter().copied().collect();
+        let (wrapped, _) = store.holdings_page(peer, None, limit - page.len())?;
+        page.extend(wrapped.into_iter().filter(|chunk| !seen.contains(chunk)));
+    }
+    Ok(page)
 }
 
 /// Up to [`SHORT_PAGE`] queued chunks from a random point, wrapping, never
@@ -219,7 +254,9 @@ fn release(
         return Ok(());
     }
     let limit = wanting.min(MAX_HAVE_BATCH);
-    let (page, _) = store.holdings_page(&peer, None, MAX_HAVE_BATCH)?;
+    // From a random start, as every read of a host's records: the head of
+    // its audit order would otherwise be the only part ever released.
+    let page = holdings_from_random(store, &peer, MAX_HAVE_BATCH)?;
     let mut batch = Vec::new();
     for chunk in page {
         if batch.len() >= limit {
@@ -249,9 +286,72 @@ fn release(
     let Ok(Some(_)) = client.may_evict(store.owner(), batch.clone()) else {
         return Ok(());
     };
+    // The host answers how many it marked, not which: a day's quota spent
+    // part-way leaves some unmarked, and this node cannot tell them apart.
+    // Every record is still forgotten (the conservative direction), and every
+    // chunk is noted released, so an unmarked one waits CONFIRMED_FOR before
+    // it is asked again, rather than this node guessing which to retry; the
+    // short queue re-places it meanwhile. Saying which needs a protocol
+    // change (red team, HIGH 3, left as is).
     store.forget_holders(&batch, &peer)?;
     store.note_released(&batch, &peer, now)?;
     store.enqueue_short(&batch, now)?;
     report.released += batch.len();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
+    use itsanas_store::ChunkerConfig;
+
+    #[test]
+    fn red_team_a_hosts_records_are_read_from_a_random_start_and_all_reached() {
+        // Release and the released-chunk refresh read one page of a host's
+        // records per session. From a fixed start, a host holding more than
+        // a page would have only its first page ever released or refreshed.
+        // Sabotage: start `holdings_from_random` at `None`.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let store = Store::open_for_testing(
+            dir.path().join("store"),
+            UserKeys::derive(&MasterSecret::from_bytes([3; 32])),
+            DeviceKeys::from_seed(&SecretBytes::new([4; 32])),
+            ChunkerConfig::default(),
+        )
+        .expect("store");
+        let host = DeviceId::from_bytes([9; 32]);
+        let chunks: Vec<ChunkId> = (0..1024u16)
+            .map(|index| {
+                let mut bytes = [7u8; 32];
+                bytes[..2].copy_from_slice(&index.to_be_bytes());
+                ChunkId::from_bytes(bytes)
+            })
+            .collect();
+        store.record_holders(&chunks, &host).expect("record");
+        let page = 64;
+        let mut reached = std::collections::BTreeSet::new();
+        for _ in 0..200 {
+            let got = holdings_from_random(&store, &host, page).expect("page");
+            assert_eq!(got.len(), page);
+            assert_eq!(
+                got.iter().collect::<std::collections::BTreeSet<_>>().len(),
+                page,
+                "a chunk twice in one page"
+            );
+            reached.extend(got);
+        }
+        assert!(
+            reached.len() > chunks.len() / 2,
+            "only {} of {} records ever read",
+            reached.len(),
+            chunks.len()
+        );
+
+        // Fewer records than a page: every one, once.
+        let few = DeviceId::from_bytes([8; 32]);
+        store.record_holders(&chunks[..5], &few).expect("record");
+        let got = holdings_from_random(&store, &few, page).expect("page");
+        assert_eq!(got.len(), 5);
+    }
 }

@@ -1301,6 +1301,35 @@ impl Store {
         self.index.record_holders(chunks, device, now)
     }
 
+    /// Arm the short queue for `measured`, or disarm and empty it for
+    /// `everyone`. See [`Index::set_placement_measured`].
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read or written.
+    pub fn set_placement_measured(&self, measured: bool) -> Result<()> {
+        self.index.set_placement_measured(measured)
+    }
+
+    /// When `device` last passed a storage audit here, if it has.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read.
+    pub fn last_passed(&self, device: &DeviceId) -> Result<Option<u64>> {
+        self.index.last_passed(device)
+    }
+
+    /// Record that `device` accepted these chunks in a `StoreChunk` just
+    /// now: unlike [`Self::record_holders`], this ends any release of them.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be written.
+    pub fn record_stored_at(&self, chunks: &[ChunkId], device: &DeviceId, now: u64) -> Result<()> {
+        self.index.record_stored(chunks, device, now)
+    }
+
     /// Every other device known to hold `chunk`.
     pub fn remote_holders(&self, chunk: &ChunkId) -> Result<Vec<Holder>> {
         self.index.remote_holders(chunk)

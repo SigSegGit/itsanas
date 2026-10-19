@@ -47,6 +47,8 @@ fn node(master: u8, device_seed: u8) -> Node {
         ChunkerConfig::new(1024, 4096, 16 * 1024).expect("chunker"),
     )
     .expect("store");
+    // Every node here runs `measured`, which the daemon arms per round.
+    store.set_placement_measured(true).expect("arm");
     let vault = Vault::open(dir.path().join("vault")).expect("vault");
     Node {
         _dir: dir,
@@ -740,4 +742,93 @@ fn want_hosted_offers_the_caller_its_share_only_in_measured_mode() {
         share,
         "measured: only the chunks with no proven copy"
     );
+}
+
+#[test]
+fn red_team_release_needs_an_audit_passed_within_live_for() {
+    // `passed > 0` latches for ever after one audit, and a hosted self-claim
+    // stamps a record fresh without proving anything. A week and more after
+    // the last pass, with every host still seen and every record fresh, no
+    // copy may be released. Sabotage: drop `passed_lately` from
+    // `release_choice`.
+    let fixture = Release::new();
+    assert!(!fixture.chosen().is_empty(), "the fixture must release");
+    let later = fixture.now + itsanas_store::holders::LIVE_FOR + HOUR;
+    let devices: Vec<DeviceId> = std::iter::once(fixture.host.id())
+        .chain(fixture.others)
+        .collect();
+    for device in &devices {
+        history(&fixture.me.store, device, later, |_| true);
+        fixture
+            .me
+            .store
+            .record_holders_at(&fixture.spare, device, later)
+            .unwrap();
+    }
+    let placement = fixture.placement(later);
+    for chunk in &fixture.spare {
+        assert_eq!(
+            placement.release_choice(&fixture.me.store, chunk).unwrap(),
+            None,
+            "released on an audit passed more than LIVE_FOR ago"
+        );
+    }
+}
+
+#[test]
+fn red_team_a_session_that_moves_nothing_evaluates_each_queued_chunk_once() {
+    // Re-evaluating every offer after the exchange, whatever it moved,
+    // doubled the CPU of a session refused everything. Sabotage: evaluate
+    // every offered chunk again after `ask`.
+    let now = now_unix();
+    let me = node(0xA1, 1);
+    let chunks = write(&me, "photos/new.bin", 12, 48 << 10);
+    let host = node(0xB1, 11);
+    proven(&me.store, &host.id(), now);
+    let accounts: BTreeMap<DeviceId, UserId> = [(host.id(), user(0xB1))].into_iter().collect();
+    let placement = placement(&me, &accounts, now);
+    let queued = usize::try_from(me.store.short_count().unwrap()).unwrap();
+    assert!(queued >= chunks.len() && queued > 1);
+
+    let gate = AccountFullFor(me.id(), me.store.owner());
+    let service =
+        PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1)).with_owners(&gate);
+    let report = push_to(&me, &host, &service, &placement);
+    assert_eq!(report.chunks_accepted, 0, "{report:?}");
+    assert!(
+        placement.evaluations() <= u64::try_from(queued).unwrap(),
+        "{} evaluations for {queued} queued chunks",
+        placement.evaluations()
+    );
+}
+
+#[test]
+fn red_team_want_hosted_is_measured_once_a_round_and_never_for_a_stranger() {
+    // Each measured answer evaluates a page of the queue. A host asking on
+    // every connection, or a stranger with no share at all, would set this
+    // node to that work as often as it liked. Sabotage: drop `take_pull`.
+    let now = now_unix();
+    let me = node(0xA1, 1);
+    write(&me, "photos/new.bin", 13, 48 << 10);
+    let host = node(0xB1, 11);
+    let stranger = node(0xC1, 21);
+    proven(&me.store, &host.id(), now);
+    let accounts: BTreeMap<DeviceId, UserId> = [(host.id(), user(0xB1))].into_iter().collect();
+    let slot = PlacementSlot::default();
+    let placement = std::sync::Arc::new(placement(&me, &accounts, now));
+    *slot.write().unwrap() = Some(placement.clone());
+    let service =
+        PeerService::new(&me.store, &me.vault, Pledge::gigabytes(1)).with_placement(&slot);
+    let ask = |who: &Node| {
+        dial_in(who, &me, &service, |client| client.want_hosted(64))
+            .expect("want")
+            .1
+    };
+
+    assert!(ask(&stranger).is_empty(), "a stranger was given a share");
+    assert_eq!(placement.evaluations(), 0, "a stranger cost an evaluation");
+    assert!(!ask(&host).is_empty(), "the host's share");
+    let spent = placement.evaluations();
+    assert!(ask(&host).is_empty(), "a second measured answer this round");
+    assert_eq!(placement.evaluations(), spent);
 }

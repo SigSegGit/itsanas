@@ -26,7 +26,13 @@
 //! - **Walk without end.** [`Placement::census`] takes the page size it is
 //!   given; everything per chunk is one holder range.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    sync::{
+        Mutex, PoisonError,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use itsanas_crypto::{ChunkId, DeviceId, UserId};
 use itsanas_placement::{
@@ -58,17 +64,39 @@ pub const SAFETY_GRACE: u64 = 24 * 60 * 60;
 /// the service answers as it did before placement (`everyone`).
 pub type PlacementSlot = std::sync::RwLock<Option<std::sync::Arc<Placement>>>;
 
+/// Most chunks whose roster ranking one round remembers.
+///
+/// Ranking a chunk hashes every host of the roster; a round evaluates the
+/// same queued chunks for every host it pushes to and every `WantHosted`, so
+/// without a memo a roster of a hundred hosts and a queue page of a thousand
+/// chunks is millions of hashes a round. Bounded, because the queue is not:
+/// past the bound a chunk is ranked afresh, which costs CPU, never memory.
+pub const RANKING_MEMO: usize = 16_384;
+
 /// One round's placement: the hosts, this account's own devices, and "now".
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Placement {
     roster: Roster,
     own: BTreeSet<DeviceId>,
     /// Rings of the own devices, for the one availability unit they make.
     own_rings: BTreeMap<DeviceId, Uptime>,
+    /// Hosts that passed a storage audit within [`LIVE_FOR`]: release's
+    /// strict evidence, which "passed once, ever" is not.
+    passed_lately: BTreeSet<DeviceId>,
+    /// This device plus the own devices seen within [`LIVE_FOR`]: how many
+    /// may be releasing copies of one chunk at once.
+    releasers: usize,
     this: DeviceId,
     owner: UserId,
     goal: Goal,
     now: u64,
+    /// Roster order per chunk, for this round (see [`RANKING_MEMO`]).
+    ranking: Mutex<HashMap<ChunkId, Vec<DeviceId>>>,
+    /// Hosts that have had their measured `WantHosted` answer this round.
+    pulled: Mutex<BTreeSet<DeviceId>>,
+    /// How many chunk evaluations this round has run, for the tests that
+    /// bound the work a session does.
+    evaluations: AtomicU64,
 }
 
 /// How one chunk stands, and who should take it next.
@@ -117,19 +145,29 @@ impl Placement {
         let this = store.device_id();
         let mut hosts = Vec::new();
         let mut own_rings = BTreeMap::new();
+        let mut passed_lately = BTreeSet::new();
+        let mut releasers = 1usize;
+        let live_since = now.saturating_sub(LIVE_FOR);
         for (device, uptime) in store.uptimes()? {
             if device == this {
                 continue;
             }
-            if own.contains(&device) {
-                own_rings.insert(device, uptime);
-                continue;
-            }
             let recent = store
                 .last_seen(&device)?
-                .is_some_and(|seen| seen >= now.saturating_sub(LIVE_FOR));
+                .is_some_and(|seen| seen >= live_since);
+            if own.contains(&device) {
+                own_rings.insert(device, uptime);
+                releasers += usize::from(recent);
+                continue;
+            }
             if !recent {
                 continue;
+            }
+            if store
+                .last_passed(&device)?
+                .is_some_and(|passed| passed >= live_since)
+            {
+                passed_lately.insert(device);
             }
             let reliability = store.reliability(&device)?;
             let draining = store.is_draining(&device, now)?;
@@ -151,10 +189,15 @@ impl Placement {
             roster: Roster::new(hosts, now / 3600),
             own,
             own_rings,
+            passed_lately,
+            releasers,
             this,
             owner: store.owner(),
             goal: GOAL,
             now,
+            ranking: Mutex::new(HashMap::new()),
+            pulled: Mutex::new(BTreeSet::new()),
+            evaluations: AtomicU64::new(0),
         })
     }
 
@@ -180,6 +223,25 @@ impl Placement {
     #[must_use]
     pub const fn now(&self) -> u64 {
         self.now
+    }
+
+    /// How many chunk evaluations this round has run so far.
+    #[must_use]
+    pub fn evaluations(&self) -> u64 {
+        self.evaluations.load(Ordering::Relaxed)
+    }
+
+    /// Whether `peer` may have a measured `WantHosted` answer now: a host of
+    /// the roster, once per round. Each answer evaluates a page of the queue,
+    /// and a host that asked on every connection would make this node do
+    /// that work as often as it liked; a stranger has no share to ask for.
+    pub(crate) fn take_pull(&self, peer: &DeviceId) -> bool {
+        self.is_placed(peer)
+            && self
+                .pulled
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(*peer)
     }
 
     /// Whether a short chunk, queued since `since` and standing as
@@ -261,11 +323,19 @@ impl Placement {
     pub fn release_choice(&self, store: &Store, chunk: &ChunkId) -> Result<Option<DeviceId>> {
         let fresh = self.now.saturating_sub(REFRESH_AFTER);
         let stamps = store.holders_with_stamps(chunk)?;
+        // An audit passed within LIVE_FOR, not `passed > 0`: one pass a year
+        // ago latches that for ever, and a hosted self-claim stamps a record
+        // fresh without proving anything (red team, HIGH 2).
         let strict: Vec<Holding<'_>> = stamps
             .iter()
             .filter(|(_, stamp)| *stamp >= fresh)
             .filter_map(|(device, _)| self.holding(device))
-            .filter(|holding| holding.own || (holding.proven && holding.recent))
+            .filter(|holding| {
+                holding.own
+                    || (holding.proven
+                        && holding.recent
+                        && self.passed_lately.contains(&holding.device))
+            })
             .collect();
         let order: Vec<DeviceId> = self
             .roster
@@ -273,10 +343,36 @@ impl Placement {
             .into_iter()
             .map(|host| host.device)
             .collect();
-        Ok(release_holder(&strict, &order, &self.goal, self.now / 3600))
+        Ok(release_holder(
+            &strict,
+            &order,
+            &self.goal,
+            self.releasers,
+            self.now / 3600,
+        ))
+    }
+
+    /// The roster's eligible hosts for `chunk`, best first, memoised for the
+    /// round up to [`RANKING_MEMO`] chunks.
+    fn ranked(&self, chunk: &ChunkId) -> Vec<DeviceId> {
+        let mut memo = self.ranking.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(order) = memo.get(chunk) {
+            return order.clone();
+        }
+        let order: Vec<DeviceId> = self
+            .roster
+            .ranked(self.owner, chunk)
+            .into_iter()
+            .map(|host| host.device)
+            .collect();
+        if memo.len() < RANKING_MEMO {
+            memo.insert(*chunk, order.clone());
+        }
+        order
     }
 
     fn evaluate_stamps(&self, chunk: &ChunkId, stamps: &[(DeviceId, u64)]) -> Evaluation {
+        self.evaluations.fetch_add(1, Ordering::Relaxed);
         let now_hour = self.now / 3600;
         // §C: a record counts while its host could still be merely away. The
         // window is the host's own (twice its longest measured absence,
@@ -290,11 +386,10 @@ impl Placement {
             })
             .collect();
         let ranked: Vec<Holding<'_>> = self
-            .roster
-            .ranked(self.owner, chunk)
+            .ranked(chunk)
             .into_iter()
-            .filter(|host| !holdings.iter().any(|held| held.device == host.device))
-            .map(|host| Self::of_host(host))
+            .filter(|device| !holdings.iter().any(|held| held.device == *device))
+            .filter_map(|device| self.roster.get(&device).map(Self::of_host))
             .collect();
         let verdict = assess(&holdings, &self.goal, now_hour);
         let wanted = want(&holdings, &ranked, &self.goal, now_hour);

@@ -273,17 +273,21 @@ impl ClaimBook {
     /// says: what placement reads to tell two hosts of one account from two
     /// of different accounts.
     ///
-    /// Every held claim, confirmed or not. The signature already proves the
-    /// account issued it; the coordinator's word is about whether it still
-    /// stands, which matters for storing and not for "these two machines are
-    /// one household". Leaving the unconfirmed out would make them
-    /// `Unknown`, which placement merges into one account anyway -- the
-    /// conservative side, but a less exact one. Bounded by the book's
-    /// capacity, so a round never copies more than [`MAX_CLAIMS`] rows.
+    /// Only claims the coordinator confirmed within [`STANDING_FOR`]. A
+    /// signature proves the account issued a claim once, not that it still
+    /// stands: a withdrawn device, or a stolen key's fresh claims nobody has
+    /// confirmed, would otherwise count as a distinct account for
+    /// durability, which is the overstatement placement must never make
+    /// (red team, MEDIUM 8). Left out, such a device is `Unknown`, and every
+    /// unknown device is one account. Bounded by the book's capacity, so a
+    /// round never copies more than [`MAX_CLAIMS`] rows.
     #[must_use]
     pub fn accounts(&self) -> BTreeMap<DeviceId, UserId> {
         self.lock()
             .iter()
+            .filter(|(_, held)| {
+                matches!(held.standing, Standing::Live(at) if at.elapsed() < STANDING_FOR)
+            })
             .map(|(device, held)| (*device, held.owner))
             .collect()
     }
@@ -810,21 +814,30 @@ mod tests {
     }
 
     #[test]
-    fn placement_reads_each_presented_device_as_the_account_its_claim_names() {
+    fn red_team_placement_reads_only_confirmed_claims_as_accounts() {
         // Two hosts of one household must read as one account to placement,
         // or a chunk counts as spread over two accounts while one power cut
-        // takes both. Sabotage: key the map by owner, or drop unconfirmed.
+        // takes both. And a claim the coordinator has not confirmed, or has
+        // withdrawn, names no account at all: counted as a distinct account
+        // it would let a stolen key's fresh claims, or a withdrawn device,
+        // stand in for a second household. Sabotages: key the map by owner;
+        // keep unconfirmed or withdrawn claims.
         let host = host();
         let (alice, bob) = (account(0xA1), account(0xB0));
         present(&host, &alice, 0x21, 700);
+        present(&host, &alice, 0x24, 700);
         presents(&host, &alice, 0x22, 700);
         present(&host, &bob, 0x23, 700);
+        present(&host, &bob, 0x25, 700);
+        host.book.note(device(0x25), Verdict::Withdrawn);
 
         let accounts = host.book.accounts();
-        assert_eq!(accounts.len(), 3);
+        assert_eq!(accounts.len(), 3, "{accounts:?}");
         assert_eq!(accounts[&device(0x21)], alice.user_id());
-        assert_eq!(accounts[&device(0x22)], alice.user_id());
+        assert_eq!(accounts[&device(0x24)], alice.user_id());
         assert_eq!(accounts[&device(0x23)], bob.user_id());
+        assert!(!accounts.contains_key(&device(0x22)), "unconfirmed");
+        assert!(!accounts.contains_key(&device(0x25)), "withdrawn");
         assert!(!accounts.contains_key(&device(0x99)));
     }
 

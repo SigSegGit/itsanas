@@ -382,9 +382,19 @@ impl<'a> PeerService<'a> {
             Request::Chunk { owner, address } => Ok(Response::Chunk(self.chunk(*owner, address)?)),
 
             Request::HaveChunks { owner, addresses } => {
+                // A marked chunk is answered missing: "have" would let the
+                // owner re-stamp the copy it released, and count it after the
+                // eviction. A re-offer then goes through `put_chunk`, which
+                // unmarks (red team, HIGH 1).
+                let marked = if *owner == self.store.owner() {
+                    std::collections::BTreeSet::new()
+                } else {
+                    self.vault
+                        .marked_among(*owner, addresses, itsanas_store::now_unix())?
+                };
                 let mut missing = Vec::new();
                 for address in addresses {
-                    if self.chunk(*owner, address)?.is_none() {
+                    if marked.contains(address) || self.chunk(*owner, address)?.is_none() {
                         missing.push(*address);
                     }
                 }
@@ -446,7 +456,8 @@ impl<'a> PeerService<'a> {
                 let digests = if *owner == self.store.owner() {
                     self.store.held_summary()?
                 } else {
-                    self.vault.chunk_summary(*owner)?
+                    self.vault
+                        .chunk_summary_at(*owner, itsanas_store::now_unix())?
                 };
                 Ok(Response::ChunkSummary(digests))
             }
@@ -546,7 +557,20 @@ impl<'a> PeerService<'a> {
             // host's, not the account's, and a device with no claim
             // has no say over the account's chunks.
             let full = matches!(&refusal, Response::Refused(why) if why.starts_with(ACCOUNT_FULL));
-            if !full || self.vault.evict_marked(owner, sealed.len() as u64)? == 0 {
+            // The real overage, not only the incoming size: an account
+            // already past its share (its allowance shrank) is refused again
+            // after freeing one chunk's worth, and those copies were evicted
+            // for nothing (red team, LOW).
+            let needed = match &refusal {
+                Response::Refused(why) => overage(why, sealed.len() as u64),
+                _ => sealed.len() as u64,
+            };
+            if !full
+                || self
+                    .vault
+                    .evict_marked(owner, needed, itsanas_store::now_unix())?
+                    == 0
+            {
                 return Ok(refusal);
             }
             if let Some(refusal) = self.refused_for_owner(caller, owner, sealed.len()) {
@@ -639,7 +663,14 @@ impl<'a> PeerService<'a> {
             // Own devices get everything, as before placement existed.
             .filter(|placement| !placement.is_own(&caller));
         let chunks = match placement {
-            Some(placement) => self.share_of(&placement, caller, wanted)?,
+            // A host of the roster, once per round: each answer evaluates a
+            // page of the queue, and a caller allowed to ask on every
+            // connection, or a stranger with no share at all, would set this
+            // node's CPU to work as often as it liked (red team, MEDIUM 6).
+            Some(placement) if placement.take_pull(&caller) => {
+                self.share_of(&placement, caller, wanted)?
+            }
+            Some(_) => Vec::new(),
             None => self
                 .store
                 .under_replicated(itsanas_store::REPLICATION_TARGET, itsanas_store::now_unix())?
@@ -774,6 +805,27 @@ impl<'a> PeerService<'a> {
         let held = self.vault.held_bytes()?;
         Ok(held.saturating_add(incoming as u64) > self.pledge.bytes)
     }
+}
+
+/// Bytes an account-full refusal says must go before `incoming` fits:
+/// `mine + incoming - allowance`, read from "`{why}: {mine} of {allowance}
+/// bytes ...`". Falls back to `incoming` for a message of another shape,
+/// which is what was asked before and never more than the store needs.
+fn overage(why: &str, incoming: u64) -> u64 {
+    let figures = why
+        .split_once(": ")
+        .map(|(_, rest)| rest.split(' ').collect::<Vec<_>>());
+    if let Some(words) = figures
+        && words.len() >= 3
+        && words[1] == "of"
+        && let (Ok(mine), Ok(allowance)) = (words[0].parse::<u64>(), words[2].parse::<u64>())
+    {
+        let over = mine.saturating_add(incoming).saturating_sub(allowance);
+        if over > 0 {
+            return over;
+        }
+    }
+    incoming
 }
 
 #[cfg(test)]
@@ -1781,6 +1833,74 @@ mod tests {
             Response::MayEvict { marked: 1 },
             "the account's own device was not let mark the one chunk held"
         );
+    }
+
+    #[test]
+    fn red_team_a_marked_chunk_is_answered_missing_and_left_out_of_the_summary() {
+        // A host that still says "have" for a chunk it is about to evict has
+        // the owner re-stamp the copy it just released, and count it after
+        // the eviction. Answered missing, and summarised as absent, the owner
+        // re-offers it, and that store unmarks it. Sabotages: answer
+        // `HaveChunks` from the blobs alone; summarise every row.
+        let node = node(&alice(), 5);
+        let gate = bound(1_000);
+        let service = service(&node).with_owners(&gate);
+        for byte in [1, 2] {
+            service.handle(&store_for(bob(), byte), BOBS).unwrap();
+        }
+        let summary = |service: &super::PeerService<'_>| {
+            service
+                .handle(&Request::ChunkSummary { owner: bob() }, BOBS)
+                .unwrap()
+        };
+        let before = summary(&service);
+        service.handle(&may_evict(bob(), &[1]), BOBS).unwrap();
+
+        let have = Request::HaveChunks {
+            owner: bob(),
+            addresses: vec![ChunkId::from_bytes([1; 32]), ChunkId::from_bytes([2; 32])],
+        };
+        assert_eq!(
+            service.handle(&have, BOBS).unwrap(),
+            Response::Missing(vec![ChunkId::from_bytes([1; 32])])
+        );
+        assert_ne!(summary(&service), before, "a marked chunk was summarised");
+
+        // The re-offer goes through `put_chunk`, which unmarks.
+        service.handle(&store_for(bob(), 1), BOBS).unwrap();
+        assert_eq!(
+            service.handle(&have, BOBS).unwrap(),
+            Response::Missing(Vec::new())
+        );
+        assert_eq!(summary(&service), before);
+    }
+
+    #[test]
+    fn red_team_eviction_is_asked_for_the_real_overage() {
+        // An account already past its share (its allowance shrank) needs
+        // more freed than the incoming chunk. Asking for the incoming size
+        // evicts one chunk, is refused anyway, and the copy went for
+        // nothing. Sabotage: ask `evict_marked` for `sealed.len()`.
+        assert_eq!(super::overage("account full: 50 of 20 bytes", 10), 40);
+        assert_eq!(super::overage("account full: 15 of 20 bytes", 10), 5);
+        assert_eq!(super::overage("something else", 10), 10);
+
+        let node = node(&alice(), 6);
+        let gate = bound(1_000);
+        let roomy = service(&node).with_owners(&gate);
+        for byte in 1..=4 {
+            roomy.handle(&store_for(bob(), byte), BOBS).unwrap();
+        }
+        roomy.handle(&may_evict(bob(), &[1, 2, 3]), BOBS).unwrap();
+        // Bob's share shrinks to 20 bytes: he holds 40, wants 10 more, and
+        // 30 must go. His three marks cover it.
+        let tight = bound(20);
+        let tight = service(&node).with_owners(&tight);
+        assert_eq!(
+            tight.handle(&store_for(bob(), 5), BOBS).unwrap(),
+            Response::Stored { accepted: true }
+        );
+        assert_eq!(node.vault.held_bytes_for(bob()).unwrap(), 20);
     }
 
     #[test]

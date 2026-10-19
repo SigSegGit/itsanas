@@ -1024,6 +1024,9 @@ fn push_measured_or_not(
     if !measured {
         return session::push(store, client).expect("push");
     }
+    // Armed as the daemon arms it, and the census run over everything: the
+    // chunks were written before the queue was armed, as on an upgrade.
+    store.set_placement_measured(true).expect("arm");
     let placement = itsanas_net::Placement::build(
         store,
         std::collections::BTreeSet::new(),
@@ -1031,6 +1034,7 @@ fn push_measured_or_not(
         itsanas_store::now_unix(),
     )
     .expect("placement");
+    placement.census(store, 1_000_000).expect("census");
     session::push_placed(store, client, session::Scope::Everything, Some(&placement)).expect("push")
 }
 

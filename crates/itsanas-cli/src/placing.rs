@@ -96,6 +96,12 @@ pub fn begin_round(
     now: u64,
     interval_secs: u64,
 ) -> Option<Arc<Placement>> {
+    // Before anything else of the round, so the triggers of this round's
+    // pushes already see the mode: armed in `measured`, emptied and disarmed
+    // in `everyone`, where nothing would ever work the queue off.
+    if let Err(error) = store.set_placement_measured(mode == PlacementMode::Measured) {
+        eprintln!("itsanas: the placement queue could not be switched ({error})");
+    }
     let placement = match mode {
         PlacementMode::Everyone => None,
         PlacementMode::Measured => match Placement::build(store, own, accounts, now) {

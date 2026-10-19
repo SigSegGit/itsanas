@@ -427,7 +427,7 @@ pub(crate) fn ask(
     // rather than only recording chunks this node happened to upload. A
     // node restored from its recovery phrase learns where its data lives by
     // asking, instead of re-uploading everything to find out.
-    let mut confirmed: Vec<ChunkId> = batch
+    let confirmed: Vec<ChunkId> = batch
         .iter()
         .filter(|address| !wanted.contains(address))
         .copied()
@@ -441,6 +441,11 @@ pub(crate) fn ask(
     // sixteen chunks per round against an account of millions.
     store.forget_holders(&missing, &peer)?;
 
+    // Kept apart from `confirmed`: a chunk the peer just accepted is a new
+    // copy and ends any release of the old one, while a "have" for a copy
+    // this node released is the host's word before it evicts, and must not
+    // bring the record back (red team, HIGH 1).
+    let mut stored = Vec::new();
     for address in missing {
         // The peer said it is full. Every further offer is a chunk's bytes on
         // the wire to be refused, which is what this stops.
@@ -463,7 +468,7 @@ pub(crate) fn ask(
         if report.record(offer) {
             report.chunks_accepted += 1;
             report.bytes_sent = report.bytes_sent.saturating_add(len);
-            confirmed.push(address);
+            stored.push(address);
         }
         if pledge_full || account_full {
             store.note_peer_full(&peer, full.now)?;
@@ -472,12 +477,14 @@ pub(crate) fn ask(
         full.share_spent |= account_full;
     }
 
-    report.holders_recorded += confirmed.len();
-    if full.placed {
-        store.record_holders_at(&confirmed, &peer, full.now)?;
+    report.holders_recorded += confirmed.len() + stored.len();
+    let now = if full.placed {
+        full.now
     } else {
-        store.record_holders(&confirmed, &peer)?;
-    }
+        itsanas_store::now_unix()
+    };
+    store.record_holders_at(&confirmed, &peer, now)?;
+    store.record_stored_at(&stored, &peer, now)?;
     Ok(())
 }
 
@@ -644,7 +651,6 @@ pub(crate) fn refresh_released(
     client: &mut PeerClient,
     peer: &DeviceId,
 ) -> Result<usize> {
-    let owner = store.owner();
     let mut recorded = 0usize;
     let mut cursor: Option<Vec<u8>> = None;
 
@@ -654,20 +660,7 @@ pub(crate) fn refresh_released(
             break;
         }
 
-        let ask: Vec<ChunkId> = page
-            .into_iter()
-            .filter(|chunk| !store.has_chunk(chunk))
-            .collect();
-
-        if !ask.is_empty() {
-            let missing = client.missing_chunks(owner, ask.clone())?;
-            let gone: BTreeSet<ChunkId> = missing.iter().copied().collect();
-            store.forget_holders(&missing, peer)?;
-
-            let still: Vec<ChunkId> = ask.into_iter().filter(|c| !gone.contains(c)).collect();
-            recorded += still.len();
-            store.record_holders(&still, peer)?;
-        }
+        recorded += refresh_released_page(store, client, peer, page)?;
 
         match next {
             Some(next) => cursor = Some(next),
@@ -676,6 +669,29 @@ pub(crate) fn refresh_released(
     }
 
     Ok(recorded)
+}
+
+/// One page of [`refresh_released`]: ask about the chunks of `page` this
+/// node no longer holds, and correct their records from the answer.
+pub(crate) fn refresh_released_page(
+    store: &Store,
+    client: &mut PeerClient,
+    peer: &DeviceId,
+    page: Vec<ChunkId>,
+) -> Result<usize> {
+    let ask: Vec<ChunkId> = page
+        .into_iter()
+        .filter(|chunk| !store.has_chunk(chunk))
+        .collect();
+    if ask.is_empty() {
+        return Ok(0);
+    }
+    let missing = client.missing_chunks(store.owner(), ask.clone())?;
+    let gone: BTreeSet<ChunkId> = missing.iter().copied().collect();
+    store.forget_holders(&missing, peer)?;
+    let still: Vec<ChunkId> = ask.into_iter().filter(|c| !gone.contains(c)).collect();
+    store.record_holders(&still, peer)?;
+    Ok(still.len())
 }
 
 /// Offer this node's work to a peer, moving everything.
@@ -858,7 +874,7 @@ fn probe_if_paused(
         report.bytes_sent = report.bytes_sent.saturating_add(len);
         report.holders_recorded += 1;
         report.probe = Some(address);
-        store.record_holders(&[address], &peer)?;
+        store.record_stored_at(&[address], &peer, itsanas_store::now_unix())?;
         // Recorded only on acceptance: a peer that will not take even the
         // one chunk offered has been asked nothing, and stays paused.
         store.note_probe(&peer, &address)?;
