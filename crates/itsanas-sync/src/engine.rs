@@ -97,6 +97,10 @@ pub struct SyncReport {
     /// its signature, its chain or its seal. Said apart from `deferred`: a
     /// sleeping peer fixes itself, a refused chain waits for an honest copy.
     pub refused_chains: usize,
+    /// Device chains left out because their device is not on this account's
+    /// roster: a stranger's key, or a sibling whose claim has not reached
+    /// this node yet. Applied on a later round once its claim is admitted.
+    pub unrostered_chains: usize,
 }
 
 impl SyncReport {
@@ -129,6 +133,7 @@ impl SyncReport {
             deferred,
             no_room,
             refused_chains,
+            unrostered_chains,
         } = *other;
         self.adopted += adopted;
         self.already_known += already_known;
@@ -137,6 +142,7 @@ impl SyncReport {
         self.deletes_lost += deletes_lost;
         self.deferred += deferred;
         self.no_room += no_room;
+        self.unrostered_chains += unrostered_chains;
         self.refused_chains += refused_chains;
     }
 
@@ -224,6 +230,14 @@ pub fn apply_replaying(
         // has released content: the file is still in the account and still in
         // this chain, and there is no index entry left. See [`Replay`].
         if replay == Replay::OthersOnly && device == store.device_id() {
+            continue;
+        }
+        // A body lifted from this account and re-signed under a host's own
+        // key verifies and opens: only the roster says that key is not ours
+        // (HANDOVER §10 7). Deferred, not refused: a real sibling whose claim
+        // has not arrived yet is applied once it does.
+        if !store.may_apply_chain_of(&device)? {
+            report.unrostered_chains += 1;
             continue;
         }
 

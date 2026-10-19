@@ -19,9 +19,9 @@
 //!   stranger, not ten.
 //! - **Count one network as many.** Proven holders last seen from one
 //!   [`Network`] count for availability as one unit, as good as its best
-//!   member: one router, one power cut. Never for durability, which stays a count of
-//!   accounts (whether two accounts in one house are two is Nicolas's call,
-//!   HANDOVER §10). A holder with no known network is a unit of its own.
+//!   member: one router, one power cut. For durability, accounts seen from
+//!   one network are one household (Nicolas, 2026-10-19). A holder with no
+//!   known network is a unit of its own.
 //! - **Search without end.** [`Goal::cap`] remote copies is where the answer
 //!   becomes "short" instead of a thirtieth copy.
 
@@ -30,7 +30,7 @@ use crate::network::Network;
 use crate::uptime::{Unit, Uptime, miss_ppm};
 use itsanas_crypto::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// What a chunk should reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,7 +83,8 @@ pub struct Verdict {
     pub durable: bool,
     pub available: bool,
     pub miss_ppm: u32,
-    /// Distinct accounts among proven off-account holders.
+    /// Independent households among proven off-account holders: distinct
+    /// accounts, merged when they were seen from one network.
     pub accounts: usize,
     /// Off-account holders, proven or not.
     pub remote: usize,
@@ -110,11 +111,7 @@ pub fn assess(holdings: &[Holding<'_>], goal: &Goal, now_hour: u64) -> Verdict {
         .iter()
         .filter(|holding| !holding.own && holding.proven)
         .collect();
-    let accounts = proven
-        .iter()
-        .map(|holding| holding.account)
-        .collect::<BTreeSet<_>>()
-        .len();
+    let accounts = households(&proven);
     let durable = accounts >= goal.accounts && proven.iter().any(|holding| holding.recent);
 
     let own_rings: Vec<&Uptime> = holdings
@@ -176,6 +173,37 @@ pub fn assess(holdings: &[Holding<'_>], goal: &Goal, now_hour: u64) -> Verdict {
     }
 }
 
+/// Union-find root, halving the path on the way.
+fn root(parent: &mut [usize], mut at: usize) -> usize {
+    while parent[at] != at {
+        parent[at] = parent[parent[at]];
+        at = parent[at];
+    }
+    at
+}
+
+/// How many independent households hold proven copies: holders are one
+/// household when they share an account **or** a network (Nicolas,
+/// 2026-10-19: two accounts behind one box burn, flood and get burgled
+/// together). Union-find over a handful of holders; quadratic is fine at the
+/// copy cap of 12.
+fn households(proven: &[&Holding<'_>]) -> usize {
+    let mut parent: Vec<usize> = (0..proven.len()).collect();
+    for i in 0..proven.len() {
+        for j in i + 1..proven.len() {
+            let (a, b) = (proven[i], proven[j]);
+            let shared = a.account == b.account || (a.network.is_some() && a.network == b.network);
+            if shared {
+                let (ra, rb) = (root(&mut parent, i), root(&mut parent, j));
+                parent[ra] = rb;
+            }
+        }
+    }
+    (0..proven.len())
+        .filter(|&i| root(&mut parent, i) == i)
+        .count()
+}
+
 /// Which hosts to add, and whether that would be enough.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Want {
@@ -212,8 +240,13 @@ pub fn want(holdings: &[Holding<'_>], ranked: &[Holding<'_>], goal: &Goal, now_h
             {
                 continue;
             }
+            // A new account behind a router that already holds a copy is
+            // not a new household.
             let represented = current.iter().any(|holding| {
-                !holding.own && holding.proven && holding.account == candidate.account
+                !holding.own
+                    && holding.proven
+                    && (holding.account == candidate.account
+                        || (candidate.network.is_some() && holding.network == candidate.network))
             });
             let network_held = candidate.network.is_some()
                 && current.iter().any(|holding| {
@@ -450,9 +483,10 @@ mod tests {
         ];
         let verdict = assess(&together, &GOAL, NOW);
         assert!(
-            verdict.durable,
-            "durability still counts accounts: {verdict:?}"
+            !verdict.durable,
+            "two accounts behind one router read as two households: {verdict:?}"
         );
+        assert_eq!(verdict.accounts, 1);
         assert!(
             !verdict.available,
             "two holders on one network read as independent: {verdict:?}"
@@ -482,9 +516,10 @@ mod tests {
     }
 
     #[test]
-    fn a_new_account_still_comes_before_a_new_network() {
+    fn red_team_a_new_account_behind_the_same_router_is_not_a_new_household() {
         // Host 2 is a new network but the same account as the copy held;
-        // host 3 is a new account on the same network. Durability first.
+        // host 3 is a new account on the same network. Neither is a new
+        // household; the new network is at least a second power supply.
         let rings: Vec<Uptime> = (0..3).map(|phase| steady(NOW, 990, phase * 25)).collect();
         let held = [on("203.0.113.1", holding(1, known(1), Some(&rings[0])))];
         let ranked = [
@@ -492,7 +527,8 @@ mod tests {
             on("203.0.113.3", holding(3, known(3), Some(&rings[2]))),
         ];
         let wanted = want(&held, &ranked, &GOAL, NOW);
-        assert_eq!(wanted.hosts.first(), Some(&device(3)), "{wanted:?}");
+        assert_eq!(wanted.hosts.first(), Some(&device(2)), "{wanted:?}");
+        assert!(!wanted.satisfied, "one household is not two: {wanted:?}");
     }
 
     #[test]

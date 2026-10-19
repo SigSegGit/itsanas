@@ -180,6 +180,11 @@ marks, and never deletes. Durability and availability are separate purchases;
 [ECONOMICS.md](ECONOMICS.md) §2 has the arithmetic, and `measured` has not run on
 the fleet.
 
+Since peer protocol 11 a host also keeps the claims devices presented to it
+and hands an account its own (`Request::Claims`), and every node applies a
+device's chain only once that device is on its account's roster: a claim
+signed by the account's key (HANDOVER §10 7).
+
 ### 4.2 Redundancy
 
 v1 uses plain replication, default factor **3**, minimum 2. The shard interface

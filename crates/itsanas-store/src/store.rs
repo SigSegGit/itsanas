@@ -1529,6 +1529,20 @@ impl Store {
         self.index.note_seen_if_known(device, now)
     }
 
+    /// Admit `device` to this account's roster, or mark it revoked: the
+    /// caller verified its claim. See [`Index::admit_member`].
+    pub fn admit_member(&self, device: &DeviceId, revoked: bool) -> Result<()> {
+        self.index.admit_member(device, revoked)
+    }
+
+    /// Whether a chain signed by `device` may be applied here: always for
+    /// this device, else a live roster member once the roster is armed.
+    pub fn may_apply_chain_of(&self, device: &DeviceId) -> Result<bool> {
+        Ok(*device == self.device_id()
+            || !self.index.roster_armed()?
+            || self.index.is_member(device)?)
+    }
+
     /// Record the network `device` was seen from over a direct session. Known
     /// devices only. See [`Index::note_network`].
     pub fn note_network_at(

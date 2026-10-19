@@ -453,6 +453,22 @@ def main():
         compare('docs/ROADMAP.md', 'the ignored count', int(claim.group(2)), ignored, problems)
         compare('docs/ROADMAP.md', 'the red-team count', int(claim.group(3)), red_team, problems)
 
+    # Red-team tests by attack surface (HANDOVER §8 6b): every file with
+    # red-team tests on exactly one surface, and the table's counts right.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import redteam_surfaces
+    problems.extend(redteam_surfaces.problems())
+    with io.open(os.path.join(root, 'docs', 'TESTING.md'), encoding='utf-8') as handle:
+        testing = handle.read()
+    for key, number in redteam_surfaces.counts().items():
+        row = re.search(r'^\| `%s` \| [^|]+ \| (\d+) \|$' % re.escape(key), testing, re.M)
+        if row is None:
+            problems.append('docs/TESTING.md has no row for the attack surface `%s`; '
+                            'python3 scripts/redteam_surfaces.py table prints it' % key)
+        else:
+            compare('docs/TESTING.md', 'the red-team tests on surface `%s`' % key,
+                    int(row.group(1)), number, problems)
+
     if problems:
         print('the documentation states test counts the source does not support:')
         for problem in problems:

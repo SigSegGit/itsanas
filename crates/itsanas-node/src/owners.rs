@@ -683,6 +683,15 @@ impl itsanas_net::Owners for ClaimBook {
         ClaimBook::admits(self, caller, owner, incoming, store, vault, host_pledge)
     }
 
+    fn presented_for(&self, caller: DeviceId) -> Option<UserId> {
+        // `take` verified the signature and refused a revoked claim; what is
+        // left out here is a device the coordinator since said is withdrawn.
+        self.lock()
+            .get(&caller)
+            .filter(|held| held.standing != Standing::Withdrawn)
+            .map(|held| held.owner)
+    }
+
     fn confirmed_account(&self, caller: DeviceId) -> Option<UserId> {
         self.lock()
             .get(&caller)
@@ -760,6 +769,92 @@ mod tests {
         }
         .sign(account);
         postcard::to_stdvec(&signed).unwrap()
+    }
+
+    #[test]
+    fn red_team_a_host_hands_an_account_its_roster_and_nobody_else() {
+        // HANDOVER §10 7. A host keeps the claims presented to it and hands
+        // an account's claims to a device that presented one for that same
+        // account: its siblings learn each other through hosts. A device of
+        // another account, or one that presented nothing, learns nothing --
+        // not even that the host knows the account.
+        use itsanas_net::{PeerService, Pledge, Request, Response};
+        let host = host();
+        let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+            .with_owners(&host.book);
+        let (alice, mallory) = (account(0x0A), account(0x0B));
+        let present = |seed, account: &UserKeys| {
+            service
+                .handle(
+                    &Request::Claim {
+                        claim: claim(account, seed, 100, false),
+                    },
+                    device(seed),
+                )
+                .unwrap()
+        };
+        assert!(!matches!(present(0x21, &alice), Response::Refused(_)));
+        let ask = |seed| {
+            service.handle(
+                &Request::Claims {
+                    owner: alice.user_id(),
+                },
+                device(seed),
+            )
+        };
+
+        assert_eq!(
+            ask(0x23).unwrap(),
+            Response::Claims(Vec::new()),
+            "a device that presented nothing was told"
+        );
+        assert!(!matches!(present(0x24, &mallory), Response::Refused(_)));
+        assert_eq!(
+            ask(0x24).unwrap(),
+            Response::Claims(Vec::new()),
+            "a device of another account was handed this account's devices"
+        );
+
+        assert!(!matches!(present(0x22, &alice), Response::Refused(_)));
+        let Response::Claims(claims) = ask(0x22).unwrap() else {
+            panic!("not claims")
+        };
+        assert_eq!(claims.len(), 2, "both of alice's devices, and only hers");
+        assert!(claims.contains(&claim(&alice, 0x21, 100, false)));
+    }
+
+    #[test]
+    fn red_team_a_sibling_presenting_here_joins_the_roster_and_a_stranger_does_not() {
+        // A machine only ever pushed to never dials anyone, so it learns its
+        // siblings from the claims they present. Only its own account's.
+        use itsanas_net::{PeerService, Pledge, Request};
+        let host = host();
+        let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+            .with_owners(&host.book);
+        host.store
+            .admit_member(&host.store.device_id(), false)
+            .unwrap();
+        let mine = account(0x01);
+        assert_eq!(
+            mine.user_id(),
+            host.store.owner(),
+            "the fixture's account changed"
+        );
+        for (seed, account) in [(0x31, &mine), (0x32, &account(0x0C))] {
+            service
+                .handle(
+                    &Request::Claim {
+                        claim: claim(account, seed, 0, false),
+                    },
+                    device(seed),
+                )
+                .unwrap();
+        }
+        assert!(host.store.may_apply_chain_of(&device(0x31)).unwrap());
+        assert!(
+            !host.store.may_apply_chain_of(&device(0x32)).unwrap(),
+            "a device of another account joined this account's roster by presenting"
+        );
     }
 
     /// Present a claim and have the coordinator confirm it, as a round does.

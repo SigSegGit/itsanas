@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1259 test functions, 9 of them `#[ignore]`d into the slow job, and 356 of
+**1264 test functions, 9 of them `#[ignore]`d into the slow job, and 361 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1766,11 +1766,11 @@ refuses it, and the test:
 | Re-serve old segments | versions in the sealed body; idempotent merge | `syncing_repeatedly_changes_nothing`, `re_resolving_a_conflict_is_idempotent`, `an_offline_device_does_not_resurrect_a_file_deleted_while_it_slept` |
 | Noise under a real chunk address | `accept_chunk` (open + `chunk_id`) | `red_team_a_relay_cannot_poison_a_chunk_on_the_ordinary_pull_path`, `red_team_a_host_cannot_answer_a_repair_request_with_rubbish` |
 | Oversized chunk | length check before decryption | `a_reply_too_large_to_be_a_chunk_is_refused_without_decrypting_it` |
-| **Lift a genuine body into an envelope signed by its own key** | ⬜ **open**, see below | none |
+| **Lift a genuine body into an envelope signed by its own key** | ✅ **fixed** 2026-10-19: the account's roster; a chain from a key no claim of the account names is not applied | `red_team_an_armed_roster_applies_no_chain_from_a_key_the_account_never_claimed`, `red_team_an_open_node_admits_to_its_roster_only_what_its_account_signed` |
 | **Serve noise: the file adopted with a hole, the round "finished"** | ✅ **fixed**: a refused chunk counts as missing | `red_team_a_chunk_that_does_not_match_its_address_leaves_the_file_deferred` |
 | **Serve noise: recorded as a holder** | ✅ **fixed**: only chunks on disk afterwards are recorded | `red_team_a_relay_that_serves_noise_is_not_written_down_as_a_holder` |
 
-**Open, named, not fixed: a host can re-sign a lifted body.** The seal binds
+**Fixed 2026-10-19 by the account roster (HANDOVER §10 7); what follows is the hole as it was.** A host can re-sign a lifted body. The seal binds
 a segment body to its owner and segment id (`SealContext.address`), not to the
 device that signs the envelope. A host holding any genuine segment of an
 account keeps id, owner and sealed bytes, names its own free keypair as
@@ -1789,6 +1789,15 @@ announced version differ from the index (two sides disagree on whether a later
 edit conflicts) -- all found by `itsanas-redteam`. The fix is a protocol
 change: the device id in the seal context of new segments, or an account
 device roster to check `envelope.device` against.
+
+How it is closed: every node keeps its account's **roster** (`account_roster`
+in the store), armed when the node opens. A device joins it on a claim signed
+by the account's key, presented in a session, returned by a host, or handed
+over by a host that kept it (`Request::Claims`, peer protocol 11, answered
+only to a device that presented a claim for the same account). A chain whose
+signer is not on the roster is deferred (`unrostered_chains`), so a lifted body
+under a host's key is never applied; a revocation removes a device for good.
+What it does not cover: a thief holding the passphrase signs claims too.
 
 **Not examined or not tested here, named:** a segment for another owner is
 refused twice (`open_segment`'s owner check, then the AEAD) and no test can

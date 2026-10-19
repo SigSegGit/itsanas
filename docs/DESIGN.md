@@ -429,7 +429,8 @@ after 7 days known and 24 hours attempted
 (`hours_this_node_did_not_try_are_not_counted_against_a_device`,
 `a_figure_needs_a_week_and_a_day_of_attempts`). A chunk is satisfied when it is
 
-- *durable*: proven copies on at least two other accounts, one seen within
+- *durable*: proven copies in at least two other households (accounts, merged
+  when this node saw them from one network), one seen within
   `LIVE_FOR`; every device of unknown account is one account
   (`red_team_two_throwaway_devices_of_unknown_accounts_are_one_account`), and a
   holder that never passed this node's audit counts for nothing

@@ -111,6 +111,14 @@ pub trait Owners: Sync {
         vault: &Vault,
     ) -> std::result::Result<(), String>;
 
+    /// The account a claim `caller` presented here names, if it verified and
+    /// was not withdrawn, whether or not a coordinator confirmed it since: a
+    /// signature by the account's key is what membership is. `None` by
+    /// default, which scopes everything that asks to nobody.
+    fn presented_for(&self, _caller: DeviceId) -> Option<UserId> {
+        None
+    }
+
     /// Whether `caller` may store `incoming` more bytes for `owner` here.
     /// `Err` is the refusal sent back. Called under the storing lock.
     ///
@@ -510,6 +518,8 @@ impl<'a> PeerService<'a> {
 
             Request::MayEvict { owner, chunks } => self.may_evict(caller, *owner, chunks),
 
+            Request::Claims { owner } => self.claims(caller, *owner),
+
             Request::Hosted { chunks } => {
                 // A claim, recorded and then checked. The storage challenges
                 // this node already runs are what turn it into evidence: a peer
@@ -619,13 +629,53 @@ impl<'a> PeerService<'a> {
             // same way it says it took it: nothing for a peer to act on.
             None => Response::Stored { accepted: false },
             Some(owners) => match owners.present(caller, claim, self.vault) {
-                Ok(()) => match &self.own_claim {
-                    Some(own) => Response::Claim(own.clone()),
-                    None => Response::Stored { accepted: true },
-                },
+                Ok(()) => {
+                    // Kept as presented, so the account's other machines can
+                    // be handed it (`Request::Claims`). A failed write costs
+                    // a sibling one round of waiting, never this session.
+                    if let Some(owner) = owners.presented_for(caller) {
+                        let _ = self.vault.keep_claim(caller, owner, claim);
+                        // A sibling: `present` verified this account's
+                        // signature and refused a revocation, which is what
+                        // admission to the roster is. A machine that is only
+                        // ever pushed to learns its siblings here.
+                        if owner == self.store.owner() {
+                            let _ = self.store.admit_member(&caller, false);
+                        }
+                    }
+                    self.claim_answer()
+                }
                 Err(why) => Response::Refused(why),
             },
         }
+    }
+
+    /// A claim taken: this host's own in return, so the caller can bound
+    /// what it pulls from it, or a plain acknowledgement.
+    fn claim_answer(&self) -> Response {
+        match &self.own_claim {
+            Some(own) => Response::Claim(own.clone()),
+            None => Response::Stored { accepted: true },
+        }
+    }
+
+    /// The claims this host keeps for `owner`, for a caller that presented a
+    /// claim for `owner` itself. Anyone else learns nothing, not even that
+    /// the host knows the account.
+    fn claims(&self, caller: DeviceId, owner: UserId) -> Result<Response> {
+        let Some(owners) = self.owners else {
+            return Ok(Response::Claims(Vec::new()));
+        };
+        if owners.presented_for(caller) != Some(owner) {
+            return Ok(Response::Claims(Vec::new()));
+        }
+        Ok(Response::Claims(
+            self.vault
+                .claims_for(owner)?
+                .into_iter()
+                .filter(|claim| claim.len() <= crate::protocol::MAX_CLAIM_BYTES)
+                .collect(),
+        ))
     }
 
     /// The account's machines, for a caller the book counts as one of them.
