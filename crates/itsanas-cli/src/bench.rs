@@ -229,16 +229,19 @@ fn preamble(size: u64, scratch: &std::path::Path) {
 #[allow(clippy::cast_precision_loss)]
 fn crypto_stages(size: u64, user: &UserKeys) -> Result<Vec<Stage>> {
     let mut stages = Vec::new();
+    // The cut a store makes for this account: keyed, and the slow part of
+    // chunking since §8 3c, which is what a Pi or a phone needs measured.
+    let config = ChunkerConfig::default().keyed(&user.chunking_key());
 
     let mut count = 0u64;
     let start = Instant::now();
-    chunker::split_stream(&ChunkerConfig::default(), Generated::new(size), |_| {
+    chunker::split_stream(&config, Generated::new(size), |_| {
         count += 1;
         Ok(())
     })
     .map_err(|error| CliError::Usage(format!("chunking failed: {error}")))?;
     stages.push(Stage {
-        name: "chunking (FastCDC)",
+        name: "chunking (keyed)",
         bytes: size,
         elapsed: start.elapsed(),
         note: format!(
@@ -249,7 +252,7 @@ fn crypto_stages(size: u64, user: &UserKeys) -> Result<Vec<Stage>> {
 
     let mut sealed_bytes = 0u64;
     let start = Instant::now();
-    chunker::split_stream(&ChunkerConfig::default(), Generated::new(size), |chunk| {
+    chunker::split_stream(&config, Generated::new(size), |chunk| {
         let (_, sealed) = user.seal_chunk(chunk)?;
         sealed_bytes += sealed.len() as u64;
         Ok(())
