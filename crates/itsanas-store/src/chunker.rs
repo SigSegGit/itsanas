@@ -26,6 +26,7 @@ use std::{
 
 mod field;
 mod keyed;
+mod siphash;
 
 use crate::error::{Result, StoreError};
 
@@ -105,15 +106,15 @@ pub struct ChunkerConfig {
     keyed: Option<Arc<keyed::KeyedCut>>,
 }
 
-/// Two configurations are equal when they cut alike: the same bounds, and
-/// the same key -- the same `Arc`, since a key is never compared by value.
+/// Two configurations are equal when they cut alike: the same bounds and the
+/// same key.
 impl PartialEq for ChunkerConfig {
     fn eq(&self, other: &Self) -> bool {
         (self.min_size, self.avg_size, self.max_size)
             == (other.min_size, other.avg_size, other.max_size)
             && match (&self.keyed, &other.keyed) {
                 (None, None) => true,
-                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (Some(a), Some(b)) => a == b,
                 _ => false,
             }
     }
