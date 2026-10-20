@@ -52,6 +52,16 @@ pub const CTX_USER_AUDIT_ORDER: &str = "itsanas v1 user audit ordering key";
 /// who knows the user id -- a public key -- cannot recognise them either. It
 /// never goes on the wire: the beacon carries a keyed hash under it.
 pub const CTX_USER_LAN_TAG: &str = "itsanas v1 user local discovery tag key";
+/// Key for where this account cuts its files into chunks (HANDOVER §8 3c).
+///
+/// With a public cut, a host holding a candidate copy of a file recognises it
+/// in an account's store from the sizes of the chunks alone. Keyed, the cut
+/// is the same on every device of the account and unpredictable to anybody
+/// else -- provided the keyed cut is a sound one: secret gear tables and the
+/// like are recovered from a known file (Truong et al., CCS 2025), which is
+/// why the chunker puts a PRF over a universal hash (`itsanas-store`,
+/// `chunker/keyed.rs`).
+pub const CTX_USER_CHUNKING: &str = "itsanas v1 user content-defined chunking key";
 /// Wrapping key for the passphrase-protected keystore and its escrow copy.
 pub const CTX_KEYSTORE_WRAP: &str = "itsanas v1 keystore wrapping key";
 /// Prehash context for domain-separated signatures.
@@ -68,6 +78,7 @@ pub const ALL_CONTEXTS: &[&str] = &[
     CTX_USER_OPLOG,
     CTX_USER_AUDIT_ORDER,
     CTX_USER_LAN_TAG,
+    CTX_USER_CHUNKING,
     CTX_KEYSTORE_WRAP,
     CTX_SIGNED_MESSAGE,
 ];

@@ -359,6 +359,14 @@ impl UserKeys {
         kdf::derive(kdf::CTX_USER_LAN_TAG, self.master.expose())
     }
 
+    /// This account's key for where its files are cut into chunks; see
+    /// [`kdf::CTX_USER_CHUNKING`]. Every device of the account derives the
+    /// same, so they cut alike and deduplicate against each other. Never sent.
+    #[must_use]
+    pub fn chunking_key(&self) -> SymmetricKey {
+        kdf::derive(kdf::CTX_USER_CHUNKING, self.master.expose())
+    }
+
     /// Derive a shared secret with another user, for wrapping keys to them.
     ///
     /// # Errors

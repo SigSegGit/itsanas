@@ -20,6 +20,14 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-20: keyed chunking (§8 3c).** Every store now cuts files with the
+paper's Chk-PHTE under keys derived from the account (see §8 3c and ROADMAP's
+fingerprint entry for the ceilings). A host with a copy of a file can no
+longer match it by chunk sizes; old files stay recognisable until rewritten,
+and devices on an older version stop deduplicating with upgraded ones.
+`itsanas bench` measures the keyed chunker; run it on the Pi 4 and a phone,
+which have no AES instructions or were not measured.
+
 **2026-10-20: disk jobs through the running daemon, and a portable copy
 (§8 8).** `vault NEW --move` and `backup export|restore` while the daemon runs
 write `<home>/job`; the daemon runs it between rounds (move: after closing the
@@ -2717,8 +2725,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Red-team test expected: the total equals the sum over the blobs after
       puts, a re-put of the same address and deletes; sabotage by skipping the
       update on delete. Not enforcement: same rule, cheaper to ask.
-   c. Chunk-size sequences fingerprint files (ROADMAP). **Keyed
-      chunking, decided 2026-10-06** (§10 item 9). Padding was measured
+   c. ✅ **Chunk-size sequences stop fingerprinting files.** Built
+      2026-10-20 (see §0). Step 1 was done: the paper (Truong et al., CCS 2025,
+      ePrint 2025/558) recovers keyed gear tables, so the plan below to key
+      the Gear table via blake3 was **dropped**; Nicolas decided to measure,
+      then implement if reasonable. Built the paper's Chk-PHTE: rolling
+      polynomial hash at a secret point of GF(2^61-1) over a 64-byte window,
+      SipHash-2-4 (PRF) under a second key (first built with AES, replaced after red team: AES without hardware ran 16 MB/s against 180 with AES-NI on the Xeon, and all devices of an account must share one PRF), FastCDC masks and bounds kept; keys from
+      `CTX_USER_CHUNKING` via `UserKeys::chunking_key()`; every `Store` keys
+      its `ChunkerConfig` in `open_inner` (no longer `Copy`). Tests:
+      `tests/keyed_chunking.rs` and the pinned `the_keyed_cut_is_pinned_forever`.
+      Cost measured: keyed ~75 MB/s (~65 with seal) against ~1.9 GB/s. Ceilings in
+      ROADMAP. Pi 4 and phones not measured. The original plan follows.
+      **Keyed chunking, decided 2026-10-06** (§10 item 9). Padding was measured
       first and does not close it at any sane cost (§10 item 9, the table;
       `crates/itsanas-store/examples/padding_cost.rs` re-takes it). To build,
       in this order:

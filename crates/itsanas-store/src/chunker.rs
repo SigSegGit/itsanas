@@ -19,7 +19,14 @@
 //! string. It is reproducible from first principles on any machine, and
 //! the `the_gear_table_is_pinned_forever` test fails loudly if it ever changes.
 
-use std::{io::Read, sync::LazyLock};
+use std::{
+    io::Read,
+    sync::{Arc, LazyLock},
+};
+
+mod field;
+mod keyed;
+mod siphash;
 
 use crate::error::{Result, StoreError};
 
@@ -87,14 +94,33 @@ const NORMALISATION: u32 = 2;
 /// enough that a one-line edit in a large file re-uploads kilobytes rather than
 /// megabytes, and large enough that a 10 GiB backup does not produce a million
 /// index rows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct ChunkerConfig {
     min_size: usize,
     avg_size: usize,
     max_size: usize,
     mask_strict: u64,
     mask_loose: u64,
+    /// The account's keyed cut ([`keyed`]); `None` is the public gear cut,
+    /// kept for tests, the bench and the pinned table.
+    keyed: Option<Arc<keyed::KeyedCut>>,
 }
+
+/// Two configurations are equal when they cut alike: the same bounds and the
+/// same key.
+impl PartialEq for ChunkerConfig {
+    fn eq(&self, other: &Self) -> bool {
+        (self.min_size, self.avg_size, self.max_size)
+            == (other.min_size, other.avg_size, other.max_size)
+            && match (&self.keyed, &other.keyed) {
+                (None, None) => true,
+                (Some(a), Some(b)) => a == b,
+                _ => false,
+            }
+    }
+}
+
+impl Eq for ChunkerConfig {}
 
 impl ChunkerConfig {
     /// Smallest chunk the chunker will emit, except for a file's final chunk.
@@ -133,7 +159,23 @@ impl ChunkerConfig {
             max_size,
             mask_strict: MASKS[strict as usize],
             mask_loose: MASKS[loose as usize],
+            keyed: None,
         })
+    }
+
+    /// The same bounds, cut under the account's chunking key
+    /// (`UserKeys::chunking_key`): what every store opened for a real account
+    /// uses, so its chunk sizes say nothing to a host about its files.
+    #[must_use]
+    pub fn keyed(mut self, key: &itsanas_crypto::SymmetricKey) -> Self {
+        self.keyed = Some(keyed::KeyedCut::new(key));
+        self
+    }
+
+    /// Whether cuts are keyed.
+    #[must_use]
+    pub const fn is_keyed(&self) -> bool {
+        self.keyed.is_some()
     }
 
     #[must_use]
@@ -159,6 +201,18 @@ impl ChunkerConfig {
     /// fast.
     #[must_use]
     pub fn cut_point(&self, data: &[u8]) -> usize {
+        if let Some(keyed) = &self.keyed {
+            return keyed.cut_point(
+                data,
+                keyed::Bounds {
+                    min: self.min_size,
+                    avg: self.avg_size,
+                    max: self.max_size,
+                    strict: self.mask_strict,
+                    loose: self.mask_loose,
+                },
+            );
+        }
         let len = data.len();
         if len <= self.min_size {
             return len;
@@ -194,7 +248,7 @@ impl ChunkerConfig {
     #[must_use]
     pub fn split<'a>(&self, data: &'a [u8]) -> Chunks<'a> {
         Chunks {
-            config: *self,
+            config: self.clone(),
             data,
             offset: 0,
         }

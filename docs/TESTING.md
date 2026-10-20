@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-20 — 1284 test functions across 38 binaries, 13 of them
-`#[ignore]`d, plus 2 doctests. 375 are red-team tests.**
+**Last updated: 2026-10-20 — 1292 test functions across 39 binaries, 13 of them
+`#[ignore]`d, plus 2 doctests. 376 are red-team tests.**
 
-**1168 of the 1284 tests have an entry of their own on this page** — an *entry*,
+**1176 of the 1292 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,7 +158,8 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 21 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 216 |
+| `itsanas-store` unit | 221 |
+| `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
 | `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 12 |
@@ -216,7 +217,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 47 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 48 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 79 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -460,7 +461,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (179, plus the 37 vault tests below)
+# `itsanas-store` — unit tests (184, plus the 37 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -668,6 +669,16 @@ moment the sync engine starts materialising files.
 | `oversized_paths_and_components_are_rejected` | Bounds enforced, so one log entry cannot make the index enormous. |
 | `ordinary_paths_are_accepted` | The rules are not so strict that normal filenames — including Unicode and dotfiles — break. |
 
+## `chunker::keyed` and `chunker::field` — the keyed cut (5)
+
+| Test | What it proves |
+| --- | --- |
+| `the_keyed_cut_is_pinned_forever` | The keyed cut (rolling polynomial hash at a secret point of GF(2^61-1), then SipHash-2-4, cut where the masked bits are zero) of fixed bytes under a fixed key hashes to a pinned digest. A changed cut re-chunks and re-uploads every file of every account, so it may change only on purpose. Sabotaged by removing the PRF step and by ignoring the byte leaving the window: red. |
+| `the_rolled_hash_is_the_window_polynomial_wherever_it_stands` | The hash rolled byte by byte equals the polynomial of the 64-byte window computed from scratch at every offset, so the incremental update loses nothing. |
+| `a_point_is_always_inside_the_field_and_off_the_trivial_ones` | Whatever raw word the key yields (0, 1, the field prime, above it, the maximum), the secret evaluation point lands in 2..P, never 0 or 1, where the polynomial hash would be constant or a plain sum and the universal-hash bound would fail. |
+| `the_word_hash_is_standard_siphash_2_4` | The word hash equals the standard library's SipHash-2-4 on several keys and words, so the PRF is the standard one and not a look-alike. |
+| `the_field_agrees_with_plain_integer_arithmetic` | Addition and multiplication in GF(2^61-1) agree with plain 128-bit integer arithmetic modulo 2^61-1. The universal-hash bound (collisions at most 63/2^61) rests on this being a field. |
+
 ## `pack` — sealed chunks appended into pack files (8)
 
 `crates/itsanas-store/src/pack.rs` (M10). A chunk is a record
@@ -694,6 +705,21 @@ with `scripts/sabotage.py`: each defence below turned its test red.
 | --- | --- |
 | `a_store_in_packs_writes_reads_checks_collects_and_reopens_with_no_file_per_chunk` | Through the real `Store`: write, remove, garbage-collect, deep integrity check and reopen all work on a store created in packs, and no blob file is written. |
 | `red_team_a_store_converted_to_packs_keeps_every_file_and_survives_a_crash_at_each_step` | A store in blob files converted by `BlobStore::convert_to_packs`: a half-made staging directory never switches the layout, the converted store reopens in packs with every file, and blob files left by a crash after the rename are cleared by the next call. Sabotage: skipping the copy turns it red. |
+
+---
+
+# `itsanas-store` — keyed chunking (`tests/keyed_chunking.rs`) (3)
+
+Chk-PHTE of Truong, Merz, Scarlata, Gunther and Paterson, "Breaking and Fixing
+Content-Defined Chunking" (CCS 2025, ePrint 2025/558): the cut points are a
+keyed function of the bytes, so a host cannot compute the sizes of a file it
+holds a copy of.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_host_cannot_recognise_a_file_by_its_chunk_sizes`** | A host with a candidate copy cuts it with the public chunker and compares sizes with the account's chunks: fewer than one in ten sizes match. Two accounts cut the same file differently, two devices of one account identically (deduplication kept). Sabotaged by a store that does not key its chunker, and by a chunking key not derived from the master: red. Ceilings (paper section 5): equal chunks stay equal, total length stays visible. |
+| `keyed_chunks_keep_the_configured_bounds` | Keyed chunks stay between the minimum and maximum size, and their average stays within a factor of two of the target, so keying did not wreck the chunk-size economics. |
+| `keyed_streaming_and_slicing_agree_on_every_boundary` | A file cut as a stream and as a slice has the same boundaries, so a file imported by one path deduplicates against itself imported by the other. |
 
 ---
 

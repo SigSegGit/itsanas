@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1284 test functions, 13 of them `#[ignore]`d into the slow job, and 375 of
+**1292 test functions, 13 of them `#[ignore]`d into the slow job, and 376 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1720,10 +1720,23 @@ real files (`cargo run --release -p itsanas-store --example padding_cost --
 <folder>`): of files of two chunks or more, 98.2 % have a size sequence no
 other file shares; Padmé (+1.5 % disk) leaves 77.8 %, powers of two (+59.8 %)
 19.2 %, every chunk at 256 KiB (+265.6 %) still 4.7 %, by chunk count alone.
-**Decided 2026-10-06 (Nicolas): keyed chunking**, a secret cut table per
-account, so a host cannot compute the sizes to compare (HANDOVER §8 3c, not
-built). Its ceilings, before it exists: files stored before it stay
-recognisable until rewritten, and a file's total length stays visible.
+**Decided 2026-10-06 (Nicolas): keyed chunking** -- ✅ built 2026-10-20
+(HANDOVER §8 3c). Not a secret gear table: Truong, Merz, Scarlata, Gunther and
+Paterson, "Breaking and Fixing Content-Defined Chunking" (CCS 2025, ePrint
+2025/558) recover keyed gear tables (Bupstash, about 1 GiB of known plaintext)
+and the keyed schemes of Borg, Restic, Duplicacy and Tarsnap. Built instead is
+the paper's provably secure Chk-PHTE: a rolling polynomial hash over a 64-byte
+window at a secret point of GF(2^61-1), then SipHash-2-4 (a PRF) under a second secret
+key, cut where the masked bits are zero; both keys derive from the account's
+master secret, so every device of one account cuts alike. Proved by
+`red_team_a_host_cannot_recognise_a_file_by_its_chunk_sizes`. Its ceilings
+(paper section 5): equal chunks stay equal (deduplication within an account
+needs it) and a file's total length stays visible; files stored before it keep
+their old public chunks, recognisable, until rewritten (re-cut on the next
+write, re-uploaded once); a device on an older version cuts differently and
+stops deduplicating with upgraded ones until it upgrades. Cost, measured
+(`examples/phte_cost.rs`, Xeon 2.1 GHz, 256 MiB): public FastCDC about 1.9 GB/s, keyed about 75 MB/s, keyed plus seal about 65 MB/s. The PRF is SipHash-2-4 and not AES because AES without hardware instructions ran 16 MB/s against 180 with AES-NI, and every device of an account must use one PRF; SipHash runs about 60-75 MB/s either way. A Pi 4 and phones are not measured: `itsanas bench` on them
+is Nicolas's next measurement.
 
 **The LAN beacon grouped an account's machines** -- ✅ fixed 2026-09-30
 (§8 3d). The version 1 owner tag was a plain hash of a public key, so anyone on
@@ -1848,7 +1861,7 @@ stops it, and the test:
 | Confirm a guessed file from its address | address is not the content hash | `chunk_id_does_not_expose_the_plaintext_hash` |
 | Read a path or a byte of content on a host | sealed chunk and sealed segment body | `the_sealed_body_does_not_leak_the_path_in_plaintext`, `the_hosts_hold_everything_and_can_read_none_of_it` |
 | Learn from a repair request which chunks exist only on hosts | asked only of peers the ledger records as holders | `red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost` |
-| Two accounts' identical files matched by chunk sizes | nothing | ⬜ **open**, the fingerprint above; padding measured and rejected 2026-10-06, keyed chunking decided (HANDOVER §8 3c) |
+| Two accounts' identical files matched by chunk sizes | nothing | ✅ keyed chunking (Chk-PHTE) 2026-10-20, the fingerprint above; ceilings: equal chunks, total length, old files until rewritten; padding measured and rejected 2026-10-06 (HANDOVER §8 3c) |
 | **A stranger reads any account's metadata from any host** | the account roster: every read is answered only to a device whose presented claim names the account | ✅ **fixed** 2026-10-19, `red_team_nobody_but_the_account_reads_what_a_host_holds_for_it` |
 | Operation count per publish | nothing: `first_sequence`..`last_sequence` in the clear | ⬜ **by design**, `validate_chain` needs them |
 | Size and time of each edit | nothing: body length, chunk count and when they arrive | ⬜ **by design**, ARCHITECTURE §8 |

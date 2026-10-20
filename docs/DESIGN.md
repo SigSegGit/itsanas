@@ -167,6 +167,25 @@ Verified on real corpus data by
 `the_shared_document_gets_a_different_address_for_every_user`, using a file all
 three fixture users hold byte-identically.
 
+**What blinded addressing hides, and what it does not.** It hides the content
+hash: a host cannot confirm a candidate file from an address, nor see that two
+accounts hold the same bytes. It does not hide where the cuts fall, and
+content-defined cuts are a function of the bytes, so the sequence of chunk
+sizes identifies a known file to a host holding a copy.
+
+**Keyed chunking hides that.** The cut is the provably secure Chk-PHTE of
+Truong, Merz, Scarlata, Gunther and Paterson ("Breaking and Fixing
+Content-Defined Chunking", CCS 2025, ePrint 2025/558): a rolling polynomial
+hash over a 64-byte window at a secret point of GF(2^61-1) (a universal hash,
+collisions at most 63/2^61), then SipHash-2-4 (a PRF) under a second secret key, cut where
+the masked bits are zero; FastCDC's two masks and minimum, average and maximum
+sizes are kept. Both keys derive from the account's master secret. A secret
+gear table was rejected: the paper recovers those from known plaintext. What
+it still shows a host: equal chunks stay equal (deduplication needs it), the
+total length of a file, and the old public cut of any file not yet rewritten.
+The PRF is SipHash and not AES because AES without hardware instructions (a Pi 4 has none) ran 16 MB/s against 180 with AES-NI, and every device of an account must use one PRF; the paper's proof holds for any PRF. Cost, measured: about 75 MB/s keyed (65 MB/s with sealing) instead of 1.9 GB/s, with or without AES instructions; test
+`red_team_a_host_cannot_recognise_a_file_by_its_chunk_sizes`.
+
 ---
 
 ## 4. Live sync across offline devices

@@ -276,6 +276,9 @@ impl Store {
             user.audit_order_key().clone(),
         )?;
 
+        // Every store cuts under its account's key: its chunk sizes must not
+        // let a host recognise a file it has a copy of (`chunker/keyed.rs`).
+        let chunker = chunker.keyed(&user.chunking_key());
         Ok(Self {
             root,
             blobs,
