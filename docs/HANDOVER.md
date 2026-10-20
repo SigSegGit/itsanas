@@ -20,6 +20,21 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-20: disk jobs through the running daemon, and a portable copy
+(§8 8).** `vault NEW --move` and `backup export|restore` while the daemon runs
+write `<home>/job`; the daemon runs it between rounds (move: after closing the
+node, then restarts on the new vault) and writes `<home>/job-result`; the CLI
+waits, no passphrase (`jobs.rs`). `itsanas portable DIR` writes `DIR/ITSaNAS/`
+(this OS's binary, launcher with `--home`, README, `home/portable`: client
+only; keys sealed by the passphrase alone, warned). Settings has a Disks
+section (POST /api/disk, 409 without a daemon). The unplug test now also runs
+on Windows; a real disk pulled mid-write stays the manual 8.0c test.
+After red-team: a move stages inside the target and works onto an empty mount
+point, refusing a target inside or holding the vault; an export refuses the
+home, vault and synced folder; a stale running job is failed at daemon start;
+the job file is claimed by rename; the CLI stops waiting when the daemon goes
+away; portable writes its marker first; `ITSaNAS.cmd` uses goto.
+
 **2026-10-19, late: removable disks (§8 8).** Four uses in one PR: a vault
 on a USB disk that comes and goes, a folder on a removable disk (already
 0l), a cold copy (`itsanas backup`), a vault moved between disks (`itsanas
@@ -2911,6 +2926,13 @@ Detail and measurements are in ROADMAP.md; this is the map.
    verified against its address on the way into the store (AI review).
    (d) `itsanas vault NEW --move`: copy under a staging name, count files and
    bytes, rename, reopen and compare `held_bytes`, keep the original.
+   Added 2026-10-20: (c) and (d) go through the running daemon when there is
+   one (`<home>/job`, `job-result`; `disk_jobs_go_through_the_running_daemon_which_carries_on_after_them`),
+   from the terminal or Settings, Disks; `itsanas portable DIR` makes a
+   client-only copy for a drive (`red_team_a_portable_copy_keeps_its_home_on_the_drive_and_hosts_nobody`);
+   the marker-goes-away test runs on every OS
+   (`red_team_a_vault_whose_marker_goes_away_is_left_alone_until_it_returns`).
+   Open: a real disk pulled mid-write (8.0c, by hand).
 
 ## 9. Known gaps, deliberately open
 

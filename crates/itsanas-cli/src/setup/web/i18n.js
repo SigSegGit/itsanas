@@ -172,5 +172,45 @@ window.I18N = {
     'How much of this disk other members may use for their copies: it is what earns room for your own files on theirs.':
       'Combien de ce disque les autres membres peuvent utiliser pour leurs copies : c’est ce qui vous donne de la place pour vos fichiers chez eux.',
     'Folder and space': 'Dossier et espace',
+    'Disks':
+      'Disques',
+    'These are done by ITSaNAS running in the background, so it must be running. Nothing here asks for your passphrase.':
+      'C’est ITSaNAS en arrière-plan qui s’en charge : il doit être lancé. Rien ici ne demande votre phrase secrète.',
+    'Space for others is kept in:':
+      'L’espace pour les autres est gardé dans :',
+    'Move it to another disk':
+      'Le déplacer sur un autre disque',
+    'Move':
+      'Déplacer',
+    'That disk also holds the ITSaNAS data of this machine (less safe)':
+      'Ce disque contient aussi les données ITSaNAS de cette machine (moins sûr)',
+    'It is copied, checked, then used. The old copy stays until you delete it.':
+      'Il est copié, vérifié, puis utilisé. L’ancienne copie reste jusqu’à ce que vous la supprimiez.',
+    'Backup to a drive you keep apart':
+      'Sauvegarde sur un disque gardé à part',
+    'Back up':
+      'Sauvegarder',
+    'Restore from it':
+      'Restaurer depuis celle-ci',
+    'Sealed: without your 24 words it opens for nobody. On a new machine, set it up with your account first, then restore here.':
+      'Scellée : sans vos 24 mots, elle ne s’ouvre pour personne. Sur une nouvelle machine, installez-la d’abord avec votre compte, puis restaurez ici.',
+    'Put a portable ITSaNAS on a drive':
+      'Mettre un ITSaNAS portable sur un disque',
+    'Write it':
+      'L’écrire',
+    'It runs on this kind of system only, syncs your files and hosts nothing for others. Its keys travel with the drive, protected by your passphrase alone.':
+      'Il ne tourne que sur ce type de système, synchronise vos fichiers et n’héberge ceux de personne. Ses clés voyagent avec le disque, protégées par votre seule phrase secrète.',
+    'the default place, next to the data of this machine':
+      'l’emplacement par défaut, à côté des données de cette machine',
+    'Failed:':
+      'Échec :',
+    'Choose a folder first.':
+      'Choisissez d’abord un dossier.',
+    'Move the space for others there? ITSaNAS stops hosting for the time of the copy.':
+      'Déplacer l’espace pour les autres ici ? ITSaNAS cesse d’héberger le temps de la copie.',
+    'Read this backup into this machine?':
+      'Lire cette sauvegarde dans cette machine ?',
+    'Write a portable ITSaNAS there? Whoever has the drive can try to guess your passphrase: use a long one.':
+      'Écrire un ITSaNAS portable ici ? Qui a le disque peut essayer de deviner votre phrase secrète : prenez-en une longue.',
   },
 };

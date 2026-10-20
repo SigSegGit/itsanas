@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-19 — 1273 test functions across 38 binaries, 10 of them
-`#[ignore]`d, plus 2 doctests. 370 are red-team tests.**
+**Last updated: 2026-10-20 — 1284 test functions across 38 binaries, 13 of them
+`#[ignore]`d, plus 2 doctests. 375 are red-team tests.**
 
-**1157 of the 1273 tests have an entry of their own on this page** — an *entry*,
+**1168 of the 1284 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -178,7 +178,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 145 |
+| `itsanas-cli` unit | 153 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 139 |
@@ -187,7 +187,7 @@ guarantee and is not one.
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
 | `itsanas-node` withdrawals (`tests/withdrawals.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
-| `itsanas-cli` steering (`tests/steering.rs`) | 5 (5 `#[ignore]`d) |
+| `itsanas-cli` steering (`tests/steering.rs`) | 8 (8 `#[ignore]`d) |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-release` release (`tests/release.rs`) | 14 |
 | `itsanas-testkit` unit | 7 |
@@ -217,7 +217,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 47 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 74 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 79 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1105,7 +1105,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — the daemon loop, driven (5, `#[ignore]`d)
+# `itsanas-cli` — the daemon loop, driven (8, `#[ignore]`d)
 
 `tests/steering.rs`. The only tests that run `sync_loop`: each starts the real
 daemon on a throwaway node and reads the snapshot it writes every time round
@@ -1118,15 +1118,18 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 | Test | What it proves |
 | --- | --- |
-| **`red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it`** | Unix only (Windows will not rename a directory holding an open file). A vault on a USB disk unplugged under a running daemon: the daemon writes nothing on the bare mount point, does not exit, opens a stand-in vault in `home/vault-while-away` (`Node::open_away`), keeps syncing its own files, refuses to host others with `HOSTING_AWAY`, and prints "hosting again" and restarts on the real vault when the disk returns. Sabotaged. Rewritten on 2026-10-19 for away mode. Found two bugs on its first run: `Vault::blobs_for` rebuilt `owners/<id>/blobs` on the mount point, and the second run inherited the stop flag. |
+| **`red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it`** | Unix only (Windows will not rename a directory holding an open file; the marker test below runs everywhere). A vault on a USB disk unplugged under a running daemon: the daemon writes nothing on the bare mount point, does not exit, opens a stand-in vault in `home/vault-while-away` (`Node::open_away`), keeps syncing its own files, refuses to host others with `HOSTING_AWAY`, and prints "hosting again" and restarts on the real vault when the disk returns. Sabotaged. Rewritten on 2026-10-19 for away mode. Found two bugs on its first run: `Vault::blobs_for` rebuilt `owners/<id>/blobs` on the mount point, and the second run inherited the stop flag. |
 | **`red_team_a_paused_daemon_takes_in_no_file_until_resumed`** | A daemon started paused: a file written into the folder is not taken into the store while it loops (two snapshots three seconds apart both say `files 0`), and is after `itsanas resume`. The unit tests in `control` prove the decisions; this proves the loop obeys them -- the CI reviewer's finding on #243: deleting the loop's guard passed every unit test. Sabotaged (`take_in` called while paused): red, with the two below. |
 | **`red_team_a_pause_landing_mid_round_takes_in_no_file`** | A pause asked for while a round is under way. A "peer" the test owns accepts the daemon's connection and says nothing, holding the round open; the pause and a new file arrive; the peer lets go. The folder scans inside and at the end of the round re-read the pause, so the store still holds nothing. Sabotaged (either re-read removed): red. Not covered: `halted` stopping the dials to further peers, which needs a second one. |
 | **`red_team_a_paused_daemon_adopts_nothing_its_own_devices_push`** | The paused node's listener keeps serving, by design, so a second device of the account (restored from the 24 words `init` printed) pushes a file into its vault; the store must not adopt it until `resume`. It asserts the push really sent something -- its first run passed on nothing, because a node with no pledge refuses its own account's push. **The test the first version of this guard needed:** a `match` arm that ignored the vault drain's result while the drain ran anyway. Sabotaged (that version put back): red. |
 | **`red_team_a_timed_pause_ends_by_itself_without_resume`** | A real daemon paused through a control file with until = now+4 takes in a file written during the pause by itself once the end passes, never before it and without `itsanas resume`, and logs "pause over, syncing resumed"; Sabotaged (until ignored; comparison inverted): red. |
+| `disk_jobs_go_through_the_running_daemon_which_carries_on_after_them` | A real daemon, `itsanas backup export`, `backup restore` and `vault NEW --move` while it runs: each writes `<home>/job`, the daemon runs it between rounds (move: closes the node, then restarts on the new vault), writes `job-result`, the CLI reads it and no passphrase is asked; afterwards the daemon still syncs. Sabotaged. |
+| **`red_team_a_portable_copy_keeps_its_home_on_the_drive_and_hosts_nobody`** | `itsanas portable DIR` writes `DIR/ITSaNAS/` with the program, a launcher passing `--home` next to itself, and `home/portable`; the daemon started from it keeps every file of its home on the drive and hosts nobody (client only). Sabotaged. |
+| **`red_team_a_vault_whose_marker_goes_away_is_left_alone_until_it_returns`** | The unplug test that also runs on Windows: the vault's marker goes away under a running daemon, nothing is written on the bare place, the daemon does not exit, and it resumes when the marker returns. A real disk pulled mid-write remains the manual 8.0c test. Sabotaged. |
 
 ---
 
-# `itsanas-cli` — unit tests (145)
+# `itsanas-cli` — unit tests (153)
 
 ## `bench` — measuring this machine (4)
 
@@ -1267,7 +1270,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page (20)
+## `web` — the local setup and Settings page (21)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1296,6 +1299,28 @@ in-process with stand-in secret windows; no real browser is launched.
 | **`red_team_a_chosen_path_never_lands_inside_a_script`** | On the three systems the folder chooser gets its start folder through an environment variable, never inside its script, so a folder name cannot run as code. Sabotaged (path in an argument): red. |
 | `a_gtk_bookmark_escapes_what_a_url_cannot_hold` | A space or an accent in the folder is percent-encoded in the GTK bookmark line. |
 | `every_text_of_the_page_has_a_french_translation` | Every text between tags, placeholder, label and `t('...')` string of the page has an entry in `i18n.js`. Sabotaged (one entry removed): red. |
+| `the_disks_section_hands_work_to_the_daemon_and_writes_a_portable_copy_itself` | Settings' Disks section: POST /api/disk for a vault move, a backup or a restore writes `<home>/job` for the running daemon and is refused with 409 when no daemon runs; a portable copy is written by the page itself; the job's result shows in /api/state `settings.job` and `settings.vault`. Sabotaged (409 check dropped): red. |
+
+## `jobs` — disk work handed to the running daemon (3)
+
+`crates/itsanas-cli/src/jobs.rs`. The daemon holds the store's lock, so a move,
+an export or a restore is asked through `<home>/job` and answered in
+`<home>/job-result`.
+
+| Test | What it proves |
+| --- | --- |
+| `a_job_asked_is_taken_once_and_its_result_read_back` | A job written is taken by the daemon once (the file is gone after), and its result is read back by the asker. |
+| **`red_team_a_path_cannot_smuggle_lines_into_the_job`** | A path must be absolute and one line: a newline in it would add a second line to the job file and a second instruction; it is refused. Sabotaged (check dropped): red. |
+| `a_job_left_running_by_a_dead_daemon_does_not_block_the_next` | A job marked running by a daemon that died is marked failed when the next daemon starts, so it does not block the following job. |
+
+## `portable` — a copy of the program that keeps its home on the drive (2)
+
+`crates/itsanas-cli/src/portable.rs`.
+
+| Test | What it proves |
+| --- | --- |
+| `a_portable_copy_has_its_program_launcher_readme_and_a_client_only_home` | `DIR/ITSaNAS/` holds this binary, the launcher (`ITSaNAS.cmd` or `itsanas.sh`) passing `--home` next to itself, `README.txt` and `home/portable`. |
+| `a_portable_copy_needs_a_full_path` | A relative destination is refused, so the copy does not land wherever the launcher happens to run. |
 
 ## `upnp` — the router's port, opened by itself (4)
 
@@ -1338,7 +1363,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer (38)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer (40)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1385,6 +1410,8 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_pledge_under_what_keep_needs_is_refused_and_saves_nothing`** | `itsanas pledge 1M` on a node keeping 20 GiB is refused with the `space --pledge .. --keep .. --apply` command, and neither the node file nor the node in memory changes; with no keep the same pledge goes through, so the setter is not one that refuses everything (HANDOVER §8 3a). Sabotaged (the `check_split` call in `set_pledge` dropped, or moved below the assignment; `check_split` always `Ok`): red. |
 | `a_timed_pause_shows_paused_only_while_it_holds` | Status --brief, which every tray reads, says paused only while the pause holds, so an expired timed pause never shows a blue icon over a node that is syncing again. |
 | **`red_team_a_passphrase_prompt_names_the_account_it_unlocks`** | The passphrase prompt reads `Passphrase for 'NAME' (HOME): `, not `Passphrase:`, so three accounts on one machine are told apart; with no label it stays `Passphrase: `. Sabotage: drop the label and it goes red. |
+| **`red_team_a_vault_moves_onto_an_existing_empty_mount_point_and_never_into_itself`** | A move stages inside the target (`.itsanas-incoming`) and renames the entries up with the marker last, so it works on a mount point or drive root and writes nothing beside it; a target inside the vault, or one holding it, is refused. Sabotaged. |
+| **`red_team_a_backup_is_not_written_into_the_home_vault_or_synced_folder`** | `backup export` refuses a destination inside the home, the vault or the synced folder. Sabotaged. |
 
 ## `placing` — the measurement shown, and the daemon's share of placement (9)
 

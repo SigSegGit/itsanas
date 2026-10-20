@@ -212,6 +212,21 @@
         <p id="st-run-step" class="current" aria-live="polite"></p>
       </div>
 
+      <h2>Disks</h2>
+      <p class="help">These are done by ITSaNAS running in the background, so it must be running. Nothing here asks for your passphrase.</p>
+      <p><span>Space for others is kept in:</span> <strong id="st-vault"></strong></p>
+      <label for="disk-move">Move it to another disk</label>
+      <div class="row"><input id="disk-move" spellcheck="false" autocapitalize="none"><button type="button" id="disk-move-browse">Browse&hellip;</button><button type="button" id="disk-move-go">Move</button></div>
+      <label class="choice"><input type="checkbox" id="disk-same"> That disk also holds the ITSaNAS data of this machine (less safe)</label>
+      <p class="help">It is copied, checked, then used. The old copy stays until you delete it.</p>
+      <label for="disk-backup">Backup to a drive you keep apart</label>
+      <div class="row"><input id="disk-backup" spellcheck="false" autocapitalize="none"><button type="button" id="disk-backup-browse">Browse&hellip;</button><button type="button" id="disk-export">Back up</button><button type="button" id="disk-restore">Restore from it</button></div>
+      <p class="help">Sealed: without your 24 words it opens for nobody. On a new machine, set it up with your account first, then restore here.</p>
+      <label for="disk-portable">Put a portable ITSaNAS on a drive</label>
+      <div class="row"><input id="disk-portable" spellcheck="false" autocapitalize="none"><button type="button" id="disk-portable-browse">Browse&hellip;</button><button type="button" id="disk-portable-go">Write it</button></div>
+      <p class="help">It runs on this kind of system only, syncs your files and hosts nothing for others. Its keys travel with the drive, protected by your passphrase alone.</p>
+      <p id="disk-said" class="said" role="status" aria-live="polite"></p>
+
       <h2>Sign out</h2>
       <p class="help">Stops ITSaNAS on this machine and forgets its passphrase. Your files and keys stay on this disk.</p>
       <div class="actions"><button type="button" class="danger" id="signout">Sign out</button><button type="button" id="close">Close</button></div>

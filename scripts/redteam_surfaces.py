@@ -101,6 +101,7 @@ SURFACES = [
     ('local-control', 'setup, secrets, the control socket, the daemon, updates', [
         'itsanas-cli/src/main.rs',
         'itsanas-cli/src/control.rs',
+        'itsanas-cli/src/jobs.rs',
         'itsanas-cli/src/daemon.rs',
         'itsanas-cli/src/setup/',
         'itsanas-cli/src/update/',

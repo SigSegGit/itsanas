@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1273 test functions, 10 of them `#[ignore]`d into the slow job, and 370 of
+**1284 test functions, 13 of them `#[ignore]`d into the slow job, and 375 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1511,9 +1511,9 @@ runs after #228; wall-clock / runner-minutes, baseline 6.5 / 25):
 
 | Change | Crates tested | Wall | Runner-min | Run |
 | --- | --- | --- | --- | --- |
-| a comment in `itsanas-crypto` (draft #229, closed) | 15 of 17 -- all but `wire` and `policy`, which do not depend on it | 6.7 | 27.4 | 37398742440 |
-| a comment in `itsanas-placement` (draft #230, closed) | `placement`, `cli` | 3.7 | 16.5 | 37398752533 |
-| docs only (this measurement's own PR) | none | 1.4 | 2.1 | 37399432250 |
+| a comment in `itsanas-crypto` (draft #229, closed) | 15 of 17 -- all but `wire` and `policy`, which do not depend on it | 6.7 | 27.4 | 37598742440 |
+| a comment in `itsanas-placement` (draft #230, closed) | `placement`, `cli` | 3.7 | 16.5 | 37598752533 |
+| docs only (this measurement's own PR) | none | 1.4 | 2.1 | 37599432250 |
 
 So: a primitive change costs what it did (it should, since it reaches everything). A
 leaf change saves about 40 %. A docs-only PR drops from 22.9 runner-minutes (#225) to 2.1. What a leaf still pays

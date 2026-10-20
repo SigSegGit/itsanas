@@ -221,15 +221,29 @@ away, keeps syncing your own files from a stand-in vault in `home/vault-while-aw
 and refuses to host for others ("this machine's hosting disk is away; ask again
 later"). When the disk comes back it says "hosting again" and carries on by itself.
 
-**To move a vault that already holds data** to another disk, stop the daemon
-and run `itsanas vault /new/place --move`: it copies, checks the copy, then
-switches, and leaves the old directory for you to delete.
+**To move a vault that already holds data** to another disk, run
+`itsanas vault /new/place --move`, or use Settings, section Disks. If the
+daemon is running, the command hands the job to it: the daemon does it between
+two rounds, copies, checks the copy, switches and carries on from the new
+place; no passphrase is asked. The old directory stays for you to delete.
+Paths must be absolute and on one line.
 
-**A copy in a drawer.** `itsanas backup export /media/usb/itsanas` writes your
-whole account there, sealed as hosts hold it; `itsanas backup restore
-/media/usb/itsanas` on a machine set up from your 24 words brings it back with
-no other machine online. Keep the words apart from the disk: the copy is
-useless without them.
+**A copy in a drawer.** `itsanas backup export /media/usb/itsanas` (or
+Settings, Disks) writes your whole account there, sealed as hosts hold it;
+`itsanas backup restore /media/usb/itsanas` brings it back with no other
+machine online. On a new machine, set up first with your account (your 24
+words), then restore. Keep the words apart from the disk: the copy is useless
+without them. While the daemon runs, both are done by the daemon, and Settings
+or the command waits for its answer; Settings refuses when the daemon is not
+running.
+
+**A portable copy.** `itsanas portable /media/usb` (or Settings, Disks) writes
+`/media/usb/ITSaNAS/`: this program (for this operating system only), a
+launcher (`ITSaNAS.cmd` on Windows, `itsanas.sh` elsewhere) that keeps its
+home next to itself, and a `README.txt`. That copy is a client only: it hosts
+nobody. Its keys are sealed by the passphrase alone, so anyone holding the
+drive and guessing the passphrase holds your account; choose a long one and
+keep the drive with you.
 
 ### 3. Point it at a folder, and run it
 
