@@ -458,6 +458,7 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/run") => start_run(ctx, request),
         ("POST", "/api/control") if ctx.mode == Mode::Settings => steer(ctx, request),
         ("POST", "/api/signout") if ctx.mode == Mode::Settings => sign_out(ctx),
+        ("POST", "/api/disk") if ctx.mode == Mode::Settings => disk_job(ctx, request),
         ("POST", "/api/name") if ctx.mode == Mode::Setup => check_name(ctx, request),
         ("POST", "/api/another") if ctx.mode == Mode::Setup => another_account(ctx, request),
         ("POST", "/api/free") => free_space(ctx, request),
@@ -676,6 +677,28 @@ fn settings_json(home: &Path) -> String {
             "update_notice",
             optional(crate::update::notice(home).as_deref()),
         ),
+        (
+            "vault",
+            optional(
+                config
+                    .as_ref()
+                    .and_then(|c| c.vault.as_ref())
+                    .map(|vault| vault.display().to_string())
+                    .as_deref(),
+            ),
+        ),
+        (
+            "job",
+            crate::jobs::result(home).map_or_else(
+                || "null".to_owned(),
+                |report| {
+                    object(&[
+                        ("state", quote(report.state.name())),
+                        ("said", quote(&report.said)),
+                    ])
+                },
+            ),
+        ),
     ])
 }
 
@@ -833,6 +856,47 @@ fn steer(ctx: &Context, request: &Request) -> Response {
     match crate::steer_said(&ctx.home, &command) {
         Ok(said) => ok_json(object(&[("said", quote(&said))])),
         Err(error) => Response::refuse(409, &error.to_string()),
+    }
+}
+
+/// Move the vault, write or read a backup, make a portable copy: the first
+/// three are done by the running daemon (`jobs.rs`), which has the keys
+/// open, so this page never asks for the passphrase; the page follows the
+/// job through `/api/state`.
+fn disk_job(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let path = std::path::PathBuf::from(field(&form, "path").unwrap_or_default().trim());
+    let kind = match field(&form, "action") {
+        Some("move-vault") => crate::jobs::Kind::MoveVault {
+            same_disk: field(&form, "same_disk") == Some("true"),
+        },
+        Some("export") => crate::jobs::Kind::Export,
+        Some("restore") => crate::jobs::Kind::Restore,
+        Some("portable") => {
+            return match crate::portable::make(&path) {
+                Ok(said) => ok_json(object(&[("said", quote(&said))])),
+                Err(error) => Response::refuse(409, &error.to_string()),
+            };
+        }
+        _ => return Response::refuse(400, "no such action"),
+    };
+    if !crate::daemon_holds(&ctx.home) {
+        return Response::refuse(
+            409,
+            "the ITSaNAS service is not running on this machine: start it (Start ITSaNAS, or \
+             `itsanas daemon`), or do this in a terminal with `itsanas vault --move` or \
+             `itsanas backup`",
+        );
+    }
+    match crate::jobs::ask(&ctx.home, kind, &path) {
+        Ok(_) => ok_json(object(&[(
+            "said",
+            quote("asked; the service starts within two seconds"),
+        )])),
+        Err(why) => Response::refuse(409, &why),
     }
 }
 

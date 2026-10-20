@@ -475,3 +475,166 @@ fn walkdir_list(root: &Path) -> Vec<PathBuf> {
     }
     out
 }
+
+/// The same unplug, on every platform: Windows will not rename a directory
+/// holding an open database, so the disk's absence is made by taking away
+/// the one file the daemon decides on, the vault's marker. This proves the
+/// decision and the switch both ways; a real disk pulled mid-write is the
+/// manual test's (HANDOVER §8 8.0c).
+#[test]
+#[ignore = "one Argon2id derivation and a running daemon; the release job runs it"]
+fn red_team_a_vault_whose_marker_goes_away_is_left_alone_until_it_returns() {
+    let base = tempfile::tempdir().expect("temp dir");
+    let (home, folder, _) = node_with_folder(base.path(), "marker");
+    let vault = base.path().join("disk").join("vault");
+    run(
+        &home,
+        &["vault", vault.to_str().expect("utf-8"), "--same-disk"],
+    );
+
+    let daemon = Daemon::start(&home, base.path().join("daemon.log"));
+    daemon.address();
+    let (_, before) = wait_for(&home, &daemon, "the daemon never reported", |_| true);
+    let said = |what: &str, times: usize| {
+        let deadline = Instant::now() + PATIENCE;
+        while daemon.log().matches(what).count() < times && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        assert!(
+            daemon.log().matches(what).count() >= times,
+            "the daemon never said {what:?} {times} time(s)\n--- daemon log\n{}",
+            daemon.log()
+        );
+    };
+
+    let marker = vault.join(".itsanas-vault");
+    let aside = base.path().join("marker-aside");
+    std::fs::rename(&marker, &aside).expect("take the marker away");
+    said("syncs its own files and hosts nobody", 1);
+
+    std::fs::write(folder.join("written-while-away.txt"), b"still syncing").expect("file");
+    wait_for(
+        &home,
+        &daemon,
+        "a file written while the vault was away was not taken in",
+        |(_, files)| files > before,
+    );
+    assert!(
+        !marker.exists(),
+        "the away daemon wrote a marker into the vault it had lost\n--- daemon log\n{}",
+        daemon.log()
+    );
+
+    std::fs::rename(&aside, &marker).expect("put the marker back");
+    said("hosting again", 1);
+    said("serving", 3);
+}
+
+/// Disk work while the daemon runs: it holds the store, so `backup export`
+/// and `vault --move` hand the job to it rather than failing on the lock or
+/// asking the passphrase again, and the daemon carries on afterwards, on the
+/// new vault for a move.
+#[test]
+#[ignore = "one Argon2id derivation and a running daemon; the release job runs it"]
+fn disk_jobs_go_through_the_running_daemon_which_carries_on_after_them() {
+    let base = tempfile::tempdir().expect("temp dir");
+    let (home, folder, _) = node_with_folder(base.path(), "jobs");
+    std::fs::write(folder.join("kept.txt"), b"in the backup").expect("file");
+    let daemon = Daemon::start(&home, base.path().join("daemon.log"));
+    daemon.address();
+    wait_for(&home, &daemon, "the file was not taken in", |(_, files)| {
+        files >= 1
+    });
+
+    let backup = base.path().join("backup");
+    let said = run(
+        &home,
+        &["backup", "export", backup.to_str().expect("utf-8")],
+    );
+    assert!(said.contains("backed up"), "{said}");
+    assert!(
+        backup.join("itsanas-backup").is_file(),
+        "no complete backup"
+    );
+
+    let moved = base.path().join("other-disk").join("vault");
+    let said = run(
+        &home,
+        &[
+            "vault",
+            moved.to_str().expect("utf-8"),
+            "--move",
+            "--same-disk",
+        ],
+    );
+    assert!(said.contains("vault moved to"), "{said}");
+    assert!(
+        moved.join(".itsanas-vault").is_file(),
+        "no vault at the new place"
+    );
+    let config = std::fs::read_to_string(home.join("config")).unwrap_or_default();
+    assert!(
+        config.contains("other-disk"),
+        "the config does not name the new vault: {config}"
+    );
+    let said = run(
+        &home,
+        &["backup", "restore", backup.to_str().expect("utf-8")],
+    );
+    assert!(said.contains("read "), "{said}");
+    let deadline = Instant::now() + PATIENCE;
+    while daemon.log().matches("serving").count() < 2 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(
+        daemon.log().matches("serving").count() >= 2,
+        "the daemon did not carry on after the move\n--- daemon log\n{}",
+        daemon.log()
+    );
+}
+
+/// A portable copy on a drive: its launcher keeps the home on the drive, and
+/// its daemon syncs this account's files and hosts nobody, because a drive
+/// that travels is no place for other people's data.
+#[test]
+#[ignore = "one Argon2id derivation and a running daemon; the release job runs it"]
+fn red_team_a_portable_copy_keeps_its_home_on_the_drive_and_hosts_nobody() {
+    let base = tempfile::tempdir().expect("temp dir");
+    let drive = base.path().join("drive");
+    let said = run(
+        &base.path().join("unused-home"),
+        &["portable", drive.to_str().expect("utf-8")],
+    );
+    assert!(said.contains("hosting anybody"), "{said}");
+    let home = drive.join("ITSaNAS").join("home");
+    run(&home, &["init", "--username", "portable"]);
+
+    #[cfg(unix)]
+    {
+        let output = std::process::Command::new("sh")
+            .arg(drive.join("ITSaNAS").join("itsanas.sh"))
+            .arg("status")
+            .env("ITSANAS_PASSPHRASE", PASSPHRASE)
+            .env_remove("ITSANAS_HOME")
+            .output()
+            .expect("the launcher");
+        assert!(
+            output.status.success(),
+            "the launcher did not find its home on the drive: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let daemon = Daemon::start(&home, base.path().join("daemon.log"));
+    daemon.address();
+    let deadline = Instant::now() + PATIENCE;
+    while !daemon.log().contains("hosts nobody") && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert!(
+        daemon.log().contains("a portable copy"),
+        "the portable daemon did not say it hosts nobody\n--- daemon log\n{}",
+        daemon.log()
+    );
+}

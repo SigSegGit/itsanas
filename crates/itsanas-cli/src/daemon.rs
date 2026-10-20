@@ -218,6 +218,104 @@ pub(crate) fn resume_after_vault_pause() -> bool {
 
 /// Set by the daily update look when it installed a new program: the daemon
 /// then exits with a failure code so its service starts the new one.
+/// A vault move asked of this run (`jobs.rs`): done by `start_daemon` once
+/// the run has ended and the node is closed, then the daemon starts again.
+static PENDING_MOVE: std::sync::Mutex<Option<crate::jobs::Job>> = std::sync::Mutex::new(None);
+
+/// The move this run was stopped for, if any.
+pub(crate) fn take_pending_move() -> Option<crate::jobs::Job> {
+    PENDING_MOVE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+}
+
+/// Do the disk job waiting in the home, if any (`jobs.rs`). An export or a
+/// restore runs here, on the open node; a move stops this run, as a disk
+/// that went away does, and `start_daemon` does it with the node closed.
+fn run_disk_job(node: &Node, shutdown: &AtomicBool) {
+    use crate::jobs::{self, Kind, State};
+    let Some(job) = jobs::take(&node.home) else {
+        return;
+    };
+    let job = match job {
+        Ok(job) => job,
+        Err(why) => {
+            eprintln!("itsanas: {why}");
+            return;
+        }
+    };
+    let target = job.path.display().to_string();
+    let outcome = match job.kind {
+        Kind::MoveVault { .. } if node.away => {
+            Err("the vault's disk is away; plug it back in before moving the vault".to_owned())
+        }
+        Kind::MoveVault { .. } => {
+            jobs::report(
+                &node.home,
+                job.id,
+                State::Running,
+                &format!("moving the vault to {target}"),
+            );
+            eprintln!("itsanas: moving the vault to {target}; this run stops for the copy");
+            *PENDING_MOVE
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(job);
+            PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
+            shutdown.store(true, Ordering::SeqCst);
+            return;
+        }
+        Kind::Export => {
+            jobs::report(
+                &node.home,
+                job.id,
+                State::Running,
+                &format!("writing a backup to {target}"),
+            );
+            crate::backup::export(node, &job.path)
+                .map(|moved| {
+                    format!(
+                        "backed up {} segments and {} chunks ({}) to {target}; sealed: the 24 \
+                         words open it, keep them apart",
+                        moved.segments,
+                        moved.chunks,
+                        itsanas_node::config::format_size(moved.bytes)
+                    )
+                })
+                .map_err(|error| error.to_string())
+        }
+        Kind::Restore => {
+            jobs::report(
+                &node.home,
+                job.id,
+                State::Running,
+                &format!("reading the backup at {target}"),
+            );
+            crate::backup::restore(node, &job.path)
+                .map(|(moved, report)| {
+                    format!(
+                        "read {} segments and {} chunks ({}) from {target}; {} file(s) adopted",
+                        moved.segments,
+                        moved.chunks,
+                        itsanas_node::config::format_size(moved.bytes),
+                        report.adopted
+                    )
+                })
+                .map_err(|error| error.to_string())
+        }
+    };
+    match outcome {
+        Ok(said) => {
+            eprintln!("itsanas: {said}");
+            jobs::report(&node.home, job.id, State::Done, &said);
+        }
+        Err(why) => {
+            eprintln!("itsanas: the disk job on {target} failed: {why}");
+            jobs::report(&node.home, job.id, State::Failed, &why);
+        }
+    }
+}
+
 static UPDATED: AtomicBool = AtomicBool::new(false);
 
 /// One word for what a scope moves, for the banner.
@@ -533,6 +631,9 @@ pub fn run(
     let disk_room = disk_room(node.vault_dir());
     let service = peer_service(node, &board, &disk_room);
 
+    if crate::portable::is_portable(&node.home) && !node.away {
+        eprintln!("itsanas: a portable copy: it syncs this account's files and hosts nobody");
+    }
     install_signal_handler()?;
     let shutdown = &SHUTDOWN;
 
@@ -860,6 +961,7 @@ fn sync_loop(
 
         let next_sync = last_round.map_or_else(Instant::now, |last| last + interval);
         wait_for_work(folder.as_ref(), next_sync, shutdown);
+        run_disk_job(node, shutdown);
         // Looked at every couple of seconds, not once a round: a disk plugged
         // back in should be hosting again in seconds, not in an hour.
         // And the other way: unplugged, this run stops at once and the next
@@ -1077,6 +1179,12 @@ fn report_keeping(peer: &str, keeping: &crate::keeping::KeepingReport) {
 /// which answers `Refused`.
 /// What the listener answers with: this node's store and vault, its pledge,
 /// the relay board, and the per-account bound with this node's own claim.
+/// Whether this run turns every other account away: its vault's disk is
+/// away, or it is a portable copy, which travels and is nobody's host.
+fn hosts_nobody(node: &Node) -> bool {
+    node.away || crate::portable::is_portable(&node.home)
+}
+
 fn peer_service<'a>(
     node: &'a Node,
     board: &'a SharedBoard,
@@ -1093,7 +1201,7 @@ fn peer_service<'a>(
     .with_disk_room(disk_room)
     // Whose each device is and what it offers, as its claim said (§8 1c).
     .with_owners(owners(node))
-    .hosting_away(node.away)
+    .hosting_away(hosts_nobody(node))
     // Empty in `everyone`, so `WantHosted` answers as it always did; in
     // `measured` each round swaps its placement in (`placing::begin_round`).
     .with_placement(crate::placing::slot())

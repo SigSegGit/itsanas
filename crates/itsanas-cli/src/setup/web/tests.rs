@@ -1149,3 +1149,48 @@ fn red_team_another_account_never_takes_the_home_of_one_already_here() {
         "a free name was refused, so a second account could not be set up from the page"
     );
 }
+
+#[test]
+fn the_disks_section_hands_work_to_the_daemon_and_writes_a_portable_copy_itself() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let seen = Seen::default();
+    let setup = Page::start(&home, dir.path(), Mode::Setup, &seen);
+    assert_eq!(
+        setup
+            .api("POST", "/api/disk", "action=export&path=/x")
+            .status,
+        404,
+        "the setup page answered a Settings action"
+    );
+    drop(setup);
+    let page = Page::start(&home, dir.path(), Mode::Settings, &seen);
+    let backup = std::path::absolute(dir.path().join("backup")).expect("absolute");
+    let body = format!("action=export&path={}", backup.display()).replace('\\', "%5C");
+    let refused = page.api("POST", "/api/disk", &body);
+    assert_eq!(refused.status, 409, "{}", refused.body);
+    assert!(
+        refused.body.contains("not running"),
+        "no daemon, and the page did not say so: {}",
+        refused.body
+    );
+    assert!(
+        !home.join(crate::jobs::JOB).exists(),
+        "a job was left for a daemon that is not there"
+    );
+    assert_eq!(page.api("POST", "/api/disk", "action=format").status, 400);
+
+    let drive = std::path::absolute(dir.path().join("drive")).expect("absolute");
+    let body = format!("action=portable&path={}", drive.display()).replace('\\', "%5C");
+    let made = page.api("POST", "/api/disk", &body);
+    assert_eq!(made.status, 200, "{}", made.body);
+    assert!(crate::portable::is_portable(
+        &drive.join(crate::portable::DIR).join("home")
+    ));
+    assert!(
+        page.api("GET", "/api/state", "")
+            .body
+            .contains("\"job\":null")
+    );
+}

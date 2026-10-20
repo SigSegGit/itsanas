@@ -16,8 +16,10 @@ mod bench;
 mod control;
 mod daemon;
 mod discovery;
+mod jobs;
 mod natpmp;
 mod placing;
+mod portable;
 mod setup;
 mod update;
 mod upnp;
@@ -306,6 +308,15 @@ enum Command {
     Backup {
         #[command(subcommand)]
         action: BackupAction,
+    },
+    /// Write a copy of ITSaNAS onto a drive, that runs where it is plugged in.
+    ///
+    /// The copy is this program, for this system only, with a launcher that
+    /// keeps its home on the drive. It syncs your files and hosts nobody's;
+    /// its keys travel with it, sealed by your passphrase alone.
+    Portable {
+        /// The drive or directory to write `ITSaNAS/` into.
+        dir: PathBuf,
     },
     /// Set, or show, the directory kept in step with this account.
     ///
@@ -834,6 +845,7 @@ fn run() -> Result<()> {
         Command::Rm { path } => remove(&home, &path),
         Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
         Command::Backup { action } => backup_command(&home, action),
+        Command::Portable { dir } => make_portable(&dir),
         Command::Vault {
             path,
             same_disk,
@@ -3041,7 +3053,24 @@ fn listen_on(home: &Path, address: Option<&str>) -> Result<()> {
 /// cost nothing.
 /// `itsanas vault [PATH]`.
 fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
-    let node = open(home)?;
+    if daemon_holds(home) {
+        let (kind, dir) = match &action {
+            BackupAction::Export { dir } => (jobs::Kind::Export, dir),
+            BackupAction::Restore { dir } => (jobs::Kind::Restore, dir),
+        };
+        return hand_to_daemon(home, kind, dir);
+    }
+    let node = match open(home) {
+        // A daemon that started between the two looks.
+        Err(_) if daemon_holds(home) => {
+            let (kind, dir) = match &action {
+                BackupAction::Export { dir } => (jobs::Kind::Export, dir),
+                BackupAction::Restore { dir } => (jobs::Kind::Restore, dir),
+            };
+            return hand_to_daemon(home, kind, dir);
+        }
+        other => other?,
+    };
     match action {
         BackupAction::Export { dir } => {
             let moved = backup::export(&node, &dir)?;
@@ -3069,8 +3098,98 @@ fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
     Ok(())
 }
 
+/// Whether a running daemon holds this node's store: disk work then goes
+/// through it (`jobs.rs`), which has the keys and the vault open already.
+/// `itsanas portable DIR`.
+fn make_portable(dir: &Path) -> Result<()> {
+    let dir = std::path::absolute(dir).map_err(|source| CliError::Io {
+        path: dir.to_owned(),
+        source,
+    })?;
+    println!("{}", portable::make(&dir)?);
+    Ok(())
+}
+
+pub(crate) fn daemon_holds(home: &Path) -> bool {
+    Node::exists(home) && itsanas_store::Store::is_locked(Node::store_path(home))
+}
+
+/// Ask the running daemon for a disk job and wait for its answer, printing it.
+fn hand_to_daemon(home: &Path, kind: jobs::Kind, path: &Path) -> Result<()> {
+    let wanted = std::path::absolute(path).map_err(|source| CliError::Io {
+        path: path.to_owned(),
+        source,
+    })?;
+    let id = jobs::ask(home, kind, &wanted).map_err(CliError::Usage)?;
+    println!("the running daemon does this; waiting for it (Ctrl-C stops waiting, not the job)");
+    let asked = std::time::Instant::now();
+    let mut said_running = false;
+    let mut alone_since: Option<std::time::Instant> = None;
+    let moving = matches!(kind, jobs::Kind::MoveVault { .. });
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let report = jobs::result(home);
+        let mine = report.as_ref().filter(|report| report.id == id);
+        // No daemon holds the store: during a move that is the copy, and for
+        // anything else for more than a moment, a daemon that went away.
+        let held = daemon_holds(home);
+        alone_since = if held {
+            None
+        } else {
+            alone_since.or_else(|| Some(std::time::Instant::now()))
+        };
+        let gone =
+            alone_since.is_some_and(|since| since.elapsed() > std::time::Duration::from_secs(30));
+        match mine {
+            Some(report) if report.state == jobs::State::Done => {
+                println!("{}", report.said);
+                return Ok(());
+            }
+            Some(report) if report.state == jobs::State::Failed => {
+                return Err(CliError::Usage(report.said.clone()));
+            }
+            Some(report) => {
+                if !said_running {
+                    println!("{}...", report.said);
+                    said_running = true;
+                }
+                if gone && !moving {
+                    return Err(CliError::Usage(
+                        "the daemon stopped during the job; it says how it ended when it starts \
+                         again"
+                            .to_owned(),
+                    ));
+                }
+            }
+            None if asked.elapsed() > std::time::Duration::from_secs(30)
+                && (gone || !home.join(jobs::JOB).exists()) =>
+            {
+                return Err(CliError::Usage(if gone {
+                    let _ = std::fs::remove_file(home.join(jobs::JOB));
+                    "the daemon stopped before taking the job; run the command again".to_owned()
+                } else {
+                    "another disk job, from Settings or a second terminal, replaced this one; \
+                     run it again once that one is done"
+                        .to_owned()
+                }));
+            }
+            None => {}
+        }
+    }
+}
+
 fn vault(home: &Path, path: Option<&Path>, same_disk: bool, move_data: bool) -> Result<()> {
-    let mut node = open(home)?;
+    if let Some(path) = path.filter(|_| move_data && daemon_holds(home)) {
+        return hand_to_daemon(home, jobs::Kind::MoveVault { same_disk }, path);
+    }
+    let mut node = match open(home) {
+        // A daemon that started between the two looks.
+        Err(_) if move_data && path.is_some() && daemon_holds(home) => {
+            let path = path.unwrap_or(home);
+            return hand_to_daemon(home, jobs::Kind::MoveVault { same_disk }, path);
+        }
+        other => other?,
+    };
     let Some(path) = path else {
         let dir = node.vault_dir();
         println!(
@@ -3093,7 +3212,9 @@ fn vault(home: &Path, path: Option<&Path>, same_disk: bool, move_data: bool) -> 
         return Ok(());
     }
     if move_data {
-        return move_vault(node, &wanted, same_disk);
+        println!("{}", move_vault(node, &wanted, same_disk)?);
+        println!("the daemon uses it from its next start");
+        return Ok(());
     }
     // A vault that holds data moves only with `--move`, which copies and
     // checks before switching: a bare path change would strand it.
@@ -3121,7 +3242,7 @@ fn vault(home: &Path, path: Option<&Path>, same_disk: bool, move_data: bool) -> 
 /// and the copy opens and holds what the original held. The original is left
 /// in place: deleting tens of GB is the person's decision, once the node has
 /// run from the new disk.
-fn move_vault(node: Node, wanted: &Path, same_disk: bool) -> Result<()> {
+fn move_vault(node: Node, wanted: &Path, same_disk: bool) -> Result<String> {
     check_vault_target(&node, wanted, same_disk)?;
     let from = node.vault_dir();
     let held = node.vault.held_bytes()?;
@@ -3129,14 +3250,21 @@ fn move_vault(node: Node, wanted: &Path, same_disk: bool) -> Result<()> {
     // Closed before copying: Windows will not read a database another handle
     // has locked, and a copy of a file still open for writing is a guess.
     drop(node);
+    // What an earlier, interrupted move left is ours to clear; anything else
+    // in the target is somebody's.
+    let _ = std::fs::remove_dir_all(wanted.join(STAGING));
     if std::fs::read_dir(wanted).is_ok_and(|mut entries| entries.next().is_some()) {
         return Err(CliError::Usage(format!(
             "{} is not empty; the vault moves into an empty or new directory",
             wanted.display()
         )));
     }
-    let staging = wanted.with_extension("itsanas-copy");
-    let _ = std::fs::remove_dir_all(&staging);
+    // Staged inside the target, not beside it: a mount point or a drive root
+    // has no sibling on its own disk, and a rename across disks fails after
+    // the whole copy (#297's red team). Each entry is then renamed up, on the
+    // same disk, and the marker last: until it lands the target reads as no
+    // vault, never as a whole one.
+    let staging = wanted.join(STAGING);
     let copied = copy_tree(&from, &staging)?;
     let original = tree_size(&from)?;
     if copied != original {
@@ -3152,13 +3280,16 @@ fn move_vault(node: Node, wanted: &Path, same_disk: bool) -> Result<()> {
         )));
     }
     let switched = (|| {
-        if wanted.exists() {
-            std::fs::remove_dir(wanted)?;
+        let mut names: Vec<_> = std::fs::read_dir(&staging)?
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .collect::<std::io::Result<_>>()?;
+        names.sort_by_key(|name| name == itsanas_node::node::VAULT_MARKER);
+        for name in names {
+            std::fs::rename(staging.join(&name), wanted.join(&name))?;
         }
-        std::fs::rename(&staging, wanted)
+        std::fs::remove_dir(&staging)
     })();
     if let Err(source) = switched {
-        let _ = std::fs::remove_dir_all(&staging);
         return Err(CliError::Io {
             path: wanted.to_owned(),
             source,
@@ -3175,18 +3306,18 @@ fn move_vault(node: Node, wanted: &Path, same_disk: bool) -> Result<()> {
     let mut config = config::Config::load(&config_path)?;
     config.vault = Some(wanted.to_owned());
     config.save(&config_path)?;
-    println!(
-        "vault moved to {} ({} files, {}); the daemon uses it from its next start",
+    Ok(format!(
+        "vault moved to {} ({} files, {}); the old copy is still at {}: delete it once the \
+         node runs from the new one",
         wanted.display(),
         copied.0,
-        format_size(copied.1)
-    );
-    println!(
-        "the old copy is still at {}: delete it once the node runs from the new one",
+        format_size(copied.1),
         from.display()
-    );
-    Ok(())
+    ))
 }
+
+/// Where a moving vault is copied, inside its target.
+const STAGING: &str = ".itsanas-incoming";
 
 /// Copy the directory tree `from` to `to`; (files, bytes) copied.
 fn copy_tree(from: &Path, to: &Path) -> Result<(u64, u64)> {
@@ -3294,6 +3425,16 @@ fn check_vault_target(node: &Node, wanted: &Path, same_disk: bool) -> Result<()>
         return Err(CliError::Usage(format!(
             "{} is inside this node's home or synced folder; the vault goes elsewhere",
             wanted.display()
+        )));
+    }
+    // Inside the vault it leaves, the copy would copy itself until the disk
+    // filled; around it, the old vault would be inside the new one.
+    let vault = node.vault_dir();
+    if wanted.starts_with(&vault) || vault.starts_with(wanted) {
+        return Err(CliError::Usage(format!(
+            "{} is inside the vault at {}, or holds it; the vault moves to a place of its own",
+            wanted.display(),
+            vault.display()
         )));
     }
     if !same_disk && Node::same_disk(&node.home, wanted).unwrap_or(true) {
@@ -3624,6 +3765,7 @@ fn start_daemon(
     }
     let interval = interval.map(|seconds| std::time::Duration::from_secs(seconds.max(1)));
     let passphrase = passphrase(false)?;
+    jobs::clear_stale(home);
     // A vault on a removable disk comes and goes. Unplugged, this machine is
     // simply away -- its hosts' audits read it as unreachable, never as a
     // host that lost their data -- and it comes back by itself when the disk
@@ -3647,6 +3789,15 @@ fn start_daemon(
         daemon::run(&node, listen, interval, metered, discovery)?;
         if !daemon::resume_after_vault_pause() {
             return Ok(());
+        }
+        if let Some(job) = daemon::take_pending_move() {
+            let same_disk = matches!(job.kind, jobs::Kind::MoveVault { same_disk: true });
+            let (state, said) = match move_vault(node, &job.path, same_disk) {
+                Ok(said) => (jobs::State::Done, said),
+                Err(error) => (jobs::State::Failed, error.to_string()),
+            };
+            eprintln!("itsanas: {said}");
+            jobs::report(home, job.id, state, &said);
         }
     }
 }
@@ -4743,6 +4894,55 @@ mod tests {
     }
 
     #[test]
+    fn red_team_a_vault_moves_onto_an_existing_empty_mount_point_and_never_into_itself() {
+        // A mount point or a drive root already exists, empty, and has no
+        // sibling on its own disk: the copy is staged inside it and nothing
+        // is written beside it. A target inside the vault, or holding it, is
+        // refused before anything is copied.
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join("home");
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        let mount = base.path().join("mnt").join("usb");
+        std::fs::create_dir_all(&mount).expect("mount point");
+        let beside = base.path().join("mnt").join("usb.x");
+        std::fs::create_dir(&beside).expect("a neighbour");
+        super::move_vault(node, &mount, true).expect("move onto the mount point");
+        assert!(mount.join(itsanas_node::node::VAULT_MARKER).is_file());
+        assert!(!mount.join(super::STAGING).exists(), "staging left behind");
+        let siblings: Vec<_> = std::fs::read_dir(mount.parent().expect("parent"))
+            .expect("list")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect();
+        assert_eq!(
+            siblings.len(),
+            2,
+            "something was written beside the mount point: {siblings:?}"
+        );
+        let node = itsanas_node::Node::open(&home, "a passphrase").expect("reopen");
+        let err = super::move_vault(node, &mount.join("sub"), true).expect_err("into itself");
+        assert!(err.to_string().contains("inside the vault"), "{err}");
+        let node = itsanas_node::Node::open(&home, "a passphrase").expect("reopen");
+        assert!(super::check_vault_target(&node, &base.path().join("mnt"), true).is_err());
+    }
+
+    #[test]
+    fn red_team_a_backup_is_not_written_into_the_home_vault_or_synced_folder() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join("home");
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        for dir in [home.join("backup"), node.vault_dir().join("backup")] {
+            assert!(
+                crate::backup::export(&node, &dir).is_err(),
+                "a backup went into {}",
+                dir.display()
+            );
+            assert!(!dir.exists());
+        }
+    }
+
+    #[test]
     fn red_team_moving_a_vault_copies_checks_switches_and_keeps_the_original() {
         // Changing disks: the hosted data arrives whole on the new one, the
         // node uses it from then on, and the old copy stays until a person
@@ -4769,7 +4969,7 @@ mod tests {
             "a vault was moved into a directory that held something"
         );
         assert!(
-            !occupied.with_extension("itsanas-copy").exists(),
+            !occupied.join(super::STAGING).exists(),
             "a refused move copied the whole vault before refusing"
         );
 

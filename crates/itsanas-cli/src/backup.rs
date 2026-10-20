@@ -70,6 +70,19 @@ pub struct Moved {
 ///
 /// If `dir` holds anything, or the store, the vault or the disk fail.
 pub fn export(node: &Node, dir: &Path) -> Result<Moved> {
+    // In the synced folder the sealed chunks would be uploaded as this
+    // account's files; in the home or the vault, mixed with what they copy.
+    let inside = |outer: &Path| dir.starts_with(outer);
+    if inside(&node.home)
+        || inside(&node.vault_dir())
+        || node.config.folder.as_deref().is_some_and(inside)
+    {
+        return Err(CliError::Usage(format!(
+            "{} is inside this node's home, vault or synced folder; a backup goes on a drive \
+             of its own",
+            dir.display()
+        )));
+    }
     if std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some()) {
         return Err(CliError::Usage(format!(
             "{} is not empty; a backup goes into an empty or new directory",

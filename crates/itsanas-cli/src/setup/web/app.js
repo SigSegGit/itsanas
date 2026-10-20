@@ -533,6 +533,23 @@
     $('st-pledge-now').textContent = t('Now:') + ' ' + settings.pledge;
     $('st-update').hidden = !settings.update_notice;
     $('st-update').textContent = settings.update_notice || '';
+    $('st-vault').textContent = settings.vault || t('the default place, next to the data of this machine');
+    if (settings.job) {
+      $('disk-said').textContent = (settings.job.state === 'failed' ? t('Failed:') + ' ' : '') + settings.job.said;
+      document.querySelectorAll('[data-disk]').forEach(function (b) { b.disabled = settings.job.state === 'running'; });
+    }
+  }
+
+  async function disk(form, sure) {
+    if (!form.path) { $('disk-said').textContent = t('Choose a folder first.'); return; }
+    if (sure && !window.confirm(t(sure))) { return; }
+    try {
+      const reply = await api('POST', '/api/disk', form);
+      $('disk-said').textContent = reply.said;
+    } catch (e) {
+      $('disk-said').textContent = e.message;
+    }
+    refreshSettings();
   }
 
   function fillSettings(settings) {
@@ -669,7 +686,23 @@
     $('close').addEventListener('click', closePage);
     $('st-folder-browse').addEventListener('click', function () { browse($('st-folder')); });
     $('st-open-folder').addEventListener('click', function () { folderAction($('st-folder').value.trim(), false, $('st-said')); });
-    settingsTimer = setInterval(refreshSettings, 5000);
+    ['disk-move', 'disk-backup', 'disk-portable'].forEach(function (id) {
+      $(id + '-browse').addEventListener('click', function () { browse($(id)); });
+    });
+    ['disk-move-go', 'disk-export', 'disk-restore', 'disk-portable-go'].forEach(function (id) { $(id).dataset.disk = ''; });
+    $('disk-move-go').addEventListener('click', function () {
+      disk({ action: 'move-vault', path: $('disk-move').value.trim(), same_disk: $('disk-same').checked ? 'true' : 'false' },
+        'Move the space for others there? ITSaNAS stops hosting for the time of the copy.');
+    });
+    $('disk-export').addEventListener('click', function () { disk({ action: 'export', path: $('disk-backup').value.trim() }); });
+    $('disk-restore').addEventListener('click', function () {
+      disk({ action: 'restore', path: $('disk-backup').value.trim() }, 'Read this backup into this machine?');
+    });
+    $('disk-portable-go').addEventListener('click', function () {
+      disk({ action: 'portable', path: $('disk-portable').value.trim() },
+        'Write a portable ITSaNAS there? Whoever has the drive can try to guess your passphrase: use a long one.');
+    });
+    settingsTimer = setInterval(refreshSettings, 2000);
     if (state.run.phase === 'running') { $('st-run').hidden = false; settingsRun(); }
   }
 
