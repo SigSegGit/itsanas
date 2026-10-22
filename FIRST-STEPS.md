@@ -141,6 +141,10 @@ you copy them (the clipboard is emptied after 60 seconds) or save them to a
 file, and says the risk of each. If a step fails, it says the one thing to do; run `itsanas setup` again
 afterwards: it skips what is done and never makes a second account.
 
+Lost the words but still have a machine of the account and its passphrase?
+`itsanas words` (with `--instance NAME` where there are several) asks that
+passphrase and shows the 24 words again, even while ITSaNAS runs.
+
 `itsanas setup --text` asks the same questions in the terminal, and an SSH
 session uses the terminal by itself. Later, `itsanas settings` opens the same
 page to pause or resume, sync now, change how often it syncs, the space you
