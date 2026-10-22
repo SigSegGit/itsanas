@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1307 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 382 are red-team tests.**
+**Last updated: 2026-10-22 — 1310 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 384 are red-team tests.**
 
-**1191 of the 1307 tests have an entry of their own on this page** — an *entry*,
+**1194 of the 1310 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,10 +179,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 166 |
+| `itsanas-cli` unit | 167 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 140 |
+| `itsanas-node` unit | 142 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -211,7 +211,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 37 |
+| `identity` | keys, accounts, devices, claims, invitations | 39 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 53 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 59 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (166)
+# `itsanas-cli` — unit tests (167)
 
 ## `bench` — measuring this machine (4)
 
@@ -1414,7 +1414,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place (43)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, a register beside a running daemon (44)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1451,6 +1451,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_after_migration_a_command_without_a_name_refuses`** | With neither `--instance` nor `--home`, a machine holding only named instances refuses and names them, instead of falling back to `~/.itsanas` where `init` would make a second identity and a stale `itsanas.service` would start it. A machine with no node at all still gets `~/.itsanas`, or the first `init` could never run. Sabotaged (always fall back): red. |
 | **`red_team_a_departed_node_stays_departed_until_it_rejoins`** | After `itsanas leave` the home holds a `departed` file; the daemon exits 0 at once (so `Restart=on-failure` and the logon task do not loop), `serve` and `sync` refuse, each naming `itsanas rejoin`, and `rejoin` undoes it. Otherwise systemd would bring back a machine its peers were told had gone. Sabotaged (the check reads another file): red. |
 | **`red_team_a_departed_node_cannot_register_again`** | `register` publishes this device's address as well as its claim; after `itsanas leave` it ran unguarded, so a departed node could hand the peers that were told it had gone a fresh address. It now refuses first, naming `itsanas rejoin`. Sabotaged (guard removed): red. |
+| `register_beside_a_running_daemon_names_the_port_it_really_listens_on` | Hand test, 2026-10-22: `register` announces the configured `listen`, and a daemon run with `--listen` elsewhere is on another port. With the daemon holding the store, `register` refuses before any passphrase, naming the port the daemon really listens on and `itsanas listen <it>`, read from the daemon's snapshot -- whose `listen` line now carries the bound port, not the configured one; `status`'s own rendering still says the configured port. Sabotaged (no check before the open; snapshot printing the configured port; register not reading it): red. |
 | **`red_team_a_drain_never_counts_an_owner_it_could_not_ask_as_done`** | `itsanas leave --drain-for` prints counts only (owners left one replica fewer, owners not askable). An owner that was unreachable or too old for protocol 8 is never folded into "drained": that would be the one number in the last sentence a person reads before switching off that lies. Sabotaged (unaskable counted as done): red. |
 | **`red_team_a_node_under_the_other_home_variable_is_not_shadowed`** | On Windows the CLI prefers `USERPROFILE`; a node made when `HOME` won is invisible there, and `init`/`login` would mint a second identity. A derived home with no node, when the other variable's home holds one at the same place, is refused with the path and `--home` named; an explicit `--home` is never second-guessed. Sabotaged (`stranded_node` never finding): red. |
 | `migration_advice_says_the_old_unit_restart_loops` | After `migrate` the old unit still points at `~/.itsanas`, fails at each start and is restarted by `Restart=` or the logon task until disabled; the advice says so. Sabotaged (sentence softened): red. |
@@ -1526,7 +1527,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (157)
+# `itsanas-node` — a node on disk (159)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1565,12 +1566,13 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (27)
+## `contact` — when the coordinator is dialled at all (29)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
-its address changes, and hourly, and reads the account's devices only on the
-connection a publication opens. Every instant is this machine's own; nothing
+its address changes, and hourly, and reads the account's devices on the
+connection a publication opens -- and on one of its own only after a machine of
+the account answered nowhere, at most every two minutes. Every instant is this machine's own; nothing
 here reads a peer's clock or trusts the coordinator's order.
 
 | Test | What it proves |
@@ -1581,6 +1583,8 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_machine_that_found_everybody_by_broadcast_still_publishes`** | The Rodin finding of 2026-09-21 against the first rule ("dial when the round reached nobody"): a Pi that found the VM by broadcast never published, and a laptop elsewhere could not find it. The rule is not given who was reached; publishing at start and hourly are each sabotaged and each turns this red. |
 | **`a_machine_that_changes_network_publishes_at_once`** | A laptop whose address changed publishes on the next round, not in an hour; an unchanged address inside the hour costs no connection; losing the route counts as a change. |
 | **`a_machine_enrolled_after_this_one_started_is_dialled_within_the_hour`** | Why reads ride on every publication instead of waiting for a listed device to go missing: a machine enrolled after this one started is on no list, so it can never go missing. Eleven rounds make no connection, the hourly one reads, and the new machine is in the book. |
+| **`red_team_a_machine_that_restarted_on_another_port_is_dialled_there_within_two_rounds`** | Hand test, 2026-10-22: a portable key registered at 9798, its daemon ran with `--listen` on 9811 and published that, and the laptop, which had read 9798, dialled it there until its hourly read. A machine of the account that answers at none of its addresses (`Contact::round_reached`) now makes the next round read again: at rounds of 60 s and of 300 s the key is reached on its new port by round 2, and once it answers no further read is asked before the hour. Sabotaged (no re-read after a miss; misses not recorded): red. |
+| **`red_team_a_machine_that_stays_off_costs_one_read_per_two_minutes_at_most`** | The bound on the rule above: a laptop shut for the week, rounds every 30 s for 59.5 minutes, gives 29 reads (one per `REREAD_AFTER_MISS`, 2 min), not 119 -- with the coordinator answering, and with it down, where the attempt (`Contact::asked`) is what counts. Sabotaged (no rate limit; limit counted from successful reads only): red. |
 | **`red_team_a_coordinator_cannot_grow_the_address_book_without_bound`** | The coordinator still decides which presences it lists -- an older one unsigned, any of them stale. 65 536 devices in one answer leave `MAX_DEVICES` in the table; a thousand addresses for one device leave `MAX_ADDRESSES`. |
 | **`red_team_addresses_that_never_worked_do_not_displace_one_that_did`** | Twenty stale addresses for the Pi, from a coordinator that lies or is only out of date, arrive after its LAN address answered: that address is still dialled first and the rest is capped. Order is this machine's record of success, never the list's. |
 | **`red_team_a_coordinator_that_has_signed_cannot_talk_this_node_down_to_an_unsigned_list`** | §8 0o 2b.1, found by Rodin: a coordinator that hangs up on `SignedPeers`, as an older one does, would have the client fall back to `Peers`, whose addresses it can forge -- the signature check made advisory against the one party it checks. Once a coordinator has signed, `Due::accept_unsigned` stays false for every later hour. Sabotaged by leaving it true. |

@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1307 test functions, 14 of them `#[ignore]`d into the slow job, and 382 of
+**1310 test functions, 14 of them `#[ignore]`d into the slow job, and 384 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1966,11 +1966,16 @@ makes the next round due 5 s later (`SETTLE`, `control.rs`), never sooner than
 costs a round per half minute at most; only files taken in or deleted here
 count, not what a peer's push wrote out. A portable copy's base interval is
 60 s instead of 300 s (`PORTABLE_INTERVAL`, `daemon.rs`), and its banner says
-`portable  yes` on stdout. Still open: the daemon publishes the port it really
-listens on, but `register` announces `config.listen`, and a peer reads the
-coordinator only at its hourly publication (`PUBLISH_EVERY`), so a peer that
-read before the key's daemon started dials the registered port for up to an
-hour.
+`portable  yes` on stdout. The daemon publishes the port it really listens on,
+but `register` announces `config.listen`, and a peer read the coordinator only
+at its hourly publication (`PUBLISH_EVERY`), so a peer that read before the
+key's daemon started dialled the registered port for up to an hour.
+**The stale address is now handled (2026-10-22):** a machine of the account
+that answers at none of the addresses held for it makes the next round read
+the coordinator again, at most once per two minutes (`REREAD_AFTER_MISS`,
+`contact.rs`), so the new port is dialled within two rounds; the daemon's
+snapshot gives the port it is bound to, and `register` beside a running daemon
+names that port before asking for a passphrase instead of failing on the lock.
 
 ### At most 10 live devices per account — 2026-09-30, raised 2026-10-22
 

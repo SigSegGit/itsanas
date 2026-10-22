@@ -1017,7 +1017,7 @@ fn sync_loop(
             }
         }
 
-        write_snapshot(node, interval);
+        write_snapshot(node, interval, bound);
 
         let next_sync = last_round.map_or_else(Instant::now, |last| last + interval);
         wait_for_work(folder.as_ref(), next_sync, shutdown);
@@ -1161,8 +1161,8 @@ fn paused_round(
 /// Failing to write it is not worth interrupting a sync round over, and not
 /// worth a line in the log every five minutes either. `status` says how old the
 /// snapshot is, so a stale one announces itself.
-fn write_snapshot(node: &Node, interval: Duration) {
-    let Ok(text) = crate::render_status(node) else {
+fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr) {
+    let Ok(text) = crate::render_status(node, Some(&bound.to_string())) else {
         return;
     };
 
@@ -1439,7 +1439,8 @@ fn one_round(
         return (BTreeSet::new(), None);
     }
     // The coordinator first, and only with a reason: this machine has not
-    // published since it started, has moved, or owes its hourly publication
+    // published since it started, has moved, owes its hourly publication, or
+    // last round reached a machine of the account at none of its addresses
     // (`contact.rs`). First because nothing it decides depends on who this
     // round reaches, and a publication that waited for the round would wait
     // behind every sync in it -- hours, on the first sync of a large folder,
@@ -1541,6 +1542,14 @@ fn one_round(
         }
     }
     contact.hosts_reached(hosts, Instant::now());
+    // A machine of the account that answered nowhere -- not at the book's
+    // addresses, not on the LAN, not as a configured peer -- may have moved
+    // or restarted on another port: the next round reads the coordinator
+    // again instead of waiting for the hourly publication (`contact.rs`,
+    // `REREAD_AFTER_MISS`). A round cut short dialled nobody it skipped.
+    if !halted(node, shutdown) {
+        contact.round_reached(&reached);
+    }
 
     (reached, announced)
 }
@@ -1604,6 +1613,7 @@ fn publish(
         let here = coordinator::address_now(&node.config, &listen);
         let due = contact.due(here.as_deref(), Instant::now());
         if due.any() {
+            contact.asked(&due, Instant::now());
             match coordinator::contact(node, &listen, itsanas_discover::now_unix(), &due) {
                 Ok(contacted) => {
                     outage.succeeded();

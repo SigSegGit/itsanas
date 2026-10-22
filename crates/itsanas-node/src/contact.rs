@@ -20,6 +20,13 @@
 //!   answering; that never learns of a machine enrolled after this one
 //!   started, because a device nobody has listed cannot go missing. On a
 //!   connection that is already open, the read is one indexed lookup.
+//! * **Reading again** is the one connection of its own a read costs: a
+//!   device of the account that answered at none of the addresses held for
+//!   it may have moved or restarted on another port, so the next round asks,
+//!   at most once per
+//!   [`REREAD_AFTER_MISS`](crate::contact::REREAD_AFTER_MISS). Without it, a
+//!   machine that started on a new port was dialled at the old one until this
+//!   node's next hourly publication (hand test, 2026-10-22).
 //!
 //! A node that never moves therefore makes one connection an hour instead of
 //! twelve.
@@ -59,6 +66,20 @@ use crate::{NodeError, Result};
 /// the lifetime is seven days -- but `device list` reports it silent for
 /// longer than it was.
 pub const PUBLISH_EVERY: Duration = Duration::from_secs(3600);
+
+/// How soon after the last read a device of the account that did not answer
+/// makes the next round read the account's devices again.
+///
+/// The hand test of 2026-10-22: a portable key registered at its configured
+/// port, then its daemon ran on another one. The daemon published the port it
+/// really listened on, but the laptop had read the old one and read again only
+/// at its hourly publication, so for up to an hour it dialled a port nobody
+/// listened on. A machine of the account that answers at none of the
+/// addresses held for it is the sign that the book may be stale, so the next
+/// round asks. A machine that is really off costs one read per this long, at
+/// most, and nothing more: the read rides on no publication, and a coordinator
+/// that is down is asked no more often than one that answers.
+pub const REREAD_AFTER_MISS: Duration = Duration::from_secs(120);
 
 /// How many devices the address book holds.
 ///
@@ -193,6 +214,13 @@ pub struct Contact {
     published: Option<(Option<String>, Instant)>,
     /// When the account's devices were last read.
     read_at: Option<Instant>,
+    /// When a read was last asked for, whether or not the coordinator
+    /// answered: what [`REREAD_AFTER_MISS`] is counted from when it is down.
+    asked_at: Option<Instant>,
+    /// Whether a device of the account in the book answered at none of its
+    /// addresses at the last round, and no read has happened since
+    /// ([`Self::round_reached`]).
+    missed: bool,
     /// Whether the coordinator has answered with a signed list since this
     /// process started. See [`Due::accept_unsigned`].
     signs: bool,
@@ -239,12 +267,40 @@ impl Contact {
         };
         // A read that failed on its own is retried at once: until one works,
         // this node knows none of its devices' addresses.
-        let read = publish || self.read_at.is_none();
+        //
+        // A device that did not answer at any address held for it may have
+        // moved, or restarted on another port, since the last read: asked
+        // again, within [`REREAD_AFTER_MISS`] of the last time, so a machine
+        // that is simply off does not turn every round into a connection.
+        let last_asked = self.read_at.max(self.asked_at);
+        let reread = self.missed
+            && last_asked.is_none_or(|at| now.saturating_duration_since(at) >= REREAD_AFTER_MISS);
+        let read = publish || self.read_at.is_none() || reread;
         Due {
             publish,
             read,
             accept_unsigned: !self.signs,
         }
+    }
+
+    /// Record that the coordinator is about to be asked what `due` says,
+    /// answered or not: a read asked for counts against
+    /// [`REREAD_AFTER_MISS`] even when the coordinator is down.
+    pub fn asked(&mut self, due: &Due, now: Instant) {
+        if due.read {
+            self.asked_at = Some(now);
+        }
+    }
+
+    /// Record who the round reached, once it has dialled everybody it was
+    /// going to: a device of the account in the book that is not in `reached`
+    /// answered at none of the addresses held for it, and makes the next
+    /// round read again ([`Self::due`], [`REREAD_AFTER_MISS`]).
+    ///
+    /// Not for a round cut short by a pause or a shutdown: it did not dial
+    /// everybody, so a device it skipped did not fail to answer.
+    pub fn round_reached(&mut self, reached: &BTreeSet<DeviceId>) {
+        self.missed = self.book.keys().any(|device| !reached.contains(device));
     }
 
     /// Record a publication the coordinator accepted, for `address` as it was
@@ -283,6 +339,7 @@ impl Contact {
         now: Instant,
     ) {
         self.read_at = Some(now);
+        self.missed = false;
         let listed: BTreeSet<DeviceId> = found.iter().map(|(device, _)| *device).collect();
         let before = self.book.len();
         self.book.retain(|device, _| listed.contains(device));
@@ -1058,6 +1115,115 @@ mod tests {
             contact.candidates().iter().any(|(d, _)| *d == device(3)),
             "the read did not put the new machine in the book"
         );
+    }
+
+    /// One round as the daemon runs it, against a coordinator that lists
+    /// `listed` and, when `answering` is false, is down: ask what is due,
+    /// dial every candidate until its device answers -- only the addresses in
+    /// `live` do -- and record who was reached. Returns whether a read was
+    /// asked for, and who answered.
+    fn round_against(
+        contact: &mut Contact,
+        listed: &[(DeviceId, String)],
+        answering: bool,
+        live: &[&str],
+        now: Instant,
+    ) -> (bool, BTreeSet<DeviceId>) {
+        let due = contact.due(Some(HOME), now);
+        contact.asked(&due, now);
+        if answering {
+            if due.publish {
+                contact.published(Some(HOME), now);
+            }
+            if due.read {
+                contact.read(listed, &[], &[], now);
+            }
+        }
+        let mut reached = BTreeSet::new();
+        for (device, address) in contact.candidates() {
+            if !reached.contains(&device) && live.contains(&address.as_str()) {
+                reached.insert(device);
+                contact.worked(device, &address, 1_000);
+            }
+        }
+        contact.round_reached(&reached);
+        (due.read, reached)
+    }
+
+    /// The hand test of 2026-10-22: a portable key registered while its
+    /// configuration said port 9798, then its daemon ran with `--listen` on
+    /// 9811 and published that. The laptop had read 9798 and read again only
+    /// at its hourly publication, so it dialled a port nobody listened on for
+    /// up to an hour. A machine of the account that answers nowhere now makes
+    /// the next round read again: the new port is dialled within two rounds,
+    /// at a portable copy's minute as at the default five, and once it
+    /// answers nothing more is asked before the hour.
+    #[test]
+    fn red_team_a_machine_that_restarted_on_another_port_is_dialled_there_within_two_rounds() {
+        let key = device(13);
+        let (old, new) = ("192.168.1.13:9798", "192.168.1.13:9811");
+        for every in [Duration::from_secs(60), ROUND] {
+            let mut contact = Contact::new();
+            let start = Instant::now();
+            contact.published(Some(HOME), start);
+            contact.read(&[(key, old.to_owned())], &[], &[], start);
+            // From here on the coordinator lists where the key really is.
+            let listed = [(key, new.to_owned())];
+
+            let rounds = u32::try_from(PUBLISH_EVERY.as_secs() / every.as_secs()).expect("rounds");
+            let found = (1..rounds).find(|&round| {
+                round_against(&mut contact, &listed, true, &[new], start + every * round)
+                    .1
+                    .contains(&key)
+            });
+            assert!(
+                found.is_some_and(|round| round <= 2),
+                "at a round every {every:?}, the key on its new port was first reached at \
+                 round {found:?}: the old port was dialled until the hourly read"
+            );
+            let found = found.expect("found");
+            for round in found + 1..rounds {
+                assert!(
+                    !round_against(&mut contact, &listed, true, &[new], start + every * round).0,
+                    "round {round} read again although every machine answered"
+                );
+            }
+        }
+    }
+
+    /// The other side of the rule above: a machine of the account that is
+    /// really off -- a laptop shut for the week -- must not turn every round
+    /// into a connection to the coordinator. Rounds every 30 s (the floor a
+    /// round can come at, `MIN_INTERVAL`) for most of an hour, the laptop
+    /// answering none: one read per `REREAD_AFTER_MISS`, 29 in 59 minutes and
+    /// a half, not 119. And the same with the coordinator down, where no read
+    /// ever succeeds and only the attempt can be counted.
+    #[test]
+    fn red_team_a_machine_that_stays_off_costs_one_read_per_two_minutes_at_most() {
+        let every = Duration::from_secs(30);
+        for answering in [true, false] {
+            let mut contact = Contact::new();
+            let start = Instant::now();
+            contact.published(Some(HOME), start);
+            contact.read(&listing(&[2]), &[], &[], start);
+            let reads = (1..120u32)
+                .filter(|&round| {
+                    round_against(
+                        &mut contact,
+                        &listing(&[2]),
+                        answering,
+                        &[],
+                        start + every * round,
+                    )
+                    .0
+                })
+                .count();
+            assert_eq!(
+                reads, 29,
+                "a laptop that stays off made {reads} reads in an hour of 30-second rounds \
+                 (coordinator answering: {answering}); one per {REREAD_AFTER_MISS:?} is 29"
+            );
+        }
     }
 
     /// The coordinator chooses which presences it lists -- stale ones, or
