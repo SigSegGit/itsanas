@@ -57,7 +57,13 @@ pub fn ask(home: &Path, request: Request) -> std::io::Result<()> {
 /// on once. Anything but the two words is removed and ignored.
 pub fn take(home: &Path) -> Option<Request> {
     let path = home.join(LIFECYCLE);
-    let text = std::fs::read_to_string(&path).ok()?;
+    // Two words at most: a file that grew is read no further than this.
+    let mut text = String::new();
+    {
+        use std::io::Read as _;
+        let file = std::fs::File::open(&path).ok()?;
+        let _ = file.take(64).read_to_string(&mut text);
+    }
     let _ = std::fs::remove_file(&path);
     match text.trim() {
         "stop" => Some(Request::Stop),

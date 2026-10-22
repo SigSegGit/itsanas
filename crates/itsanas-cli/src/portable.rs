@@ -88,8 +88,10 @@ case "$(uname -s)-$(uname -m)" in
 esac
 exe="$here/bin/$b"
 if [ ! -x "$exe" ]; then
-  tmp="${TMPDIR:-/tmp}/itsanas-portable-$(id -u)"
-  mkdir -p "$tmp" && cp "$exe" "$tmp/$b" && chmod 755 "$tmp/$b" && exe="$tmp/$b"
+  # A fresh private directory: a predictable name in a shared /tmp could be
+  # made first by another user, with their program in it.
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/itsanas-portable.XXXXXX") || exit 1
+  cp "$exe" "$tmp/$b" && chmod 700 "$tmp/$b" && exe="$tmp/$b" || exit 1
 fi
 if [ $# -eq 0 ]; then set -- setup; fi
 exec "$exe" --home "$here/home" "$@"
