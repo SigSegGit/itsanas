@@ -1957,9 +1957,13 @@ The escrow container carries the lodging machine's device seed beside the
 master secret — no extra exposure, since the master secret already outranks
 it, but the restore discards it and it need not be there.
 
-### At most 5 live devices per account — 2026-09-30
+### At most 10 live devices per account — 2026-09-30, raised 2026-10-22
 
-Decided by Nicolas: "5 max". `MAX_DEVICES_PER_ACCOUNT` in
+10, decided by Nicolas on 2026-10-22 (ephemeral devices such as portable keys
+and test machines filled five slots quickly: « je trouve que 5 machines max est
+trop faible, il faudrait au moins 10 avec l'utilisation de devices
+ephemères »); was 5 since 2026-09-30 ("5 max"). The tests derive every count
+from the constant, so the next change is one line. `MAX_DEVICES_PER_ACCOUNT` in
 `crates/itsanas-coord/src/claim.rs`; `scripts/check-bargain.py` holds every
 document to it. Before this, any holder of the master secret could mint device
 ids for free and each became a live claim the coordinator kept and handed every
@@ -1968,7 +1972,7 @@ machine of the account to dial.
 - **On the coordinator** (`Directory::claim`), the bound a rebuilt client
   cannot remove: a live claim for a device it has no claim for is refused when
   the account already has that many live ones, and nothing is written
-  (`red_team_a_sixth_device_is_refused_and_nothing_is_written`). The count is
+  (`red_team_one_device_too_many_is_refused_and_nothing_is_written`). The count is
   read inside the write transaction, and redb runs one write transaction at a
   time, so two enrolments racing for the last slot should not both pass; no
   test races them. A withdrawn
@@ -1978,7 +1982,7 @@ machine of the account to dial.
   (`red_team_re_signing_a_live_device_on_a_full_account_takes_no_slot`).
 - **On the machine being enrolled** (`coordinator::register_with`), before
   anything is signed, naming the devices to choose from
-  (`red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_would_not`).
+  (`red_team_one_machine_too_many_refuses_to_enrol_itself_even_where_the_coordinator_would_not`).
   Its count can be short: a machine not enrolled yet cannot ask `Devices` and
   sees only the devices heard from within the week (`ClaimedPeers`). The
   coordinator's count is the one that binds.
@@ -2012,7 +2016,7 @@ machine of the account to dial.
   **Not verified:** no screen was opened; the Kotlin compiles
   (`scripts/build-apk.sh debug`, by hand) and nothing runs it.
 
-**Not closed by this:** withdrawn rows are never removed, so the bound caps live devices, not rows (5 live and
+**Not closed by this:** withdrawn rows are never removed, so the bound caps live devices, not rows (10 live and
 any number withdrawn, as before); a device silent for more than a week
 re-registering through a coordinator older than `Devices` reads only
 `ClaimedPeers` and can be refused by its own client on an account at the

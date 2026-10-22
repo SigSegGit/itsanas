@@ -988,7 +988,7 @@ Each of these has a test that fails if it is:
 | The split is a value, and the one that grants entitlement is the coordinator's | It was `CONTRIBUTION_RATIO = 3`, and a constant cannot express 30/70 without becoming a fraction, which is where an `f64` wants to go. Two splits now exist and they are not the same thing: a node's configuration field decides only what that machine refuses its own owner, and the one `assess` is handed decides what the network grants. A `split` field on `DeviceContribution` would let a member widen their own entitlement by editing a text file. The node's field may only be stricter than `Split::DEFAULT`: `itsanas keep` is the one live enforcement, and a generous split would turn it off | `red_team_entitlement_follows_the_coordinator_s_split_not_a_device_s`; `red_team_a_node_cannot_grant_itself_a_more_generous_split`; `red_team_a_split_with_a_zero_part_is_refused_rather_than_dividing_by_zero` |
 | A withdrawal is final for its device id and wins whatever the signing clocks say | Every keystore holds the master secret, so a claim signed after a withdrawal proves nothing about who signed it; and a signer's clock is an opinion. Timestamp ordering let a stolen machine re-enrol and let a slow clock cancel a withdrawal. A reused machine logs in afresh and gets a new device id | `red_team_a_machine_holding_the_master_key_cannot_bring_a_withdrawn_device_back`; `red_team_a_withdrawal_signed_on_a_slow_clock_still_withdraws`; `a_later_enrolment_does_not_supersede_a_withdrawal` |
 | A host stores for another account's device only once its coordinator has confirmed the device live, within `STANDING_FOR`; no answer means no storing. Decided by Nicolas on 2026-10-05 ("Refuse") | Every node holds its account key, so a withdrawn device signs itself a fresh live claim; the coordinator's withdrawal is the only word against it. Letting devices through while the coordinator is silent would make every outage, and every coordinator that hangs up on the question, a window for withdrawn devices. The cost, accepted: newcomers wait for an answer, other accounts stop storing on a host whose coordinator is down past `STANDING_FOR`, a host with no coordinator stores for its own account only. Consistent with the coordinator's place: it can refuse a member, never admit one | `red_team_no_word_from_the_coordinator_means_no_storing`; `red_team_a_host_whose_coordinator_does_not_answer_stores_for_no_other_account`; `red_team_a_withdrawn_device_that_re_signs_stores_nothing_on_a_host` |
-| An account has at most `MAX_DEVICES_PER_ACCOUNT` live devices -- 5, decided by Nicolas on 2026-09-30 ("5 max") | Enforced on the coordinator, the bound a rebuilt client cannot remove, and on the enrolling client so the refusal names the devices. A withdrawal frees its slot; re-signing a live device takes none; an account above the bound is never cut down, it only cannot add one. Raising it, or counting re-signings, is a decision for Nicolas | `red_team_a_sixth_device_is_refused_and_nothing_is_written`; `red_team_a_withdrawn_slot_lets_one_more_in_and_the_withdrawn_device_stays_out`; `red_team_re_signing_a_live_device_on_a_full_account_takes_no_slot`; `red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_would_not` |
+| An account has at most `MAX_DEVICES_PER_ACCOUNT` live devices -- 10, decided by Nicolas on 2026-10-22 (ephemeral devices such as portable keys), was 5 since 2026-09-30 | Enforced on the coordinator, the bound a rebuilt client cannot remove, and on the enrolling client so the refusal names the devices. A withdrawal frees its slot; re-signing a live device takes none; an account above the bound is never cut down, it only cannot add one. Because the coordinator at itsanas.ngas.fr enforces it too, 10 takes effect only once that coordinator runs a build with 10, and until then it refuses an account's sixth device whatever the client allows. It does not update from a signed release (releases carry the member binary only): with `install/coordinator.sh --auto-update` its nightly timer fast-forwards its checkout to `origin/main` and rebuilds, so the night after the merge; without the timer, by hand (RELEASING "The coordinator: open, and updating itself"). Raising it again, or counting re-signings, is a decision for Nicolas; the tests derive their counts from the constant | `red_team_one_device_too_many_is_refused_and_nothing_is_written`; `red_team_a_withdrawn_slot_lets_one_more_in_and_the_withdrawn_device_stays_out`; `red_team_re_signing_a_live_device_on_a_full_account_takes_no_slot`; `red_team_one_machine_too_many_refuses_to_enrol_itself_even_where_the_coordinator_would_not` |
 | Coordinator messages are appended, never inserted | postcard numbers variants by position; the peer protocol already lost a week to it | `red_team_coordinator_messages_keep_their_wire_numbers` |
 | Streaming boundaries match slice boundaries exactly | Otherwise one file stored via two paths dedups against nothing | `streaming_and_slicing_agree_on_every_boundary` |
 | Published test identities are refused by `Store::open` | Their phrases are in the docs | `the_published_test_identities_are_refused_...` |
@@ -2673,8 +2673,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
       any error message or log line a peer can provoke echo a path. Cap: ~5
       tests, one PR.
 
-   d. ✅ **At most 5 live devices per account.** Built 2026-10-01 (see §0;
-      ROADMAP "At most 5 live devices per account"). Decided by Nicolas on
+   d. ✅ **At most `MAX_DEVICES_PER_ACCOUNT` live devices per account** (5
+      when built; 10 since 2026-10-22, Nicolas). Built 2026-10-01 (see §0;
+      ROADMAP "At most 10 live devices per account"). Decided by Nicolas on
       2026-09-30, verbatim: « Il faut limiter le nombre d'appareils par
       compte. 5 max me semble bien. » Lettered d and placed before c because
       it was decided after c was written and went first. Open from it: a
@@ -2699,12 +2700,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Do not hide the failure: a chain refused must still be visible.
 
    e. ✅ **The Android app can withdraw a device.** Built 2026-10-01 (see §0;
-      ROADMAP "At most 5 live devices per account"). Open from it: the
+      ROADMAP "At most 10 live devices per account"). Open from it: the
       Kotlin screens untested; the node lock held across the dials of
       `withdrawDevice`; `complete` is not false when the coordinator's list
       is truncated at `MAX_PEERS_RETURNED`. Original text follows.
       Open from 2d: at the cap
-      (`MAX_DEVICES_PER_ACCOUNT` = 5, `crates/itsanas-coord/src/claim.rs`
+      (`MAX_DEVICES_PER_ACCOUNT` = 5 then, 10 since 2026-10-22, `crates/itsanas-coord/src/claim.rs`
       ~106) the refusal tells the person to run `itsanas device forget <id>`
       (`crates/itsanas-node/src/coordinator.rs` ~257), and an account whose
       machines are all phones has no CLI. The withdrawal itself is already
@@ -3123,8 +3124,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
    surface, by hand"), but it is a new signed object to distribute, keep and
    revoke, and a keystore-replaced device must be added to it. Which one?
    **Decided 2026-10-05 (Nicolas): option 2, the account device roster.**
-   Since 2026-10-01 (§8 2d) an account has at most 5 live devices, enforced
-   by the coordinator: option 2's roster would be at most five entries, a
+   Since 2026-10-01 (§8 2d) an account has at most `MAX_DEVICES_PER_ACCOUNT`
+   live devices (10 since 2026-10-22), enforced by the coordinator: option 2's
+   roster would be at most that many entries, a
    bounded object to sign and ship. **The integrity half is built (2026-10-19):**
    the roster is made of the existing `NodeClaim`s, kept per account in the
    store, armed at `Node::open`, fed by sessions, by hosts' own claims and by
