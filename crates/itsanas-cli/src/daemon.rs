@@ -95,6 +95,33 @@ use crate::{
 /// polling each other is not a constant background load on a Raspberry Pi.
 pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(300);
 
+/// The interval of a portable copy: a key is plugged in for an hour, not a
+/// month, and what is written on it should reach the other machines while it
+/// is still there. It hosts nobody, so it answers no audits, and a round of
+/// its own is a handful of dials.
+pub const PORTABLE_INTERVAL: Duration = Duration::from_secs(60);
+
+/// The interval a daemon runs on: `--interval`, else the policy's, else a
+/// portable copy's or the default.
+fn base_interval(asked: Option<Duration>, policy: Option<Duration>, portable: bool) -> Duration {
+    asked
+        .or(policy)
+        .unwrap_or(if portable {
+            PORTABLE_INTERVAL
+        } else {
+            DEFAULT_INTERVAL
+        })
+        .max(Duration::from_secs(1))
+}
+
+/// The banner's line for a portable copy. Said whether or not the vault's
+/// disk is there: a copy on a key hosts nobody either way. It used to go to
+/// stderr before the banner, and only when the vault was present, and a hand
+/// test (2026-10-22) never saw it.
+fn portable_line(portable: bool) -> Option<&'static str> {
+    portable.then_some("  portable  yes: it syncs this account's files and hosts nobody")
+}
+
 /// How finely the sleep between rounds is chopped.
 ///
 /// The daemon spends nearly all its life asleep, and a Ctrl-C that took five
@@ -666,9 +693,7 @@ pub fn run(
     let disk_room = disk_room(node.vault_dir());
     let service = peer_service(node, &board, &disk_room);
 
-    if crate::portable::is_portable(&node.home) && !node.away {
-        eprintln!("itsanas: a portable copy: it syncs this account's files and hosts nobody");
-    }
+    let portable = crate::portable::is_portable(&node.home);
     install_signal_handler()?;
     let shutdown = &SHUTDOWN;
 
@@ -682,11 +707,11 @@ pub fn run(
     println!("  device    {}", node.store.device_id());
     println!("  pledged   {}", format_size(node.config.pledge_bytes));
     let plan = itsanas_policy::plan(conditions(metered), itsanas_policy::Settings::default());
-    let interval = interval
-        .or(plan.every)
-        .unwrap_or(DEFAULT_INTERVAL)
-        .max(Duration::from_secs(1));
+    let interval = base_interval(interval, plan.every, portable);
     println!("  interval  {}s", interval.as_secs());
+    if let Some(line) = portable_line(portable) {
+        println!("{line}");
+    }
     println!("  syncing   {}", describe(plan.scope));
     println!("  because   {}", plan.because);
     match &node.config.folder {
@@ -932,8 +957,8 @@ fn sync_loop(
         if deep {
             next_deep = Instant::now() + DEEP_SCAN_EVERY;
         }
-        if !paused {
-            take_in(node, folder.as_ref(), deep);
+        if !paused && take_in(node, folder.as_ref(), deep) {
+            steering.changed_here(Instant::now());
         }
 
         let next = if scope.connects() {
@@ -1025,9 +1050,12 @@ fn sync_loop(
 /// what peers pushed into the vault. Not called at all while paused -- a
 /// `match` arm that ignored a result computed anyway was the first version of
 /// this guard, and it drained the vault of a paused node (#243's review).
-fn take_in(node: &Node, folder: Option<&(Folder, Option<Watcher>)>, deep: bool) {
+///
+/// Whether the folder changed here: files to send out.
+fn take_in(node: &Node, folder: Option<&(Folder, Option<Watcher>)>, deep: bool) -> bool {
+    let mut changed = false;
     if let Some((folder, _)) = folder {
-        reconcile_once(node, folder, deep);
+        changed = reconcile(node, folder, deep);
     } else if let Err(error) = node.bound_writes() {
         // `reconcile_once` refreshes the bound; with no folder nothing
         // did, and the pulls below would meet the ceiling `Node::open`
@@ -1046,12 +1074,13 @@ fn take_in(node: &Node, folder: Option<&(Folder, Option<Watcher>)>, deep: bool) 
                 report.adopted, report.conflicted
             );
             if let Some((folder, _)) = folder {
-                reconcile_once(node, folder, false);
+                changed |= reconcile(node, folder, false);
             }
         }
         Ok(_) => {}
         Err(error) => eprintln!("itsanas: could not apply pushed data: {error}"),
     }
+    changed
 }
 
 /// Say it once when a round reached nobody.
@@ -1846,6 +1875,18 @@ fn open_folder(node: &Node) -> Result<Option<(Folder, Option<Watcher>)>> {
 /// alternative -- a line in a log nobody reads -- is how a disk stays unmounted
 /// for a week.
 pub(crate) fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
+    reconcile(node, folder, deep);
+}
+
+/// Whether a pass found something changed *here*: a file taken in from the
+/// folder or deleted from it. What it wrote out from the store came from
+/// elsewhere and has nobody to go to.
+fn changed_here(report: &itsanas_folder::ReconcileReport) -> bool {
+    !report.imported.is_empty() || !report.removed_from_store.is_empty()
+}
+
+/// [`reconcile_once`], saying whether the folder changed here.
+fn reconcile(node: &Node, folder: &Folder, deep: bool) -> bool {
     // Counting what other devices wrote since the last pass. On failure the
     // bound from the last pass stays, which is never none: opening the node
     // set one.
@@ -1876,8 +1917,12 @@ pub(crate) fn reconcile_once(node: &Node, folder: &Folder, deep: bool) {
             for (path, why) in &report.failed {
                 eprintln!("itsanas: {path}: {why}");
             }
+            changed_here(&report)
         }
-        Err(error) => eprintln!("itsanas: folder scan failed: {error}"),
+        Err(error) => {
+            eprintln!("itsanas: folder scan failed: {error}");
+            false
+        }
     }
 }
 
@@ -2437,6 +2482,43 @@ mod tests {
         // a Raspberry Pi; too long and the thing feels broken.
         assert!(DEFAULT_INTERVAL >= Duration::from_secs(60));
         assert!(DEFAULT_INTERVAL <= Duration::from_secs(900));
+    }
+
+    /// A key is plugged in for an hour: its rounds come every minute, unless
+    /// the operator or the policy chose otherwise.
+    #[test]
+    fn a_portable_copy_syncs_every_minute_unless_told_otherwise() {
+        assert_eq!(base_interval(None, None, true), PORTABLE_INTERVAL);
+        assert_eq!(PORTABLE_INTERVAL, Duration::from_secs(60));
+        assert_eq!(base_interval(None, None, false), DEFAULT_INTERVAL);
+        let asked = Duration::from_secs(7);
+        assert_eq!(base_interval(Some(asked), None, true), asked);
+        let policy = Duration::from_secs(900);
+        assert_eq!(base_interval(None, Some(policy), true), policy);
+    }
+
+    /// The banner says a portable copy is one, on stdout with the rest.
+    #[test]
+    fn a_portable_copy_says_so_in_its_banner() {
+        assert!(portable_line(true).is_some_and(|line| line.contains("hosts nobody")));
+        assert_eq!(portable_line(false), None);
+    }
+
+    /// Only what changed here sends a round early: files written out from
+    /// the store came from a peer, and two daemons answering each other's
+    /// writes with rounds would never be quiet.
+    #[test]
+    fn only_a_change_made_here_calls_for_an_early_round() {
+        let mut report = itsanas_folder::ReconcileReport::default();
+        report.exported.push("a".into());
+        report.deleted_from_disk.push("b".into());
+        assert!(!changed_here(&report), "a peer's file called for a round");
+        let mut imported = itsanas_folder::ReconcileReport::default();
+        imported.imported.push("c".into());
+        assert!(changed_here(&imported));
+        let mut deleted = itsanas_folder::ReconcileReport::default();
+        deleted.removed_from_store.push("d".into());
+        assert!(changed_here(&deleted));
     }
 
     #[test]

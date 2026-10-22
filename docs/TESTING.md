@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1302 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 381 are red-team tests.**
+**Last updated: 2026-10-22 — 1307 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 382 are red-team tests.**
 
-**1186 of the 1302 tests have an entry of their own on this page** — an *entry*,
+**1191 of the 1307 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 161 |
+| `itsanas-cli` unit | 166 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 140 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 49 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 83 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 84 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (161)
+# `itsanas-cli` — unit tests (166)
 
 ## `bench` — measuring this machine (4)
 
@@ -1183,7 +1183,7 @@ a benchmark that measures a broken path produces a confident wrong number.
 | `the_neighbourhood_is_empty_until_something_is_heard` | No invented peers. |
 | `the_poll_is_short_enough_that_shutdown_feels_immediate` | A Ctrl-C must not wait out an announce interval. |
 
-## `control` — pause (open-ended or timed), resume, sync now, how often (12)
+## `control` — pause (open-ended or timed), resume, sync now, how often (14)
 
 What a tray, a wizard or a terminal asks of the running daemon, through a file
 in the home (`crates/itsanas-cli/src/control.rs`). The daemon holds the store's
@@ -1199,6 +1199,8 @@ refused, `1m` taken.
 | `writing_replaces_the_file_whole_and_a_missing_file_asks_nothing` | No file is "nothing asked"; a write replaces the whole file through a temporary name, and leaves no temporary behind. |
 | **`red_team_a_control_file_cannot_make_the_daemon_dial_in_a_tight_loop`** | `interval 0`, `1` or `29` -- typed, or a tray's bug -- is held at the 30-second floor, so two seconds after a round nothing is due; a huge one is held at a day. Without the floor, a daemon dials every machine of the account every two seconds. Sabotaged (no clamp): red. |
 | **`red_team_one_sync_now_is_one_round_never_a_loop`** | One "sync now" is one round: the same stamp read again is not a second, a stamp already in the file when the daemon starts is not replayed, and a stamp from a clock that went back still counts. Sabotaged (any stamp is a request): red. |
+| `a_local_change_is_sent_after_a_short_settle_not_a_whole_interval` | A file saved here is due for a round 5 s (`SETTLE`) after the change, not at the end of the interval (hand test, 2026-10-22: five minutes for a laptop's file to reach a key); one change is one round. Sabotaged (no early round; no settle; change not cleared by the round): red. |
+| **`red_team_a_folder_that_never_stops_changing_costs_a_round_per_half_minute_at_most`** | A folder rewritten every second for five minutes gives 9 or 10 rounds, not 300: the early round waits at least `MIN_INTERVAL` (30 s) after the last one, and the first change since the last round counts, so a folder that never settles is still sent out. Sabotaged (no floor; last change instead of first): red. |
 | **`red_team_a_paused_node_never_runs_a_full_round`** | Paused, a due round, a daemon started paused and a `sync-now` written anyway all give `Publish` -- say where this machine is, move no file -- never `Round`; resuming gives `Round`. Sabotaged (paused runs a round): red. |
 | **`red_team_an_unreadable_control_file_never_resumes_a_paused_node`** | A file that cannot be read keeps the last state understood: the default would be "not paused", resuming a node paused on purpose (a metered link) because a backup tool held the file. Said once, not every two seconds. Sabotaged (fall back to the default): red. |
 | **`red_team_a_control_file_that_grew_still_says_paused`** | The daemon reads the file every two seconds, so one that grew by accident (a log redirected into it) is read only up to 4096 bytes -- the whole lines that fit -- and still says the `paused 1` written first. The first version refused such a file, which every reader then had to guess about, and three guessed "not paused". A multi-byte character split by the limit changes nothing; exactly 4096 bytes is read whole; UTF-16 (PowerShell 5's `Out-File`) is refused rather than read as nothing asked. Sabotaged (refuse past the limit; skip the NUL check): red. |
@@ -1391,7 +1393,7 @@ requests are tested on the bytes a router sends.
 | **`red_team_only_a_granting_answer_opens_a_port_or_names_an_address`** | Only a NAT-PMP answer of the right opcode, result 0, for this port and with a lifetime counts; a refusal, a truncated answer, a UDP mapping's answer, another port's or a deletion never makes the node announce an address nobody can dial; the router's external port is the one announced. Sabotaged (result code ignored): red. |
 | **`red_team_an_answer_from_another_machine_on_the_lan_is_ignored`** | An answer from any address but the gateway's port 5351 is not read, so another machine on the LAN cannot choose the address this node announces. Sabotaged (source not checked): red. |
 | `the_gateway_is_read_from_the_routing_table_or_guessed_on_the_lan` | The default route of `/proc/net/route` (little-endian hex), else the `.1` and `.254` of the local `/24`; a mapping is renewed at half the lease the router granted, never sooner than a minute. |
-## `daemon` — pacing, a vault whose disk drops, and parking on a relay (8)
+## `daemon` — pacing, a vault whose disk drops, and parking on a relay (11)
 
 | Test | What it proves |
 | --- | --- |
@@ -1401,6 +1403,9 @@ requests are tested on the bytes a router sends.
 | **`red_team_a_parked_machine_parks_again_after_each_caller_and_withdraws_when_reached`** | One caller per park, so it parks again after each; once reachable it stops and withdraws its `relay:` address. Sabotage: no re-park (red); no final withdrawal (red). |
 | **`red_team_a_vault_that_drops_while_running_takes_no_chunk`** | When the vault's marker disappears under a running daemon (a NAS unmounted, an empty local mount point left), the room offered for chunks is 0, so nothing lands on the system disk to vanish under the mount; the round then stops the daemon. Sabotaged (marker check off): red. |
 | `the_default_interval_is_neither_a_busy_loop_nor_an_hour` | Too short and three machines polling each other is a constant load on a Pi; too long and the thing feels broken. |
+| `a_portable_copy_syncs_every_minute_unless_told_otherwise` | A portable copy's base interval is 60 s, not 300 s; `--interval` and the policy's own schedule still win. Sabotaged (portable ignored): red. |
+| `a_portable_copy_says_so_in_its_banner` | The banner, on stdout, has a `portable  yes … hosts nobody` line for a portable copy and none otherwise. It used to be one stderr line before the banner, skipped when the vault's disk was away, and a hand test never saw it. Sabotaged: red. |
+| `only_a_change_made_here_calls_for_an_early_round` | Only files taken in from the folder or deleted from it call for an early round; files written out from the store came from a peer, and two daemons answering each other's writes with rounds would never be quiet. Sabotaged (any change counts): red. |
 | `shutdown_is_noticed_quickly_enough_to_feel_immediate` | A Ctrl-C that took a whole interval to be noticed would be indistinguishable from a hang. |
 
 The daemon's real behaviour — that two nodes converge with nobody running
