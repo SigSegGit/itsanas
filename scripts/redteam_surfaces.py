@@ -104,6 +104,8 @@ SURFACES = [
         'itsanas-cli/src/control.rs',
         'itsanas-cli/src/jobs.rs',
         'itsanas-cli/src/daemon.rs',
+        'itsanas-cli/src/lifecycle.rs',
+        'itsanas-cli/src/portable.rs',
         'itsanas-cli/src/setup/',
         'itsanas-cli/src/update/',
         'itsanas-cli/tests/steering.rs',

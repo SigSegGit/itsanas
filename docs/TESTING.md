@@ -1131,7 +1131,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — the daemon loop, driven (8, `#[ignore]`d)
+# `itsanas-cli` — the daemon loop, driven (9, `#[ignore]`d)
 
 `tests/steering.rs`. The only tests that run `sync_loop`: each starts the real
 daemon on a throwaway node and reads the snapshot it writes every time round
@@ -1151,6 +1151,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 | **`red_team_a_timed_pause_ends_by_itself_without_resume`** | A real daemon paused through a control file with until = now+4 takes in a file written during the pause by itself once the end passes, never before it and without `itsanas resume`, and logs "pause over, syncing resumed"; Sabotaged (until ignored; comparison inverted): red. |
 | `disk_jobs_go_through_the_running_daemon_which_carries_on_after_them` | A real daemon, `itsanas backup export`, `backup restore` and `vault NEW --move` while it runs: each writes `<home>/job`, the daemon runs it between rounds (move: closes the node, then restarts on the new vault), writes `job-result`, the CLI reads it and no passphrase is asked; afterwards the daemon still syncs. Sabotaged. |
 | **`red_team_a_portable_copy_keeps_its_home_on_the_drive_and_hosts_nobody`** | `itsanas portable DIR` writes `DIR/ITSaNAS/` with the program, a launcher passing `--home` next to itself, and `home/portable`; the daemon started from it keeps every file of its home on the drive and hosts nobody (client only). Sabotaged. |
+| **`red_team_a_daemon_asked_to_restart_or_stop_exits_with_the_code_that_says_so`** | A real daemon given `restart` in `<home>/lifecycle` exits 75 (the code Windows wrapper loop, systemd `Restart=on-failure` and launchd `SuccessfulExit=false` all start again), given `stop` exits 0 (none does), and the file is removed so the request acts once. From the 2026-10-22 hand test, where `update` said "restarted" and three daemons stayed on 0.1.8. |
 | **`red_team_a_vault_whose_marker_goes_away_is_left_alone_until_it_returns`** | The unplug test that also runs on Windows: the vault's marker goes away under a running daemon, nothing is written on the bare place, the daemon does not exit, and it resumes when the marker returns. A real disk pulled mid-write remains the manual 8.0c test. Sabotaged. |
 
 ---
@@ -1348,14 +1349,24 @@ an export or a restore is asked through `<home>/job` and answered in
 | `the_formats_are_read_from_what_each_system_prints` | The three systems' outputs (PowerShell, diskutil, stat) are parsed to NTFS, FAT32, exFAT or other, and text that names none is unknown. |
 | `only_formats_that_limit_the_person_are_warned_about` | NTFS (a Mac cannot write) and FAT32 (no file over 4 GiB) warn; exFAT, other and unknown say nothing. |
 
-## `portable` — a copy of the program that keeps its home on the drive (2)
+## `portable` — a copy of the program for every system, keeping its home on the drive (3)
 
 `crates/itsanas-cli/src/portable.rs`.
 
 | Test | What it proves |
 | --- | --- |
-| `a_portable_copy_has_its_program_launcher_readme_and_a_client_only_home` | `DIR/ITSaNAS/` holds this binary, the launcher (`ITSaNAS.cmd` or `itsanas.sh`) passing `--home` next to itself, `README.txt` and `home/portable`. |
+| **`red_team_a_portable_copy_starts_on_every_system_and_hosts_nobody`** | `itsanas portable DIR` writes `DIR/ITSaNAS/` with the five signed release programs in `bin/` (each checked against the signed manifest), the three launchers (`ITSaNAS.cmd`, `itsanas.command`, `itsanas.sh`) that pick the program by OS and architecture and pass `--home` next to themselves, `README.txt` and a client-only `home/portable`. A program that does not match the manifest is not written. |
+| `without_the_release_the_copy_says_it_serves_this_system_only` | Offline or from a source build, the copy holds only this system's program and its README and the command output say it serves this system only. |
 | `a_portable_copy_needs_a_full_path` | A relative destination is refused, so the copy does not land wherever the launcher happens to run. |
+
+## `lifecycle` — asking a running daemon to stop or restart (2)
+
+`crates/itsanas-cli/src/lifecycle.rs`: the `<home>/lifecycle` file (`stop` or `restart`) the daemon reads between rounds; `update` and `signout` write it.
+
+| Test | What it proves |
+| --- | --- |
+| `a_request_is_taken_once_and_nonsense_is_dropped` | Reading a request removes the file, so it acts once; anything but `stop` or `restart` is dropped and asks for nothing. |
+| `a_node_that_is_not_running_is_said_so_rather_than_restarted` | With no live lock, the answer is "not running", never "restarted". |
 
 ## `upnp` — the router's port, opened by itself (4)
 
@@ -1398,7 +1409,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type (42)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place (43)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1447,6 +1458,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_a_passphrase_prompt_names_the_account_it_unlocks`** | The passphrase prompt reads `Passphrase for 'NAME' (HOME): `, not `Passphrase:`, so three accounts on one machine are told apart; with no label it stays `Passphrase: `. Sabotage: drop the label and it goes red. |
 | `a_passphrase_prompt_says_whether_to_choose_or_type_and_what_it_is_not` | Before the prompt, a line says whether to choose a new passphrase or type the one chosen when the account was set up on this machine, for which account and which `itsanas` command, and that it is not the 24 recovery words (Nicolas, 2026-10-22: "Passphrase for 'nicolas'" alone left him guessing). Also: the subcommand is found past `--home PATH`. |
 | **`red_team_a_vault_moves_onto_an_existing_empty_mount_point_and_never_into_itself`** | A move stages inside the target (`.itsanas-incoming`) and renames the entries up with the marker last, so it works on a mount point or drive root and writes nothing beside it; a target inside the vault, or one holding it, is refused. Sabotaged. |
+| **`red_team_a_vault_moved_away_can_come_back_to_its_default_place`** | A vault moved to another disk can be moved back to `home/vault`, the default place, which was refused as if it were inside the home; moving into the vault itself is still refused. |
 | **`red_team_a_vault_is_not_moved_onto_a_key_too_small_for_it`** | A move is refused before copying when the target's free space is under the vault's size plus 10%; a drive with room for the bare size but not the margin is refused, one with the margin goes through. Sabotaged (checking against the bare size): red. |
 | **`red_team_a_backup_is_not_written_into_the_home_vault_or_synced_folder`** | `backup export` refuses a destination inside the home, the vault or the synced folder. Sabotaged. |
 
