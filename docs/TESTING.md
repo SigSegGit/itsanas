@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1296 test functions across 39 binaries, 13 of them
-`#[ignore]`d, plus 2 doctests. 377 are red-team tests.**
+**Last updated: 2026-10-22 — 1301 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 380 are red-team tests.**
 
-**1180 of the 1296 tests have an entry of their own on this page** — an *entry*,
+**1185 of the 1301 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 157 |
+| `itsanas-cli` unit | 161 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 139 |
@@ -188,7 +188,7 @@ guarantee and is not one.
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
 | `itsanas-node` withdrawals (`tests/withdrawals.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
-| `itsanas-cli` steering (`tests/steering.rs`) | 8 (8 `#[ignore]`d) |
+| `itsanas-cli` steering (`tests/steering.rs`) | 9 (9 `#[ignore]`d) |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-release` release (`tests/release.rs`) | 14 |
 | `itsanas-testkit` unit | 7 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 48 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 80 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 83 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (157)
+# `itsanas-cli` — unit tests (161)
 
 ## `bench` — measuring this machine (4)
 
