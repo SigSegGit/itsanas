@@ -63,7 +63,7 @@ with `updates = auto`; `notify`, the default, only shows "update available" in
 key compiled into the binary, refuses an older or equal version, checks the
 download's size, BLAKE3 and SHA-256, and replaces the program by renaming it
 aside (`itsanas.exe.old` on Windows, removed at the next start), then restarts
-the service. A binary built from source never updates itself.
+the service (every node on the machine, by asking each daemon to exit with code 75, which the Windows wrapper loop, systemd `Restart=on-failure` and launchd `SuccessfulExit=false` all restart). A binary built from source never updates itself.
 
 ## A test bed, in one command per machine
 
