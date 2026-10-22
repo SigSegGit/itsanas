@@ -280,7 +280,9 @@ fn run_disk_job(node: &Node, shutdown: &AtomicBool) {
                         moved.segments,
                         moved.chunks,
                         itsanas_node::config::format_size(moved.bytes)
-                    )
+                    ) + &crate::drives::warning_for(&job.path, "the backup")
+                        .map(|warning| format!(". Note: {warning}"))
+                        .unwrap_or_default()
                 })
                 .map_err(|error| error.to_string())
         }

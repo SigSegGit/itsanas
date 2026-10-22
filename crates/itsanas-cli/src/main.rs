@@ -16,6 +16,7 @@ mod bench;
 mod control;
 mod daemon;
 mod discovery;
+mod drives;
 mod jobs;
 mod natpmp;
 mod placing;
@@ -3082,6 +3083,9 @@ fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
                 dir.display()
             );
             println!("sealed as hosts hold it: the 24 words are what opens it, keep them apart");
+            if let Some(warning) = drives::warning_for(&dir, "the backup") {
+                println!("note: {warning}");
+            }
         }
         BackupAction::Restore { dir } => {
             let (moved, report) = backup::restore(&node, &dir)?;
@@ -3264,9 +3268,17 @@ fn move_vault(node: Node, wanted: &Path, same_disk: bool) -> Result<String> {
     // the whole copy (#297's red team). Each entry is then renamed up, on the
     // same disk, and the marker last: until it lands the target reads as no
     // vault, never as a whole one.
-    let staging = wanted.join(STAGING);
-    let copied = copy_tree(&from, &staging)?;
     let original = tree_size(&from)?;
+    room_for_vault(original.1, drives::free_bytes(wanted), wanted)?;
+    let staging = wanted.join(STAGING);
+    let copied = match copy_tree(&from, &staging) {
+        Ok(copied) => copied,
+        Err(error) => {
+            // A drive that filled or went away mid-copy keeps nothing of it.
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+    };
     if copied != original {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(CliError::Usage(format!(
@@ -3306,14 +3318,37 @@ fn move_vault(node: Node, wanted: &Path, same_disk: bool) -> Result<String> {
     let mut config = config::Config::load(&config_path)?;
     config.vault = Some(wanted.to_owned());
     config.save(&config_path)?;
-    Ok(format!(
+    let mut said = format!(
         "vault moved to {} ({} files, {}); the old copy is still at {}: delete it once the \
          node runs from the new one",
         wanted.display(),
         copied.0,
         format_size(copied.1),
         from.display()
-    ))
+    );
+    if let Some(warning) = drives::warning_for(wanted, "the vault") {
+        said = format!("{said}. Note: {warning}");
+    }
+    Ok(said)
+}
+
+/// Refuse a move onto a drive without room for the vault, before a byte is
+/// copied: a USB key that fills halfway is a wasted hour. A tenth on top for
+/// the file system's own overhead per file. A drive that will not say how
+/// much is free is not refused: the copy then finds out, and cleans up.
+fn room_for_vault(held: u64, free: Option<u64>, wanted: &Path) -> Result<()> {
+    let needed = held + held / 10;
+    match free {
+        Some(free) if free < needed => Err(CliError::Usage(format!(
+            "the vault holds {}; {} has {} free, and it needs about {}: choose a larger \
+             drive, or lower what this machine offers first (`itsanas space --pledge ..`)",
+            format_size(held),
+            wanted.display(),
+            format_size(free),
+            format_size(needed)
+        ))),
+        _ => Ok(()),
+    }
 }
 
 /// Where a moving vault is copied, inside its target.
@@ -4924,6 +4959,23 @@ mod tests {
         assert!(err.to_string().contains("inside the vault"), "{err}");
         let node = itsanas_node::Node::open(&home, "a passphrase").expect("reopen");
         assert!(super::check_vault_target(&node, &base.path().join("mnt"), true).is_err());
+    }
+
+    #[test]
+    fn red_team_a_vault_is_not_moved_onto_a_key_too_small_for_it() {
+        let key = std::path::Path::new("/media/key");
+        let refused = super::room_for_vault(2_000_000_000, Some(1_000_000_000), key)
+            .expect_err("a 2 GB vault onto 1 GB free");
+        assert!(refused.to_string().contains("free"), "{refused}");
+        assert!(
+            super::room_for_vault(2_000_000_000, Some(2_100_000_000), key).is_err(),
+            "no margin for the file system's overhead"
+        );
+        assert!(super::room_for_vault(2_000_000_000, Some(3_000_000_000), key).is_ok());
+        assert!(
+            super::room_for_vault(2_000_000_000, None, key).is_ok(),
+            "unknown: tried"
+        );
     }
 
     #[test]
