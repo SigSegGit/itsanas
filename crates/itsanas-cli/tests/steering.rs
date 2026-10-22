@@ -638,3 +638,42 @@ fn red_team_a_portable_copy_keeps_its_home_on_the_drive_and_hosts_nobody() {
         daemon.log()
     );
 }
+
+/// `itsanas update` and `signout` ask the daemon itself to restart or stop
+/// (hand test, 2026-10-22: the service manager left three laptop daemons on
+/// the old version while `update` said it had restarted them). A restart
+/// exits with the code every supervisor here starts again, a stop with 0,
+/// which none of them does.
+#[test]
+#[ignore = "one Argon2id derivation and a running daemon; the release job runs it"]
+fn red_team_a_daemon_asked_to_restart_or_stop_exits_with_the_code_that_says_so() {
+    let base = tempfile::tempdir().expect("temp dir");
+    let (home, _, _) = node_with_folder(base.path(), "life");
+    for (word, code) in [("restart", 75), ("stop", 0)] {
+        let mut daemon = Daemon::start(&home, base.path().join(format!("{word}.log")));
+        daemon.address();
+        std::fs::write(home.join("lifecycle"), word).expect("ask");
+        let deadline = Instant::now() + PATIENCE;
+        let status = loop {
+            if let Some(status) = daemon.child.try_wait().expect("wait") {
+                break status;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the daemon never acted on `{word}`\n--- daemon log\n{}",
+                daemon.log()
+            );
+            std::thread::sleep(Duration::from_millis(200));
+        };
+        assert_eq!(
+            status.code(),
+            Some(code),
+            "`{word}` exited with {status}\n--- daemon log\n{}",
+            daemon.log()
+        );
+        assert!(
+            !home.join("lifecycle").exists(),
+            "the request was left to act again"
+        );
+    }
+}

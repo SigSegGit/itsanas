@@ -18,6 +18,7 @@ mod daemon;
 mod discovery;
 mod drives;
 mod jobs;
+mod lifecycle;
 mod natpmp;
 mod placing;
 mod portable;
@@ -707,6 +708,11 @@ fn main() -> ExitCode {
     leave_quietly_when_the_pipe_closes();
 
     match run() {
+        // A daemon asked to restart (`lifecycle.rs`) exits with the code its
+        // service manager starts again, on the program now installed.
+        Ok(()) if daemon::restart_asked() => {
+            ExitCode::from(u8::try_from(lifecycle::RESTART_EXIT).expect("a small exit code"))
+        }
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("itsanas: {error}");
@@ -776,6 +782,14 @@ fn machine_wide(cli: &Cli) -> Option<Result<()>> {
             print!("{}", instances_report(&config::user_home()));
             Some(Ok(()))
         }
+        // Neither is about one account: `bench` measures this machine with a
+        // throwaway identity, and `update` replaces the one program every
+        // instance here runs (the hand test of 2026-10-22: both refused on a
+        // machine with named instances only).
+        Command::Bench { size, quick } => {
+            Some(parse_size(size).and_then(|size| bench::run(size, *quick)))
+        }
+        Command::Update { check } => Some(update::command(*check)),
         Command::Migrate { name } => {
             // It moves ~/.itsanas and nothing else; ignoring an explicit home
             // would migrate a node the user did not name.
@@ -889,8 +903,7 @@ fn run() -> Result<()> {
         ),
         Command::Peer { action } => peer(&home, action),
         Command::Doctor { deep } => doctor(&home, deep),
-        Command::Update { check } => update::command(&home, cli.instance.as_deref(), check),
-        Command::Bench { size, quick } => bench::run(parse_size(&size)?, quick),
+        Command::Update { .. } | Command::Bench { .. } => unreachable!("machine-wide"),
         Command::ConvertPacks => convert_packs(&home),
         Command::Gc { grace } => gc(&home, grace),
     }
@@ -3512,7 +3525,11 @@ fn check_vault_target(node: &Node, wanted: &Path, same_disk: bool) -> Result<()>
     // Inside the home, the store or the synced folder, other people's sealed
     // chunks would be synced as this account's files, or mixed with its own.
     let inside = |outer: &Path| wanted.starts_with(outer);
-    if inside(&node.home) || node.config.folder.as_deref().is_some_and(inside) {
+    // The default place is the one exception inside the home: it is where a
+    // vault starts, and a vault moved away must be able to come back to it
+    // (hand test, 2026-10-22: the way back was refused).
+    let default_place = wanted == node.home.join("vault");
+    if (inside(&node.home) && !default_place) || node.config.folder.as_deref().is_some_and(inside) {
         return Err(CliError::Usage(format!(
             "{} is inside this node's home or synced folder; the vault goes elsewhere",
             wanted.display()
@@ -5032,6 +5049,28 @@ mod tests {
             super::room_for_vault(2_000_000_000, None, key).is_ok(),
             "unknown: tried"
         );
+    }
+
+    #[test]
+    fn red_team_a_vault_moved_away_can_come_back_to_its_default_place() {
+        // The way back was refused in the hand test of 2026-10-22: the default
+        // place is inside the home, which a move refuses for anything else.
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join("home");
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        let default_place = node.vault_dir();
+        let away = base.path().join("elsewhere").join("vault");
+        super::move_vault(node, &away, true).expect("away");
+        let node = itsanas_node::Node::open(&home, "a passphrase").expect("reopen");
+        assert!(
+            super::check_vault_target(&node, &home.join("other"), true).is_err(),
+            "anywhere else in the home is still refused"
+        );
+        std::fs::remove_dir_all(&default_place).expect("the old copy deleted, as advised");
+        super::move_vault(node, &default_place, true).expect("back to the default place");
+        let node = itsanas_node::Node::open(&home, "a passphrase").expect("reopen");
+        assert_eq!(node.vault_dir(), default_place);
     }
 
     #[test]
