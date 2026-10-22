@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-20 — 1292 test functions across 39 binaries, 13 of them
-`#[ignore]`d, plus 2 doctests. 376 are red-team tests.**
+**Last updated: 2026-10-22 — 1295 test functions across 39 binaries, 13 of them
+`#[ignore]`d, plus 2 doctests. 377 are red-team tests.**
 
-**1176 of the 1292 tests have an entry of their own on this page** — an *entry*,
+**1179 of the 1295 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 153 |
+| `itsanas-cli` unit | 156 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 139 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 48 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 79 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 80 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1155,7 +1155,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (153)
+# `itsanas-cli` — unit tests (156)
 
 ## `bench` — measuring this machine (4)
 
@@ -1339,6 +1339,15 @@ an export or a restore is asked through `<home>/job` and answered in
 | **`red_team_a_path_cannot_smuggle_lines_into_the_job`** | A path must be absolute and one line: a newline in it would add a second line to the job file and a second instruction; it is refused. Sabotaged (check dropped): red. |
 | `a_job_left_running_by_a_dead_daemon_does_not_block_the_next` | A job marked running by a daemon that died is marked failed when the next daemon starts, so it does not block the following job. |
 
+## `drives` — what a target drive is formatted as (2)
+
+`crates/itsanas-cli/src/drives.rs`. Asked of the system (Get-Volume on Windows, diskutil on macOS, `stat -f` elsewhere); unknown means no warning.
+
+| Test | What it proves |
+| --- | --- |
+| `the_formats_are_read_from_what_each_system_prints` | The three systems' outputs (PowerShell, diskutil, stat) are parsed to NTFS, FAT32, exFAT or other, and text that names none is unknown. |
+| `only_formats_that_limit_the_person_are_warned_about` | NTFS (a Mac cannot write) and FAT32 (no file over 4 GiB) warn; exFAT, other and unknown say nothing. |
+
 ## `portable` — a copy of the program that keeps its home on the drive (2)
 
 `crates/itsanas-cli/src/portable.rs`.
@@ -1389,7 +1398,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer (40)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to (41)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1437,6 +1446,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `a_timed_pause_shows_paused_only_while_it_holds` | Status --brief, which every tray reads, says paused only while the pause holds, so an expired timed pause never shows a blue icon over a node that is syncing again. |
 | **`red_team_a_passphrase_prompt_names_the_account_it_unlocks`** | The passphrase prompt reads `Passphrase for 'NAME' (HOME): `, not `Passphrase:`, so three accounts on one machine are told apart; with no label it stays `Passphrase: `. Sabotage: drop the label and it goes red. |
 | **`red_team_a_vault_moves_onto_an_existing_empty_mount_point_and_never_into_itself`** | A move stages inside the target (`.itsanas-incoming`) and renames the entries up with the marker last, so it works on a mount point or drive root and writes nothing beside it; a target inside the vault, or one holding it, is refused. Sabotaged. |
+| **`red_team_a_vault_is_not_moved_onto_a_key_too_small_for_it`** | A move is refused before copying when the target's free space is under the vault's size plus 10%; a drive with room for the bare size but not the margin is refused, one with the margin goes through. Sabotaged (checking against the bare size): red. |
 | **`red_team_a_backup_is_not_written_into_the_home_vault_or_synced_folder`** | `backup export` refuses a destination inside the home, the vault or the synced folder. Sabotaged. |
 
 ## `placing` — the measurement shown, and the daemon's share of placement (9)
