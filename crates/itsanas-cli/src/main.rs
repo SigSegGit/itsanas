@@ -798,7 +798,7 @@ fn run() -> Result<()> {
         return done;
     }
     let home = resolve_home(cli.instance.as_deref(), cli.home)?;
-    let _ = PROMPT_FOR.set(prompt_label(&home, &cli.command));
+    set_prompt_context(&home, &cli.command);
 
     match cli.command {
         Command::Init { username } => init(&home, &username),
@@ -939,6 +939,58 @@ fn prompt_label(home: &Path, command: &Command) -> String {
     }
 }
 
+/// Who and what a passphrase prompt is for, set once per run.
+fn set_prompt_context(home: &Path, command: &Command) {
+    let _ = PROMPT_FOR.set(prompt_label(home, command));
+    if let Some(name) = subcommand_name(std::env::args().skip(1)) {
+        let _ = PROMPT_COMMAND.set(name);
+    }
+}
+
+/// The first argument that is neither a global flag nor a flag's value.
+fn subcommand_name(args: impl Iterator<Item = String>) -> Option<String> {
+    let mut value_next = false;
+    for arg in args {
+        if std::mem::replace(
+            &mut value_next,
+            matches!(arg.as_str(), "--home" | "--instance"),
+        ) {
+            continue;
+        }
+        if !arg.starts_with('-') {
+            return Some(arg);
+        }
+    }
+    None
+}
+
+/// The subcommand a prompt is for (`doctor`, `init`, ...), set once in `run`.
+static PROMPT_COMMAND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// What a passphrase prompt is about, printed before it: whether to choose
+/// one or type the one chosen before, for which account on which machine,
+/// what it unlocks, and that it is not the 24 words. "Passphrase for
+/// 'nicolas' (C:\Users\..)" alone left a person guessing all four
+/// (Nicolas, 2026-10-22, during a hand test).
+fn passphrase_explanation(confirm: bool, label: Option<&str>, command: Option<&str>) -> String {
+    let account = label.unwrap_or("this account");
+    let doing = command.map_or_else(String::new, |command| format!(" for `itsanas {command}`"));
+    if confirm {
+        format!(
+            "Choose a passphrase for the account {account} on this machine. It protects \
+             this machine's copy of the account's keys: you will type it here to start \
+             ITSaNAS and for some commands. It is not the 24 recovery words, and each \
+             machine of the account may have its own. It is asked twice."
+        )
+    } else {
+        format!(
+            "Type the passphrase of the account {account}: the one chosen when this account \
+             was set up on this machine. It is not the 24 recovery words. It unlocks this \
+             machine's keys{doing}; it is not sent anywhere."
+        )
+    }
+}
+
 /// The prompt for `what`, naming the account it unlocks.
 fn prompt_text(what: &str, label: Option<&str>) -> String {
     match label {
@@ -962,6 +1014,10 @@ fn passphrase(confirm: bool) -> Result<String> {
     }
 
     let label = PROMPT_FOR.get().map(String::as_str);
+    eprintln!(
+        "{}",
+        passphrase_explanation(confirm, label, PROMPT_COMMAND.get().map(String::as_str))
+    );
     let entered =
         rpassword::prompt_password(prompt_text("Passphrase", label)).map_err(|error| {
             CliError::Io {
@@ -5074,6 +5130,24 @@ mod tests {
     }
 
     #[test]
+    fn a_passphrase_prompt_says_whether_to_choose_or_type_and_what_it_is_not() {
+        let typing = passphrase_explanation(false, Some("'nicolas' (C:\\home)"), Some("doctor"));
+        assert!(typing.starts_with("Type"), "{typing}");
+        assert!(typing.contains("'nicolas'"), "{typing}");
+        assert!(typing.contains("itsanas doctor"), "{typing}");
+        assert!(typing.contains("not the 24"), "{typing}");
+        let choosing = passphrase_explanation(true, Some("'test' (x)"), Some("init"));
+        assert!(choosing.starts_with("Choose"), "{choosing}");
+        assert!(choosing.contains("not the 24"), "{choosing}");
+        assert!(choosing.contains("twice"), "{choosing}");
+        let args = ["--home", "C:\\x", "doctor", "--deep"].map(String::from);
+        assert_eq!(
+            super::subcommand_name(args.into_iter()).as_deref(),
+            Some("doctor")
+        );
+    }
+
+    #[test]
     fn red_team_a_drain_never_counts_an_owner_it_could_not_ask_as_done() {
         // The drain's last sentence is what a person reads before switching
         // off for good. An owner that was unreachable, or too old to be asked,
@@ -5104,9 +5178,9 @@ mod tests {
     use super::{
         Asked, Command, DeviceId, SNAPSHOT, brief_status, control, departure_refusal, describe_age,
         drain_summary, first_free_port, instances_report, looks_like_a_closed_pipe,
-        migrate_unnamed, phrase_grid, phrase_words, prompt_label, prompt_text, record_departure,
-        refuse_if_departed, register, rejoin, resolve_device, set_pledge, sibling_ports,
-        snapshot_status, steer, sync_folder,
+        migrate_unnamed, passphrase_explanation, phrase_grid, phrase_words, prompt_label,
+        prompt_text, record_departure, refuse_if_departed, register, rejoin, resolve_device,
+        set_pledge, sibling_ports, snapshot_status, steer, sync_folder,
     };
 
     /// `itsanas sync` names a refused chain on its summary line, and says
