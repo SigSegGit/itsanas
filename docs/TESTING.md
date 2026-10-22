@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1301 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 380 are red-team tests.**
+**Last updated: 2026-10-22 — 1302 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 381 are red-team tests.**
 
-**1185 of the 1301 tests have an entry of their own on this page** — an *entry*,
+**1186 of the 1302 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 161 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 139 |
+| `itsanas-node` unit | 140 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -217,7 +217,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 48 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 49 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 83 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -1521,7 +1521,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (156)
+# `itsanas-node` — a node on disk (157)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1598,7 +1598,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk, and where its vault lives (24)
+## `node` — identity on disk, and where its vault lives (25)
 
 | Test | What it proves |
 | --- | --- |
@@ -1606,6 +1606,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_vault_on_a_dropped_disk_is_refused_never_recreated_empty`** | A configured vault (`vault = PATH`, HANDOVER §8 0s) whose directory is missing or empty, as when a NAS mount drops, refuses to open and creates nothing there, so hosted chunks are never mistaken for lost; another device's marker is refused too. Sabotaged twice (configured check off; marker contents ignored): red. |
 | `an_existing_node_keeps_its_vault_where_it_is_and_gains_the_marker` | A node built before the marker opens `<home>/vault` as before and gains `.itsanas-vault`. |
 | **`the_keys_can_be_read_while_the_store_is_held_by_another_process`** | Only one process may hold a node's store, and the daemon holds it on every machine that is working — so anything that opened a `Node` refused to run on exactly the machines somebody asks about, including `doctor`, which is what a person runs *because* something is wrong. Stopping the daemon to ask then changes the answer: a node that is not running is not listening, so "can anybody reach me" comes back no, for a reason that is the asking. `Identity::open` reads the keystore and the config, neither of which is locked. |
+| **`red_team_the_24_words_come_back_from_the_keystore_and_its_passphrase_only`** | Hand test, 2026-10-22: the sheet with the test account's 24 words was lost while the laptop still had the account and its passphrase. The keystore holds the master secret, and the words are that secret in another encoding, so `itsanas words` gives them back: the same words, while the daemon holds the store, and nothing for a wrong passphrase. Fails when the words are derived from the device seed instead of the master secret. |
 | **`an_empty_node_home_reads_as_unmounted_storage_rather_than_a_fresh_start`** | A node home on a disk that is not mounted is an *empty directory*, and "no node found, run `itsanas init`" is then advice to create a **second account** on the root filesystem — while the real one sits on a disk nobody is looking at, and the next backup captures the empty one. A directory that does not exist at all still reads as a fresh start. |
 | **`a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does`** | `itsanas passphrase` re-seals the keystore without regenerating anything — same account, same device id — the old passphrase stops working, and the pending file is renamed over the keystore rather than left beside it. |
 | **`red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns`** | Every write goes through `node.store`, and the store refuses nothing it has not been told about. Opening a node pledging 700 GB must hold writes to the 300 GB that earns at 30/70, and a node pledging nothing to the joining allowance, as `keep` does. Sabotaged on the wiring in `Node::assemble` and on the allowance floor: without either, the CLI, the folder and the phone would write unbounded while every store test stayed green. |

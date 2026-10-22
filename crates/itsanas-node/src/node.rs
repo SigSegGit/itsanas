@@ -217,7 +217,7 @@ impl Identity {
     /// # Errors
     ///
     /// If there is no node, the passphrase is wrong, or the config is invalid.
-    pub fn open(home: &Path, passphrase: &str) -> Result<Self> {
+    fn unlock(home: &Path, passphrase: &str) -> Result<NodeSecrets> {
         let keystore_path = Node::keystore_path(home);
         let bytes = match std::fs::read(&keystore_path) {
             Ok(bytes) => bytes,
@@ -237,7 +237,27 @@ impl Identity {
             .unlock(passphrase, KEYSTORE_LABEL)
             .map_err(|_| NodeError::Unlock)?;
 
-        let secrets: NodeSecrets = postcard::from_bytes(&plaintext)?;
+        Ok(postcard::from_bytes(&plaintext)?)
+    }
+
+    /// The account's 24 recovery words again, from this machine's keystore.
+    ///
+    /// The keystore holds the master secret, and the words are that secret in
+    /// another encoding, so someone who lost the paper but still has a machine
+    /// and its passphrase has not lost the account. Reads the keystore only:
+    /// it works while the daemon holds the store.
+    ///
+    /// # Errors
+    ///
+    /// If there is no node or the passphrase is wrong.
+    pub fn recovery_phrase(home: &Path, passphrase: &str) -> Result<zeroize_phrase::Phrase> {
+        let secrets = Self::unlock(home, passphrase)?;
+        let phrase = MasterSecret::from_bytes(secrets.master).to_recovery_phrase()?;
+        Ok(zeroize_phrase::Phrase(phrase))
+    }
+
+    pub fn open(home: &Path, passphrase: &str) -> Result<Self> {
+        let secrets = Self::unlock(home, passphrase)?;
         let master = MasterSecret::from_bytes(secrets.master);
 
         Ok(Self {
@@ -1033,6 +1053,25 @@ mod tests {
 
         // And a wrong passphrase still gets nothing.
         assert!(Identity::open(&home, "not the passphrase").is_err());
+    }
+
+    /// THE LOST SHEET (hand test, 2026-10-22): the 24 words of the test
+    /// account were cut to the clipboard and lost, while the laptop still had
+    /// the account and its passphrase. The keystore holds the master secret,
+    /// so the words come back -- the same words, while the daemon runs, and
+    /// not for a wrong passphrase.
+    #[test]
+    fn red_team_the_24_words_come_back_from_the_keystore_and_its_passphrase_only() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let home = dir.path().join("node");
+        let (_node, phrase) = Node::create(&home, "a passphrase", "test").expect("create");
+
+        let again = Identity::recovery_phrase(&home, "a passphrase")
+            .expect("the words must come back while the node is running");
+        assert_eq!(again.as_str(), phrase.as_str());
+        assert_eq!(again.as_str().split_whitespace().count(), 24);
+
+        assert!(Identity::recovery_phrase(&home, "not the passphrase").is_err());
     }
 
     /// THE SECOND ACCOUNT: a node home on a disk that is not mounted is an

@@ -599,6 +599,12 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Show this account's 24 recovery words again, for a lost sheet.
+    ///
+    /// Asks this machine's passphrase and reads only the keystore, so it works
+    /// while the daemon runs. Whoever sees the words owns the account: write
+    /// them on paper, away from this machine.
+    Words,
     /// Check that everything this node claims to hold is actually here.
     Doctor {
         /// Also reassemble and re-hash every file. O(data), not O(metadata).
@@ -902,6 +908,7 @@ fn run() -> Result<()> {
             },
         ),
         Command::Peer { action } => peer(&home, action),
+        Command::Words => words(&home),
         Command::Doctor { deep } => doctor(&home, deep),
         Command::Update { .. } | Command::Bench { .. } => unreachable!("machine-wide"),
         Command::ConvertPacks => convert_packs(&home),
@@ -4773,6 +4780,17 @@ fn network_report(identity: &itsanas_node::node::Identity) {
         Some(Inbound::Failed(error)) => println!("  in     not checked: {error}"),
         None => {}
     }
+}
+
+/// `itsanas words`: the recovery phrase, from the keystore and its passphrase.
+fn words(home: &Path) -> Result<()> {
+    let phrase = itsanas_node::node::Identity::recovery_phrase(home, &passphrase(false)?)?;
+    println!("The 24 recovery words of this account. Whoever reads them owns it:");
+    println!("write them on paper, keep the paper away from this machine, and");
+    println!("clear this window afterwards.");
+    println!();
+    print!("{}", phrase_grid(phrase.as_str()));
+    Ok(())
 }
 
 fn doctor(home: &Path, deep: bool) -> Result<()> {
