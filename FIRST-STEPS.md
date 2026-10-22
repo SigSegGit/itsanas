@@ -309,8 +309,8 @@ services): a machine with no daemon never dials anybody, and the other side
 only dials the peers it knows -- give each the other's address with `peer add`
 when they do not find each other on the network.
 
-An account has **at most 5 live devices** at once. A sixth is refused when it
-registers, with the full ids of the five; withdraw one that is gone with
+An account has **at most 10 live devices** at once. One more is refused when
+it registers, with the full ids of the ten; withdraw one that is gone with
 `itsanas device forget <id>`, from any of your machines -- the refused one
 included -- which frees its slot.
 

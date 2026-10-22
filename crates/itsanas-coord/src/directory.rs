@@ -2492,12 +2492,21 @@ mod tests {
         .sign(owner)
     }
 
+    /// [`MAX_DEVICES_PER_ACCOUNT`] as a device seed: a full account holds
+    /// seeds 1 to `FULL`, and `FULL + 1` is the device one too many.
+    // The assert, at compile time, is what makes the cast lossless.
+    #[allow(clippy::cast_possible_truncation)]
+    const FULL: u8 = {
+        assert!(MAX_DEVICES_PER_ACCOUNT < 200, "device seeds are a u8");
+        MAX_DEVICES_PER_ACCOUNT as u8
+    };
+
     /// An account with exactly [`MAX_DEVICES_PER_ACCOUNT`] live devices,
-    /// seeds 1 to 5.
+    /// seeds 1 to [`FULL`].
     fn a_full_account(directory: &Directory) -> UserKeys {
         let owner = user(40);
         register(directory, "nicolas", &owner);
-        for seed in 1..=u8::try_from(MAX_DEVICES_PER_ACCOUNT).expect("small") {
+        for seed in 1..=FULL {
             directory
                 .claim(&signed(&owner, seed, NOW, false), NOW)
                 .expect("a device under the bound is admitted");
@@ -2505,19 +2514,20 @@ mod tests {
         owner
     }
 
-    /// THE DECISION (Nicolas, 2026-09-30): five live devices per account. A
-    /// sixth is refused on the coordinator, which is the half a rebuilt client
+    /// THE DECISION (Nicolas, 2026-09-30, raised from 5 to 10 on 2026-10-22):
+    /// [`MAX_DEVICES_PER_ACCOUNT`] live devices per account. One more is
+    /// refused on the coordinator, which is the half a rebuilt client
     /// cannot remove, and the refusal writes nothing: no claim, no index row
     /// that `rebuild_owner_index_if_missing` would later count. The message
     /// names the devices and the command, because it reaches clients older
     /// than the bound as plain text and is all they will show.
     #[test]
-    fn red_team_a_sixth_device_is_refused_and_nothing_is_written() {
+    fn red_team_one_device_too_many_is_refused_and_nothing_is_written() {
         let (_dir, directory) = directory();
         let owner = a_full_account(&directory);
         let before = directory.enrolled_counts().expect("counts");
 
-        let refused = directory.claim(&signed(&owner, 6, NOW + 1, false), NOW + 1);
+        let refused = directory.claim(&signed(&owner, FULL + 1, NOW + 1, false), NOW + 1);
 
         let Err(CoordError::TooManyDevices {
             live,
@@ -2525,9 +2535,12 @@ mod tests {
             devices,
         }) = refused
         else {
-            panic!("a sixth device was not refused as one too many: {refused:?}");
+            panic!("one device too many was not refused as one too many: {refused:?}");
         };
-        assert_eq!((live, limit), (5, MAX_DEVICES_PER_ACCOUNT));
+        assert_eq!(
+            (live, limit),
+            (MAX_DEVICES_PER_ACCOUNT, MAX_DEVICES_PER_ACCOUNT)
+        );
         assert!(
             devices.contains(&device(1).device_id().to_string()),
             "the refusal does not give the full ids an unenrolled machine needs: {devices}"
@@ -2544,7 +2557,7 @@ mod tests {
         );
         assert!(
             directory
-                .claim_for(device(6).device_id())
+                .claim_for(device(FULL + 1).device_id())
                 .expect("read")
                 .is_none(),
             "the refused device was written anyway, and the address book will list it"
@@ -2559,13 +2572,13 @@ mod tests {
                 .live_claims_of(owner.user_id())
                 .expect("live")
                 .len(),
-            5
+            MAX_DEVICES_PER_ACCOUNT
         );
     }
 
     /// `itsanas leave` is not a withdrawal: the departed device keeps its
-    /// claim, so it still holds one of the 5 slots and a sixth device is
-    /// still refused. Freeing the slot is `itsanas device forget <id>` from
+    /// claim, so it still holds one of the [`MAX_DEVICES_PER_ACCOUNT`] slots
+    /// and one device more is still refused. Freeing the slot is `itsanas device forget <id>` from
     /// another device. Pinned here because a coordinator that freed slots on
     /// departure would let a stolen keystore re-enrol after one `leave`, and
     /// one that does not must say so to the person at the limit.
@@ -2593,8 +2606,8 @@ mod tests {
         );
         assert!(
             matches!(
-                directory.claim(&signed(&owner, 6, NOW + 2, false), NOW + 2),
-                Err(CoordError::TooManyDevices { live: 5, .. })
+                directory.claim(&signed(&owner, FULL + 1, NOW + 2, false), NOW + 2),
+                Err(CoordError::TooManyDevices { live, .. }) if live == MAX_DEVICES_PER_ACCOUNT
             ),
             "a departure freed a slot: `leave` says the slot is kept until \
              `itsanas device forget`"
@@ -2614,11 +2627,11 @@ mod tests {
             .claim(&signed(&owner, 3, NOW + 1, true), NOW + 1)
             .expect("withdraw device 3");
         directory
-            .claim(&signed(&owner, 6, NOW + 2, false), NOW + 2)
+            .claim(&signed(&owner, FULL + 1, NOW + 2, false), NOW + 2)
             .expect("the freed slot admits a new device");
         assert!(
             matches!(
-                directory.claim(&signed(&owner, 7, NOW + 3, false), NOW + 3),
+                directory.claim(&signed(&owner, FULL + 2, NOW + 3, false), NOW + 3),
                 Err(CoordError::TooManyDevices { .. })
             ),
             "one withdrawal let two devices in"
@@ -2642,7 +2655,7 @@ mod tests {
                 .live_claims_of(owner.user_id())
                 .expect("live")
                 .len(),
-            5
+            MAX_DEVICES_PER_ACCOUNT
         );
     }
 
@@ -2663,7 +2676,7 @@ mod tests {
                 .live_claims_of(owner.user_id())
                 .expect("live")
                 .len(),
-            5
+            MAX_DEVICES_PER_ACCOUNT
         );
     }
 
@@ -2676,10 +2689,11 @@ mod tests {
         let owner = user(41);
         register(&directory, "nicolas", &owner);
         directory.bound_devices(false);
-        for seed in 1..=7 {
+        let above = FULL + 2;
+        for seed in 1..=above {
             directory
                 .claim(&signed(&owner, seed, NOW, false), NOW)
-                .expect("an older coordinator admitted seven");
+                .expect("an older coordinator admitted them all");
         }
         directory.bound_devices(true);
 
@@ -2688,22 +2702,22 @@ mod tests {
                 .live_claims_of(owner.user_id())
                 .expect("live")
                 .len(),
-            7
+            usize::from(above)
         );
         directory
             .claim(&signed(&owner, 4, NOW + 1, false), NOW + 1)
             .expect("a device of an account above the bound can still re-sign");
-        let refused = directory.claim(&signed(&owner, 8, NOW + 2, false), NOW + 2);
+        let refused = directory.claim(&signed(&owner, above + 1, NOW + 2, false), NOW + 2);
         assert!(
-            matches!(refused, Err(CoordError::TooManyDevices { live: 7, .. })),
-            "an eighth device was not refused with the real count: {refused:?}"
+            matches!(refused, Err(CoordError::TooManyDevices { live, .. }) if live == usize::from(above)),
+            "one more device was not refused with the real count: {refused:?}"
         );
         assert_eq!(
             directory
                 .live_claims_of(owner.user_id())
                 .expect("live")
                 .len(),
-            7
+            usize::from(above)
         );
     }
 
@@ -2716,7 +2730,7 @@ mod tests {
         let other = user(42);
         register(&directory, "mandarine", &other);
         directory
-            .claim(&signed(&other, 9, NOW, false), NOW)
+            .claim(&signed(&other, FULL + 1, NOW, false), NOW)
             .expect("another account's first device");
     }
 

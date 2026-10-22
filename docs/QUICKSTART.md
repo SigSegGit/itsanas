@@ -256,7 +256,7 @@ itsanas register
 ```
 
 `register` claims the username, enrols this device, and publishes its address.
-An account has at most 5 live devices: a sixth is refused, by the machine being
+An account has at most 10 live devices: an eleventh is refused, by the machine being
 enrolled and by the coordinator, until `itsanas device forget <id>` withdraws
 one and frees its slot. Registering again on a device already enrolled takes no
 slot.
