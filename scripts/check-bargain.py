@@ -56,7 +56,7 @@ The device bound, since 2026-09-30
 ----------------------------------
 
 The other number of the bargain a member is told: at most
-`MAX_DEVICES_PER_ACCOUNT` live devices per account (Nicolas: "5 max"). It is
+`MAX_DEVICES_PER_ACCOUNT` live devices per account (Nicolas: "5 max" on 2026-09-30, raised to 10 on 2026-10-22). It is
 here rather than in a gate of its own for the same reason the split is -- one
 constant in the code, restated in the files a new member reads -- and because
 a new `check-*` script needs a `ci.yml` step, which only Nicolas can add.
@@ -126,6 +126,12 @@ STATES_THE_DEVICE_BOUND = (
     'install/README.md',
 )
 
+# History that states the bound of its day and is not rewritten: the archive
+# is a record. File, then the exact phrase it may contain.
+OLD_BOUNDS_ALLOWED = {
+    ('docs/HANDOVER-ARCHIVE.md', 'at most 5 live devices'),
+}
+
 NUMBER_WORDS = {
     'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6,
     'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10, 'twelve': 12,
@@ -164,7 +170,7 @@ def check_device_bound(problems):
     for name, text in documents():
         for match in A_DEVICE_BOUND.finditer(text):
             stated = value(match)
-            if stated is None:
+            if stated is None or (name, match.group(0)) in OLD_BOUNDS_ALLOWED:
                 continue
             matched += 1
             if stated != bound:

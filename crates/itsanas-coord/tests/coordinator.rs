@@ -832,7 +832,7 @@ fn red_team_a_stranger_cannot_list_another_member_s_devices() {
     });
 }
 
-/// MIXED VERSIONS. A client older than the device bound sends a sixth claim
+/// MIXED VERSIONS. A client older than the device bound sends one claim too many
 /// as it always did and reads `Refused` as it always has; it must get there
 /// at once, with text that names the devices and the command, rather than a
 /// closed connection it would retry or a `Done` that lies.
@@ -845,14 +845,14 @@ fn red_team_a_client_older_than_the_bound_is_refused_in_words_on_the_wire() {
             claim_device(&mut first, &nicolas, &device(seed), false, NOW);
         }
 
-        let sixth = device(6);
-        let mut client = dial(address, &sixth, &nicolas);
+        let one_too_many = device(u8::try_from(MAX_DEVICES_PER_ACCOUNT + 1).expect("small"));
+        let mut client = dial(address, &one_too_many, &nicolas);
         let started = std::time::Instant::now();
         let answer = client
             .ask(&Request::Claim(Box::new(
                 NodeClaim {
                     owner: nicolas.user_id(),
-                    device: sixth.device_id(),
+                    device: one_too_many.device_id(),
                     pledged_bytes: 1 << 30,
                     issued_unix: NOW,
                     revoked: false,
@@ -862,7 +862,7 @@ fn red_team_a_client_older_than_the_bound_is_refused_in_words_on_the_wire() {
             .expect("the coordinator answers rather than hanging up");
 
         let Response::Refused(why) = answer else {
-            panic!("a sixth device was not refused: {answer:?}");
+            panic!("one device too many was not refused: {answer:?}");
         };
         assert!(
             why.contains(&device(1).device_id().to_string())
@@ -873,7 +873,12 @@ fn red_team_a_client_older_than_the_bound_is_refused_in_words_on_the_wire() {
             started.elapsed() < std::time::Duration::from_secs(5),
             "the refusal stalled"
         );
-        assert!(directory.claim_for(sixth.device_id()).unwrap().is_none());
+        assert!(
+            directory
+                .claim_for(one_too_many.device_id())
+                .unwrap()
+                .is_none()
+        );
     });
 }
 

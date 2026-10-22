@@ -395,9 +395,9 @@ mod tests {
         });
     }
 
-    /// THE ALL-PHONE ACCOUNT AT THE LIMIT. Five phones enrolled and never
-    /// heard from again (lost, reset); the sixth, the only one left, is not
-    /// enrolled and sees none of them. Joining answers with the five ids and
+    /// THE ALL-PHONE ACCOUNT AT THE LIMIT. `LIMIT` phones enrolled and never
+    /// heard from again (lost, reset); one more, the only one left, is not
+    /// enrolled and sees none of them. Joining answers with their ids and
     /// a sentence naming the screen, not a command; withdrawing one of those
     /// ids works from the unenrolled phone, and joining again takes the slot.
     /// Sabotage: let `register` return the refusal as an error (no ids, a CLI
@@ -531,7 +531,9 @@ mod tests {
             directory.bound_devices(false);
             let dir = tempfile::tempdir().expect("temp dir");
             let mut phrase: Option<String> = None;
-            for index in 0..10 {
+            // Twice the limit: more than the coordinator names in one refusal
+            // (the limit plus three), whatever the limit is.
+            for index in 0..2 * LIMIT {
                 let (node, said) = phone(
                     &dir.path().join(format!("p{index}")),
                     address,
@@ -543,13 +545,13 @@ mod tests {
             }
             directory.bound_devices(true);
 
-            let (eleventh, _) = phone(
-                &dir.path().join("eleventh"),
+            let (extra, _) = phone(
+                &dir.path().join("extra"),
                 address,
                 "nicolas",
                 phrase.as_deref(),
             );
-            let answer = register(&eleventh, None, NOW + 1).expect("register");
+            let answer = register(&extra, None, NOW + 1).expect("register");
             assert_eq!(answer["atCap"], true, "{answer}");
             assert_eq!(answer["partial"], true, "{answer}");
             let said = answer["said"].as_str().expect("said");

@@ -308,9 +308,9 @@ impl ClaimBook {
     /// # Errors
     ///
     /// When it does not decode, is not signed by the account it names, names
-    /// another device than the one TLS proved, is a withdrawal, would be a
-    /// sixth device of its account, or the book is full of accounts that hold
-    /// something here.
+    /// another device than the one TLS proved, is a withdrawal, would be one
+    /// device more than [`MAX_DEVICES_PER_ACCOUNT`] for its account, or the
+    /// book is full of accounts that hold something here.
     pub fn take(&self, caller: DeviceId, bytes: &[u8], vault: &Vault) -> Result<(), String> {
         let signed: SignedClaim =
             postcard::from_bytes(bytes).map_err(|_| "not a claim".to_owned())?;
@@ -346,7 +346,9 @@ impl ClaimBook {
                     .filter(|held| held.owner == claim.owner)
                     .count();
                 if siblings >= MAX_DEVICES_PER_ACCOUNT {
-                    return Err("this account already has its five devices here".to_owned());
+                    return Err(format!(
+                        "this account already has its {MAX_DEVICES_PER_ACCOUNT} devices here"
+                    ));
                 }
                 if book.len() >= self.capacity {
                     let empty = book.iter().find_map(|(device, held)| {
@@ -1546,7 +1548,7 @@ mod tests {
     }
 
     #[test]
-    fn red_team_a_withdrawn_device_is_forgotten_and_a_sixth_is_refused() {
+    fn red_team_a_withdrawn_device_is_forgotten_and_one_too_many_is_refused() {
         let host = host();
         let alice = account(0xA1);
         present(&host, &alice, 0x11, 7_000);
@@ -1559,14 +1561,15 @@ mod tests {
             admits(&host, device(0x11), alice.user_id(), 1).is_err(),
             "a device its account withdrew still stores on the strength of its old claim"
         );
-        for seed in 0x20..0x25u8 {
+        let full = 0x20 + u8::try_from(MAX_DEVICES_PER_ACCOUNT).expect("small");
+        for seed in 0x20..full {
             present(&host, &alice, seed, 1);
         }
         assert!(
             host.book
-                .take(device(0x25), &claim(&alice, 0x25, 1, false), &host.vault)
+                .take(device(full), &claim(&alice, full, 1, false), &host.vault)
                 .is_err(),
-            "a sixth device added its pledge to the account's"
+            "one device too many added its pledge to the account's"
         );
     }
 

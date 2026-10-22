@@ -1,9 +1,10 @@
-//! Five live devices per account, from the machine being enrolled.
+//! At most `MAX_DEVICES_PER_ACCOUNT` live devices per account, from the
+//! machine being enrolled. (The file name is from when the bound was five.)
 //!
-//! Decided by Nicolas on 2026-09-30. The coordinator's half is proved in
+//! Decided by Nicolas on 2026-09-30 at 5, raised to 10 on 2026-10-22. The coordinator's half is proved in
 //! `itsanas-coord` (`directory.rs`, `tests/coordinator.rs`); this proves the
 //! client's half is wired: a node refuses, before it signs anything, to enrol
-//! a sixth device, and names the five to choose from. The coordinator here
+//! one device too many, and names the ones to choose from. The coordinator here
 //! plays one older than the bound (`Directory::bound_devices(false)`), so
 //! that what is refused is refused by the client and not by the other side.
 
@@ -68,8 +69,8 @@ fn machine(
     (node, phrase)
 }
 
-/// Five machines of one account, enrolled, and announced when `announced`, so
-/// that a sixth that is not enrolled yet can see them (`ClaimedPeers`).
+/// `MAX_DEVICES_PER_ACCOUNT` machines of one account, enrolled, and announced
+/// when `announced`, so that one more that is not enrolled yet can see them (`ClaimedPeers`).
 /// Unannounced, they are machines lost long ago: only the coordinator's own
 /// count knows them.
 fn a_full_account(
@@ -93,22 +94,22 @@ fn a_full_account(
         phrase = Some(said);
         nodes.push(node);
     }
-    (nodes, phrase.expect("five machines"))
+    (nodes, phrase.expect("at least one machine"))
 }
 
-/// THE CLIENT'S HALF. Against a coordinator that would take a sixth, the
-/// machine being enrolled refuses on its own, sends no claim, and says which
-/// five devices exist and how to free a slot.
+/// THE CLIENT'S HALF. Against a coordinator that would take one device too
+/// many, the machine being enrolled refuses on its own, sends no claim, and
+/// says which devices exist and how to free a slot.
 #[test]
-fn red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_would_not() {
+fn red_team_one_machine_too_many_refuses_to_enrol_itself_even_where_the_coordinator_would_not() {
     with_directory(|address, directory| {
         directory.bound_devices(false);
         let dir = tempfile::tempdir().expect("temp dir");
         let (nodes, phrase) = a_full_account(dir.path(), address, true);
 
-        let (sixth, _) = machine(&dir.path().join("sixth"), address, Some(&phrase));
-        let refused =
-            coordinator::register_with(&sixth, None, NOW).expect_err("a sixth device was enrolled");
+        let (extra, _) = machine(&dir.path().join("extra"), address, Some(&phrase));
+        let refused = coordinator::register_with(&extra, None, NOW)
+            .expect_err("one device too many was enrolled");
 
         let text = refused.to_string();
         assert!(
@@ -119,11 +120,11 @@ fn red_team_a_sixth_machine_refuses_to_enrol_itself_even_where_the_coordinator_w
             nodes
                 .iter()
                 .all(|node| text.contains(&node.store.device_id().to_string())),
-            "the refusal does not name the five devices to choose from: {text}"
+            "the refusal does not name every device to choose from: {text}"
         );
         assert!(
             directory
-                .claim_for(sixth.store.device_id())
+                .claim_for(extra.store.device_id())
                 .expect("read")
                 .is_none(),
             "the client sent the claim anyway"
@@ -154,7 +155,7 @@ fn red_team_a_machine_of_a_full_account_can_register_again() {
     });
 }
 
-/// THE LOCKOUT `itsanas-redteam` found. All five machines of a full
+/// THE LOCKOUT `itsanas-redteam` found. All the machines of a full
 /// account are lost or reinstalled; the new machine is the only one left and
 /// is not enrolled. It is refused a slot, and the refusal must carry ids it
 /// can act on from where it stands: a withdrawal by full id needs no listing,
@@ -172,7 +173,7 @@ fn red_team_a_new_machine_of_a_full_account_whose_machines_are_all_lost_can_free
 
         let (fresh, _) = machine(&dir.path().join("fresh"), address, Some(&phrase));
         let refused = coordinator::register_with(&fresh, None, NOW + 1)
-            .expect_err("a sixth device was enrolled")
+            .expect_err("one device too many was enrolled")
             .to_string();
         let named = refused
             .split_whitespace()
@@ -195,13 +196,19 @@ fn red_team_a_new_machine_of_a_full_account_whose_machines_are_all_lost_can_free
 #[test]
 fn room_is_counted_in_live_devices_and_a_device_already_live_needs_none() {
     let device = |seed: u8| DeviceKeys::from_seed(&SecretBytes::new([seed; 32])).device_id();
-    let live: Vec<_> = (1..=4).map(|seed| (device(seed), String::new())).collect();
-    coordinator::room_for(device(9), &live).expect("four devices leave room for a fifth");
+    let bound = u8::try_from(MAX_DEVICES_PER_ACCOUNT).expect("small");
+    let stranger = device(bound + 1);
+    let live: Vec<_> = (1..bound)
+        .map(|seed| (device(seed), String::new()))
+        .collect();
+    coordinator::room_for(stranger, &live).expect("one under the bound leaves room for one more");
 
-    let full: Vec<_> = (1..=5).map(|seed| (device(seed), String::new())).collect();
+    let full: Vec<_> = (1..=bound)
+        .map(|seed| (device(seed), String::new()))
+        .collect();
     assert!(
-        coordinator::room_for(device(9), &full).is_err(),
-        "a sixth was given room"
+        coordinator::room_for(stranger, &full).is_err(),
+        "one device too many was given room"
     );
     coordinator::room_for(device(3), &full).expect("a live device re-signing takes no slot");
 }

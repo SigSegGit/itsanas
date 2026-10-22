@@ -665,9 +665,9 @@ machine you own keeps dialling it. The short id from the log is enough:
 itsanas device forget 393f7d4acf72
 ```
 
-(`itsanas device withdraw` is the same command.) An account has at most 5 live
-devices; a withdrawn one frees its slot, and a sixth is refused at `register`
-with the full ids of the five until one is withdrawn -- from any machine of
+(`itsanas device withdraw` is the same command.) An account has at most 10 live
+devices; a withdrawn one frees its slot, and an eleventh is refused at `register`
+with the full ids of the ten until one is withdrawn -- from any machine of
 the account, the refused one included, since a full id needs no listing. An account enrolled above
 that before the limit existed keeps every device; it just cannot add one.
 
