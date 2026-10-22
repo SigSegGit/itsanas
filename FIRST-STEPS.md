@@ -226,7 +226,10 @@ later"). When the disk comes back it says "hosting again" and carries on by itse
 daemon is running, the command hands the job to it: the daemon does it between
 two rounds, copies, checks the copy, switches and carries on from the new
 place; no passphrase is asked. The old directory stays for you to delete.
-Paths must be absolute and on one line.
+Paths must be absolute and on one line. Before copying anything, the move is
+refused if the new disk has less free room than the vault plus a tenth; the
+message says how much it needs. A copy that fails leaves no half-copied folder
+behind on the new disk.
 
 **A copy in a drawer.** `itsanas backup export /media/usb/itsanas` (or
 Settings, Disks) writes your whole account there, sealed as hosts hold it;
@@ -244,6 +247,14 @@ home next to itself, and a `README.txt`. That copy is a client only: it hosts
 nobody. Its keys are sealed by the passphrase alone, so anyone holding the
 drive and guessing the passphrase holds your account; choose a long one and
 keep the drive with you.
+
+**On a USB key, format it exFAT.** Moving the vault, `backup export` and
+`portable` ask the system what the target drive is formatted as, and say so in
+their result when it limits you. NTFS: a Mac reads the drive but cannot write to
+it. FAT32 (most keys of 32 GB or less ship that way): no file over 4 GiB, and a
+backup or vault can grow past that. exFAT works on Windows, Mac and Linux; copy
+what the key holds elsewhere before reformatting it. If the system cannot tell,
+nothing is said.
 
 ### 3. Point it at a folder, and run it
 

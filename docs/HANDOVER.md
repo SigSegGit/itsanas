@@ -20,6 +20,12 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-22: drive formats and room.** `drives.rs` reads the target drive's
+format; `vault --move`, `backup export` and `portable` append a warning for NTFS
+(Mac cannot write) and FAT32 (4 GiB file limit). A vault move is refused before
+copying unless the target has the vault's size plus 10% free, and a failed copy
+removes its staging folder.
+
 **2026-10-20: keyed chunking (§8 3c).** Every store now cuts files with the
 paper's Chk-PHTE under keys derived from the account (see §8 3c and ROADMAP's
 fingerprint entry for the ceilings). A host with a copy of a file can no

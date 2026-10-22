@@ -126,13 +126,17 @@ pub fn make(dir: &Path) -> Result<String> {
     let path = root.join("README.txt");
     std::fs::write(&path, readme(launcher)).map_err(io(&path))?;
 
-    Ok(format!(
+    let mut said = format!(
         "portable copy for {} written to {}; start it with {launcher} there. Its keys will be \
          sealed by your passphrase only, so choose a long one, and it syncs your files without \
          hosting anybody's",
         system(),
         root.display()
-    ))
+    );
+    if let Some(warning) = crate::drives::warning_for(&root, "the portable copy") {
+        said = format!("{said}. Note: {warning}");
+    }
+    Ok(said)
 }
 
 #[cfg(test)]
