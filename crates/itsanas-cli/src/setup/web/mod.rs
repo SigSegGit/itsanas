@@ -78,6 +78,70 @@ const I18N_JS: &str = include_str!("i18n.js");
 /// The project's icon (docs/assets), in the header and as the favicon.
 const ICON_PNG: &[u8] = include_bytes!("../../../../../docs/assets/icon.png");
 
+/// The languages the page speaks: English, written in the page, and those of
+/// `i18n.js`.
+const LANGUAGES: [&str; 2] = ["en", "fr"];
+/// In a node's home, the language chosen in the page's list. Each page is a
+/// new port, so a new origin with empty browser storage: a choice kept there
+/// was gone at the next `itsanas settings` (hand test, 2026-10-22: French
+/// chosen in setup, Settings in English). Kept beside the node, the next page
+/// and the tray read the same word.
+pub(crate) const LANGUAGE_FILE: &str = "language";
+
+/// The language chosen in a page of this node, when one was.
+pub(crate) fn saved_language(home: &Path) -> Option<&'static str> {
+    let text = std::fs::read_to_string(home.join(LANGUAGE_FILE)).ok()?;
+    let word = text.trim();
+    LANGUAGES.into_iter().find(|language| *language == word)
+}
+
+/// Keep `language` for the next page, once the node's home exists: before the
+/// first step of a setup it does not, and the choice waits in memory until the
+/// run ends.
+fn save_language(home: &Path, language: &str) -> bool {
+    home.is_dir() && std::fs::write(home.join(LANGUAGE_FILE), format!("{language}\n")).is_ok()
+}
+
+/// The language of the page a browser asks for in `Accept-Language`: the one
+/// it prefers most (by `q`, then by order) among those the page speaks, by
+/// primary tag, so `fr-CA` is French. `None` when it asks for none of them.
+pub(crate) fn language_of(accept: &str) -> Option<&'static str> {
+    let mut best: Option<(u16, &'static str)> = None;
+    for item in accept.split(',') {
+        let mut parts = item.split(';');
+        let tag = parts.next().unwrap_or("").trim();
+        let primary = tag.split('-').next().unwrap_or("").to_ascii_lowercase();
+        let quality = parts
+            .find_map(|param| param.trim().strip_prefix("q="))
+            .map_or(Some(1000), quality_of);
+        let (Some(quality), Some(language)) = (
+            quality,
+            LANGUAGES.into_iter().find(|language| *language == primary),
+        ) else {
+            continue;
+        };
+        if quality > 0 && best.is_none_or(|(had, _)| quality > had) {
+            best = Some((quality, language));
+        }
+    }
+    best.map(|(_, language)| language)
+}
+
+/// A `q` value in thousandths, without a float: `1`, `0.8`, `0.125`.
+fn quality_of(text: &str) -> Option<u16> {
+    let text = text.trim();
+    let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
+    if fraction.len() > 3 || !fraction.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let thousandths = format!("{fraction:0<3}").parse::<u16>().ok()?;
+    match whole {
+        "0" => Some(thousandths),
+        "1" if thousandths == 0 => Some(1000),
+        _ => None,
+    }
+}
+
 /// What the page is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Mode {
@@ -192,6 +256,9 @@ struct Context {
     last_action: Mutex<Instant>,
     quit: AtomicBool,
     live: AtomicUsize,
+    /// The language chosen in the page's list: read from the node's home,
+    /// set by POST /api/language.
+    language: Mutex<Option<&'static str>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -243,6 +310,7 @@ impl Server {
                 last_action: Mutex::new(Instant::now()),
                 quit: AtomicBool::new(false),
                 live: AtomicUsize::new(0),
+                language: Mutex::new(saved_language(home)),
             }),
         })
     }
@@ -422,7 +490,9 @@ fn route(ctx: &Arc<Context>, request: &Request) -> Response {
         );
     }
     match (request.method.as_str(), request.path.as_str()) {
-        ("GET", "/" | "/index.html") => Response::new(200, "text/html; charset=utf-8", INDEX_HTML),
+        ("GET", "/" | "/index.html") => {
+            Response::new(200, "text/html; charset=utf-8", index_html(ctx, request))
+        }
         ("GET", "/app.css") => Response::new(200, "text/css; charset=utf-8", APP_CSS),
         ("GET", "/app.js") => Response::new(200, "text/javascript; charset=utf-8", APP_JS),
         ("GET", "/i18n.js") => Response::new(200, "text/javascript; charset=utf-8", I18N_JS),
@@ -431,6 +501,40 @@ fn route(ctx: &Arc<Context>, request: &Request) -> Response {
         ("GET", _) => Response::refuse(404, "no such page"),
         _ => Response::refuse(405, "not here"),
     }
+}
+
+/// The page, in the language chosen before, else the browser's: said in
+/// `<html lang>` from the first byte, so nothing shows in English first and
+/// the page needs no request to know it.
+fn index_html(ctx: &Context, request: &Request) -> String {
+    let chosen = *lock(&ctx.language);
+    match chosen.or_else(|| request.header("accept-language").and_then(language_of)) {
+        Some(language) => INDEX_HTML.replacen(
+            "<html lang=\"en\">",
+            &format!("<html lang=\"{language}\" data-lang=\"{language}\">"),
+            1,
+        ),
+        None => INDEX_HTML.to_owned(),
+    }
+}
+
+/// The language chosen in the page's list, kept for the next page.
+fn choose_language(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let Some(language) = field(&form, "lang")
+        .and_then(|asked| LANGUAGES.into_iter().find(|language| *language == asked))
+    else {
+        return Response::refuse(400, "this page speaks English (en) and French (fr)");
+    };
+    *lock(&ctx.language) = Some(language);
+    let kept = save_language(&ctx.home, language);
+    ok_json(object(&[
+        ("language", quote(language)),
+        ("kept", kept.to_string()),
+    ]))
 }
 
 fn api(ctx: &Arc<Context>, request: &Request) -> Response {
@@ -461,6 +565,7 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/disk") if ctx.mode == Mode::Settings => disk_job(ctx, request),
         ("POST", "/api/name") if ctx.mode == Mode::Setup => check_name(ctx, request),
         ("POST", "/api/another") if ctx.mode == Mode::Setup => another_account(ctx, request),
+        ("POST", "/api/language") => choose_language(ctx, request),
         ("POST", "/api/free") => free_space(ctx, request),
         ("POST", "/api/pick") => pick(request),
         ("POST", "/api/open") => open_folder(ctx, request, false),
@@ -828,6 +933,10 @@ fn run_engine(ctx: &Context, answers: Answers) {
         }
         Err(error) => Err(error.to_string()),
     };
+    // A language chosen before the home existed is kept now that it does.
+    if let Some(language) = *lock(&ctx.language) {
+        save_language(&ctx.home, language);
+    }
     ctx.finish(outcome);
 }
 

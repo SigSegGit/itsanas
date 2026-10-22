@@ -15,6 +15,8 @@
   --warn-bg: #fff4d6;
   --warn-text: #5a4100;
   --focus: #e8a400;
+  /* Settings: the width of the labels' column beside their controls. */
+  --label: 13rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -230,7 +232,7 @@ code { font-family: ui-monospace, Consolas, monospace; }
   #progress { display: flex; flex-wrap: wrap; gap: 4px; }
   #progress li { padding: 4px 8px; font-size: 0.9rem; }
   #progress li:not([aria-current="step"]) { display: none; }
-  button.primary { width: 100%; }
+  .actions button.primary { width: 100%; }
 }
 
 .lang { margin-left: auto; }
@@ -244,3 +246,63 @@ code { font-family: ui-monospace, Consolas, monospace; }
 .slider input[type="number"] { flex: 0 0 7em; }
 .earns { font-weight: 600; }
 details { margin-top: 12px; }
+
+/* The steps' list is hidden in Settings and on the closed page: the page
+   then takes the whole width, not the list's 260 px column (hand test,
+   2026-10-22: Settings squeezed into it on a 1440 px screen). */
+nav[hidden] + main { grid-column: 1 / -1; }
+
+/* ---- Settings: one readable column of cards, labels beside controls ---- */
+.settings-mode .layout { max-width: 880px; }
+.settings-mode main { background: transparent; border: 0; padding: 0; }
+.settings-mode h1 { margin: 4px 0 16px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin: 0 0 16px;
+}
+.card > h2 { margin: 0 0 4px; }
+.card > .help { margin: 0 0 8px; }
+.status-card p { margin: 0; }
+.status-card p + p:not(:empty) { margin-top: 8px; }
+
+.field {
+  display: grid;
+  grid-template-columns: var(--label) minmax(0, 1fr);
+  column-gap: 20px;
+  row-gap: 6px;
+  align-items: start;
+  margin: 18px 0 0;
+}
+.field > * { grid-column: 2; margin: 0; }
+.field > label:not(.choice),
+.field > .label { grid-column: 1; margin: 0; font-weight: 600; }
+/* Level with the text inside the control beside it. */
+.field > label:not(.choice) { padding-top: 11px; }
+.field > .value { overflow-wrap: anywhere; }
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: center;
+}
+.controls input:not([type="checkbox"]):not([type="radio"]) {
+  flex: 1 1 12rem;
+  min-width: 0;
+  max-width: none;
+}
+.controls input.short:not([type="checkbox"]):not([type="radio"]) { flex: 0 0 8rem; }
+.card .said:not(:empty) { margin: 16px 0 0; }
+
+@media (max-width: 640px) {
+  .card { padding: 16px; }
+  .field { grid-template-columns: minmax(0, 1fr); }
+  .field > *,
+  .field > label:not(.choice),
+  .field > .label { grid-column: 1; }
+  .field > label:not(.choice) { padding-top: 0; }
+}

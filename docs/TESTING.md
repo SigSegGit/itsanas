@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1307 test functions across 39 binaries, 14 of them
+**Last updated: 2026-10-22 — 1313 test functions across 39 binaries, 14 of them
 `#[ignore]`d, plus 2 doctests. 382 are red-team tests.**
 
-**1191 of the 1307 tests have an entry of their own on this page** — an *entry*,
+**1197 of the 1313 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 166 |
+| `itsanas-cli` unit | 172 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 140 |
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (166)
+# `itsanas-cli` — unit tests (172)
 
 ## `bench` — measuring this machine (4)
 
@@ -1299,12 +1299,16 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page (21)
+## `web` — the local setup and Settings page (27)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
 port and a 128-bit token, std::net only. The tests run a real server
-in-process with stand-in secret windows; no real browser is launched.
+in-process with stand-in secret windows; no real browser is launched. The page
+speaks the language chosen in its list (kept in `<home>/language`, since each
+page is a new port and so a new, empty browser storage), else the browser's
+`Accept-Language`; the layout was checked by hand with Playwright at 1440, 390
+and 375 px (no horizontal scroll), which CI does not run.
 
 | Test | What it proves |
 | --- | --- |
@@ -1327,7 +1331,13 @@ in-process with stand-in secret windows; no real browser is launched.
 | `the_page_proposes_the_built_in_coordinator_and_the_code_s_split` | /api/state proposes `DEFAULT_COORDINATOR` and the split of `Split::DEFAULT`, so the space page's "you get" is the code's bargain. |
 | **`red_team_a_chosen_path_never_lands_inside_a_script`** | On the three systems the folder chooser gets its start folder through an environment variable, never inside its script, so a folder name cannot run as code. Sabotaged (path in an argument): red. |
 | `a_gtk_bookmark_escapes_what_a_url_cannot_hold` | A space or an accent in the folder is percent-encoded in the GTK bookmark line. |
-| `every_text_of_the_page_has_a_french_translation` | Every text between tags, placeholder, label and `t('...')` string of the page has an entry in `i18n.js`. Sabotaged (one entry removed): red. |
+| `every_text_of_the_page_has_a_french_translation` | Every text between tags, placeholder and label of the page, and every `t('...')`, `N('...')` (a table's text, translated where shown) and `say('...')` string of app.js, is a key of the French table as i18n.js is parsed entry by entry (no longer a substring search, which a French value could satisfy). Sabotaged (one entry removed): red. |
+| `the_french_table_has_one_entry_per_english_text_and_none_empty` | i18n.js parses whole (an unreadable line fails, it is not skipped), holds over a hundred entries, no English key twice (the browser would silently keep the last) and no empty French value. Sabotaged (a key repeated): red. |
+| `no_text_set_by_the_script_skips_the_translation` | app.js sets no visible text from an English literal (`textContent = '...'`, `confirm('...')`) nor shows the server's `said` raw: the Settings sentences that stayed English in the hand test of 2026-10-22. Sabotaged (`reply.said` shown raw): red. |
+| `the_page_speaks_the_browser_s_language_until_one_is_chosen` | `language_of` picks, from `Accept-Language`, the most preferred language the page speaks by primary tag and `q` (French for `fr-FR`, `FR-ca`, `de,fr;q=0.8`; English for `en-GB,…,fr;q=0.8`; none for `de, *` or a bogus `q`), and GET / then starts `<html lang="fr" data-lang="fr">`; with no header the page is left to `navigator.language`. Sabotaged (no language accepted): red. |
+| `a_language_chosen_in_the_page_is_kept_in_the_node_s_home_and_wins_over_the_browser` | POST /api/language needs the key (403), refuses a language the page does not speak (400), and writes `fr` to `<home>/language`; the next server, for a browser asking English, serves French. During a setup, before the home exists, nothing is created for it (kept at the run's end). Sabotaged (choice not written): red. |
+| `what_settings_hears_from_the_server_has_a_french_translation` | On a node no daemon runs, every line Settings is told by pause (twice), resume (twice), sync now (paused and not) and interval auto, and the Disks refusal, is a key of the French table, so `said()` shows it in French. Sabotaged (one sentence's entry removed): red. |
+| `settings_is_one_column_of_cards_with_a_slot_for_the_usb_copy` | With the steps' list hidden, `main` spans the whole grid (Settings fell into the list's 260 px column on a 1440 px screen); every Settings heading is in a card of its own; the hidden `#st-usb` slot for "Copy this account to a USB key" is there for the export to be built into. Sabotaged (the grid rule removed): red. |
 | `the_disks_section_hands_work_to_the_daemon_and_writes_a_portable_copy_itself` | Settings' Disks section: POST /api/disk for a vault move, a backup or a restore writes `<home>/job` for the running daemon and is refused with 409 when no daemon runs; a portable copy is written by the page itself; the job's result shows in /api/state `settings.job` and `settings.vault`. Sabotaged (409 check dropped): red. |
 
 ## `jobs` — disk work handed to the running daemon (3)
