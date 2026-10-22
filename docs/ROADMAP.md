@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1302 test functions, 14 of them `#[ignore]`d into the slow job, and 381 of
+**1307 test functions, 14 of them `#[ignore]`d into the slow job, and 382 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1956,6 +1956,21 @@ reach the peer protocol, so a withdrawn machine on the same LAN still syncs.
 The escrow container carries the lodging machine's device seed beside the
 master secret — no extra exposure, since the master secret already outranks
 it, but the restore discards it and it need not be there.
+
+### A local change goes out in seconds; a portable copy rounds every minute — 2026-10-22
+
+Hand test: a file written on the laptop reached a portable key five minutes
+later, the key's own round. A change the daemon takes in from its folder now
+makes the next round due 5 s later (`SETTLE`, `control.rs`), never sooner than
+30 s (`MIN_INTERVAL`) after the last round, so a folder rewritten every second
+costs a round per half minute at most; only files taken in or deleted here
+count, not what a peer's push wrote out. A portable copy's base interval is
+60 s instead of 300 s (`PORTABLE_INTERVAL`, `daemon.rs`), and its banner says
+`portable  yes` on stdout. Still open: the daemon publishes the port it really
+listens on, but `register` announces `config.listen`, and a peer reads the
+coordinator only at its hourly publication (`PUBLISH_EVERY`), so a peer that
+read before the key's daemon started dials the registered port for up to an
+hour.
 
 ### At most 10 live devices per account — 2026-09-30, raised 2026-10-22
 

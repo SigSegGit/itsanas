@@ -633,7 +633,7 @@ fn red_team_a_portable_copy_keeps_its_home_on_the_drive_and_hosts_nobody() {
         std::thread::sleep(Duration::from_millis(200));
     }
     assert!(
-        daemon.log().contains("a portable copy"),
+        daemon.log().contains("  portable  yes"),
         "the portable daemon did not say it hosts nobody\n--- daemon log\n{}",
         daemon.log()
     );
