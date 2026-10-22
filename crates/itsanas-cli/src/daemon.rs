@@ -218,6 +218,39 @@ pub(crate) fn resume_after_vault_pause() -> bool {
 
 /// Set by the daily update look when it installed a new program: the daemon
 /// then exits with a failure code so its service starts the new one.
+/// Set when this run stopped because `itsanas update` asked for a restart
+/// (`lifecycle.rs`): `main` then exits with the code that restarts it.
+static RESTART_ASKED: AtomicBool = AtomicBool::new(false);
+
+/// Whether the run that just ended was asked to restart.
+pub(crate) fn restart_asked() -> bool {
+    RESTART_ASKED.load(Ordering::SeqCst)
+}
+
+/// A stop or restart asked through the home (`lifecycle.rs`), acted on
+/// between two rounds.
+fn lifecycle_request(node: &Node, shutdown: &AtomicBool) {
+    match crate::lifecycle::take(&node.home) {
+        Some(crate::lifecycle::Request::Stop) => {
+            eprintln!("itsanas: asked to stop; stopping");
+            shutdown.store(true, Ordering::SeqCst);
+        }
+        Some(crate::lifecycle::Request::Restart) => {
+            eprintln!("itsanas: asked to restart on the program now installed; restarting");
+            RESTART_ASKED.store(true, Ordering::SeqCst);
+            shutdown.store(true, Ordering::SeqCst);
+        }
+        None => {}
+    }
+}
+
+/// What is asked through the home between two rounds: a disk job, then a
+/// stop or a restart.
+fn between_rounds(node: &Node, shutdown: &AtomicBool) {
+    run_disk_job(node, shutdown);
+    lifecycle_request(node, shutdown);
+}
+
 /// A vault move asked of this run (`jobs.rs`): done by `start_daemon` once
 /// the run has ended and the node is closed, then the daemon starts again.
 static PENDING_MOVE: std::sync::Mutex<Option<crate::jobs::Job>> = std::sync::Mutex::new(None);
@@ -963,7 +996,7 @@ fn sync_loop(
 
         let next_sync = last_round.map_or_else(Instant::now, |last| last + interval);
         wait_for_work(folder.as_ref(), next_sync, shutdown);
-        run_disk_job(node, shutdown);
+        between_rounds(node, shutdown);
         // Looked at every couple of seconds, not once a round: a disk plugged
         // back in should be hosting again in seconds, not in an hour.
         // And the other way: unplugged, this run stops at once and the next

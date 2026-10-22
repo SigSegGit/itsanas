@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1295 test functions, 13 of them `#[ignore]`d into the slow job, and 377 of
+**1301 test functions, 14 of them `#[ignore]`d into the slow job, and 380 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1465,6 +1465,19 @@ Major step: Rodin on the plan before the code.
 ### Next, asked by Nicolas — 2026-10-08
 
 - ✅ **The vault on another disk** (2026-10-13, HANDOVER §8 0s): `itsanas vault PATH`; a dropped mount is refused, never recreated empty.
+- ⬜ **Export an account to a new key from the tray icon, on every system**
+  (Nicolas, 2026-10-22). From the tray (Windows, macOS menu bar, Linux), an item
+  "Put this account on a USB key..." that picks a drive, checks its format and
+  room (`drives.rs`), writes the all-systems portable copy (`portable.rs`) and
+  enrols it as a new device of the account. What exists: `itsanas portable DIR`
+  and Settings > Disks write the copy for every system (proven by
+  `red_team_a_portable_copy_starts_on_every_system_and_hosts_nobody`); `drives.rs`
+  reads format and room; no tray has the item. What is missing: the item in the
+  three trays, and the **open design question**, enrolling a device without
+  retyping the 24 words. Login today needs the 24 words or `--from` coordinator
+  escrow; candidates are a one-time code from an existing device, or the sealed
+  recovery container. Until that is decided the copy is a client that still
+  needs the words to sign in.
 - ⬜ **The MCP server** Nicolas is creating on GitHub: to be improved with him
   once it is in the repository (scope to be written down then).
 - 🟨 **Setup, reliable with several accounts on one machine** (2026-10-12: the page offers "set up another account" under a new instance name, never an existing home; done steps hide their fields). Seen on Windows

@@ -333,6 +333,55 @@ impl<'a> Updater<'a> {
             .map_err(|_| not_ours(format!("its bytes are not release {}'s", self.running)))
     }
 
+    /// Every binary of this program's own signed release, each checked
+    /// against the manifest, written into `dir` under its release name
+    /// (`itsanas-<target>[.exe]`). What `itsanas portable` puts on a key, so
+    /// it starts on any computer, not only on the kind that made it.
+    ///
+    /// # Errors
+    ///
+    /// No pinned key, no such release, a binary that is not the signed one
+    /// (nothing of it is left in `dir`), or the disk.
+    pub(crate) fn release_binaries(&self, dir: &Path) -> Result<Vec<String>> {
+        let Some(trust) = &self.trust else {
+            return Err(refused(&ReleaseError::NoKeyPinned));
+        };
+        let (bytes, signature) = self.fetch_manifest(&format!("download/v{}", self.running))?;
+        let manifest =
+            itsanas_release::verify_signed(&bytes, &signature, trust).map_err(|e| refused(&e))?;
+        std::fs::create_dir_all(dir).map_err(io_error(dir))?;
+        let mut names = Vec::new();
+        for entry in &manifest.files {
+            if !safe_name(&entry.name) {
+                return Err(refused(&ReleaseError::Damaged(format!(
+                    "binary name {:?}",
+                    entry.name
+                ))));
+            }
+            let partial = dir.join(format!("{}.part", entry.name));
+            let checked = self
+                .fetch
+                .get(
+                    &format!("download/v{}/{}", manifest.version, entry.name),
+                    &partial,
+                    entry.size.saturating_add(1),
+                )
+                .map_err(CliError::Usage)
+                .and_then(|()| entry.check_file(&partial).map_err(|e| refused(&e)))
+                .and_then(|()| make_executable(&partial))
+                .and_then(|()| {
+                    let final_path = dir.join(&entry.name);
+                    std::fs::rename(&partial, &final_path).map_err(io_error(&final_path))
+                });
+            if let Err(error) = checked {
+                let _ = std::fs::remove_file(&partial);
+                return Err(error);
+            }
+            names.push(entry.name.clone());
+        }
+        Ok(names)
+    }
+
     /// Download `manifest`'s binary for this target, check it, and put it in
     /// place of the running program. The running program is untouched unless
     /// every check passed.
@@ -359,13 +408,7 @@ impl<'a> Updater<'a> {
         })?;
         // The name goes into a URL path: a signed manifest is Nicolas's, but a
         // name that could climb out of the release is refused anyway.
-        if entry.name.is_empty()
-            || !entry
-                .name
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
-            || entry.name.starts_with('.')
-        {
+        if !safe_name(&entry.name) {
             return Err(refused(&ReleaseError::Damaged(format!(
                 "binary name {:?}",
                 entry.name
@@ -396,6 +439,16 @@ impl<'a> Updater<'a> {
         let _ = std::fs::remove_dir(&scratch);
         checked.map(|()| manifest.version)
     }
+}
+
+/// A binary name fit for a URL path and a file name: a signed manifest is
+/// Nicolas's, but a name that could climb out of the release is refused anyway.
+fn safe_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
 }
 
 #[cfg(unix)]
@@ -569,7 +622,7 @@ pub(crate) fn watch(home: &Path, shutdown: &AtomicBool, updated: &AtomicBool) {
 }
 
 /// `itsanas update [--check]`.
-pub(crate) fn command(home: &Path, instance: Option<&str>, check_only: bool) -> Result<()> {
+pub(crate) fn command(check_only: bool) -> Result<()> {
     let curl = Curl;
     let updater = Updater::of_this_build(&curl)?;
     forget_the_old_program(&updater.exe);
@@ -596,17 +649,45 @@ pub(crate) fn command(home: &Path, instance: Option<&str>, check_only: bool) -> 
         return Ok(());
     }
     let version = updater.install(&manifest)?;
-    let _ = std::fs::remove_file(home.join(NOTICE_FILE));
     println!("installed {version} in place of {}", updater.running);
-    let service = crate::setup::service::Platform::of_this_machine(home, instance);
-    if crate::setup::ServiceControl::installed(&service) {
-        let _ = crate::setup::ServiceControl::stop(&service);
-        crate::setup::ServiceControl::start(&service)?;
-        println!("the background service was restarted on {version}");
-    } else {
-        println!("no background service here: start ITSaNAS again to run {version}");
-    }
+    restart_every_node(&version.to_string());
     Ok(())
+}
+
+/// Restart every node of this machine that runs, on the program just
+/// installed, and say for each what happened.
+///
+/// One program serves every instance, so every daemon must restart: asking
+/// one service manager to restart one service left two of three laptop
+/// daemons on the old version (hand test, 2026-10-22), and it said they
+/// had restarted. Each daemon is now asked directly (`lifecycle.rs`), and
+/// the line printed is what its store's lock showed.
+fn restart_every_node(version: &str) {
+    for (name, home) in crate::config::node_homes(&crate::config::user_home()) {
+        let _ = std::fs::remove_file(home.join(NOTICE_FILE));
+        let label = if name.is_empty() {
+            home.display().to_string()
+        } else {
+            name
+        };
+        let said = match crate::lifecycle::restart_and_wait(&home) {
+            crate::lifecycle::Restarted::Yes => format!("{label}: restarted on {version}"),
+            crate::lifecycle::Restarted::WasNotRunning => {
+                format!("{label}: not running; it starts on {version} next time")
+            }
+            crate::lifecycle::Restarted::StoppedOnly => format!(
+                "{label}: stopped, and nothing started it again: start it with \
+                 `itsanas --home {} signin`",
+                home.display()
+            ),
+            crate::lifecycle::Restarted::No => format!(
+                "{label}: still running the old version (it did not answer the restart \
+                 request in two minutes; an older daemon does not know it): log out and \
+                 back in, or restart the machine"
+            ),
+        };
+        println!("{said}");
+    }
 }
 
 #[cfg(test)]

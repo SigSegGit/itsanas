@@ -154,7 +154,10 @@ Setup asks what to do when a new version is out: **install it by itself**
 `itsanas status` says "update available: X"), or **never look**. Change it in
 `itsanas settings`, or with `updates = auto|notify|off` in an answers file.
 `itsanas update --check` says whether there is one; `itsanas update` installs
-it and restarts the background service.
+it and restarts every account's background service on the machine (no
+`--instance` needed): it asks each daemon itself to restart, and prints per
+account what it found: restarted, not running, stopped only, or still on the
+old version. `itsanas bench` is machine-wide in the same way.
 
 A new version is installed only if it is newer than yours and carries the
 signature of the ITSaNAS release key compiled into your copy, and its download
@@ -241,9 +244,15 @@ or the command waits for its answer; Settings refuses when the daemon is not
 running.
 
 **A portable copy.** `itsanas portable /media/usb` (or Settings, Disks) writes
-`/media/usb/ITSaNAS/`: this program (for this operating system only), a
-launcher (`ITSaNAS.cmd` on Windows, `itsanas.sh` elsewhere) that keeps its
-home next to itself, and a `README.txt`. That copy is a client only: it hosts
+`/media/usb/ITSaNAS/`: the five signed release programs in `bin/` (each
+checked against the signed manifest, so the key starts on Windows, macOS and
+Linux, Intel or ARM), a launcher per system that picks the right program and
+keeps the home next to itself (double-click `ITSaNAS.cmd` on Windows,
+`itsanas.command` on a Mac, `itsanas.sh` on Linux; if the key forbids running
+programs, the launcher copies the program to a temporary folder first), and a
+`README.txt`. Offline or from a source build there is no signed release to
+copy: the copy then serves this system only, and the command says so. A drive
+that is not there is reported as such. That copy is a client only: it hosts
 nobody. Its keys are sealed by the passphrase alone, so anyone holding the
 drive and guessing the passphrase holds your account; choose a long one and
 keep the drive with you.

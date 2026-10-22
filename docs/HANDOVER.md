@@ -20,6 +20,29 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-10-22, hand test** (laptop with 3 accounts, Mandarine's Mac, a USB
+key). Passed: O doctor; M isolation between accounts; a vault move through the
+daemon; B laptop to Mac; G a conflict copy that kept both versions; keyed
+chunking at 95 and 117 MiB/s. Failed because of the test script, not the
+product: the Mac to laptop name had a typo; F (timing) is still to redo.
+Product defects found and fixed in this change: `itsanas update` said
+"restarted" while 3 daemons stayed on 0.1.8 (now `<home>/lifecycle`, `stop`
+exits 0, `restart` exits 75, which every supervisor restarts, on the newly
+installed program; `update` prints per node what the lock showed; `signout`
+falls back to asking the daemon to stop; `lifecycle.rs`, proven by
+`red_team_a_daemon_asked_to_restart_or_stop_exits_with_the_code_that_says_so`);
+`update` and `bench` are machine-wide; a vault moved away can come back to
+`home/vault`; the passphrase windows name the account and the passphrase, not
+the 24 words (PR #300 had added the terminal line); `portable` now writes the
+five signed programs and three launchers (`red_team_a_portable_copy_starts_on_every_system_and_hosts_nobody`)
+and says "this system only" without a release. Still open: the Settings page
+is shown in English and badly laid out on the Mac; store writes at 11-17 MiB/s
+and a 32 MiB save at 1.8-2.9 s (`bench`); a TLS identity mismatch at the home
+public address, port 9799, where another device answers; PowerShell
+NativeCommandError noise in Windows daemon logs. 8.0c stays Nicolas's: A-M
+and O ran in part above, F is to redo, and the real disk pulled mid-write is
+not done.
+
 **2026-10-22: drive formats and room.** `drives.rs` reads the target drive's
 format; `vault --move`, `backup export` and `portable` append a warning for NTFS
 (Mac cannot write) and FAT32 (4 GiB file limit). A vault move is refused before

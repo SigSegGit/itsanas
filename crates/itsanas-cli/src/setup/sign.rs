@@ -41,12 +41,19 @@ pub(crate) fn sign_out(home: &Path, service: &dyn ServiceControl) -> Result<Stri
         done.push("the background service is stopped and will not start at logon");
     }
     let store = Node::store_path(home);
+    // The service manager is not enough: on Windows ending the logon task
+    // leaves its PowerShell wrapper and the daemon running (hand test,
+    // 2026-10-22). The daemon is asked directly as well; a stop exits 0,
+    // which no supervisor restarts.
     if !wait_until(Duration::from_secs(20), || {
         !itsanas_store::Store::is_locked(&store)
-    }) {
+    }) && !crate::lifecycle::stop_and_wait(home)
+    {
         return Err(CliError::Usage(
-            "a daemon still holds this node (one started by hand? stop it with Ctrl+C where \
-             it runs) and the passphrase file was left in place"
+            "a daemon still holds this node two minutes after being asked to stop (one \
+             started by hand, or an older version that does not know the request): stop \
+             itsanas.exe in the Task Manager or Activity Monitor, then sign out again. The \
+             passphrase file was left in place"
                 .to_owned(),
         ));
     }
@@ -71,7 +78,7 @@ pub(crate) fn sign_in(
     if !Node::exists(home) {
         return Err(CliError::NoNode(home.to_path_buf()));
     }
-    let passphrase = prompt.passphrase("This machine's passphrase, to sign back in:")?;
+    let passphrase = prompt.passphrase(&account_purpose(home, "to sign it back in"))?;
     // Checked before anything is written: a mistyped passphrase saved for
     // the service is a daemon that fails at every logon, silently.
     Identity::open(home, &passphrase)?;
@@ -97,6 +104,22 @@ pub(crate) fn signout(home: &Path, instance: Option<&str>) -> Result<()> {
     println!();
     println!("{SIGNED_OUT}");
     Ok(())
+}
+
+/// What a passphrase window says it is for: which account, which machine,
+/// which passphrase, and that it is not the 24 words. "This machine's
+/// passphrase" alone, on a laptop with three accounts, left the person
+/// guessing whose (hand test, 2026-10-22).
+pub(crate) fn account_purpose(home: &Path, why: &str) -> String {
+    let account = crate::config::Config::load(&Node::config_path(home))
+        .ok()
+        .map(|config| config.username)
+        .filter(|name| !name.is_empty())
+        .map_or_else(|| home.display().to_string(), |name| format!("'{name}'"));
+    format!(
+        "The passphrase of the account {account} on this machine, {why}: the one chosen when \
+         this account was set up here. Not the 24 recovery words."
+    )
 }
 
 /// `itsanas signin`.

@@ -459,7 +459,7 @@ impl<'a> Setup<'a> {
         });
         let typed = self
             .prompt
-            .passphrase("This machine's passphrase, the one that unlocks its keys:")?;
+            .passphrase(&sign::account_purpose(&self.home, "to unlock its keys"))?;
         itsanas_node::node::Identity::open(&self.home, &typed)?;
         self.passphrase = Some(typed.clone());
         Ok(typed)
