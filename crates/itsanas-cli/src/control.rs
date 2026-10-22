@@ -66,6 +66,11 @@ pub const MAX_CONTROL_BYTES: u64 = 4096;
 /// it into a tray.
 pub const MIN_INTERVAL: Duration = Duration::from_secs(30);
 
+/// How long a change found in the folder is left to settle before the round
+/// that sends it out: a save is often several writes, and a copy of many
+/// files takes a few seconds to land.
+pub const SETTLE: Duration = Duration::from_secs(5);
+
 /// The longest: a day. Past that a machine is not syncing, it is off, and the
 /// snapshot's "stale after two intervals" would take days to say so.
 pub const MAX_INTERVAL: Duration = Duration::from_secs(86_400);
@@ -267,6 +272,12 @@ pub struct Steering {
     /// a round at once, not a wait for the interval. A person whose pause of
     /// an hour is over expects their files to move, not an hour more.
     lifted: bool,
+    /// When this folder first changed since the last round, if it did: a
+    /// new local file goes out [`SETTLE`] later, not at the end of the
+    /// interval (hand test, 2026-10-22: five minutes for a file to reach a
+    /// key). Never sooner than [`MIN_INTERVAL`] after the last round, so a
+    /// folder rewritten every second costs a round per half minute at most.
+    changed: Option<Instant>,
 }
 
 impl Steering {
@@ -301,6 +312,7 @@ impl Steering {
             unreadable,
             holding: current.pause_holds(now_unix),
             lifted: false,
+            changed: None,
         };
         (steering, said)
     }
@@ -377,9 +389,19 @@ impl Steering {
         clamp(self.current.interval).unwrap_or(base)
     }
 
+    /// The folder changed here at `now`: files to send out. The first change
+    /// since the last round is the one that counts, so a folder that never
+    /// stops changing still has its round.
+    pub fn changed_here(&mut self, now: Instant) {
+        self.changed.get_or_insert(now);
+    }
+
     /// What to do now, given when the last round ended.
     ///
-    /// A pause that just ended is due at once, like a "sync now".
+    /// A pause that just ended is due at once, like a "sync now". A change
+    /// in the folder ([`Self::changed_here`]) is due [`SETTLE`] after it, and
+    /// [`MIN_INTERVAL`] at least after the last round (the interval in force,
+    /// if it is shorter).
     ///
     /// A "sync now" is consumed whether or not it is acted on: asked while
     /// paused, it is refused at the command line, and one written anyway must
@@ -390,12 +412,19 @@ impl Steering {
             self.honoured = self.current.sync_asked;
         }
         let lifted = std::mem::take(&mut self.lifted);
-        let due =
-            asked || lifted || last_round.is_none_or(|last| now >= last + self.interval(base));
+        let early = self.changed.is_some_and(|since| now >= since + SETTLE)
+            && last_round.is_none_or(|last| now >= last + MIN_INTERVAL.min(self.interval(base)));
+        let due = asked
+            || lifted
+            || early
+            || last_round.is_none_or(|last| now >= last + self.interval(base));
         match (due, self.paused()) {
             (false, _) => Next::Wait,
             (true, true) => Next::Publish,
-            (true, false) => Next::Round,
+            (true, false) => {
+                self.changed = None;
+                Next::Round
+            }
         }
     }
 }
@@ -642,6 +671,53 @@ mod tests {
             NOW,
         );
         assert_eq!(steering.next(soon, Some(soon), BASE), Next::Round);
+    }
+
+    /// A file saved here goes out a few seconds later, not at the end of the
+    /// interval (hand test, 2026-10-22: five minutes to reach a key).
+    #[test]
+    fn a_local_change_is_sent_after_a_short_settle_not_a_whole_interval() {
+        let start = Instant::now();
+        let mut steering = steering(Control::default());
+        let changed = start + MIN_INTERVAL;
+        steering.changed_here(changed);
+        assert_eq!(steering.next(changed, Some(start), BASE), Next::Wait);
+        assert_eq!(
+            steering.next(changed + SETTLE, Some(start), BASE),
+            Next::Round,
+            "a new local file waited for the whole interval"
+        );
+        assert_eq!(
+            steering.next(changed + SETTLE * 2, Some(changed + SETTLE), BASE),
+            Next::Wait,
+            "one change ran a second round"
+        );
+    }
+
+    /// A folder rewritten every second -- a log, a sync tool fighting this
+    /// one -- must not become a daemon dialling every machine every second.
+    #[test]
+    fn red_team_a_folder_that_never_stops_changing_costs_a_round_per_half_minute_at_most() {
+        let start = Instant::now();
+        let mut steering = steering(Control::default());
+        let mut last_round = Some(start);
+        let mut rounds = 0;
+        for second in 1..=300 {
+            let now = start + Duration::from_secs(second);
+            steering.changed_here(now);
+            if steering.next(now, last_round, BASE) == Next::Round {
+                rounds += 1;
+                last_round = Some(now);
+            }
+        }
+        assert!(
+            rounds <= 10,
+            "{rounds} rounds in five minutes of a folder changing every second"
+        );
+        assert!(
+            rounds >= 9,
+            "{rounds} rounds: a folder that never settles was never sent out"
+        );
     }
 
     /// Paused means no file moves, whatever else is asked.

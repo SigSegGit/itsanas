@@ -536,7 +536,10 @@ Restart=always
 ```
 
 The daemon watches the folder, so a saved file starts syncing in under a second
-rather than waiting for the interval. The watcher is never trusted alone — every
+rather than waiting for the interval, and the round that sends it to the other
+machines follows 5 seconds later (never sooner than 30 seconds after the last
+one, however busy the folder). A portable copy (`itsanas portable`) syncs every
+60 seconds rather than 300, and its banner says `portable  yes`. The watcher is never trusted alone — every
 platform's drops events under load and none report changes made while the
 process was stopped — so a full rescan runs on the interval regardless, and an
 hourly deep rescan re-hashes everything.
