@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1312 test functions, 14 of them `#[ignore]`d into the slow job, and 386 of
+**1319 test functions, 14 of them `#[ignore]`d into the slow job, and 391 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1978,6 +1978,19 @@ missing the wait doubles up to the hour (2026-10-23), so a machine that stays
 off costs about four extra reads, not 288 a day; the daemon's
 snapshot gives the port it is bound to, and `register` beside a running daemon
 names that port before asking for a passphrase instead of failing on the lock.
+**Two houses on 192.168.1.x, and virtual adapters (2026-10-23):** the laptop
+and a Mac in another house dialled each other's 192.168.1.x address from the
+coordinator at every round; a private (RFC 1918) address of the account's
+machines is now dialled only when local discovery heard that machine here
+(`Contact::dialable`), or when discovery is off. The laptop's log also said the
+portable key beside it "moved" every round between 192.168.1.142 and its VMware
+host networks 192.168.19.1 and 192.168.117.1: a beacon copy heard over a virtual
+network no longer moves a device heard on a real one, and an address on a
+virtual adapter (Hyper-V, VMware, VirtualBox, WSL, Docker, Tailscale-like
+overlays) is not published when a real one exists (`itsanas_discover::interfaces`,
+through the new `if-addrs` dependency). Still open: "same public address" as
+evidence of one LAN needs the coordinator to record where a publication came
+from, a protocol change.
 
 ### At most 10 live devices per account — 2026-09-30, raised 2026-10-22
 

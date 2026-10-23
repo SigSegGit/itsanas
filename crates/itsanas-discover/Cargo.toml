@@ -10,6 +10,7 @@ description = "Serverless discovery of ITSaNAS nodes on the local network"
 
 [dependencies]
 blake3 = "1.8.7"
+if-addrs = "0.15.0"
 itsanas-crypto = { version = "0.1.0", path = "../itsanas-crypto" }
 socket2 = { version = "0.6.5", features = ["all"] }
 thiserror = "2.0.20"

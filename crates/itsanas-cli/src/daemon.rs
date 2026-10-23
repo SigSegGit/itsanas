@@ -1711,7 +1711,9 @@ fn dial_listed(
     reached: &mut BTreeSet<DeviceId>,
     scope: PolicyScope,
 ) {
-    for (device, address) in contact.candidates() {
+    // A private address only of a machine heard on this LAN: two houses on
+    // 192.168.1.x are not one network (`Contact::dialable`).
+    for (device, address) in contact.dialable(|device| neighbourhood.heard_here(device)) {
         if halted(node, shutdown) || reached.contains(&device) {
             continue;
         }

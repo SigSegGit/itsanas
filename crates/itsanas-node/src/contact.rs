@@ -27,7 +27,7 @@
 //!   the last read. Without it, a machine that started on a new port was
 //!   dialled at the old one until this node's next hourly publication (hand
 //!   test, 2026-10-22). Each re-read that brings no new address for a machine
-//!   still missing doubles the wait, up to [`PUBLISH_EVERY`], so a machine
+//!   still missing doubles the wait, up to [`PUBLISH_EVERY`](crate::contact::PUBLISH_EVERY), so a machine
 //!   that stays off costs a handful of reads before it settles to the hourly
 //!   one this node makes anyway.
 //!
@@ -678,6 +678,35 @@ impl Contact {
         out
     }
 
+    /// [`Self::candidates`], less the addresses on a private network (RFC 1918)
+    /// of a machine that is plausibly not on this one: `heard_here` says
+    /// whether local discovery heard the device, and `None` -- discovery not
+    /// running here -- keeps every address, as before.
+    ///
+    /// The hand test of 2026-10-22: two houses both numbered 192.168.1.x, and
+    /// the laptop in one and a Mac in the other dialled each other's
+    /// 192.168.1.x address from the coordinator at every round, each dial a
+    /// connect timeout. A private address is somebody's own network; the
+    /// coordinator, or a peer relaying it, says where a machine is on *its*
+    /// network, not that this machine shares it. The evidence that it does is
+    /// a beacon heard here. (Both machines having announced from the same
+    /// public address would be evidence too, but the coordinator does not
+    /// record the address it sees a publication come from.)
+    ///
+    /// A machine left with no address to dial is missed like any other
+    /// ([`Self::round_reached`]): the coordinator is asked again, at the
+    /// backed-off rate, in case it moved somewhere this machine can reach.
+    #[must_use]
+    pub fn dialable(
+        &self,
+        heard_here: impl Fn(&DeviceId) -> Option<bool>,
+    ) -> Vec<(DeviceId, String)> {
+        self.candidates()
+            .into_iter()
+            .filter(|(device, address)| !only_rfc1918(address) || heard_here(device) != Some(false))
+            .collect()
+    }
+
     /// The machine of the account to park on when this one cannot be
     /// reached (§8 0v): the first, in dialling order, with an address that
     /// works from anywhere and is not itself a relay. Own account only in
@@ -953,6 +982,21 @@ impl itsanas_net::Relay for SharedBoard {
 
 /// Worked most recently first, then never-worked public before never-worked
 /// private. Stable, so ties keep the order they arrived in.
+/// Whether every entry of `address` (one address, or an `AddressList`) is an
+/// IPv4 address of a private network, RFC 1918. A name, a public or an IPv6
+/// address, a `relay:` -- anything else -- is not.
+fn only_rfc1918(address: &str) -> bool {
+    let entries: Vec<std::net::SocketAddr> = address
+        .split(',')
+        .map(|entry| entry.trim().parse())
+        .collect::<std::result::Result<_, _>>()
+        .unwrap_or_default();
+    !entries.is_empty()
+        && entries
+            .iter()
+            .all(|entry| matches!(entry.ip(), std::net::IpAddr::V4(v4) if v4.is_private()))
+}
+
 fn sort_best_first(candidates: &mut [Candidate]) {
     candidates.sort_by(|a, b| {
         b.worked
@@ -1415,6 +1459,73 @@ mod tests {
     fn listed_at(device: DeviceId, address: &str) -> impl Fn(u32) -> Vec<(DeviceId, String)> {
         let address = address.to_owned();
         move |_| vec![(device, address.clone())]
+    }
+
+    /// The hand test of 2026-10-22: the laptop's house and the Mac's are both
+    /// 192.168.1.x, and the laptop dialled the Mac's 192.168.1.x address from
+    /// the coordinator at every round, timing out each time. A private address
+    /// is dialled only when local discovery heard the machine here; a public
+    /// address, a list with one, a name and a relay always are; and a node
+    /// whose discovery is off dials as it always did.
+    #[test]
+    fn red_team_a_private_address_of_another_house_is_not_dialled() {
+        let (mac, pi) = (device(5), device(6));
+        let mut contact = Contact::new();
+        contact.read(
+            &[
+                (mac, "192.168.1.20:9797".to_owned()),
+                (mac, "10.0.0.20:9797".to_owned()),
+                (mac, "172.16.4.20:9797".to_owned()),
+                (pi, "192.168.1.30:9797".to_owned()),
+                (pi, "203.0.113.30:9797".to_owned()),
+                (pi, "192.168.1.30:9797,[2001:db8::30]:9797".to_owned()),
+                (pi, "pi.example.net:9797".to_owned()),
+            ],
+            &[],
+            &[],
+            Instant::now(),
+        );
+        let addresses = |heard: Option<bool>| -> Vec<String> {
+            contact
+                .dialable(|_| heard)
+                .into_iter()
+                .map(|(_, address)| address)
+                .collect()
+        };
+
+        let elsewhere = addresses(Some(false));
+        assert!(
+            !elsewhere.iter().any(|address| {
+                [
+                    "192.168.1.20:9797",
+                    "10.0.0.20:9797",
+                    "172.16.4.20:9797",
+                    "192.168.1.30:9797",
+                ]
+                .contains(&address.as_str())
+            }),
+            "a private address of a machine discovery never heard here was dialled: {elsewhere:?}"
+        );
+        for kept in [
+            "203.0.113.30:9797",
+            "192.168.1.30:9797,[2001:db8::30]:9797",
+            "pi.example.net:9797",
+        ] {
+            assert!(
+                elsewhere.iter().any(|address| address == kept),
+                "{kept} was not dialled"
+            );
+        }
+        assert_eq!(
+            addresses(Some(true)).len(),
+            7,
+            "a machine heard on this LAN lost an address"
+        );
+        assert_eq!(
+            addresses(None).len(),
+            7,
+            "with discovery off, an address was dropped"
+        );
     }
 
     /// The coordinator chooses which presences it lists -- stale ones, or
