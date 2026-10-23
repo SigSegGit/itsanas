@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1310 test functions, 14 of them `#[ignore]`d into the slow job, and 384 of
+**1312 test functions, 14 of them `#[ignore]`d into the slow job, and 386 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1972,8 +1972,10 @@ at its hourly publication (`PUBLISH_EVERY`), so a peer that read before the
 key's daemon started dialled the registered port for up to an hour.
 **The stale address is now handled (2026-10-22):** a machine of the account
 that answers at none of the addresses held for it makes the next round read
-the coordinator again, at most once per two minutes (`REREAD_AFTER_MISS`,
-`contact.rs`), so the new port is dialled within two rounds; the daemon's
+the coordinator again, two minutes after the last read (`REREAD_AFTER_MISS`,
+`contact.rs`), so the new port is dialled within two rounds; while it stays
+missing the wait doubles up to the hour (2026-10-23), so a machine that stays
+off costs about four extra reads, not 288 a day; the daemon's
 snapshot gives the port it is bound to, and `register` beside a running daemon
 names that port before asking for a passphrase instead of failing on the lock.
 

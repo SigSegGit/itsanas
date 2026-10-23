@@ -434,11 +434,18 @@ a second. What stays is the hourly read, so a machine enrolled
 elsewhere is learned within the hour, not at once. The one read on a
 connection of its own follows a round in which a machine of the account
 answered at none of the addresses held for it: it may have moved or restarted
-on another port, so the next round asks, at most once per two minutes
+on another port, so the next round asks, two minutes after the last read
 (`REREAD_AFTER_MISS`; a hand test of 2026-10-22 waited up to an hour for a
-key whose daemon ran on a port other than the one it registered). A machine
-that stays off therefore costs its peers one connection to the centre per
-round, at most every two minutes, for as long as it stays off. Since peer protocol 6 the
+key whose daemon ran on a port other than the one it registered). Each read
+asked for while that machine is still missing, answered or not, doubles the
+wait -- 2 minutes, 4, 8, 16, 32 -- up to the hour, where it meets the read
+the publication makes anyway; a read that lists a new address for it, or the
+machine answering again, puts the wait back to two minutes. A machine that
+stays off therefore costs each of its peers about four extra connections,
+then nothing: 27 reads in its first day instead of 24, not the 288 a fixed
+two-minute wait would cost at the default round. The price is that a machine
+that comes back on a new port after more than an hour away is found at the
+next hourly read, not within two rounds. Since peer protocol 6 the
 machines of one account also hand each other the signed addresses they hold,
 but only of machines already known: a new machine is learned from the read,
 which is why the read stays hourly ([HANDOVER.md](HANDOVER.md) §8 0o 2b, item 4).

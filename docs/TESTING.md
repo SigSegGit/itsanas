@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1310 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 384 are red-team tests.**
+**Last updated: 2026-10-23 — 1312 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 386 are red-team tests.**
 
-**1194 of the 1310 tests have an entry of their own on this page** — an *entry*,
+**1196 of the 1312 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 167 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 142 |
+| `itsanas-node` unit | 144 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -211,7 +211,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 39 |
+| `identity` | keys, accounts, devices, claims, invitations | 41 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 53 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 59 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
@@ -1527,7 +1527,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (159)
+# `itsanas-node` — a node on disk (161)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1566,13 +1566,14 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (29)
+## `contact` — when the coordinator is dialled at all (31)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
 its address changes, and hourly, and reads the account's devices on the
 connection a publication opens -- and on one of its own only after a machine of
-the account answered nowhere, at most every two minutes. Every instant is this machine's own; nothing
+the account answered nowhere, two minutes after the last read and then with the
+wait doubled up to the hour while it stays missing. Every instant is this machine's own; nothing
 here reads a peer's clock or trusts the coordinator's order.
 
 | Test | What it proves |
@@ -1584,7 +1585,9 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`a_machine_that_changes_network_publishes_at_once`** | A laptop whose address changed publishes on the next round, not in an hour; an unchanged address inside the hour costs no connection; losing the route counts as a change. |
 | **`a_machine_enrolled_after_this_one_started_is_dialled_within_the_hour`** | Why reads ride on every publication instead of waiting for a listed device to go missing: a machine enrolled after this one started is on no list, so it can never go missing. Eleven rounds make no connection, the hourly one reads, and the new machine is in the book. |
 | **`red_team_a_machine_that_restarted_on_another_port_is_dialled_there_within_two_rounds`** | Hand test, 2026-10-22: a portable key registered at 9798, its daemon ran with `--listen` on 9811 and published that, and the laptop, which had read 9798, dialled it there until its hourly read. A machine of the account that answers at none of its addresses (`Contact::round_reached`) now makes the next round read again: at rounds of 60 s and of 300 s the key is reached on its new port by round 2, and once it answers no further read is asked before the hour. Sabotaged (no re-read after a miss; misses not recorded): red. |
-| **`red_team_a_machine_that_stays_off_costs_one_read_per_two_minutes_at_most`** | The bound on the rule above: a laptop shut for the week, rounds every 30 s for 59.5 minutes, gives 29 reads (one per `REREAD_AFTER_MISS`, 2 min), not 119 -- with the coordinator answering, and with it down, where the attempt (`Contact::asked`) is what counts. Sabotaged (no rate limit; limit counted from successful reads only): red. |
+| **`red_team_a_machine_that_stays_off_for_a_day_costs_about_thirty_reads_not_288`** | The bound on the rule above: a laptop shut for a day, at rounds of 30 s and of 300 s. The wait after a miss doubles at each read asked for while it is missing (2, 4, 8, 16, 32 minutes, capped at `PUBLISH_EVERY`), so the day costs 27 reads -- four extra, then the hourly one -- never two within `REREAD_AFTER_MISS`, and exactly 12 in the second half. A fixed two-minute wait made 288 and 720. Sabotaged (no doubling; doubling only on answered reads; no re-read): red. The cap at the hour is not separately verified: the publication's hourly read already bounds it. |
+| **`red_team_a_coordinator_that_is_down_is_asked_with_the_same_back_off`** | The attempt counts, not the answer (`Contact::asked`): with the coordinator down, rounds every 30 s for 59.5 minutes ask at minutes 2, 6, 14 and 30, not 29 times. Sabotaged (no doubling; doubling only on answered reads; no re-read): red. |
+| **`red_team_news_or_an_answer_puts_the_wait_after_a_miss_back_to_two_minutes`** | The resets: a read at minute 30 that lists a new address for the missing laptop brings the next read at 32, not 62; a laptop off for three hours that answers one round and goes missing again is read for within two minutes of that, not at the hour. Sabotaged (no reset on news; no reset on an answer): red. |
 | **`red_team_a_coordinator_cannot_grow_the_address_book_without_bound`** | The coordinator still decides which presences it lists -- an older one unsigned, any of them stale. 65 536 devices in one answer leave `MAX_DEVICES` in the table; a thousand addresses for one device leave `MAX_ADDRESSES`. |
 | **`red_team_addresses_that_never_worked_do_not_displace_one_that_did`** | Twenty stale addresses for the Pi, from a coordinator that lies or is only out of date, arrive after its LAN address answered: that address is still dialled first and the rest is capped. Order is this machine's record of success, never the list's. |
 | **`red_team_a_coordinator_that_has_signed_cannot_talk_this_node_down_to_an_unsigned_list`** | §8 0o 2b.1, found by Rodin: a coordinator that hangs up on `SignedPeers`, as an older one does, would have the client fall back to `Peers`, whose addresses it can forge -- the signature check made advisory against the one party it checks. Once a coordinator has signed, `Due::accept_unsigned` stays false for every later hour. Sabotaged by leaving it true. |
