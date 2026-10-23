@@ -2520,18 +2520,17 @@ const REGISTERED: &str = "registered";
 /// this device's address. The outer error is the registration; the inner
 /// result is the address published, or why none could be -- a device that
 /// registered and could not announce is still enrolled.
+///
+/// For a node this process is about to run, or runs, as the machine it is
+/// on: the address announced is the configured `listen` as seen from here.
+/// A daemon announces the address it is bound to instead, and a key being
+/// copied announces nothing ([`register_only`]).
 fn register_and_announce(
     node: &Node,
     invite: Option<&str>,
 ) -> Result<std::result::Result<String, String>> {
     let now = itsanas_discover::now_unix();
-    let secret = invite.map(coordinator::decode_secret).transpose()?;
-    coordinator::register_with(node, secret.as_ref(), now)?;
-    if let Some(address) = &node.config.coordinator {
-        // Best effort: without it a re-run of setup registers again, which
-        // the coordinator takes as a refresh.
-        let _ = std::fs::write(node.home.join(REGISTERED), address);
-    }
+    enrol(node, invite, now)?;
 
     // Publishing the address is part of registering, not a separate step: a
     // device nobody can reach has not really joined anything. What was
@@ -2540,6 +2539,36 @@ fn register_and_announce(
     // configured value told the reader an address no peer can dial.
     let listen = node.config.listen.clone();
     Ok(coordinator::announce(node, &listen, now).map_err(|error| error.to_string()))
+}
+
+/// Enrol this account and device with the configured coordinator, and
+/// announce nothing (red team, 2026-10-23).
+///
+/// For a node that is not, or not yet, the machine it would announce: a key
+/// being copied (`copy-to-key`), whose registration would otherwise publish
+/// the copying machine's address under the key's device id, and a daemon,
+/// which publishes the address it is bound to itself. Writes the
+/// `registered` marker, with the coordinator's address, as
+/// [`register_and_announce`] does.
+pub(crate) fn register_only(node: &Node) -> Result<()> {
+    enrol(node, None, itsanas_discover::now_unix())
+}
+
+/// Register with the configured coordinator and write the `registered`
+/// marker: what [`register_and_announce`] and [`register_only`] share.
+/// Registering again is a refresh at the coordinator, so a node enrolled
+/// before the marker existed enrols once more at its first start, harmlessly.
+fn enrol(node: &Node, invite: Option<&str>, now: u64) -> Result<()> {
+    let secret = invite.map(coordinator::decode_secret).transpose()?;
+    coordinator::register_with(node, secret.as_ref(), now)?;
+    if let Some(address) = &node.config.coordinator {
+        // Best effort: without it a re-run of setup registers again, which
+        // the coordinator takes as a refresh. The coordinator's address, so
+        // that a daemon pointed at another one enrols there (`daemon.rs`,
+        // `enrol_at_daemon_start`).
+        let _ = std::fs::write(node.home.join(REGISTERED), address);
+    }
+    Ok(())
 }
 
 /// Why `register` does not run beside this node's daemon, and where that

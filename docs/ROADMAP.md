@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1359 test functions, 14 of them `#[ignore]`d into the slow job, and 404 of
+**1366 test functions, 14 of them `#[ignore]`d into the slow job, and 411 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -2009,6 +2009,24 @@ overlays) is not published when a real one exists (`itsanas_discover::interfaces
 through the new `if-addrs` dependency). Still open: "same public address" as
 evidence of one LAN needs the coordinator to record where a publication came
 from, a protocol change.
+**Red-team pass on those fixes (2026-10-23):** the private-address gate also
+dropped reachable machines (another VLAN, a VPN at 10.x, a Wi-Fi filtering
+multicast, the first seconds after a start); it now opens while discovery warms
+up (60 s), one round in six as a probe, and for an address that answered until
+it fails, and "heard here" means heard within the expiry. A beacon copy over a
+virtual adapter refreshes nothing, so a replay there keeps no machine alive.
+The routed address is swapped for a real adapter's only when its adapter is
+virtual by name, and a Hyper-V external switch counts as real, so neither
+`vEthernet (External)` nor a CGNAT address on a network card is replaced. (The
+brief said "only when the replacement is on the same /24"; that never holds
+for a host-only or overlay network, so it would have undone the 2026-10-22 fix,
+and was not done.) The wait after a miss falls back to two minutes at most once
+per ten minutes. A key enrolling at its first daemon start announces the
+address the daemon is bound to, a `registered` marker naming another
+coordinator makes the node enrol with the configured one, and
+`register_only` registers without announcing anything (for `copy-to-key`, whose
+call site is still `register_and_announce`). The Windows wrapper restarts at
+once after exit 75 at most three times in 60 s.
 
 ### At most 10 live devices per account — 2026-09-30, raised 2026-10-22
 

@@ -226,7 +226,10 @@ fn desktop_quote(text: &str) -> String {
 /// `update` saw a daemon stop and not come back in a minute: exit
 /// [`RESTART_EXIT`](crate::lifecycle::RESTART_EXIT) is a request, not a
 /// failure, so it restarts at once, and the pause after a failure grows
-/// from 10 s only while the daemon keeps failing quickly.
+/// from 10 s only while the daemon keeps failing quickly. At once at most
+/// three times in 60 s (red team, 2026-10-23): a daemon that exits 75 at
+/// every start would otherwise restart every second for ever, so past that
+/// 75 takes the failure path, its pause and its doubling, and says so.
 pub(crate) fn windows_wrapper(names: &Names) -> String {
     [
         "# Started by the ITSaNAS scheduled task at logon (written by `itsanas setup`, the",
@@ -248,7 +251,9 @@ pub(crate) fn windows_wrapper(names: &Names) -> String {
         "# Exit 0 is a stop; 75 a restart asked for (itsanas update), done at once;",
         "# anything else a failure, restarted after a pause that grows to five",
         "# minutes while the daemon keeps failing within ten minutes of starting.",
+        "# At most 3 immediate restarts in 60 s: past that, 75 is a failure too.",
         "$pause = 10",
+        "$asked = @()",
         "while ($true) {",
         "    $started = Get-Date",
         "    # 2>&1 with each line turned back into its text: redirected, a native",
@@ -260,11 +265,18 @@ pub(crate) fn windows_wrapper(names: &Names) -> String {
         "    $code = $LASTEXITCODE",
         "    if ($code -eq 0) { break }",
         "    if ($code -eq 75) {",
-        "        'daemon asked to restart (exit 75); restarting now' |",
+        "        $now = Get-Date",
+        "        $asked = @($asked | Where-Object { ($now - $_).TotalSeconds -lt 60 })",
+        "        if ($asked.Count -lt 3) {",
+        "            $asked += $now",
+        "            'daemon asked to restart (exit 75); restarting now' |",
+        "                Out-File -LiteralPath $log -Encoding utf8 -Append",
+        "            $pause = 10",
+        "            Start-Sleep -Seconds 1",
+        "            continue",
+        "        }",
+        "        'daemon asked to restart (exit 75) more than 3 times in 60 s; pausing as after a failure' |",
         "            Out-File -LiteralPath $log -Encoding utf8 -Append",
-        "        $pause = 10",
-        "        Start-Sleep -Seconds 1",
-        "        continue",
         "    }",
         "    if (((Get-Date) - $started).TotalMinutes -ge 10) { $pause = 10 }",
         "    \"daemon exited with $code; restarting in $pause s\" |",
@@ -1082,6 +1094,49 @@ mod tests {
         );
     }
 
+    /// The exit-75 branch of the wrapper, `lines[restart..failure]`, restarts
+    /// at once at most three times in 60 s (red team, 2026-10-23): a daemon
+    /// exiting 75 at every start restarted every second for ever. Past the
+    /// limit, 75 falls through to the failure path's pause, and says so.
+    /// Sabotage: drop the count, widen it, or `continue` past the limit.
+    fn restarts_at_once_at_most_three_times_a_minute(
+        lines: &[&str],
+        restart: usize,
+        failure: usize,
+    ) {
+        let at = |needle: &str| {
+            lines
+                .iter()
+                .position(|line| line.starts_with(needle))
+                .unwrap_or_else(|| panic!("no line starts with {needle:?}: {lines:?}"))
+        };
+        let branch = &lines[restart..failure];
+        let window = at("$asked = @($asked | Where-Object { ($now - $_).TotalSeconds -lt 60 })");
+        let limit = at("if ($asked.Count -lt 3) {");
+        let over = at(
+            "'daemon asked to restart (exit 75) more than 3 times in 60 s; pausing as after a failure' |",
+        );
+        assert!(
+            restart < window && window < limit && limit < over && over < failure,
+            "the limit on immediate restarts is not inside the exit-75 branch: {branch:?}"
+        );
+        assert_eq!(
+            lines[limit + 1],
+            "$asked += $now",
+            "an immediate restart is not counted"
+        );
+        let continues = branch.iter().position(|line| *line == "continue");
+        assert!(
+            continues.is_some_and(|at| restart + at < over)
+                && !lines[over..failure].contains(&"continue"),
+            "past the limit, 75 still restarts at once: {branch:?}"
+        );
+        assert!(
+            at("$asked = @()") < at("while ($true) {"),
+            "the restarts counted are not kept across the loop"
+        );
+    }
+
     /// The daemon log on Windows read `nÔÇÖa pu ├¬tre`, with a
     /// `NativeCommandError` block around each stderr line, and `update` saw a
     /// daemon asked to restart stay down past its minute (hand test,
@@ -1140,6 +1195,8 @@ mod tests {
             lines[failure..].contains(&"Start-Sleep -Seconds $pause"),
             "any other code restarts after the pause"
         );
+        // At most three immediate restarts in 60 s (red team, 2026-10-23).
+        restarts_at_once_at_most_three_times_a_minute(&lines, restart, failure);
         assert_eq!(
             lines
                 .iter()

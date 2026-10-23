@@ -54,9 +54,12 @@ const VIRTUAL_PREFIXES: &[&str] = &["br-", "zt", "wg"];
 /// By address as well as by name for the overlays, which pick ranges no home
 /// router hands out: 100.64.0.0/10 (shared address space, Tailscale's IPv4)
 /// and `fd7a:115c:a1e0::/48` (Tailscale's IPv6), whatever the adapter is called.
+///
+/// A Hyper-V *external* switch is real (red team, 2026-10-23): Windows moves
+/// the network card's address onto `vEthernet (External ...)`, which is then
+/// the machine's LAN address and not a virtual network's.
 #[must_use]
 pub fn is_virtual_adapter(name: &str, ip: IpAddr) -> bool {
-    let lower = name.to_ascii_lowercase();
     let overlay = match ip {
         IpAddr::V4(v4) => {
             let [a, b, ..] = v4.octets();
@@ -64,10 +67,18 @@ pub fn is_virtual_adapter(name: &str, ip: IpAddr) -> bool {
         }
         IpAddr::V6(v6) => v6.segments()[..3] == [0xfd7a, 0x115c, 0xa1e0],
     };
-    overlay
-        || VIRTUAL_NAMES
-            .iter()
-            .any(|fragment| lower.contains(fragment))
+    overlay || virtual_by_name(name)
+}
+
+/// [`is_virtual_adapter`] by the name alone.
+fn virtual_by_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("vethernet") && lower.contains("external") {
+        return false;
+    }
+    VIRTUAL_NAMES
+        .iter()
+        .any(|fragment| lower.contains(fragment))
         || VIRTUAL_PREFIXES
             .iter()
             .any(|prefix| lower.starts_with(prefix))
@@ -79,6 +90,9 @@ struct LocalNet {
     ip: IpAddr,
     netmask: IpAddr,
     virtual_adapter: bool,
+    /// Virtual by its adapter's name, not merely by its address
+    /// ([`LocalNets::is_virtual`]).
+    virtual_name: bool,
 }
 
 impl LocalNet {
@@ -131,6 +145,7 @@ impl LocalNets {
                 .filter(|(_, ip, _)| !ip.is_loopback())
                 .map(|(name, ip, netmask)| LocalNet {
                     virtual_adapter: is_virtual_adapter(&name, ip),
+                    virtual_name: virtual_by_name(&name),
                     ip,
                     netmask,
                 })
@@ -153,12 +168,19 @@ impl LocalNets {
     }
 
     /// Whether `local` is an address of one of this machine's virtual
-    /// adapters.
+    /// adapters, by the adapter's name: what a route leaving by it says
+    /// about the address to publish (`on_a_real_adapter` in `itsanas-node`).
+    ///
+    /// By name only. A 100.64.0.0/10 address on an adapter named like a
+    /// network card is carrier-grade NAT (a phone's hotspot, some fibre and
+    /// satellite boxes) and the machine's real address; replacing it with
+    /// another adapter's published one nobody could dial (red team,
+    /// 2026-10-23).
     #[must_use]
     pub fn is_virtual(&self, local: IpAddr) -> bool {
         self.nets
             .iter()
-            .any(|net| net.virtual_adapter && net.ip == local)
+            .any(|net| net.virtual_name && net.ip == local)
     }
 
     /// The first IPv4 address of a real adapter that a neighbour could dial:
@@ -244,6 +266,8 @@ mod tests {
             );
         }
         for name in [
+            "vEthernet (External)",
+            "vEthernet (External Switch)",
             "Wi-Fi",
             "Ethernet",
             "Ethernet 2",
@@ -316,6 +340,27 @@ mod tests {
         assert!(laptop.is_virtual(v4("100.101.102.103")));
         assert!(!laptop.is_virtual(v4("192.168.1.142")));
         assert_eq!(laptop.physical_v4(), Some("192.168.1.142".parse().unwrap()));
+    }
+
+    /// Red team, 2026-10-23: the routed address is judged by its adapter's
+    /// name. A Hyper-V external switch carries the LAN address, and a
+    /// carrier-grade NAT address on a network card is the card's own.
+    #[test]
+    fn red_team_an_external_switch_and_a_cgnat_card_are_real_adapters() {
+        let mask = v4("255.255.255.0");
+        let hyper_v = LocalNets::from_interfaces([
+            ("vEthernet (External)".to_owned(), v4("192.168.1.5"), mask),
+            ("Wi-Fi".to_owned(), v4("10.9.8.7"), mask),
+        ]);
+        assert!(!hyper_v.is_virtual(v4("192.168.1.5")));
+        let hotspot = LocalNets::from_interfaces([
+            ("Wi-Fi".to_owned(), v4("100.70.1.2"), v4("255.192.0.0")),
+            ("Ethernet".to_owned(), v4("192.168.1.9"), mask),
+        ]);
+        assert!(
+            !hotspot.is_virtual(v4("100.70.1.2")),
+            "a CGNAT address on the Wi-Fi card was taken for an overlay's"
+        );
     }
 
     /// Whatever this machine has, reading it does not fail and the loopback
