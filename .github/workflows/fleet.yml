@@ -1,0 +1,132 @@
+name: Fleet
+
+# The acceptance kit on the real machines (docs/FLEET-CI.md): the Pi and the
+# Freebox VM over SSH, each behind a key that can run scripts/fleet/agent.sh
+# and nothing else, plus this runner as a member of the `test` account on a
+# network that is not home (test O).
+#
+# Why the triggers are these and never pull_request: the secrets below open
+# Nicolas's machines. They live in the `fleet` environment, whose deployment
+# rule is the main branch only, so a branch pushed by a session, a PR from a
+# fork or a workflow edited in a PR never reads them. What runs is the code
+# already on main, after review.
+#
+# Not a required check, and it does not gate merges: it says how the fleet is
+# tonight, and a red run opens (or adds to) one issue titled "fleet: red",
+# which the next session reads before anything else.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: fleet
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fleet:
+    name: The acceptance kit on the fleet
+    runs-on: ubuntu-latest
+    environment: fleet
+    timeout-minutes: 75
+    # A step's own `env` is not visible to its `if`, so whether Tailscale is
+    # configured is decided here.
+    env:
+      HAS_TAILSCALE: ${{ secrets.TS_OAUTH_CLIENT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # The member runs main as it is, not the last release: a fleet run is
+      # about this code reaching the machines' code.
+      - run: cargo build --release -p itsanas-cli
+
+      # Tailscale when its key is set (no port open at home, the laptop
+      # reachable anywhere later); otherwise the ssh config below names the
+      # forwarded port of the VM and uses it as the jump host.
+      - name: Tailscale, if configured
+        if: env.HAS_TAILSCALE == 'true'
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: The CI key, the hosts and their pinned host keys
+        env:
+          FLEET_SSH_KEY: ${{ secrets.FLEET_SSH_KEY }}
+          FLEET_SSH_CONFIG: ${{ secrets.FLEET_SSH_CONFIG }}
+          FLEET_KNOWN_HOSTS: ${{ secrets.FLEET_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$FLEET_SSH_KEY" > ~/.ssh/fleet && chmod 600 ~/.ssh/fleet
+          printf '%s\n' "$FLEET_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          {
+            printf '%s\n' "$FLEET_SSH_CONFIG"
+            printf 'Host *\n  IdentityFile ~/.ssh/fleet\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n  UserKnownHostsFile ~/.ssh/known_hosts\n'
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      # The member's home from last night, sealed under FLEET_HOME_KEY, and
+      # its device id (scripts/fleet/member.sh): the same device every night.
+      # A cache from main is readable by other branches' runs, which is why
+      # the home is sealed before it is saved.
+      - uses: actions/cache/restore@v4
+        with:
+          path: .fleet-member
+          key: fleet-member-${{ github.run_id }}
+          restore-keys: fleet-member-
+
+      - name: This runner joins the test account
+        id: member
+        env:
+          FLEET_TEST_PHRASE: ${{ secrets.FLEET_TEST_PHRASE }}
+          FLEET_HOME_KEY: ${{ secrets.FLEET_HOME_KEY }}
+          FLEET_COORD: ${{ vars.FLEET_COORD }}
+          FLEET_COORD_ID: ${{ vars.FLEET_COORD_ID }}
+        run: |
+          if [ -z "$FLEET_TEST_PHRASE" ] && [ ! -s .fleet-member/home.enc ]; then
+            echo "no FLEET_TEST_PHRASE: the runner does not take part, and O is not tested"
+            exit 0
+          fi
+          bash scripts/fleet/member.sh start
+          echo "hosts=runner" >> "$GITHUB_OUTPUT"
+
+      - name: The fleet tests
+        env:
+          FLEET_HOSTS: ${{ steps.member.outputs.hosts }} ${{ vars.FLEET_HOSTS }}
+          FLEET_SCAN: ${{ vars.FLEET_SCAN }}
+        run: bash scripts/fleet/run.sh
+
+      - name: The member leaves, sealed for tomorrow
+        if: always() && steps.member.outputs.hosts == 'runner'
+        env:
+          FLEET_HOME_KEY: ${{ secrets.FLEET_HOME_KEY }}
+        run: bash scripts/fleet/member.sh stop || true
+
+      - uses: actions/cache/save@v4
+        if: always() && steps.member.outputs.hosts == 'runner'
+        with:
+          path: .fleet-member
+          key: fleet-member-${{ github.run_id }}
+
+      - name: Say it where the next session looks
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          number=$(gh issue list --state open --search 'in:title "fleet: red"' --json number --jq '.[0].number')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "Red again: $url"
+          else
+            gh issue create --title "fleet: red" --body "The fleet run failed: $url. Close this issue once a run is green."
+          fi

@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    MVP acceptance test H on Windows: is the daemon cheap to leave running?
+    MVP acceptance tests on Windows: H (is the daemon cheap to leave running?),
+    and B, E, F and C's plant, line for line as scripts/acceptance.sh writes them.
 
 .DESCRIPTION
     `scripts/acceptance.sh` measures H through /proc, so it runs on the Pi and
@@ -38,11 +39,24 @@
     Battery is not judged here, because one day of one laptop measures the day
     as much as the daemon. `H report` writes a powercfg battery report to read
     beside the verdict.
+
+    B, E, F and C plant are the shell kit's phases, for a laptop or a partner on
+    Windows (docs/TEST-PARTENAIRE.md). Same file names, same digests, same
+    8-character codes, so a file written here is checked by the shell kit on a
+    Mac and the other way round:
+
+      acceptance.ps1 B write <folder> -- name, sha256, code
+      acceptance.ps1 B check <folder> <code> -- or <name> <sha256>
+      acceptance.ps1 E write|check ... -- as B
+      acceptance.ps1 F delete <folder> <name>
+      acceptance.ps1 F check <folder> <name>
+      acceptance.ps1 C plant <folder>
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)] [string] $Test = '',
-    [Parameter(Position = 1)] [string] $Phase = ''
+    [Parameter(Position = 1)] [string] $Phase = '',
+    [Parameter(Position = 2, ValueFromRemainingArguments = $true)] [string[]] $Rest = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,8 +71,14 @@ $periodSeconds = 300
 $gapSeconds = 3 * $periodSeconds
 
 function Verdict([string] $Result, [string] $Phase, [string] $Detail) {
+    Verdict-Of $Result 'H' $Phase $Detail
+}
+
+# The shell kit's line, `verdict` in acceptance.sh, for any test.
+function Verdict-Of([string] $Result, [string] $Of, [string] $Phase, [string] $Detail) {
     $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-    $line = '{0,-4}  H {1,-6}  {2}  [{3} {4}]' -f $Result, $Phase, $Detail, $env:COMPUTERNAME, $stamp
+    $machine = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { [System.Net.Dns]::GetHostName() }
+    $line = '{0,-4}  {1} {2,-6}  {3}  [{4} {5}]' -f $Result, $Of, $Phase, $Detail, $machine, $stamp
     Write-Output $line
     New-Item -ItemType Directory -Force -Path $receipts | Out-Null
     Add-Content -LiteralPath (Join-Path $receipts 'acceptance.txt') -Value $line -Encoding utf8
@@ -67,7 +87,88 @@ function Verdict([string] $Result, [string] $Phase, [string] $Detail) {
 
 function Usage {
     Write-Output 'usage: acceptance.ps1 H schedule|sample|report|sleep|unschedule'
+    Write-Output '       acceptance.ps1 B|E write <folder>  |  B|E check <folder> <code>  (or <name> <sha256>)'
+    Write-Output '       acceptance.ps1 F delete|check <folder> <name>  |  C plant <folder>'
     exit 2
+}
+
+# ------------------------------------------------- B, E, F, C as the shell kit
+
+function Sha-Of([string] $Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+# acceptance.sh's code_of: the first eight hex digits, as two groups of four.
+function Code-Of([string] $Sha) { '{0}-{1}' -f $Sha.Substring(0, 4), $Sha.Substring(4, 4) }
+
+function Need-Dir([string] $Folder) {
+    if (-not (Test-Path -LiteralPath $Folder -PathType Container)) {
+        Write-Output "no such directory: $Folder"
+        exit 2
+    }
+}
+
+function Write-Phase([string] $Of, [string] $Folder) {
+    Need-Dir $Folder
+    $name = 'acceptance-{0}-{1}-{2}.bin' -f $Of, (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ'), $PID
+    # A mebibyte and a little, as the shell kit: several chunks, not one.
+    $bytes = New-Object byte[] (1024 * 1024 + 4099)
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    $path = Join-Path $Folder $name
+    [System.IO.File]::WriteAllBytes($path, $bytes)
+    $sha = Sha-Of $path
+    Verdict-Of 'PASS' $Of 'write' "$name sha256 $sha code $(Code-Of $sha)"
+}
+
+function Check-Phase([string] $Of, [string] $Folder, [string] $Name, [string] $Want) {
+    $path = Join-Path $Folder $Name
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        Verdict-Of 'FAIL' $Of 'check' "$Name is not in $Folder"
+    }
+    $got = Sha-Of $path
+    if ($got -eq $Want.ToLowerInvariant()) {
+        Verdict-Of 'PASS' $Of 'check' "$Name identical, sha256 $($got.Substring(0, 16))"
+    } else {
+        Verdict-Of 'FAIL' $Of 'check' "$Name differs: expected $($Want.Substring(0, [Math]::Min(16, $Want.Length))), found $($got.Substring(0, 16))"
+    }
+}
+
+function Check-Code-Phase([string] $Of, [string] $Folder, [string] $Code) {
+    Need-Dir $Folder
+    $want = ($Code -replace '[\s-]', '').ToLowerInvariant()
+    if ($want -notmatch '^[0-9a-f]{8}$') {
+        Verdict-Of 'FAIL' $Of 'check' "'$Code' is not a code: eight characters, 0-9 and a-f, as write printed them"
+    }
+    foreach ($file in Get-ChildItem -LiteralPath $Folder -File -Filter "acceptance-$Of-*.bin") {
+        if ((Sha-Of $file.FullName).StartsWith($want)) {
+            Verdict-Of 'PASS' $Of 'check' "$($file.Name) identical, code $(Code-Of $want)"
+            return
+        }
+    }
+    Verdict-Of 'FAIL' $Of 'check' "no file of test $Of in $Folder has code $(Code-Of $want): not here yet, or it arrived different"
+}
+
+function F-Delete([string] $Folder, [string] $Name) {
+    $path = Join-Path $Folder $Name
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Verdict-Of 'FAIL' 'F' 'delete' "$Name is not in $Folder to delete" }
+    Remove-Item -LiteralPath $path -Force
+    Verdict-Of 'PASS' 'F' 'delete' "$Name removed from $Folder"
+}
+
+function F-Check([string] $Folder, [string] $Name) {
+    Need-Dir $Folder
+    if (Test-Path -LiteralPath (Join-Path $Folder $Name)) { Verdict-Of 'FAIL' 'F' 'check' "$Name is still in $Folder (or came back)" }
+    $left = @(Get-ChildItem -LiteralPath $Folder -File -Recurse).Count
+    Verdict-Of 'PASS' 'F' 'check' "$Name absent; $left other files still here. Run again after the next round: it must stay absent"
+}
+
+function C-Plant([string] $Folder) {
+    Need-Dir $Folder
+    $random = New-Object byte[] 12
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($random)
+    $canary = 'ITSANAS-CANARY-' + (($random | ForEach-Object { $_.ToString('x2') }) -join '')
+    $name = "$canary.txt"
+    # Byte for byte what the shell kit writes, LF and no BOM: scripts/fleet/run.sh
+    # works the canary file's digest out from the canary alone.
+    [System.IO.File]::WriteAllText((Join-Path $Folder $name), "A private note.`n$canary`n", (New-Object System.Text.UTF8Encoding $false))
+    Verdict-Of 'PASS' 'C' 'plant' "$name carries $canary"
 }
 
 function Sample {
@@ -238,6 +339,14 @@ function Schedule {
     Write-Output "sampling every five minutes for three days as task $taskName; `acceptance.ps1 H report` after 24 hours"
 }
 
+switch ("$Test $Phase $($Rest.Count)") {
+    { $_ -in 'B write 1', 'E write 1' } { Write-Phase $Test $Rest[0]; exit 0 }
+    { $_ -in 'B check 3', 'E check 3', 'O check 3' } { Check-Phase $Test $Rest[0] $Rest[1] $Rest[2]; exit 0 }
+    { $_ -in 'B check 2', 'E check 2', 'O check 2' } { Check-Code-Phase $Test $Rest[0] $Rest[1]; exit 0 }
+    'F delete 2' { F-Delete $Rest[0] $Rest[1]; exit 0 }
+    'F check 2' { F-Check $Rest[0] $Rest[1]; exit 0 }
+    'C plant 1' { C-Plant $Rest[0]; exit 0 }
+}
 if ($Test -ne 'H') { Usage }
 switch ($Phase) {
     'sample' { Sample }

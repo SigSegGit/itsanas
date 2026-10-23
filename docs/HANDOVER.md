@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0c
-TITLE: Nicolas tests main on the fleet by hand for a week (reinstall, multi-account, relay, lists, vault, removable disks, deletion), with placement = measured (7a)
+NEXT: 8.0x
+TITLE: The fleet tested by CI: Nicolas does the one-time setup of docs/FLEET-CI.md, then a session reads the first fleet runs and fixes what they find; the laptop next
 WRITTEN-AT: 2026-10-23
-BASE: 70c30b4
+BASE: a73889b
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -46,6 +46,15 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-23, afternoon: the fleet tested by CI (§8 0x).** Built and
+rehearsed, not yet run on the fleet: it waits on Nicolas's one-time setup
+(docs/FLEET-CI.md). At resume, read the latest Fleet run and any open
+`fleet: red` issue first. Found on the way: a host hands out at most 16
+claims per account (`MAX_CLAIMS_PER_ANSWER`) and keeps withdrawn devices'
+claims, so past 16 devices ever, live ones drop out of the roster; proposed
+as its own task, not fixed here. The runner keeps one device for that
+reason. Also: `leave --help` said 5 device slots (10 since #303).
 
 **2026-10-23, later: the laptop dialled itself for the USB key; update
 refreshes the Windows wrappers.** Nicolas's laptop `daemon.log` (account
@@ -1151,6 +1160,31 @@ Detail and measurements are in ROADMAP.md; this is the map.
       2026-09-16. The next session pastes the receipts
       into MVP.md §6 and applies the verdict rule of §4 as written.
    d. **Whatever fails becomes the next item**, ahead of everything below.
+   x. 🟨 **The fleet tested by CI, so the hand test shrinks to what needs
+      hands.** Asked for by Nicolas on 2026-10-23 after the hand test of the
+      day before (an ordeal for Mandarine; too complex to add testers).
+      Built the same day, see [FLEET-CI.md](FLEET-CI.md): `scripts/fleet/agent.sh`
+      behind a `restrict,command=` key on the Pi and the VM (calls the kit,
+      nothing of its own; no sudo, no docker), `scripts/fleet/run.sh` (rows S,
+      B, F, C; red on a FAIL or fewer than two machines), the runner as a
+      member of `test` (`scripts/fleet/member.sh`: test O, the same device
+      every night, sealed in the cache), `.github/workflows/fleet.yml`
+      (nightly, `fleet` environment on main only, an issue `fleet: red` when
+      red), and `scripts/check-fleet.sh` on every push (18 refusals, every
+      scenario made to fail once). Rehearsed end to end on one machine with a
+      real coordinator and nodes, three nights (new device, same device back,
+      damaged archive), and the key through a real sshd. Rodin on the plan:
+      reuse the kit, no root in v1, the runner as the off-LAN member, the
+      laptop later.
+      **Next, in order:** (1) Nicolas: the setup in FLEET-CI.md (key, `setup.sh`
+      on the Pi and the VM, Tailscale or one forward, the `fleet` environment
+      and its secrets), then Actions → Fleet → Run workflow. (2) A session:
+      read the run's summary and any open `fleet: red` issue **before
+      anything else** at resume; fix what it finds, ahead of everything
+      below. (3) The laptop (Windows): `acceptance.ps1` gets B, F and C phases
+      and an agent in PowerShell, OpenSSH Server behind Tailscale only. (4)
+      Versions in the snapshot (an `update` that left nodes behind) and E/G,
+      which need a node stopped (docker, so root: decide first).
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
       `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
       Battery is reported (`powercfg /batteryreport`) and not judged; bytes

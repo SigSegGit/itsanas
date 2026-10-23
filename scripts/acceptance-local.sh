@@ -158,6 +158,7 @@ ITSANAS_HOME="$WORK/m3" ITSANAS_PASSPHRASE="$PASSPHRASE" expect_fail D check d/n
 
 say "B: a file written on machine 1 appears on machine 2"
 expect_pass B write "$WORK/folder-m1"
+LAST_WRITE=$LAST
 b_name=$(printf '%s\n' "$LAST" | awk '{print $4}')
 b_sha=$(printf '%s\n' "$LAST" | awk '{print $6}')
 must node m1 scan
@@ -166,6 +167,13 @@ must node m2 scan
 expect_pass B check "$WORK/folder-m2" "$b_name" "$b_sha"
 expect_fail B check "$WORK/folder-m2" "$b_name" "$(printf 'f%.0s' $(seq 64))"
 expect_fail B check "$WORK/folder-m2" "no-such-file.bin" "$b_sha"
+# The code a person reads aloud instead of the name and the digest.
+b_code=$(printf '%s\n' "$LAST_WRITE" | awk '{print $8}')
+expect_pass B check "$WORK/folder-m2" "$b_code"
+expect_pass B check "$WORK/folder-m2" "$(printf '%s' "$b_code" | tr 'a-f' 'A-F' | tr -d '-')"
+expect_fail B check "$WORK/folder-m2" "$(printf '%s' "$b_code" | tr '0-9a-f' '1-9a-f0')"
+expect_fail B check "$WORK/folder-m2" "not-a-code"
+expect_fail E check "$WORK/folder-m2" "$b_code"
 
 say "E: machine 3 gets a file from machine 2, never meeting machine 1 again"
 expect_pass E write "$WORK/folder-m1"
