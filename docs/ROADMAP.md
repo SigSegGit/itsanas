@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1385 test functions, 14 of them `#[ignore]`d into the slow job, and 425 of
+**1391 test functions, 14 of them `#[ignore]`d into the slow job, and 429 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1144,8 +1144,10 @@ Still to build:
 - **Scheduled storage challenges**, for the same reason.
 - Windows service and systemd unit definitions.
 - Alerting on the conditions in
-  [ARCHITECTURE.md §7](ARCHITECTURE.md#7-operational-behaviour). None of them
-  are wired to anything yet.
+  [ARCHITECTURE.md §7](ARCHITECTURE.md#7-operational-behaviour). One is
+  wired (2026-10-23, MVP.md test L): fewer than two complete copies
+  elsewhere turns the tray red or orange and raises one notification
+  (`safety.rs`). The others are not.
 - While the daemon runs, commands that open the store still refuse to start.
   Pausing, resuming, asking for a round and changing the interval do not need
   the store and work while it runs (`itsanas pause|resume|sync-now|interval`,

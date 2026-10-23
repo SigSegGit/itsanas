@@ -121,7 +121,11 @@ sets itself up: connection, background service, final check. If no page opens, p
 your browser; it only works on that computer and only while the command runs.
 
 At the end the icon near the clock is there, and a **`welcome.txt`** file is
-in your folder: open it on your other machines to see that they sync. The
+in your folder: open it on your other machines to see that they sync. On a
+first machine the icon is **red, "only on this machine"**, and says so once
+in a notification: your files are not anywhere else yet. It turns orange
+with one copy elsewhere and green with two -- add your other machines, or
+join a member who hosts, before you trust the folder with anything. The
 last page opens the folder and adds it to the file manager's favourites.
 ITSaNAS also asks your home router to open its port by itself (UPnP), so most
 homes need no port forwarding; a machine whose router refuses still syncs by
@@ -431,7 +435,11 @@ python3-gi and AppIndicator; without them, use `itsanas settings`). Its menu
 has the same choices: open the folder, pause for 1 hour, 8 hours or until you
 resume, sync now, sync every, Settings..., Copy this account to a USB key...,
 Sign out..., Remove this machine..., open the log, restart.
-The Mac and Linux icons have not yet been run on a real desktop.
+Its colour: green when your files have two complete copies on other
+machines, orange with one ("not safe yet"), red with none ("only on this
+machine", or a stopped node), blue when paused, grey when signed out.
+The Mac and Linux icons, and the notifications on every system, have not yet
+been run on a real desktop.
 
 ---
 

@@ -33,7 +33,9 @@ param(
     # Print the menu for this `status --brief` line and exit, opening nothing.
     [string]$Describe = '',
     # With -Describe: what `itsanas interval` would have said.
-    [string]$Interval = ''
+    [string]$Interval = '',
+    # With -Describe: the brief of the poll before, for the notification.
+    [string]$Previous = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,6 +49,10 @@ $label = if ($Instance) { "ITSaNAS $Instance" } else { 'ITSaNAS' }
 $pauseWords = 'Nothing is lost: what you change here waits until syncing resumes, and what your other machines change waits for you. This machine keeps hosting for the others.'
 $removeWords = "This hands what this machine keeps for other people to other machines (up to 30 minutes, in a window that shows the progress), then removes this machine from the account. ITSaNAS no longer starts here.`n`nYour synced folder stays. To delete this machine's ITSaNAS data afterwards, run install/clean with the purge option the window names."
 $signoutWords = "This stops ITSaNAS on this machine and forgets the passphrase here, so it no longer starts by itself.`n`nYour files, and the data this machine keeps for other people, stay on this disk. While signed out it does not sync, and the others cannot check what it keeps for them.`n`nTo come back, choose Sign in... and type your passphrase."
+
+# What a node whose files are not where they should be yet is told (MVP.md
+# test L), in the menu and in the one notification it gets.
+$exposedAdvice = 'Add a machine to this account, or keep its other machines on, so copies exist elsewhere.'
 
 # ---------------------------------------------------------------- the model
 
@@ -66,7 +72,40 @@ function Split-Brief([string]$Brief) {
     return @($parts[0], $age)
 }
 
-function Get-Colour([string]$State) {
+# `exposed AGE HAVE WANT`: the copies elsewhere and the copies wanted.
+function Get-Copies([string]$Brief) {
+    $parts = "$Brief".Trim() -split '\s+'
+    if ($parts.Count -ge 4 -and $parts[0] -eq 'exposed' -and $parts[2] -match '^\d+$' -and $parts[3] -match '^\d+$') {
+        return @([int]$parts[2], [int]$parts[3])
+    }
+    return $null
+}
+
+# The state as the status line and the tooltip say it.
+function Get-StateWords([string]$Brief) {
+    $copies = Get-Copies $Brief
+    if ($null -eq $copies) { return (Split-Brief $Brief)[0] }
+    if ($copies[0] -eq 0) { return "only on this machine (0 of $($copies[1]) copies elsewhere)" }
+    return "not safe yet ($($copies[0]) of $($copies[1]) copies elsewhere)"
+}
+
+# The notification when $Brief follows $Before, or $null: once when a node
+# becomes exposed, again only if it loses a copy. An icon just started has no
+# previous brief, so a person logging on is told once.
+function Get-Notice([string]$Before, [string]$Brief, [string]$Label) {
+    $now = Get-Copies $Brief
+    if ($null -eq $now) { return $null }
+    $then = Get-Copies $Before
+    if ($null -ne $then -and $then[0] -le $now[0]) { return $null }
+    if ($now[0] -eq 0) { return "${Label}: your files are only on this machine. $exposedAdvice" }
+    return "${Label}: your files are not safe yet, $($now[0]) of $($now[1]) copies elsewhere. $exposedAdvice"
+}
+
+function Get-Colour([string]$State, [string]$Brief = '') {
+    # On this disk and nowhere else: the colour of a stopped node, because it
+    # is the same loss when this disk goes.
+    $copies = Get-Copies $Brief
+    if ($State -eq 'exposed' -and ($null -eq $copies -or $copies[0] -eq 0)) { return 'red' }
     switch ($State) {
         'healthy' { return 'green' }
         'paused' { return 'blue' }
@@ -92,7 +131,8 @@ function Get-Menu([string]$Brief, [string]$IntervalLine) {
     $state, $age = Split-Brief $Brief
     $menu = @()
     $menu += New-Entry 'item' 'Open the synced folder' 'open-folder'
-    $menu += New-Entry 'status' "${label}: $state$(Format-Age $age)" $null
+    $menu += New-Entry 'status' "${label}: $(Get-StateWords $Brief)$(Format-Age $age)" $null
+    if ($null -ne (Get-Copies $Brief)) { $menu += New-Entry 'status' $exposedAdvice $null }
     $menu += New-Entry 'sep' '' $null
     if ($state -eq 'signed-out') {
         $menu += New-Entry 'item' 'Sign in...' @('signin')
@@ -154,7 +194,9 @@ function Write-Menu($Entries, [string]$Indent) {
 
 if ($PSBoundParameters.ContainsKey('Describe')) {
     $state, $age = Split-Brief $Describe
-    "icon $(Get-Colour $state)"
+    "icon $(Get-Colour $state $Describe)"
+    $said = Get-Notice $Previous $Describe $label
+    if ($said) { "notice $said" }
     Write-Menu (Get-Menu $Describe $Interval) ''
     exit 0
 }
@@ -238,13 +280,19 @@ function Get-Brief { return "$(@(Invoke-Itsanas @('status', '--brief')) | Select
 $icon = New-Object System.Windows.Forms.NotifyIcon
 $icon.Visible = $true
 
+$script:lastBrief = ''
+
 function Update-Icon {
-    $state, $age = Split-Brief (Get-Brief)
-    $icon.Icon = $icons[(Get-Colour $state)]
+    $brief = Get-Brief
+    $state, $age = Split-Brief $brief
+    $icon.Icon = $icons[(Get-Colour $state $brief)]
     # A tooltip is capped at 63 characters by Windows.
-    $text = "${label}: $state$(Format-Age $age)"
+    $text = "${label}: $(Get-StateWords $brief)$(Format-Age $age)"
     if ($text.Length -gt 63) { $text = $text.Substring(0, 63) }
     $icon.Text = $text
+    $said = Get-Notice $script:lastBrief $brief $label
+    $script:lastBrief = $brief
+    if ($said) { $icon.ShowBalloonTip(20000, 'ITSaNAS', $said, [System.Windows.Forms.ToolTipIcon]::Warning) }
 }
 
 function Show-Message([string]$Text) {

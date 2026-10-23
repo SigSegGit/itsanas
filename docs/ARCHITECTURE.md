@@ -470,18 +470,20 @@ which is why the read stays hourly ([HANDOVER.md](HANDOVER.md) §8 0o 2b, item 4
 The daemon is meant to be invisible: a folder that syncs. Invisible systems fail
 silently, so the daemon should raise explicit alerts on the conditions below.
 
-> **No alerting exists.** The daemon logs sync rounds and unreachable peers and
-> nothing else; `itsanas status` and `itsanas doctor` are the only ways to learn
-> the node's condition, and both have to be run by hand. Most of these
-> conditions cannot even be evaluated yet, because they need the node set. This
-> table is the specification.
+> **One row is built (2026-10-23):** fewer complete copies elsewhere than
+> `SAFE_COPIES`, past a grace of two intervals when it follows a safe state
+> and at once otherwise, turns the tray red or orange and raises one desktop
+> notification (`safety.rs`, MVP.md test L). The trays also show a daemon that
+> stopped writing its snapshot (`stale`) and a disk short of its pledge
+> (`short`). The other rows have no alert yet; `itsanas status` and `doctor`
+> say them when asked. This table is the specification.
 
 Conditions that must eventually alert:
 
 | Condition | Why it matters |
 | --- | --- |
 | Online node count below the replication floor | New writes cannot reach their durability target |
-| Any chunk below minimum replicas past a grace period | Data is one failure from loss |
+| Any chunk below minimum replicas past a grace period | Data is one failure from loss. ✅ as "fewer than two complete copies elsewhere" (the tray and a notification) |
 | No successful sync round in *N* minutes | Sync is broken, not merely quiet |
 | A proof-of-storage challenge fails | A host is not holding what it claims |
 | Local pledged space exhausted or unwritable | Node can no longer meet its side of the bargain |

@@ -1278,22 +1278,34 @@ fn paused_round(
 /// snapshot is, so a stale one announces itself.
 /// The snapshot's first line: when, how often, and which program wrote it.
 ///
-/// The version last, after what every reader parses (`brief_status`,
-/// `status`, `snapshot_counts`, the fleet agent): it is the version of the
-/// *running daemon*, which is what an `update` that restarted nothing leaves
-/// behind -- three laptop daemons on 0.1.8 while the program on disk was
-/// newer (hand test, 2026-10-22). The fleet run compares it across machines.
-fn snapshot_header(now: u64, every: u64) -> String {
+/// The version after what every reader parses (`brief_status`, `status`,
+/// `snapshot_counts`, the fleet agent): it is the version of the *running
+/// daemon*, which is what an `update` that restarted nothing leaves behind --
+/// three laptop daemons on 0.1.8 while the program on disk was newer (hand
+/// test, 2026-10-22). The fleet run compares it across machines. Then the
+/// copies, when anything is stored (`safety.rs`): what the icon colours.
+fn snapshot_header(now: u64, every: u64, copies: Option<crate::safety::Copies>) -> String {
     format!(
-        "snapshot {now} every {every} version {}",
-        env!("CARGO_PKG_VERSION")
+        "snapshot {now} every {every} version {}{}",
+        env!("CARGO_PKG_VERSION"),
+        copies.map(|c| c.render()).unwrap_or_default()
     )
 }
 
 fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr) {
-    let Ok(text) = crate::render_status(node, Some(&bound.to_string())) else {
+    let Ok((text, counted)) = crate::render_status_and_copies(node, Some(&bound.to_string()))
+    else {
         return;
     };
+    let now = itsanas_discover::now_unix();
+    // When the shortfall began is carried by the file itself, so a restarted
+    // daemon neither forgets an old one nor grants a new grace to it.
+    let final_path = node.home.join(crate::node::SNAPSHOT);
+    let previous = std::fs::read_to_string(&final_path)
+        .ok()
+        .and_then(|old| crate::safety::Copies::parse(old.lines().next().unwrap_or("")));
+    let copies = counted
+        .and_then(|c| crate::safety::Copies::this_round(c.have, c.want, true, previous, now));
 
     // The first line is the time it was taken, in seconds, and the reader turns
     // that into an age. Storing the age itself would be wrong the moment it was
@@ -1305,10 +1317,9 @@ fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr) 
     // process's to know (`--interval`, the metered plan), nobody else's.
     let stamped = format!(
         "{}\n{text}",
-        snapshot_header(itsanas_discover::now_unix(), interval.as_secs())
+        snapshot_header(now, interval.as_secs(), copies)
     );
 
-    let final_path = node.home.join(crate::node::SNAPSHOT);
     let pending = node.home.join(format!("{}.new", crate::node::SNAPSHOT));
     if std::fs::write(&pending, stamped).is_ok() {
         let _ = std::fs::rename(&pending, &final_path);
@@ -2479,7 +2490,7 @@ mod tests {
 
     #[test]
     fn the_snapshot_says_which_version_wrote_it_and_still_reads_as_before() {
-        let header = snapshot_header(1_792_000_000, 300);
+        let header = snapshot_header(1_792_000_000, 300, None);
         assert!(
             header.ends_with(&format!(" version {}", env!("CARGO_PKG_VERSION"))),
             "the snapshot does not say which program wrote it: a daemon an update left \
@@ -2495,6 +2506,58 @@ mod tests {
             Some((1_792_000_000, 3)),
             "the version broke the reader of the stamp and the file count"
         );
+    }
+
+    /// The wiring of MVP.md test L, through the daemon's own writer: a node
+    /// holding a file and no peer writes `copies 0 of 2` with no grace (it
+    /// was never safe), the icon reads `exposed`, and the next round keeps
+    /// that. The version is still read where the fleet agent reads it.
+    /// Sabotage: the header without the copies -- `healthy`, red.
+    #[test]
+    fn red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        node.store
+            .write_file("notes.txt", b"only here so far")
+            .expect("write");
+        let bound: std::net::SocketAddr = "127.0.0.1:9797".parse().unwrap();
+        let interval = Duration::from_secs(300);
+
+        write_snapshot(&node, interval, bound);
+        let text = std::fs::read_to_string(home.join(crate::node::SNAPSHOT)).expect("snapshot");
+        let header = text.lines().next().unwrap_or("").to_owned();
+        assert!(
+            header.ends_with(&format!(
+                " version {} copies 0 of 2",
+                env!("CARGO_PKG_VERSION")
+            )),
+            "the snapshot of a node with a file and no peer does not say it has no copy \
+             elsewhere: {header}"
+        );
+        let now = itsanas_discover::now_unix();
+        let brief = crate::brief_status(&home, true, now);
+        assert!(
+            brief.starts_with("exposed ") && brief.ends_with(" 0 2"),
+            "the icon of a node whose only copy is its own disk reads {brief:?}"
+        );
+        write_snapshot(&node, interval, bound);
+        let again = std::fs::read_to_string(home.join(crate::node::SNAPSHOT)).expect("snapshot");
+        assert!(
+            again
+                .lines()
+                .next()
+                .unwrap_or("")
+                .ends_with(" copies 0 of 2"),
+            "a second round granted a grace to a node that was never safe: {}",
+            again.lines().next().unwrap_or("")
+        );
+        let version = header
+            .split(" version ")
+            .nth(1)
+            .and_then(|rest| rest.split_whitespace().next());
+        assert_eq!(version, Some(env!("CARGO_PKG_VERSION")));
     }
 
     /// The daemon's side of `red_team_an_address_that_is_this_node_is_never_dialled_for_another_device`

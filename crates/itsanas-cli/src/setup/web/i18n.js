@@ -140,6 +140,8 @@ window.I18N = {
     'Running and up to date': 'En marche et à jour',
     'Paused: your files wait until you resume': 'En pause : vos fichiers attendent que vous repreniez',
     'Running, but it has not synced for a while': 'En marche, mais pas synchronisé depuis un moment',
+    'Running, but your files are not safe yet: add a machine to this account so copies exist elsewhere': 'En marche, mais vos fichiers ne sont pas encore en sécurité : ajoutez une machine à ce compte pour qu\'il en existe des copies ailleurs',
+    'Running, but this disk can no longer hold what it promised to others': 'En marche, mais ce disque ne peut plus garder ce qu\'il a promis aux autres',
     'Not running': 'Arrêté',
     'This machine has left the network': 'Cette machine a quitté le réseau',
     'Cannot tell right now': 'Impossible à dire pour l’instant',

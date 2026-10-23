@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-23 — 1385 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 425 are red-team tests.**
+**Last updated: 2026-10-23 — 1391 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 429 are red-team tests.**
 
-**1269 of the 1385 tests have an entry of their own on this page** — an *entry*,
+**1275 of the 1391 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 222 |
+| `itsanas-cli` unit | 228 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 153 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 30 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 50 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 93 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 97 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1158,7 +1158,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (222)
+# `itsanas-cli` — unit tests (228)
 
 ## `bench` — measuring this machine (4)
 
@@ -1298,10 +1298,11 @@ tested: no window was opened by a test.
 | **`red_team_the_windows_wrapper_logs_plain_utf8_and_restarts_a_requested_restart_at_once`** | The wrapper the logon task runs sets the console's encoding to UTF-8 before the daemon starts, merges stderr with `2>&1` and writes each line as its text (`ForEach-Object { "$_" }`), so `daemon-NAME.log` holds what the daemon wrote: it showed `nÔÇÖa pu ├¬tre` and a `NativeCommandError` block around each stderr line (hand test, 2026-10-22). Exit 0 still ends the loop; exit 75 restarts at once with the failure pause reset, at most three times in 60 s (red team, 2026-10-23: a daemon exiting 75 at every start restarted every second for ever) -- past that it takes the failure path's pause, doubled up to 300 s, and logs one line saying so; any other code restarts after the pause. The script is ASCII (written without a BOM), and `install/provision.ps1` writes the same code. Sabotaged seven times (encoding line, the `ForEach-Object`, the exit-75 branch, the `ForEach-Object` in provision.ps1, the restart limit removed, a restart not counted, the limit widened in provision.ps1 alone): red each time. |
 | `the_windows_scripts_parse` | (Windows) The generated wrapper, task, tray and ACL scripts, the secret window and the tray icon script all pass PowerShell's Parser::ParseFile, with and without an instance. |
 
-## `verify` — the final check (3)
+## `verify` — the final check (4)
 
 | Test | What it proves |
 | --- | --- |
+| `the_first_machine_of_an_account_passes_the_daemon_check_while_exposed` | A held store with a snapshot saying `copies 0 of 2` passes "the daemon is healthy": every first machine of an account is exposed by definition, and setup must not end on a failure about a working daemon. Sabotaged (`exposed` not accepted): red. |
 | `an_unreachable_laptop_is_not_a_failure_an_unreachable_forward_is` | The dial-back verdict passes a machine behind NAT that announced nothing, and fails one whose announced forward cannot be reached, giving a remedy. |
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
@@ -1458,10 +1459,21 @@ requests are tested on the bytes a router sends.
 | **`red_team_only_a_granting_answer_opens_a_port_or_names_an_address`** | Only a NAT-PMP answer of the right opcode, result 0, for this port and with a lifetime counts; a refusal, a truncated answer, a UDP mapping's answer, another port's or a deletion never makes the node announce an address nobody can dial; the router's external port is the one announced. Sabotaged (result code ignored): red. |
 | **`red_team_an_answer_from_another_machine_on_the_lan_is_ignored`** | An answer from any address but the gateway's port 5351 is not read, so another machine on the LAN cannot choose the address this node announces. Sabotaged (source not checked): red. |
 | `the_gateway_is_read_from_the_routing_table_or_guessed_on_the_lan` | The default route of `/proc/net/route` (little-endian hex), else the `.1` and `.254` of the local `/24`; a mapping is renewed at half the lease the router granted, never sooner than a minute. |
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, and the enrolment at start (15)
+## `safety` — whether the account's files are elsewhere yet, as the icon reads it (3)
+
+MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`, and `status --brief` says `exposed` from it.
 
 | Test | What it proves |
 | --- | --- |
+| `the_count_reads_back_as_written_and_a_header_without_one_has_none` | `copies 0 of 2`, `copies 1 of 2 since T` and `copies 3 of 2` read back as written after the version; a header from 0.1.12 (no count) and a malformed count read as none. |
+| **`red_team_a_node_never_safe_is_exposed_from_its_first_round`** | A node whose files are on its disk only is exposed from its **first** round, and still on its second: no grace for a node that was never safe, which is the person who installs it, drops files in and leaves. Nothing stored is no question. Sabotaged (a grace from a missing previous header; a new `since` every round): red. |
+| **`red_team_a_save_on_a_safe_account_is_unsaid_for_the_grace_and_said_after`** | Safe, then a save: `since` is set and the shortfall is unsaid for `GRACE_INTERVALS` (2) rounds, keeps its age across rounds, is said after, and clears when the copies are back. Sabotaged (a new `since` each round): red. |
+
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version and copies, and the enrolment at start (16)
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green`** | Through the daemon's own `write_snapshot`: a real node with one file and no peer writes `version <v> copies 0 of 2`, `brief_status` then reads `exposed … 0 2`, a second round grants no grace, and the version is still where the fleet agent reads it. Sabotaged (the header without the copies): red. |
 | **`red_team_a_relay_that_closes_the_park_is_passed_over_for_the_next`** | `park_loop` over a scripted `ParkSite`: a relay that closed the park is skipped for the next one rather than redialled at every look. Sabotage: no `failed.insert` (red). |
 | **`red_team_a_daemon_enrols_at_its_bound_address_with_the_coordinator_it_uses`** | Red team, 2026-10-23: a key enrolling at its first daemon start ran `register_and_announce`, which announced the configured `listen` beside the rounds' publication of the bound one. `enrol_at_daemon_start` hands the enrolment the bound address (`enrol_once` registers with `register_only`, then announces it); the `registered` marker names the coordinator, and a marker naming another one than the configured coordinator is dropped, so the node enrols there once; the same one never enrols again. Sabotaged (the configured `listen` passed; the stale marker kept): red both. |
 | `the_snapshot_says_which_version_wrote_it_and_still_reads_as_before` | The snapshot's first line ends `version <the running daemon's version>`, after the words every reader parses (`brief_status` reads `snapshot <t> every <s>` in that order, `snapshot_counts` the stamp and the file count): an `update` that restarted nothing left three laptop daemons on 0.1.8 (hand test, 2026-10-22), and the fleet run's V row compares this across machines. Sabotaged (no version; the version before `every`): red both. |
@@ -1483,7 +1495,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are (47)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green (48)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1492,6 +1504,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_files_on_this_machine_alone_are_never_drawn_green`** | MVP.md test L in `brief_status`: `copies 0 of 2` is `exposed 60 0 2` and `1 of 2` is `exposed 60 1 2`; a shortfall that began a round ago (`since`) is still `healthy`, past two intervals it is `exposed`; `2 of 2` and no count are `healthy`; and `exposed` wins over `short` (the pledge the disk cannot hold), since it is about the person's own files. Sabotaged (the `exposed` arm dropped; `short` put before it): red. |
 | **`red_team_moving_a_vault_copies_checks_switches_and_keeps_the_original`** | `itsanas vault NEW --move`: the copy holds what the original held, the node uses it from then on, the original stays until deleted by hand, no staging copy is left (the vault is closed before copying: Windows will not read a locked database, found by CI); a target that holds anything is refused and nothing switches (the early check only spares a copy: the final rename refuses an occupied target and the staging copy is removed). |
 | **`red_team_a_cold_copy_rebuilds_the_account_on_a_new_device_and_nowhere_else`** | `itsanas backup export` then `restore` on a machine recovered from the 24 words, with no peer: the file comes back, the old device admitted to the roster from the copy's claims; another account's node refuses the copy and gets nothing; a chunk swapped on the backup disk is refused, not kept; an export never overwrites a backup. |
 | **`red_team_setting_the_vault_never_adopts_a_foreign_directory`** | `itsanas vault PATH` refuses a directory holding other files and another device's vault, saves nothing then, and marks an empty new one that the next open uses. Sabotaged (emptiness check off): red. |

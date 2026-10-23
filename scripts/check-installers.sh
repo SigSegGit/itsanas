@@ -1103,11 +1103,11 @@ if command -v pwsh >/dev/null 2>&1; then
     fi
 fi
 
-tray_menu() {  # $1 tray, $2 instance, $3 brief, $4 interval line
+tray_menu() {  # $1 tray, $2 instance, $3 brief, $4 interval line, $5 the brief before
     case "$1" in
-        py) "$PY" scripts/itsanas-tray.py ${2:+"$2"} --describe "$3" --interval "$4" ;;
-        js) node scripts/itsanas-menubar.js ${2:+"$2"} --describe "$3" --interval "$4" ;;
-        ps1) pwsh -NoProfile -File scripts/itsanas-tray.ps1 ${2:+-Instance "$2"} -Describe "$3" -Interval "$4" ;;
+        py) "$PY" scripts/itsanas-tray.py ${2:+"$2"} --describe "$3" --interval "$4" --previous "${5:-}" ;;
+        js) node scripts/itsanas-menubar.js ${2:+"$2"} --describe "$3" --interval "$4" --previous "${5:-}" ;;
+        ps1) pwsh -NoProfile -File scripts/itsanas-tray.ps1 ${2:+-Instance "$2"} -Describe "$3" -Interval "$4" -Previous "${5:-}" ;;
     esac 2>&1 | tr -d '\r'
 }
 if [ -n "$PY" ]; then
@@ -1115,7 +1115,9 @@ if [ -n "$PY" ]; then
     others=""
     command -v node >/dev/null 2>&1 && others="$others js"
     command -v pwsh >/dev/null 2>&1 && others="$others ps1"
-    for brief in 'healthy 30' 'paused 4000' 'stale 900' 'stopped' 'departed' 'signed-out' ''; do
+    briefs=('healthy 30' 'paused 4000' 'stale 900' 'stopped' 'departed' 'signed-out' '')
+    briefs+=('exposed 30 0 2' 'exposed 30 1 2')
+    for brief in "${briefs[@]}"; do
         for instance in '' b; do
             for every in 'every 15 min (set with `itsanas interval`)' 'auto: the daemon'"'"'s own setting'; do
                 reference=$(tray_menu py "$instance" "$brief" "$every")
@@ -1143,6 +1145,29 @@ if [ -n "$PY" ]; then
                 'item Remove this machine... -> itsanas --instance b leave [confirm]' 'item Quit the icon -> quit'; do
         printf '%s\n' "$healthy" | grep -qxF -- "$line" \
             || { bad "the tray menu of a healthy node lacks: $line"; menus_ok=0; }
+    done
+    # MVP.md test L: files on this disk alone are red and say so, one copy of
+    # two is orange, both with what to do; the notification comes once on
+    # becoming exposed and again only when a copy is lost, the same on every
+    # tray. A notification each poll is one nobody reads.
+    for tray in py $others; do
+        alone=$(tray_menu "$tray" '' 'exposed 30 0 2' 'auto: x')
+        advice='Add a machine to this account, or keep its other machines on, so copies exist elsewhere.'
+        wanted=('icon red' 'status ITSaNAS: only on this machine (0 of 2 copies elsewhere) (30 s ago)' "status $advice" "notice ITSaNAS: your files are only on this machine. $advice")
+        for line in "${wanted[@]}"; do
+            printf '%s\n' "$alone" | grep -qxF -- "$line" || { bad "the $tray tray of a node whose files are on its disk alone lacks: $line"; menus_ok=0; }
+        done
+        one=$(tray_menu "$tray" '' 'exposed 30 1 2' 'auto: x' 'healthy 30')
+        if ! printf '%s\n' "$one" | grep -qxF 'icon orange' || ! printf '%s\n' "$one" | grep -q '^notice .*1 of 2 copies elsewhere'; then
+            bad "the $tray tray does not turn orange and say so when a safe node loses a copy"; menus_ok=0
+        fi
+        for pair in 'exposed 30 1 2|exposed 30 1 2' 'exposed 30 1 2|exposed 30 0 2' 'healthy 30|exposed 30 0 2'; do
+            if tray_menu "$tray" '' "${pair%%|*}" 'auto: x' "${pair#*|}" | grep -q '^notice '; then
+                bad "the $tray tray notifies again for '${pair%%|*}' after '${pair#*|}': an alarm every poll"; menus_ok=0
+            fi
+        done
+        lost=$(tray_menu "$tray" '' 'exposed 30 0 2' 'auto: x' 'exposed 30 1 2')
+        printf '%s\n' "$lost" | grep -q '^notice .*only on this machine' || { bad "the $tray tray says nothing when the last copy elsewhere goes"; menus_ok=0; }
     done
     paused=$(tray_menu py '' 'paused 60' 'auto: x')
     for line in 'icon blue' 'item Resume syncing -> itsanas resume' '  item Automatic -> itsanas interval auto [checked]'; do

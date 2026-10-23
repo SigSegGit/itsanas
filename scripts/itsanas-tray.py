@@ -48,6 +48,11 @@ SIGNOUT_WORDS = (
 REMOVE_WORDS = (
     "This hands what this machine keeps for other people to other machines (up to 30 minutes, in a window that shows the progress), then removes this machine from the account. ITSaNAS no longer starts here.\n\nYour synced folder stays. To delete this machine's ITSaNAS data afterwards, run install/clean with the purge option the window names."
 )
+# What a node whose files are not where they should be yet is told (MVP.md
+# test L), in the menu and in the one notification it gets.
+EXPOSED_ADVICE = (
+    "Add a machine to this account, or keep its other machines on, so copies exist elsewhere."
+)
 NO_TOOLKIT = (
     "itsanas-tray: no GTK for Python here (python3-gi), so no tray icon; "
     "the web Settings page does the same: itsanas settings"
@@ -98,7 +103,53 @@ def split_brief(brief):
     return parts[0], age
 
 
-def colour(state):
+def copies_of(brief):
+    """`exposed AGE HAVE WANT`: the copies elsewhere and the copies wanted."""
+    parts = (brief or "").split()
+    if len(parts) >= 4 and parts[0] == "exposed" and parts[2].isdigit() and parts[3].isdigit():
+        return int(parts[2]), int(parts[3])
+    return None
+
+
+def state_words(brief):
+    """The state as the status line and the tooltip say it."""
+    state, _ = split_brief(brief)
+    copies = copies_of(brief)
+    if copies is None:
+        return state
+    have, want = copies
+    if have == 0:
+        return "only on this machine (0 of %d copies elsewhere)" % want
+    return "not safe yet (%d of %d copies elsewhere)" % (have, want)
+
+
+def notice(previous, brief, label):
+    """The notification to show when `brief` follows `previous`, or None.
+
+    Once when a node becomes exposed, and again only if it loses a copy: an
+    alarm repeated every 30 s is one nobody reads. A tray just started has
+    no previous, so a person logging in to an exposed node is told once."""
+    now = copies_of(brief)
+    if now is None:
+        return None
+    before = copies_of(previous)
+    if before is not None and before[0] <= now[0]:
+        return None
+    if now[0] == 0:
+        return "%s: your files are only on this machine. %s" % (label, EXPOSED_ADVICE)
+    return "%s: your files are not safe yet, %d of %d copies elsewhere. %s" % (
+        label,
+        now[0],
+        now[1],
+        EXPOSED_ADVICE,
+    )
+
+
+def colour(state, brief=""):
+    if state == "exposed" and (copies_of(brief) or (0,))[0] == 0:
+        # On this disk and nowhere else: the colour of a stopped node, because
+        # it is the same loss when this disk goes.
+        return "red"
     return {
         "healthy": "green",
         "paused": "blue",
@@ -133,9 +184,11 @@ def menu(brief, interval_line, label):
     state, age = split_brief(brief)
     items = [
         entry("item", "Open the synced folder", "open-folder"),
-        entry("status", "%s: %s%s" % (label, state, format_age(age))),
-        entry("sep", ""),
+        entry("status", "%s: %s%s" % (label, state_words(brief), format_age(age))),
     ]
+    if copies_of(brief) is not None:
+        items.append(entry("status", EXPOSED_ADVICE))
+    items.append(entry("sep", ""))
     if state == "signed-out":
         items.append(entry("item", "Sign in...", ["signin"]))
     else:
@@ -237,6 +290,7 @@ class Tray:
         self.label = "ITSaNAS %s" % instance if instance else "ITSaNAS"
         self.exe = itsanas_binary()
         self.watched = None
+        self.last_brief = ""
         self.icons = write_icons()
         self.indicator = None
         self.status_icon = None
@@ -282,7 +336,7 @@ class Tray:
         gtk_menu = self.gtk.Menu()
         self.fill(gtk_menu, menu(brief, interval, self.label))
         gtk_menu.show_all()
-        return state, age, gtk_menu
+        return state, age, gtk_menu, brief
 
     def fill(self, gtk_menu, items):
         for item in items:
@@ -308,10 +362,14 @@ class Tray:
                 gtk_menu.append(shown)
 
     def update(self):
-        state, age, gtk_menu = self.build()
+        state, age, gtk_menu, brief = self.build()
         self.menu = gtk_menu
-        icon = self.icons[colour(state)]
-        tip = "%s: %s%s" % (self.label, state, format_age(age))
+        icon = self.icons[colour(state, brief)]
+        tip = "%s: %s%s" % (self.label, state_words(brief), format_age(age))
+        said = notice(self.last_brief, brief, self.label)
+        self.last_brief = brief
+        if said and shutil.which("notify-send"):
+            detach(["notify-send", "--app-name=ITSaNAS", "--urgency=critical", self.label, said])
         if self.indicator is not None:
             self.indicator.set_icon_full(icon, tip)
             self.indicator.set_menu(gtk_menu)
@@ -505,7 +563,7 @@ def load_appindicator():
 
 
 def main(argv):
-    instance, brief, interval, describing = "", None, "", False
+    instance, brief, interval, describing, previous = "", None, "", False, ""
     rest = list(argv)
     while rest:
         word = rest.pop(0)
@@ -513,15 +571,20 @@ def main(argv):
             brief, describing = rest.pop(0), True
         elif word == "--interval" and rest:
             interval = rest.pop(0)
+        elif word == "--previous" and rest:
+            previous = rest.pop(0)
         elif word in ("-h", "--help"):
             print(__doc__.strip().splitlines()[0])
-            print("usage: itsanas-tray.py [NAME] [--describe BRIEF [--interval LINE]]")
+            print("usage: itsanas-tray.py [NAME] [--describe BRIEF [--interval LINE] [--previous BRIEF]]")
             return 0
         else:
             instance = word
     if describing:
         label = "ITSaNAS %s" % instance if instance else "ITSaNAS"
-        print("icon " + colour(split_brief(brief)[0]))
+        print("icon " + colour(split_brief(brief)[0], brief))
+        said = notice(previous, brief, label)
+        if said:
+            print("notice " + said)
         print("\n".join(describe(menu(brief, interval, label), instance)))
         return 0
     try:

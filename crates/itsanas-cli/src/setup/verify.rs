@@ -176,7 +176,13 @@ fn daemon_health(inputs: &Inputs<'_>, started: Instant) -> Finding {
     let last = loop {
         let running = itsanas_store::Store::is_locked(Node::store_path(inputs.home));
         let state = crate::brief_status(inputs.home, running, itsanas_discover::now_unix());
-        if state.starts_with("healthy") || state.starts_with("paused") {
+        // `exposed` is a running daemon whose account has too few copies
+        // elsewhere yet -- every first machine of an account, by definition.
+        // The daemon is healthy; the copies are said by the icon and `status`.
+        if state.starts_with("healthy")
+            || state.starts_with("paused")
+            || state.starts_with("exposed")
+        {
             return Finding::passed(WHAT, state);
         }
         if started.elapsed() >= inputs.deadline {
@@ -450,6 +456,37 @@ mod tests {
             None,
             "a snapshot with no stamp was read as a fresh one"
         );
+    }
+
+    /// The first machine of an account has no copy elsewhere by definition,
+    /// so its icon says `exposed` (MVP.md test L). That is the account's
+    /// state, not the daemon's: setup must pass "the daemon is healthy" on
+    /// it, or every first setup ends on a failure about a working daemon.
+    /// Sabotage: drop `exposed` from the accepted states.
+    #[test]
+    fn the_first_machine_of_an_account_passes_the_daemon_check_while_exposed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("node");
+        // Held open, as a running daemon holds the store.
+        let (_node, _) = Node::create(&home, "a passphrase", "camille").expect("create");
+        std::fs::write(
+            home.join(crate::node::SNAPSHOT),
+            format!(
+                "snapshot {} every 300 version 0.1.13 copies 0 of 2\n  files 1\n",
+                itsanas_discover::now_unix()
+            ),
+        )
+        .expect("snapshot");
+        let inputs = Inputs {
+            home: &home,
+            identity: None,
+            daemon_expected: true,
+            folder: None,
+            deadline: Duration::from_millis(200),
+            log_hint: "the test".to_owned(),
+        };
+        let found = daemon_health(&inputs, Instant::now());
+        assert_eq!(found.verdict, Verdict::Passed, "{found:?}");
     }
 
     /// A daemon that counts the folder's files into the snapshot each

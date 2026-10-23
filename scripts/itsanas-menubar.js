@@ -36,6 +36,10 @@ var SIGNOUT_WORDS = 'This stops ITSaNAS on this machine and forgets the passphra
     'keeps for them.\n\nTo come back, choose Sign in... and type your passphrase.';
 var REMOVE_WORDS = 'This hands what this machine keeps for other people to other machines (up to 30 minutes, in a window that shows the progress), then removes this machine from the account. ITSaNAS no longer starts here.\n\nYour synced folder stays. To delete this machine\'s ITSaNAS data afterwards, run install/clean with the purge option the window names.';
 
+// What a node whose files are not where they should be yet is told (MVP.md
+// test L), in the menu and in the one notification it gets.
+var EXPOSED_ADVICE = 'Add a machine to this account, or keep its other machines on, so copies exist elsewhere.';
+
 var COLOURS = {
     green: [46, 160, 67],
     blue: [47, 111, 235],
@@ -75,7 +79,39 @@ function splitBrief(brief) {
     return [parts[0], age];
 }
 
-function colour(state) {
+// `exposed AGE HAVE WANT`: the copies elsewhere and the copies wanted.
+function copiesOf(brief) {
+    var parts = String(brief || '').trim().split(/\s+/);
+    if (parts.length >= 4 && parts[0] === 'exposed' && /^\d+$/.test(parts[2]) && /^\d+$/.test(parts[3])) {
+        return [parseInt(parts[2], 10), parseInt(parts[3], 10)];
+    }
+    return null;
+}
+
+// The state as the status line and the tooltip say it.
+function stateWords(brief) {
+    var copies = copiesOf(brief);
+    if (copies === null) { return splitBrief(brief)[0]; }
+    if (copies[0] === 0) { return 'only on this machine (0 of ' + copies[1] + ' copies elsewhere)'; }
+    return 'not safe yet (' + copies[0] + ' of ' + copies[1] + ' copies elsewhere)';
+}
+
+// The notification when `brief` follows `previous`, or null: once when a node
+// becomes exposed, again only if it loses a copy. A menu bar item just
+// started has no previous, so a person logging in is told once.
+function notice(previous, brief, label) {
+    var now = copiesOf(brief);
+    if (now === null) { return null; }
+    var before = copiesOf(previous);
+    if (before !== null && before[0] <= now[0]) { return null; }
+    if (now[0] === 0) { return label + ': your files are only on this machine. ' + EXPOSED_ADVICE; }
+    return label + ': your files are not safe yet, ' + now[0] + ' of ' + now[1] + ' copies elsewhere. ' + EXPOSED_ADVICE;
+}
+
+function colour(state, brief) {
+    // On this disk and nowhere else: the colour of a stopped node, because it
+    // is the same loss when this disk goes.
+    if (state === 'exposed' && (copiesOf(brief) || [0])[0] === 0) { return 'red'; }
     var known = { healthy: 'green', paused: 'blue', stopped: 'red', departed: 'red', 'signed-out': 'grey' };
     return Object.prototype.hasOwnProperty.call(known, state) ? known[state] : 'orange';
 }
@@ -104,9 +140,10 @@ function menuModel(brief, intervalLine, label) {
     var state = split[0];
     var items = [
         entry('item', 'Open the synced folder', 'open-folder'),
-        entry('status', label + ': ' + state + formatAge(split[1])),
-        entry('sep', '')
+        entry('status', label + ': ' + stateWords(brief) + formatAge(split[1]))
     ];
+    if (copiesOf(brief) !== null) { items.push(entry('status', EXPOSED_ADVICE)); }
+    items.push(entry('sep', ''));
     if (state === 'signed-out') {
         items.push(entry('item', 'Sign in...', ['signin']));
     } else {
@@ -171,13 +208,15 @@ function labelFor(instance) {
 }
 
 function parseArguments(argv) {
-    var parsed = { instance: '', brief: null, interval: '', describing: false };
+    var parsed = { instance: '', brief: null, interval: '', describing: false, previous: '' };
     for (var i = 0; i < argv.length; i++) {
         if (argv[i] === '--describe' && i + 1 < argv.length) {
             parsed.brief = argv[++i];
             parsed.describing = true;
         } else if (argv[i] === '--interval' && i + 1 < argv.length) {
             parsed.interval = argv[++i];
+        } else if (argv[i] === '--previous' && i + 1 < argv.length) {
+            parsed.previous = argv[++i];
         } else {
             parsed.instance = argv[i];
         }
@@ -187,7 +226,10 @@ function parseArguments(argv) {
 
 function describeMain(argv) {
     var parsed = parseArguments(argv);
-    var lines = ['icon ' + colour(splitBrief(parsed.brief)[0])]
+    var label = labelFor(parsed.instance);
+    var said = notice(parsed.previous, parsed.brief, label);
+    var lines = ['icon ' + colour(splitBrief(parsed.brief)[0], parsed.brief)]
+        .concat(said ? ['notice ' + said] : [])
         .concat(describe(menuModel(parsed.brief, parsed.interval, labelFor(parsed.instance)), parsed.instance));
     return lines.join('\n');
 }
@@ -291,12 +333,17 @@ function run(argv) {
 
     var target;
 
+    var lastBrief = '';
+
     function update() {
         var brief = (itsanas(['status', '--brief']) || '').trim();
         var interval = (itsanas(['interval']) || '').trim();
         var split = splitBrief(brief);
-        statusItem.button.attributedTitle = dot(colour(split[0]));
-        statusItem.button.toolTip = label + ': ' + split[0] + formatAge(split[1]);
+        statusItem.button.attributedTitle = dot(colour(split[0], brief));
+        statusItem.button.toolTip = label + ': ' + stateWords(brief) + formatAge(split[1]);
+        var said = notice(lastBrief, brief, label);
+        lastBrief = brief;
+        if (said) { shell.displayNotification(said, { withTitle: 'ITSaNAS' }); }
         actions = [];
         var menu = $.NSMenu.alloc.initWithTitle(label);
         addEntries(menu, menuModel(brief, interval, label), target);
