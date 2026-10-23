@@ -1793,6 +1793,13 @@ mod tests {
                  learning the roster from this host never admits it"
             );
         }
+        // And the four presented first are the ones left out.
+        for device in &withdrawn[..4] {
+            assert!(
+                !answer.contains(&claim(device)),
+                "a claim presented before sixteen others was handed out instead of a newer one"
+            );
+        }
         // The oldest withdrawn device presents again (it was live after all).
         vault
             .keep_claim(withdrawn[0], owner, &claim(&withdrawn[0]))
