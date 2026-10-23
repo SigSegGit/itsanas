@@ -856,7 +856,7 @@ fn run(home: &Path, dir: &Path, passes: &Passphrases) -> Result<String> {
         passes,
         programs,
         |bin| crate::update::Updater::of_this_build(&curl)?.release_binaries(bin),
-        |node| crate::register_and_announce(node, None).map(|_| ()),
+        crate::register_only,
     )
 }
 

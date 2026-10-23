@@ -1144,6 +1144,13 @@ pub fn direct_address(config: &crate::config::Config, listen: &str) -> Option<St
 /// publishes a new address at every flip. Both `address_now` and the address
 /// published go through this, so the two keep agreeing. A machine with no
 /// real adapter keeps the virtual one rather than publish nothing.
+///
+/// "Virtual" is the adapter's name (`LocalNets::is_virtual`), with a Hyper-V
+/// external switch counted real (red team, 2026-10-23): the LAN address of a
+/// machine with one lives on `vEthernet (External ...)`, and swapping it for
+/// another card's -- a second NIC on another network -- published an address
+/// the house could not dial. A carrier-grade NAT address (100.64.0.0/10) on a
+/// network card is that card's own and stays too.
 #[must_use]
 pub fn on_a_real_adapter(local: SocketAddr, nets: &itsanas_discover::LocalNets) -> SocketAddr {
     match nets.physical_v4() {
@@ -1961,6 +1968,35 @@ fe800000000000000000000000000001 02 40 20 80 eth0
         )]);
         let route: SocketAddr = "192.168.19.1:9811".parse().unwrap();
         assert_eq!(on_a_real_adapter(route, &only_virtual), route);
+    }
+
+    /// Red team, 2026-10-23: the routed address on a Hyper-V external switch
+    /// is the machine's LAN address, and a CGNAT address on the Wi-Fi card
+    /// is the card's own. Neither is swapped for another adapter's.
+    #[test]
+    fn red_team_an_external_switch_or_a_cgnat_card_keeps_its_routed_address() {
+        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+        let mask = ip("255.255.255.0");
+        let hyper_v = itsanas_discover::LocalNets::from_interfaces([
+            ("vEthernet (External)".to_owned(), ip("192.168.1.5"), mask),
+            ("Wi-Fi".to_owned(), ip("10.9.8.7"), mask),
+        ]);
+        let route: SocketAddr = "192.168.1.5:9797".parse().unwrap();
+        assert_eq!(
+            on_a_real_adapter(route, &hyper_v),
+            route,
+            "the external switch's LAN address was swapped for another card's"
+        );
+        let hotspot = itsanas_discover::LocalNets::from_interfaces([
+            ("Wi-Fi".to_owned(), ip("100.70.1.2"), ip("255.192.0.0")),
+            ("Ethernet".to_owned(), ip("192.168.1.9"), mask),
+        ]);
+        let route: SocketAddr = "100.70.1.2:9797".parse().unwrap();
+        assert_eq!(
+            on_a_real_adapter(route, &hotspot),
+            route,
+            "a CGNAT address on the Wi-Fi card was swapped for another card's"
+        );
     }
 
     #[test]

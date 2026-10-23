@@ -673,13 +673,45 @@ fn bind_lan(discover: bool) -> Option<Lan> {
 
 /// A key's enrolment at its first start, when the copy could not enrol it
 /// (`copy_to_key::enrol_at_start`); prints what happened.
-fn enrol_once(node: &Node) {
-    let enrolled = crate::copy_to_key::enrol_at_start(node, |node| {
-        crate::register_and_announce(node, None).map(|_| ())
+///
+/// Registers without announcing the configured `listen`, then announces
+/// `bound`, the address this daemon really listens on (red team,
+/// 2026-10-23): run beside the rounds' own publication, announcing the
+/// configured port of a daemon started with `--listen` elsewhere sent the
+/// account's machines to a port nobody was on until the next publication.
+fn enrol_once(node: &Node, bound: std::net::SocketAddr) {
+    let enrolled = enrol_at_daemon_start(node, &bound.to_string(), |node, listen| {
+        crate::register_only(node)?;
+        // Best effort: the rounds publish this address too, and keep at it
+        // until the coordinator takes it.
+        if let Err(error) = coordinator::announce(node, listen, itsanas_discover::now_unix()) {
+            eprintln!("itsanas: enrolled, but could not announce {listen} yet: {error}");
+        }
+        Ok(())
     });
     if let Some(line) = enrolled {
         println!("{line}");
     }
+}
+
+/// [`enrol_once`]'s decision, with the enrolment given: `enrol` is handed the
+/// node and `bound`, the address to announce.
+///
+/// A `registered` marker naming another coordinator than the configured one
+/// is stale -- `itsanas coordinator` pointed this node elsewhere since -- and
+/// is dropped, so the node enrols with the one it now uses (red team,
+/// 2026-10-23); `copy_to_key::enrol_at_start` then does the rest.
+fn enrol_at_daemon_start(
+    node: &Node,
+    bound: &str,
+    enrol: impl FnOnce(&Node, &str) -> Result<()>,
+) -> Option<String> {
+    if let Some(configured) = &node.config.coordinator
+        && crate::registered_with(&node.home).is_some_and(|marked| marked != *configured)
+    {
+        let _ = std::fs::remove_file(node.home.join(crate::REGISTERED));
+    }
+    crate::copy_to_key::enrol_at_start(node, |node| enrol(node, bound))
 }
 
 /// Run until interrupted.
@@ -783,7 +815,7 @@ pub fn run(
         // A key copied while its coordinator could not be reached, or was
         // full, enrols here, once (`copy_to_key.rs`). Beside the rounds,
         // which need no coordinator to start.
-        scope.spawn(|| enrol_once(node));
+        scope.spawn(move || enrol_once(node, bound));
 
         open_the_router_port(
             scope,
@@ -1564,7 +1596,7 @@ fn one_round(
     // again instead of waiting for the hourly publication (`contact.rs`,
     // `REREAD_AFTER_MISS`). A round cut short dialled nobody it skipped.
     if !halted(node, shutdown) {
-        contact.round_reached(&reached);
+        contact.round_reached(&reached, Instant::now());
     }
 
     (reached, announced)
@@ -1727,8 +1759,9 @@ fn dial_listed(
     reached: &mut BTreeSet<DeviceId>,
     scope: PolicyScope,
 ) {
-    // A private address only of a machine heard on this LAN: two houses on
-    // 192.168.1.x are not one network (`Contact::dialable`).
+    // A private address only of a machine heard on this LAN, or one that
+    // answered, or at a probe round: two houses on 192.168.1.x are not one
+    // network, and another VLAN or a VPN may be (`Contact::dialable`).
     for (device, address) in contact.dialable(|device| neighbourhood.heard_here(device)) {
         if halted(node, shutdown) || reached.contains(&device) {
             continue;
@@ -1739,7 +1772,7 @@ fn dial_listed(
         if address.starts_with(itsanas_node::contact::RELAY_PREFIX) && through.is_none() {
             continue;
         }
-        if let Some(outcome) = sync_once(
+        let Some(outcome) = sync_once(
             node,
             &address,
             through.as_ref(),
@@ -1747,31 +1780,33 @@ fn dial_listed(
             true,
             true,
             scope,
-        ) {
-            reached.insert(outcome.device);
-            contact.worked(device, &address, itsanas_discover::now_unix());
-            // What this machine of the account knows of the others. Checked
-            // row by row (`Contact::relayed`); what it adds is dialled from the
-            // next round, behind every address that has worked.
-            if let Some(rows) = &outcome.relayed {
-                let relayed = contact.relayed(
-                    rows,
-                    node.store.owner(),
-                    node.store.device_id(),
-                    itsanas_discover::now_unix(),
+        ) else {
+            contact.failed(device, &address);
+            continue;
+        };
+        reached.insert(outcome.device);
+        contact.worked(device, &address, itsanas_discover::now_unix());
+        // What this machine of the account knows of the others. Checked
+        // row by row (`Contact::relayed`); what it adds is dialled from the
+        // next round, behind every address that has worked.
+        if let Some(rows) = &outcome.relayed {
+            let relayed = contact.relayed(
+                rows,
+                node.store.owner(),
+                node.store.device_id(),
+                itsanas_discover::now_unix(),
+            );
+            if relayed.refused > 0 {
+                eprintln!(
+                    "itsanas: {address} relayed {} address(es) of this account's machines \
+                     that do not check out (forged, another account's, a machine not \
+                     listed here, or older than what this node holds); ignored",
+                    relayed.refused
                 );
-                if relayed.refused > 0 {
-                    eprintln!(
-                        "itsanas: {address} relayed {} address(es) of this account's machines \
-                         that do not check out (forged, another account's, a machine not \
-                         listed here, or older than what this node holds); ignored",
-                        relayed.refused
-                    );
-                }
             }
-            if outcome.earned_trust {
-                neighbourhood.confirm(outcome.device);
-            }
+        }
+        if outcome.earned_trust {
+            neighbourhood.confirm(outcome.device);
         }
     }
 }
@@ -2327,6 +2362,63 @@ fn install_signal_handler() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Red team, 2026-10-23. A key that enrols at its first daemon start ran
+    /// `register_and_announce`, which announced the configured `listen`
+    /// beside the rounds' publication of the bound one: a daemon started on
+    /// another port sent the account to the configured port until the next
+    /// publication. It announces the bound address. And a `registered` marker
+    /// is per coordinator: pointed at another one, the node enrols there at
+    /// its next start; pointed at the same, it does not enrol again.
+    #[test]
+    fn red_team_a_daemon_enrols_at_its_bound_address_with_the_coordinator_it_uses() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (mut node, _) = Node::create(
+            &dir.path().join("key"),
+            "the passphrase of this key",
+            "camille",
+        )
+        .expect("node");
+        node.config.coordinator = Some("198.51.100.7:9797".to_owned());
+        node.config.listen = "0.0.0.0:9797".to_owned();
+
+        let mut announced = None;
+        let said = enrol_at_daemon_start(&node, "0.0.0.0:9811", |_, listen| {
+            announced = Some(listen.to_owned());
+            Ok(())
+        });
+        assert!(said.is_some_and(|line| line.contains("198.51.100.7:9797")));
+        assert_eq!(
+            announced.as_deref(),
+            Some("0.0.0.0:9811"),
+            "the enrolment announced another address than the one the daemon is bound to"
+        );
+        assert_eq!(
+            crate::registered_with(&node.home).as_deref(),
+            Some("198.51.100.7:9797"),
+            "the marker does not name the coordinator enrolled with"
+        );
+        assert!(
+            enrol_at_daemon_start(&node, "0.0.0.0:9811", |_, _| panic!("enrolled twice")).is_none(),
+            "a node enrolled with its coordinator enrolled again"
+        );
+
+        node.config.coordinator = Some("203.0.113.9:9797".to_owned());
+        let mut asked = 0;
+        let said = enrol_at_daemon_start(&node, "0.0.0.0:9811", |_, _| {
+            asked += 1;
+            Ok(())
+        });
+        assert_eq!(
+            asked, 1,
+            "pointed at another coordinator, the node did not enrol there"
+        );
+        assert!(said.is_some_and(|line| line.contains("203.0.113.9:9797")));
+        assert_eq!(
+            crate::registered_with(&node.home).as_deref(),
+            Some("203.0.113.9:9797")
+        );
+    }
 
     /// A scripted world for [`park_loop`]: each park pops the next answer
     /// (and may make the machine reachable), every park and announcement is
