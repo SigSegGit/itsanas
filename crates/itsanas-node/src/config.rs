@@ -456,9 +456,20 @@ impl Config {
     }
 
     /// Read from `path`, or return defaults if it does not exist.
+    ///
+    /// A relative `folder` is relative to the home holding the file: what a
+    /// portable home writes (see [`Self::save`]).
     pub fn load(path: &Path) -> Result<Self> {
         match std::fs::read_to_string(path) {
-            Ok(text) => Self::parse(&text),
+            Ok(text) => {
+                let mut config = Self::parse(&text)?;
+                if let (Some(folder), Some(home)) = (&config.folder, path.parent())
+                    && folder.is_relative()
+                {
+                    config.folder = Some(beside(home, folder));
+                }
+                Ok(config)
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(error) => Err(NodeError::Io {
                 path: path.to_owned(),
@@ -468,12 +479,71 @@ impl Config {
     }
 
     /// Write to `path`.
+    ///
+    /// In a portable home (one holding [`PORTABLE_MARKER`]) a folder next to
+    /// the home is written relative to it, with `/`: a key is `E:` on one
+    /// computer, `/Volumes/KEY` on a Mac and `/media/me/KEY` on Linux, and an
+    /// absolute folder would point at the first computer's drive everywhere
+    /// else.
     pub fn save(&self, path: &Path) -> Result<()> {
-        std::fs::write(path, self.render()).map_err(|error| NodeError::Io {
+        let relative = path
+            .parent()
+            .filter(|home| home.join(PORTABLE_MARKER).is_file())
+            .zip(self.folder.as_deref())
+            .and_then(|(home, folder)| relative_to(home, folder));
+        let text = match relative {
+            Some(folder) => Self {
+                folder: Some(PathBuf::from(folder)),
+                ..self.clone()
+            }
+            .render(),
+            None => self.render(),
+        };
+        std::fs::write(path, text).map_err(|error| NodeError::Io {
             path: path.to_owned(),
             source: error,
         })
     }
+}
+
+/// The file in a home that makes its node a portable one: a client only,
+/// whose home moves from computer to computer (`itsanas portable`).
+pub const PORTABLE_MARKER: &str = "portable";
+
+/// `relative` (as [`relative_to`] writes it) resolved against `home`.
+fn beside(home: &Path, relative: &Path) -> PathBuf {
+    let mut out = home.to_path_buf();
+    let text = relative.to_string_lossy();
+    for part in text.split(['/', '\\']) {
+        match part {
+            "" | "." => {}
+            ".." => {
+                out.pop();
+            }
+            name => out.push(name),
+        }
+    }
+    out
+}
+
+/// `folder` relative to `home`, `/`-separated, when it is inside the home
+/// or beside it; `None` otherwise.
+fn relative_to(home: &Path, folder: &Path) -> Option<String> {
+    let words = |rest: &Path| -> Option<Vec<String>> {
+        rest.components()
+            .map(|part| match part {
+                std::path::Component::Normal(name) => name.to_str().map(str::to_owned),
+                _ => None,
+            })
+            .collect()
+    };
+    if let Ok(rest) = folder.strip_prefix(home) {
+        return words(rest).filter(|w| !w.is_empty()).map(|w| w.join("/"));
+    }
+    let rest = folder.strip_prefix(home.parent()?).ok()?;
+    words(rest)
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("../{}", w.join("/")))
 }
 
 /// Parse a human size such as `500M`, `2G`, `1TB`, or a plain byte count.
@@ -1225,6 +1295,44 @@ listen = 0.0.0.0:9797
             Config::parse(&config.render()).unwrap().folder,
             config.folder
         );
+    }
+
+    /// A key copied on Windows at `E:` is `/Volumes/KEY` on a Mac: the
+    /// folder beside a portable home is written relative to it, and found
+    /// again wherever the drive is mounted. An installed home keeps its
+    /// absolute folder.
+    #[test]
+    fn a_portable_homes_folder_moves_with_the_drive() {
+        let first = tempfile::tempdir().expect("first mount");
+        let home = first.path().join("ITSaNAS").join("home");
+        std::fs::create_dir_all(&home).expect("home");
+        std::fs::write(home.join(PORTABLE_MARKER), "").expect("marker");
+        let config = Config {
+            folder: Some(first.path().join("ITSaNAS").join("Fichiers")),
+            ..Config::default()
+        };
+        config.save(&home.join("config")).expect("save");
+        let text = std::fs::read_to_string(home.join("config")).expect("read");
+        assert!(text.contains("folder = ../Fichiers\n"), "{text}");
+
+        let second = tempfile::tempdir().expect("second mount");
+        let moved = second.path().join("ITSaNAS").join("home");
+        std::fs::create_dir_all(&moved).expect("moved home");
+        std::fs::write(moved.join("config"), &text).expect("copy");
+        assert_eq!(
+            Config::load(&moved.join("config")).expect("load").folder,
+            Some(second.path().join("ITSaNAS").join("Fichiers"))
+        );
+
+        // Without the marker, the folder is written as it is.
+        std::fs::remove_file(home.join(PORTABLE_MARKER)).expect("unmark");
+        config.save(&home.join("config")).expect("save");
+        assert_eq!(
+            Config::load(&home.join("config")).expect("load").folder,
+            config.folder
+        );
+        let text = std::fs::read_to_string(home.join("config")).expect("read");
+        assert!(!text.contains(".."), "{text}");
     }
 
     #[test]

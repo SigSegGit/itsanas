@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1307 test functions, 14 of them `#[ignore]`d into the slow job, and 382 of
+**1326 test functions, 14 of them `#[ignore]`d into the slow job, and 390 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1465,19 +1465,28 @@ Major step: Rodin on the plan before the code.
 ### Next, asked by Nicolas — 2026-10-08
 
 - ✅ **The vault on another disk** (2026-10-13, HANDOVER §8 0s): `itsanas vault PATH`; a dropped mount is refused, never recreated empty.
-- ⬜ **Export an account to a new key from the tray icon, on every system**
-  (Nicolas, 2026-10-22). From the tray (Windows, macOS menu bar, Linux), an item
-  "Put this account on a USB key..." that picks a drive, checks its format and
-  room (`drives.rs`), writes the all-systems portable copy (`portable.rs`) and
-  enrols it as a new device of the account. What exists: `itsanas portable DIR`
-  and Settings > Disks write the copy for every system (proven by
-  `red_team_a_portable_copy_starts_on_every_system_and_hosts_nobody`); `drives.rs`
-  reads format and room; no tray has the item. What is missing: the item in the
-  three trays, and the **open design question**, enrolling a device without
-  retyping the 24 words. Login today needs the 24 words or `--from` coordinator
-  escrow; candidates are a one-time code from an existing device, or the sealed
-  recovery container. Until that is decided the copy is a client that still
-  needs the words to sign in.
+- 🟨 **Export an account to a new key from the tray icon, on every system**
+  (Nicolas, 2026-10-22). The design question is settled: a **local** copy, no
+  coordinator escrow and no 24 words. Done: `itsanas copy-to-key DIR
+  [--detach]` (`copy_to_key.rs`) asks this machine's passphrase and a new one
+  for the key in the system's own windows (12 characters at least, not this
+  machine's, not a pattern, not the username), checks the room (the signed
+  release's size plus the account's content from the daemon's status), writes
+  the all-systems portable copy, and seals the account in its home under the
+  key's passphrase with a **device of its own**, the coordinator, and a synced
+  folder `ITSaNAS/Fichiers` written relative to the home so it follows the
+  drive to any mount point. It enrols at once, or, offline or with the
+  account full, at the key's first daemon start (`enrol_at_start`). The
+  launchers run the key's account in their window (`daemon`) when it has one.
+  The three trays have *Copy this account to a USB key...*, which opens
+  `settings --section key`. Proven by the eight `red_team_*` tests of
+  `copy_to_key/tests.rs`. Missing: the Settings section the tray opens (it
+  will run `copy-to-key --detach` and follow `<home>/copy-to-key.status`), and
+  a device label (no field in the config or the claim carries one).
+  **Open problem:** the key's keystore holds the account's master secret, so a
+  lost key with its passphrase is the whole account, and `device forget` stops
+  the other machines dialling it, not its holder reading and writing. The real
+  fix is a device that receives device and data keys, never the master.
 - ⬜ **The MCP server** Nicolas is creating on GitHub: to be improved with him
   once it is in the repository (scope to be written down then).
 - 🟨 **Setup, reliable with several accounts on one machine** (2026-10-12: the page offers "set up another account" under a new instance name, never an existing home; done steps hide their fields). Seen on Windows

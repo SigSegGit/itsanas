@@ -506,3 +506,18 @@ fn a_downloaded_file_over_the_cap_is_refused_not_read_whole() {
         "a file over the cap was read whole"
     );
 }
+
+/// `copy-to-key` asks how much room the programs take before it writes one:
+/// the signed manifest's sizes, added up, and nothing from a manifest
+/// another key signed.
+#[test]
+fn the_release_size_is_the_signed_manifests_sum() {
+    let world = World::new();
+    assert_eq!(
+        world.updater().release_bytes().expect("size"),
+        OLD_PROGRAM.len() as u64
+    );
+    let stranger = ReleaseKey::generate().expect("key");
+    world.publish_as("0.1.0", NEW_PROGRAM, &stranger, false);
+    assert!(world.updater().release_bytes().is_err());
+}

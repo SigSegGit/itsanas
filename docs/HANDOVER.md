@@ -43,6 +43,15 @@ NativeCommandError noise in Windows daemon logs. 8.0c stays Nicolas's: A-M
 and O ran in part above, F is to redo, and the real disk pulled mid-write is
 not done.
 
+**2026-10-22: this account on a USB key.** `itsanas copy-to-key DIR` (and the
+trays' *Copy this account to a USB key...*, which opens `settings --section
+key`) writes the portable copy with the account already in it, under the key's
+own passphrase and on a device of its own; it enrols now or at the key's first
+start. A local copy by Nicolas's choice; the key holds the master secret, so a
+lost key is the account (ROADMAP, export entry). The Settings section is
+still to write: it calls `copy-to-key --detach` and reads
+`<home>/copy-to-key.status`.
+
 **2026-10-22: drive formats and room.** `drives.rs` reads the target drive's
 format; `vault --move`, `backup export` and `portable` append a warning for NTFS
 (Mac cannot write) and FAT32 (4 GiB file limit). A vault move is refused before

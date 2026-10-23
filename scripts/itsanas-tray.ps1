@@ -117,6 +117,7 @@ function Get-Menu([string]$Brief, [string]$IntervalLine) {
         $menu += $every
         $menu += New-Entry 'sep' '' $null
         $menu += New-Entry 'item' 'Settings...' @('settings')
+        $menu += New-Entry 'item' 'Copy this account to a USB key...' @('settings', '--section', 'key')
         $menu += New-Entry 'item' 'Sign out...' @('signout') -Confirm
         $menu += New-Entry 'item' 'Remove this machine...' @('leave') -Confirm
     }
@@ -308,7 +309,7 @@ function Invoke-Entry($entry) {
     if (-not (Confirm-Entry $entry)) { return }
     if ($entry.Action -is [array]) {
         switch ($entry.Action[0]) {
-            'settings' { Start-Process -FilePath $exe -ArgumentList (Get-CliArguments @('settings')) -WindowStyle Hidden }
+            'settings' { Start-Process -FilePath $exe -ArgumentList (Get-CliArguments $entry.Action) -WindowStyle Hidden }
             'signin' { Start-InWindow @('signin') }
             'signout' { Start-Watched @('signout') 'Sign out' }
             'leave' {

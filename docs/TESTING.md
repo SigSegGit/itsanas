@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1307 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 382 are red-team tests.**
+**Last updated: 2026-10-22 — 1326 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 390 are red-team tests.**
 
-**1191 of the 1307 tests have an entry of their own on this page** — an *entry*,
+**1210 of the 1326 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,10 +179,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 166 |
+| `itsanas-cli` unit | 183 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 140 |
+| `itsanas-node` unit | 142 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -211,7 +211,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 37 |
+| `identity` | keys, accounts, devices, claims, invitations | 45 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 53 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 59 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (166)
+# `itsanas-cli` — unit tests (183)
 
 ## `bench` — measuring this machine (4)
 
@@ -1231,7 +1231,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_a_username_already_taken_is_refused_before_any_key_is_written`** | With a coordinator that already holds the name, the account step fails before any keystore is written or any word shown, and says the name is taken. Sabotaged (check ignored): red. |
 | **`red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`** | The built-in coordinator's device id is pinned (and parses), so a machine answering at its name that is not it is refused; another coordinator gets no pin. Sabotaged (pin never applied): red. |
 
-## `update::tests` — the self-update: only a signed, newer, intact release replaces the program (14)
+## `update::tests` — the self-update: only a signed, newer, intact release replaces the program (15)
 
 `crates/itsanas-cli/src/update.rs` (tests in `update/tests.rs`). `itsanas
 update [--check]` and the daemon's daily look. The tests serve a fake release
@@ -1257,6 +1257,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | `without_a_pinned_key_nothing_is_fetched` | With no key (`trust: None`, as in every build before the key was pinned), `check` answers "no key" without one request: a build that can trust nothing does not ask. |
 | **`red_team_a_failed_swap_puts_the_old_program_back`** | The replace is two renames; when the second fails the first is undone and the old program is where the service starts it; when the first fails nothing moved. Sabotaged (no rollback): red. |
 | `the_daily_look_follows_the_setting` | `off` makes no request and clears the notice; `notify` writes the version `status` shows and installs nothing; `auto` installs and clears the notice. |
+| `the_release_size_is_the_signed_manifests_sum` | `copy-to-key` counts the room the programs need from the running version's signed manifest, its sizes added up; a manifest signed by another key gives no figure. |
 
 ## `answers` — the unattended answers file (2)
 
@@ -1351,7 +1352,7 @@ an export or a restore is asked through `<home>/job` and answered in
 | `the_formats_are_read_from_what_each_system_prints` | The three systems' outputs (PowerShell, diskutil, stat) are parsed to NTFS, FAT32, exFAT or other, and text that names none is unknown. |
 | `only_formats_that_limit_the_person_are_warned_about` | NTFS (a Mac cannot write) and FAT32 (no file over 4 GiB) warn; exFAT, other and unknown say nothing. |
 
-## `portable` — a copy of the program for every system, keeping its home on the drive (3)
+## `portable` — a copy of the program for every system, keeping its home on the drive (4)
 
 `crates/itsanas-cli/src/portable.rs`.
 
@@ -1360,6 +1361,33 @@ an export or a restore is asked through `<home>/job` and answered in
 | **`red_team_a_portable_copy_starts_on_every_system_and_hosts_nobody`** | `itsanas portable DIR` writes `DIR/ITSaNAS/` with the five signed release programs in `bin/` (each checked against the signed manifest), the three launchers (`ITSaNAS.cmd`, `itsanas.command`, `itsanas.sh`) that pick the program by OS and architecture and pass `--home` next to themselves, `README.txt` and a client-only `home/portable`. A program that does not match the manifest is not written. |
 | `without_the_release_the_copy_says_it_serves_this_system_only` | Offline or from a source build, the copy holds only this system's program and its README and the command output say it serves this system only. |
 | `a_portable_copy_needs_a_full_path` | A relative destination is refused, so the copy does not land wherever the launcher happens to run. |
+| `the_launcher_runs_the_account_on_the_key_or_opens_setup` | `itsanas.sh`, run for real through `sh` with a stand-in program that prints its arguments: with no arguments it runs `--home <key>/home setup` on an empty key and `daemon` once `home/keystore.bin` is there, so a double-click shows the account's sync in its window; `ITSaNAS.cmd` has the same branch. Sabotaged (always setup): red. |
+
+## `copy_to_key::tests` — this account on a USB key: its own passphrase, its own device, nothing written before the checks (15)
+
+`crates/itsanas-cli/src/copy_to_key.rs` (tests in `copy_to_key/tests.rs`).
+`itsanas copy-to-key DIR` against a real account whose store is held (as by a
+running daemon), a temporary drive, a stand-in release that writes one program
+and a stand-in coordinator. Each red-team test was sabotaged with
+`scripts/sabotage.py`: every defence below turned its test red.
+
+| Test | What it proves |
+| --- | --- |
+| `a_keys_passphrase_is_long_new_and_not_a_pattern` | The key's passphrase rule, a pure function: under 12 characters, this machine's own, the same few characters repeated (`aaaa...`, `abcabc...`), a run of keys or digits with digits wrapping round (`123456789012`, `987654321098`), or the username with fewer than 12 characters besides it are refused; a long new phrase passes, and a one-letter username eats nothing. |
+| `the_key_must_hold_the_programs_and_the_files` | The room check, a pure function: the release's size plus the account's content against the drive's free bytes, refused with both figures when short; about 45 MiB counted for the programs when the release cannot say; a note, not a refusal, when the files' size or the free room is unknown. |
+| `the_accounts_size_is_read_from_the_daemons_status` | The account's content is read from the "your content" line of `status.snapshot`, which the daemon writes while it holds the store, rounded up by a tenth of its unit because `format_size` floors. |
+| `the_background_copy_reads_two_passphrases_and_nothing_else` | `--detach` hands the two passphrases to the background copy on its standard input, one a line; one line is refused, and the pair never prints. |
+| `the_tray_opens_settings_at_the_keys_section` | `settings --section key` opens the page's address with `&section=key` inside its one fragment, after the page key; a section that is not a known name is refused by the parser, so nothing is added to the address that the page did not expect. |
+| `a_copy_made_offline_is_complete_and_enrols_later` | The whole run with the coordinator down: the key holds the programs, a client-only home with this account, the coordinator and its pinned device, and `ITSaNAS/Fichiers` written `../Fichiers` so it follows the drive; it is not marked enrolled, its message says it enrols itself at its first start and how to start it on each system, and `copy-to-key.status` says done. |
+| **`red_team_a_wrong_machine_passphrase_writes_nothing_on_the_key`** | A wrong passphrase for this machine is refused as one (`Unlock`), and the drive is left empty: no programs, no home. Sabotaged (a directory made on the key before the keystore is read): red. |
+| **`red_team_an_account_on_the_key_is_never_overwritten`** | A key whose `ITSaNAS/home/keystore.bin` exists is refused, "already holds an account", its keystore byte for byte as it was and no programs written. Sabotaged (the check off): red. |
+| **`red_team_the_key_opens_with_its_own_passphrase_only`** | The key's keystore opens with the key's passphrase and is `Unlock` with this machine's: one guessed passphrase does not open both. Sabotaged (sealed under the machine's): red. |
+| **`red_team_the_key_is_this_account_on_a_device_of_its_own`** | Opened, the key is the same user id and username as this machine and another device id: forgetting a lost key withdraws its enrolment, not this machine's. Sabotaged (the machine's keystore copied and re-sealed instead of a restore): red. |
+| **`red_team_no_file_on_the_key_holds_the_24_words`** | Every file on the drive, and the status file the page reads, is scanned for the 24 words, any three of them in a row with four separators, the master secret's bytes in clear, and both passphrases: none is there. Sabotaged (the words written beside the home): red. |
+| **`red_team_a_weak_or_reused_key_passphrase_is_refused_before_anything_is_written`** | A short passphrase, this machine's own, a run of digits and the username with digits are each refused with "Nothing was written", and the drive stays empty. Sabotaged (the rule skipped): red. |
+| **`red_team_a_key_inside_the_accounts_home_or_folder_is_refused`** | A target inside this account's home, its synced folder, its vault, or the synced folder itself is refused as "inside", and no `ITSaNAS/` is made there; a relative path is refused; the drive is accepted. Sabotaged (the containment check off): red. |
+| **`red_team_an_unregistered_key_enrols_itself_at_its_first_start`** | `enrol_at_start`, which the daemon runs beside its first round: a key with a coordinator and no `registered` marker enrols once; refused, it is not marked and says it tries again at the next start; enrolled, it is marked; marked, it never asks again. Sabotaged twice (the marker not read; not written): red both. |
+| `a_key_enrols_at_once_when_the_coordinator_answers` | When the coordinator answers, the copy enrols the key there and then and says so. |
 
 ## `lifecycle` — asking a running daemon to stop or restart (2)
 
@@ -1526,7 +1554,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (157)
+# `itsanas-node` — a node on disk (159)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1603,7 +1631,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk, and where its vault lives (25)
+## `node` — identity on disk, and where its vault lives (26)
 
 | Test | What it proves |
 | --- | --- |
@@ -1612,6 +1640,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | `an_existing_node_keeps_its_vault_where_it_is_and_gains_the_marker` | A node built before the marker opens `<home>/vault` as before and gains `.itsanas-vault`. |
 | **`the_keys_can_be_read_while_the_store_is_held_by_another_process`** | Only one process may hold a node's store, and the daemon holds it on every machine that is working — so anything that opened a `Node` refused to run on exactly the machines somebody asks about, including `doctor`, which is what a person runs *because* something is wrong. Stopping the daemon to ask then changes the answer: a node that is not running is not listening, so "can anybody reach me" comes back no, for a reason that is the asking. `Identity::open` reads the keystore and the config, neither of which is locked. |
 | **`red_team_the_24_words_come_back_from_the_keystore_and_its_passphrase_only`** | Hand test, 2026-10-22: the sheet with the test account's 24 words was lost while the laptop still had the account and its passphrase. The keystore holds the master secret, and the words are that secret in another encoding, so `itsanas words` gives them back: the same words, while the daemon holds the store, and nothing for a wrong passphrase. Fails when the words are derived from the device seed instead of the master secret. |
+| `the_encoded_secrets_restore_the_account_and_never_print` | `Identity::secrets`, what `copy-to-key` reads while the daemon runs: refused for a wrong passphrase, `EncodedSecrets(redacted)` when printed, and restored elsewhere under another passphrase it is the same account on a new device. |
 | **`an_empty_node_home_reads_as_unmounted_storage_rather_than_a_fresh_start`** | A node home on a disk that is not mounted is an *empty directory*, and "no node found, run `itsanas init`" is then advice to create a **second account** on the root filesystem — while the real one sits on a disk nobody is looking at, and the next backup captures the empty one. A directory that does not exist at all still reads as a fresh start. |
 | **`a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does`** | `itsanas passphrase` re-seals the keystore without regenerating anything — same account, same device id — the old passphrase stops working, and the pending file is renamed over the keystore rather than left beside it. |
 | **`red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns`** | Every write goes through `node.store`, and the store refuses nothing it has not been told about. Opening a node pledging 700 GB must hold writes to the 300 GB that earns at 30/70, and a node pledging nothing to the joining allowance, as `keep` does. Sabotaged on the wiring in `Node::assemble` and on the allowance floor: without either, the CLI, the folder and the phone would write unbounded while every store test stayed green. |
@@ -1703,13 +1732,14 @@ not read, the pledge kept whatever the free space.
 | **`red_team_a_disk_that_filled_up_stops_taking_chunks_before_the_last_byte`** | When the disk can no longer hold the pledge, the host takes no more chunks than free space minus a 256 MiB reserve, and `status` says CANNOT KEEP. |
 | `its_own_entries_are_not_counted_against_itself` | A node's own published promise is never counted against it. |
 
-## `config` — settings (28)
+## `config` — settings (29)
 
 | Test | What it proves |
 | --- | --- |
 | **`a_split_in_the_config_file_overrides_the_default`** | The point of the field, and the reason the ratio stopped being a constant. Without it the network cannot be tuned to the machines actually in it — a pool of phones needs a different split from a pool of servers, because a phone under `keep` has released its data and costs the network three copies rather than two — and the argument for each number lives in a commit message instead of a file. Also checks the absent case: no line means the network's default, not nothing. |
 | **`red_team_an_impossible_split_in_the_config_file_is_refused_where_it_enters`** | `split = 30/0` divides by zero the first time somebody runs `itsanas keep`, and the daemon is usually what holds the store open when they do. Refused when the file is *read*, in the same breath as the listen address, because a value that cannot work must never reach the arithmetic that assumes it can. What it catches is a parser that takes the two numbers itself and leaves the check to `Split::new`'s callers, which is how a validated type ends up with an unvalidated door. The refusal has to show what a split looks like, or the person fixing it is guessing. |
 | **`red_team_a_node_cannot_grant_itself_a_more_generous_split`** | Nothing on the network enforces the bargain yet, so `itsanas keep` refusing an unearned limit is the only live check, and it reads this field. Accepting `split = 1000/1` would switch it off with a text editor where it used to take a rebuilt client. Found by an audit of the change that introduced the field. Checks `31/69` and `301/700`, one part in a hundred and one in a thousand over, so a comparison that divides and rounds is caught too; stricter (`25/75`) and equal (`3/7`) still load. |
+| `a_portable_homes_folder_moves_with_the_drive` | In a home holding the `portable` marker, a folder beside it is saved as `../Fichiers` and loaded back under wherever the drive is mounted next (`E:` on one computer, `/Volumes/KEY` on a Mac); without the marker the folder is saved as it is. Sabotaged (written absolute): red. |
 | **`an_unknown_setting_is_an_error_rather_than_being_ignored`** | A silently discarded typo is how a node ends up pledging nothing while its operator believes it pledged a terabyte. |
 | **`defaults_are_safe`** | Pledge defaults to zero and listen defaults to loopback. A node that has not said what it offers has not offered any. |
 | **`a_nonsense_size_is_refused_rather_than_read_as_zero`** | Reading "ten gigabytes" as 0 would silently disable hosting. |

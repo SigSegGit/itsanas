@@ -43,6 +43,7 @@ SURFACES = [
         'itsanas-coord/src/claim.rs',
         'itsanas-coord/src/invitation.rs',
         'itsanas-node/src/contact.rs',
+        'itsanas-cli/src/copy_to_key/',
         'itsanas-android/src/devices.rs',
         'itsanas-node/tests/five_devices.rs',
         'itsanas-node/tests/withdrawals.rs',

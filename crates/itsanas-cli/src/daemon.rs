@@ -671,6 +671,17 @@ fn bind_lan(discover: bool) -> Option<Lan> {
     }
 }
 
+/// A key's enrolment at its first start, when the copy could not enrol it
+/// (`copy_to_key::enrol_at_start`); prints what happened.
+fn enrol_once(node: &Node) {
+    let enrolled = crate::copy_to_key::enrol_at_start(node, |node| {
+        crate::register_and_announce(node, None).map(|_| ())
+    });
+    if let Some(line) = enrolled {
+        println!("{line}");
+    }
+}
+
 /// Run until interrupted.
 ///
 /// `interval` overrides the policy's own schedule when the operator passed
@@ -768,6 +779,11 @@ pub fn run(
         });
 
         scope.spawn(|| crate::update::watch(&node.home, shutdown, &UPDATED));
+
+        // A key copied while its coordinator could not be reached, or was
+        // full, enrols here, once (`copy_to_key.rs`). Beside the rounds,
+        // which need no coordinator to start.
+        scope.spawn(|| enrol_once(node));
 
         open_the_router_port(
             scope,
