@@ -117,10 +117,20 @@ done
 # on a Mac or on Windows, where skipping is correct rather than lax.
 # The acceptance kit's Windows half is not an installer -- no --clean, no
 # README row -- but a PowerShell script nobody parses is the same risk: it
-# is run once, on the morning it matters, by the person it is for.
+# is run once, on the morning it matters, by the person it is for. The fleet
+# agent and its setup (scripts/fleet/) too. What the night run executes --
+# those and the kit -- is ASCII or carries a BOM: the agent runs the kit with
+# powershell.exe 5.1, which reads a file without one as the ANSI code page,
+# so one typographic quote in a string is a parse error nobody sees.
 shopt -s nullglob
-KIT_PS=(scripts/*.ps1)
+KIT_PS=(scripts/*.ps1 scripts/fleet/*.ps1)
 shopt -u nullglob
+for script in scripts/acceptance.ps1 scripts/fleet/*.ps1; do
+    [ "$(head -c3 "$script" | od -An -tx1 | tr -d ' ')" = efbbbf ] && continue
+    if LC_ALL=C grep -q '[^ -~[:space:]]' "$script"; then
+        bad "$script has a byte outside ASCII and no BOM, which powershell.exe 5.1 misreads: $(LC_ALL=C grep -n '[^ -~[:space:]]' "$script" | head -1 | cut -c1-80)"
+    fi
+done
 for script in "${KIT_PS[@]}"; do
     if command -v pwsh >/dev/null 2>&1; then
         if pwsh -NoProfile -Command "

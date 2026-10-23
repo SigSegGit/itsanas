@@ -110,18 +110,63 @@ ignored -- red each time.
 5. **Run it once by hand** (Actions → Fleet → Run workflow) and read the table
    in the run's summary.
 
+### The laptop, once (when Nicolas decides to)
+
+1. **The `test` account on it**, beside the real ones:
+   `$env:ITSANAS_PASSPHRASE = '...'` then
+   `powershell -ExecutionPolicy Bypass -File install\provision.ps1 -Instance test -PhraseFile <the 24 words> -Folder $env:USERPROFILE\ITSaNAS-test`
+   (provision.ps1's other options as for any machine of the account).
+2. **OpenSSH Server and Tailscale**, from an elevated PowerShell:
+   `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0`,
+   `Set-Service sshd -StartupType Automatic`, `Start-Service sshd`; then
+   `PasswordAuthentication no` in `C:\ProgramData\ssh\sshd_config` and
+   `Set-NetFirewallRule -Name OpenSSH-Server-In-TCP -RemoteAddress 100.64.0.0/10,fd7a:115c:a1e0::/48`,
+   so port 22 answers the tailnet only (its IPv6 range too, or a name that
+   resolves to IPv6 first waits for a timeout); the laptop on the tailnet with tag
+   `tag:fleet`.
+3. **The agent**, in the checkout, from an elevated PowerShell (an
+   administrator's keys are `C:\ProgramData\ssh\administrators_authorized_keys`):
+   `git pull; powershell -ExecutionPolicy Bypass -File scripts\fleet\setup.ps1 "<the contents of fleet-ci.pub>"`.
+   It refuses without a `test` node, prints `hello`, the test node's snapshot,
+   a refused `sh`, the host key, and a warning for each of step 2's settings
+   it finds missing. It installs nothing and changes no system setting.
+   **The one difference from the Pi:** an administrator's SSH logon on
+   Windows is not filtered by UAC, so on an administrator account the agent
+   runs with the full administrator token, where on the Pi it runs as a user
+   without sudo. The allowlist is the same; what a bug in it would reach is
+   not. The alternative is a local account without administrator rights
+   that owns the test node and its folder (`provision.ps1` run as that
+   user), at the cost of a second Windows session on the laptop. Nicolas's
+   choice; `setup.ps1` warns when it is the first.
+4. **The first run behind Win32-OpenSSH**, from the laptop itself, before
+   CI depends on it: `ssh -i fleet-ci <user>@localhost hello` must print a
+   `hello` line, and `ssh -i fleet-ci <user>@localhost sh` a `REFUSED` one.
+   Nothing else has ever checked that the Windows sshd hands the request to
+   the agent; if `hello` comes back as a refusal for an empty request, it
+   does not.
+5. **In the `fleet` environment**: `laptop` added to `FLEET_HOSTS` (not to
+   `FLEET_SCAN`: the Windows agent offers no C scan), a `Host laptop` block in
+   `FLEET_SSH_CONFIG` (its tailnet name, the Windows user), and the host key
+   line in `FLEET_KNOWN_HOSTS`. A night the laptop sleeps is a SKIP row, never
+   a red run on its own.
+
 ## What it does not do yet
 
-- ⬜ **The laptop.** Every defect of 2026-10-22 was born on it, and it is not
-  driven: it is away or asleep most of the day, it would need OpenSSH Server on
-  Nicolas's working machine (Tailscale only, never a port open to the
-  internet). The kit's Windows half now has B, E, F and C's plant, with the
-  shell kit's names, digests and codes (`check-fleet.sh` compares the two),
-  so an agent in PowerShell has phases to call, and `scripts/fleet/agent.ps1`
-  is that agent: the same allowlist, the same 18 refusals in `check-fleet.sh`
-  (run with pwsh on Linux), no C scan. **Not tried behind Win32-OpenSSH**, and
-  not wired: the setup on the laptop (OpenSSH Server, Tailscale, the key in
-  `administrators_authorized_keys`, `agent.json`) is Nicolas's decision.
+- 🟨 **The laptop.** Every defect of 2026-10-22 was born on it, and it is not
+  driven yet: it is away or asleep most of the day, and it needs OpenSSH
+  Server on Nicolas's working machine (Tailscale only, never a port open to
+  the internet) -- his decision, not a session's. Everything on this side of
+  that decision is built: the kit's Windows half has B, E, F and C's plant,
+  with the shell kit's names, digests and codes (`check-fleet.sh` compares the
+  two); `scripts/fleet/agent.ps1` is the agent, with the same allowlist, the
+  same 18 refusals and the same one-request-at-a-time lock, no C scan; and
+  `scripts/fleet/setup.ps1` puts it on the laptop (see "The laptop, once"
+  below). `check-fleet.sh` runs that setup with pwsh on a profile laid out as
+  the laptop's (a space in its path, an emptied home, another key in the
+  keys file) and runs the keys line it wrote the way sshd does. **Not tried
+  behind Win32-OpenSSH**, only behind Linux sshd with pwsh: that the Windows
+  sshd hands the request over in `SSH_ORIGINAL_COMMAND` and honours
+  `restrict` is from its documentation, not from a run.
 - ⬜ **E and G**, which need a machine of the account offline: stopping a
   container is docker, which is root. Not in v1, on purpose.
 - ⬜ **Logs**: the self-dial of 2026-10-22 was in a log, and the agent reads

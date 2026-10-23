@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: Nicolas does the one-time setup of docs/FLEET-CI.md, then a session reads the first fleet runs and fixes what they find; the laptop next
+TITLE: The fleet tested by CI: Nicolas does the one-time setup of docs/FLEET-CI.md (and the laptop's, if he decides), then a session reads the first fleet runs and fixes what they find
 WRITTEN-AT: 2026-10-23
-BASE: a73889b
+BASE: 196bb6b
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -46,6 +46,32 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-23, evening: the laptop's side of the fleet (§8 0x, step 3).**
+`scripts/fleet/setup.ps1` puts `agent.ps1` on the laptop as `setup.sh` does
+on the Pi: it reads the nodes off the profile (`.itsanas-*` holding a
+keystore), refuses without a `test` node, writes `agent.json`, and adds the
+key behind `restrict,command=` to the ProgramData keys file sshd reads for an
+administrator (an elevated window, SIDs in `icacls` for a French Windows) or the user's file.
+It installs nothing: OpenSSH Server, `PasswordAuthentication no`, the
+firewall rule narrowed to the tailnet are printed, Nicolas's to do
+(FLEET-CI.md, "The laptop, once"). `agent.ps1` took `agent.sh`'s one request
+at a time. Proven by `check-fleet.sh` (setup run twice on a profile with a
+space, the keys line run by `sh -c`; eight sabotages red) and by hand behind
+a real Linux sshd: `hello`, `sh -c id` refused, B through the copied kit, a
+tunnel refused, no pty. **Not behind Win32-OpenSSH**: nothing here runs
+Windows; FLEET-CI.md step 4 of the laptop is the first check there. Rodin
+found the hole the plan had: an administrator's SSH logon is not filtered
+by UAC, so on the laptop the agent runs as a full administrator, never so on
+the Pi. Documented, warned by `setup.ps1`, and the alternative (a local
+account without admin rights owning the test node) left to Nicolas. Also
+from him: the tailnet's IPv6 range in the firewall rule, and the keys file
+read off `sshd_config`'s Match block instead of assumed. `check-installers.sh` now parses `scripts/fleet/*.ps1` and keeps
+what powershell.exe runs at night ASCII or BOM'd. Trap: `check-fleet.sh`'s
+"folder as it was" hashes `ls -la`, whose `..` line moves when anything makes
+a directory in `$WORK` -- make it before the listing. `check-installers.sh`
+is red in a cloud container on main too (systemd units, tray menus); CI is
+the judge.
 
 **2026-10-23, afternoon: the fleet tested by CI (§8 0x).** Built and
 rehearsed, not yet run on the fleet: it waits on Nicolas's one-time setup
@@ -1183,8 +1209,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
       and its secrets), then Actions → Fleet → Run workflow. (2) A session:
       read the run's summary and any open `fleet: red` issue **before
       anything else** at resume; fix what it finds, ahead of everything
-      below. (3) The laptop (Windows): `acceptance.ps1` gets B, F and C phases
-      and an agent in PowerShell, OpenSSH Server behind Tailscale only. (4)
+      below. (3) The laptop (Windows): our side built 2026-10-23
+      (`acceptance.ps1` B/E/F/C plant, `agent.ps1`, `setup.ps1`, see §0);
+      left: Nicolas decides, then follows FLEET-CI.md "The laptop, once"
+      (OpenSSH Server behind Tailscale only, `setup.ps1` elevated, `laptop`
+      in `FLEET_HOSTS`; first, decide admin or a non-admin account for the
+      agent); a session then reads the laptop's first rows, and
+      the first thing to suspect if it SKIPs is Win32-OpenSSH not handing
+      over `SSH_ORIGINAL_COMMAND` (never run there). (4)
       E/G, which need a node stopped (docker, so root: decide first).
       Done 2026-10-23: versions in the snapshot and the fleet's V row.
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as

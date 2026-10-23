@@ -124,6 +124,20 @@ status=$?
 [ "$status" -eq 64 ] && [ "$(find "$WORK/capped-folder" -type f | wc -l)" -eq 1 ] &&
     ok "past MAX_FILES, B write is refused" || bad "B write past the cap: exit $status, $out"
 
+# A click on Run workflow while the night's run is on: two requests at once
+# would each count the other's files. The second is refused, not queued.
+if command -v flock >/dev/null 2>&1; then
+    # Held shared: an agent that took a shared lock itself would get in
+    # beside it, and show here.
+    flock -s "$WORK/wall/receipts/agent.lock" sleep 3 &
+    sleep 0.5
+    out=$(agent wall hello 2>&1)
+    status=$?
+    wait
+    [ "$status" -eq 64 ] && [ "${out%% *}" = REFUSED ] &&
+        ok "a second request while one runs is refused" || bad "agent.sh ran a request beside another: exit $status, $out"
+fi
+
 echo "the run passes where it must, and fails where it must"
 
 export FLEET_WAIT=4 FLEET_POLL=1 FLEET_TIMEOUT=10 FLEET_SETTLE=1
@@ -230,7 +244,10 @@ fi
 echo "the Windows agent refuses the same requests"
 
 if command -v pwsh >/dev/null 2>&1; then
-    mkdir -p "$WORK/winhome"
+    # The receipts too, before the listing below: the agent makes the
+    # directory for its lock, and a new directory in $WORK changes the
+    # folder's `..` line.
+    mkdir -p "$WORK/winhome" "$WORK/winreceipts"
     printf '{ "Folder": "%s", "Kit": "%s", "Receipts": "%s", "Homes": { "test": "%s" } }\n' \
         "$WORK/wall-folder" "$PWD/scripts/acceptance.ps1" "$WORK/winreceipts" "$WORK/winhome" >"$WORK/agent.json"
     winagent() { SSH_ORIGINAL_COMMAND="$1" ITSANAS_FLEET_CONF="$WORK/agent.json" pwsh -NoProfile -File scripts/fleet/agent.ps1; }
@@ -253,8 +270,91 @@ if command -v pwsh >/dev/null 2>&1; then
     read -r _ _ _ _ _ _ _ wcode _ <<<"$out"
     out=$(winagent "B check $wcode" 2>&1)
     case "$out" in PASS*) ok "agent.ps1 writes and checks by code" ;; *) bad "agent.ps1 B: $out" ;; esac
+    if command -v flock >/dev/null 2>&1; then
+        flock -s "$WORK/winreceipts/agent.lock" sleep 6 &
+        sleep 0.5
+        out=$(winagent hello 2>&1)
+        status=$?
+        wait
+        [ "$status" -eq 64 ] && [ "${out%% *}" = REFUSED ] &&
+            ok "agent.ps1 refuses a second request while one runs" || bad "agent.ps1 ran a request beside another: exit $status, $out"
+    fi
 else
     echo "  skip  pwsh is not installed here; agent.ps1 was not tried"
+fi
+
+echo "the Windows setup writes what the agent reads, and the key runs only the agent"
+
+# setup.ps1 is what Nicolas runs once on the laptop; a wrong agent.json or a
+# keys line sshd cannot run is found there at night, by a SKIP row nobody
+# reads. So it is run here on a profile laid out as the laptop's is: a path
+# with a space, a test node, another account, a home emptied by `clean`, the
+# passphrase file, a keys file with another key and an older line of this one.
+if command -v pwsh >/dev/null 2>&1; then
+    prof="$WORK/win profile"
+    keys="$WORK/winkeys/authorized_keys"
+    cikey="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFleetCiKeyForCheckFleetOnly0000000000000 itsanas-fleet-ci"
+    node() { mkdir -p "$prof/$1"; echo sealed >"$prof/$1/keystore.bin"; printf 'username = %s\n%s' "$2" "${3:+folder = $3
+}" >"$prof/$1/config"; }
+    node .itsanas-test test "$prof/ITSaNAS-test"
+    node .itsanas-nicolas nicolas
+    node .itsanas-gone gone
+    rm "$prof/.itsanas-gone/keystore.bin"
+    mkdir -p "$prof/ITSaNAS-test" "$(dirname "$keys")"
+    echo secret >"$prof/.itsanas-passphrase"
+    printf 'ssh-ed25519 AAAAOtherKeyStaysAsItIs nicolas@laptop\nfrom="10.0.0.1" ssh-ed25519 %s old-options\n' \
+        "$(echo "$cikey" | cut -d' ' -f2)" >"$keys"
+    setup() { ITSANAS_FLEET_PROFILE="$prof" ITSANAS_FLEET_KEYS="$keys" pwsh -NoProfile -File scripts/fleet/setup.ps1 "$@"; }
+    out=$(setup "$cikey" 2>&1) && out=$(setup "$cikey" 2>&1)
+    status=$?
+    [ "$status" -eq 0 ] && ok "setup.ps1 runs twice" || bad "setup.ps1 (exit $status): $(printf '%s' "$out" | head -3)"
+    conf="$prof/.itsanas-fleet/agent.json"
+    homes=$(pwsh -NoProfile -Command "(Get-Content -LiteralPath '$conf' -Raw | ConvertFrom-Json).Homes.PSObject.Properties.Name -join ' '" 2>&1)
+    [ "$homes" = "nicolas test" ] &&
+        ok "agent.json names the two nodes, not the emptied home, the passphrase file or its own folder" ||
+        bad "agent.json homes: '$homes'"
+    grep -qF "\"Folder\": \"$prof/ITSaNAS-test\"" "$conf" && ok "and the test account's folder" || bad "agent.json folder: $(grep Folder "$conf")"
+    grep -qxF 'ssh-ed25519 AAAAOtherKeyStaysAsItIs nicolas@laptop' "$keys" && ok "another key is left as it was" || bad "setup.ps1 changed another key"
+    lines=$(grep -cF "$(echo "$cikey" | cut -d' ' -f2)" "$keys")
+    [ "$lines" -eq 1 ] && grep -q '^restrict,command=' "$keys" &&
+        ok "the CI key is there once, behind restrict,command=" || bad "the CI key is in $lines lines: $(cat "$keys")"
+    # What sshd on Linux does with the line: the command, de-quoted, run by
+    # the user's shell with the request aside. A quote wrong around the space
+    # in the profile shows here.
+    cmd=$(grep -F 'itsanas-fleet-ci' "$keys" | sed -n 's/^restrict,command="\(.*\)" ssh-ed25519 .*/\1/p' | sed 's/\\"/"/g')
+    out=$(SSH_ORIGINAL_COMMAND=hello sh -c "$cmd" 2>&1)
+    case "$out" in "hello "*"accounts nicolas test kit "*) ok "the keys line runs the installed agent" ;; *) bad "the keys line: '$cmd' -> $out" ;; esac
+    out=$(SSH_ORIGINAL_COMMAND="sh" sh -c "$cmd" 2>&1)
+    [ "${out%% *}" = REFUSED ] && ok "and that agent refuses a shell" || bad "the installed agent ran sh: $out"
+    out=$(SSH_ORIGINAL_COMMAND="B write" sh -c "$cmd" 2>&1)
+    read -r _ _ _ _ _ _ _ wcode _ <<<"$out"
+    out=$(SSH_ORIGINAL_COMMAND="B check $wcode" sh -c "$cmd" 2>&1)
+    case "$out" in PASS*) ok "and writes into the test folder through the kit it copied" ;; *) bad "B through the installed agent: $out" ;; esac
+    before=$(sha256sum "$keys")
+    out=$(setup "ssh-rsa AAAAB3NzaC1yc2E itsanas-fleet-ci" 2>&1)
+    status=$?
+    out2=$(setup "ssh-ed25519 AAAA\" ssh-ed25519 BBBB" 2>&1)
+    status2=$?
+    [ "$status" -ne 0 ] && [ "$status2" -ne 0 ] && [ "$before" = "$(sha256sum "$keys")" ] &&
+        ok "a key that is not one plain ed25519 key is refused, the keys file untouched" ||
+        bad "setup.ps1 took a bad key (exit $status, $status2): $out $out2"
+    bad_prof="$WORK/win%PATH%prof"
+    mkdir -p "$bad_prof/ITSaNAS-test"
+    cp -r "$prof/.itsanas-test" "$bad_prof/"
+    sed -i "s|^folder = .*|folder = $bad_prof/ITSaNAS-test|" "$bad_prof/.itsanas-test/config"
+    out=$(ITSANAS_FLEET_PROFILE="$bad_prof" ITSANAS_FLEET_KEYS="$keys" pwsh -NoProfile -File scripts/fleet/setup.ps1 "$cikey" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && [ "$before" = "$(sha256sum "$keys")" ] &&
+        ok "a profile whose path cmd.exe would expand is refused, the keys file untouched" ||
+        bad "setup.ps1 wrote a keys line for a path with a % (exit $status): $out"
+    mv "$prof/.itsanas-test" "$prof/.itsanas-test-away"
+    rm "$prof/.itsanas-test-away/keystore.bin"
+    out=$(setup "$cikey" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && [ "$before" = "$(sha256sum "$keys")" ] && case "$out" in *"no node of the account test"*) true ;; *) false ;; esac &&
+        ok "a profile without a test node is refused before the key goes in" || bad "setup.ps1 without a test node (exit $status): $out"
+else
+    echo "  skip  pwsh is not installed here; setup.ps1 was not tried"
 fi
 
 echo "the Windows kit writes what the shell kit reads, and the other way round"
