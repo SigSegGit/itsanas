@@ -335,16 +335,21 @@ fn red_team_no_file_on_the_key_holds_the_24_words() {
     let mut files = world.files_on_the_drive();
     assert!(files.len() >= 6, "{files:?}");
     files.push(world.home.join(STATUS));
+    // The text secrets are ASCII, so a lossy view of each file finds them with
+    // `str::contains` (a linear search); the master secret is raw bytes and
+    // is looked for byte by byte. A window-by-window scan of every secret took
+    // over three minutes on the emulated ARM runner.
     for file in files {
         let bytes = std::fs::read(&file).expect("read");
+        let text = String::from_utf8_lossy(&bytes);
         for secret in &secrets {
-            assert!(
-                !bytes
+            let found = match std::str::from_utf8(secret) {
+                Ok(ascii) if ascii.is_ascii() => text.contains(ascii),
+                _ => bytes
                     .windows(secret.len())
                     .any(|window| window == secret.as_slice()),
-                "{} holds a secret in clear",
-                file.display()
-            );
+            };
+            assert!(!found, "{} holds a secret in clear", file.display());
         }
     }
 }

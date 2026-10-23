@@ -409,22 +409,29 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn the_launcher_runs_the_account_on_the_key_or_opens_setup() {
-        let target = match (std::env::consts::OS, std::env::consts::ARCH) {
-            ("linux", "x86_64") => "itsanas-x86_64-unknown-linux-gnu",
-            ("linux", "aarch64") => "itsanas-aarch64-unknown-linux-gnu",
-            ("macos", "aarch64") => "itsanas-aarch64-apple-darwin",
-            ("macos", "x86_64") => "itsanas-x86_64-apple-darwin",
-            _ => return,
-        };
+        if !matches!(std::env::consts::OS, "linux" | "macos") {
+            return;
+        }
         let drive = tempfile::tempdir().expect("drive");
+        // The stand-in under every unix name: the launcher asks `uname`, and
+        // under an emulator (the ARM CI job runs aarch64 tests in qemu) the
+        // `sh` it runs is the host's, which answers x86_64.
         make_with(drive.path(), |bin| {
             use std::os::unix::fs::PermissionsExt as _;
             std::fs::create_dir_all(bin).expect("bin");
-            let program = bin.join(target);
-            std::fs::write(&program, "#!/bin/sh\necho \"$@\"\n").expect("program");
-            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
-                .expect("executable");
-            Ok(vec![target.to_owned()])
+            let names = [
+                "itsanas-x86_64-unknown-linux-gnu",
+                "itsanas-aarch64-unknown-linux-gnu",
+                "itsanas-aarch64-apple-darwin",
+                "itsanas-x86_64-apple-darwin",
+            ];
+            for name in names {
+                let program = bin.join(name);
+                std::fs::write(&program, "#!/bin/sh\necho \"$@\"\n").expect("program");
+                std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
+                    .expect("executable");
+            }
+            Ok(names.iter().map(|name| (*name).to_owned()).collect())
         })
         .expect("made");
         let root = drive.path().join(DIR);
