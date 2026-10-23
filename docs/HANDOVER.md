@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: Nicolas does the one-time setup of docs/FLEET-CI.md (and the laptop's, if he decides), then a session reads the first fleet runs and fixes what they find
+TITLE: The fleet tested by CI: Nicolas finishes the setup of docs/FLEET-CI.md (agents on the Pi and VM done 2026-10-23; secrets and the first run left), then a session reads the first fleet runs and fixes what they find
 WRITTEN-AT: 2026-10-23
-BASE: 196bb6b
+BASE: 1abe0c3
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -46,6 +46,25 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-23, night: test L built (§8 0y).** The icon said green over
+files that existed on this disk alone: `brief_status` knew the daemon and
+nothing of copies. Now the snapshot's first line ends `copies H of W [since
+T]` (`safety.rs`, from the coverage `render_status` already counts, once a
+round), `status --brief` says `exposed AGE H W` (before `short`), the three
+trays draw it red at 0 and orange at 1 with what to do, and notify once
+(`notice()`, compared across trays by `check-installers.sh`); Settings has
+words for `exposed` and `short` (it had none for `short`). Rodin on the plan
+moved the grace: none for a node never safe, two intervals only after a
+safe state. `setup verify` passes an exposed daemon (a first machine always
+is). Not done: the phone; the notification calls run on no CI runner. Also
+done that day: Nicolas ran `setup.sh` on the Pi and the VM (both agents
+answer `hello` and refuse `sh` with the CI key); `ssh-keyscan localhost`
+printed no host key there, so FLEET_KNOWN_HOSTS comes from `ssh-keyscan -p
+2201x ngas.fr` on his PC. The containers report `version unknown` (pre-0.1.13).
+Trap: `scripts/itsanas-tray.ps1` does not load under this cloud container's
+pwsh ("type initializer for '<Module>'"), while CI's passes; check its
+`-Describe` part on a truncated copy (up to its `exit 0`).
 
 **2026-10-23, evening: the laptop's side of the fleet (§8 0x, step 3).**
 `scripts/fleet/setup.ps1` puts `agent.ps1` on the laptop as `setup.sh` does
@@ -1219,6 +1238,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
       over `SSH_ORIGINAL_COMMAND` (never run there). (4)
       E/G, which need a node stopped (docker, so root: decide first).
       Done 2026-10-23: versions in the snapshot and the fleet's V row.
+   y. 🟨 **Test L: told, unasked, that the files are not safe yet.** Built
+      2026-10-23 (see §0; MVP.md L): `safety.rs`, `brief_status`'s
+      `exposed`, the three trays and Settings. **Left:** seen on a real
+      desktop (Windows balloon, `notify-send`, macOS notification), which is
+      Nicolas's at the next hand test; the phone (the Android app shows no
+      copy count); and the other ARCHITECTURE §7 rows (no round for N
+      minutes is `stale` already; a failed challenge, a full or unwritable
+      pledge, low free space have no alert).
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
       `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
       Battery is reported (`powercfg /batteryreport`) and not judged; bytes

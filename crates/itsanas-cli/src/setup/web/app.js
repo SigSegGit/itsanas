@@ -542,6 +542,9 @@
     healthy: [N('Running and up to date'), 'ok'],
     paused: [N('Paused: your files wait until you resume'), ''],
     stale: [N('Running, but it has not synced for a while'), 'bad'],
+    // MVP.md test L: the daemon runs, the person's files are not elsewhere yet.
+    exposed: [N('Running, but your files are not safe yet: add a machine to this account so copies exist elsewhere'), 'bad'],
+    short: [N('Running, but this disk can no longer hold what it promised to others'), 'bad'],
     stopped: [N('Not running'), 'bad'],
     departed: [N('This machine has left the network'), 'bad'],
     unknown: [N('Cannot tell right now'), ''],

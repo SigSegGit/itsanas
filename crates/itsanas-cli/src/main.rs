@@ -23,6 +23,7 @@ mod lifecycle;
 mod natpmp;
 mod placing;
 mod portable;
+mod safety;
 mod setup;
 mod update;
 mod upnp;
@@ -1490,7 +1491,10 @@ fn chunks_not_here(node: &Node) -> Result<usize> {
     )
 }
 
-fn coverage_report(node: &Node) -> Result<String> {
+/// Written to the end of `status`, and returns the copies it counted for the
+/// snapshot's first line (`since` is the daemon's to decide, from the
+/// previous header); none when nothing is stored.
+fn coverage_report(node: &Node, status: &mut String) -> Result<Option<safety::Copies>> {
     let mut out = String::new();
     macro_rules! w {
         () => {{ let _ = writeln!(out); }};
@@ -1597,7 +1601,13 @@ fn coverage_report(node: &Node) -> Result<String> {
         let _ = write!(out, "{}", concentration_report(node, &coverage)?);
     }
 
-    Ok(out)
+    let copies = (coverage.live_chunks > 0).then_some(safety::Copies {
+        have: coverage.complete_elsewhere,
+        want: SAFE_COPIES,
+        since: None,
+    });
+    status.push_str(&out);
+    Ok(copies)
 }
 
 /// What this node is costing the disk, in the three parts a person can act on.
@@ -1702,6 +1712,15 @@ fn used_line(node: &Node, hosted: u64) -> String {
 /// `listening` is where the daemon writing the snapshot really listens, and
 /// `None` from `status` itself, which runs no listener.
 fn render_status(node: &Node, listening: Option<&str>) -> Result<String> {
+    render_status_and_copies(node, listening).map(|(text, _)| text)
+}
+
+/// [`render_status`], and the copies its coverage counted, for the snapshot's
+/// first line (`safety.rs`): counted once a round, not twice.
+fn render_status_and_copies(
+    node: &Node,
+    listening: Option<&str>,
+) -> Result<(String, Option<safety::Copies>)> {
     let mut out = String::new();
 
     // A local macro, so the body below reads the way it did when it printed.
@@ -1761,7 +1780,7 @@ fn render_status(node: &Node, listening: Option<&str>) -> Result<String> {
     // to leave unanswered: does this data exist anywhere other than this disk?
     // A count of files says nothing about that.
     w!();
-    let _ = write!(out, "{}", coverage_report(node)?);
+    let copies = coverage_report(node, &mut out)?;
     w!("  placements     {} recorded", store.holder_records);
 
     report_unreliable_peers(node)?;
@@ -1825,7 +1844,7 @@ fn render_status(node: &Node, listening: Option<&str>) -> Result<String> {
         }
     }
 
-    Ok(out)
+    Ok((out, copies))
 }
 
 /// How long ago, in words, for a reader who wants to know whether to trust it.
@@ -2075,9 +2094,21 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
         // A control file nobody can read is not "healthy": the daemon is
         // keeping what it last understood, or started paused (`control.rs`),
         // and the icon should say that something needs a look.
+        let copies = safety::Copies::parse(text.lines().next().unwrap_or(""));
         match control::Control::read(home) {
             Err(_) => format!("unknown {age}"),
             Ok(asked) if asked.pause_holds(now) => format!("paused {age}"),
+            // Running, and this account's files are not where they are meant
+            // to be yet (MVP.md test L). Before `short`: that one is about the
+            // room promised to others, this one about the person's own files.
+            Ok(_) if copies.is_some_and(|c| c.exposed(now, every)) => {
+                let copies = copies.unwrap_or(safety::Copies {
+                    have: 0,
+                    want: SAFE_COPIES,
+                    since: None,
+                });
+                format!("exposed {age} {} {}", copies.have, copies.want)
+            }
             // Running, but the disk can no longer hold what it promised: not
             // green (`status` says CANNOT KEEP and why).
             Ok(_) if itsanas_node::pledges::short_of_pledge(home) => format!("short {age}"),
@@ -5983,6 +6014,72 @@ mod tests {
         assert_eq!(brief_status(&home, false, now), "stopped");
         record_departure(&home, now).expect("depart");
         assert_eq!(brief_status(&home, true, now), "departed");
+    }
+
+    /// MVP.md test L: the icon is green only when the account has its copies
+    /// elsewhere. Files on this disk alone are `exposed`, with the counts the
+    /// trays print; a shortfall that follows a safe state is left unsaid for
+    /// its grace and said after; and it is said before `short`, which is
+    /// about the room promised to others, not the person's own files.
+    /// Sabotage: drop the `exposed` arm, or put it after `short`.
+    #[test]
+    fn red_team_files_on_this_machine_alone_are_never_drawn_green() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        let now = 1_000_000;
+        let write = |copies: &str| {
+            std::fs::write(
+                home.join(SNAPSHOT),
+                format!(
+                    "snapshot {} every 300 version 0.1.13{copies}\n  files 3\n",
+                    now - 60
+                ),
+            )
+            .expect("snapshot");
+        };
+
+        write(" copies 0 of 2");
+        assert_eq!(
+            brief_status(&home, true, now),
+            "exposed 60 0 2",
+            "a node whose files exist on its own disk only was drawn green: the backup that \
+             was never running"
+        );
+        write(" copies 1 of 2");
+        assert_eq!(brief_status(&home, true, now), "exposed 60 1 2");
+        write(&format!(" copies 1 of 2 since {}", now - 300));
+        assert_eq!(
+            brief_status(&home, true, now),
+            "healthy 60",
+            "a file saved a round ago turned the icon orange: orange would mean every save"
+        );
+        write(&format!(" copies 1 of 2 since {}", now - 2 * 300));
+        assert_eq!(
+            brief_status(&home, true, now),
+            "exposed 60 1 2",
+            "past its grace"
+        );
+        write(" copies 2 of 2");
+        assert_eq!(brief_status(&home, true, now), "healthy 60");
+        write("");
+        assert_eq!(
+            brief_status(&home, true, now),
+            "healthy 60",
+            "nothing stored, no question"
+        );
+
+        write(" copies 0 of 2");
+        std::fs::write(
+            home.join(itsanas_node::pledges::STATE_FILE),
+            format!("pledge={}\nheld=0\nupdated={now}\n", u64::MAX / 2),
+        )
+        .expect("pledge state");
+        assert_eq!(
+            brief_status(&home, true, now),
+            "exposed 60 0 2",
+            "a pledge the disk cannot hold hid that the person's own files are on this disk only"
+        );
     }
 
     /// A paused node says so; a hung one is stale whatever it was asked, or a

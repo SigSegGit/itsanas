@@ -364,8 +364,26 @@ this project has ever had -- look at what the software says without being asked.
 **Pass:** the person learns that copies are missing **without running a
 command**, and learns it before they trust the folder with anything.
 
-**Failing today by construction, and written down so it stops being invisible.**
-`itsanas status` already reports this well: `spreading off: N machines hold
+🟨 **Built 2026-10-23, not yet run on the fleet.** The daemon writes the
+copies it counts each round on the snapshot's first line (`copies 1 of 2`,
+`crates/itsanas-cli/src/safety.rs`); `status --brief` then says `exposed`, and
+the three trays draw it: **red** with "only on this machine" when no complete
+copy exists elsewhere, **orange** with "not safe yet (1 of 2 copies
+elsewhere)" otherwise, a line saying what to do, and **one desktop
+notification** when the node becomes exposed or loses a copy (again at each
+login while it stays so). A node that was never safe is exposed from its
+first round; a save on a safe account is left unsaid for two intervals. The
+Settings page says it too. Proven by
+`red_team_files_on_this_machine_alone_are_never_drawn_green`,
+`red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green` and the
+trays' comparison in `check-installers.sh`; **the notification call itself**
+(`notify-send`, a Windows balloon, `display notification`) runs on no CI
+runner and has been seen on no screen. To pass: a person on the fleet sees
+it, unasked. Not covered: the phone, and a node whose holders are only
+quiet (records past the freshness horizon count as no copy, so a laptop back
+from a week away can be orange for one round).
+
+What follows is how it was until then. `itsanas status` already reports this well: `spreading off: N machines hold
 anything of yours`, `the promise — 2 complete copies is what this is for; you
 have 1`, `headroom — N chunks are on fewer than 3 machines`, and `unconfirmed —
 the ledger remembers N copies; M holder records have gone quiet`. But it is a
