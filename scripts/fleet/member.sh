@@ -27,10 +27,11 @@
 # after a day away, which is the laptop's life.
 #
 # Not a new device per run: a host keeps the claim of every device that ever
-# presented one, withdrawn or not, and hands out at most 16 per account
-# (MAX_CLAIMS_PER_ANSWER), so a device a night would push the account's live
-# devices out of the roster within weeks. And not the same device with an
-# empty store: it would hand out sequence numbers its chain already used.
+# presented one, withdrawn or not, so a device a night would grow every
+# host's table by one a night for nothing (and, until the sixteen claims a
+# host hands out became the sixteen presented last, pushed live devices out
+# of the roster). And not the same device with an empty store: it would hand
+# out sequence numbers its chain already used.
 #
 # When there is no archive (the first run, a cache evicted after a week
 # unused, no FLEET_HOME_KEY), the member logs in from the 24 words as a new
