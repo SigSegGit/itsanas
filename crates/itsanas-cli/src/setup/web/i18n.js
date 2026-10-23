@@ -273,15 +273,84 @@ window.I18N = {
     'asked; the service starts within two seconds':
       'demandé ; le service commence d’ici deux secondes',
 
-    // "Copy this account to a USB key": the section's slot (#st-usb), hidden
-    // until the export is built.
+    // "Copy this account to a USB key" (#st-usb).
     'Copy this account to a USB key':
       'Copier ce compte sur une clé USB',
-    'To set this account up on another machine from the key.':
-      'Pour installer ce compte sur une autre machine depuis la clé.',
-    'USB key':
-      'Clé USB',
-    'Copy to the key':
-      'Copier sur la clé',
+    'The key gets ITSaNAS for Windows, Mac and Linux, with this account in it: plug it into any computer, open it, and your files are there.':
+      'La clé reçoit ITSaNAS pour Windows, Mac et Linux, avec ce compte dedans : branchez-la sur n’importe quel ordinateur, ouvrez-la, et vos fichiers sont là.',
+    'Whoever opens the key with its passphrase IS this account: they can read and change all your files. Choose a long passphrase that you use nowhere else, and keep the key as safe as a house key.':
+      'Quiconque ouvre la clé avec sa phrase de passe EST ce compte : il peut lire et modifier tous vos fichiers. Choisissez une longue phrase de passe que vous n’utilisez nulle part ailleurs, et gardez la clé aussi précieusement qu’une clé de maison.',
+    'USB keys and external disks':
+      'Clés USB et disques externes',
+    'No USB key or external disk was found. Plug one in, then Refresh.':
+      'Aucune clé USB ni aucun disque externe trouvé. Branchez-en un, puis Actualiser.',
+    'Another folder':
+      'Autre dossier',
+    'Another folder…':
+      'Autre dossier…',
+    'Copy here':
+      'Copier ici',
+    'Refresh':
+      'Actualiser',
+    'Two ITSaNAS windows open, one after the other:':
+      'Deux fenêtres ITSaNAS s’ouvrent, l’une après l’autre :',
+    "first this machine's passphrase, then a new passphrase for the key, typed twice. If you cannot see them, look for ITSaNAS in your taskbar / Dock.":
+      'd’abord la phrase de passe de cette machine, puis une nouvelle phrase de passe pour la clé, tapée deux fois. Si vous ne les voyez pas, cherchez ITSaNAS dans votre barre des tâches / le Dock.',
+    'Too little room on it for the copy.':
+      'Trop peu de place dessus pour la copie.',
+    'This key already holds an ITSaNAS account: choose another key, or empty this one first.':
+      'Cette clé contient déjà un compte ITSaNAS : choisissez une autre clé, ou videz celle-ci d’abord.',
+    "This is where this account already lives: choose the key's own drive.":
+      'C’est là que ce compte se trouve déjà : choisissez le lecteur de la clé elle-même.',
+    'Nothing is there: is the key plugged in?':
+      'Il n’y a rien ici : la clé est-elle branchée ?',
+    'Type a full path, starting with / or a drive letter.':
+      'Tapez un chemin complet, qui commence par / ou une lettre de lecteur.',
+    'NTFS: a Mac can read this key but not write to it, so the copy will not start on a Mac. Reformat it as exFAT to use it everywhere.':
+      'NTFS : un Mac peut lire cette clé mais pas y écrire, donc la copie ne démarrera pas sur un Mac. Reformatez-la en exFAT pour l’utiliser partout.',
+    'FAT32: no file on it may exceed 4 GB, and your account can grow past that. exFAT has no such limit.':
+      'FAT32 : aucun fichier n’y peut dépasser 4 Go, et votre compte peut grandir au-delà. exFAT n’a pas cette limite.',
+    'Copying in the background':
+      'Copie en arrière-plan',
+    'Checking the key':
+      'Vérification de la clé',
+    "Opening this machine's keys":
+      'Ouverture des clés de cette machine',
+    'Checking the room on the key':
+      'Vérification de la place sur la clé',
+    'Writing the programs for every system on the key':
+      'Écriture des programmes pour chaque système sur la clé',
+    'Sealing the account on the key under its own passphrase':
+      'Scellement du compte sur la clé sous sa propre phrase de passe',
+    'Enrolling the key with the coordinator':
+      'Inscription de la clé auprès du coordinateur',
+    'free,':
+      'de libre,',
+    'about':
+      'environ',
+    'needed.':
+      'nécessaires.',
+    'free of':
+      'de libre sur',
+    'external disk?':
+      'disque externe ?',
+    'The copy needs about':
+      'La copie demande environ',
+    'on the key:':
+      'sur la clé :',
+    'for the programs':
+      'pour les programmes',
+    'for your files.':
+      'pour vos fichiers.',
+    'The size of your files is not known yet.':
+      'La taille de vos fichiers n’est pas encore connue.',
+    'Waiting for the passphrase windows…':
+      'En attente des fenêtres de phrase de passe…',
+    'The key is ready. Unplug it safely before taking it out.':
+      'La clé est prête. Éjectez-la proprement avant de la retirer.',
+    'The copy stopped:':
+      'La copie s’est arrêtée :',
+    'The copy stopped without saying why. Try again; a key it left half written is refused and must be emptied first.':
+      'La copie s’est arrêtée sans dire pourquoi. Réessayez ; une clé qu’elle a laissée à moitié écrite est refusée et doit d’abord être vidée.',
   },
 };

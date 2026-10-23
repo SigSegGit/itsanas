@@ -48,9 +48,17 @@ trays' *Copy this account to a USB key...*, which opens `settings --section
 key`) writes the portable copy with the account already in it, under the key's
 own passphrase and on a device of its own; it enrols now or at the key's first
 start. A local copy by Nicolas's choice; the key holds the master secret, so a
-lost key is the account (ROADMAP, export entry). The Settings section is
-still to write: it calls `copy-to-key --detach` and reads
-`<home>/copy-to-key.status`.
+lost key is the account (ROADMAP, export entry).
+
+**2026-10-23: the USB key section of Settings.** The tray's *Copy this
+account to a USB key...* now lands on a working section: the keys and
+external disks plugged in (`drives::candidates`, parsers tested on each
+system's output), each with "Copy here" or the reason it cannot take the copy
+(room, an account already on it), NTFS/FAT32 warnings, "Another folder…" and
+Refresh; `POST /api/copy-to-key` starts `copy-to-key PATH --detach` (409 while
+one runs) and the page follows `copy-to-key.status`. To see by hand: the real
+drive list on Windows and macOS, and the two passphrase windows opened from
+the page.
 
 **2026-10-22: drive formats and room.** `drives.rs` reads the target drive's
 format; `vault --move`, `backup export` and `portable` append a warning for NTFS

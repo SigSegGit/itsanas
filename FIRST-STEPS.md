@@ -268,12 +268,19 @@ drive and guessing the passphrase holds your account; choose a long one and
 keep the drive with you.
 
 **Your account on a USB key.** Plug the key in, then the ITSaNAS icon ->
-*Copy this account to a USB key...*, which opens Settings at that section
-(the section itself is not in this version's page yet: until it is, run
-`itsanas copy-to-key /media/usb`). Two windows ask, in turn, this machine's
-passphrase and a NEW one for the key: at least 12 characters, not this
-machine's, not `123456789012`, not your username. Nothing is written before
-both are right and the key has room for the programs and your files. The key
+*Copy this account to a USB key...*: Settings opens at that section, which
+lists the USB keys and external disks plugged in, each with its free room and
+format, and says how much the copy needs. Click **Copy here** beside the key.
+A key without room, or that already holds an account, has its button greyed
+with the reason beside it; an NTFS or FAT32 key is offered with a warning (see
+below). A key the list does not show (plugged in after the page opened):
+**Refresh**; a folder elsewhere: **Another folder...**. Two windows then ask,
+in turn, this machine's passphrase and a NEW one for the key (typed twice): at
+least 12 characters, not this machine's, not `123456789012`, not your
+username. The page never asks a passphrase; it shows each step of the copy
+and, at the end, where the key's files are. Nothing is written before both
+passphrases are right and the key has room for the programs and your files.
+(In a terminal, `itsanas copy-to-key /media/usb` does the same.) The key
 then holds a portable copy (above) with your account already in it, as a
 device of its own, and a synced folder `ITSaNAS/Fichiers`. It enrols itself
 with the coordinator at once, or the first time it is started if the

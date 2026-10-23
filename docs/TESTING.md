@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1349 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 402 are red-team tests.**
+**Last updated: 2026-10-22 — 1359 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 404 are red-team tests.**
 
-**1233 of the 1349 tests have an entry of their own on this page** — an *entry*,
+**1243 of the 1359 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 195 |
+| `itsanas-cli` unit | 205 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 148 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 27 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 49 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 87 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 89 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (195)
+# `itsanas-cli` — unit tests (205)
 
 ## `bench` — measuring this machine (4)
 
@@ -1302,7 +1302,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page (27)
+## `web` — the local setup and Settings page (32)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1340,7 +1340,12 @@ and 375 px (no horizontal scroll), which CI does not run.
 | `the_page_speaks_the_browser_s_language_until_one_is_chosen` | `language_of` picks, from `Accept-Language`, the most preferred language the page speaks by primary tag and `q` (French for `fr-FR`, `FR-ca`, `de,fr;q=0.8`; English for `en-GB,…,fr;q=0.8`; none for `de, *` or a bogus `q`), and GET / then starts `<html lang="fr" data-lang="fr">`; with no header the page is left to `navigator.language`. Sabotaged (no language accepted): red. |
 | `a_language_chosen_in_the_page_is_kept_in_the_node_s_home_and_wins_over_the_browser` | POST /api/language needs the key (403), refuses a language the page does not speak (400), and writes `fr` to `<home>/language`; the next server, for a browser asking English, serves French. During a setup, before the home exists, nothing is created for it (kept at the run's end). Sabotaged (choice not written): red. |
 | `what_settings_hears_from_the_server_has_a_french_translation` | On a node no daemon runs, every line Settings is told by pause (twice), resume (twice), sync now (paused and not) and interval auto, and the Disks refusal, is a key of the French table, so `said()` shows it in French. Sabotaged (one sentence's entry removed): red. |
-| `settings_is_one_column_of_cards_with_a_slot_for_the_usb_copy` | With the steps' list hidden, `main` spans the whole grid (Settings fell into the list's 260 px column on a 1440 px screen); every Settings heading is in a card of its own; the hidden `#st-usb` slot for "Copy this account to a USB key" is there for the export to be built into. Sabotaged (the grid rule removed): red. |
+| `settings_is_one_column_of_cards_with_the_usb_copy_shown` | With the steps' list hidden, `main` spans the whole grid (Settings fell into the list's 260 px column on a 1440 px screen); every Settings heading is in a card of its own; the `#st-usb` section "Copy this account to a USB key" is shown (not `hidden`) and says that whoever opens the key with its passphrase IS the account. Sabotaged (the grid rule removed): red. |
+| **`red_team_the_usb_copy_answers_only_the_page_s_key_and_only_in_settings`** | GET and POST `/api/keys`, GET and POST `/api/copy-to-key` with no token or a wrong one are 403 and name no drive, and no copy is started; on the setup page all four are 404. Sabotaged with `scripts/sabotage.py` (the token check forced off; the Settings guard dropped from `/api/copy-to-key`, then from `/api/keys`): red each time. |
+| `a_key_without_room_or_already_holding_an_account_does_not_fit_and_says_why` | `/api/keys` with five stand-in drives on a real account: a roomy exFAT key fits; a 1 MiB FAT32 key does not (`why: room`, a reason with the free room, the FAT32 warning); a key holding an account does not (`why: account`); an NTFS key fits with the Mac warning; the account's own home does not (`why: inside`); the sizes and `copying` are in the reply. POST `/api/keys` (Another folder…) gives the same row for a chosen path, and `why: path` for a relative one. Sabotaged (the account check off; the room check off): red. |
+| **`red_team_the_copy_refuses_a_path_the_jobs_would_refuse_and_starts_nothing`** | POST `/api/copy-to-key` with no path, a relative path, a line break, a NUL, a key that holds an account or this account's home is 400, and the injected spawn is never called (no passphrase window for a copy that cannot happen); a good key is 202 and spawns once, for that path. Sabotaged (`check_path`'s refusal skipped; the account check off): red. |
+| `a_second_copy_while_one_runs_is_refused_and_the_page_follows_the_first` | Two POSTs at once: one 202, one 409, one spawn; the old run's "done" was removed so the poll says running with no progress; once the first process exits and the background run writes a step, a third POST is still 409 and `/api/keys` says `copying`; once the status says done, the poll shows its message and a new copy may start. Sabotaged (the running check off): red. |
+| `the_usb_section_has_a_handler_for_each_of_its_controls` | Every button and input of `#st-usb` (Another folder…, Copy here, the path, Refresh) has an `addEventListener` in app.js; app.js calls `/api/keys`, `/api/copy-to-key` and `/api/pick`, and goes to the section when the address says `section=key` or `#key`. |
 | `the_disks_section_hands_work_to_the_daemon_and_writes_a_portable_copy_itself` | Settings' Disks section: POST /api/disk for a vault move, a backup or a restore writes `<home>/job` for the running daemon and is refused with 409 when no daemon runs; a portable copy is written by the page itself; the job's result shows in /api/state `settings.job` and `settings.vault`. Sabotaged (409 check dropped): red. |
 
 ## `jobs` — disk work handed to the running daemon (3)
@@ -1355,14 +1360,17 @@ an export or a restore is asked through `<home>/job` and answered in
 | **`red_team_a_path_cannot_smuggle_lines_into_the_job`** | A path must be absolute and one line: a newline in it would add a second line to the job file and a second instruction; it is refused. Sabotaged (check dropped): red. |
 | `a_job_left_running_by_a_dead_daemon_does_not_block_the_next` | A job marked running by a daemon that died is marked failed when the next daemon starts, so it does not block the following job. |
 
-## `drives` — what a target drive is formatted as (2)
+## `drives` — what a target drive is formatted as, and which drives are keys (5)
 
-`crates/itsanas-cli/src/drives.rs`. Asked of the system (Get-Volume on Windows, diskutil on macOS, `stat -f` elsewhere); unknown means no warning.
+`crates/itsanas-cli/src/drives.rs`. Asked of the system (Get-Volume on Windows, diskutil on macOS, `stat -f` elsewhere); unknown means no warning. `candidates()` lists the USB keys and external disks for Settings' "Copy this account to a USB key"; each system's answer is parsed by a pure function, tested here on samples of its real output, so CI on Linux tests the Windows and macOS rules.
 
 | Test | What it proves |
 | --- | --- |
 | `the_formats_are_read_from_what_each_system_prints` | The three systems' outputs (PowerShell, diskutil, stat) are parsed to NTFS, FAT32, exFAT or other, and text that names none is unknown. |
 | `only_formats_that_limit_the_person_are_warned_about` | NTFS (a Mac cannot write) and FAT32 (no file over 4 GiB) warn; exFAT, other and unknown say nothing. |
+| `windows_lists_its_removable_keys_and_usb_disks_never_the_system_drive` | From the `Get-Volume` lines (with each disk's bus): Removable volumes and Fixed ones on USB (marked external) are listed with label, size, free and format; the system drive (whatever its letter), a second internal disk, a DVD drive and a garbled line are not; a `\|` in a label stays in it; an unnamed key is named by its letter. |
+| `linux_lists_what_the_desktop_mounted_for_the_person_and_under_mnt` | From a real-looking `/proc/mounts`: what is mounted under `/media/<user>/`, `/run/media/<user>/` and `/mnt/` is listed once, with `\040` read as a space; another person's key, a read-only DVD, snaps, tmpfs and `/mnt` itself are not; with no user known only `/mnt`, and a user name holding a `/` is none. |
+| `macos_lists_its_volumes_never_the_system_a_disk_image_or_a_snapshot` | From a real-looking `mount`: the writable volumes under `/Volumes/` (a space in the name kept) are listed with their format; the system volume (`/`), the Data and VM volumes, a read-only disk image and the `nobrowse` Time Machine snapshots are not. |
 
 ## `portable` — a copy of the program for every system, keeping its home on the drive (4)
 
@@ -1375,7 +1383,7 @@ an export or a restore is asked through `<home>/job` and answered in
 | `a_portable_copy_needs_a_full_path` | A relative destination is refused, so the copy does not land wherever the launcher happens to run. |
 | `the_launcher_runs_the_account_on_the_key_or_opens_setup` | `itsanas.sh`, run for real through `sh` with a stand-in program that prints its arguments: with no arguments it runs `--home <key>/home setup` on an empty key and `daemon` once `home/keystore.bin` is there, so a double-click shows the account's sync in its window; `ITSaNAS.cmd` has the same branch. Sabotaged (always setup): red. |
 
-## `copy_to_key::tests` — this account on a USB key: its own passphrase, its own device, nothing written before the checks (15)
+## `copy_to_key::tests` — this account on a USB key: its own passphrase, its own device, nothing written before the checks (17)
 
 `crates/itsanas-cli/src/copy_to_key.rs` (tests in `copy_to_key/tests.rs`).
 `itsanas copy-to-key DIR` against a real account whose store is held (as by a
@@ -1398,6 +1406,8 @@ and a stand-in coordinator. Each red-team test was sabotaged with
 | **`red_team_no_file_on_the_key_holds_the_24_words`** | Every file on the drive, and the status file the page reads, is scanned for the 24 words, any three of them in a row with four separators, the master secret's bytes in clear, and both passphrases: none is there. Sabotaged (the words written beside the home): red. |
 | **`red_team_a_weak_or_reused_key_passphrase_is_refused_before_anything_is_written`** | A short passphrase, this machine's own, a run of digits and the username with digits are each refused with "Nothing was written", and the drive stays empty. Sabotaged (the rule skipped): red. |
 | **`red_team_a_key_inside_the_accounts_home_or_folder_is_refused`** | A target inside this account's home, its synced folder, its vault, or the synced folder itself is refused as "inside", and no `ITSaNAS/` is made there; a relative path is refused; the drive is accepted. Sabotaged (the containment check off): red. |
+| `the_page_reads_back_each_step_the_copy_wrote` | `copy-to-key.status` as each step writes it reads back whole for the Settings page (quotes, line breaks, a backslash, a control character), a failed end with its error; a file that is not the copy's own reads as nothing, and a new run forgets the last one's. |
+| `each_refusal_of_a_target_says_its_kind` | Each refusal keeps its kind for the page to say in the person's language: `path` (relative, a line break), `inside` (this account's home), `account` (a key that holds one, also through `assess`), and none for a free drive. |
 | **`red_team_an_unregistered_key_enrols_itself_at_its_first_start`** | `enrol_at_start`, which the daemon runs beside its first round: a key with a coordinator and no `registered` marker enrols once; refused, it is not marked and says it tries again at the next start; enrolled, it is marked; marked, it never asks again. Sabotaged twice (the marker not read; not written): red both. |
 | `a_key_enrols_at_once_when_the_coordinator_answers` | When the coordinator answers, the copy enrols the key there and then and says so. |
 
