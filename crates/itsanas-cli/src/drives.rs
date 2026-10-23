@@ -262,14 +262,19 @@ pub fn parse_windows(text: &str) -> Vec<Candidate> {
     found
 }
 
-/// File systems that are never a drive somebody plugged in.
-const NOT_A_DRIVE: [&str; 9] = [
-    "tmpfs", "proc", "sysfs", "devtmpfs", "overlay", "squashfs", "autofs", "devfs", "cgroup2",
+/// The file systems of a disk plugged in here: an allow-list, because what
+/// else is mounted under `/mnt` is as often somebody else's machine (NFS,
+/// SMB, SSHFS, 9p, `WebDAV`, any `fuse.*`), where the account's master must
+/// never land, as it is the system's own (`tmpfs`, `overlay`...).
+/// `fuseblk` is ntfs-3g or exfat-fuse on a local device.
+const LOCAL_DISK: [&str; 13] = [
+    "ext2", "ext3", "ext4", "vfat", "exfat", "ntfs", "ntfs3", "fuseblk", "btrfs", "xfs", "f2fs",
+    "hfsplus", "apfs",
 ];
 
 /// `/proc/mounts`: what is mounted under `/media/<user>/` or
 /// `/run/media/<user>/` (where a desktop mounts a key it is given) or under
-/// `/mnt/`, and writable.
+/// `/mnt/`, writable, and on a local disk ([`LOCAL_DISK`]).
 #[must_use]
 pub fn parse_proc_mounts(text: &str, user: &str) -> Vec<Candidate> {
     let mut places = vec![PathBuf::from("/mnt")];
@@ -286,7 +291,7 @@ pub fn parse_proc_mounts(text: &str, user: &str) -> Vec<Candidate> {
         let point = PathBuf::from(unescape_mount(point));
         let read_only = options.split(',').any(|option| option == "ro");
         if read_only
-            || NOT_A_DRIVE.contains(&filesystem)
+            || !LOCAL_DISK.contains(&filesystem)
             || !places
                 .iter()
                 .any(|place| point.starts_with(place) && point != *place)
@@ -514,6 +519,38 @@ tmpfs /mnt/ram tmpfs rw,relatime 0 0
         );
         assert_eq!(unescape_mount("a\\040b\\134c\\011d"), "a b\\c\td");
         assert_eq!(unescape_mount("trailing\\04"), "trailing\\04");
+    }
+
+    /// A NETWORK MOUNT IS NO KEY: an NFS, SMB, SSHFS or 9p share under
+    /// /mnt is somebody else's machine, and the account's master would land
+    /// on it. Only the file systems of a disk plugged in here are listed.
+    #[test]
+    fn red_team_a_network_share_under_mnt_is_never_listed_as_a_key() {
+        assert_eq!(parse_proc_mounts("nas:/x /mnt/nas nfs4 rw 0 0", ""), []);
+        for filesystem in [
+            "nfs",
+            "cifs",
+            "smb3",
+            "fuse.sshfs",
+            "fuse.rclone",
+            "9p",
+            "davfs",
+            "ceph",
+        ] {
+            let line = format!("server:/share /mnt/share {filesystem} rw 0 0");
+            assert!(
+                parse_proc_mounts(&line, "camille").is_empty(),
+                "{filesystem} was offered as a key"
+            );
+        }
+        for filesystem in ["ext4", "vfat", "exfat", "ntfs3", "fuseblk", "btrfs", "xfs"] {
+            let line = format!("/dev/sdb1 /mnt/key {filesystem} rw 0 0");
+            assert_eq!(
+                parse_proc_mounts(&line, "camille").len(),
+                1,
+                "{filesystem}, a disk plugged in, was not offered"
+            );
+        }
     }
 
     #[test]

@@ -40,6 +40,99 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> CliError + '_ {
     }
 }
 
+/// Refuse `path` when it is a link. A hostile key could hold one where the
+/// copy writes -- `README.txt` to `~/.bashrc`, `ITSaNAS` or `home` to `~` --
+/// and every write through it would land on the person's own files.
+/// `symlink_metadata` reads the link, never what it points at. Missing is
+/// fine: it will be made.
+///
+/// # Errors
+///
+/// When `path` is a link (a junction on Windows reads as one too).
+pub(crate) fn no_link(path: &Path) -> Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() || is_reparse(&meta) => {
+            Err(CliError::Usage(format!(
+                "{} on this drive is a link to somewhere else, which a copy would write \
+                 through; nothing was written there. Remove it, or use another drive",
+                path.display()
+            )))
+        }
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(io(path)(error)),
+    }
+}
+
+#[cfg(windows)]
+fn is_reparse(meta: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt as _;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_reparse(_: &std::fs::Metadata) -> bool {
+    false
+}
+
+/// [`no_link`] for `dir` and everything directly in it.
+///
+/// # Errors
+///
+/// When `dir` or one of its entries is a link.
+pub(crate) fn no_links_in(dir: &Path) -> Result<()> {
+    no_link(dir)?;
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(io(dir)(error)),
+    };
+    for entry in entries {
+        no_link(&entry.map_err(io(dir))?.path())?;
+    }
+    Ok(())
+}
+
+/// Write `path` whole, through a new file beside it renamed over it: the
+/// rename replaces whatever is at `path` (a link included) rather than
+/// writing through it, and the new file is made with `create_new`, which
+/// refuses a link planted at the temporary name rather than following it.
+fn replace(
+    path: &Path,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> Result<()> {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let staging = path.with_file_name(format!(".{name}.itsanas-new"));
+    // A leftover of a run that stopped here. Removing a link removes the
+    // link, never what it points at.
+    let _ = std::fs::remove_file(&staging);
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staging)
+        .and_then(|mut file| {
+            write(&mut file)?;
+            file.sync_all()
+        })
+        .and_then(|()| std::fs::rename(&staging, path));
+    if let Err(error) = written {
+        let _ = std::fs::remove_file(&staging);
+        return Err(io(path)(error));
+    }
+    Ok(())
+}
+
+/// [`replace`], with text.
+fn replace_text(path: &Path, text: &str) -> Result<()> {
+    replace(path, |file| {
+        std::io::Write::write_all(file, text.as_bytes())
+    })
+}
+
 fn system() -> String {
     format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)
 }
@@ -107,6 +200,13 @@ fi
 exec "$exe" --home "$here/home" "$@"
 "#;
 
+/// The launchers, by name.
+const LAUNCHERS: [(&str, &str); 3] = [
+    ("ITSaNAS.cmd", CMD),
+    ("itsanas.command", SH),
+    ("itsanas.sh", SH),
+];
+
 /// Make (or refresh) the portable copy in `dir`, with the programs of every
 /// system of this version's signed release; what to tell the person.
 ///
@@ -140,16 +240,28 @@ pub(crate) fn make_with(
     }
     let root: PathBuf = dir.join(DIR);
     let home = root.join("home");
+    let bin = root.join("bin");
+    // Nothing is written through a link the drive holds: every name written
+    // below is checked, right before the first write.
+    no_link(&root)?;
+    no_link(&home)?;
+    no_link(&home.join(MARKER))?;
+    no_links_in(&bin)?;
+    for name in LAUNCHERS
+        .iter()
+        .map(|(name, _)| *name)
+        .chain(["README.txt"])
+    {
+        no_link(&root.join(name))?;
+    }
     std::fs::create_dir_all(&home).map_err(io(&home))?;
     // First: a copy that stops halfway must never leave a program that would
     // host other people's data from a drive that travels.
-    let path = home.join(MARKER);
-    std::fs::write(&path, "this node hosts nobody: it travels\n").map_err(io(&path))?;
+    replace_text(&home.join(MARKER), "this node hosts nobody: it travels\n")?;
 
     // Every system's program, so the key starts on any computer, not only
     // on the kind that made it (Nicolas, 2026-10-22). Without the network or
     // a release (a build from source), this one program, and it says so.
-    let bin = root.join("bin");
     let systems = match fetch(&bin) {
         Ok(names) => format!(
             "every system ({} programs, each checked against the signed release)",
@@ -163,9 +275,17 @@ pub(crate) fn make_with(
                 std::env::consts::EXE_SUFFIX
             );
             std::fs::create_dir_all(&bin).map_err(io(&bin))?;
-            let staging = bin.join(format!("{name}.part"));
-            std::fs::copy(&me, &staging).map_err(io(&staging))?;
-            std::fs::rename(&staging, bin.join(&name)).map_err(io(&bin))?;
+            no_links_in(&bin)?;
+            let mut program = std::fs::File::open(&me).map_err(io(&me))?;
+            replace(&bin.join(&name), |file| {
+                std::io::copy(&mut program, file)?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt as _;
+                    file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+                }
+                Ok(())
+            })?;
             format!(
                 "{} only, because the other systems' programs could not be fetched ({why})",
                 system()
@@ -177,21 +297,20 @@ pub(crate) fn make_with(
         let _ = std::fs::remove_file(root.join(old));
     }
 
-    for (name, text) in [
-        ("ITSaNAS.cmd", CMD),
-        ("itsanas.command", SH),
-        ("itsanas.sh", SH),
-    ] {
-        let path = root.join(name);
-        std::fs::write(&path, text).map_err(io(&path))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
-        }
+    for (name, text) in LAUNCHERS {
+        // The mode is set through the new file's own handle, before it takes
+        // the launcher's name: a chmod by name would follow a link.
+        replace(&root.join(name), |file| {
+            std::io::Write::write_all(file, text.as_bytes())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                file.set_permissions(std::fs::Permissions::from_mode(0o755))?;
+            }
+            Ok(())
+        })?;
     }
-    let path = root.join("README.txt");
-    std::fs::write(&path, readme()).map_err(io(&path))?;
+    replace_text(&root.join("README.txt"), &readme())?;
 
     let mut said = format!(
         "portable copy written to {} for {systems}: ITSaNAS.cmd on Windows, itsanas.command on \
@@ -326,6 +445,63 @@ mod tests {
                 && CMD.contains("--home \"%~dp0home\" daemon"),
             "{CMD}"
         );
+    }
+
+    /// A HOSTILE KEY: a link planted on it, where the copy writes, would
+    /// have it overwrite (or chmod) whatever the link points at -- a
+    /// `README.txt` to `~/.bashrc`, an `ITSaNAS` or a `home` to `~`. Each is
+    /// refused, and what the link points at is left as it was.
+    #[cfg(unix)]
+    #[test]
+    fn red_team_a_portable_copy_never_writes_through_a_link_on_the_key() {
+        use std::os::unix::fs::PermissionsExt as _;
+        // Each name, and whether it points at the victim's file or folder.
+        for (planted, at_file) in [
+            ("ITSaNAS", false),
+            ("ITSaNAS/README.txt", true),
+            ("ITSaNAS/itsanas.sh", true),
+            ("ITSaNAS/ITSaNAS.cmd", true),
+            ("ITSaNAS/home", false),
+            ("ITSaNAS/home/portable", true),
+            ("ITSaNAS/bin", false),
+            ("ITSaNAS/bin/itsanas-x86_64-unknown-linux-gnu.part", true),
+        ] {
+            let drive = tempfile::tempdir().expect("drive");
+            let victim = tempfile::tempdir().expect("victim");
+            let bashrc = victim.path().join(".bashrc");
+            std::fs::write(&bashrc, "the victim's own").expect("victim file");
+            let link = drive.path().join(planted);
+            std::fs::create_dir_all(link.parent().expect("parent")).expect("parents");
+            let points_at = if at_file {
+                bashrc.clone()
+            } else {
+                victim.path().to_path_buf()
+            };
+            std::os::unix::fs::symlink(&points_at, &link).expect("link");
+            let made = make_with(drive.path(), served);
+            assert!(made.is_err(), "{planted} as a link was written through");
+            assert_eq!(
+                std::fs::read_to_string(&bashrc).expect("victim file"),
+                "the victim's own",
+                "{planted}: the file the link points at was changed"
+            );
+            let left: Vec<_> = std::fs::read_dir(victim.path())
+                .expect("victim")
+                .flatten()
+                .map(|entry| entry.file_name())
+                .collect();
+            assert_eq!(
+                left,
+                [".bashrc"],
+                "{planted}: written into the victim's folder"
+            );
+            let permissions = std::fs::metadata(&bashrc).expect("meta").permissions();
+            assert_ne!(
+                permissions.mode() & 0o777,
+                0o755,
+                "{planted}: the victim's file was made executable"
+            );
+        }
     }
 
     #[test]

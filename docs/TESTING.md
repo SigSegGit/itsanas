@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1359 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 404 are red-team tests.**
+**Last updated: 2026-10-22 — 1371 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 415 are red-team tests.**
 
-**1243 of the 1359 tests have an entry of their own on this page** — an *entry*,
+**1255 of the 1371 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,10 +179,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 205 |
+| `itsanas-cli` unit | 216 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 148 |
+| `itsanas-node` unit | 149 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -211,14 +211,14 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 50 |
+| `identity` | keys, accounts, devices, claims, invitations | 58 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 54 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 59 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 27 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 49 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 89 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 50 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 91 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (205)
+# `itsanas-cli` — unit tests (216)
 
 ## `bench` — measuring this machine (4)
 
@@ -1302,7 +1302,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page (32)
+## `web` — the local setup and Settings page (33)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1345,6 +1345,7 @@ and 375 px (no horizontal scroll), which CI does not run.
 | `a_key_without_room_or_already_holding_an_account_does_not_fit_and_says_why` | `/api/keys` with five stand-in drives on a real account: a roomy exFAT key fits; a 1 MiB FAT32 key does not (`why: room`, a reason with the free room, the FAT32 warning); a key holding an account does not (`why: account`); an NTFS key fits with the Mac warning; the account's own home does not (`why: inside`); the sizes and `copying` are in the reply. POST `/api/keys` (Another folder…) gives the same row for a chosen path, and `why: path` for a relative one. Sabotaged (the account check off; the room check off): red. |
 | **`red_team_the_copy_refuses_a_path_the_jobs_would_refuse_and_starts_nothing`** | POST `/api/copy-to-key` with no path, a relative path, a line break, a NUL, a key that holds an account or this account's home is 400, and the injected spawn is never called (no passphrase window for a copy that cannot happen); a good key is 202 and spawns once, for that path. Sabotaged (`check_path`'s refusal skipped; the account check off): red. |
 | `a_second_copy_while_one_runs_is_refused_and_the_page_follows_the_first` | Two POSTs at once: one 202, one 409, one spawn; the old run's "done" was removed so the poll says running with no progress; once the first process exits and the background run writes a step, a third POST is still 409 and `/api/keys` says `copying`; once the status says done, the poll shows its message and a new copy may start. Sabotaged (the running check off): red. |
+| **`red_team_a_copy_is_refused_while_the_last_one_started_has_not_spoken`** | The child the page started exits without a status written since (its background run starting, or a crash before its first step): a second POST is 409 and nothing is spawned, for two minutes; once a status written since says it ended, a new copy may start. Sabotaged (the two minutes at zero): red. |
 | `the_usb_section_has_a_handler_for_each_of_its_controls` | Every button and input of `#st-usb` (Another folder…, Copy here, the path, Refresh) has an `addEventListener` in app.js; app.js calls `/api/keys`, `/api/copy-to-key` and `/api/pick`, and goes to the section when the address says `section=key` or `#key`. |
 | `the_disks_section_hands_work_to_the_daemon_and_writes_a_portable_copy_itself` | Settings' Disks section: POST /api/disk for a vault move, a backup or a restore writes `<home>/job` for the running daemon and is refused with 409 when no daemon runs; a portable copy is written by the page itself; the job's result shows in /api/state `settings.job` and `settings.vault`. Sabotaged (409 check dropped): red. |
 
@@ -1360,7 +1361,7 @@ an export or a restore is asked through `<home>/job` and answered in
 | **`red_team_a_path_cannot_smuggle_lines_into_the_job`** | A path must be absolute and one line: a newline in it would add a second line to the job file and a second instruction; it is refused. Sabotaged (check dropped): red. |
 | `a_job_left_running_by_a_dead_daemon_does_not_block_the_next` | A job marked running by a daemon that died is marked failed when the next daemon starts, so it does not block the following job. |
 
-## `drives` — what a target drive is formatted as, and which drives are keys (5)
+## `drives` — what a target drive is formatted as, and which drives are keys (6)
 
 `crates/itsanas-cli/src/drives.rs`. Asked of the system (Get-Volume on Windows, diskutil on macOS, `stat -f` elsewhere); unknown means no warning. `candidates()` lists the USB keys and external disks for Settings' "Copy this account to a USB key"; each system's answer is parsed by a pure function, tested here on samples of its real output, so CI on Linux tests the Windows and macOS rules.
 
@@ -1369,10 +1370,11 @@ an export or a restore is asked through `<home>/job` and answered in
 | `the_formats_are_read_from_what_each_system_prints` | The three systems' outputs (PowerShell, diskutil, stat) are parsed to NTFS, FAT32, exFAT or other, and text that names none is unknown. |
 | `only_formats_that_limit_the_person_are_warned_about` | NTFS (a Mac cannot write) and FAT32 (no file over 4 GiB) warn; exFAT, other and unknown say nothing. |
 | `windows_lists_its_removable_keys_and_usb_disks_never_the_system_drive` | From the `Get-Volume` lines (with each disk's bus): Removable volumes and Fixed ones on USB (marked external) are listed with label, size, free and format; the system drive (whatever its letter), a second internal disk, a DVD drive and a garbled line are not; a `\|` in a label stays in it; an unnamed key is named by its letter. |
-| `linux_lists_what_the_desktop_mounted_for_the_person_and_under_mnt` | From a real-looking `/proc/mounts`: what is mounted under `/media/<user>/`, `/run/media/<user>/` and `/mnt/` is listed once, with `\040` read as a space; another person's key, a read-only DVD, snaps, tmpfs and `/mnt` itself are not; with no user known only `/mnt`, and a user name holding a `/` is none. |
+| `linux_lists_what_the_desktop_mounted_for_the_person_and_under_mnt` | From a real-looking `/proc/mounts`: what is mounted under `/media/<user>/`, `/run/media/<user>/` and `/mnt/` is listed once, with `\040` read as a space; another person's key, a read-only DVD, snaps, tmpfs and `/mnt` itself are not (only local disk file systems are listed); with no user known only `/mnt`, and a user name holding a `/` is none. |
 | `macos_lists_its_volumes_never_the_system_a_disk_image_or_a_snapshot` | From a real-looking `mount`: the writable volumes under `/Volumes/` (a space in the name kept) are listed with their format; the system volume (`/`), the Data and VM volumes, a read-only disk image and the `nobrowse` Time Machine snapshots are not. |
+| **`red_team_a_network_share_under_mnt_is_never_listed_as_a_key`** | `nas:/x /mnt/nas nfs4` lists nothing, nor do `nfs`, `cifs`, `smb3`, `fuse.sshfs`, `fuse.rclone`, `9p`, `davfs` or `ceph` under `/mnt`: the account's master would land on somebody else's machine. `ext4`, `vfat`, `exfat`, `ntfs3`, `fuseblk`, `btrfs` and `xfs` are listed. Sabotaged (the allow-list off): red. |
 
-## `portable` — a copy of the program for every system, keeping its home on the drive (4)
+## `portable` — a copy of the program for every system, keeping its home on the drive (5)
 
 `crates/itsanas-cli/src/portable.rs`.
 
@@ -1382,8 +1384,9 @@ an export or a restore is asked through `<home>/job` and answered in
 | `without_the_release_the_copy_says_it_serves_this_system_only` | Offline or from a source build, the copy holds only this system's program and its README and the command output say it serves this system only. |
 | `a_portable_copy_needs_a_full_path` | A relative destination is refused, so the copy does not land wherever the launcher happens to run. |
 | `the_launcher_runs_the_account_on_the_key_or_opens_setup` | `itsanas.sh`, run for real through `sh` with a stand-in program that prints its arguments: with no arguments it runs `--home <key>/home setup` on an empty key and `daemon` once `home/keystore.bin` is there, so a double-click shows the account's sync in its window; `ITSaNAS.cmd` has the same branch. Sabotaged (always setup): red. |
+| **`red_team_a_portable_copy_never_writes_through_a_link_on_the_key`** | A link planted at each name the copy writes -- `ITSaNAS`, `README.txt`, `itsanas.sh`, `ITSaNAS.cmd`, `home`, `home/portable`, `bin`, a `bin/*.part` -- pointing at a victim's file or folder: `make_with` is refused each time, the victim's file is unchanged and not made executable, and nothing lands in the victim's folder. Sabotaged (`no_link` off): red. |
 
-## `copy_to_key::tests` — this account on a USB key: its own passphrase, its own device, nothing written before the checks (17)
+## `copy_to_key::tests` — this account on a USB key: its own passphrase, its own device, nothing written before the checks (25)
 
 `crates/itsanas-cli/src/copy_to_key.rs` (tests in `copy_to_key/tests.rs`).
 `itsanas copy-to-key DIR` against a real account whose store is held (as by a
@@ -1394,7 +1397,7 @@ and a stand-in coordinator. Each red-team test was sabotaged with
 | Test | What it proves |
 | --- | --- |
 | `a_keys_passphrase_is_long_new_and_not_a_pattern` | The key's passphrase rule, a pure function: under 12 characters, this machine's own, the same few characters repeated (`aaaa...`, `abcabc...`), a run of keys or digits with digits wrapping round (`123456789012`, `987654321098`), or the username with fewer than 12 characters besides it are refused; a long new phrase passes, and a one-letter username eats nothing. |
-| `the_key_must_hold_the_programs_and_the_files` | The room check, a pure function: the release's size plus the account's content against the drive's free bytes, refused with both figures when short; about 45 MiB counted for the programs when the release cannot say; a note, not a refusal, when the files' size or the free room is unknown. |
+| `the_key_must_hold_the_programs_and_the_files` | The room check, a pure function: the release's size plus the account's content against the drive's free bytes, refused with both figures when short; about 45 MiB counted for the programs when the release cannot say; a note, not a refusal, when the files' size is unknown; a drive whose free room cannot be read is refused, saying how much it needs (free space is readable on every system this ships for, so a silent drive is one failing under the copy). Sabotaged with `scripts/sabotage.py` (an unreadable drive let through): red. |
 | `the_accounts_size_is_read_from_the_daemons_status` | The account's content is read from the "your content" line of `status.snapshot`, which the daemon writes while it holds the store, rounded up by a tenth of its unit because `format_size` floors. |
 | `the_background_copy_reads_two_passphrases_and_nothing_else` | `--detach` hands the two passphrases to the background copy on its standard input, one a line; one line is refused, and the pair never prints. |
 | `the_tray_opens_settings_at_the_keys_section` | `settings --section key` opens the page's address with `&section=key` inside its one fragment, after the page key; a section that is not a known name is refused by the parser, so nothing is added to the address that the page did not expect. |
@@ -1410,6 +1413,14 @@ and a stand-in coordinator. Each red-team test was sabotaged with
 | `each_refusal_of_a_target_says_its_kind` | Each refusal keeps its kind for the page to say in the person's language: `path` (relative, a line break), `inside` (this account's home), `account` (a key that holds one, also through `assess`), and none for a free drive. |
 | **`red_team_an_unregistered_key_enrols_itself_at_its_first_start`** | `enrol_at_start`, which the daemon runs beside its first round: a key with a coordinator and no `registered` marker enrols once; refused, it is not marked and says it tries again at the next start; enrolled, it is marked; marked, it never asks again. Sabotaged twice (the marker not read; not written): red both. |
 | `a_key_enrols_at_once_when_the_coordinator_answers` | When the coordinator answers, the copy enrols the key there and then and says so. |
+| **`red_team_a_readme_on_the_key_that_links_out_is_refused`** | A hostile key whose `ITSaNAS/README.txt` is a link to the person's `~/.bashrc`: the copy is refused, naming the link, and the file is byte for byte as it was, not made executable, and nothing is written beside it. %s (`no_link` off): red. |
+| **`red_team_an_itsanas_folder_on_the_key_that_links_out_is_refused`** | `ITSaNAS` itself a link to the person's home folder: refused, and nothing is written in that folder. Sabotaged (`no_link` off): red. |
+| **`red_team_a_dangling_keystore_link_on_the_key_is_refused`** | `home/keystore.bin` a link to nowhere: the key "already holds an account" (`Node::exists` reads the link, not its target) and nothing is created where it points. Sabotaged (`exists` following the link again): red. |
+| **`red_team_a_target_that_leads_back_into_the_account_is_refused`** | `<tmp>/other/../laptop/k` is refused as going up a folder, and so is a `..` that would land on the key itself; a link to a folder inside the synced folder is refused as "inside" because the check compares canonical paths. Sabotaged twice (the `..` rule off; the target compared unresolved): red both. |
+| **`red_team_two_copies_to_one_key_at_once_leave_one_account`** | Two `copy()` on threads released by a barrier, each with its own key passphrase: exactly one succeeds, the other says another copy is under way (or, if it came after, that the key holds an account), the key opens with the winner's passphrase, and the lock is gone. Sabotaged (the lock not taken): red. |
+| **`red_team_a_copy_under_way_on_the_key_stops_a_second`** | A `.copy-lock` on the key stops a copy before it writes anything (no home, no programs), with "another copy to this key is under way", and the other copy's lock is left. Sabotaged (the lock not taken): red. |
+| **`red_team_a_copy_that_fails_after_sealing_leaves_no_keystore_and_a_retry_works`** | The synced folder cannot be made (a file in its place), after the keystore is written: the copy fails saying what it removed, the key's home holds no keystore and no config (nor the store and vault of a device that will never run), the lock is gone, and once the file is moved a retry succeeds and opens with the key's passphrase. Sabotaged (nothing removed): red. |
+| `a_keys_passphrase_is_not_the_machines_in_other_clothes_nor_a_common_base` | This machine's passphrase in capitals ("is this machine's passphrase"), holding it, or held in it (8 characters and more), and `password`, `motdepasse`, `azerty`, `qwerty`, `itsanas` or `123456` with only digits or symbols around them are refused; a short machine passphrase inside a long key, and a phrase that merely contains `password`, are not. Sabotaged three times (case kept; containment off; the bases off): red each. |
 
 ## `lifecycle` — asking a running daemon to stop or restart (2)
 
@@ -1580,7 +1591,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (165)
+# `itsanas-node` — a node on disk (166)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1665,7 +1676,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk, and where its vault lives (26)
+## `node` — identity on disk, and where its vault lives (27)
 
 | Test | What it proves |
 | --- | --- |
@@ -1690,6 +1701,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`a_published_test_phrase_is_refused_as_a_real_account`** | Restoring Alice's published phrase as a real account is refused, with an explanation. |
 | **`the_device_identity_also_survives_a_restart`** | If the device key changed on every start, every restart would look like a new device to the version vectors and history would fragment. |
 | **`creating_over_an_existing_node_is_refused`** | Overwriting would destroy the master secret and make every chunk stored under it permanently unreadable. |
+| **`red_team_a_keystore_is_never_written_through_a_link_or_over_a_file`** | A dangling `keystore.bin` link is a node that exists, so `create` refuses; `write_new` itself, past that check as a racing second writer would be, writes nothing through the link and does not replace a keystore that appeared, because the file is opened `create_new`. Sabotaged twice (`exists` following the link; `create` + `truncate`): red both. |
 | **`a_phrase_round_trips_through_restore`** | Same account, *different* device id — two machines sharing a device identity would share a sequence counter and fork the log. |
 | **`opening_a_missing_node_says_what_to_do_about_it`** | The error names both `init` and `login`. |
 | `a_created_node_reopens_with_the_same_identity` | Reopening does not orphan the data. |

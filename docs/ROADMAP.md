@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1359 test functions, 14 of them `#[ignore]`d into the slow job, and 404 of
+**1371 test functions, 14 of them `#[ignore]`d into the slow job, and 415 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1487,8 +1487,20 @@ Major step: Rodin on the plan before the code.
   "Another folder…" and Refresh, then starts `copy-to-key PATH --detach`
   (`POST /api/copy-to-key`, one at a time) and follows
   `<home>/copy-to-key.status` step by step; no command line, and the
-  passphrases only in the copy's own windows. Proven by the eight
-  `red_team_*` tests of `copy_to_key/tests.rs` and the two of `web/tests.rs`;
+  passphrases only in the copy's own windows. Hardened after a red team
+  (2026-10-23): nothing is written through a link on the key (`ITSaNAS`,
+  `home`, `bin` and their entries, the launchers, README, marker, keystore;
+  a dangling `keystore.bin` link counts as an account), replaced files go
+  through a new file renamed over them and the keystore is `create_new`;
+  the inside check compares canonical paths and refuses any `..`; a
+  `.copy-lock` holds the key for one copy at a time, and the page counts a
+  child it started as running for two minutes until it writes a status; a
+  failure after the keystore removes what the run wrote in the key's home;
+  a drive whose free space cannot be read is refused; `/mnt` lists only
+  local disk file systems (no NFS, SMB, SSHFS, `fuse.*`); the key's
+  passphrase may not be the machine's in another case, hold it or be held
+  in it, nor a common base with digits around it. Proven by the fifteen
+  `red_team_*` tests of `copy_to_key/tests.rs` and the three of `web/tests.rs`;
   the drive parsers are tested on samples of each system's output, and the
   real listing on Windows and macOS is still to be seen by hand. Not in it: a
   device label (no field in the config or the claim carries one).

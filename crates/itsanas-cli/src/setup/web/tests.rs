@@ -1799,6 +1799,42 @@ fn a_second_copy_while_one_runs_is_refused_and_the_page_follows_the_first() {
     assert_eq!(copies.started().len(), 2);
 }
 
+/// A CHILD THAT VANISHED BEFORE IT SAID ANYTHING: the page's own child
+/// exited and no status was written yet (its background run is starting,
+/// or it died before its first step). For two minutes another copy is
+/// refused: two writers would race on one key.
+#[test]
+fn red_team_a_copy_is_refused_while_the_last_one_started_has_not_spoken() {
+    let world = KeyWorld::new();
+    let key = world.drive("KEY");
+    let copies = Copies::default();
+    let page = Page::start_with(
+        &world.home,
+        world.dir.path(),
+        Mode::Settings,
+        &Seen::default(),
+        |b| b.copy = copies.backend(),
+    );
+    let body = path_form(&key);
+    assert_eq!(page.api("POST", "/api/copy-to-key", &body).status, 202);
+    copies
+        .running
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        page.api("POST", "/api/copy-to-key", &body).status,
+        409,
+        "a second copy started while the first had not written a word"
+    );
+    assert_eq!(copies.started().len(), 1);
+    // It spoke and ended: another may start.
+    std::fs::write(
+        world.home.join(crate::copy_to_key::STATUS),
+        "{\"step\":\"failed\",\"done\":true,\"said\":\"\",\"error\":\"cancelled\"}\n",
+    )
+    .expect("status");
+    assert_eq!(page.api("POST", "/api/copy-to-key", &body).status, 202);
+}
+
 #[test]
 fn the_usb_section_has_a_handler_for_each_of_its_controls() {
     let html = super::INDEX_HTML;

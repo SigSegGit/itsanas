@@ -203,6 +203,10 @@ type StartCopy = Box<dyn Fn(&Path, &Path) -> std::result::Result<Running, String
 /// died without a word: the page offers to start another.
 const COPY_STALE: Duration = Duration::from_secs(30 * 60);
 
+/// How long a copy started here still counts as running once its child
+/// ended without a status written since ([`start_copy`]).
+const SILENT_CHILD: Duration = Duration::from_secs(2 * 60);
+
 impl Backends {
     fn of_this_machine(home: &Path, instance: Option<&str>) -> Self {
         let home = home.to_owned();
@@ -1283,8 +1287,12 @@ fn start_copy(ctx: &Arc<Context>, request: &Request) -> Response {
         Err(refused) => return refused,
     };
     let path = PathBuf::from(field(&form, "path").unwrap_or_default());
-    // Every refusal of the command itself (`check_path` first), and the
-    // room, before a window opens for a copy that cannot happen.
+    // Every refusal of the command itself (`check_path` first, before the
+    // system is asked anything about the path), and the room, before a
+    // window opens for a copy that cannot happen.
+    if let Err(said) = crate::jobs::check_path(&path) {
+        return Response::refuse(400, &said);
+    }
     let candidate = candidate_at(&path);
     let programs = programs_size(ctx);
     if let (Err(refused), _) = crate::copy_to_key::assess(
@@ -1308,7 +1316,20 @@ fn start_copy(ctx: &Arc<Context>, request: &Request) -> Response {
     }
     crate::copy_to_key::forget_progress(&ctx.home);
     match (ctx.backends.copy)(&ctx.home, &path) {
-        Ok(running) => {
+        Ok(mut child) => {
+            // The child this page started counts as running for two minutes
+            // after it ends, until a status written since says it spoke: its
+            // background run may be starting, or it died before a word, and
+            // a second copy then would race the first on the key.
+            let started = std::time::SystemTime::now();
+            let at = Instant::now();
+            let home = ctx.home.clone();
+            let running: Running = Box::new(move || {
+                child()
+                    || (at.elapsed() < SILENT_CHILD
+                        && crate::copy_to_key::progress(&home)
+                            .is_none_or(|(_, written)| written + Duration::from_secs(2) < started))
+            });
             *slot = Some(running);
             Response::new(
                 202,

@@ -150,9 +150,13 @@ fn the_key_must_hold_the_programs_and_the_files() {
     assert!(room(None, None, Some(30 * mib)).is_err());
     let unknown = room(Some(mib), None, Some(30 * mib)).expect("room");
     assert!(unknown.contains("not known"), "{unknown}");
+    // A drive that says nothing is refused: free space is readable on every
+    // system this ships for, so a drive that cannot say is one that is
+    // failing, or gone, under the copy.
+    let silent = room(Some(mib), Some(mib), None).expect_err("a drive that says nothing");
     assert!(
-        room(Some(mib), Some(mib), None).is_ok(),
-        "a drive that says nothing"
+        silent.contains("could not read the free space") && silent.contains("2.0 MiB"),
+        "{silent}"
     );
 }
 
@@ -481,4 +485,270 @@ fn each_refusal_of_a_target_says_its_kind() {
     assert_eq!(kind(&world.drive), Some("account"));
     let (fits, _) = super::assess(&world.home, &config, &world.drive, Some(1), None, None);
     assert_eq!(fits.err().map(|refused| refused.why), Some("account"));
+}
+
+// ---------------------------------------------------------------------------
+// A hostile key, a target that is not what it says, two copies at once
+// ---------------------------------------------------------------------------
+
+/// A folder outside the drive, with one file the key must never touch.
+#[cfg(unix)]
+struct Victim {
+    dir: tempfile::TempDir,
+}
+
+#[cfg(unix)]
+impl Victim {
+    const TEXT: &'static str = "export PATH=the victim's own";
+
+    fn new() -> Self {
+        let dir = tempfile::tempdir().expect("victim");
+        std::fs::write(dir.path().join(".bashrc"), Self::TEXT).expect("bashrc");
+        Self { dir }
+    }
+
+    fn bashrc(&self) -> PathBuf {
+        self.dir.path().join(".bashrc")
+    }
+
+    /// Unchanged: the one file, as it was, and nothing else written there.
+    fn untouched(&self, what: &str) {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(
+            std::fs::read_to_string(self.bashrc()).expect("bashrc"),
+            Self::TEXT,
+            "{what}: the victim's file was overwritten"
+        );
+        let mode = std::fs::metadata(self.bashrc())
+            .expect("meta")
+            .permissions()
+            .mode();
+        assert_ne!(
+            mode & 0o111,
+            0o111,
+            "{what}: the victim's file was chmodded"
+        );
+        let names: Vec<_> = std::fs::read_dir(self.dir.path())
+            .expect("victim")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names,
+            [".bashrc"],
+            "{what}: written into the victim's folder"
+        );
+    }
+}
+
+/// A HOSTILE KEY: `ITSaNAS/README.txt` a link to the person's `~/.bashrc`.
+/// The copy is refused and the file is as it was.
+#[cfg(unix)]
+#[test]
+fn red_team_a_readme_on_the_key_that_links_out_is_refused() {
+    let world = World::new();
+    let victim = Victim::new();
+    std::fs::create_dir_all(world.root()).expect("root");
+    std::os::unix::fs::symlink(victim.bashrc(), world.root().join("README.txt")).expect("link");
+    let said = refusal(world.copy(MACHINE, KEY));
+    assert!(said.contains("link"), "{said}");
+    victim.untouched("README.txt -> ~/.bashrc");
+}
+
+/// A HOSTILE KEY: `ITSaNAS` itself a link to the person's home folder.
+#[cfg(unix)]
+#[test]
+fn red_team_an_itsanas_folder_on_the_key_that_links_out_is_refused() {
+    let world = World::new();
+    let victim = Victim::new();
+    std::os::unix::fs::symlink(victim.dir.path(), world.root()).expect("link");
+    let said = refusal(world.copy(MACHINE, KEY));
+    assert!(said.contains("link"), "{said}");
+    victim.untouched("ITSaNAS -> ~");
+}
+
+/// A HOSTILE KEY: `home/keystore.bin` a dangling link. It counts as an
+/// account on the key; the sealed master is never written through it.
+#[cfg(unix)]
+#[test]
+fn red_team_a_dangling_keystore_link_on_the_key_is_refused() {
+    let world = World::new();
+    let victim = Victim::new();
+    std::fs::create_dir_all(world.key_home()).expect("home");
+    let target = victim.dir.path().join("planted");
+    std::os::unix::fs::symlink(&target, world.key_home().join("keystore.bin")).expect("link");
+    let said = refusal(world.copy(MACHINE, KEY));
+    assert!(said.contains("already holds an account"), "{said}");
+    assert!(
+        !target.exists(),
+        "the keystore was written through the link"
+    );
+    victim.untouched("keystore.bin -> nowhere");
+}
+
+/// A TARGET THAT IS NOT WHAT IT SAYS: `<tmp>/other/../laptop/k` is inside
+/// this account's home however it is spelled, and a link that leads into
+/// the synced folder is inside it too.
+#[test]
+fn red_team_a_target_that_leads_back_into_the_account_is_refused() {
+    let world = World::new();
+    let config = Config::load(&Node::config_path(&world.home)).expect("config");
+    let parent = world.home.parent().expect("parent");
+    std::fs::create_dir_all(parent.join("other")).expect("other");
+    let dotted = parent.join("other").join("..").join("laptop").join("k");
+    let said = check_target(&world.home, &config, &dotted).expect_err("refused");
+    assert!(said.to_string().contains("goes up a folder"), "{said}");
+    // Refused outright, even where it would land on the key itself.
+    let roundabout = world.drive.join("..").join("KEY");
+    let refused = super::refusal(&world.home, &config, &roundabout).expect_err("refused");
+    assert_eq!(refused.why, "path", "{}", refused.said);
+    let said = refusal(world.copy_with(&dotted, MACHINE, KEY, offline));
+    assert!(
+        !world.home.join("k").exists(),
+        "written in the home ({said})"
+    );
+
+    #[cfg(unix)]
+    {
+        let folder = config.folder.clone().expect("folder");
+        std::fs::create_dir_all(folder.join("sub")).expect("folder");
+        let link = parent.join("LINKED");
+        std::os::unix::fs::symlink(folder.join("sub"), &link).expect("link");
+        let said = check_target(&world.home, &config, &link).expect_err("refused");
+        assert!(said.to_string().contains("inside"), "{said}");
+        let said = refusal(world.copy_with(&link, MACHINE, KEY, offline));
+        assert!(
+            !folder.join("sub").join(portable::DIR).exists(),
+            "a copy was written into the synced folder ({said})"
+        );
+    }
+}
+
+/// TWO COPIES TO ONE KEY AT ONCE: one wins, the other is refused, and the
+/// key opens with the winner's passphrase -- not a keystore of one and a
+/// config of the other.
+#[test]
+fn red_team_two_copies_to_one_key_at_once_leave_one_account() {
+    const OTHER: &str = "another long passphrase for the key";
+    let world = World::new();
+    let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let racers: Vec<_> = [KEY, OTHER]
+        .into_iter()
+        .map(|key| {
+            let (home, drive) = (world.home.clone(), world.drive.clone());
+            let start = std::sync::Arc::clone(&start);
+            std::thread::spawn(move || {
+                let passes = Passphrases {
+                    machine: Zeroizing::new(MACHINE.to_owned()),
+                    key: Zeroizing::new(key.to_owned()),
+                };
+                start.wait();
+                let result = copy(&home, &drive, &passes, Some(1024), served, offline);
+                (key, result.map_err(|error| error.to_string()))
+            })
+        })
+        .collect();
+    let results: Vec<_> = racers
+        .into_iter()
+        .map(|racer| racer.join().expect("racer"))
+        .collect();
+    let won: Vec<_> = results
+        .iter()
+        .filter(|(_, result)| result.is_ok())
+        .collect();
+    assert_eq!(won.len(), 1, "{results:?}");
+    let winner = won[0].0;
+    for (_, result) in &results {
+        if let Err(said) = result {
+            assert!(
+                said.contains("another copy to this key is under way")
+                    || said.contains("already holds an account"),
+                "{said}"
+            );
+        }
+    }
+    let home = world.key_home();
+    assert!(itsanas_node::node::Identity::open(&home, winner).is_ok());
+    assert!(
+        !world.root().join(".copy-lock").exists(),
+        "the lock was left"
+    );
+}
+
+/// A COPY UNDER WAY: its lock on the key stops a second one before it
+/// writes anything, and says so.
+#[test]
+fn red_team_a_copy_under_way_on_the_key_stops_a_second() {
+    let world = World::new();
+    std::fs::create_dir_all(world.root()).expect("root");
+    std::fs::write(world.root().join(".copy-lock"), b"").expect("lock");
+    let said = refusal(world.copy(MACHINE, KEY));
+    assert!(
+        said.contains("another copy to this key is under way"),
+        "{said}"
+    );
+    assert!(!world.key_home().exists(), "written beside another copy");
+    assert!(
+        !world.root().join("bin").exists(),
+        "written beside another copy"
+    );
+    assert!(
+        world.root().join(".copy-lock").exists(),
+        "the other copy's lock was removed"
+    );
+}
+
+/// A COPY THAT FAILS AFTER SEALING: no sealed master is left on the key,
+/// the copy says so, and a retry works.
+#[test]
+fn red_team_a_copy_that_fails_after_sealing_leaves_no_keystore_and_a_retry_works() {
+    let world = World::new();
+    // The synced folder cannot be made: the step after the keystore fails.
+    std::fs::create_dir_all(world.root()).expect("root");
+    std::fs::write(world.root().join(FOLDER), b"in the way").expect("in the way");
+    let said = refusal(world.copy(MACHINE, KEY));
+    assert!(said.contains("removed"), "{said}");
+    assert!(
+        !world.key_home().join("keystore.bin").exists(),
+        "a sealed master was left on the key: {said}"
+    );
+    assert!(!Node::config_path(&world.key_home()).exists(), "{said}");
+    assert!(
+        !world.root().join(".copy-lock").exists(),
+        "the lock was left"
+    );
+
+    std::fs::remove_file(world.root().join(FOLDER)).expect("out of the way");
+    world.copy(MACHINE, KEY).expect("the retry");
+    assert!(itsanas_node::node::Identity::open(&world.key_home(), KEY).is_ok());
+}
+
+/// The machine's passphrase in other clothes -- another case, inside a
+/// longer one, holding the key's -- and a common base dressed with digits
+/// or symbols are refused.
+#[test]
+fn a_keys_passphrase_is_not_the_machines_in_other_clothes_nor_a_common_base() {
+    let weak = |key: &str| weak_passphrase(key, MACHINE, "camille");
+    for refused in [
+        "THE PASSPHRASE OF THIS LAPTOP",
+        "The Passphrase Of This Laptop!",
+        "my the passphrase of this laptop",
+        "passphrase of this",
+        "Password2026!!",
+        "motdepasse1234",
+        "AZERTY123456!",
+        "qwerty-2026-1234!",
+        "itsanas2026!!",
+        "1234567!123456",
+    ] {
+        assert!(weak(refused).is_some(), "{refused:?} was accepted");
+    }
+    assert!(
+        weak("the passphrase of THIS laptop")
+            .is_some_and(|why| why.starts_with("is this machine's passphrase")),
+        "case is no disguise"
+    );
+    // A short machine passphrase is no reason to refuse every key holding it.
+    assert_eq!(weak_passphrase(KEY, "key", "camille"), None);
+    assert_eq!(weak("password manager entries galore"), None);
 }

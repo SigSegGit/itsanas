@@ -573,10 +573,12 @@ impl Node {
         free.map(|free| free.saturating_sub(pledge.saturating_sub(held)))
     }
 
-    /// Whether a node already exists at `home`.
+    /// Whether a node already exists at `home`: a keystore, or a link where
+    /// it goes -- dangling or not, nothing is ever created through one.
     #[must_use]
     pub fn exists(home: &Path) -> bool {
-        Self::keystore_path(home).is_file()
+        std::fs::symlink_metadata(Self::keystore_path(home))
+            .is_ok_and(|meta| meta.is_file() || meta.file_type().is_symlink())
     }
 
     /// Create a node from a fresh identity.
@@ -662,19 +664,52 @@ impl Node {
             source: error,
         })?;
 
+        // A new file or nothing: `create_new` neither follows a link at the
+        // name nor replaces a keystore another writer made after the
+        // `exists` check, whose master would be lost.
         let keystore_path = Self::keystore_path(home);
-        std::fs::write(&keystore_path, keystore.to_bytes()).map_err(|error| NodeError::Io {
-            path: keystore_path,
-            source: error,
-        })?;
-
-        let config = Config {
-            username: username.to_owned(),
-            ..Config::default()
+        let io = |path: &Path| {
+            let path = path.to_owned();
+            move |source| NodeError::Io { path, source }
         };
-        config.save(&Self::config_path(home))?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&keystore_path)
+            .and_then(|mut file| {
+                std::io::Write::write_all(&mut file, &keystore.to_bytes())?;
+                file.sync_all()
+            })
+            .map_err(io(&keystore_path))?;
 
-        Self::assemble(home, config, master, &device, encoded)
+        // From here a failure takes back what this call wrote, so no sealed
+        // master is left behind a refusal and a retry starts clean.
+        let config_path = Self::config_path(home);
+        let config_was_there = std::fs::symlink_metadata(&config_path).is_ok();
+        let rest = (|| {
+            let config = Config {
+                username: username.to_owned(),
+                ..Config::default()
+            };
+            if !config_was_there {
+                // A fresh home: the config is new too, never written through
+                // a link that appeared at its name.
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&config_path)
+                    .map_err(io(&config_path))?;
+            }
+            config.save(&config_path)?;
+            Self::assemble(home, config, master, &device, encoded)
+        })();
+        if rest.is_err() {
+            let _ = std::fs::remove_file(&keystore_path);
+            if !config_was_there {
+                let _ = std::fs::remove_file(&config_path);
+            }
+        }
+        rest
     }
 
     /// Open an existing node.
@@ -1715,6 +1750,45 @@ mod tests {
             Node::restore(&home, PASSPHRASE, "nicolas", "irrelevant"),
             Err(NodeError::NodeExists(_))
         ));
+    }
+
+    /// A LINK WHERE THE KEYSTORE GOES: a dangling `keystore.bin` (planted on
+    /// a USB key, pointing anywhere) is a node that exists, so nothing is
+    /// created through it; and a keystore is only ever written as a new
+    /// file, never over one that appeared after the check -- the sealed
+    /// master of whoever was first stays.
+    #[cfg(unix)]
+    #[test]
+    fn red_team_a_keystore_is_never_written_through_a_link_or_over_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("node");
+        std::fs::create_dir_all(&home).unwrap();
+        let elsewhere = dir.path().join("elsewhere");
+        std::os::unix::fs::symlink(&elsewhere, home.join("keystore.bin")).unwrap();
+        assert!(
+            Node::exists(&home),
+            "a dangling keystore link reads as no node"
+        );
+        assert!(matches!(
+            Node::create(&home, PASSPHRASE, "nicolas"),
+            Err(NodeError::NodeExists(_))
+        ));
+        // Past the check, as a second writer racing the first would be.
+        let master = MasterSecret::generate().unwrap();
+        assert!(Node::write_new(&home, PASSPHRASE, "nicolas", &master).is_err());
+        assert!(
+            !elsewhere.exists(),
+            "the keystore was written through the link"
+        );
+
+        let other = dir.path().join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("keystore.bin"), b"the first one's").unwrap();
+        assert!(Node::write_new(&other, PASSPHRASE, "nicolas", &master).is_err());
+        assert_eq!(
+            std::fs::read(other.join("keystore.bin")).unwrap(),
+            b"the first one's"
+        );
     }
 
     #[test]

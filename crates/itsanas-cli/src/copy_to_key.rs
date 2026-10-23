@@ -96,10 +96,12 @@ impl std::fmt::Debug for Passphrases {
 
 /// Why `key` will not do as the key's passphrase; `None` when it will.
 ///
-/// Too short; this machine's own (one guess opens both); the same few
-/// characters repeated (`aaaaaaaaaaaa`, `abcabcabcabc`); a run of keys or
-/// digits (`123456789012`, `abcdefghijkl`); or the username with too little
-/// around it -- the username counts for nothing, it is on every claim.
+/// Too short; this machine's own in any case, or holding it, or held in it
+/// (one guess opens both, or nearly); the same few characters repeated
+/// (`aaaaaaaaaaaa`, `abcabcabcabc`); a run of keys or digits
+/// (`123456789012`, `abcdefghijkl`); a common base dressed in digits or
+/// symbols (`Password2026!`, [`COMMON_BASES`]); or the username with too
+/// little around it -- the username counts for nothing, it is on every claim.
 #[must_use]
 pub(crate) fn weak_passphrase(key: &str, machine: &str, username: &str) -> Option<String> {
     let chars: Vec<char> = key.chars().collect();
@@ -109,9 +111,39 @@ pub(crate) fn weak_passphrase(key: &str, machine: &str, username: &str) -> Optio
             chars.len()
         ));
     }
-    if key == machine {
+    let (lower, machine) = (
+        Zeroizing::new(key.to_lowercase()),
+        Zeroizing::new(machine.to_lowercase()),
+    );
+    if *lower == *machine {
         return Some(
             "is this machine's passphrase: one guess would open both. Choose another".to_owned(),
+        );
+    }
+    // Shorter than this, a passphrase held in another is a coincidence of
+    // words rather than the same secret.
+    let holds = |outer: &str, inner: &str| inner.chars().count() >= 8 && outer.contains(inner);
+    if holds(&lower, &machine) || holds(&machine, &lower) {
+        return Some(
+            "holds this machine's passphrase, or is part of it: whoever knows one nearly \
+             knows the other. Choose another"
+                .to_owned(),
+        );
+    }
+    let letters: Zeroizing<String> =
+        Zeroizing::new(lower.chars().filter(|c| c.is_alphabetic()).collect());
+    let common = COMMON_BASES.iter().any(|base| {
+        if base.chars().all(char::is_alphabetic) {
+            *letters == **base
+        } else {
+            letters.is_empty() && lower.contains(base)
+        }
+    });
+    if common {
+        return Some(
+            "is a common password with digits or symbols around it, among the first \
+             anybody tries"
+                .to_owned(),
         );
     }
     let repeats = (1..=chars.len() / 2).any(|period| {
@@ -140,6 +172,17 @@ pub(crate) fn weak_passphrase(key: &str, machine: &str, username: &str) -> Optio
     None
 }
 
+/// Bases every guessing list starts from: a passphrase that is one of them
+/// plus digits or symbols is refused.
+const COMMON_BASES: [&str; 6] = [
+    "password",
+    "motdepasse",
+    "azerty",
+    "qwerty",
+    "itsanas",
+    "123456",
+];
+
 /// Every character one up (or one down) from the one before: digits wrap
 /// round, so `123456789012` is one.
 fn is_run(chars: &[char]) -> bool {
@@ -164,9 +207,14 @@ fn is_run(chars: &[char]) -> bool {
 /// not. `programs` is the release's size when it could be read, `content`
 /// the account's files when a status said it, `free` the drive's.
 ///
+/// A drive whose free space cannot be read is refused, not let through with
+/// a note: `fs4` reads it on every system this ships for (`statvfs`,
+/// `GetDiskFreeSpaceExW`), so a drive that cannot say is one failing or gone
+/// under the copy -- the moment a copy would stop halfway on it.
+///
 /// # Errors
 ///
-/// When the drive has less free than the copy needs.
+/// When the drive has less free than the copy needs, or cannot say.
 pub(crate) fn room(
     programs: Option<u64>,
     content: Option<u64>,
@@ -188,8 +236,9 @@ pub(crate) fn room(
         ),
     };
     match free {
-        None => Ok(format!(
-            "how much room the drive has could not be read; it needs about {}: {counted}",
+        None => Err(format!(
+            "could not read the free space on the drive; make sure the key has at least {} \
+             ({counted}), and try again once it answers. Nothing was written",
             format_size(needed)
         )),
         Some(free) if free < needed => Err(format!(
@@ -265,6 +314,18 @@ pub(crate) fn refusal(
         Ok(dir) => dir,
         Err(said) => return refused("path", said),
     };
+    if dir
+        .components()
+        .any(|part| part == std::path::Component::ParentDir)
+    {
+        return refused(
+            "path",
+            format!(
+                "{} goes up a folder (`..`) on the way: give the key's folder itself",
+                dir.display()
+            ),
+        );
+    }
     if crate::drives::existing_ancestor(&dir).is_none() {
         return refused(
             "missing",
@@ -283,8 +344,16 @@ pub(crate) fn refusal(
     if let Some(folder) = &config.folder {
         theirs.push((folder.clone(), "its synced folder"));
     }
+    // Compared where they really are: a link on the way to the target (or
+    // to the home) would put the key inside the account under another name.
+    let real_root = resolved(&root);
     for (outer, what) in theirs {
-        if root.starts_with(&outer) || outer.starts_with(&root) {
+        let real_outer = resolved(&outer);
+        if real_root.starts_with(&real_outer)
+            || real_outer.starts_with(&real_root)
+            || root.starts_with(&outer)
+            || outer.starts_with(&root)
+        {
             return refused(
                 "inside",
                 format!(
@@ -307,6 +376,21 @@ pub(crate) fn refusal(
         );
     }
     Ok(root)
+}
+
+/// `path` with its links resolved: its nearest existing ancestor made
+/// canonical, the rest (not made yet, so holding no link) joined back.
+fn resolved(path: &Path) -> PathBuf {
+    let Some(existing) = crate::drives::existing_ancestor(path) else {
+        return path.to_path_buf();
+    };
+    let Ok(real) = std::fs::canonicalize(existing) else {
+        return path.to_path_buf();
+    };
+    match path.strip_prefix(existing) {
+        Ok(rest) if !rest.as_os_str().is_empty() => real.join(rest),
+        _ => real,
+    }
 }
 
 /// What the five programs take: the release's size when it was read, else
@@ -539,6 +623,22 @@ fn copy_steps(
     let counted =
         room(programs, content, crate::drives::free_bytes(dir)).map_err(CliError::Usage)?;
 
+    // One copy at a time on a key, for the whole copy: a second run (a
+    // second page, a second terminal) would race this one to the keystore.
+    portable::no_link(&root)?;
+    std::fs::create_dir_all(&root).map_err(|source| CliError::Io {
+        path: root.clone(),
+        source,
+    })?;
+    let _lock = CopyLock::take(&root)?;
+    // Again, under the lock: a copy that finished meanwhile left an account.
+    let root = check_target(home, &config, dir)?;
+    let key_home = root.join("home");
+    // Nothing written through a link on the key: what `make_with` writes it
+    // checks itself; the home's own entries and the synced folder here.
+    portable::no_links_in(&key_home)?;
+    portable::no_link(&root.join(FOLDER))?;
+
     status.step(
         "programs",
         "writing the programs for every system on the key",
@@ -549,22 +649,31 @@ fn copy_steps(
         "account",
         "sealing the account on the key under its own passphrase",
     );
-    let key_home = root.join("home");
+    let before = entries(&key_home);
     let mut node =
         Node::restore_from_secrets(&key_home, &passes.key, &config.username, secrets.as_bytes())?;
     drop(secrets);
-    node.config.coordinator.clone_from(&config.coordinator);
-    node.config
-        .coordinator_device
-        .clone_from(&config.coordinator_device);
-    node.save_config()?;
     let folder = root.join(FOLDER);
-    std::fs::create_dir_all(&folder).map_err(|source| CliError::Io {
-        path: folder.clone(),
-        source,
-    })?;
-    crate::set_folder(&mut node, &folder)?;
-    crate::settle_listen_port(&mut node)?;
+    if let Err(error) = settle(&mut node, &config, &folder) {
+        // What this run wrote in the home goes -- the keystore, the config,
+        // the store and the vault of a device that will never run -- so no
+        // sealed master is left behind a failure and a retry starts clean.
+        drop(node);
+        let removed = entries(&key_home)
+            .difference(&before)
+            .all(|name| remove_entry(&key_home.join(name)));
+        let after = if removed {
+            "the account written on the key by this run was removed, so it can be tried again"
+                .to_owned()
+        } else {
+            format!(
+                "the account written on the key by this run could not all be removed: delete \
+                 {} before trying again",
+                key_home.display()
+            )
+        };
+        return Err(CliError::Usage(format!("{error}; {after}")));
+    }
 
     status.step("enrolling", "enrolling the key with the coordinator");
     let enrolled = match &node.config.coordinator {
@@ -594,6 +703,82 @@ fn copy_steps(
         device = node.store.device_id(),
         folder = folder.display(),
     ))
+}
+
+/// The names directly in `dir`; none when it cannot be read.
+fn entries(dir: &Path) -> std::collections::BTreeSet<std::ffi::OsString> {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.file_name())
+        .collect()
+}
+
+/// Remove a file or a folder this run made; a link only as a link.
+fn remove_entry(path: &Path) -> bool {
+    let removed = match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => std::fs::remove_dir_all(path),
+        Ok(_) => std::fs::remove_file(path),
+        Err(error) => Err(error),
+    };
+    match removed {
+        Ok(()) => true,
+        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
+/// The key's node, past its keystore: the coordinator, the synced folder
+/// beside the home, a listening port of its own.
+fn settle(node: &mut Node, config: &Config, folder: &Path) -> Result<()> {
+    node.config.coordinator.clone_from(&config.coordinator);
+    node.config
+        .coordinator_device
+        .clone_from(&config.coordinator_device);
+    node.save_config()?;
+    std::fs::create_dir_all(folder).map_err(|source| CliError::Io {
+        path: folder.to_path_buf(),
+        source,
+    })?;
+    crate::set_folder(node, folder)?;
+    crate::settle_listen_port(node)
+}
+
+/// The name of the lock a copy holds in `<key>/ITSaNAS`.
+pub(crate) const LOCK: &str = ".copy-lock";
+
+/// `<key>/ITSaNAS/.copy-lock`, made with `create_new` and held for the
+/// whole copy; removed when dropped, whether the copy worked or not.
+struct CopyLock(PathBuf);
+
+impl CopyLock {
+    fn take(root: &Path) -> Result<Self> {
+        let path = root.join(LOCK);
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                let _ = writeln!(file, "{}", std::process::id());
+                Ok(Self(path))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                Err(CliError::Usage(format!(
+                    "another copy to this key is under way; nothing was written. If none is \
+                     (a copy stopped by a crash), remove {} and try again",
+                    path.display()
+                )))
+            }
+            Err(source) => Err(CliError::Io { path, source }),
+        }
+    }
+}
+
+impl Drop for CopyLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 /// At a daemon's start: a node with a coordinator and no `registered`
@@ -757,7 +942,15 @@ fn in_background(home: &Path, dir: &Path, passes: &Passphrases) -> Result<String
         path: PathBuf::from("<background copy>"),
         source,
     })?;
-    let lines = Zeroizing::new(format!("{}\n{}\n", *passes.machine, *passes.key));
+    // Sized once, so no growth leaves a copy of a passphrase behind in a
+    // freed allocation the wipe never reaches.
+    let mut lines = Zeroizing::new(String::with_capacity(
+        passes.machine.len() + passes.key.len() + 2,
+    ));
+    for pass in [&passes.machine, &passes.key] {
+        lines.push_str(pass);
+        lines.push('\n');
+    }
     let handed = child
         .stdin
         .take()
@@ -816,15 +1009,31 @@ pub(crate) fn start_detached(home: &Path, dir: &Path) -> Result<std::process::Ch
 
 /// The two lines [`in_background`] writes: this machine's passphrase, then
 /// the key's.
-fn read_passphrases(input: impl std::io::Read) -> Result<Passphrases> {
-    let mut text = Zeroizing::new(String::new());
-    input
-        .take(64 * 1024)
-        .read_to_string(&mut text)
-        .map_err(|source| CliError::Io {
-            path: PathBuf::from("<standard input>"),
-            source,
-        })?;
+fn read_passphrases(mut input: impl std::io::Read) -> Result<Passphrases> {
+    /// Two passphrases and their line breaks, with room to spare: a buffer
+    /// of a fixed size never grows, so never leaves a copy behind.
+    const CAP: usize = 16 * 1024;
+    let failed = |source| CliError::Io {
+        path: PathBuf::from("<standard input>"),
+        source,
+    };
+    let mut buffer = Zeroizing::new(vec![0u8; CAP]);
+    let mut filled = 0;
+    loop {
+        if filled == CAP {
+            return Err(CliError::Usage(format!(
+                "{ON_STDIN} reads two passphrases of less than {CAP} bytes together"
+            )));
+        }
+        match input.read(&mut buffer[filled..]) {
+            Ok(0) => break,
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(failed(error)),
+        }
+    }
+    let text = std::str::from_utf8(&buffer[..filled])
+        .map_err(|_| CliError::Usage(format!("{ON_STDIN} reads two passphrases in UTF-8")))?;
     let mut lines = text.lines();
     let mut next = || {
         lines
