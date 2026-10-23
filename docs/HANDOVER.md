@@ -52,9 +52,11 @@ rehearsed, not yet run on the fleet: it waits on Nicolas's one-time setup
 (docs/FLEET-CI.md). At resume, read the latest Fleet run and any open
 `fleet: red` issue first. Found on the way: a host hands out at most 16
 claims per account (`MAX_CLAIMS_PER_ANSWER`) and keeps withdrawn devices'
-claims, so past 16 devices ever, live ones drop out of the roster; proposed
-as its own task, not fixed here. The runner keeps one device for that
-reason. Also: `leave --help` said 5 device slots (10 since #303).
+claims, so past 16 devices ever, live ones dropped out of the roster: fixed
+right after (the sixteen presented last are handed out, `CLAIM_SEEN` in vault.rs;
+`red_team_the_claims_presented_last_are_handed_out_past_sixteen_devices`).
+The runner still keeps one device, which costs one claim instead of one a
+night. Also: `leave --help` said 5 device slots (10 since #303).
 
 **2026-10-23, later: the laptop dialled itself for the USB key; update
 refreshes the Windows wrappers.** Nicolas's laptop `daemon.log` (account

@@ -29,9 +29,10 @@ through the coordinator, the public forwards and the relays. So B and F are
 test **O** (written away from home, arrived home). It is **the same device
 every night**: its home and folder are sealed under `FLEET_HOME_KEY` and kept
 in the Actions cache, so each run is also a machine coming back after a day
-away. Not a new device per run: a host hands out at most 16 claims per account
-and keeps withdrawn devices' claims, so a device a night would push live ones
-out of the roster within weeks (a bug of its own, reported 2026-10-23). When
+away. Not a new device per run: every host keeps a withdrawn device's claim
+for good, so a device a night would grow every host's table by one a night
+for nothing (until 2026-10-23 it also pushed live devices out of the sixteen
+claims a host hands out; the sixteen presented last are handed out now). When
 the cache is gone (first run, a week unused, a damaged archive) the member logs
 in from the 24 words as a new device and withdraws the previous one.
 Without the phrase secret the runner does not take part, and B starts on the

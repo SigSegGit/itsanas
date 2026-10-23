@@ -1,5 +1,5 @@
 //! The account's devices, from a phone: list them, withdraw one, and get past
-//! the five-device limit without a command line.
+//! the device limit without a command line.
 //!
 //! # Why the phone needed this
 //!
