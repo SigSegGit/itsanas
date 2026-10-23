@@ -39,7 +39,7 @@ use std::{
 
 use itsanas_crypto::{DeviceId, DeviceKeys};
 use itsanas_discover::{
-    ANNOUNCE_INTERVAL, Candidate, EXPIRY, Heard, HouseholdKey, Lan, Neighbours, now_unix,
+    ANNOUNCE_INTERVAL, Candidate, EXPIRY, Heard, HouseholdKey, Lan, LocalNets, Neighbours, now_unix,
 };
 
 /// How long to wait on the socket before checking for shutdown.
@@ -60,7 +60,18 @@ const COMPLAINT_INTERVAL: Duration = Duration::from_secs(300);
 #[derive(Debug)]
 pub struct Neighbourhood {
     table: Mutex<Neighbours>,
+    /// Since when discovery has run here, so that what it has not heard
+    /// means something ([`Self::heard_here`]).
+    listening: Mutex<Option<Instant>>,
 }
+
+/// How long discovery listens before a machine it has not heard counts as
+/// not on this network ([`Neighbourhood::heard_here`]): two announce
+/// intervals, so a beacon lost to the first one is not the end of it. Before
+/// that, the coordinator's private addresses are dialled as if discovery
+/// were off (red team, 2026-10-23: the first rounds after a start dialled
+/// none of them).
+pub const WARM_UP: Duration = ANNOUNCE_INTERVAL.saturating_mul(2);
 
 impl Neighbourhood {
     /// An empty neighbourhood with the default capacity.
@@ -68,6 +79,48 @@ impl Neighbourhood {
     pub fn new() -> Self {
         Self {
             table: Mutex::new(Neighbours::default()),
+            listening: Mutex::new(None),
+        }
+    }
+
+    /// Say that discovery runs on this machine's network, so that a machine
+    /// of the account it has not heard is not on it ([`Self::heard_here`]).
+    pub fn listening(&self) {
+        self.listening_since(Instant::now());
+    }
+
+    /// [`Self::listening`], from `at`.
+    fn listening_since(&self, at: Instant) {
+        if let Ok(mut since) = self.listening.lock() {
+            since.get_or_insert(at);
+        }
+    }
+
+    /// Whether `device` was heard on this machine's local network within
+    /// [`EXPIRY`]: `None` when discovery is not running here, or has run for
+    /// less than [`WARM_UP`] without hearing it, so silence proves nothing.
+    ///
+    /// Within [`EXPIRY`], not merely in the table: a machine of the account
+    /// is never forgotten by it (`Neighbours::protect`), and one heard at
+    /// home last week is not on this network today.
+    #[must_use]
+    pub fn heard_here(&self, device: &DeviceId) -> Option<bool> {
+        self.heard_here_at(device, Instant::now(), now_unix())
+    }
+
+    fn heard_here_at(&self, device: &DeviceId, now: Instant, now_unix: u64) -> Option<bool> {
+        let since = (*self.listening.lock().ok()?)?;
+        let heard = self.table.lock().is_ok_and(|table| {
+            table.get(device).is_some_and(|neighbour| {
+                now_unix.saturating_sub(neighbour.heard_unix) <= EXPIRY.as_secs()
+            })
+        });
+        if heard {
+            Some(true)
+        } else if now.saturating_duration_since(since) < WARM_UP {
+            None
+        } else {
+            Some(false)
         }
     }
 
@@ -157,6 +210,10 @@ pub fn run(
     // (a fixed nonce would be a fixed tag), and nobody should wait five
     // minutes to learn why it is invisible.
     let mut next_entropy_complaint = Instant::now();
+    // Read again at every expiry: a laptop that moved, or a VM started, has
+    // other adapters than at start.
+    let mut nets = LocalNets::of_this_machine();
+    neighbourhood.listening();
 
     while !shutdown.load(Ordering::Relaxed) {
         if Instant::now() >= next_announce {
@@ -184,7 +241,13 @@ pub fn run(
                     // Our own broadcast, heard back. Not news.
                     continue;
                 }
-                report(neighbourhood, &announcement, from, household);
+                report_via(
+                    neighbourhood,
+                    &announcement,
+                    from,
+                    nets.via_virtual(from),
+                    household,
+                );
             }
             Ok(None) => {}
             Err(error) if error.is_foreign_traffic() => {}
@@ -207,15 +270,30 @@ pub fn run(
                 table.expire(now_unix().saturating_sub(EXPIRY.as_secs()));
             }
             next_expiry = Instant::now() + EXPIRY;
+            nets = LocalNets::of_this_machine();
         }
     }
 }
 
-/// Record one announcement and print it only if it is news.
+/// [`report_via`], for an announcement heard on a real network.
+#[cfg(test)]
 fn report(
     neighbourhood: &Neighbourhood,
     announcement: &itsanas_discover::Announcement,
     from: std::net::IpAddr,
+    household: &HouseholdKey,
+) {
+    report_via(neighbourhood, announcement, from, false, household);
+}
+
+/// Record one announcement and print it only if it is news. `via_virtual`
+/// when it came in over one of this machine's virtual networks, where a copy
+/// of a beacon heard on a real one moves nothing (`Neighbours::record_via`).
+fn report_via(
+    neighbourhood: &Neighbourhood,
+    announcement: &itsanas_discover::Announcement,
+    from: std::net::IpAddr,
+    via_virtual: bool,
     household: &HouseholdKey,
 ) {
     let Ok(mut table) = neighbourhood.table.lock() else {
@@ -233,7 +311,7 @@ fn report(
         "another user's"
     };
 
-    match table.record(announcement, from, now_unix()) {
+    match table.record_via(announcement, from, now_unix(), via_virtual) {
         Heard::New => println!(
             "found {whose} device {} at {}:{}",
             announcement.device.short(),
@@ -328,6 +406,50 @@ mod tests {
                 .iter()
                 .any(|candidate| candidate.device == real.device_id()),
             "a confirmed peer was evicted by strangers"
+        );
+    }
+
+    /// Red team, 2026-10-23: a machine of the account at a private address
+    /// discovery has not heard is not dialled (`Contact::dialable`), and in
+    /// the first rounds after a start discovery has heard nobody yet. Until
+    /// it has listened for [`WARM_UP`], its silence is no evidence; after
+    /// that a machine heard is heard for [`EXPIRY`], not for ever.
+    #[test]
+    fn red_team_silence_is_no_evidence_while_discovery_warms_up() {
+        let hood = Neighbourhood::new();
+        let keys = DeviceKeys::generate().expect("keys");
+        let other = DeviceKeys::generate().expect("keys").device_id();
+        let now = now_unix();
+        assert_eq!(hood.heard_here(&other), None, "discovery is not running");
+
+        let start = Instant::now();
+        hood.listening_since(start);
+        assert_eq!(
+            hood.heard_here_at(&other, start + Duration::from_secs(20), now),
+            None,
+            "twenty seconds after the start, a machine not heard yet counted as elsewhere"
+        );
+        assert_eq!(
+            hood.heard_here_at(&other, start + WARM_UP, now),
+            Some(false)
+        );
+
+        report(
+            &hood,
+            &heard(&keys, &owner(), 9797),
+            "192.168.1.20".parse().unwrap(),
+            &owner(),
+        );
+        hood.confirm(keys.device_id());
+        let device = keys.device_id();
+        assert_eq!(
+            hood.heard_here_at(&device, start + Duration::from_secs(1), now),
+            Some(true)
+        );
+        assert_eq!(
+            hood.heard_here_at(&device, start + WARM_UP, now + EXPIRY.as_secs() + 1),
+            Some(false),
+            "a machine of the account heard once was heard here for ever"
         );
     }
 

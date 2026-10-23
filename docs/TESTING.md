@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1307 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 382 are red-team tests.**
+**Last updated: 2026-10-22 — 1378 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 422 are red-team tests.**
 
-**1191 of the 1307 tests have an entry of their own on this page** — an *entry*,
+**1262 of the 1378 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,16 +173,16 @@ guarantee and is not one.
 | `itsanas-coord` unit | 123 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 17 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 1 |
-| `itsanas-discover` unit | 43 |
+| `itsanas-discover` unit | 50 |
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 166 |
+| `itsanas-cli` unit | 218 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 140 |
+| `itsanas-node` unit | 152 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -211,14 +211,14 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 37 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 53 |
+| `identity` | keys, accounts, devices, claims, invitations | 60 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 55 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 59 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
-| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
+| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 30 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 49 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 84 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 50 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 92 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -311,7 +311,7 @@ checks had already gone wrong:
 | `check-counts.py` | Any number about tests in README.md, ROADMAP.md or this file that the source does not support. All three disagreed with the tree and with each other. |
 | `check-messages.py` | A line continuation collapsed into a message or a command. `cargo fmt` eats them in string literals and the scripts that write large edits eat them everywhere else; the Android job ran with thirteen literal spaces in it from the day it was written. |
 | `check-wired.py` | A `pub fn` with no call site. Four mechanisms were designed, implemented, tested, documented and wired to nothing. |
-| `check-installers.sh` | An installer that does not parse, uses bash syntax while claiming POSIX, is missing from `install/README.md`, demands a Rust version Cargo.toml does not, writes a systemd `ReadWritePaths` without the leading dash that lets a unit start before the path exists, cannot be re-run over the coordinator binary it installed (the copy step is cut out of `coordinator.sh` and run against a file that is already its destination, and against an older one it must still replace), or cannot undo itself — every entry point is *run* with `--clean` and has to reach the uninstaller's dry run. A grep for the flag would have passed on all three ways that delegation breaks: a missing sibling, a case arm that shifts and falls through, and a script that never had the arm at all. Two instances are provisioned with `provision.sh --instance` in a throwaway HOME (a stub `itsanas`, a `systemctl` that only logs), `b` is cleaned with `--purge-account`, and `a`'s home, passphrase file, enablement and the shared unit template must survive while nothing stops or disables `itsanas@a` (HANDOVER §8 0i; sabotaged by globbing `*.environment` and by disabling `itsanas@*`, red both times). The tray's logon shortcut (§8 0f): the shortcut's name and arguments are read out of `provision.ps1` as written and evaluated for two instances and the default node -- each must run the installed script through `conhost --headless` with its own `-Instance`, under a name of its own -- then `clean.ps1 -Instance zz-check-b -Yes` runs against a throwaway Startup folder holding all three and must remove b's alone (sabotaged by dropping `-Instance`, by globbing `ITSaNAS tray*.lnk` in the clean, and by one name for every node; red all three times). The PATH line (§8 3e): the `path-line` block must be identical in `linux.sh` and `macos.sh`, and is run in a throwaway HOME under zsh -- two installs leave one marked line in `~/.zprofile` without gluing it onto a last line that has no newline, `clean.sh --yes` removes that line and leaves the person's untouched, and a Debian `~/.profile` that already puts `$HOME/.local/bin` on the PATH gets no second entry (sabotaged by dropping the duplicate check, by a clean that keeps the line, by dropping the Debian check, and by editing one copy of the block; red all four times). Red-team pass on the release batch: `tray-autostart.sh` refuses an `ITSANAS_BIN` holding a newline or `%` and writes no `.desktop` entry (sabotaged by dropping the pattern: red); `get.ps1` puts the old `itsanas.exe` back when the new one cannot be renamed in (a mocked `Rename-Item` throws; sabotaged by dropping the restore: red), and on Windows adds to the user PATH in a throwaway HKCU key keeping `%USERPROFILE%` and REG_EXPAND_SZ (sabotaged by writing it expanded as REG_SZ: red); `sign-release.sh`, against a fake `gh` and the checkout's `itsanas-release`, reaches the signing question for an untouched draft and stops before it, with nothing uploaded or published, for a draft with a binary byte changed or a manifest version that is not the tag's (sabotaged by skipping `check`: red). |
+| `check-installers.sh` | An installer that does not parse, uses bash syntax while claiming POSIX, is missing from `install/README.md`, demands a Rust version Cargo.toml does not, writes a systemd `ReadWritePaths` without the leading dash that lets a unit start before the path exists, cannot be re-run over the coordinator binary it installed (the copy step is cut out of `coordinator.sh` and run against a file that is already its destination, and against an older one it must still replace), or cannot undo itself — every entry point is *run* with `--clean` and has to reach the uninstaller's dry run. A grep for the flag would have passed on all three ways that delegation breaks: a missing sibling, a case arm that shifts and falls through, and a script that never had the arm at all. Two instances are provisioned with `provision.sh --instance` in a throwaway HOME (a stub `itsanas`, a `systemctl` that only logs), `b` is cleaned with `--purge-account`, and `a`'s home, passphrase file, enablement and the shared unit template must survive while nothing stops or disables `itsanas@a` (HANDOVER §8 0i; sabotaged by globbing `*.environment` and by disabling `itsanas@*`, red both times). The tray's logon shortcut (§8 0f): the shortcut's name and arguments are read out of `provision.ps1` as written and evaluated for two instances and the default node -- each must run the installed script through `conhost --headless` with its own `-Instance`, under a name of its own -- then `clean.ps1 -Instance zz-check-b -Yes` runs against a throwaway Startup folder holding all three and must remove b's alone (sabotaged by dropping `-Instance`, by globbing `ITSaNAS tray*.lnk` in the clean, and by one name for every node; red all three times). The PATH line (§8 3e): the `path-line` block must be identical in `linux.sh` and `macos.sh`, and is run in a throwaway HOME under zsh -- two installs leave one marked line in `~/.zprofile` without gluing it onto a last line that has no newline, `clean.sh --yes` removes that line and leaves the person's untouched, and a Debian `~/.profile` that already puts `$HOME/.local/bin` on the PATH gets no second entry (sabotaged by dropping the duplicate check, by a clean that keeps the line, by dropping the Debian check, and by editing one copy of the block; red all four times). Red-team pass on the release batch: `tray-autostart.sh` refuses an `ITSANAS_BIN` holding a newline or `%` and writes no `.desktop` entry (sabotaged by dropping the pattern: red); `get.ps1` puts the old `itsanas.exe` back when the new one cannot be renamed in (a mocked `Rename-Item` throws; sabotaged by dropping the restore: red), and on Windows adds to the user PATH in a throwaway HKCU key keeping `%USERPROFILE%` and REG_EXPAND_SZ (sabotaged by writing it expanded as REG_SZ: red); `sign-release.sh`, against a fake `gh` and the checkout's `itsanas-release`, reaches the signing question for an untouched draft and stops before it, with nothing uploaded or published, for a draft with a binary byte changed or a manifest version that is not the tag's (sabotaged by skipping `check`: red). The signing question (hand test, 2026-10-22: twice an empty answer, a keypress made during `release.ps1`'s wait or after a previous run's `pause`, stopped the release): `sign-release.sh`'s `confirm()` runs with its terminal swapped for a file and must ask again on an empty line, saying "type y to sign and publish, n to stop", three times at most (empty, empty, y signs; three empty lines stop; n stops at once); `sign-release.ps1`'s `Confirm-Yes` must call `FlushInputBuffer()` before its first `Read-Host`, and where `pwsh` is (the CI runner) runs with `Read-Host` and `Write-Host` stood in for, to the same four cases. Sabotaged by hand (the sh empty-line arm removed; the PowerShell flush removed): red both times. |
 
 The workflow also runs **daily on a schedule, in full**, so a newly published
 advisory against a dependency -- or a new rustc, or a new runner image --
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (166)
+# `itsanas-cli` — unit tests (218)
 
 ## `bench` — measuring this machine (4)
 
@@ -1171,7 +1171,7 @@ a benchmark that measures a broken path produces a confident wrong number.
 | `a_stage_that_took_no_measurable_time_reports_zero_rather_than_infinity` | Dividing by a zero duration gives `inf`, which formats as a nonsense size and reads as a spectacular result. |
 | `durations_are_reported_in_units_a_person_can_act_on` | "15.3 hours" is a decision; "55080 seconds" is arithmetic homework. |
 
-## `discovery` — the daemon's use of local discovery (7)
+## `discovery` — the daemon's use of local discovery (8)
 
 | Test | What it proves |
 | --- | --- |
@@ -1181,6 +1181,7 @@ a benchmark that measures a broken path produces a confident wrong number.
 | **`red_team_dialling_strangers_is_rationed_so_a_flood_cannot_eat_the_interval`** | A flood cannot consume the interval real syncing needs. |
 | `a_confirmed_peer_is_still_dialled_every_round_however_many_strangers_arrive` | The ration limits strangers, never work: three real machines still sync every round on a noisy network. |
 | `the_neighbourhood_is_empty_until_something_is_heard` | No invented peers. |
+| **`red_team_silence_is_no_evidence_while_discovery_warms_up`** | Red team, 2026-10-23: `Neighbourhood::heard_here` answers `None` -- as if discovery were off -- until discovery has listened for `WARM_UP` (two announce intervals, 60 s), so the first rounds after a start dial the coordinator's private addresses; after that, a machine is heard for `EXPIRY` after its last beacon, not for as long as the table keeps it (a machine of the account is never evicted). Sabotaged (no warm-up; heard for ever): red both. |
 | `the_poll_is_short_enough_that_shutdown_feels_immediate` | A Ctrl-C must not wait out an announce interval. |
 
 ## `control` — pause (open-ended or timed), resume, sync now, how often (14)
@@ -1231,7 +1232,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_a_username_already_taken_is_refused_before_any_key_is_written`** | With a coordinator that already holds the name, the account step fails before any keystore is written or any word shown, and says the name is taken. Sabotaged (check ignored): red. |
 | **`red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`** | The built-in coordinator's device id is pinned (and parses), so a machine answering at its name that is not it is refused; another coordinator gets no pin. Sabotaged (pin never applied): red. |
 
-## `update::tests` — the self-update: only a signed, newer, intact release replaces the program (14)
+## `update::tests` — the self-update: only a signed, newer, intact release replaces the program, and every node back on it (16)
 
 `crates/itsanas-cli/src/update.rs` (tests in `update/tests.rs`). `itsanas
 update [--check]` and the daemon's daily look. The tests serve a fake release
@@ -1257,6 +1258,8 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | `without_a_pinned_key_nothing_is_fetched` | With no key (`trust: None`, as in every build before the key was pinned), `check` answers "no key" without one request: a build that can trust nothing does not ask. |
 | **`red_team_a_failed_swap_puts_the_old_program_back`** | The replace is two renames; when the second fails the first is undone and the old program is where the service starts it; when the first fails nothing moved. Sabotaged (no rollback): red. |
 | `the_daily_look_follows_the_setting` | `off` makes no request and clears the notice; `notify` writes the version `status` shows and installs nothing; `auto` installs and clears the notice. |
+| **`red_team_a_node_left_stopped_by_an_update_has_its_service_started`** | After `itsanas update`, a daemon that stopped for its restart and that nothing started again within a minute has its service started by `update` (`schtasks /Run`, `systemctl --user start`, launchd's bootstrap: `ServiceControl::start`, as `signin` does), which then watches it come back and says that it started it; a failed start, a node that does not come back, or no service installed each say so and name `signin`; any other outcome leaves the service alone. One of three laptop daemons stayed down after 0.1.10 to 0.1.11 (hand test, 2026-10-22). Against a stand-in service. Sabotaged (no `start()`): red. |
+| `the_release_size_is_the_signed_manifests_sum` | `copy-to-key` counts the room the programs need from the running version's signed manifest, its sizes added up; a manifest signed by another key gives no figure. |
 
 ## `answers` — the unattended answers file (2)
 
@@ -1279,7 +1282,7 @@ tested: no window was opened by a test.
 | `the_windows_reply_survives_any_code_page` | The window's reply comes back base64-encoded, so a non-ASCII passphrase is not mangled by the console code page. |
 | `the_secret_window_is_the_platforms_own_or_the_terminal` | The backend choice is the platform's own window when there is a desktop and the terminal otherwise (an SSH session included), and gives a clear error naming what to install when there is neither. |
 
-## `service` — the background service under the installers' names (7)
+## `service` — the background service under the installers' names, and the Windows wrapper's log and restarts (8)
 
 | Test | What it proves |
 | --- | --- |
@@ -1289,6 +1292,7 @@ tested: no window was opened by a test.
 | **`red_team_a_windows_passphrase_starting_with_a_hash_reads_back`** | A bare Windows passphrase such as `#Horse-Battery-9` is not taken for linux.sh's commented placeholder, and is written and read back, so setup does not stop at the Secret step for ever; Sabotaged (any leading # read as the placeholder): red. |
 | `the_passphrase_file_is_written_whole_and_alone` | The service's passphrase file is written in full, with owner-only permissions, and holds nothing else. |
 | `the_windows_tray_starts_now_and_only_once` | The Windows tray script starts the icon at once, not only at the next logon, and first looks for one already running for that node (default or instance), so a second setup adds no second icon. Sabotaged (no start; check ignoring the instance): red. |
+| **`red_team_the_windows_wrapper_logs_plain_utf8_and_restarts_a_requested_restart_at_once`** | The wrapper the logon task runs sets the console's encoding to UTF-8 before the daemon starts, merges stderr with `2>&1` and writes each line as its text (`ForEach-Object { "$_" }`), so `daemon-NAME.log` holds what the daemon wrote: it showed `nÔÇÖa pu ├¬tre` and a `NativeCommandError` block around each stderr line (hand test, 2026-10-22). Exit 0 still ends the loop; exit 75 restarts at once with the failure pause reset, at most three times in 60 s (red team, 2026-10-23: a daemon exiting 75 at every start restarted every second for ever) -- past that it takes the failure path's pause, doubled up to 300 s, and logs one line saying so; any other code restarts after the pause. The script is ASCII (written without a BOM), and `install/provision.ps1` writes the same code. Sabotaged seven times (encoding line, the `ForEach-Object`, the exit-75 branch, the `ForEach-Object` in provision.ps1, the restart limit removed, a restart not counted, the limit widened in provision.ps1 alone): red each time. |
 | `the_windows_scripts_parse` | (Windows) The generated wrapper, task, tray and ACL scripts, the secret window and the tray icon script all pass PowerShell's Parser::ParseFile, with and without an instance. |
 
 ## `verify` — the final check (3)
@@ -1299,12 +1303,16 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page (21)
+## `web` — the local setup and Settings page (33)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
 port and a 128-bit token, std::net only. The tests run a real server
-in-process with stand-in secret windows; no real browser is launched.
+in-process with stand-in secret windows; no real browser is launched. The page
+speaks the language chosen in its list (kept in `<home>/language`, since each
+page is a new port and so a new, empty browser storage), else the browser's
+`Accept-Language`; the layout was checked by hand with Playwright at 1440, 390
+and 375 px (no horizontal scroll), which CI does not run.
 
 | Test | What it proves |
 | --- | --- |
@@ -1327,7 +1335,19 @@ in-process with stand-in secret windows; no real browser is launched.
 | `the_page_proposes_the_built_in_coordinator_and_the_code_s_split` | /api/state proposes `DEFAULT_COORDINATOR` and the split of `Split::DEFAULT`, so the space page's "you get" is the code's bargain. |
 | **`red_team_a_chosen_path_never_lands_inside_a_script`** | On the three systems the folder chooser gets its start folder through an environment variable, never inside its script, so a folder name cannot run as code. Sabotaged (path in an argument): red. |
 | `a_gtk_bookmark_escapes_what_a_url_cannot_hold` | A space or an accent in the folder is percent-encoded in the GTK bookmark line. |
-| `every_text_of_the_page_has_a_french_translation` | Every text between tags, placeholder, label and `t('...')` string of the page has an entry in `i18n.js`. Sabotaged (one entry removed): red. |
+| `every_text_of_the_page_has_a_french_translation` | Every text between tags, placeholder and label of the page, and every `t('...')`, `N('...')` (a table's text, translated where shown) and `say('...')` string of app.js, is a key of the French table as i18n.js is parsed entry by entry (no longer a substring search, which a French value could satisfy). Sabotaged (one entry removed): red. |
+| `the_french_table_has_one_entry_per_english_text_and_none_empty` | i18n.js parses whole (an unreadable line fails, it is not skipped), holds over a hundred entries, no English key twice (the browser would silently keep the last) and no empty French value. Sabotaged (a key repeated): red. |
+| `no_text_set_by_the_script_skips_the_translation` | app.js sets no visible text from an English literal (`textContent = '...'`, `confirm('...')`) nor shows the server's `said` raw: the Settings sentences that stayed English in the hand test of 2026-10-22. Sabotaged (`reply.said` shown raw): red. |
+| `the_page_speaks_the_browser_s_language_until_one_is_chosen` | `language_of` picks, from `Accept-Language`, the most preferred language the page speaks by primary tag and `q` (French for `fr-FR`, `FR-ca`, `de,fr;q=0.8`; English for `en-GB,…,fr;q=0.8`; none for `de, *` or a bogus `q`), and GET / then starts `<html lang="fr" data-lang="fr">`; with no header the page is left to `navigator.language`. Sabotaged (no language accepted): red. |
+| `a_language_chosen_in_the_page_is_kept_in_the_node_s_home_and_wins_over_the_browser` | POST /api/language needs the key (403), refuses a language the page does not speak (400), and writes `fr` to `<home>/language`; the next server, for a browser asking English, serves French. During a setup, before the home exists, nothing is created for it (kept at the run's end). Sabotaged (choice not written): red. |
+| `what_settings_hears_from_the_server_has_a_french_translation` | On a node no daemon runs, every line Settings is told by pause (twice), resume (twice), sync now (paused and not) and interval auto, and the Disks refusal, is a key of the French table, so `said()` shows it in French. Sabotaged (one sentence's entry removed): red. |
+| `settings_is_one_column_of_cards_with_the_usb_copy_shown` | With the steps' list hidden, `main` spans the whole grid (Settings fell into the list's 260 px column on a 1440 px screen); every Settings heading is in a card of its own; the `#st-usb` section "Copy this account to a USB key" is shown (not `hidden`) and says that whoever opens the key with its passphrase IS the account. Sabotaged (the grid rule removed): red. |
+| **`red_team_the_usb_copy_answers_only_the_page_s_key_and_only_in_settings`** | GET and POST `/api/keys`, GET and POST `/api/copy-to-key` with no token or a wrong one are 403 and name no drive, and no copy is started; on the setup page all four are 404. Sabotaged with `scripts/sabotage.py` (the token check forced off; the Settings guard dropped from `/api/copy-to-key`, then from `/api/keys`): red each time. |
+| `a_key_without_room_or_already_holding_an_account_does_not_fit_and_says_why` | `/api/keys` with five stand-in drives on a real account: a roomy exFAT key fits; a 1 MiB FAT32 key does not (`why: room`, a reason with the free room, the FAT32 warning); a key holding an account does not (`why: account`); an NTFS key fits with the Mac warning; the account's own home does not (`why: inside`); the sizes and `copying` are in the reply. POST `/api/keys` (Another folder…) gives the same row for a chosen path, and `why: path` for a relative one. Sabotaged (the account check off; the room check off): red. |
+| **`red_team_the_copy_refuses_a_path_the_jobs_would_refuse_and_starts_nothing`** | POST `/api/copy-to-key` with no path, a relative path, a line break, a NUL, a key that holds an account or this account's home is 400, and the injected spawn is never called (no passphrase window for a copy that cannot happen); a good key is 202 and spawns once, for that path. Sabotaged (`check_path`'s refusal skipped; the account check off): red. |
+| `a_second_copy_while_one_runs_is_refused_and_the_page_follows_the_first` | Two POSTs at once: one 202, one 409, one spawn; the old run's "done" was removed so the poll says running with no progress; once the first process exits and the background run writes a step, a third POST is still 409 and `/api/keys` says `copying`; once the status says done, the poll shows its message and a new copy may start. Sabotaged (the running check off): red. |
+| **`red_team_a_copy_is_refused_while_the_last_one_started_has_not_spoken`** | The child the page started exits without a status written since (its background run starting, or a crash before its first step): a second POST is 409 and nothing is spawned, for two minutes; once a status written since says it ended, a new copy may start. Sabotaged (the two minutes at zero): red. |
+| `the_usb_section_has_a_handler_for_each_of_its_controls` | Every button and input of `#st-usb` (Another folder…, Copy here, the path, Refresh) has an `addEventListener` in app.js; app.js calls `/api/keys`, `/api/copy-to-key` and `/api/pick`, and goes to the section when the address says `section=key` or `#key`. |
 | `the_disks_section_hands_work_to_the_daemon_and_writes_a_portable_copy_itself` | Settings' Disks section: POST /api/disk for a vault move, a backup or a restore writes `<home>/job` for the running daemon and is refused with 409 when no daemon runs; a portable copy is written by the page itself; the job's result shows in /api/state `settings.job` and `settings.vault`. Sabotaged (409 check dropped): red. |
 
 ## `jobs` — disk work handed to the running daemon (3)
@@ -1342,16 +1362,20 @@ an export or a restore is asked through `<home>/job` and answered in
 | **`red_team_a_path_cannot_smuggle_lines_into_the_job`** | A path must be absolute and one line: a newline in it would add a second line to the job file and a second instruction; it is refused. Sabotaged (check dropped): red. |
 | `a_job_left_running_by_a_dead_daemon_does_not_block_the_next` | A job marked running by a daemon that died is marked failed when the next daemon starts, so it does not block the following job. |
 
-## `drives` — what a target drive is formatted as (2)
+## `drives` — what a target drive is formatted as, and which drives are keys (6)
 
-`crates/itsanas-cli/src/drives.rs`. Asked of the system (Get-Volume on Windows, diskutil on macOS, `stat -f` elsewhere); unknown means no warning.
+`crates/itsanas-cli/src/drives.rs`. Asked of the system (Get-Volume on Windows, diskutil on macOS, `stat -f` elsewhere); unknown means no warning. `candidates()` lists the USB keys and external disks for Settings' "Copy this account to a USB key"; each system's answer is parsed by a pure function, tested here on samples of its real output, so CI on Linux tests the Windows and macOS rules.
 
 | Test | What it proves |
 | --- | --- |
 | `the_formats_are_read_from_what_each_system_prints` | The three systems' outputs (PowerShell, diskutil, stat) are parsed to NTFS, FAT32, exFAT or other, and text that names none is unknown. |
 | `only_formats_that_limit_the_person_are_warned_about` | NTFS (a Mac cannot write) and FAT32 (no file over 4 GiB) warn; exFAT, other and unknown say nothing. |
+| `windows_lists_its_removable_keys_and_usb_disks_never_the_system_drive` | From the `Get-Volume` lines (with each disk's bus): Removable volumes and Fixed ones on USB (marked external) are listed with label, size, free and format; the system drive (whatever its letter), a second internal disk, a DVD drive and a garbled line are not; a `\|` in a label stays in it; an unnamed key is named by its letter. |
+| `linux_lists_what_the_desktop_mounted_for_the_person_and_under_mnt` | From a real-looking `/proc/mounts`: what is mounted under `/media/<user>/`, `/run/media/<user>/` and `/mnt/` is listed once, with `\040` read as a space; another person's key, a read-only DVD, snaps, tmpfs and `/mnt` itself are not (only local disk file systems are listed); with no user known only `/mnt`, and a user name holding a `/` is none. |
+| `macos_lists_its_volumes_never_the_system_a_disk_image_or_a_snapshot` | From a real-looking `mount`: the writable volumes under `/Volumes/` (a space in the name kept) are listed with their format; the system volume (`/`), the Data and VM volumes, a read-only disk image and the `nobrowse` Time Machine snapshots are not. |
+| **`red_team_a_network_share_under_mnt_is_never_listed_as_a_key`** | `nas:/x /mnt/nas nfs4` lists nothing, nor do `nfs`, `cifs`, `smb3`, `fuse.sshfs`, `fuse.rclone`, `9p`, `davfs` or `ceph` under `/mnt`: the account's master would land on somebody else's machine. `ext4`, `vfat`, `exfat`, `ntfs3`, `fuseblk`, `btrfs` and `xfs` are listed. Sabotaged (the allow-list off): red. |
 
-## `portable` — a copy of the program for every system, keeping its home on the drive (3)
+## `portable` — a copy of the program for every system, keeping its home on the drive (5)
 
 `crates/itsanas-cli/src/portable.rs`.
 
@@ -1360,6 +1384,44 @@ an export or a restore is asked through `<home>/job` and answered in
 | **`red_team_a_portable_copy_starts_on_every_system_and_hosts_nobody`** | `itsanas portable DIR` writes `DIR/ITSaNAS/` with the five signed release programs in `bin/` (each checked against the signed manifest), the three launchers (`ITSaNAS.cmd`, `itsanas.command`, `itsanas.sh`) that pick the program by OS and architecture and pass `--home` next to themselves, `README.txt` and a client-only `home/portable`. A program that does not match the manifest is not written. |
 | `without_the_release_the_copy_says_it_serves_this_system_only` | Offline or from a source build, the copy holds only this system's program and its README and the command output say it serves this system only. |
 | `a_portable_copy_needs_a_full_path` | A relative destination is refused, so the copy does not land wherever the launcher happens to run. |
+| `the_launcher_runs_the_account_on_the_key_or_opens_setup` | `itsanas.sh`, run for real through `sh` with a stand-in program that prints its arguments: with no arguments it runs `--home <key>/home setup` on an empty key and `daemon` once `home/keystore.bin` is there, so a double-click shows the account's sync in its window; `ITSaNAS.cmd` has the same branch. Sabotaged (always setup): red. |
+| **`red_team_a_portable_copy_never_writes_through_a_link_on_the_key`** | A link planted at each name the copy writes -- `ITSaNAS`, `README.txt`, `itsanas.sh`, `ITSaNAS.cmd`, `home`, `home/portable`, `bin`, a `bin/*.part` -- pointing at a victim's file or folder: `make_with` is refused each time, the victim's file is unchanged and not made executable, and nothing lands in the victim's folder. Sabotaged (`no_link` off): red. |
+
+## `copy_to_key::tests` — this account on a USB key: its own passphrase, its own device, nothing written before the checks (25)
+
+`crates/itsanas-cli/src/copy_to_key.rs` (tests in `copy_to_key/tests.rs`).
+`itsanas copy-to-key DIR` against a real account whose store is held (as by a
+running daemon), a temporary drive, a stand-in release that writes one program
+and a stand-in coordinator. Each red-team test was sabotaged with
+`scripts/sabotage.py`: every defence below turned its test red.
+
+| Test | What it proves |
+| --- | --- |
+| `a_keys_passphrase_is_long_new_and_not_a_pattern` | The key's passphrase rule, a pure function: under 12 characters, this machine's own, the same few characters repeated (`aaaa...`, `abcabc...`), a run of keys or digits with digits wrapping round (`123456789012`, `987654321098`), or the username with fewer than 12 characters besides it are refused; a long new phrase passes, and a one-letter username eats nothing. |
+| `the_key_must_hold_the_programs_and_the_files` | The room check, a pure function: the release's size plus the account's content against the drive's free bytes, refused with both figures when short; about 45 MiB counted for the programs when the release cannot say; a note, not a refusal, when the files' size is unknown; a drive whose free room cannot be read is refused, saying how much it needs (free space is readable on every system this ships for, so a silent drive is one failing under the copy). Sabotaged with `scripts/sabotage.py` (an unreadable drive let through): red. |
+| `the_accounts_size_is_read_from_the_daemons_status` | The account's content is read from the "your content" line of `status.snapshot`, which the daemon writes while it holds the store, rounded up by a tenth of its unit because `format_size` floors. |
+| `the_background_copy_reads_two_passphrases_and_nothing_else` | `--detach` hands the two passphrases to the background copy on its standard input, one a line; one line is refused, and the pair never prints. |
+| `the_tray_opens_settings_at_the_keys_section` | `settings --section key` opens the page's address with `&section=key` inside its one fragment, after the page key; a section that is not a known name is refused by the parser, so nothing is added to the address that the page did not expect. |
+| `a_copy_made_offline_is_complete_and_enrols_later` | The whole run with the coordinator down: the key holds the programs, a client-only home with this account, the coordinator and its pinned device, and `ITSaNAS/Fichiers` written `../Fichiers` so it follows the drive; it is not marked enrolled, its message says it enrols itself at its first start and how to start it on each system, and `copy-to-key.status` says done. |
+| **`red_team_a_wrong_machine_passphrase_writes_nothing_on_the_key`** | A wrong passphrase for this machine is refused as one (`Unlock`), and the drive is left empty: no programs, no home. Sabotaged (a directory made on the key before the keystore is read): red. |
+| **`red_team_an_account_on_the_key_is_never_overwritten`** | A key whose `ITSaNAS/home/keystore.bin` exists is refused, "already holds an account", its keystore byte for byte as it was and no programs written. Sabotaged (the check off): red. |
+| **`red_team_the_key_opens_with_its_own_passphrase_only`** | The key's keystore opens with the key's passphrase and is `Unlock` with this machine's: one guessed passphrase does not open both. Sabotaged (sealed under the machine's): red. |
+| **`red_team_the_key_is_this_account_on_a_device_of_its_own`** | Opened, the key is the same user id and username as this machine and another device id: forgetting a lost key withdraws its enrolment, not this machine's. Sabotaged (the machine's keystore copied and re-sealed instead of a restore): red. |
+| **`red_team_no_file_on_the_key_holds_the_24_words`** | Every file on the drive, and the status file the page reads, is scanned for the 24 words, any three of them in a row with four separators, the master secret's bytes in clear, and both passphrases: none is there. Sabotaged (the words written beside the home): red. |
+| **`red_team_a_weak_or_reused_key_passphrase_is_refused_before_anything_is_written`** | A short passphrase, this machine's own, a run of digits and the username with digits are each refused with "Nothing was written", and the drive stays empty. Sabotaged (the rule skipped): red. |
+| **`red_team_a_key_inside_the_accounts_home_or_folder_is_refused`** | A target inside this account's home, its synced folder, its vault, or the synced folder itself is refused as "inside", and no `ITSaNAS/` is made there; a relative path is refused; the drive is accepted. Sabotaged (the containment check off): red. |
+| `the_page_reads_back_each_step_the_copy_wrote` | `copy-to-key.status` as each step writes it reads back whole for the Settings page (quotes, line breaks, a backslash, a control character), a failed end with its error; a file that is not the copy's own reads as nothing, and a new run forgets the last one's. |
+| `each_refusal_of_a_target_says_its_kind` | Each refusal keeps its kind for the page to say in the person's language: `path` (relative, a line break), `inside` (this account's home), `account` (a key that holds one, also through `assess`), and none for a free drive. |
+| **`red_team_an_unregistered_key_enrols_itself_at_its_first_start`** | `enrol_at_start`, which the daemon runs beside its first round: a key with a coordinator and no `registered` marker enrols once; refused, it is not marked and says it tries again at the next start; enrolled, it is marked; marked, it never asks again. Sabotaged twice (the marker not read; not written): red both. |
+| `a_key_enrols_at_once_when_the_coordinator_answers` | When the coordinator answers, the copy enrols the key there and then and says so. |
+| **`red_team_a_readme_on_the_key_that_links_out_is_refused`** | A hostile key whose `ITSaNAS/README.txt` is a link to the person's `~/.bashrc`: the copy is refused, naming the link, and the file is byte for byte as it was, not made executable, and nothing is written beside it. %s (`no_link` off): red. |
+| **`red_team_an_itsanas_folder_on_the_key_that_links_out_is_refused`** | `ITSaNAS` itself a link to the person's home folder: refused, and nothing is written in that folder. Sabotaged (`no_link` off): red. |
+| **`red_team_a_dangling_keystore_link_on_the_key_is_refused`** | `home/keystore.bin` a link to nowhere: the key "already holds an account" (`Node::exists` reads the link, not its target) and nothing is created where it points. Sabotaged (`exists` following the link again): red. |
+| **`red_team_a_target_that_leads_back_into_the_account_is_refused`** | `<tmp>/other/../laptop/k` is refused as going up a folder, and so is a `..` that would land on the key itself; a link to a folder inside the synced folder is refused as "inside" because the check compares canonical paths. Sabotaged twice (the `..` rule off; the target compared unresolved): red both. |
+| **`red_team_two_copies_to_one_key_at_once_leave_one_account`** | Two `copy()` on threads released by a barrier, each with its own key passphrase: exactly one succeeds, the other says another copy is under way (or, if it came after, that the key holds an account), the key opens with the winner's passphrase, and the lock is gone. Sabotaged (the lock not taken): red. |
+| **`red_team_a_copy_under_way_on_the_key_stops_a_second`** | A `.copy-lock` on the key stops a copy before it writes anything (no home, no programs), with "another copy to this key is under way", and the other copy's lock is left. Sabotaged (the lock not taken): red. |
+| **`red_team_a_copy_that_fails_after_sealing_leaves_no_keystore_and_a_retry_works`** | The synced folder cannot be made (a file in its place), after the keystore is written: the copy fails saying what it removed, the key's home holds no keystore and no config (nor the store and vault of a device that will never run), the lock is gone, and once the file is moved a retry succeeds and opens with the key's passphrase. Sabotaged (nothing removed): red. |
+| `a_keys_passphrase_is_not_the_machines_in_other_clothes_nor_a_common_base` | This machine's passphrase in capitals ("is this machine's passphrase"), holding it, or held in it (8 characters and more), and `password`, `motdepasse`, `azerty`, `qwerty`, `itsanas` or `123456` with only digits or symbols around them are refused; a short machine passphrase inside a long key, and a phrase that merely contains `password`, are not. Sabotaged three times (case kept; containment off; the bases off): red each. |
 
 ## `lifecycle` — asking a running daemon to stop or restart (2)
 
@@ -1393,11 +1455,12 @@ requests are tested on the bytes a router sends.
 | **`red_team_only_a_granting_answer_opens_a_port_or_names_an_address`** | Only a NAT-PMP answer of the right opcode, result 0, for this port and with a lifetime counts; a refusal, a truncated answer, a UDP mapping's answer, another port's or a deletion never makes the node announce an address nobody can dial; the router's external port is the one announced. Sabotaged (result code ignored): red. |
 | **`red_team_an_answer_from_another_machine_on_the_lan_is_ignored`** | An answer from any address but the gateway's port 5351 is not read, so another machine on the LAN cannot choose the address this node announces. Sabotaged (source not checked): red. |
 | `the_gateway_is_read_from_the_routing_table_or_guessed_on_the_lan` | The default route of `/proc/net/route` (little-endian hex), else the `.1` and `.254` of the local `/24`; a mapping is renewed at half the lease the router granted, never sooner than a minute. |
-## `daemon` — pacing, a vault whose disk drops, and parking on a relay (11)
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, and the enrolment at start (12)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_a_relay_that_closes_the_park_is_passed_over_for_the_next`** | `park_loop` over a scripted `ParkSite`: a relay that closed the park is skipped for the next one rather than redialled at every look. Sabotage: no `failed.insert` (red). |
+| **`red_team_a_daemon_enrols_at_its_bound_address_with_the_coordinator_it_uses`** | Red team, 2026-10-23: a key enrolling at its first daemon start ran `register_and_announce`, which announced the configured `listen` beside the rounds' publication of the bound one. `enrol_at_daemon_start` hands the enrolment the bound address (`enrol_once` registers with `register_only`, then announces it); the `registered` marker names the coordinator, and a marker naming another one than the configured coordinator is dropped, so the node enrols there once; the same one never enrols again. Sabotaged (the configured `listen` passed; the stale marker kept): red both. |
 | **`red_team_once_every_relay_has_failed_the_first_is_tried_again`** | The skip list rotates: a machine with one relay that refused once parks on it again. Sabotage: no `failed.clear()` (red). |
 | **`red_team_a_machine_never_parks_on_itself`** | The book lists this machine too; it never parks on its own listener. Sabotage: the `me` filter removed (red). |
 | **`red_team_a_parked_machine_parks_again_after_each_caller_and_withdraws_when_reached`** | One caller per park, so it parks again after each; once reachable it stops and withdraws its `relay:` address. Sabotage: no re-park (red); no final withdrawal (red). |
@@ -1414,7 +1477,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place (43)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are (47)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1451,6 +1514,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_after_migration_a_command_without_a_name_refuses`** | With neither `--instance` nor `--home`, a machine holding only named instances refuses and names them, instead of falling back to `~/.itsanas` where `init` would make a second identity and a stale `itsanas.service` would start it. A machine with no node at all still gets `~/.itsanas`, or the first `init` could never run. Sabotaged (always fall back): red. |
 | **`red_team_a_departed_node_stays_departed_until_it_rejoins`** | After `itsanas leave` the home holds a `departed` file; the daemon exits 0 at once (so `Restart=on-failure` and the logon task do not loop), `serve` and `sync` refuse, each naming `itsanas rejoin`, and `rejoin` undoes it. Otherwise systemd would bring back a machine its peers were told had gone. Sabotaged (the check reads another file): red. |
 | **`red_team_a_departed_node_cannot_register_again`** | `register` publishes this device's address as well as its claim; after `itsanas leave` it ran unguarded, so a departed node could hand the peers that were told it had gone a fresh address. It now refuses first, naming `itsanas rejoin`. Sabotaged (guard removed): red. |
+| `register_beside_a_running_daemon_names_the_port_it_really_listens_on` | Hand test, 2026-10-22: `register` announces the configured `listen`, and a daemon run with `--listen` elsewhere is on another port. With the daemon holding the store, `register` refuses before any passphrase, naming the port the daemon really listens on and `itsanas listen <it>`, read from the daemon's snapshot -- whose `listen` line now carries the bound port, not the configured one; `status`'s own rendering still says the configured port. Sabotaged (no check before the open; snapshot printing the configured port; register not reading it): red. |
 | **`red_team_a_drain_never_counts_an_owner_it_could_not_ask_as_done`** | `itsanas leave --drain-for` prints counts only (owners left one replica fewer, owners not askable). An owner that was unreachable or too old for protocol 8 is never folded into "drained": that would be the one number in the last sentence a person reads before switching off that lies. Sabotaged (unaskable counted as done): red. |
 | **`red_team_a_node_under_the_other_home_variable_is_not_shadowed`** | On Windows the CLI prefers `USERPROFILE`; a node made when `HOME` won is invisible there, and `init`/`login` would mint a second identity. A derived home with no node, when the other variable's home holds one at the same place, is refused with the path and `--home` named; an explicit `--home` is never second-guessed. Sabotaged (`stranded_node` never finding): red. |
 | `migration_advice_says_the_old_unit_restart_loops` | After `migrate` the old unit still points at `~/.itsanas`, fails at each start and is restarted by `Restart=` or the logon task until disabled; the advice says so. Sabotaged (sentence softened): red. |
@@ -1462,6 +1526,9 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `a_timed_pause_shows_paused_only_while_it_holds` | Status --brief, which every tray reads, says paused only while the pause holds, so an expired timed pause never shows a blue icon over a node that is syncing again. |
 | **`red_team_a_passphrase_prompt_names_the_account_it_unlocks`** | The passphrase prompt reads `Passphrase for 'NAME' (HOME): `, not `Passphrase:`, so three accounts on one machine are told apart; with no label it stays `Passphrase: `. Sabotage: drop the label and it goes red. |
 | `a_passphrase_prompt_says_whether_to_choose_or_type_and_what_it_is_not` | Before the prompt, a line says whether to choose a new passphrase or type the one chosen when the account was set up on this machine, for which account and which `itsanas` command, and that it is not the 24 recovery words (Nicolas, 2026-10-22: "Passphrase for 'nicolas'" alone left him guessing). Also: the subcommand is found past `--home PATH`. |
+| **`red_team_the_passphrase_explanation_is_on_the_terminal_and_flushed_before_the_prompt`** | The explanation and the prompt are one text written and flushed on the terminal `rpassword` reads from, before the answer is read, and the explanation is not repeated at the confirmation. It went to stderr while the prompt went to the terminal, so a Mac log through `tee` showed the prompt first and the explanation after it on the same line (hand test, 2026-10-22). Driven through `rpassword`'s own writer and reader, standing in for the terminal. Sabotaged (explanation back on stderr): red. |
+| `itsanas_words_prints_the_grid_and_then_the_words_on_one_line` | `itsanas words` prints the numbered grid for paper and then the 24 words on one line, in order, to paste into `login` or a phrase file. Sabotaged (the grid alone): red. |
+| `a_recovery_from_a_coordinator_says_where_the_words_are_and_the_words_path_keeps_its_note` | After `login --from` the message says this is the same account, that its 24 words are the same as before, and that `itsanas words` shows them on any machine of the account -- not "your 24-word phrase is unchanged", which read as if the words had to be at hand. The words path keeps the "ultimate backup" sentence. Sabotaged (the words version for both): red. |
 | **`red_team_a_vault_moves_onto_an_existing_empty_mount_point_and_never_into_itself`** | A move stages inside the target (`.itsanas-incoming`) and renames the entries up with the marker last, so it works on a mount point or drive root and writes nothing beside it; a target inside the vault, or one holding it, is refused. Sabotaged. |
 | **`red_team_a_vault_moved_away_can_come_back_to_its_default_place`** | A vault moved to another disk can be moved back to `home/vault`, the default place, which was refused as if it were inside the home; moving into the vault itself is still refused. |
 | **`red_team_a_vault_is_not_moved_onto_a_key_too_small_for_it`** | A move is refused before copying when the target's free space is under the vault's size plus 10%; a drive with room for the bare size but not the margin is refused, one with the margin goes through. Sabotaged (checking against the bare size): red. |
@@ -1526,14 +1593,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (157)
+# `itsanas-node` — a node on disk (169)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `coordinator` — publishing an address, and whose deletion a host believes (21)
+## `coordinator` — publishing an address, and whose deletion a host believes (23)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -1544,6 +1611,8 @@ anything.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_an_address_on_a_virtual_adapter_is_not_published`** | Hand test, 2026-10-22: a laptop with VMware's two host networks, WSL's switch and Tailscale publishes its Wi-Fi address whichever of them the route to the coordinator leaves by (`on_a_real_adapter`, applied to `address_now` and to the published address alike, so the two keep agreeing); a real adapter's address stands, and a machine with only virtual adapters keeps its own. Sabotaged (virtual address kept): red. |
+| **`red_team_an_external_switch_or_a_cgnat_card_keeps_its_routed_address`** | Red team, 2026-10-23: `[("vEthernet (External)", 192.168.1.5), ("Wi-Fi", 10.9.8.7)]` routed by 192.168.1.5 publishes 192.168.1.5 -- a Hyper-V external switch carries the LAN address -- and a 100.64/10 address on a card named "Wi-Fi" is carrier-grade NAT and stays. The routed adapter is judged by its name (`LocalNets::is_virtual`). Sabotaged (judged by address too): red. |
 | **`red_team_a_node_with_an_opened_port_and_ipv6_offers_both_and_every_one_is_dialable`** | A port opened by UPnP or NAT-PMP and a global IPv6 address make one list, both resolvable by a dialler, within the signed presence's 255 bytes (not on Windows); announced from the release after `ANNOUNCE_LISTS` is turned on. Sabotaged (IPv6 not appended): red. |
 | **`red_team_a_home_node_announces_its_global_ipv6_not_its_private_ipv4`** | With no `announce` and no port opened by UPnP, a node behind a home NAT announces its global IPv6 address rather than the private IPv4 only its LAN can dial (not on Windows, whose listener is IPv4 only); a public IPv4 address stays; link-local, unique-local, documentation and loopback addresses are never taken for global. Sabotaged (preference off): red. |
 | **`red_team_a_coordinator_cannot_make_a_host_drop_an_account_that_never_asked`** | A host frees an account's data only on a deletion the account itself signed, and only for an account it asked about: a forged tombstone (another key's signature over the victim's id) and an unasked one are ignored. Sabotaged (signature not checked): red. |
@@ -1565,22 +1634,31 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (27)
+## `contact` — when the coordinator is dialled at all (34)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
-its address changes, and hourly, and reads the account's devices only on the
-connection a publication opens. Every instant is this machine's own; nothing
+its address changes, and hourly, and reads the account's devices on the
+connection a publication opens -- and on one of its own only after a machine of
+the account answered nowhere, two minutes after the last read and then with the
+wait doubled up to the hour while it stays missing. Every instant is this machine's own; nothing
 here reads a peer's clock or trusts the coordinator's order.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_private_address_of_another_house_is_not_dialled`** | Hand test, 2026-10-22: the laptop's house and a Mac's house were both 192.168.1.x, and each dialled the other's 192.168.1.x address from the coordinator at every round, to a connect timeout. `Contact::dialable`, which `dial_listed` dials from, drops an address whose every entry is RFC 1918 when local discovery is running and has not heard that machine; a public address, a list holding one, a name and a relay are kept, and so is everything when discovery is off, warming up, or heard the machine. Since the red-team pass of 2026-10-23 the gate opens one round in `PRIVATE_PROBE_EVERY` (6): over 24 rounds with nobody answering, the other house's addresses are dialled at rounds 0, 6, 12 and 18 only. Same public address as evidence of one LAN is not built: the coordinator does not record where a publication came from. Sabotaged (no gate; any private entry instead of every one; a probe at every round): red. |
+| **`red_team_a_machine_on_another_vlan_is_still_dialled`** | Red team, 2026-10-23: the gate above also dropped a NAS at 10.0.2.5 on another VLAN, behind a VPN or a Wi-Fi that filters multicast, which discovery never hears and this machine reaches. It is dialled while discovery warms up (`heard_here` answers `None`), at rounds 6 and 12 after that, at every round once a probe reached it (`Contact::worked` marks it proven, in memory only), and back to the probes once it fails (`Contact::failed`, from `dial_listed`). Sabotaged (no probe; no proven door; `failed` not clearing it): red each time. |
 | **`red_team_a_host_of_another_account_relays_only_after_the_accounts_own_machines`** | §8 0v. Hosts of other accounts the round reached and that proved themselves come after every machine of the account as relays, a host on a private address is never offered, and a quiet round does not drop a host (a day without proof does). Sabotaged (hosts first; hosts cleared every round): red. |
 | **`red_team_a_relay_the_account_knows_is_dialled_at_the_books_address`** | §8 0v. A `relay:<id>@<at>` presence is dialled through the relay at the book's address when the relay is a machine of the account, whatever address the presence carries; a host of another account, in no book, is dialled at the carried address with its key pinned; an unknown relay with no address is not dialled; the relay chosen to park on is the first public, non-relay address. Sabotaged (private addresses allowed as relay): red. |
 | **`a_machine_that_never_moves_dials_the_coordinator_once_an_hour`** | The number the step is justified by: 288 rounds of a Pi that never moves make 24 connections, 24 publications and 24 reads -- every read on a publication's connection, none on its own. |
 | **`red_team_a_machine_that_found_everybody_by_broadcast_still_publishes`** | The Rodin finding of 2026-09-21 against the first rule ("dial when the round reached nobody"): a Pi that found the VM by broadcast never published, and a laptop elsewhere could not find it. The rule is not given who was reached; publishing at start and hourly are each sabotaged and each turns this red. |
 | **`a_machine_that_changes_network_publishes_at_once`** | A laptop whose address changed publishes on the next round, not in an hour; an unchanged address inside the hour costs no connection; losing the route counts as a change. |
 | **`a_machine_enrolled_after_this_one_started_is_dialled_within_the_hour`** | Why reads ride on every publication instead of waiting for a listed device to go missing: a machine enrolled after this one started is on no list, so it can never go missing. Eleven rounds make no connection, the hourly one reads, and the new machine is in the book. |
+| **`red_team_a_machine_that_restarted_on_another_port_is_dialled_there_within_two_rounds`** | Hand test, 2026-10-22: a portable key registered at 9798, its daemon ran with `--listen` on 9811 and published that, and the laptop, which had read 9798, dialled it there until its hourly read. A machine of the account that answers at none of its addresses (`Contact::round_reached`) now makes the next round read again: at rounds of 60 s and of 300 s the key is reached on its new port by round 2, and once it answers no further read is asked before the hour. Sabotaged (no re-read after a miss; misses not recorded): red. |
+| **`red_team_a_machine_that_stays_off_for_a_day_costs_about_thirty_reads_not_288`** | The bound on the rule above: a laptop shut for a day, at rounds of 30 s and of 300 s. The wait after a miss doubles at each read asked for while it is missing (2, 4, 8, 16, 32 minutes, capped at `PUBLISH_EVERY`), so the day costs 27 reads -- four extra, then the hourly one -- never two within `REREAD_AFTER_MISS`, and exactly 12 in the second half. A fixed two-minute wait made 288 and 720. Sabotaged (no doubling; doubling only on answered reads; no re-read): red. The cap at the hour is not separately verified: the publication's hourly read already bounds it. |
+| **`red_team_a_coordinator_that_is_down_is_asked_with_the_same_back_off`** | The attempt counts, not the answer (`Contact::asked`): with the coordinator down, rounds every 30 s for 59.5 minutes ask at minutes 2, 6, 14 and 30, not 29 times. Sabotaged (no doubling; doubling only on answered reads; no re-read): red. |
+| **`red_team_news_or_an_answer_puts_the_wait_after_a_miss_back_to_two_minutes`** | The resets: a read at minute 30 that lists a new address for the missing laptop brings the next read at 32, not 62; a laptop off for three hours that answers one round and goes missing again is read for within two minutes of that, not at the hour. Sabotaged (no reset on news; no reset on an answer): red. |
+| **`red_team_a_machine_toggling_every_round_cannot_hold_the_wait_at_two_minutes`** | Red team, 2026-10-23: both fall-backs are somebody else's word, and a machine answering one round in two while the coordinator lists a new port beside it at every read held the wait at two minutes: 719 reads in a day at a round every 30 s. `RESET_FLOOR` allows one fall-back per ten minutes, so at most three reads per ten minutes (the fall-back's, two and six minutes after it): N = 432 a day at 30 s rounds, and the 288 rounds of a day at five minutes. Measured: 312 and 143. Sabotaged (floor at zero): red. |
 | **`red_team_a_coordinator_cannot_grow_the_address_book_without_bound`** | The coordinator still decides which presences it lists -- an older one unsigned, any of them stale. 65 536 devices in one answer leave `MAX_DEVICES` in the table; a thousand addresses for one device leave `MAX_ADDRESSES`. |
 | **`red_team_addresses_that_never_worked_do_not_displace_one_that_did`** | Twenty stale addresses for the Pi, from a coordinator that lies or is only out of date, arrive after its LAN address answered: that address is still dialled first and the rest is capped. Order is this machine's record of success, never the list's. |
 | **`red_team_a_coordinator_that_has_signed_cannot_talk_this_node_down_to_an_unsigned_list`** | §8 0o 2b.1, found by Rodin: a coordinator that hangs up on `SignedPeers`, as an older one does, would have the client fall back to `Peers`, whose addresses it can forge -- the signature check made advisory against the one party it checks. Once a coordinator has signed, `Due::accept_unsigned` stays false for every later hour. Sabotaged by leaving it true. |
@@ -1603,7 +1681,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_claim_older_than_the_one_held_is_refused`** | A claim the owner has since re-issued is not taken back from a relay. Sabotaged by dropping the claim-date check. |
 | **`red_team_a_stranger_asking_for_the_accounts_presences_is_refused`** | `SharedBoard`, what the listener answers from, gives the account's rows only to a device the book holds with this account's claim, and never a machine its own row. Sabotaged by dropping the membership check. |
 
-## `node` — identity on disk, and where its vault lives (25)
+## `node` — identity on disk, and where its vault lives (27)
 
 | Test | What it proves |
 | --- | --- |
@@ -1612,6 +1690,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | `an_existing_node_keeps_its_vault_where_it_is_and_gains_the_marker` | A node built before the marker opens `<home>/vault` as before and gains `.itsanas-vault`. |
 | **`the_keys_can_be_read_while_the_store_is_held_by_another_process`** | Only one process may hold a node's store, and the daemon holds it on every machine that is working — so anything that opened a `Node` refused to run on exactly the machines somebody asks about, including `doctor`, which is what a person runs *because* something is wrong. Stopping the daemon to ask then changes the answer: a node that is not running is not listening, so "can anybody reach me" comes back no, for a reason that is the asking. `Identity::open` reads the keystore and the config, neither of which is locked. |
 | **`red_team_the_24_words_come_back_from_the_keystore_and_its_passphrase_only`** | Hand test, 2026-10-22: the sheet with the test account's 24 words was lost while the laptop still had the account and its passphrase. The keystore holds the master secret, and the words are that secret in another encoding, so `itsanas words` gives them back: the same words, while the daemon holds the store, and nothing for a wrong passphrase. Fails when the words are derived from the device seed instead of the master secret. |
+| `the_encoded_secrets_restore_the_account_and_never_print` | `Identity::secrets`, what `copy-to-key` reads while the daemon runs: refused for a wrong passphrase, `EncodedSecrets(redacted)` when printed, and restored elsewhere under another passphrase it is the same account on a new device. |
 | **`an_empty_node_home_reads_as_unmounted_storage_rather_than_a_fresh_start`** | A node home on a disk that is not mounted is an *empty directory*, and "no node found, run `itsanas init`" is then advice to create a **second account** on the root filesystem — while the real one sits on a disk nobody is looking at, and the next backup captures the empty one. A directory that does not exist at all still reads as a fresh start. |
 | **`a_changed_passphrase_opens_the_same_node_and_the_old_one_no_longer_does`** | `itsanas passphrase` re-seals the keystore without regenerating anything — same account, same device id — the old passphrase stops working, and the pending file is renamed over the keystore rather than left beside it. |
 | **`red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns`** | Every write goes through `node.store`, and the store refuses nothing it has not been told about. Opening a node pledging 700 GB must hold writes to the 300 GB that earns at 30/70, and a node pledging nothing to the joining allowance, as `keep` does. Sabotaged on the wiring in `Node::assemble` and on the allowance floor: without either, the CLI, the folder and the phone would write unbounded while every store test stayed green. |
@@ -1627,6 +1706,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`a_published_test_phrase_is_refused_as_a_real_account`** | Restoring Alice's published phrase as a real account is refused, with an explanation. |
 | **`the_device_identity_also_survives_a_restart`** | If the device key changed on every start, every restart would look like a new device to the version vectors and history would fragment. |
 | **`creating_over_an_existing_node_is_refused`** | Overwriting would destroy the master secret and make every chunk stored under it permanently unreadable. |
+| **`red_team_a_keystore_is_never_written_through_a_link_or_over_a_file`** | A dangling `keystore.bin` link is a node that exists, so `create` refuses; `write_new` itself, past that check as a racing second writer would be, writes nothing through the link and does not replace a keystore that appeared, because the file is opened `create_new`. Sabotaged twice (`exists` following the link; `create` + `truncate`): red both. |
 | **`a_phrase_round_trips_through_restore`** | Same account, *different* device id — two machines sharing a device identity would share a sequence counter and fork the log. |
 | **`opening_a_missing_node_says_what_to_do_about_it`** | The error names both `init` and `login`. |
 | `a_created_node_reopens_with_the_same_identity` | Reopening does not orphan the data. |
@@ -1703,13 +1783,14 @@ not read, the pledge kept whatever the free space.
 | **`red_team_a_disk_that_filled_up_stops_taking_chunks_before_the_last_byte`** | When the disk can no longer hold the pledge, the host takes no more chunks than free space minus a 256 MiB reserve, and `status` says CANNOT KEEP. |
 | `its_own_entries_are_not_counted_against_itself` | A node's own published promise is never counted against it. |
 
-## `config` — settings (28)
+## `config` — settings (29)
 
 | Test | What it proves |
 | --- | --- |
 | **`a_split_in_the_config_file_overrides_the_default`** | The point of the field, and the reason the ratio stopped being a constant. Without it the network cannot be tuned to the machines actually in it — a pool of phones needs a different split from a pool of servers, because a phone under `keep` has released its data and costs the network three copies rather than two — and the argument for each number lives in a commit message instead of a file. Also checks the absent case: no line means the network's default, not nothing. |
 | **`red_team_an_impossible_split_in_the_config_file_is_refused_where_it_enters`** | `split = 30/0` divides by zero the first time somebody runs `itsanas keep`, and the daemon is usually what holds the store open when they do. Refused when the file is *read*, in the same breath as the listen address, because a value that cannot work must never reach the arithmetic that assumes it can. What it catches is a parser that takes the two numbers itself and leaves the check to `Split::new`'s callers, which is how a validated type ends up with an unvalidated door. The refusal has to show what a split looks like, or the person fixing it is guessing. |
 | **`red_team_a_node_cannot_grant_itself_a_more_generous_split`** | Nothing on the network enforces the bargain yet, so `itsanas keep` refusing an unearned limit is the only live check, and it reads this field. Accepting `split = 1000/1` would switch it off with a text editor where it used to take a rebuilt client. Found by an audit of the change that introduced the field. Checks `31/69` and `301/700`, one part in a hundred and one in a thousand over, so a comparison that divides and rounds is caught too; stricter (`25/75`) and equal (`3/7`) still load. |
+| `a_portable_homes_folder_moves_with_the_drive` | In a home holding the `portable` marker, a folder beside it is saved as `../Fichiers` and loaded back under wherever the drive is mounted next (`E:` on one computer, `/Volumes/KEY` on a Mac); without the marker the folder is saved as it is. Sabotaged (written absolute): red. |
 | **`an_unknown_setting_is_an_error_rather_than_being_ignored`** | A silently discarded typo is how a node ends up pledging nothing while its operator believes it pledged a terabyte. |
 | **`defaults_are_safe`** | Pledge defaults to zero and listen defaults to loopback. A node that has not said what it offers has not offered any. |
 | **`a_nonsense_size_is_refused_rather_than_read_as_zero`** | Reading "ten gigabytes" as 0 would silently disable hosting. |
@@ -1977,7 +2058,7 @@ destructive if wrong.
 
 ---
 
-# `itsanas-discover` — serverless local discovery (43)
+# `itsanas-discover` — serverless local discovery (50)
 
 The only parser in the project fed unsolicited packets by anybody, with no
 handshake in front of it. Everything else sits behind TLS and behind a peer that
@@ -2007,10 +2088,12 @@ hardware it will actually run on.
 | `a_zero_port_is_refused` | An announcement nothing can serve is either a bug or bait for a connection that cannot succeed. |
 | `an_announcement_round_trips` | The basic path. |
 
-## `neighbours` — the bounded table (14)
+## `neighbours` — the bounded table (16)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_copies_of_a_beacon_over_virtual_networks_do_not_move_a_device`** | Hand test, 2026-10-22: Windows sends a broadcast out of every adapter, so the laptop heard the portable key beside it at 192.168.1.142, 192.168.19.1 and 192.168.117.1 each interval and logged a move at each. A copy heard over a virtual network (`record_via`) of a device heard on a real one within `EXPIRY` moves nothing and, since 2026-10-23, refreshes nothing; a device heard only over a virtual network (a VM on a host-only network) is recorded, and a real network takes over from it at once and again after `EXPIRY` of silence. Sabotaged (copies move the device): red. |
+| **`red_team_replays_over_a_virtual_network_do_not_keep_a_real_entry_alive`** | Red team, 2026-10-23: a captured beacon replayed every 30 s over a VM's host-only network kept the laptop's Wi-Fi entry fresh for ever, so it counted as heard here (and its private addresses as dialable) long after it left. The Wi-Fi entry keeps the time of its last real beacon and is gone from its Wi-Fi address past `EXPIRY`. Sabotaged (the copy refreshes `heard_unix`): red. |
 | **`a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address`** | Why the *receiver's* clock decides and the sender's is ignored. Superseding by sender clock would leave a rebooted Pi pinned to a stale address until NTP ran — exactly when someone is waiting for it to come back. |
 | **`the_table_never_grows_past_its_capacity`** | A device id is a free keypair, so anyone on the network can mint valid announcements without limit. Unbounded means an out-of-memory kill on the Pi, triggered by a stranger. |
 | **`a_flood_of_strangers_cannot_evict_a_known_peer`** | The eviction attack. Without protection, a flood pushes the Pi out of every table and the household stops syncing while every node believes discovery is working. |
@@ -2025,6 +2108,24 @@ hardware it will actually run on.
 | `repeating_the_same_announcement_is_not_reported_as_news` | A beacon arrives every thirty seconds forever. Logging each one makes an unreadable journal, which is the same as no journal on the day something breaks. |
 | `a_new_device_is_recorded_with_the_address_it_was_heard_from` | The address comes from the datagram, never from the packet. |
 | `a_capacity_of_zero_is_treated_as_one_rather_than_never_recording` | A misconfiguration degrades rather than silently disabling discovery. |
+
+## `interfaces` — real networks and virtual ones (5)
+
+Which of this machine's adapters a hypervisor or an overlay made up. By name,
+because VMware, Hyper-V, VirtualBox and WSL number their networks from the
+same private ranges a home router uses; by address too for Tailscale-like
+overlays (100.64.0.0/10, `fd7a:115c:a1e0::/48`). Read through `if-addrs`.
+A Hyper-V external switch (`vEthernet (External ...)`) is real, and the
+address a route leaves by is judged by its adapter's name only, so a CGNAT
+address on a network card stays the card's (red team, 2026-10-23).
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_virtual_adapters_are_told_from_real_ones_by_name`** | Windows's friendly names (`vEthernet (WSL)`, `VMware Network Adapter VMnet1`, `VirtualBox Host-Only Network`, `Tailscale`, ZeroTier) and the Unix ones (`vmnet8`, `vboxnet0`, `docker0`, `br-…`, `virbr0`, `veth…`, `tailscale0`, `utun3`, `wg0`, `zt…`) are virtual; `Wi-Fi`, `Ethernet 2`, `eth0`, `wlan0`, `en0`, `enp3s0`, `wlp2s0` are not, nor is a Hyper-V external switch (`vEthernet (External)`, red team 2026-10-23); a Tailscale address is an overlay under any name. Sabotaged (names ignored; the overlay range ignored; the external switch called virtual): red. |
+| **`red_team_a_beacon_over_a_virtual_network_is_known_for_one`** | On the hand test's laptop, a source on the Wi-Fi's network is real and one on VMware's or WSL's is virtual; a source on no network of this machine, or any source when no adapter could be listed, is not called virtual; a real LAN inside Docker's /16 stays real. Sabotaged (overlap with a real network ignored): red. |
+| **`red_team_an_external_switch_and_a_cgnat_card_are_real_adapters`** | Red team, 2026-10-23: `is_virtual`, which decides whether a routed address is swapped (`on_a_real_adapter`), is false for the address of `vEthernet (External)` and for a 100.64/10 address on a card named `Wi-Fi` (carrier-grade NAT), which `is_virtual_adapter` still calls an overlay by its range. Sabotaged (by address too; the external switch virtual): red. |
+| `the_address_to_announce_is_on_a_real_adapter` | `is_virtual` knows the host adapters' own addresses and `physical_v4` picks the Wi-Fi. |
+| `this_machines_adapters_can_be_read` | Reading this machine's adapters does not fail and never lists the loopback. |
 
 ## `lan` — the socket (12)
 

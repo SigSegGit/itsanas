@@ -67,6 +67,9 @@ pub struct Neighbour {
     pub sent_unix: u64,
     /// Our own clock when the announcement arrived. This is what ages entries.
     pub heard_unix: u64,
+    /// Whether it came in over one of this machine's virtual networks
+    /// ([`crate::interfaces::LocalNets::via_virtual`]).
+    pub via_virtual: bool,
 }
 
 /// What recording an announcement changed.
@@ -144,6 +147,28 @@ impl Neighbours {
     /// Only the port comes from the announcement; the address comes from the
     /// datagram, so a node can never advertise a machine other than itself.
     pub fn record(&mut self, announcement: &Announcement, source: IpAddr, now: u64) -> Heard {
+        self.record_via(announcement, source, now, false)
+    }
+
+    /// [`Self::record`], for an announcement that came in over one of this
+    /// machine's virtual networks when `via_virtual` is set.
+    ///
+    /// Windows sends a broadcast out of every adapter, so a node on a machine
+    /// with VMware or Hyper-V adapters is heard there once per adapter: in the
+    /// hand test of 2026-10-22 the laptop heard the portable key beside it at
+    /// 192.168.1.142, 192.168.19.1 and 192.168.117.1, and logged a move at
+    /// each. A copy over a virtual network of a device heard on a real one
+    /// within [`crate::EXPIRY`] now moves nothing and refreshes nothing, so
+    /// the real entry still expires on time; a device heard only over a
+    /// virtual network -- a VM on a host-only network -- is recorded as
+    /// before, and a real network takes over from it at once.
+    pub fn record_via(
+        &mut self,
+        announcement: &Announcement,
+        source: IpAddr,
+        now: u64,
+        via_virtual: bool,
+    ) -> Heard {
         let address = SocketAddr::new(source, announcement.port);
         let mut fresh = Neighbour {
             owner_tag: announcement.owner_tag,
@@ -151,9 +176,21 @@ impl Neighbours {
             address,
             sent_unix: announcement.sent_unix,
             heard_unix: now,
+            via_virtual,
         };
 
         if let Some(existing) = self.entries.get_mut(&announcement.device) {
+            let real_and_fresh = !existing.via_virtual
+                && now.saturating_sub(existing.heard_unix) <= crate::EXPIRY.as_secs();
+            // Moves nothing and refreshes nothing: a copy over a virtual
+            // network is no news of the real one, and anything on a VM or a
+            // container network can replay a captured beacon at will. Taken
+            // as a refresh, such a replay kept a machine heard here -- and
+            // its private addresses dialled -- long after it left (red team,
+            // 2026-10-23). The real network's own beacons keep it fresh.
+            if via_virtual && existing.address != address && real_and_fresh {
+                return Heard::Refreshed;
+            }
             // A device heard speaking version 2 does not go back to version 1
             // on the word of a packet. Nothing in a beacon is fresh, so an old
             // version 1 beacon of an upgraded machine, replayed, would
@@ -364,6 +401,87 @@ mod tests {
         assert_eq!(
             table.get(&k.device_id()).unwrap().address,
             SocketAddr::new(ip(31), 9797)
+        );
+    }
+
+    /// The hand test of 2026-10-22: one beacon of the portable key, heard by
+    /// the laptop once per adapter -- its Wi-Fi, then VMware's two host
+    /// networks -- at every interval. The table stays on the Wi-Fi address
+    /// and reports no move; a device heard only over a virtual network is
+    /// still recorded, and a real network takes over from it.
+    #[test]
+    fn red_team_copies_of_a_beacon_over_virtual_networks_do_not_move_a_device() {
+        let mut table = Neighbours::new(8);
+        let key = DeviceKeys::generate().unwrap();
+        let wifi = ip(142);
+        let vmnet1 = IpAddr::V4(Ipv4Addr::new(192, 168, 19, 1));
+        let vmnet8 = IpAddr::V4(Ipv4Addr::new(192, 168, 117, 1));
+        for round in 0..10u64 {
+            let now = 1000 + 30 * round;
+            let beacon = announce(&key, &owner_a(), 9811, now);
+            table.record_via(&beacon, wifi, now, false);
+            for copy in [vmnet1, vmnet8] {
+                let heard = table.record_via(&beacon, copy, now, true);
+                assert_eq!(
+                    heard,
+                    Heard::Refreshed,
+                    "round {round}: a copy over {copy} moved it"
+                );
+            }
+        }
+        let held = table.get(&key.device_id()).unwrap();
+        assert_eq!(held.address, SocketAddr::new(wifi, 9811));
+        assert_eq!(held.heard_unix, 1270);
+
+        let vm = DeviceKeys::generate().unwrap();
+        let beacon = announce(&vm, &owner_a(), 9797, 0);
+        assert_eq!(table.record_via(&beacon, vmnet1, 2000, true), Heard::New);
+        assert_eq!(
+            table.record_via(&beacon, ip(77), 2010, false),
+            Heard::Moved {
+                from: SocketAddr::new(vmnet1, 9797)
+            },
+            "a real network did not take over from a virtual one"
+        );
+        // Silent on the real network past the expiry, the virtual one is
+        // believed again.
+        let late = 2010 + crate::EXPIRY.as_secs() + 1;
+        assert_ne!(
+            table.record_via(&beacon, vmnet1, late, true),
+            Heard::Refreshed
+        );
+    }
+
+    /// Red team, 2026-10-23: a beacon of the laptop captured on the Wi-Fi and
+    /// replayed for ever over a VM's host-only network kept its Wi-Fi entry
+    /// fresh, so the laptop counted as heard here long after it had left.
+    /// The real entry now ages as if the copies were not there.
+    #[test]
+    fn red_team_replays_over_a_virtual_network_do_not_keep_a_real_entry_alive() {
+        let mut table = Neighbours::new(8);
+        let laptop = DeviceKeys::generate().unwrap();
+        let wifi = SocketAddr::new(ip(142), 9811);
+        let vmnet1 = IpAddr::V4(Ipv4Addr::new(192, 168, 19, 1));
+        let beacon = announce(&laptop, &owner_a(), 9811, 1000);
+        table.record_via(&beacon, wifi.ip(), 1000, false);
+        // The laptop leaves; its beacon is replayed every 30 s over the VM's
+        // network, and the table is swept as the daemon sweeps it.
+        let expiry = crate::EXPIRY.as_secs();
+        for now in (1030..1000 + 4 * expiry).step_by(30) {
+            table.record_via(&beacon, vmnet1, now, true);
+            table.expire(now.saturating_sub(expiry));
+            if now <= 1000 + expiry {
+                assert_eq!(
+                    table.get(&laptop.device_id()).map(|n| n.heard_unix),
+                    Some(1000),
+                    "at {now}, a copy over a virtual network refreshed the Wi-Fi entry"
+                );
+            }
+        }
+        assert_ne!(
+            table.get(&laptop.device_id()).map(|n| n.address),
+            Some(wifi),
+            "replays over a virtual network kept the laptop at its Wi-Fi address"
         );
     }
 

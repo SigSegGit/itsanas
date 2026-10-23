@@ -212,5 +212,145 @@ window.I18N = {
       'Lire cette sauvegarde dans cette machine ?',
     'Write a portable ITSaNAS there? Whoever has the drive can try to guess your passphrase: use a long one.':
       'Écrire un ITSaNAS portable ici ? Qui a le disque peut essayer de deviner votre phrase secrète : prenez-en une longue.',
+
+    // Settings, set by the script (hand test, 2026-10-22: these showed in English).
+    'ITSaNAS stopped serving this page. Run the command again to reopen it.':
+      'ITSaNAS ne sert plus cette page. Relancez la commande pour la rouvrir.',
+    'Refused':
+      'Refusé',
+    "This page's key is missing. Open the address that the command printed in your terminal.":
+      'La clé de cette page manque. Ouvrez l’adresse que la commande a affichée dans votre terminal.',
+    'passed':
+      'réussi',
+    'failed':
+      'échoué',
+    'skipped':
+      'non vérifié',
+    'every':
+      'toutes les',
+    '(now)':
+      '(actuel)',
+    'Type a whole number of GB.':
+      'Tapez un nombre entier de Go.',
+    'Nothing was changed.':
+      'Rien n’a été changé.',
+    'ITSaNAS restarts (a few seconds).':
+      'ITSaNAS redémarre (quelques secondes).',
+    'Saved. ITSaNAS runs again.':
+      'Enregistré. ITSaNAS tourne de nouveau.',
+    'Saved.':
+      'Enregistré.',
+    'Not saved:':
+      'Non enregistré :',
+    'Sign out of ITSaNAS on this machine?':
+      'Se déconnecter d’ITSaNAS sur cette machine ?',
+    "Syncing stops, and this machine stops answering the other members' checks until you sign in again. Your files and this machine's keys stay on this disk.":
+      'La synchronisation s’arrête, et cette machine ne répond plus aux vérifications des autres membres jusqu’à ce que vous vous reconnectiez. Vos fichiers et les clés de cette machine restent sur ce disque.',
+
+    // What the server says to Settings, line by line (said() in app.js).
+    'Syncing paused on this machine until you resume. Nothing is lost: your changes here wait until syncing resumes, and this machine keeps hosting for the others. A transfer under way finishes with the machine it is talking to (five minutes at most); no other starts.':
+      'Synchronisation en pause sur cette machine jusqu’à ce que vous repreniez. Rien n’est perdu : vos modifications ici attendent la reprise, et cette machine continue d’héberger pour les autres. Un transfert en cours se termine avec la machine concernée (cinq minutes au plus) ; aucun autre ne commence.',
+    'Resume sooner with: itsanas resume':
+      'Pour reprendre plus tôt : itsanas resume',
+    '(No daemon is running this node now; it reads this when it starts.)':
+      '(ITSaNAS ne tourne pas sur cette machine pour l’instant ; il le lira à son démarrage.)',
+    'Syncing was already paused.':
+      'La synchronisation était déjà en pause.',
+    'Syncing was not paused.':
+      'La synchronisation n’était pas en pause.',
+    'Syncing resumed; a round starts within two seconds.':
+      'Synchronisation reprise ; un tour commence d’ici deux secondes.',
+    'syncing is paused on this machine; `itsanas resume` resumes and syncs at once':
+      'la synchronisation est en pause sur cette machine ; Reprendre la relance et synchronise aussitôt',
+    'no daemon is running this node; start it, and it syncs as it starts':
+      'ITSaNAS ne tourne pas sur cette machine ; démarrez-le, il synchronise dès son démarrage',
+    'Asked; the round starts within two seconds.':
+      'Demandé ; le tour commence d’ici deux secondes.',
+    'The daemon syncs on its own setting again.':
+      'ITSaNAS synchronise de nouveau selon son propre réglage.',
+    'the ITSaNAS service is not running on this machine: start it (Start ITSaNAS, or `itsanas daemon`), or do this in a terminal with `itsanas vault --move` or `itsanas backup`':
+      'le service ITSaNAS ne tourne pas sur cette machine : démarrez-le (Start ITSaNAS, ou `itsanas daemon`), ou faites-le dans un terminal avec `itsanas vault --move` ou `itsanas backup`',
+    'asked; the service starts within two seconds':
+      'demandé ; le service commence d’ici deux secondes',
+
+    // "Copy this account to a USB key" (#st-usb).
+    'Copy this account to a USB key':
+      'Copier ce compte sur une clé USB',
+    'The key gets ITSaNAS for Windows, Mac and Linux, with this account in it: plug it into any computer, open it, and your files are there.':
+      'La clé reçoit ITSaNAS pour Windows, Mac et Linux, avec ce compte dedans : branchez-la sur n’importe quel ordinateur, ouvrez-la, et vos fichiers sont là.',
+    'Whoever opens the key with its passphrase IS this account: they can read and change all your files. Choose a long passphrase that you use nowhere else, and keep the key as safe as a house key.':
+      'Quiconque ouvre la clé avec sa phrase de passe EST ce compte : il peut lire et modifier tous vos fichiers. Choisissez une longue phrase de passe que vous n’utilisez nulle part ailleurs, et gardez la clé aussi précieusement qu’une clé de maison.',
+    'USB keys and external disks':
+      'Clés USB et disques externes',
+    'No USB key or external disk was found. Plug one in, then Refresh.':
+      'Aucune clé USB ni aucun disque externe trouvé. Branchez-en un, puis Actualiser.',
+    'Another folder':
+      'Autre dossier',
+    'Another folder…':
+      'Autre dossier…',
+    'Copy here':
+      'Copier ici',
+    'Refresh':
+      'Actualiser',
+    'Two ITSaNAS windows open, one after the other:':
+      'Deux fenêtres ITSaNAS s’ouvrent, l’une après l’autre :',
+    "first this machine's passphrase, then a new passphrase for the key, typed twice. If you cannot see them, look for ITSaNAS in your taskbar / Dock.":
+      'd’abord la phrase de passe de cette machine, puis une nouvelle phrase de passe pour la clé, tapée deux fois. Si vous ne les voyez pas, cherchez ITSaNAS dans votre barre des tâches / le Dock.',
+    'Too little room on it for the copy.':
+      'Trop peu de place dessus pour la copie.',
+    'This key already holds an ITSaNAS account: choose another key, or empty this one first.':
+      'Cette clé contient déjà un compte ITSaNAS : choisissez une autre clé, ou videz celle-ci d’abord.',
+    "This is where this account already lives: choose the key's own drive.":
+      'C’est là que ce compte se trouve déjà : choisissez le lecteur de la clé elle-même.',
+    'Nothing is there: is the key plugged in?':
+      'Il n’y a rien ici : la clé est-elle branchée ?',
+    'Type a full path, starting with / or a drive letter.':
+      'Tapez un chemin complet, qui commence par / ou une lettre de lecteur.',
+    'NTFS: a Mac can read this key but not write to it, so the copy will not start on a Mac. Reformat it as exFAT to use it everywhere.':
+      'NTFS : un Mac peut lire cette clé mais pas y écrire, donc la copie ne démarrera pas sur un Mac. Reformatez-la en exFAT pour l’utiliser partout.',
+    'FAT32: no file on it may exceed 4 GB, and your account can grow past that. exFAT has no such limit.':
+      'FAT32 : aucun fichier n’y peut dépasser 4 Go, et votre compte peut grandir au-delà. exFAT n’a pas cette limite.',
+    'Copying in the background':
+      'Copie en arrière-plan',
+    'Checking the key':
+      'Vérification de la clé',
+    "Opening this machine's keys":
+      'Ouverture des clés de cette machine',
+    'Checking the room on the key':
+      'Vérification de la place sur la clé',
+    'Writing the programs for every system on the key':
+      'Écriture des programmes pour chaque système sur la clé',
+    'Sealing the account on the key under its own passphrase':
+      'Scellement du compte sur la clé sous sa propre phrase de passe',
+    'Enrolling the key with the coordinator':
+      'Inscription de la clé auprès du coordinateur',
+    'free,':
+      'de libre,',
+    'about':
+      'environ',
+    'needed.':
+      'nécessaires.',
+    'free of':
+      'de libre sur',
+    'external disk?':
+      'disque externe ?',
+    'The copy needs about':
+      'La copie demande environ',
+    'on the key:':
+      'sur la clé :',
+    'for the programs':
+      'pour les programmes',
+    'for your files.':
+      'pour vos fichiers.',
+    'The size of your files is not known yet.':
+      'La taille de vos fichiers n’est pas encore connue.',
+    'Waiting for the passphrase windows…':
+      'En attente des fenêtres de phrase de passe…',
+    'The key is ready. Unplug it safely before taking it out.':
+      'La clé est prête. Éjectez-la proprement avant de la retirer.',
+    'The copy stopped:':
+      'La copie s’est arrêtée :',
+    'The copy stopped without saying why. Try again; a key it left half written is refused and must be emptied first.':
+      'La copie s’est arrêtée sans dire pourquoi. Réessayez ; une clé qu’elle a laissée à moitié écrite est refusée et doit d’abord être vidée.',
   },
 };

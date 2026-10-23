@@ -143,7 +143,10 @@ afterwards: it skips what is done and never makes a second account.
 
 Lost the words but still have a machine of the account and its passphrase?
 `itsanas words` (with `--instance NAME` where there are several) asks that
-passphrase and shows the 24 words again, even while ITSaNAS runs.
+passphrase and shows the 24 words again, even while ITSaNAS runs: numbered
+for paper, then on one line to copy and paste. A machine recovered with
+`itsanas login --from` holds the same account, so its words are the same and
+`itsanas words` shows them there too.
 
 `itsanas setup --text` asks the same questions in the terminal, and an SSH
 session uses the terminal by itself. Later, `itsanas settings` opens the same
@@ -160,8 +163,11 @@ Setup asks what to do when a new version is out: **install it by itself**
 `itsanas update --check` says whether there is one; `itsanas update` installs
 it and restarts every account's background service on the machine (no
 `--instance` needed): it asks each daemon itself to restart, and prints per
-account what it found: restarted, not running, stopped only, or still on the
-old version. `itsanas bench` is machine-wide in the same way.
+account what it found: restarted, not running, or still on the old version.
+A daemon that stopped for the restart and that nothing started again within a
+minute has its background service started by `update` itself, which says so
+("it stopped and its service did not start it again"); when that fails too it
+names `itsanas signin`. `itsanas bench` is machine-wide in the same way.
 
 A new version is installed only if it is newer than yours and carries the
 signature of the ITSaNAS release key compiled into your copy, and its download
@@ -260,6 +266,31 @@ that is not there is reported as such. That copy is a client only: it hosts
 nobody. Its keys are sealed by the passphrase alone, so anyone holding the
 drive and guessing the passphrase holds your account; choose a long one and
 keep the drive with you.
+
+**Your account on a USB key.** Plug the key in, then the ITSaNAS icon ->
+*Copy this account to a USB key...*: Settings opens at that section, which
+lists the USB keys and external disks plugged in, each with its free room and
+format, and says how much the copy needs. Click **Copy here** beside the key.
+A key without room, or that already holds an account, has its button greyed
+with the reason beside it; an NTFS or FAT32 key is offered with a warning (see
+below). A key the list does not show (plugged in after the page opened):
+**Refresh**; a folder elsewhere: **Another folder...**. Two windows then ask,
+in turn, this machine's passphrase and a NEW one for the key (typed twice): at
+least 12 characters, not this machine's, not `123456789012`, not your
+username. The page never asks a passphrase; it shows each step of the copy
+and, at the end, where the key's files are. Nothing is written before both
+passphrases are right and the key has room for the programs and your files.
+(In a terminal, `itsanas copy-to-key /media/usb` does the same.) The key
+then holds a portable copy (above) with your account already in it, as a
+device of its own, and a synced folder `ITSaNAS/Fichiers`. It enrols itself
+with the coordinator at once, or the first time it is started if the
+coordinator could not be reached; it says which. On another computer:
+double-click `ITSaNAS.cmd` (Windows) or `itsanas.command` (Mac), or run
+`sh itsanas.sh` (Linux); type the key's passphrase, and the window shows the
+sync until you close it. **Whoever has the key and its passphrase has your
+account**, and removing the key from your devices later does not lock them
+out: keep it like a house key. A key that already holds an account is never
+written over.
 
 **On a USB key, format it exFAT.** Moving the vault, `backup export` and
 `portable` ask the system what the target drive is formatted as, and say so in
@@ -398,7 +429,8 @@ An ITSaNAS icon starts at login: in the notification area on Windows, in the
 menu bar on a Mac, and as an indicator on a Linux desktop (it needs
 python3-gi and AppIndicator; without them, use `itsanas settings`). Its menu
 has the same choices: open the folder, pause for 1 hour, 8 hours or until you
-resume, sync now, sync every, Settings..., Sign out..., Remove this machine..., open the log, restart.
+resume, sync now, sync every, Settings..., Copy this account to a USB key...,
+Sign out..., Remove this machine..., open the log, restart.
 The Mac and Linux icons have not yet been run on a real desktop.
 
 ---

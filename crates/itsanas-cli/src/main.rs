@@ -14,6 +14,7 @@
 mod backup;
 mod bench;
 mod control;
+mod copy_to_key;
 mod daemon;
 mod discovery;
 mod drives;
@@ -212,7 +213,12 @@ enum Command {
     Signin,
     /// Open this machine's settings in the browser: status, pause, sync now,
     /// interval, space offered, folder, coordinator, sign out.
-    Settings,
+    Settings {
+        /// Open the page at this section: `key` is "Copy this account to a
+        /// USB key", what the tray icon's item opens.
+        #[arg(long, value_parser = ["key"])]
+        section: Option<String>,
+    },
     /// Show this node's identity, contents and hosting.
     Status {
         /// One line for a tray icon or a script: `healthy`, `paused`,
@@ -319,6 +325,23 @@ enum Command {
     Portable {
         /// The drive or directory to write `ITSaNAS/` into.
         dir: PathBuf,
+    },
+    /// Copy this account to a USB key that runs it on any computer.
+    ///
+    /// A portable copy (every system's program) whose home holds this
+    /// account under a passphrase of its own, with a device of its own. Asks
+    /// this machine's passphrase and a new one for the key, in windows of the
+    /// system's own. Whoever has the key and its passphrase has the account.
+    CopyToKey {
+        /// The key's drive or a folder on it; `ITSaNAS/` is written there.
+        dir: PathBuf,
+        /// Ask the passphrases here, then copy in the background, writing
+        /// each step to `<home>/copy-to-key.status`.
+        #[arg(long)]
+        detach: bool,
+        /// The background copy's own: its passphrases on standard input.
+        #[arg(long, hide = true)]
+        passphrases_on_stdin: bool,
     },
     /// Set, or show, the directory kept in step with this account.
     ///
@@ -850,7 +873,7 @@ fn run() -> Result<()> {
         command @ (Command::Setup { .. }
         | Command::Signout
         | Command::Signin
-        | Command::Settings) => setup_command(&home, cli.instance.as_deref(), command),
+        | Command::Settings { .. }) => setup_command(&home, cli.instance.as_deref(), command),
         command @ (Command::Pause { .. }
         | Command::Resume
         | Command::SyncNow
@@ -866,12 +889,10 @@ fn run() -> Result<()> {
         Command::Rm { path } => remove(&home, &path),
         Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
         Command::Backup { action } => backup_command(&home, action),
-        Command::Portable { dir } => make_portable(&dir),
-        Command::Vault {
-            path,
-            same_disk,
-            move_data,
-        } => vault(&home, path.as_deref(), same_disk, move_data),
+        command
+        @ (Command::Portable { .. } | Command::CopyToKey { .. } | Command::Vault { .. }) => {
+            to_a_drive(&home, command)
+        }
         Command::Scan { deep } => scan(&home, deep),
         Command::Space {
             pledge,
@@ -927,7 +948,7 @@ fn setup_command(home: &Path, instance: Option<&str>, command: Command) -> Resul
         } => setup::command(home, instance, text, answers.as_deref(), phrase_file),
         Command::Signout => setup::sign::signout(home, instance),
         Command::Signin => setup::sign::signin(home, instance),
-        Command::Settings => setup::web::settings(home, instance),
+        Command::Settings { section } => setup::web::settings(home, instance, section.as_deref()),
         _ => unreachable!("only setup, signout, signin and settings are sent here"),
     }
 }
@@ -1033,25 +1054,54 @@ fn passphrase(confirm: bool) -> Result<String> {
         )));
     }
 
-    let label = PROMPT_FOR.get().map(String::as_str);
-    eprintln!(
-        "{}",
-        passphrase_explanation(confirm, label, PROMPT_COMMAND.get().map(String::as_str))
-    );
-    let entered =
-        rpassword::prompt_password(prompt_text("Passphrase", label)).map_err(|error| {
-            CliError::Io {
-                path: PathBuf::from("<terminal>"),
-                source: error,
-            }
-        })?;
+    ask_passphrase(
+        confirm,
+        PROMPT_FOR.get().map(String::as_str),
+        PROMPT_COMMAND.get().map(String::as_str),
+        &mut || rpassword::ConfigBuilder::new().build(),
+    )
+}
+
+/// What the terminal shows before a passphrase is read: the explanation, a
+/// line break, then the prompt -- one text, which `rpassword` writes and
+/// flushes in one go on the stream it then reads from (`/dev/tty`, or
+/// `CONOUT$` on Windows). The explanation used to go to stderr and the prompt
+/// to the terminal, so with stderr piped through `tee` the prompt came first
+/// and the explanation after it, on the same line (Mac, hand test of
+/// 2026-10-22).
+fn passphrase_prompt(explanation: Option<&str>, what: &str, label: Option<&str>) -> String {
+    let prompt = prompt_text(what, label);
+    match explanation {
+        Some(explanation) => format!("{explanation}\n{prompt}"),
+        None => prompt,
+    }
+}
+
+/// Ask the passphrase on the terminal `terminal` opens, once or (choosing
+/// one) twice. The terminal is a parameter so that a test sees what is
+/// written, and in which order; [`passphrase`] passes `rpassword`'s own.
+fn ask_passphrase(
+    confirm: bool,
+    label: Option<&str>,
+    command: Option<&str>,
+    terminal: &mut dyn FnMut() -> rpassword::Config,
+) -> Result<String> {
+    let read = |prompt: String, config: rpassword::Config| {
+        rpassword::prompt_password_with_config(prompt, config).map_err(|error| CliError::Io {
+            path: PathBuf::from("<terminal>"),
+            source: error,
+        })
+    };
+    let explanation = passphrase_explanation(confirm, label, command);
+    let entered = read(
+        passphrase_prompt(Some(&explanation), "Passphrase", label),
+        terminal(),
+    )?;
 
     if confirm {
-        let again = rpassword::prompt_password(prompt_text("Confirm passphrase", label)).map_err(
-            |error| CliError::Io {
-                path: PathBuf::from("<terminal>"),
-                source: error,
-            },
+        let again = read(
+            passphrase_prompt(None, "Confirm passphrase", label),
+            terminal(),
         )?;
         if again != entered {
             return Err(CliError::Usage("the passphrases did not match".to_owned()));
@@ -1269,6 +1319,8 @@ fn login(
         "  device  : {} (new for this machine)",
         node.store.device_id()
     );
+    println!();
+    println!("{}", recovered_note(false));
     println!();
     println!("Nothing has been downloaded yet. Run `itsanas sync <peer>` to pull");
     println!("your data from a peer or a host that is holding it.");
@@ -1606,13 +1658,22 @@ fn disk_use(node: &Node) -> Result<DiskUse> {
     })
 }
 
-/// The text `itsanas status` prints, built rather than printed.
+/// `status`'s "listen" line: where the daemon writing the snapshot really
+/// listens, when it is not the configured address.
 ///
-/// Separated from the command so the daemon can write the same text to a
-/// snapshot after every round. The store allows one writer, so with the daemon
-/// up `status` cannot open it -- and answering "the node is busy" to somebody
-/// asking what their node is doing is the least useful thing this program could
-/// say.
+/// `daemon --listen` overrides the configuration for one run, and a snapshot
+/// that printed the configured port sent a reader to one nobody was on (hand
+/// test, 2026-10-22). `register` reads this line back (`daemon_listening`).
+fn listen_line(node: &Node, listening: Option<&str>) -> String {
+    match listening.filter(|bound| *bound != node.config.listen) {
+        Some(bound) => format!(
+            "  listen          {bound} (where this run is bound; configured {})",
+            node.config.listen
+        ),
+        None => format!("  listen          {}", node.config.listen),
+    }
+}
+
 /// `status`'s "used" line, and the warning when the disk can no longer
 /// hold the pledge.
 fn used_line(node: &Node, hosted: u64) -> String {
@@ -1630,7 +1691,17 @@ fn used_line(node: &Node, hosted: u64) -> String {
     )
 }
 
-fn render_status(node: &Node) -> Result<String> {
+/// The text `itsanas status` prints, built rather than printed.
+///
+/// Separated from the command so the daemon can write the same text to a
+/// snapshot after every round. The store allows one writer, so with the daemon
+/// up `status` cannot open it -- and answering "the node is busy" to somebody
+/// asking what their node is doing is the least useful thing this program could
+/// say.
+///
+/// `listening` is where the daemon writing the snapshot really listens, and
+/// `None` from `status` itself, which runs no listener.
+fn render_status(node: &Node, listening: Option<&str>) -> Result<String> {
     let mut out = String::new();
 
     // A local macro, so the body below reads the way it did when it printed.
@@ -1741,7 +1812,7 @@ fn render_status(node: &Node) -> Result<String> {
     );
     w!();
     w!("network");
-    w!("  listen          {}", node.config.listen);
+    w!("{}", listen_line(node, listening));
     // What other machines are told, which is the number that decides whether
     // anybody outside this LAN can reach this one -- and which differs from
     // `listen` exactly when somebody has set it up to.
@@ -2195,7 +2266,7 @@ fn status(home: &Path, brief: bool) -> Result<()> {
 
     match open(home) {
         Ok(node) => {
-            print!("{}", render_status(&node)?);
+            print!("{}", render_status(&node, None)?);
             Ok(())
         }
         // Still handled, because the daemon can take the lock between the probe
@@ -2241,8 +2312,7 @@ fn login_from_coordinator(
     );
     println!("  coordinator : {address} (kept for this machine)");
     println!();
-    println!("Your 24-word phrase is unchanged and still the ultimate backup:");
-    println!("this recovered the same identity, it did not create a new one.");
+    println!("{}", recovered_note(true));
     println!();
     println!("Nothing has been downloaded yet. Next, on this machine:");
     println!("  itsanas register           enrol it, so your other machines find it");
@@ -2251,6 +2321,22 @@ fn login_from_coordinator(
     println!("  itsanas daemon");
 
     Ok(())
+}
+
+/// What a recovery says about the 24 words. After the words were typed,
+/// that they are still the backup; after `--from`, where the person may not
+/// have them at hand, that this is the same account, whose words have not
+/// changed and are shown by `itsanas words` on any of its machines. "Your
+/// 24-word phrase is unchanged" said after `--from` read as if they ought to
+/// be on the desk (hand test, 2026-10-22).
+fn recovered_note(from_coordinator: bool) -> &'static str {
+    if from_coordinator {
+        "This is the same account as before, not a new one: its 24 recovery words\n\
+         are the same as before. `itsanas words` shows them, on any machine of the account."
+    } else {
+        "Your 24-word phrase is unchanged and still the ultimate backup:\n\
+         this recovered the same identity, it did not create a new one."
+    }
 }
 
 /// Fetch the account's recovery container from `address`, open it with
@@ -2377,6 +2463,12 @@ fn register(home: &Path, recovery: bool, withdraw: bool, invite: Option<&str>) -
     // `register` also announces this device's address: after `leave` that
     // would hand the peers, told it was gone, a fresh address to dial.
     refuse_if_departed(home)?;
+    // Before the passphrase, as `status` asks: with the daemon up, the store
+    // is its, and the open below would fail after the prompt with a message
+    // about locks that does not say what matters here.
+    if Node::exists(home) && itsanas_store::Store::is_locked(Node::store_path(home)) {
+        return Err(CliError::Usage(register_beside_daemon(home)));
+    }
     let node = open(home)?;
     let published = register_and_announce(&node, invite)?;
     println!(
@@ -2428,18 +2520,17 @@ const REGISTERED: &str = "registered";
 /// this device's address. The outer error is the registration; the inner
 /// result is the address published, or why none could be -- a device that
 /// registered and could not announce is still enrolled.
+///
+/// For a node this process is about to run, or runs, as the machine it is
+/// on: the address announced is the configured `listen` as seen from here.
+/// A daemon announces the address it is bound to instead, and a key being
+/// copied announces nothing ([`register_only`]).
 fn register_and_announce(
     node: &Node,
     invite: Option<&str>,
 ) -> Result<std::result::Result<String, String>> {
     let now = itsanas_discover::now_unix();
-    let secret = invite.map(coordinator::decode_secret).transpose()?;
-    coordinator::register_with(node, secret.as_ref(), now)?;
-    if let Some(address) = &node.config.coordinator {
-        // Best effort: without it a re-run of setup registers again, which
-        // the coordinator takes as a refresh.
-        let _ = std::fs::write(node.home.join(REGISTERED), address);
-    }
+    enrol(node, invite, now)?;
 
     // Publishing the address is part of registering, not a separate step: a
     // device nobody can reach has not really joined anything. What was
@@ -2448,6 +2539,78 @@ fn register_and_announce(
     // configured value told the reader an address no peer can dial.
     let listen = node.config.listen.clone();
     Ok(coordinator::announce(node, &listen, now).map_err(|error| error.to_string()))
+}
+
+/// Enrol this account and device with the configured coordinator, and
+/// announce nothing (red team, 2026-10-23).
+///
+/// For a node that is not, or not yet, the machine it would announce: a key
+/// being copied (`copy-to-key`), whose registration would otherwise publish
+/// the copying machine's address under the key's device id, and a daemon,
+/// which publishes the address it is bound to itself. Writes the
+/// `registered` marker, with the coordinator's address, as
+/// [`register_and_announce`] does.
+pub(crate) fn register_only(node: &Node) -> Result<()> {
+    enrol(node, None, itsanas_discover::now_unix())
+}
+
+/// Register with the configured coordinator and write the `registered`
+/// marker: what [`register_and_announce`] and [`register_only`] share.
+/// Registering again is a refresh at the coordinator, so a node enrolled
+/// before the marker existed enrols once more at its first start, harmlessly.
+fn enrol(node: &Node, invite: Option<&str>, now: u64) -> Result<()> {
+    let secret = invite.map(coordinator::decode_secret).transpose()?;
+    coordinator::register_with(node, secret.as_ref(), now)?;
+    if let Some(address) = &node.config.coordinator {
+        // Best effort: without it a re-run of setup registers again, which
+        // the coordinator takes as a refresh. The coordinator's address, so
+        // that a daemon pointed at another one enrols there (`daemon.rs`,
+        // `enrol_at_daemon_start`).
+        let _ = std::fs::write(node.home.join(REGISTERED), address);
+    }
+    Ok(())
+}
+
+/// Why `register` does not run beside this node's daemon, and where that
+/// daemon listens.
+///
+/// `register` announces the configured `listen` (`register_and_announce`).
+/// A daemon started with `--listen` elsewhere publishes the address it really
+/// listens on, and an announcement of the configured one would send the
+/// account's other machines to a port nobody is on (hand test, 2026-10-22).
+/// The store is the daemon's while it runs, so `register` cannot open the
+/// node anyway; what it can do is say where the daemon is, from the snapshot
+/// the daemon writes every round, as `status` does.
+fn register_beside_daemon(home: &Path) -> String {
+    let configured = config::Config::load(&Node::config_path(home))
+        .ok()
+        .map(|config| config.listen);
+    let listening = match (daemon_listening(home), configured) {
+        (Some(bound), Some(configured)) if bound != configured => format!(
+            ", listening on {bound} by its last report (not the configured {configured}); it \
+             publishes that address itself, at its start and whenever it changes. `itsanas \
+             listen {bound}` makes it the configured one, which `register` announces"
+        ),
+        (Some(bound), _) => format!(
+            ", listening on {bound} by its last report; it publishes that address itself, \
+             at its start and whenever it changes"
+        ),
+        (None, _) => String::new(),
+    };
+    format!(
+        "this node's daemon is running{listening}. `register` opens the node, which the \
+         daemon holds: stop the daemon, run `itsanas register`, and start the daemon again."
+    )
+}
+
+/// Where this node's daemon said it listens, from the `listen` line of its
+/// snapshot (`render_status`), if it left one.
+fn daemon_listening(home: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(home.join(SNAPSHOT)).ok()?;
+    text.lines()
+        .find_map(|line| line.trim_start().strip_prefix("listen "))
+        .and_then(|rest| rest.split_whitespace().next())
+        .map(str::to_owned)
 }
 
 /// The coordinator this node last registered with, if any.
@@ -3176,6 +3339,24 @@ fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `portable`, `copy-to-key` and `vault`: what `run` sends to a drive.
+fn to_a_drive(home: &Path, command: Command) -> Result<()> {
+    match command {
+        Command::Portable { dir } => make_portable(&dir),
+        Command::CopyToKey {
+            dir,
+            detach,
+            passphrases_on_stdin,
+        } => copy_to_key::command(home, &dir, detach, passphrases_on_stdin),
+        Command::Vault {
+            path,
+            same_disk,
+            move_data,
+        } => vault(home, path.as_deref(), same_disk, move_data),
+        _ => unreachable!("only portable, copy-to-key and vault are sent here"),
+    }
 }
 
 /// Whether a running daemon holds this node's store: disk work then goes
@@ -4789,8 +4970,20 @@ fn words(home: &Path) -> Result<()> {
     println!("write them on paper, keep the paper away from this machine, and");
     println!("clear this window afterwards.");
     println!();
-    print!("{}", phrase_grid(phrase.as_str()));
+    print!("{}", words_text(phrase.as_str()));
     Ok(())
+}
+
+/// What `itsanas words` shows: the numbered grid to copy onto paper, then the
+/// same words on one line, to paste into `login` or a phrase file -- the grid
+/// pasted as it stands carries its numbers and its line breaks.
+fn words_text(phrase: &str) -> String {
+    let words: Vec<&str> = phrase.split_whitespace().collect();
+    format!(
+        "{}\nOn one line, to copy and paste:\n{}\n",
+        phrase_grid(phrase),
+        words.join(" ")
+    )
 }
 
 fn doctor(home: &Path, deep: bool) -> Result<()> {
@@ -5186,6 +5379,87 @@ mod tests {
         assert_eq!(prompt_text("Passphrase", None), "Passphrase: ");
     }
 
+    /// A terminal for `ask_passphrase` that keeps one transcript: what was
+    /// written reaches it only when flushed, and the first read of each
+    /// answer is marked `<read>` -- so the order a person sees is the order
+    /// in the transcript.
+    #[derive(Clone, Default)]
+    struct Transcript {
+        shown: std::rc::Rc<std::cell::RefCell<String>>,
+        pending: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
+    }
+
+    impl std::io::Write for Transcript {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.pending.borrow_mut().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            let pending = std::mem::take(&mut *self.pending.borrow_mut());
+            self.shown
+                .borrow_mut()
+                .push_str(&String::from_utf8_lossy(&pending));
+            Ok(())
+        }
+    }
+
+    struct Typed {
+        answer: std::io::Cursor<Vec<u8>>,
+        seen: Transcript,
+        marked: bool,
+    }
+
+    impl std::io::Read for Typed {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if !std::mem::replace(&mut self.marked, true) {
+                self.seen.shown.borrow_mut().push_str("<read>");
+            }
+            self.answer.read(buf)
+        }
+    }
+
+    #[test]
+    fn red_team_the_passphrase_explanation_is_on_the_terminal_and_flushed_before_the_prompt() {
+        // The Mac log through `tee` read "Passphrase for 'test' (...): Type
+        // the passphrase of the account 'test' ...": the explanation went to
+        // stderr, the prompt to the terminal. Sabotage: print the explanation
+        // with eprintln! again and pass the bare prompt -- the transcript
+        // then starts with the prompt.
+        let terminal = Transcript::default();
+        let label = Some("'test' (/Users/n/.itsanas-test)");
+        let typed = super::ask_passphrase(true, label, Some("init"), &mut || {
+            rpassword::ConfigBuilder::new()
+                .input_reader(Typed {
+                    answer: std::io::Cursor::new(b"correct horse\n".to_vec()),
+                    seen: terminal.clone(),
+                    marked: false,
+                })
+                .output_writer(terminal.clone())
+                .build()
+        })
+        .expect("the passphrase is read");
+        assert_eq!(typed, "correct horse");
+        let shown = terminal.shown.borrow().clone();
+        let explanation = passphrase_explanation(true, label, Some("init"));
+        let expected = format!("{explanation}\n{}<read>", prompt_text("Passphrase", label));
+        assert!(
+            shown.starts_with(&expected),
+            "the explanation, then the prompt, both shown before the answer is read: {shown:?}"
+        );
+        assert_eq!(
+            shown.matches(explanation.as_str()).count(),
+            1,
+            "explained once, not again at the confirmation: {shown:?}"
+        );
+        assert!(
+            shown.contains(&format!(
+                "{}<read>",
+                prompt_text("Confirm passphrase", label)
+            )),
+            "{shown:?}"
+        );
+    }
+
     #[test]
     fn a_passphrase_prompt_says_whether_to_choose_or_type_and_what_it_is_not() {
         let typing = passphrase_explanation(false, Some("'nicolas' (C:\\home)"), Some("doctor"));
@@ -5551,6 +5825,51 @@ mod tests {
         );
     }
 
+    /// Hand test, 2026-10-22: `register` announces the configured `listen`,
+    /// and a daemon run with `--listen` elsewhere is on another port. With
+    /// that daemon up, `register` says so before asking for a passphrase,
+    /// and names the port the daemon really listens on, read back from the
+    /// snapshot it writes -- which must therefore carry that port, not the
+    /// configured one. Sabotaged (no check before the open; the snapshot
+    /// printing the configured port): red.
+    #[test]
+    fn register_beside_a_running_daemon_names_the_port_it_really_listens_on() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        // Held open for the whole test, as a running daemon holds it.
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        assert_eq!(node.config.listen, "0.0.0.0:9797");
+        let snapshot = super::render_status(&node, Some("0.0.0.0:9811")).expect("render");
+        assert!(
+            snapshot.contains("listen          0.0.0.0:9811"),
+            "the daemon's snapshot names the configured port, not the one it listens on:\n\
+             {snapshot}"
+        );
+        std::fs::write(
+            home.join(SNAPSHOT),
+            format!(
+                "snapshot {} every 60\n{snapshot}",
+                itsanas_discover::now_unix()
+            ),
+        )
+        .expect("snapshot");
+
+        let refused =
+            register(&home, false, false, None).expect_err("register beside a running daemon");
+        let said = refused.to_string();
+        assert!(
+            said.contains("daemon is running")
+                && said.contains("0.0.0.0:9811")
+                && said.contains("itsanas listen 0.0.0.0:9811"),
+            "register did not say where the running daemon listens: {said}"
+        );
+
+        // `status` itself runs no listener: the configured port, unqualified.
+        let own = super::render_status(&node, None).expect("render");
+        assert!(own.contains("listen          0.0.0.0:9797\n"), "{own}");
+    }
+
     /// What a sync pulled must reach the synced folder without a `scan`: the
     /// file is put in the store as a pull would, and `sync_folder` -- what
     /// `sync` runs after its rounds -- must write it out.
@@ -5586,6 +5905,42 @@ mod tests {
         let phrase = words.join(" ");
         assert_eq!(phrase_words(&phrase_grid(&phrase)), phrase);
         assert_eq!(phrase_words(&words.join("\n")), phrase, "one word a line");
+    }
+
+    /// `itsanas words` shows the grid for paper and the same words on one
+    /// line for a paste. Sabotage: print the grid alone -- no line of the
+    /// output is then the phrase.
+    #[test]
+    fn itsanas_words_prints_the_grid_and_then_the_words_on_one_line() {
+        let words: Vec<String> = (1..=24).map(|i| format!("word{i}")).collect();
+        let phrase = words.join(" ");
+        let text = super::words_text(&phrase);
+        let grid = phrase_grid(&phrase);
+        assert!(text.starts_with(&grid), "the grid first: {text}");
+        let last = text.lines().last().unwrap_or_default();
+        assert_eq!(
+            last, phrase,
+            "the last line is the 24 words, in order: {text}"
+        );
+    }
+
+    /// After `--from` the person may not have the words at hand: the message
+    /// says it is the same account and where to see them, and keeps the
+    /// "ultimate backup" sentence for the path where they were just typed.
+    /// Sabotage: return the words version for both.
+    #[test]
+    fn a_recovery_from_a_coordinator_says_where_the_words_are_and_the_words_path_keeps_its_note() {
+        let from = super::recovered_note(true);
+        assert!(from.contains("same account"), "{from}");
+        assert!(from.contains("24 recovery words"), "{from}");
+        assert!(from.contains("same as before"), "{from}");
+        assert!(from.contains("`itsanas words`"), "{from}");
+        assert!(from.contains("any machine of the account"), "{from}");
+        assert!(!from.contains("ultimate backup"), "{from}");
+        let typed = super::recovered_note(false);
+        assert!(typed.contains("24-word phrase is unchanged"), "{typed}");
+        assert!(typed.contains("ultimate backup"), "{typed}");
+        assert!(typed.contains("did not create a new one"), "{typed}");
     }
 
     /// A tray shows what this says, so a daemon that holds the store but has

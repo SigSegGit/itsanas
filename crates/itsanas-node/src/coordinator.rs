@@ -354,7 +354,7 @@ pub fn published_address(
     publishable(
         config,
         listen,
-        local,
+        on_a_real_adapter(local, &itsanas_discover::LocalNets::of_this_machine()),
         found_address(),
         relayed_address(),
         global_ipv6,
@@ -1129,7 +1129,34 @@ pub fn direct_address(config: &crate::config::Config, listen: &str) -> Option<St
             socket.connect(target).ok()?;
             socket.local_addr().ok()
         })
+        .map(|local| on_a_real_adapter(local, &itsanas_discover::LocalNets::of_this_machine()))
         .map(|local| reachable_address(listen, prefer_global_ipv6(local, global_ipv6())))
+}
+
+/// `local`, unless it is an address of one of this machine's virtual
+/// adapters -- a hypervisor's host network, a container bridge, Tailscale or
+/// another overlay (`itsanas_discover::is_virtual_adapter`) -- in which case
+/// the first address of a real one, on the same port.
+///
+/// The route to the coordinator can leave by an overlay: a laptop whose
+/// Tailscale carries everything published its 100.x address, which nobody at
+/// home or elsewhere dials, and a machine whose route flips between adapters
+/// publishes a new address at every flip. Both `address_now` and the address
+/// published go through this, so the two keep agreeing. A machine with no
+/// real adapter keeps the virtual one rather than publish nothing.
+///
+/// "Virtual" is the adapter's name (`LocalNets::is_virtual`), with a Hyper-V
+/// external switch counted real (red team, 2026-10-23): the LAN address of a
+/// machine with one lives on `vEthernet (External ...)`, and swapping it for
+/// another card's -- a second NIC on another network -- published an address
+/// the house could not dial. A carrier-grade NAT address (100.64.0.0/10) on a
+/// network card is that card's own and stays too.
+#[must_use]
+pub fn on_a_real_adapter(local: SocketAddr, nets: &itsanas_discover::LocalNets) -> SocketAddr {
+    match nets.physical_v4() {
+        Some(real) if nets.is_virtual(local.ip()) => SocketAddr::new(real.into(), local.port()),
+        _ => local,
+    }
 }
 
 /// Whether this build announces a list of addresses. Every build since
@@ -1886,6 +1913,90 @@ fe800000000000000000000000000001 02 40 20 80 eth0
             "another account's machine was listed as this account's, or this account's own was lost"
         );
         assert_eq!(dropped, 1, "the lie was dropped without being counted");
+    }
+
+    /// The hand test of 2026-10-22, on the publishing side: a laptop with
+    /// VMware's host networks, WSL's switch and Tailscale must publish the
+    /// Wi-Fi address, whichever adapter the route to the coordinator left by;
+    /// a real adapter's address stands as it is, and a machine with nothing
+    /// but virtual adapters keeps what it has.
+    #[test]
+    fn red_team_an_address_on_a_virtual_adapter_is_not_published() {
+        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+        let mask = ip("255.255.255.0");
+        let laptop = itsanas_discover::LocalNets::from_interfaces([
+            ("Wi-Fi".to_owned(), ip("192.168.1.142"), mask),
+            (
+                "VMware Network Adapter VMnet1".to_owned(),
+                ip("192.168.19.1"),
+                mask,
+            ),
+            (
+                "VMware Network Adapter VMnet8".to_owned(),
+                ip("192.168.117.1"),
+                mask,
+            ),
+            (
+                "vEthernet (WSL)".to_owned(),
+                ip("172.27.160.1"),
+                ip("255.255.240.0"),
+            ),
+            (
+                "Tailscale".to_owned(),
+                ip("100.101.102.103"),
+                ip("255.192.0.0"),
+            ),
+        ]);
+        for route in [
+            "192.168.19.1:9811",
+            "192.168.117.1:9811",
+            "172.27.160.1:9811",
+            "100.101.102.103:9811",
+        ] {
+            assert_eq!(
+                on_a_real_adapter(route.parse().unwrap(), &laptop).to_string(),
+                "192.168.1.142:9811",
+                "a route by {route} would publish a virtual adapter's address"
+            );
+        }
+        let wifi: SocketAddr = "192.168.1.142:9811".parse().unwrap();
+        assert_eq!(on_a_real_adapter(wifi, &laptop), wifi);
+        let only_virtual = itsanas_discover::LocalNets::from_interfaces([(
+            "vmnet1".to_owned(),
+            ip("192.168.19.1"),
+            mask,
+        )]);
+        let route: SocketAddr = "192.168.19.1:9811".parse().unwrap();
+        assert_eq!(on_a_real_adapter(route, &only_virtual), route);
+    }
+
+    /// Red team, 2026-10-23: the routed address on a Hyper-V external switch
+    /// is the machine's LAN address, and a CGNAT address on the Wi-Fi card
+    /// is the card's own. Neither is swapped for another adapter's.
+    #[test]
+    fn red_team_an_external_switch_or_a_cgnat_card_keeps_its_routed_address() {
+        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+        let mask = ip("255.255.255.0");
+        let hyper_v = itsanas_discover::LocalNets::from_interfaces([
+            ("vEthernet (External)".to_owned(), ip("192.168.1.5"), mask),
+            ("Wi-Fi".to_owned(), ip("10.9.8.7"), mask),
+        ]);
+        let route: SocketAddr = "192.168.1.5:9797".parse().unwrap();
+        assert_eq!(
+            on_a_real_adapter(route, &hyper_v),
+            route,
+            "the external switch's LAN address was swapped for another card's"
+        );
+        let hotspot = itsanas_discover::LocalNets::from_interfaces([
+            ("Wi-Fi".to_owned(), ip("100.70.1.2"), ip("255.192.0.0")),
+            ("Ethernet".to_owned(), ip("192.168.1.9"), mask),
+        ]);
+        let route: SocketAddr = "100.70.1.2:9797".parse().unwrap();
+        assert_eq!(
+            on_a_real_adapter(route, &hotspot),
+            route,
+            "a CGNAT address on the Wi-Fi card was swapped for another card's"
+        );
     }
 
     #[test]

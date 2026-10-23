@@ -20,7 +20,10 @@ use std::{
 
 use zeroize::Zeroizing;
 
-use super::{Backends, Context, Mode, Server, browser_command, has_desktop, http, suggest_pledge};
+use super::{
+    Backends, Context, LANGUAGE_FILE, Mode, Server, browser_command, has_desktop, http,
+    language_of, suggest_pledge,
+};
 use crate::{
     error::{CliError, Result},
     setup::{Secret, SecretPrompt, ServiceControl},
@@ -118,6 +121,9 @@ fn backends(seen: &Seen, home: &Path) -> Backends {
         }),
         name: |_, name| Ok(name == "taken"),
         another: |_| Ok(()),
+        drives: Box::new(Vec::new),
+        programs: || Some(1024),
+        copy: Box::new(|_, _| Err("no copy is started in these tests".to_owned())),
     }
 }
 
@@ -129,7 +135,20 @@ struct Page {
 
 impl Page {
     fn start(home: &Path, base: &Path, mode: Mode, seen: &Seen) -> Self {
-        let server = Server::bind(home, None, mode, base, backends(seen, home)).expect("bind");
+        Self::start_with(home, base, mode, seen, |_| {})
+    }
+
+    /// [`Page::start`], with some backends replaced.
+    fn start_with(
+        home: &Path,
+        base: &Path,
+        mode: Mode,
+        seen: &Seen,
+        change: impl FnOnce(&mut Backends),
+    ) -> Self {
+        let mut backends = backends(seen, home);
+        change(&mut backends);
+        let server = Server::bind(home, None, mode, base, backends).expect("bind");
         let ctx = Arc::clone(&server.ctx);
         let handle = std::thread::spawn(move || server.serve(Duration::from_secs(300)));
         Self {
@@ -800,6 +819,9 @@ fn while_a_window_is_open_the_page_is_told_so_and_a_closed_window_says_what_to_d
         }),
         name: |_, _| Ok(false),
         another: |_| Ok(()),
+        drives: Box::new(Vec::new),
+        programs: || None,
+        copy: Box::new(|_, _| Err("no copy is started in this test".to_owned())),
     };
     let server = Server::bind(&home, None, Mode::Setup, dir.path(), backends).expect("bind");
     let ctx = Arc::clone(&server.ctx);
@@ -1085,17 +1107,24 @@ fn texts_of_the_page() -> Vec<String> {
             texts.push(text.to_owned());
         }
     }
-    // `t('` as a call, not the end of `createElement('`.
+    // `t('` as a call, not the end of `createElement('`; `N('` marks a text
+    // of a table translated where it is shown; `say('` translates its text.
     let js = super::APP_JS;
-    let mut from = 0;
-    while let Some(at) = js[from..].find("t('") {
-        let start = from + at;
-        from = start + 3;
-        if js[..start].ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
-            continue;
+    for call in ["t('", "N('", "say('"] {
+        let mut from = 0;
+        while let Some(at) = js[from..].find(call) {
+            let start = from + at;
+            from = start + call.len();
+            if js[..start].ends_with(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.') {
+                continue;
+            }
+            let rest = &js[from..];
+            let text = rest[..rest.find("')").expect("end of the call")].replace("\\'", "'");
+            // `say('')` clears the line: nothing to translate.
+            if !text.is_empty() {
+                texts.push(text);
+            }
         }
-        let rest = &js[from..];
-        texts.push(rest[..rest.find("')").expect("end of t()")].replace("\\'", "'"));
     }
     for label in super::APP_JS.split("label: '").skip(1) {
         texts.push(label[..label.find('\'').expect("label")].to_owned());
@@ -1103,20 +1132,754 @@ fn texts_of_the_page() -> Vec<String> {
     texts
 }
 
+/// One JavaScript string literal at the start of `text`: its value and what
+/// follows it.
+fn js_string(text: &str) -> (String, &str) {
+    let quote = text.chars().next().expect("a string");
+    assert!(
+        quote == '\'' || quote == '"',
+        "not a string in i18n.js: {}",
+        &text[..text.len().min(60)]
+    );
+    let mut value = String::new();
+    let mut chars = text[1..].char_indices();
+    while let Some((at, c)) = chars.next() {
+        match c {
+            '\\' => match chars.next().expect("an escape").1 {
+                'n' => value.push('\n'),
+                other => value.push(other),
+            },
+            c if c == quote => return (value, &text[1 + at + 1..]),
+            c => value.push(c),
+        }
+    }
+    panic!("a string in i18n.js never ends");
+}
+
+/// The French table of i18n.js, entry by entry, as the browser reads it. A
+/// line the reader does not understand is a failure, not a skipped entry.
+fn french_table() -> Vec<(String, String)> {
+    let js = super::I18N_JS;
+    let mut rest = &js[js.find("fr: {").expect("the fr table") + "fr: {".len()..];
+    let mut entries = Vec::new();
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == ',');
+        if rest.starts_with('}') {
+            return entries;
+        }
+        if let Some(comment) = rest.strip_prefix("//") {
+            rest = comment.split_once('\n').map_or("", |(_, next)| next);
+            continue;
+        }
+        let (key, after) = js_string(rest);
+        let after = after
+            .trim_start()
+            .strip_prefix(':')
+            .unwrap_or_else(|| panic!("no ':' after {key:?} in i18n.js"));
+        let (value, after) = js_string(after.trim_start());
+        entries.push((key, value));
+        rest = after;
+    }
+}
+
+fn french_keys() -> BTreeSet<String> {
+    french_table().into_iter().map(|(key, _)| key).collect()
+}
+
+#[test]
+fn the_french_table_has_one_entry_per_english_text_and_none_empty() {
+    let table = french_table();
+    assert!(
+        table.len() > 100,
+        "i18n.js was misread: {} entries",
+        table.len()
+    );
+    let mut keys = BTreeSet::new();
+    for (english, french) in &table {
+        assert!(
+            keys.insert(english.as_str()),
+            "{english:?} is twice in the French table: the browser keeps the last one, and the \
+             first, maybe the one corrected, is silently dropped"
+        );
+        assert!(
+            !french.trim().is_empty(),
+            "{english:?} has an empty French entry: the page would show nothing there"
+        );
+    }
+}
+
 #[test]
 fn every_text_of_the_page_has_a_french_translation() {
+    let french = french_keys();
     let untranslated: Vec<String> = texts_of_the_page()
         .into_iter()
         .filter(|text| !matches!(text.as_str(), "ITSaNAS" | "English" | "Français"))
-        .filter(|text| {
-            !super::I18N_JS.contains(&format!("'{text}'"))
-                && !super::I18N_JS.contains(&format!("\"{text}\""))
-        })
+        .filter(|text| !french.contains(text))
         .collect();
     assert!(
         untranslated.is_empty(),
         "a French speaker would read these in English, in the middle of French ones: \
          add them to i18n.js: {untranslated:#?}"
+    );
+}
+
+#[test]
+fn no_text_set_by_the_script_skips_the_translation() {
+    // Emptying a line (`textContent = ''`) shows no text.
+    let js = super::APP_JS
+        .replace("textContent = ''", "")
+        .replace("textContent = \"\"", "");
+    for bypass in [
+        "textContent = '",
+        "textContent = \"",
+        "confirm('",
+        "confirm(\"",
+        "textContent = reply.said",
+        "settings.job.said;",
+    ] {
+        assert!(
+            !js.contains(bypass),
+            "app.js sets a visible text with {bypass:?}: it shows in English whatever the \
+             language chosen (hand test, 2026-10-22); pass it through t(), N() or said()"
+        );
+    }
+}
+
+#[test]
+fn the_page_speaks_the_browser_s_language_until_one_is_chosen() {
+    for (accept, language) in [
+        ("fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7", Some("fr")),
+        ("fr", Some("fr")),
+        ("FR-ca", Some("fr")),
+        ("en-GB,en;q=0.9,fr;q=0.8", Some("en")),
+        ("de-DE,de;q=0.9,fr;q=0.8,en;q=0.5", Some("fr")),
+        ("en;q=0.5, fr;q=0.6", Some("fr")),
+        ("fr;q=0, en", Some("en")),
+        ("de-DE, *;q=0.1", None),
+        ("fr;q=bogus", None),
+        ("", None),
+    ] {
+        assert_eq!(language_of(accept), language, "Accept-Language: {accept:?}");
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let host = page.host();
+    let french = page.send(
+        "GET",
+        "/",
+        &[
+            ("Host", &host),
+            ("Accept-Language", "fr-FR,fr;q=0.9,en;q=0.8"),
+        ],
+        "",
+    );
+    assert!(
+        french.body.contains("<html lang=\"fr\" data-lang=\"fr\">"),
+        "a browser asking for French got a page that starts in English (hand test, \
+         2026-10-22): {}",
+        &french.body[..french.body.len().min(200)]
+    );
+    let english = page.send(
+        "GET",
+        "/",
+        &[("Host", &host), ("Accept-Language", "en-US")],
+        "",
+    );
+    assert!(english.body.contains("<html lang=\"en\" data-lang=\"en\">"));
+    let unsaid = page.send("GET", "/", &[("Host", &host)], "");
+    assert!(
+        unsaid.body.contains("<html lang=\"en\">"),
+        "with no Accept-Language the page must leave the choice to the browser's own language"
+    );
+}
+
+#[test]
+fn a_language_chosen_in_the_page_is_kept_in_the_node_s_home_and_wins_over_the_browser() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let host = page.host();
+    assert_eq!(
+        page.send("POST", "/api/language", &[("Host", &host)], "lang=fr")
+            .status,
+        403,
+        "a language was set without the page's key"
+    );
+    assert_eq!(page.api("POST", "/api/language", "lang=de").status, 400);
+    assert_eq!(page.api("POST", "/api/language", "lang=..%2Fx").status, 400);
+    let chosen = page.api("POST", "/api/language", "lang=fr");
+    assert_eq!(chosen.status, 200, "{}", chosen.body);
+    assert_eq!(
+        std::fs::read_to_string(home.join(LANGUAGE_FILE)).expect("language file"),
+        "fr\n",
+        "the choice was not kept beside the node: the next page, on another port, forgets it"
+    );
+    drop(page);
+    // The next `itsanas settings`: a new server, a browser that asks for English.
+    let next = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let host = next.host();
+    let reply = next.send(
+        "GET",
+        "/",
+        &[("Host", &host), ("Accept-Language", "en-US")],
+        "",
+    );
+    assert!(
+        reply.body.contains("data-lang=\"fr\""),
+        "French was chosen in a page of this node and the next page opened in English"
+    );
+
+    // During a setup, before the node's home exists: nothing is made for it.
+    let fresh = dir.path().join("fresh");
+    let setup = Page::start(&fresh, dir.path(), Mode::Setup, &Seen::default());
+    let early = setup.api("POST", "/api/language", "lang=fr");
+    assert_eq!(early.status, 200, "{}", early.body);
+    assert!(early.body.contains("\"kept\":false"), "{}", early.body);
+    assert!(
+        !fresh.exists(),
+        "choosing a language made the node's home before setup did"
+    );
+}
+
+/// The text of a JSON string field in a flat answer: `said` or `error`.
+fn json_field(body: &str, name: &str) -> String {
+    let start = body
+        .find(&format!("\"{name}\":\""))
+        .unwrap_or_else(|| panic!("no {name} in {body}"))
+        + name.len()
+        + 4;
+    let mut out = String::new();
+    let mut chars = body[start..].chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => return out,
+            '\\' => match chars.next().expect("escape") {
+                'n' => out.push('\n'),
+                'u' => {
+                    let hex: String = chars.by_ref().take(4).collect();
+                    out.push(
+                        char::from_u32(u32::from_str_radix(&hex, 16).expect("hex")).expect("char"),
+                    );
+                }
+                other => out.push(other),
+            },
+            c => out.push(c),
+        }
+    }
+    panic!("unterminated {name} in {body}");
+}
+
+#[test]
+fn what_settings_hears_from_the_server_has_a_french_translation() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    // Enough of a node for the control file; no daemon runs it.
+    std::fs::write(home.join("keystore.bin"), b"x").expect("keystore");
+    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let mut heard = Vec::new();
+    for (path, body) in [
+        ("/api/control", "action=pause&for=resume"),
+        ("/api/control", "action=pause&for=resume"),
+        ("/api/control", "action=sync-now"),
+        ("/api/control", "action=resume"),
+        ("/api/control", "action=resume"),
+        ("/api/control", "action=sync-now"),
+        ("/api/control", "action=interval&every=auto"),
+        ("/api/disk", "action=export&path=%2Fx"),
+    ] {
+        let reply = page.api("POST", path, body);
+        let field = if reply.status == 200 { "said" } else { "error" };
+        heard.extend(json_field(&reply.body, field).lines().map(str::to_owned));
+    }
+    let french = french_keys();
+    let untranslated: Vec<&String> = heard
+        .iter()
+        .filter(|line| !french.contains(*line))
+        .collect();
+    assert!(
+        untranslated.is_empty(),
+        "Settings shows what the server says line by line through i18n.js; these lines would \
+         stay English in a French page: {untranslated:#?}"
+    );
+}
+
+#[test]
+fn settings_is_one_column_of_cards_with_the_usb_copy_shown() {
+    assert!(
+        super::APP_CSS.contains("nav[hidden] + main { grid-column: 1 / -1; }"),
+        "with the steps' list hidden, Settings falls into the list's 260 px column (hand test, \
+         2026-10-22)"
+    );
+    let html = super::INDEX_HTML;
+    let settings = &html[html.find("data-page=\"settings\"").expect("settings")
+        ..html.find("data-page=\"closed\"").expect("closed")];
+    assert_eq!(
+        settings.matches("<section class=\"card\"").count(),
+        settings.matches("<h2").count(),
+        "a heading of Settings is outside a card of its own"
+    );
+    let slot = &settings[settings
+        .find("id=\"st-usb\"")
+        .expect("the section \"Copy this account to a USB key\" is gone")..];
+    let slot = &slot[..slot.find("</section>").expect("end of the section")];
+    assert!(slot.contains("Copy this account to a USB key"));
+    assert!(
+        slot.starts_with("id=\"st-usb\" aria-labelledby=\"st-h-usb\">"),
+        "the USB copy section is hidden: the tray's \"Copy this account to a USB key\" opens \
+         a page without it"
+    );
+    assert!(
+        slot.contains("IS this account"),
+        "the section copies an account without saying that whoever opens the key is it"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Copy this account to a USB key
+// ---------------------------------------------------------------------------
+
+/// An account on this machine, and drives beside it.
+struct KeyWorld {
+    dir: tempfile::TempDir,
+    home: PathBuf,
+}
+
+impl KeyWorld {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("node");
+        crate::node::Node::create(&home, PASSPHRASE, "camille").expect("account");
+        Self { dir, home }
+    }
+
+    /// A drive named `name`, made, absolute.
+    fn drive(&self, name: &str) -> PathBuf {
+        let drive = std::path::absolute(self.dir.path().join(name)).expect("absolute");
+        std::fs::create_dir_all(&drive).expect("drive");
+        drive
+    }
+
+    /// A drive that already holds a copied account.
+    fn taken_drive(&self, name: &str) -> PathBuf {
+        let drive = self.drive(name);
+        let key_home = drive.join(crate::portable::DIR).join("home");
+        std::fs::create_dir_all(&key_home).expect("key home");
+        std::fs::write(key_home.join("keystore.bin"), b"x").expect("keystore");
+        drive
+    }
+}
+
+fn candidate(
+    path: &Path,
+    free: Option<u64>,
+    format: Option<crate::drives::Format>,
+) -> crate::drives::Candidate {
+    crate::drives::Candidate {
+        path: path.to_owned(),
+        label: path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        total: free.map(|free| free * 2),
+        free,
+        format,
+        external: false,
+    }
+}
+
+/// The paths the stand-in copy was started for, and whether it still runs.
+#[derive(Clone, Default)]
+struct Copies {
+    started: Arc<Mutex<Vec<PathBuf>>>,
+    running: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Copies {
+    fn backend(&self) -> super::StartCopy {
+        let copies = self.clone();
+        Box::new(move |_, dir| {
+            copies.started.lock().expect("started").push(dir.to_owned());
+            copies
+                .running
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let running = Arc::clone(&copies.running);
+            let alive: super::Running =
+                Box::new(move || running.load(std::sync::atomic::Ordering::SeqCst));
+            Ok(alive)
+        })
+    }
+
+    fn started(&self) -> Vec<PathBuf> {
+        self.started.lock().expect("started").clone()
+    }
+}
+
+/// `path=...` for a form, as `URLSearchParams` writes it.
+fn path_form(path: &Path) -> String {
+    let mut out = String::from("path=");
+    for byte in path.display().to_string().bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.~/".contains(&byte) {
+            out.push(char::from(byte));
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+    out
+}
+
+#[test]
+fn red_team_the_usb_copy_answers_only_the_page_s_key_and_only_in_settings() {
+    let world = KeyWorld::new();
+    let key = world.drive("KEY");
+    let copies = Copies::default();
+    let seen = Seen::default();
+    let calls = [
+        ("GET", "/api/keys", String::new()),
+        ("POST", "/api/keys", path_form(&key)),
+        ("GET", "/api/copy-to-key", String::new()),
+        ("POST", "/api/copy-to-key", path_form(&key)),
+    ];
+    let page = Page::start_with(&world.home, world.dir.path(), Mode::Settings, &seen, |b| {
+        let listed = key.clone();
+        b.drives = Box::new(move || vec![candidate(&listed, Some(1 << 40), None)]);
+        b.copy = copies.backend();
+    });
+    let host = page.host();
+    for (method, path, body) in &calls {
+        for token in [None, Some("0".repeat(32))] {
+            let mut headers = vec![("Host", host.as_str())];
+            if let Some(token) = &token {
+                headers.push(("X-Itsanas-Token", token.as_str()));
+            }
+            let reply = page.send(method, path, &headers, body);
+            assert_eq!(
+                reply.status, 403,
+                "{method} {path} answered without the page's key ({token:?}): any page open in \
+                 the browser could list the drives or start a copy: {}",
+                reply.body
+            );
+            assert!(
+                !reply.body.contains("KEY"),
+                "{method} {path} told a stranger about a drive"
+            );
+        }
+    }
+    assert!(
+        copies.started().is_empty(),
+        "a copy started for a request without the page's key"
+    );
+    drop(page);
+
+    let setup = Page::start_with(&world.home, world.dir.path(), Mode::Setup, &seen, |b| {
+        b.copy = copies.backend();
+    });
+    for (method, path, body) in &calls {
+        assert_eq!(
+            setup.api(method, path, body).status,
+            404,
+            "the setup page answered {method} {path}, a Settings action"
+        );
+    }
+    assert!(copies.started().is_empty(), "the setup page started a copy");
+}
+
+#[test]
+fn a_key_without_room_or_already_holding_an_account_does_not_fit_and_says_why() {
+    let world = KeyWorld::new();
+    let roomy = world.drive("ROOMY");
+    let small = world.drive("SMALL");
+    let taken = world.taken_drive("TAKEN");
+    let windows = world.drive("WINDOWS");
+    let inside = world.home.clone();
+    let listed = [
+        candidate(&roomy, Some(64 << 30), Some(crate::drives::Format::ExFat)),
+        candidate(&small, Some(1 << 20), Some(crate::drives::Format::Fat32)),
+        candidate(&taken, Some(64 << 30), None),
+        candidate(&windows, Some(64 << 30), Some(crate::drives::Format::Ntfs)),
+        candidate(&inside, Some(64 << 30), None),
+    ];
+    let page = Page::start_with(
+        &world.home,
+        world.dir.path(),
+        Mode::Settings,
+        &Seen::default(),
+        |b| b.drives = Box::new(move || listed.to_vec()),
+    );
+    let reply = page.api("GET", "/api/keys", "");
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let rows: Vec<&str> = reply.body.split("{\"path\":").skip(1).collect();
+    assert_eq!(rows.len(), 5, "{}", reply.body);
+    let row = |drive: &Path| {
+        let quoted = super::json::quote(&drive.display().to_string());
+        *rows
+            .iter()
+            .find(|row| row.starts_with(&quoted))
+            .unwrap_or_else(|| panic!("no row for {}: {}", drive.display(), reply.body))
+    };
+    assert!(
+        row(&roomy).contains("\"fits\":true,\"why\":null"),
+        "a key with room was refused: {}",
+        row(&roomy)
+    );
+    let small_row = row(&small);
+    assert!(
+        small_row.contains("\"fits\":false,\"why\":\"room\""),
+        "a 1 MiB key was offered for a copy of the programs alone: {small_row}"
+    );
+    assert!(
+        json_field(small_row, "reason").contains("free"),
+        "{small_row}"
+    );
+    assert!(
+        json_field(small_row, "warning").contains("FAT32"),
+        "{small_row}"
+    );
+    let taken_row = row(&taken);
+    assert!(
+        taken_row.contains("\"fits\":false,\"why\":\"account\""),
+        "a key holding an account was offered: the copy would land on top of it: {taken_row}"
+    );
+    assert!(
+        json_field(taken_row, "reason").contains("already holds an account"),
+        "{taken_row}"
+    );
+    let windows_row = row(&windows);
+    assert!(
+        windows_row.contains("\"fits\":true") && json_field(windows_row, "warning").contains("Mac"),
+        "an NTFS key fits, with the warning that a Mac cannot write to it: {windows_row}"
+    );
+    assert!(
+        row(&inside).contains("\"fits\":false,\"why\":\"inside\""),
+        "the account's own home was offered as a key: {}",
+        row(&inside)
+    );
+    for sizes in ["\"programs_bytes\":", "\"needed\":", "\"copying\":false"] {
+        assert!(
+            reply.body.contains(sizes),
+            "{sizes} missing: {}",
+            reply.body
+        );
+    }
+
+    // "Another folder…": the same row for a path the person chose.
+    let chosen = page.api("POST", "/api/keys", &path_form(&taken));
+    assert_eq!(chosen.status, 200, "{}", chosen.body);
+    assert!(
+        chosen.body.contains("\"fits\":false,\"why\":\"account\""),
+        "{}",
+        chosen.body
+    );
+    let relative = page.api("POST", "/api/keys", "path=KEY");
+    assert!(
+        relative.body.contains("\"fits\":false,\"why\":\"path\""),
+        "{}",
+        relative.body
+    );
+}
+
+#[test]
+fn red_team_the_copy_refuses_a_path_the_jobs_would_refuse_and_starts_nothing() {
+    let world = KeyWorld::new();
+    let taken = world.taken_drive("TAKEN");
+    let copies = Copies::default();
+    let page = Page::start_with(
+        &world.home,
+        world.dir.path(),
+        Mode::Settings,
+        &Seen::default(),
+        |b| b.copy = copies.backend(),
+    );
+    for (body, why) in [
+        ("path=".to_owned(), "no path"),
+        ("path=KEY".to_owned(), "a relative path"),
+        ("path=%2Fmedia%2Fkey%0A%2Fetc".to_owned(), "a line break"),
+        ("path=%2Fmedia%2Fkey%00".to_owned(), "a NUL"),
+        (path_form(&taken), "a key that already holds an account"),
+        (path_form(&world.home), "this account's own home"),
+    ] {
+        let reply = page.api("POST", "/api/copy-to-key", &body);
+        assert_eq!(
+            reply.status, 400,
+            "{why} was accepted as a key: {}",
+            reply.body
+        );
+        assert!(
+            copies.started().is_empty(),
+            "a copy was started for {why}: the passphrase windows open for a copy that cannot \
+             happen, or one that writes where it must not"
+        );
+    }
+    let key = world.drive("KEY");
+    let started = page.api("POST", "/api/copy-to-key", &path_form(&key));
+    assert_eq!(started.status, 202, "{}", started.body);
+    assert_eq!(copies.started(), [key]);
+}
+
+#[test]
+fn a_second_copy_while_one_runs_is_refused_and_the_page_follows_the_first() {
+    let world = KeyWorld::new();
+    let key = world.drive("KEY");
+    let copies = Copies::default();
+    let page = Arc::new(Page::start_with(
+        &world.home,
+        world.dir.path(),
+        Mode::Settings,
+        &Seen::default(),
+        |b| b.copy = copies.backend(),
+    ));
+    // An old run's end, which must not read as this run's.
+    std::fs::write(
+        world.home.join(crate::copy_to_key::STATUS),
+        "{\"step\":\"done\",\"done\":true,\"said\":\"old\",\"error\":null}\n",
+    )
+    .expect("old status");
+    let body = path_form(&key);
+    let racers: Vec<_> = (0..2)
+        .map(|_| {
+            let page = Arc::clone(&page);
+            let body = body.clone();
+            std::thread::spawn(move || page.api("POST", "/api/copy-to-key", &body).status)
+        })
+        .collect();
+    let mut statuses: Vec<u16> = racers
+        .into_iter()
+        .map(|racer| racer.join().expect("racer"))
+        .collect();
+    statuses.sort_unstable();
+    assert_eq!(
+        statuses,
+        [202, 409],
+        "two copies at once: two pairs of passphrase windows, two writers on one key"
+    );
+    assert_eq!(copies.started().len(), 1);
+    let state = page.api("GET", "/api/copy-to-key", "");
+    assert_eq!(
+        state.body, "{\"running\":true,\"progress\":null}",
+        "the old run's end was shown as this one's"
+    );
+
+    // The windows answered: the first process is gone, its background run
+    // writes the steps. Still running, still refused.
+    copies
+        .running
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    std::fs::write(
+        world.home.join(crate::copy_to_key::STATUS),
+        "{\"step\":\"programs\",\"done\":false,\"said\":\"writing the programs\",\"error\":null}\n",
+    )
+    .expect("status");
+    assert_eq!(page.api("POST", "/api/copy-to-key", &body).status, 409);
+    let state = page.api("GET", "/api/copy-to-key", "");
+    assert!(state.body.contains("\"running\":true"), "{}", state.body);
+    assert!(
+        state.body.contains("\"step\":\"programs\""),
+        "{}",
+        state.body
+    );
+    assert!(
+        page.api("GET", "/api/keys", "")
+            .body
+            .contains("\"copying\":true")
+    );
+
+    // Done: the page reads the end, and another copy may start.
+    std::fs::write(
+        world.home.join(crate::copy_to_key::STATUS),
+        "{\"step\":\"done\",\"done\":true,\"said\":\"The key is ready\",\"error\":null}\n",
+    )
+    .expect("status");
+    let state = page.api("GET", "/api/copy-to-key", "");
+    assert!(state.body.contains("\"running\":false"), "{}", state.body);
+    assert!(state.body.contains("The key is ready"), "{}", state.body);
+    assert_eq!(page.api("POST", "/api/copy-to-key", &body).status, 202);
+    assert_eq!(copies.started().len(), 2);
+}
+
+/// A CHILD THAT VANISHED BEFORE IT SAID ANYTHING: the page's own child
+/// exited and no status was written yet (its background run is starting,
+/// or it died before its first step). For two minutes another copy is
+/// refused: two writers would race on one key.
+#[test]
+fn red_team_a_copy_is_refused_while_the_last_one_started_has_not_spoken() {
+    let world = KeyWorld::new();
+    let key = world.drive("KEY");
+    let copies = Copies::default();
+    let page = Page::start_with(
+        &world.home,
+        world.dir.path(),
+        Mode::Settings,
+        &Seen::default(),
+        |b| b.copy = copies.backend(),
+    );
+    let body = path_form(&key);
+    assert_eq!(page.api("POST", "/api/copy-to-key", &body).status, 202);
+    copies
+        .running
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        page.api("POST", "/api/copy-to-key", &body).status,
+        409,
+        "a second copy started while the first had not written a word"
+    );
+    assert_eq!(copies.started().len(), 1);
+    // It spoke and ended: another may start.
+    std::fs::write(
+        world.home.join(crate::copy_to_key::STATUS),
+        "{\"step\":\"failed\",\"done\":true,\"said\":\"\",\"error\":\"cancelled\"}\n",
+    )
+    .expect("status");
+    assert_eq!(page.api("POST", "/api/copy-to-key", &body).status, 202);
+}
+
+#[test]
+fn the_usb_section_has_a_handler_for_each_of_its_controls() {
+    let html = super::INDEX_HTML;
+    let section = &html[html.find("id=\"st-usb\"").expect("section")..];
+    let section = &section[..section.find("</section>").expect("end")];
+    let mut ids = Vec::new();
+    for piece in section
+        .split("<button")
+        .skip(1)
+        .chain(section.split("<input").skip(1))
+    {
+        if let Some(start) = piece.find("id=\"") {
+            let rest = &piece[start + 4..];
+            ids.push(rest[..rest.find('"').expect("quote")].to_owned());
+        }
+    }
+    ids.sort();
+    ids.dedup();
+    for id in [
+        "st-usb-browse",
+        "st-usb-go",
+        "st-usb-path",
+        "st-usb-refresh",
+    ] {
+        assert!(ids.iter().any(|found| found == id), "no #{id} in {ids:?}");
+    }
+    for id in &ids {
+        assert!(
+            super::APP_JS.contains(&format!("$('{id}').addEventListener(")),
+            "#{id} is in the USB section and app.js gives it no handler: a control that does \
+             nothing"
+        );
+    }
+    for path in ["'/api/keys'", "'/api/copy-to-key'", "'/api/pick'"] {
+        assert!(
+            super::APP_JS.contains(path),
+            "the section never calls {path}"
+        );
+    }
+    assert!(
+        super::APP_JS.contains("section=([a-z]+)")
+            && super::APP_JS.contains("location.hash === '#key'")
+            && super::APP_JS.contains("if (section === 'key')"),
+        "the tray's \"Copy this account to a USB key\" opens Settings at #key, and the page \
+         does not go there"
     );
 }
 

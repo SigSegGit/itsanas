@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1307 test functions, 14 of them `#[ignore]`d into the slow job, and 382 of
+**1378 test functions, 14 of them `#[ignore]`d into the slow job, and 422 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1465,19 +1465,49 @@ Major step: Rodin on the plan before the code.
 ### Next, asked by Nicolas — 2026-10-08
 
 - ✅ **The vault on another disk** (2026-10-13, HANDOVER §8 0s): `itsanas vault PATH`; a dropped mount is refused, never recreated empty.
-- ⬜ **Export an account to a new key from the tray icon, on every system**
-  (Nicolas, 2026-10-22). From the tray (Windows, macOS menu bar, Linux), an item
-  "Put this account on a USB key..." that picks a drive, checks its format and
-  room (`drives.rs`), writes the all-systems portable copy (`portable.rs`) and
-  enrols it as a new device of the account. What exists: `itsanas portable DIR`
-  and Settings > Disks write the copy for every system (proven by
-  `red_team_a_portable_copy_starts_on_every_system_and_hosts_nobody`); `drives.rs`
-  reads format and room; no tray has the item. What is missing: the item in the
-  three trays, and the **open design question**, enrolling a device without
-  retyping the 24 words. Login today needs the 24 words or `--from` coordinator
-  escrow; candidates are a one-time code from an existing device, or the sealed
-  recovery container. Until that is decided the copy is a client that still
-  needs the words to sign in.
+- ✅ **Export an account to a new key from the tray icon, on every system**
+  (Nicolas, 2026-10-22; the Settings section 2026-10-23). The design question is settled: a **local** copy, no
+  coordinator escrow and no 24 words. Done: `itsanas copy-to-key DIR
+  [--detach]` (`copy_to_key.rs`) asks this machine's passphrase and a new one
+  for the key in the system's own windows (12 characters at least, not this
+  machine's, not a pattern, not the username), checks the room (the signed
+  release's size plus the account's content from the daemon's status), writes
+  the all-systems portable copy, and seals the account in its home under the
+  key's passphrase with a **device of its own**, the coordinator, and a synced
+  folder `ITSaNAS/Fichiers` written relative to the home so it follows the
+  drive to any mount point. It enrols at once, or, offline or with the
+  account full, at the key's first daemon start (`enrol_at_start`). The
+  launchers run the key's account in their window (`daemon`) when it has one.
+  The three trays have *Copy this account to a USB key...*, which opens
+  `settings --section key`. That section lists the USB keys and external
+  disks (`drives::candidates`: `Get-Volume` Removable or Fixed on USB on
+  Windows, `/Volumes` on macOS, `/media/$USER`, `/run/media/$USER` and `/mnt`
+  on Linux) with their free room and format, greys out with the reason a key
+  without room or holding an account, warns of NTFS and FAT32, offers
+  "Another folder…" and Refresh, then starts `copy-to-key PATH --detach`
+  (`POST /api/copy-to-key`, one at a time) and follows
+  `<home>/copy-to-key.status` step by step; no command line, and the
+  passphrases only in the copy's own windows. Hardened after a red team
+  (2026-10-23): nothing is written through a link on the key (`ITSaNAS`,
+  `home`, `bin` and their entries, the launchers, README, marker, keystore;
+  a dangling `keystore.bin` link counts as an account), replaced files go
+  through a new file renamed over them and the keystore is `create_new`;
+  the inside check compares canonical paths and refuses any `..`; a
+  `.copy-lock` holds the key for one copy at a time, and the page counts a
+  child it started as running for two minutes until it writes a status; a
+  failure after the keystore removes what the run wrote in the key's home;
+  a drive whose free space cannot be read is refused; `/mnt` lists only
+  local disk file systems (no NFS, SMB, SSHFS, `fuse.*`); the key's
+  passphrase may not be the machine's in another case, hold it or be held
+  in it, nor a common base with digits around it. Proven by the fifteen
+  `red_team_*` tests of `copy_to_key/tests.rs` and the three of `web/tests.rs`;
+  the drive parsers are tested on samples of each system's output, and the
+  real listing on Windows and macOS is still to be seen by hand. Not in it: a
+  device label (no field in the config or the claim carries one).
+  **Open problem:** the key's keystore holds the account's master secret, so a
+  lost key with its passphrase is the whole account, and `device forget` stops
+  the other machines dialling it, not its holder reading and writing. The real
+  fix is a device that receives device and data keys, never the master.
 - ⬜ **The MCP server** Nicolas is creating on GitHub: to be improved with him
   once it is in the repository (scope to be written down then).
 - 🟨 **Setup, reliable with several accounts on one machine** (2026-10-12: the page offers "set up another account" under a new instance name, never an existing home; done steps hide their fields). Seen on Windows
@@ -1966,11 +1996,49 @@ makes the next round due 5 s later (`SETTLE`, `control.rs`), never sooner than
 costs a round per half minute at most; only files taken in or deleted here
 count, not what a peer's push wrote out. A portable copy's base interval is
 60 s instead of 300 s (`PORTABLE_INTERVAL`, `daemon.rs`), and its banner says
-`portable  yes` on stdout. Still open: the daemon publishes the port it really
-listens on, but `register` announces `config.listen`, and a peer reads the
-coordinator only at its hourly publication (`PUBLISH_EVERY`), so a peer that
-read before the key's daemon started dials the registered port for up to an
-hour.
+`portable  yes` on stdout. The daemon publishes the port it really listens on,
+but `register` announces `config.listen`, and a peer read the coordinator only
+at its hourly publication (`PUBLISH_EVERY`), so a peer that read before the
+key's daemon started dialled the registered port for up to an hour.
+**The stale address is now handled (2026-10-22):** a machine of the account
+that answers at none of the addresses held for it makes the next round read
+the coordinator again, two minutes after the last read (`REREAD_AFTER_MISS`,
+`contact.rs`), so the new port is dialled within two rounds; while it stays
+missing the wait doubles up to the hour (2026-10-23), so a machine that stays
+off costs about four extra reads, not 288 a day; the daemon's
+snapshot gives the port it is bound to, and `register` beside a running daemon
+names that port before asking for a passphrase instead of failing on the lock.
+**Two houses on 192.168.1.x, and virtual adapters (2026-10-23):** the laptop
+and a Mac in another house dialled each other's 192.168.1.x address from the
+coordinator at every round; a private (RFC 1918) address of the account's
+machines is now dialled only when local discovery heard that machine here
+(`Contact::dialable`), or when discovery is off. The laptop's log also said the
+portable key beside it "moved" every round between 192.168.1.142 and its VMware
+host networks 192.168.19.1 and 192.168.117.1: a beacon copy heard over a virtual
+network no longer moves a device heard on a real one, and an address on a
+virtual adapter (Hyper-V, VMware, VirtualBox, WSL, Docker, Tailscale-like
+overlays) is not published when a real one exists (`itsanas_discover::interfaces`,
+through the new `if-addrs` dependency). Still open: "same public address" as
+evidence of one LAN needs the coordinator to record where a publication came
+from, a protocol change.
+**Red-team pass on those fixes (2026-10-23):** the private-address gate also
+dropped reachable machines (another VLAN, a VPN at 10.x, a Wi-Fi filtering
+multicast, the first seconds after a start); it now opens while discovery warms
+up (60 s), one round in six as a probe, and for an address that answered until
+it fails, and "heard here" means heard within the expiry. A beacon copy over a
+virtual adapter refreshes nothing, so a replay there keeps no machine alive.
+The routed address is swapped for a real adapter's only when its adapter is
+virtual by name, and a Hyper-V external switch counts as real, so neither
+`vEthernet (External)` nor a CGNAT address on a network card is replaced. (The
+brief said "only when the replacement is on the same /24"; that never holds
+for a host-only or overlay network, so it would have undone the 2026-10-22 fix,
+and was not done.) The wait after a miss falls back to two minutes at most once
+per ten minutes. A key enrolling at its first daemon start announces the
+address the daemon is bound to, a `registered` marker naming another
+coordinator makes the node enrol with the configured one, and
+`register_only` registers without announcing anything (for `copy-to-key`, whose
+call site is still `register_and_announce`). The Windows wrapper restarts at
+once after exit 75 at most three times in 60 s.
 
 ### At most 10 live devices per account — 2026-09-30, raised 2026-10-22
 

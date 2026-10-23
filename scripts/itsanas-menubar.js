@@ -128,6 +128,7 @@ function menuModel(brief, intervalLine, label) {
         }));
         items.push(entry('sep', ''));
         items.push(entry('item', 'Settings...', ['settings']));
+        items.push(entry('item', 'Copy this account to a USB key...', ['settings', '--section', 'key']));
         items.push(entry('item', 'Sign out...', ['signout'], { confirm: true }));
         items.push(entry('item', 'Remove this machine...', ['leave'], { confirm: true }));
     }

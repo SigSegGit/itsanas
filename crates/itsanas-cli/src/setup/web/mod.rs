@@ -78,6 +78,70 @@ const I18N_JS: &str = include_str!("i18n.js");
 /// The project's icon (docs/assets), in the header and as the favicon.
 const ICON_PNG: &[u8] = include_bytes!("../../../../../docs/assets/icon.png");
 
+/// The languages the page speaks: English, written in the page, and those of
+/// `i18n.js`.
+const LANGUAGES: [&str; 2] = ["en", "fr"];
+/// In a node's home, the language chosen in the page's list. Each page is a
+/// new port, so a new origin with empty browser storage: a choice kept there
+/// was gone at the next `itsanas settings` (hand test, 2026-10-22: French
+/// chosen in setup, Settings in English). Kept beside the node, the next page
+/// and the tray read the same word.
+pub(crate) const LANGUAGE_FILE: &str = "language";
+
+/// The language chosen in a page of this node, when one was.
+pub(crate) fn saved_language(home: &Path) -> Option<&'static str> {
+    let text = std::fs::read_to_string(home.join(LANGUAGE_FILE)).ok()?;
+    let word = text.trim();
+    LANGUAGES.into_iter().find(|language| *language == word)
+}
+
+/// Keep `language` for the next page, once the node's home exists: before the
+/// first step of a setup it does not, and the choice waits in memory until the
+/// run ends.
+fn save_language(home: &Path, language: &str) -> bool {
+    home.is_dir() && std::fs::write(home.join(LANGUAGE_FILE), format!("{language}\n")).is_ok()
+}
+
+/// The language of the page a browser asks for in `Accept-Language`: the one
+/// it prefers most (by `q`, then by order) among those the page speaks, by
+/// primary tag, so `fr-CA` is French. `None` when it asks for none of them.
+pub(crate) fn language_of(accept: &str) -> Option<&'static str> {
+    let mut best: Option<(u16, &'static str)> = None;
+    for item in accept.split(',') {
+        let mut parts = item.split(';');
+        let tag = parts.next().unwrap_or("").trim();
+        let primary = tag.split('-').next().unwrap_or("").to_ascii_lowercase();
+        let quality = parts
+            .find_map(|param| param.trim().strip_prefix("q="))
+            .map_or(Some(1000), quality_of);
+        let (Some(quality), Some(language)) = (
+            quality,
+            LANGUAGES.into_iter().find(|language| *language == primary),
+        ) else {
+            continue;
+        };
+        if quality > 0 && best.is_none_or(|(had, _)| quality > had) {
+            best = Some((quality, language));
+        }
+    }
+    best.map(|(_, language)| language)
+}
+
+/// A `q` value in thousandths, without a float: `1`, `0.8`, `0.125`.
+fn quality_of(text: &str) -> Option<u16> {
+    let text = text.trim();
+    let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
+    if fraction.len() > 3 || !fraction.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let thousandths = format!("{fraction:0<3}").parse::<u16>().ok()?;
+    match whole {
+        "0" => Some(thousandths),
+        "1" if thousandths == 0 => Some(1000),
+        _ => None,
+    }
+}
+
 /// What the page is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Mode {
@@ -120,7 +184,28 @@ pub(crate) struct Backends {
     /// Start the setup of another account, as instance `name`, in a page of
     /// its own ([`start_another`]).
     pub(crate) another: fn(&str) -> std::result::Result<(), String>,
+    /// The USB keys and external disks plugged in ([`crate::drives::candidates`]).
+    pub(crate) drives: ListDrives,
+    /// What this release's programs take on a key, asked once, in the
+    /// background: it is a download of the signed manifest.
+    pub(crate) programs: fn() -> Option<u64>,
+    /// Start `copy-to-key DIR --detach` for the home; what tells whether it
+    /// still runs ([`crate::copy_to_key::start_detached`]).
+    pub(crate) copy: StartCopy,
 }
+
+type ListDrives = Box<dyn Fn() -> Vec<crate::drives::Candidate> + Send + Sync>;
+/// Whether a started copy's process still runs; asked under a lock.
+pub(crate) type Running = Box<dyn FnMut() -> bool + Send>;
+type StartCopy = Box<dyn Fn(&Path, &Path) -> std::result::Result<Running, String> + Send + Sync>;
+
+/// A copy whose progress file has not changed for this long is a copy that
+/// died without a word: the page offers to start another.
+const COPY_STALE: Duration = Duration::from_secs(30 * 60);
+
+/// How long a copy started here still counts as running once its child
+/// ended without a status written since ([`start_copy`]).
+const SILENT_CHILD: Duration = Duration::from_secs(2 * 60);
 
 impl Backends {
     fn of_this_machine(home: &Path, instance: Option<&str>) -> Self {
@@ -140,6 +225,19 @@ impl Backends {
             }),
             name: super::name_taken,
             another: start_another,
+            drives: Box::new(crate::drives::candidates),
+            programs: || {
+                let curl = crate::update::Curl;
+                crate::update::Updater::of_this_build(&curl)
+                    .and_then(|updater| updater.release_bytes())
+                    .ok()
+            },
+            copy: Box::new(|home, dir| {
+                let mut child =
+                    crate::copy_to_key::start_detached(home, dir).map_err(|e| e.to_string())?;
+                let running: Running = Box::new(move || matches!(child.try_wait(), Ok(None)));
+                Ok(running)
+            }),
         }
     }
 }
@@ -192,6 +290,15 @@ struct Context {
     last_action: Mutex<Instant>,
     quit: AtomicBool,
     live: AtomicUsize,
+    /// The language chosen in the page's list: read from the node's home,
+    /// set by POST /api/language.
+    language: Mutex<Option<&'static str>>,
+    /// What the programs take on a key, once the background ask answered
+    /// ([`Backends::programs`]); `None` before, or when it could not say.
+    programs: Mutex<Option<u64>>,
+    programs_asked: AtomicBool,
+    /// The copy to a key this page started, while its first process runs.
+    copying: Mutex<Option<Running>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -243,6 +350,10 @@ impl Server {
                 last_action: Mutex::new(Instant::now()),
                 quit: AtomicBool::new(false),
                 live: AtomicUsize::new(0),
+                language: Mutex::new(saved_language(home)),
+                programs: Mutex::new(None),
+                programs_asked: AtomicBool::new(false),
+                copying: Mutex::new(None),
             }),
         })
     }
@@ -422,7 +533,9 @@ fn route(ctx: &Arc<Context>, request: &Request) -> Response {
         );
     }
     match (request.method.as_str(), request.path.as_str()) {
-        ("GET", "/" | "/index.html") => Response::new(200, "text/html; charset=utf-8", INDEX_HTML),
+        ("GET", "/" | "/index.html") => {
+            Response::new(200, "text/html; charset=utf-8", index_html(ctx, request))
+        }
         ("GET", "/app.css") => Response::new(200, "text/css; charset=utf-8", APP_CSS),
         ("GET", "/app.js") => Response::new(200, "text/javascript; charset=utf-8", APP_JS),
         ("GET", "/i18n.js") => Response::new(200, "text/javascript; charset=utf-8", I18N_JS),
@@ -431,6 +544,40 @@ fn route(ctx: &Arc<Context>, request: &Request) -> Response {
         ("GET", _) => Response::refuse(404, "no such page"),
         _ => Response::refuse(405, "not here"),
     }
+}
+
+/// The page, in the language chosen before, else the browser's: said in
+/// `<html lang>` from the first byte, so nothing shows in English first and
+/// the page needs no request to know it.
+fn index_html(ctx: &Context, request: &Request) -> String {
+    let chosen = *lock(&ctx.language);
+    match chosen.or_else(|| request.header("accept-language").and_then(language_of)) {
+        Some(language) => INDEX_HTML.replacen(
+            "<html lang=\"en\">",
+            &format!("<html lang=\"{language}\" data-lang=\"{language}\">"),
+            1,
+        ),
+        None => INDEX_HTML.to_owned(),
+    }
+}
+
+/// The language chosen in the page's list, kept for the next page.
+fn choose_language(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let Some(language) = field(&form, "lang")
+        .and_then(|asked| LANGUAGES.into_iter().find(|language| *language == asked))
+    else {
+        return Response::refuse(400, "this page speaks English (en) and French (fr)");
+    };
+    *lock(&ctx.language) = Some(language);
+    let kept = save_language(&ctx.home, language);
+    ok_json(object(&[
+        ("language", quote(language)),
+        ("kept", kept.to_string()),
+    ]))
 }
 
 fn api(ctx: &Arc<Context>, request: &Request) -> Response {
@@ -449,11 +596,16 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
     }
     let method = request.method.as_str();
     let path = request.path.as_str();
-    if (method, path) != ("GET", "/api/state") {
+    // Polls are not actions: a forgotten tab polls too.
+    if !matches!((method, path), ("GET", "/api/state" | "/api/copy-to-key")) {
         *lock(&ctx.last_action) = Instant::now();
     }
     match (method, path) {
         ("GET", "/api/state") => ok_json(state_json(ctx)),
+        ("GET", "/api/keys") if ctx.mode == Mode::Settings => keys(ctx),
+        ("POST", "/api/keys") if ctx.mode == Mode::Settings => key_check(ctx, request),
+        ("GET", "/api/copy-to-key") if ctx.mode == Mode::Settings => copy_state(ctx),
+        ("POST", "/api/copy-to-key") if ctx.mode == Mode::Settings => start_copy(ctx, request),
         ("GET", "/api/plan") => ok_json(plan_json(ctx)),
         ("POST", "/api/run") => start_run(ctx, request),
         ("POST", "/api/control") if ctx.mode == Mode::Settings => steer(ctx, request),
@@ -461,6 +613,7 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/disk") if ctx.mode == Mode::Settings => disk_job(ctx, request),
         ("POST", "/api/name") if ctx.mode == Mode::Setup => check_name(ctx, request),
         ("POST", "/api/another") if ctx.mode == Mode::Setup => another_account(ctx, request),
+        ("POST", "/api/language") => choose_language(ctx, request),
         ("POST", "/api/free") => free_space(ctx, request),
         ("POST", "/api/pick") => pick(request),
         ("POST", "/api/open") => open_folder(ctx, request, false),
@@ -828,6 +981,10 @@ fn run_engine(ctx: &Context, answers: Answers) {
         }
         Err(error) => Err(error.to_string()),
     };
+    // A language chosen before the home existed is kept now that it does.
+    if let Some(language) = *lock(&ctx.language) {
+        save_language(&ctx.home, language);
+    }
     ctx.finish(outcome);
 }
 
@@ -908,6 +1065,279 @@ fn sign_out(ctx: &Context) -> Response {
             quote(&format!("{done}.\n{}", sign::SIGNED_OUT)),
         )])),
         Err(error) => Response::refuse(409, &error.to_string()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Copy this account to a USB key
+// ---------------------------------------------------------------------------
+
+/// What the programs take on a key: known once the background ask answered,
+/// `None` meanwhile (the room check then counts the guess).
+fn programs_size(ctx: &Arc<Context>) -> Option<u64> {
+    if !ctx.programs_asked.swap(true, Ordering::SeqCst) {
+        let worker = Arc::clone(ctx);
+        // Not asked again if no thread can be had: the guess stands.
+        let _ = std::thread::Builder::new()
+            .name("programs-size".to_owned())
+            .spawn(move || {
+                let size = (worker.backends.programs)();
+                *lock(&worker.programs) = size;
+            });
+    }
+    *lock(&ctx.programs)
+}
+
+/// The account's config, or the refusal to send.
+fn config_for_copy(ctx: &Context) -> std::result::Result<Config, Response> {
+    if !Node::exists(&ctx.home) {
+        return Err(Response::refuse(
+            409,
+            "no account is set up on this machine",
+        ));
+    }
+    Config::load(&Node::config_path(&ctx.home)).map_err(|error| {
+        Response::refuse(
+            409,
+            &format!("this account's settings could not be read: {error}"),
+        )
+    })
+}
+
+fn number(value: Option<u64>) -> String {
+    value.map_or_else(|| "null".to_owned(), |value| value.to_string())
+}
+
+/// One drive as the page lists it, with whether the copy fits there.
+fn key_json(
+    ctx: &Context,
+    config: &Config,
+    candidate: &crate::drives::Candidate,
+    programs: Option<u64>,
+) -> String {
+    let (fits, warning) = crate::copy_to_key::assess(
+        &ctx.home,
+        config,
+        &candidate.path,
+        candidate.free,
+        candidate.format.as_ref(),
+        programs,
+    );
+    let refused = fits.err();
+    object(&[
+        ("path", quote(&candidate.path.display().to_string())),
+        ("label", quote(&candidate.label)),
+        ("total_bytes", number(candidate.total)),
+        ("free_bytes", number(candidate.free)),
+        (
+            "total",
+            optional(candidate.total.map(format_size).as_deref()),
+        ),
+        ("free", optional(candidate.free.map(format_size).as_deref())),
+        (
+            "format",
+            optional(
+                candidate
+                    .format
+                    .as_ref()
+                    .map(crate::drives::format_name)
+                    .as_deref(),
+            ),
+        ),
+        ("external", candidate.external.to_string()),
+        ("fits", refused.is_none().to_string()),
+        ("why", optional(refused.as_ref().map(|r| r.why))),
+        (
+            "reason",
+            optional(refused.as_ref().map(|r| r.said.as_str())),
+        ),
+        ("warning", optional(warning.as_deref())),
+    ])
+}
+
+/// The sizes every row is measured against.
+fn sizes_json(ctx: &Arc<Context>) -> (Option<u64>, Vec<(&'static str, String)>) {
+    let programs = programs_size(ctx);
+    let program_bytes = crate::copy_to_key::programs_bytes(programs);
+    let account = crate::copy_to_key::content_of(&ctx.home);
+    let needed = program_bytes.saturating_add(account.unwrap_or(0));
+    (
+        programs,
+        vec![
+            ("account_bytes", number(account)),
+            ("account", optional(account.map(format_size).as_deref())),
+            ("programs_bytes", program_bytes.to_string()),
+            ("programs", quote(&format_size(program_bytes))),
+            ("programs_known", programs.is_some().to_string()),
+            ("needed_bytes", needed.to_string()),
+            ("needed", quote(&format_size(needed))),
+        ],
+    )
+}
+
+/// `GET /api/keys`: the USB keys and external disks plugged in, each with
+/// whether the copy fits on it and why not.
+fn keys(ctx: &Arc<Context>) -> Response {
+    let config = match config_for_copy(ctx) {
+        Ok(config) => config,
+        Err(refused) => return refused,
+    };
+    let (programs, mut fields) = sizes_json(ctx);
+    let rows = (ctx.backends.drives)()
+        .iter()
+        .map(|candidate| key_json(ctx, &config, candidate, programs))
+        .collect::<Vec<_>>();
+    fields.push(("keys", array(rows)));
+    fields.push((
+        "copying",
+        copy_running(ctx, &mut lock(&ctx.copying)).to_string(),
+    ));
+    ok_json(object(&fields))
+}
+
+/// The drive at `path`, asked of the system: "Another folder…".
+fn candidate_at(path: &Path) -> crate::drives::Candidate {
+    crate::drives::Candidate {
+        path: path.to_owned(),
+        label: path.display().to_string(),
+        total: crate::drives::existing_ancestor(path).and_then(|dir| fs4::total_space(dir).ok()),
+        free: crate::drives::free_bytes(path),
+        format: crate::drives::format_of(path),
+        external: false,
+    }
+}
+
+/// `POST /api/keys {path}`: the same row for a folder the person chose.
+fn key_check(ctx: &Arc<Context>, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let config = match config_for_copy(ctx) {
+        Ok(config) => config,
+        Err(refused) => return refused,
+    };
+    let path = PathBuf::from(field(&form, "path").unwrap_or_default());
+    let (programs, mut fields) = sizes_json(ctx);
+    let candidate = if crate::jobs::check_path(&path).is_ok() {
+        candidate_at(&path)
+    } else {
+        // Not asked of the system: a relative path is nobody's drive.
+        crate::drives::Candidate {
+            label: path.display().to_string(),
+            path,
+            total: None,
+            free: None,
+            format: None,
+            external: false,
+        }
+    };
+    fields.push(("key", key_json(ctx, &config, &candidate, programs)));
+    ok_json(object(&fields))
+}
+
+/// Whether a copy to a key runs: the process this page started, or a
+/// progress file that says it is not done and was written lately (a copy
+/// started from a terminal counts too).
+fn copy_running(ctx: &Context, slot: &mut Option<Running>) -> bool {
+    let child = slot.as_mut().is_some_and(|alive| alive());
+    if !child {
+        *slot = None;
+    }
+    child
+        || crate::copy_to_key::progress(&ctx.home).is_some_and(|(progress, written)| {
+            !progress.done && written.elapsed().ok().is_none_or(|age| age < COPY_STALE)
+        })
+}
+
+/// `GET /api/copy-to-key`: whether it runs, and its last progress.
+fn copy_state(ctx: &Context) -> Response {
+    let running = copy_running(ctx, &mut lock(&ctx.copying));
+    if running {
+        // A copy under way keeps the page that follows it open.
+        *lock(&ctx.last_action) = Instant::now();
+    }
+    let progress = crate::copy_to_key::progress(&ctx.home).map_or_else(
+        || "null".to_owned(),
+        |(progress, _)| {
+            object(&[
+                ("step", quote(&progress.step)),
+                ("done", progress.done.to_string()),
+                ("said", quote(&progress.said)),
+                ("error", optional(progress.error.as_deref())),
+            ])
+        },
+    );
+    ok_json(object(&[
+        ("running", running.to_string()),
+        ("progress", progress),
+    ]))
+}
+
+/// `POST /api/copy-to-key {path}`: the target checked as the command checks
+/// it, then `itsanas copy-to-key PATH --detach` started, which asks both
+/// passphrases in windows of its own. One at a time.
+fn start_copy(ctx: &Arc<Context>, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let config = match config_for_copy(ctx) {
+        Ok(config) => config,
+        Err(refused) => return refused,
+    };
+    let path = PathBuf::from(field(&form, "path").unwrap_or_default());
+    // Every refusal of the command itself (`check_path` first, before the
+    // system is asked anything about the path), and the room, before a
+    // window opens for a copy that cannot happen.
+    if let Err(said) = crate::jobs::check_path(&path) {
+        return Response::refuse(400, &said);
+    }
+    let candidate = candidate_at(&path);
+    let programs = programs_size(ctx);
+    if let (Err(refused), _) = crate::copy_to_key::assess(
+        &ctx.home,
+        &config,
+        &path,
+        candidate.free,
+        candidate.format.as_ref(),
+        programs,
+    ) {
+        return Response::refuse(400, &refused.said);
+    }
+    // Held from the check to the start: a second click, or a second tab,
+    // finds the first one running.
+    let mut slot = lock(&ctx.copying);
+    if copy_running(ctx, &mut slot) {
+        return Response::refuse(
+            409,
+            "a copy to a key is already running; this page follows it",
+        );
+    }
+    crate::copy_to_key::forget_progress(&ctx.home);
+    match (ctx.backends.copy)(&ctx.home, &path) {
+        Ok(mut child) => {
+            // The child this page started counts as running for two minutes
+            // after it ends, until a status written since says it spoke: its
+            // background run may be starting, or it died before a word, and
+            // a second copy then would race the first on the key.
+            let started = std::time::SystemTime::now();
+            let at = Instant::now();
+            let home = ctx.home.clone();
+            let running: Running = Box::new(move || {
+                child()
+                    || (at.elapsed() < SILENT_CHILD
+                        && crate::copy_to_key::progress(&home)
+                            .is_none_or(|(_, written)| written + Duration::from_secs(2) < started))
+            });
+            *slot = Some(running);
+            Response::new(
+                202,
+                "application/json",
+                object(&[("started", "true".to_owned())]),
+            )
+        }
+        Err(why) => Response::refuse(500, &format!("the copy could not start: {why}")),
     }
 }
 
@@ -1220,7 +1650,7 @@ fn pin_folder(os: &str, folder: &Path) -> std::result::Result<String, String> {
 
 /// `itsanas setup` on a desktop.
 pub(crate) fn wizard(home: &Path, instance: Option<&str>) -> Result<()> {
-    if open(home, instance, Mode::Setup)? {
+    if open(home, instance, Mode::Setup, None)? {
         println!("This machine is set up. `itsanas settings` changes it later.");
         Ok(())
     } else {
@@ -1232,15 +1662,24 @@ pub(crate) fn wizard(home: &Path, instance: Option<&str>) -> Result<()> {
     }
 }
 
-/// `itsanas settings`.
-pub(crate) fn settings(home: &Path, instance: Option<&str>) -> Result<()> {
+/// `itsanas settings [--section NAME]`.
+pub(crate) fn settings(home: &Path, instance: Option<&str>, section: Option<&str>) -> Result<()> {
     if !Node::exists(home) {
         return Err(CliError::NoNode(home.to_path_buf()));
     }
-    open(home, instance, Mode::Settings).map(|_| ())
+    open(home, instance, Mode::Settings, section).map(|_| ())
 }
 
-fn open(home: &Path, instance: Option<&str>, mode: Mode) -> Result<bool> {
+/// The page's address, opened at `section`: inside the one fragment an
+/// address has, after the page key, which `app.js` reads wherever it is.
+pub(crate) fn section_url(url: String, section: Option<&str>) -> String {
+    match section {
+        Some(section) => format!("{url}&section={section}"),
+        None => url,
+    }
+}
+
+fn open(home: &Path, instance: Option<&str>, mode: Mode, section: Option<&str>) -> Result<bool> {
     let server = Server::bind(
         home,
         instance,
@@ -1248,7 +1687,7 @@ fn open(home: &Path, instance: Option<&str>, mode: Mode) -> Result<bool> {
         &crate::config::user_home(),
         Backends::of_this_machine(home, instance),
     )?;
-    let url = server.url();
+    let url = section_url(server.url(), section);
     if desktop_here() {
         println!("Opening ITSaNAS in your browser.");
         println!("If no page opened, paste this into your browser:");

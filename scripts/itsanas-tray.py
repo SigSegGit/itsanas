@@ -163,6 +163,7 @@ def menu(brief, interval_line, label):
         )
         items.append(entry("sep", ""))
         items.append(entry("item", "Settings...", ["settings"]))
+        items.append(entry("item", "Copy this account to a USB key...", ["settings", "--section", "key"]))
         items.append(entry("item", "Sign out...", ["signout"], confirm=True))
         items.append(entry("item", "Remove this machine...", ["leave"], confirm=True))
     items += [
@@ -371,7 +372,7 @@ class Tray:
 
     def command(self, argv):
         full = [self.exe] + cli_args(self.instance, argv)
-        if argv == ["settings"]:
+        if argv[0] == "settings":
             # It serves the page for as long as the page is open: never waited on.
             detach(full)
         elif argv == ["signin"]:

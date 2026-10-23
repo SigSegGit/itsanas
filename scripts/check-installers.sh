@@ -1128,6 +1128,7 @@ if [ -n "$PY" ]; then
                 '  item Until I resume -> itsanas --instance b pause [confirm]' \
                 '  item 15 min -> itsanas --instance b interval 15m [checked]' \
                 'item Settings... -> itsanas --instance b settings' \
+                'item Copy this account to a USB key... -> itsanas --instance b settings --section key' \
                 'item Sign out... -> itsanas --instance b signout [confirm]' \
                 'item Remove this machine... -> itsanas --instance b leave [confirm]' 'item Quit the icon -> quit'; do
         printf '%s\n' "$healthy" | grep -qxF -- "$line" \
@@ -1465,6 +1466,98 @@ STUB
 else
     say "cargo is not here; sign-release.sh's draft check was not run"
 fi
+
+# ------------------------------------------ the signing question, asked well
+#
+# red_team: "Sign it and publish it?" read a keypress made during release.ps1's
+# twenty-minute wait, or after a previous run's `pause`, as an empty answer and
+# stopped the release -- twice (hand test, 2026-10-22). Both scripts now ask
+# again on an empty line, three times at most, and the PowerShell one first
+# drops the keys waiting in the console. The sh confirm() runs here with its
+# terminal swapped for a file; the PowerShell Confirm-Yes runs where pwsh is,
+# with Read-Host stood in for, and its flush is checked to come first.
+confirm_ok=1
+confirmbed=$(mktemp -d)
+sed -n '/^confirm() {/,/^}/p' scripts/sign-release.sh | sed 's|< /dev/tty|<\&3|' > "$confirmbed/confirm.sh"
+grep -q '<&3' "$confirmbed/confirm.sh" \
+    || { bad "sign-release.sh's confirm() no longer reads /dev/tty as this check expects"; confirm_ok=0; }
+check_sh_confirm() {  # answers (printf format), status wanted, questions wanted
+    printf "$1" > "$confirmbed/answers"
+    out=$(sh -c '. "$1/confirm.sh"; confirm "Sign it?" "type y to sign and publish, n to stop" 3<"$1/answers"; echo "status=$?"' _ "$confirmbed" 2>&1)
+    asked=$(printf '%s\n' "$out" | grep -o 'Sign it? \[y/N\]' | wc -l | tr -d ' ')
+    case "$out" in *"status=$2"*) ;; *) asked="status other than $2" ;; esac
+    if [ "$asked" != "$3" ]; then
+        bad "red_team: sign-release.sh's confirm() given '$1' should end with status $2 after $3 question(s): $asked; it said: $out"
+        confirm_ok=0
+    fi
+}
+check_sh_confirm '\n\ny\n' 0 3
+check_sh_confirm '\n\n\n' 1 3
+check_sh_confirm 'n\n' 1 1
+check_sh_confirm '  \nY\n' 0 2
+printf '\ny\n' > "$confirmbed/answers"
+out=$(sh -c '. "$1/confirm.sh"; confirm "Sign it?" "type y to sign and publish, n to stop" 3<"$1/answers"' _ "$confirmbed" 2>&1)
+case "$out" in
+    *'type y to sign and publish, n to stop'*) ;;
+    *) bad "red_team: sign-release.sh's confirm() asks again on an empty line without saying what to type: $out"; confirm_ok=0 ;;
+esac
+
+ps_confirm=$(sed -n '/^function Confirm-Yes {/,/^}/p' scripts/sign-release.ps1 | grep -v '^[[:space:]]*#')
+flush_at=$(printf '%s\n' "$ps_confirm" | grep -n 'FlushInputBuffer()' | head -n 1 | cut -d: -f1)
+read_at=$(printf '%s\n' "$ps_confirm" | grep -n 'Read-Host' | head -n 1 | cut -d: -f1)
+if [ -z "$flush_at" ] || [ -z "$read_at" ] || [ "$flush_at" -ge "$read_at" ]; then
+    bad "red_team: sign-release.ps1's Confirm-Yes does not drop the waiting keys before Read-Host"
+    confirm_ok=0
+fi
+grep -q "Confirm-Yes 'Sign it and publish it?' 'type y to sign and publish, n to stop'" scripts/sign-release.ps1 \
+    || { bad "sign-release.ps1 asks to sign without saying what to type on an empty answer"; confirm_ok=0; }
+
+if command -v pwsh >/dev/null 2>&1; then
+    cat > "$confirmbed/check.ps1" <<'PS'
+param([string] $Script)
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($Script, [ref]$null, [ref]$null)
+$fn = $ast.Find({ param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Confirm-Yes' }, $true)
+if (-not $fn) { 'sign-release.ps1 has no Confirm-Yes'; exit 1 }
+. ([scriptblock]::Create($fn.Extent.Text))
+$script:answers = @()
+$script:asked = 0
+$script:said = @()
+function Read-Host { param([string] $Prompt)
+    $script:asked++
+    $next = $script:answers[0]
+    $script:answers = @($script:answers | Select-Object -Skip 1)
+    return $next
+}
+function Write-Host { param([string] $Object) $script:said += $Object }
+$failures = @()
+foreach ($case in @(
+        @{ Answers = @('', '', 'y'); Want = $true; Asked = 3; Hints = 2 },
+        @{ Answers = @('', '', ''); Want = $false; Asked = 3; Hints = 3 },
+        @{ Answers = @('n'); Want = $false; Asked = 1; Hints = 0 },
+        @{ Answers = @('  ', 'Oui'); Want = $true; Asked = 2; Hints = 1 })) {
+    $script:answers = $case.Answers
+    $script:asked = 0
+    $script:said = @()
+    $got = Confirm-Yes 'Sign it?' 'type y to sign and publish, n to stop'
+    $hints = @($script:said | Where-Object { $_ -eq 'type y to sign and publish, n to stop' }).Count
+    if ($got -ne $case.Want -or $script:asked -ne $case.Asked -or $hints -ne $case.Hints) {
+        $failures += "answers [$($case.Answers -join '|')]: $got after $($script:asked) question(s) and $hints hint(s); wanted $($case.Want) after $($case.Asked) and $($case.Hints)"
+    }
+}
+if ($failures) { $failures; exit 1 }
+PS
+    if psout=$(pwsh -NoProfile -File "$confirmbed/check.ps1" -Script scripts/sign-release.ps1 2>&1); then
+        :
+    else
+        bad "red_team: sign-release.ps1's Confirm-Yes:"; printf '%s\n' "$psout" | sed 's/^/    /'
+        confirm_ok=0
+    fi
+else
+    say "pwsh is not here; sign-release.ps1's Confirm-Yes was checked by reading only"
+fi
+[ "$confirm_ok" -eq 1 ] && say "red_team: the signing question drops waiting keys (PowerShell) and asks again on an empty line, three times at most"
+rm -rf "$confirmbed"
 
 if [ "$failed" -ne 0 ]; then
     echo

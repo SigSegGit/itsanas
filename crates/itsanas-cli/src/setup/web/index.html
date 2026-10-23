@@ -155,81 +155,146 @@
       </div>
     </section>
 
-    <!-- ===== Settings ===== -->
+    <!-- ===== Settings: one card per section, in one column ===== -->
     <section data-page="settings" hidden>
       <h1 tabindex="-1">Settings</h1>
-      <p class="status-line"><span id="st-dot" class="dot" aria-hidden="true"></span> <span id="st-status">Reading&hellip;</span></p>
-      <p id="st-said" class="said" role="status" aria-live="polite"></p>
-      <p id="st-update" class="help" hidden></p>
 
-      <h2>Syncing</h2>
-      <div class="row">
-        <label for="pause-for">Pause</label>
-        <!-- 0w (5): "for 1 hour" and "for 8 hours" join once the control file has an end time. -->
-        <select id="pause-for"><option value="resume">until I resume</option></select>
-        <button type="button" id="pause">Pause</button>
-        <button type="button" id="resume" hidden>Resume</button>
-      </div>
-      <div class="row">
-        <button type="button" id="sync-now">Sync now</button>
-      </div>
-      <div class="row">
-        <label for="interval">Check for changes</label>
-        <select id="interval">
-          <option value="auto">automatically</option>
-          <option value="5m">every 5 minutes</option>
-          <option value="15m">every 15 minutes</option>
-          <option value="1h">every hour</option>
-          <option value="6h">every 6 hours</option>
-          <option value="1d">once a day</option>
-        </select>
-        <button type="button" id="interval-save">Save</button>
+      <div class="card status-card">
+        <p class="status-line"><span id="st-dot" class="dot" aria-hidden="true"></span> <span id="st-status">Reading&hellip;</span></p>
+        <p id="st-said" class="said" role="status" aria-live="polite"></p>
+        <p id="st-update" class="help" hidden></p>
       </div>
 
-      <h2>This machine</h2>
-      <p class="help">Changing these restarts ITSaNAS (a few seconds).</p>
-      <label for="st-pledge">Space offered to others, in GB</label>
-      <input id="st-pledge" type="number" min="0" step="1" inputmode="numeric" aria-describedby="st-pledge-now">
-      <p id="st-pledge-now" class="help"></p>
-      <label for="st-folder">Folder</label>
-      <div class="row"><input id="st-folder" spellcheck="false" autocapitalize="none"><button type="button" id="st-folder-browse">Browse&hellip;</button><button type="button" id="st-open-folder">Open</button></div>
-      <label for="st-coordinator">Coordinator address</label>
-      <input id="st-coordinator" spellcheck="false" autocapitalize="none">
-      <label for="st-updates">When a new version is out</label>
-      <select id="st-updates">
-        <option value="auto">install it by itself</option>
-        <option value="notify">tell me</option>
-        <option value="off">never look</option>
-      </select>
-      <label for="st-invite">Invitation code, if the coordinator asks for one</label>
-      <input id="st-invite" spellcheck="false" autocapitalize="none" autocomplete="off">
-      <div class="actions"><button type="button" class="primary" id="apply">Apply</button></div>
-      <div id="st-run" hidden>
-        <p class="never" data-secret-warning hidden>Never type your recovery words into a web page &mdash; not even this one.</p>
-        <div id="st-window-notice" class="notice" role="status" hidden>
-          <p><strong>A separate ITSaNAS window has opened in front of this page.</strong> If you cannot see it, look for ITSaNAS in your taskbar / Dock.</p>
+      <section class="card" aria-labelledby="st-h-sync">
+        <h2 id="st-h-sync">Syncing</h2>
+        <div class="field">
+          <label for="pause-for">Pause</label>
+          <div class="controls">
+            <!-- 0w (5): "for 1 hour" and "for 8 hours" join once the control file has an end time. -->
+            <select id="pause-for"><option value="resume">until I resume</option></select>
+            <button type="button" id="pause">Pause</button>
+            <button type="button" id="resume" hidden>Resume</button>
+          </div>
         </div>
-        <p id="st-run-step" class="current" aria-live="polite"></p>
-      </div>
+        <div class="field">
+          <div class="controls"><button type="button" id="sync-now">Sync now</button></div>
+        </div>
+        <div class="field">
+          <label for="interval">Check for changes</label>
+          <div class="controls">
+            <select id="interval">
+              <option value="auto">automatically</option>
+              <option value="5m">every 5 minutes</option>
+              <option value="15m">every 15 minutes</option>
+              <option value="1h">every hour</option>
+              <option value="6h">every 6 hours</option>
+              <option value="1d">once a day</option>
+            </select>
+            <button type="button" id="interval-save">Save</button>
+          </div>
+        </div>
+      </section>
 
-      <h2>Disks</h2>
-      <p class="help">These are done by ITSaNAS running in the background, so it must be running. Nothing here asks for your passphrase.</p>
-      <p><span>Space for others is kept in:</span> <strong id="st-vault"></strong></p>
-      <label for="disk-move">Move it to another disk</label>
-      <div class="row"><input id="disk-move" spellcheck="false" autocapitalize="none"><button type="button" id="disk-move-browse">Browse&hellip;</button><button type="button" id="disk-move-go">Move</button></div>
-      <label class="choice"><input type="checkbox" id="disk-same"> That disk also holds the ITSaNAS data of this machine (less safe)</label>
-      <p class="help">It is copied, checked, then used. The old copy stays until you delete it.</p>
-      <label for="disk-backup">Backup to a drive you keep apart</label>
-      <div class="row"><input id="disk-backup" spellcheck="false" autocapitalize="none"><button type="button" id="disk-backup-browse">Browse&hellip;</button><button type="button" id="disk-export">Back up</button><button type="button" id="disk-restore">Restore from it</button></div>
-      <p class="help">Sealed: without your 24 words it opens for nobody. On a new machine, set it up with your account first, then restore here.</p>
-      <label for="disk-portable">Put a portable ITSaNAS on a drive</label>
-      <div class="row"><input id="disk-portable" spellcheck="false" autocapitalize="none"><button type="button" id="disk-portable-browse">Browse&hellip;</button><button type="button" id="disk-portable-go">Write it</button></div>
-      <p class="help">It runs on this kind of system only, syncs your files and hosts nothing for others. Its keys travel with the drive, protected by your passphrase alone.</p>
-      <p id="disk-said" class="said" role="status" aria-live="polite"></p>
+      <section class="card" aria-labelledby="st-h-machine">
+        <h2 id="st-h-machine">This machine</h2>
+        <p class="help">Changing these restarts ITSaNAS (a few seconds).</p>
+        <div class="field">
+          <label for="st-pledge">Space offered to others, in GB</label>
+          <div class="controls"><input id="st-pledge" class="short" type="number" min="0" step="1" inputmode="numeric" aria-describedby="st-pledge-now"></div>
+          <p id="st-pledge-now" class="help"></p>
+        </div>
+        <div class="field">
+          <label for="st-folder">Folder</label>
+          <div class="controls"><input id="st-folder" spellcheck="false" autocapitalize="none"><button type="button" id="st-folder-browse">Browse&hellip;</button><button type="button" id="st-open-folder">Open</button></div>
+        </div>
+        <div class="field">
+          <label for="st-coordinator">Coordinator address</label>
+          <div class="controls"><input id="st-coordinator" spellcheck="false" autocapitalize="none"></div>
+        </div>
+        <div class="field">
+          <label for="st-updates">When a new version is out</label>
+          <div class="controls">
+            <select id="st-updates">
+              <option value="auto">install it by itself</option>
+              <option value="notify">tell me</option>
+              <option value="off">never look</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="st-invite">Invitation code, if the coordinator asks for one</label>
+          <div class="controls"><input id="st-invite" spellcheck="false" autocapitalize="none" autocomplete="off"></div>
+        </div>
+        <div class="field">
+          <div class="controls"><button type="button" class="primary" id="apply">Apply</button></div>
+        </div>
+        <div id="st-run" hidden>
+          <p class="never" data-secret-warning hidden>Never type your recovery words into a web page &mdash; not even this one.</p>
+          <div id="st-window-notice" class="notice" role="status" hidden>
+            <p><strong>A separate ITSaNAS window has opened in front of this page.</strong> If you cannot see it, look for ITSaNAS in your taskbar / Dock.</p>
+          </div>
+          <p id="st-run-step" class="current" aria-live="polite"></p>
+        </div>
+      </section>
 
-      <h2>Sign out</h2>
-      <p class="help">Stops ITSaNAS on this machine and forgets its passphrase. Your files and keys stay on this disk.</p>
-      <div class="actions"><button type="button" class="danger" id="signout">Sign out</button><button type="button" id="close">Close</button></div>
+      <section class="card" aria-labelledby="st-h-disks">
+        <h2 id="st-h-disks">Disks</h2>
+        <p class="help">These are done by ITSaNAS running in the background, so it must be running. Nothing here asks for your passphrase.</p>
+        <div class="field">
+          <span class="label">Space for others is kept in:</span>
+          <strong id="st-vault" class="value"></strong>
+        </div>
+        <div class="field">
+          <label for="disk-move">Move it to another disk</label>
+          <div class="controls"><input id="disk-move" spellcheck="false" autocapitalize="none"><button type="button" id="disk-move-browse">Browse&hellip;</button><button type="button" id="disk-move-go">Move</button></div>
+          <label class="choice"><input type="checkbox" id="disk-same"> That disk also holds the ITSaNAS data of this machine (less safe)</label>
+          <p class="help">It is copied, checked, then used. The old copy stays until you delete it.</p>
+        </div>
+        <div class="field">
+          <label for="disk-backup">Backup to a drive you keep apart</label>
+          <div class="controls"><input id="disk-backup" spellcheck="false" autocapitalize="none"><button type="button" id="disk-backup-browse">Browse&hellip;</button><button type="button" id="disk-export">Back up</button><button type="button" id="disk-restore">Restore from it</button></div>
+          <p class="help">Sealed: without your 24 words it opens for nobody. On a new machine, set it up with your account first, then restore here.</p>
+        </div>
+        <div class="field">
+          <label for="disk-portable">Put a portable ITSaNAS on a drive</label>
+          <div class="controls"><input id="disk-portable" spellcheck="false" autocapitalize="none"><button type="button" id="disk-portable-browse">Browse&hellip;</button><button type="button" id="disk-portable-go">Write it</button></div>
+          <p class="help">It runs on this kind of system only, syncs your files and hosts nothing for others. Its keys travel with the drive, protected by your passphrase alone.</p>
+        </div>
+        <p id="disk-said" class="said" role="status" aria-live="polite"></p>
+      </section>
+
+      <!-- "Copy this account to a USB key": the trays open Settings here
+           (section=key). The two passphrases are asked by the copy itself,
+           in windows of the system's own, never in this page. -->
+      <section class="card" id="st-usb" aria-labelledby="st-h-usb">
+        <h2 id="st-h-usb" tabindex="-1">Copy this account to a USB key</h2>
+        <p class="help">The key gets ITSaNAS for Windows, Mac and Linux, with this account in it: plug it into any computer, open it, and your files are there.</p>
+        <p class="never">Whoever opens the key with its passphrase IS this account: they can read and change all your files. Choose a long passphrase that you use nowhere else, and keep the key as safe as a house key.</p>
+        <p id="st-usb-need" class="help"></p>
+        <ul id="st-usb-keys" class="keys" aria-label="USB keys and external disks"></ul>
+        <p id="st-usb-none" class="help" hidden>No USB key or external disk was found. Plug one in, then Refresh.</p>
+        <div class="field">
+          <label for="st-usb-path">Another folder</label>
+          <div class="controls"><input id="st-usb-path" spellcheck="false" autocapitalize="none"><button type="button" id="st-usb-browse">Another folder&hellip;</button><button type="button" id="st-usb-go" disabled>Copy here</button></div>
+          <p id="st-usb-path-why" class="why"></p>
+        </div>
+        <div class="actions"><button type="button" class="link" id="st-usb-refresh">Refresh</button></div>
+        <div id="st-usb-run" hidden>
+          <div id="st-usb-window" class="notice" role="status" hidden>
+            <p><strong>Two ITSaNAS windows open, one after the other:</strong> first this machine's passphrase, then a new passphrase for the key, typed twice. If you cannot see them, look for ITSaNAS in your taskbar / Dock.</p>
+          </div>
+          <p id="st-usb-step" class="current" aria-live="polite"></p>
+          <progress id="st-usb-progress" max="7" value="0"></progress>
+        </div>
+        <p id="st-usb-said" class="said" role="status" aria-live="polite"></p>
+        <p id="st-usb-detail" class="help said"></p>
+      </section>
+
+      <section class="card" aria-labelledby="st-h-signout">
+        <h2 id="st-h-signout">Sign out</h2>
+        <p class="help">Stops ITSaNAS on this machine and forgets its passphrase. Your files and keys stay on this disk.</p>
+        <div class="actions"><button type="button" class="danger" id="signout">Sign out</button><button type="button" id="close">Close</button></div>
+      </section>
     </section>
 
     <section data-page="closed" hidden>

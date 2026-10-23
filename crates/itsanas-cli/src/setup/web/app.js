@@ -13,7 +13,13 @@
   // The key arrives in the address's fragment (#t=...), which the browser
   // never sends to any server. It is moved out of the address bar at once,
   // so it is not left in history or on screen, and kept for this tab only.
+  // The section the page opens at: `&section=key` after the key (the trays'
+  // "Copy this account to a USB key"), or a plain `#key`.
+  let section = '';
+
   function readToken() {
+    const asked = /(?:^#|&)section=([a-z]+)(?:&|$)/.exec(location.hash);
+    if (asked) { section = asked[1]; } else if (location.hash === '#key') { section = 'key'; }
     const match = /(?:^#|&)t=([0-9a-f]{32})(?:&|$)/.exec(location.hash);
     if (match) {
       token = match[1];
@@ -39,11 +45,11 @@
     try {
       response = await fetch(path, init);
     } catch (e) {
-      throw new Error('ITSaNAS stopped serving this page. Run the command again to reopen it.');
+      throw new Error(t('ITSaNAS stopped serving this page. Run the command again to reopen it.'));
     }
     const data = await response.json().catch(function () { return {}; });
     if (!response.ok) {
-      throw new Error(data.error || ('Refused (' + response.status + ').'));
+      throw new Error(data.error ? said(data.error) : t('Refused') + ' (' + response.status + ').');
     }
     return data;
   }
@@ -53,26 +59,43 @@
   // ------------------------------------------------------------- languages
   //
   // English is written in the page; other languages are i18n.js, keyed by the
-  // English text. The system's language is the default, English when there
-  // is no translation, and the list in the header changes it.
-  const LANG_KEY = 'itsanas-lang';
+  // English text. The server says which in <html data-lang>: the one chosen
+  // in the list before (kept in the node's home, since each page is a new
+  // port and so a new, empty browser storage), else the browser's
+  // Accept-Language. Without either, the browser's language here; English
+  // when there is no translation. The list in the header changes it.
   let dict = {};
   const original = new WeakMap();
 
   function t(text) { return dict[text] || text; }
+  // A text of a table, translated where it is shown: marks it for the test
+  // that every text of the page has a French entry.
+  function N(text) { return text; }
+
+  // What the server says, line by line: its fixed sentences are in i18n.js,
+  // the rest (a path, a name, a time) stays as it came.
+  function said(text) { return String(text).split('\n').map(function (line) { return t(line); }).join('\n'); }
+
+  // A text set by the script, kept in English so a change of language
+  // translates it again.
+  function show(el, english) {
+    el.dataset.en = english;
+    el.textContent = t(english);
+  }
 
   function chooseLanguage() {
-    let lang = '';
-    try { lang = localStorage.getItem(LANG_KEY) || ''; } catch (e) { lang = ''; }
-    if (!lang) { lang = (navigator.language || 'en').slice(0, 2).toLowerCase(); }
+    const lang = document.documentElement.dataset.lang ||
+      (navigator.language || 'en').slice(0, 2).toLowerCase();
     return (window.I18N && window.I18N[lang]) ? lang : 'en';
   }
 
   function translatePage(lang) {
     dict = (window.I18N && window.I18N[lang]) || {};
     document.documentElement.lang = lang;
+    document.querySelectorAll('[data-en]').forEach(function (el) { el.textContent = t(el.dataset.en); });
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.parentElement && node.parentElement.dataset.en !== undefined) { continue; }
       if (!original.has(node)) { original.set(node, node.nodeValue); }
       const english = original.get(node);
       const key = english.trim();
@@ -94,7 +117,9 @@
     $('lang').value = lang;
     translatePage(lang);
     $('lang').addEventListener('change', function () {
-      try { localStorage.setItem(LANG_KEY, $('lang').value); } catch (e) { /* private mode */ }
+      // Kept by the server for the next page; a page without its key still
+      // changes language, for this tab.
+      api('POST', '/api/language', { lang: $('lang').value }).catch(function () { /* this tab only */ });
       translatePage($('lang').value);
       buildProgress();
       markProgress(current);
@@ -270,17 +295,17 @@
   async function folderAction(path, pin, line) {
     try {
       const reply = await api('POST', pin ? '/api/pin' : '/api/open', path ? { path: path } : {});
-      if (line) { line.textContent = reply.said; }
+      if (line) { line.textContent = said(reply.said); }
     } catch (e) { if (line) { line.textContent = e.message; } else { say(e.message); } }
   }
 
   const DONE_SAID = {
-    machine: 'This machine is already set up.',
-    account: 'This account is already on this machine; its keys were not touched.',
-    folder: 'The folder is already chosen and kept in step.',
-    pledge: 'The space offered is already set; change it later in Settings.',
-    updates: 'Updates are already set.',
-    registration: 'This machine is already known to the coordinator.',
+    machine: N('This machine is already set up.'),
+    account: N('This account is already on this machine; its keys were not touched.'),
+    folder: N('The folder is already chosen and kept in step.'),
+    pledge: N('The space offered is already set; change it later in Settings.'),
+    updates: N('Updates are already set.'),
+    registration: N('This machine is already known to the coordinator.'),
   };
 
   function showDone(engine, said) {
@@ -289,7 +314,7 @@
     if (note) {
       // A sentence in the page's language; the engine's own words (paths,
       // names, in English) stay on hover rather than in the middle of it.
-      note.textContent = t(DONE_SAID[engine] || 'Already done on this machine.');
+      show(note, DONE_SAID[engine] || N('Already done on this machine.'));
       note.title = said.replace(/^done:\s*/, '');
       note.hidden = false;
     }
@@ -395,6 +420,8 @@
     }
   }
 
+  const VERDICTS = { passed: N('passed'), failed: N('failed'), skipped: N('skipped') };
+
   function renderReport(list, report) {
     list.textContent = '';
     const marks = { passed: '✓', failed: '✗', skipped: '–' };
@@ -405,13 +432,13 @@
       mark.className = 'mark';
       mark.textContent = marks[finding.verdict] || '';
       mark.setAttribute('role', 'img');
-      mark.setAttribute('aria-label', finding.verdict);
+      mark.setAttribute('aria-label', t(VERDICTS[finding.verdict] || finding.verdict));
       item.appendChild(mark);
       item.appendChild(document.createTextNode(finding.what));
       const detail = document.createElement('div');
       detail.className = 'detail';
       detail.textContent = finding.verdict === 'failed' && finding.remedy
-        ? finding.detail + ' What to do: ' + finding.remedy
+        ? finding.detail + ' ' + t('What to do:') + ' ' + finding.remedy
         : finding.detail;
       item.appendChild(detail);
       list.appendChild(item);
@@ -512,30 +539,30 @@
   // ------------------------------------------------------------- settings
 
   const STATUS_WORDS = {
-    healthy: ['Running and up to date', 'ok'],
-    paused: ['Paused: your files wait until you resume', ''],
-    stale: ['Running, but it has not synced for a while', 'bad'],
-    stopped: ['Not running', 'bad'],
-    departed: ['This machine has left the network', 'bad'],
-    unknown: ['Cannot tell right now', ''],
+    healthy: [N('Running and up to date'), 'ok'],
+    paused: [N('Paused: your files wait until you resume'), ''],
+    stale: [N('Running, but it has not synced for a while'), 'bad'],
+    stopped: [N('Not running'), 'bad'],
+    departed: [N('This machine has left the network'), 'bad'],
+    unknown: [N('Cannot tell right now'), ''],
   };
   const initial = {};
   let settingsTimer = null;
 
   function renderSettings(settings) {
     const word = STATUS_WORDS[settings.status] || STATUS_WORDS.unknown;
-    $('st-status').textContent = t(word[0]);
+    show($('st-status'), word[0]);
     $('st-dot').className = 'dot ' + word[1];
     $('pause').hidden = settings.paused;
     $('pause-for').hidden = settings.paused;
-    document.querySelector('label[for="pause-for"]').hidden = settings.paused;
     $('resume').hidden = !settings.paused;
     $('st-pledge-now').textContent = t('Now:') + ' ' + settings.pledge;
     $('st-update').hidden = !settings.update_notice;
-    $('st-update').textContent = settings.update_notice || '';
-    $('st-vault').textContent = settings.vault || t('the default place, next to the data of this machine');
+    $('st-update').textContent = said(settings.update_notice || '');
+    if (settings.vault) { delete $('st-vault').dataset.en; $('st-vault').textContent = settings.vault; }
+    else { show($('st-vault'), N('the default place, next to the data of this machine')); }
     if (settings.job) {
-      $('disk-said').textContent = (settings.job.state === 'failed' ? t('Failed:') + ' ' : '') + settings.job.said;
+      $('disk-said').textContent = (settings.job.state === 'failed' ? t('Failed:') + ' ' : '') + said(settings.job.said);
       document.querySelectorAll('[data-disk]').forEach(function (b) { b.disabled = settings.job.state === 'running'; });
     }
   }
@@ -545,7 +572,7 @@
     if (sure && !window.confirm(t(sure))) { return; }
     try {
       const reply = await api('POST', '/api/disk', form);
-      $('disk-said').textContent = reply.said;
+      $('disk-said').textContent = said(reply.said);
     } catch (e) {
       $('disk-said').textContent = e.message;
     }
@@ -563,7 +590,7 @@
     if (!option && settings.interval !== 'auto') {
       const now = document.createElement('option');
       now.value = '';
-      now.textContent = 'every ' + settings.interval + ' (now)';
+      now.textContent = t('every') + ' ' + settings.interval + ' ' + t('(now)');
       $('interval').prepend(now);
       $('interval').value = '';
     }
@@ -583,7 +610,7 @@
   async function control(form) {
     try {
       const reply = await api('POST', '/api/control', form);
-      $('st-said').textContent = reply.said;
+      $('st-said').textContent = said(reply.said);
     } catch (e) {
       $('st-said').textContent = e.message;
     }
@@ -607,17 +634,17 @@
   async function apply() {
     const form = settingsForm();
     if ($('st-pledge').value.trim() !== '' && !/^\d+$/.test($('st-pledge').value.trim())) {
-      $('st-said').textContent = 'Type a whole number of GB.';
+      $('st-said').textContent = t('Type a whole number of GB.');
       return;
     }
     if (Object.keys(form).length === 0) {
-      $('st-said').textContent = 'Nothing was changed.';
+      $('st-said').textContent = t('Nothing was changed.');
       return;
     }
     $('apply').disabled = true;
     try {
       await api('POST', '/api/run', form);
-      $('st-said').textContent = 'ITSaNAS restarts (a few seconds).';
+      $('st-said').textContent = t('ITSaNAS restarts (a few seconds).');
       $('st-run').hidden = false;
       settingsRun();
     } catch (e) {
@@ -634,7 +661,7 @@
     document.querySelectorAll('#st-run [data-secret-warning]').forEach(function (w) { w.hidden = !run.waiting; });
     if (run.step) {
       const page = pageOfEngine(run.step);
-      $('st-run-step').textContent = 'Now: ' + STEPS.find(function (s) { return s.page === page; }).label;
+      $('st-run-step').textContent = t('Now:') + ' ' + t(STEPS.find(function (s) { return s.page === page; }).label);
     }
     if (run.phase === 'running') {
       setTimeout(settingsRun, 1000);
@@ -643,34 +670,243 @@
     $('apply').disabled = false;
     $('st-run-step').textContent = '';
     if (run.phase === 'done') {
-      $('st-said').textContent = state.settings.running ? 'Saved. ITSaNAS runs again.' : 'Saved.';
+      $('st-said').textContent = state.settings.running ? t('Saved. ITSaNAS runs again.') : t('Saved.');
       $('st-pledge').value = '';
       $('st-invite').value = '';
       fillSettings(state.settings);
     } else {
       const failed = run.failed || { error: '', remedy: '' };
-      $('st-said').textContent = 'Not saved: ' + failed.error + '\nWhat to do: ' + failed.remedy;
+      $('st-said').textContent = t('Not saved:') + ' ' + failed.error + '\n' + t('What to do:') + ' ' + failed.remedy;
     }
   }
 
   async function signOut() {
     const sure = window.confirm(
-      'Sign out of ITSaNAS on this machine?\n\n' +
-      'Syncing stops, and this machine stops answering the other members\' checks until you sign in again. ' +
-      'Your files and this machine\'s keys stay on this disk.');
+      t('Sign out of ITSaNAS on this machine?') + '\n\n' +
+      t('Syncing stops, and this machine stops answering the other members\' checks until you sign in again. Your files and this machine\'s keys stay on this disk.'));
     if (!sure) { return; }
     try {
       const reply = await api('POST', '/api/signout');
-      $('st-said').textContent = reply.said;
+      $('st-said').textContent = said(reply.said);
     } catch (e) {
       $('st-said').textContent = e.message;
     }
     refreshSettings();
   }
 
+  // ------------------------------------------- copy this account to a key
+  //
+  // The page lists the drives (/api/keys), says for each whether the copy
+  // fits and why not, and starts `itsanas copy-to-key PATH --detach`
+  // (/api/copy-to-key), which asks both passphrases in windows of its own.
+  // The page then follows the progress file the copy writes.
+
+  const USB_WHY = {
+    room: N('Too little room on it for the copy.'),
+    account: N('This key already holds an ITSaNAS account: choose another key, or empty this one first.'),
+    inside: N('This is where this account already lives: choose the key\'s own drive.'),
+    missing: N('Nothing is there: is the key plugged in?'),
+    path: N('Type a full path, starting with / or a drive letter.'),
+  };
+  const USB_WARN = {
+    NTFS: N('NTFS: a Mac can read this key but not write to it, so the copy will not start on a Mac. Reformat it as exFAT to use it everywhere.'),
+    FAT32: N('FAT32: no file on it may exceed 4 GB, and your account can grow past that. exFAT has no such limit.'),
+  };
+  // The steps the copy writes (copy_to_key.rs), in order.
+  const USB_STEPS = [
+    ['started', N('Copying in the background')],
+    ['checking', N('Checking the key')],
+    ['passphrase', N('Opening this machine\'s keys')],
+    ['space', N('Checking the room on the key')],
+    ['programs', N('Writing the programs for every system on the key')],
+    ['account', N('Sealing the account on the key under its own passphrase')],
+    ['enrolling', N('Enrolling the key with the coordinator')],
+  ];
+  let usbTimer = null;
+  let usbBusy = false;
+  let usbFollowing = false;
+  let usbPathTimer = null;
+
+  function usbButtons() {
+    document.querySelectorAll('[data-usb-copy]').forEach(function (b) { b.disabled = usbBusy || b.dataset.fits !== 'true'; });
+    $('st-usb-go').disabled = usbBusy || $('st-usb-go').dataset.fits !== 'true';
+    $('st-usb-browse').disabled = usbBusy;
+  }
+
+  // Why a row cannot take the copy, in the page's language.
+  function usbReason(key, sizes) {
+    if (key.why === 'room') {
+      return t(USB_WHY.room) + ' ' + (key.free ? key.free + ' ' + t('free,') + ' ' : '') +
+        t('about') + ' ' + sizes.needed + ' ' + t('needed.');
+    }
+    return USB_WHY[key.why] ? t(USB_WHY[key.why]) : said(key.reason || '');
+  }
+
+  function usbFacts(key) {
+    const facts = [];
+    if (key.free && key.total) { facts.push(key.free + ' ' + t('free of') + ' ' + key.total); }
+    else if (key.free) { facts.push(key.free + ' ' + t('free.')); }
+    if (key.format) { facts.push(key.format); }
+    if (key.external) { facts.push(t('external disk?')); }
+    return facts.join(' · ');
+  }
+
+  function usbRow(key, sizes) {
+    const item = document.createElement('li');
+    const text = document.createElement('div');
+    text.className = 'key-text';
+    const name = document.createElement('strong');
+    name.textContent = key.label;
+    text.appendChild(name);
+    const facts = document.createElement('span');
+    facts.className = 'key-facts';
+    facts.textContent = usbFacts(key);
+    text.appendChild(facts);
+    if (!key.fits) {
+      const why = document.createElement('span');
+      why.className = 'why';
+      why.textContent = usbReason(key, sizes);
+      text.appendChild(why);
+    } else if (key.format && USB_WARN[key.format]) {
+      const warn = document.createElement('span');
+      warn.className = 'warn';
+      warn.textContent = t(USB_WARN[key.format]);
+      text.appendChild(warn);
+    }
+    item.appendChild(text);
+    const go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'primary';
+    go.dataset.usbCopy = key.path;
+    go.dataset.fits = String(key.fits);
+    go.textContent = t('Copy here');
+    go.setAttribute('aria-label', t('Copy here') + ': ' + key.label);
+    go.addEventListener('click', function () { usbCopy(key.path); });
+    item.appendChild(go);
+    return item;
+  }
+
+  async function usbScan() {
+    let reply;
+    try { reply = await api('GET', '/api/keys'); } catch (e) { $('st-usb-said').textContent = e.message; return; }
+    $('st-usb-need').textContent = t('The copy needs about') + ' ' + reply.needed + ' ' + t('on the key:') + ' ' +
+      reply.programs + ' ' + t('for the programs') +
+      (reply.account ? ', ' + reply.account + ' ' + t('for your files.') : '. ' + t('The size of your files is not known yet.'));
+    const list = $('st-usb-keys');
+    list.textContent = '';
+    reply.keys.forEach(function (key) { list.appendChild(usbRow(key, reply)); });
+    $('st-usb-none').hidden = reply.keys.length > 0;
+    usbBusy = reply.copying;
+    usbButtons();
+    if (reply.copying && !usbFollowing) { usbFollow(); }
+  }
+
+  // "Another folder…": the same check as a row, for the path typed or chosen.
+  async function usbCheckPath() {
+    const path = $('st-usb-path').value.trim();
+    const why = $('st-usb-path-why');
+    $('st-usb-go').dataset.fits = 'false';
+    why.textContent = '';
+    why.className = 'why';
+    if (path) {
+      try {
+        const reply = await api('POST', '/api/keys', { path: path });
+        if (path !== $('st-usb-path').value.trim()) { return; }
+        const key = reply.key;
+        $('st-usb-go').dataset.fits = String(key.fits);
+        if (!key.fits) { why.textContent = usbReason(key, reply); }
+        else {
+          why.className = 'warn';
+          why.textContent = usbFacts(key) + (key.format && USB_WARN[key.format] ? ' — ' + t(USB_WARN[key.format]) : '');
+        }
+      } catch (e) { why.textContent = e.message; }
+    }
+    usbButtons();
+  }
+
+  async function usbCopy(path) {
+    if (usbBusy) { return; }
+    usbBusy = true;
+    usbButtons();
+    $('st-usb-said').textContent = '';
+    $('st-usb-detail').textContent = '';
+    try {
+      await api('POST', '/api/copy-to-key', { path: path });
+      usbFollow();
+    } catch (e) {
+      $('st-usb-said').textContent = e.message;
+      usbBusy = false;
+      usbButtons();
+    }
+  }
+
+  function usbFollow() {
+    usbFollowing = true;
+    $('st-usb-run').hidden = false;
+    if (!usbTimer) { usbTimer = setInterval(usbPoll, 1000); }
+    usbPoll();
+  }
+
+  async function usbPoll() {
+    let reply;
+    try { reply = await api('GET', '/api/copy-to-key'); } catch (e) { $('st-usb-said').textContent = e.message; return; }
+    const progress = reply.progress;
+    const at = progress ? USB_STEPS.findIndex(function (s) { return s[0] === progress.step; }) : -1;
+    $('st-usb-window').hidden = !(reply.running && !progress);
+    if (reply.running) {
+      $('st-usb-step').textContent = at >= 0 ? t(USB_STEPS[at][1]) + '…' : t('Waiting for the passphrase windows…');
+      $('st-usb-progress').value = Math.max(0, at);
+      return;
+    }
+    clearInterval(usbTimer);
+    usbTimer = null;
+    usbFollowing = false;
+    $('st-usb-run').hidden = true;
+    $('st-usb-step').textContent = '';
+    if (progress && progress.done && !progress.error) {
+      $('st-usb-said').textContent = t('The key is ready. Unplug it safely before taking it out.');
+      $('st-usb-detail').textContent = said(progress.said);
+    } else if (progress && progress.error) {
+      $('st-usb-said').textContent = t('The copy stopped:') + ' ' + said(progress.error);
+    } else {
+      $('st-usb-said').textContent = t('The copy stopped without saying why. Try again; a key it left half written is refused and must be emptied first.');
+    }
+    usbBusy = false;
+    usbScan();
+  }
+
+  function initUsb() {
+    $('st-usb-refresh').addEventListener('click', usbScan);
+    $('st-usb-browse').addEventListener('click', async function () {
+      try {
+        const reply = await api('POST', '/api/pick', { start: $('st-usb-path').value.trim() });
+        if (reply.path) { $('st-usb-path').value = reply.path; usbCheckPath(); }
+      } catch (e) { $('st-usb-said').textContent = e.message; }
+    });
+    $('st-usb-path').addEventListener('input', function () {
+      $('st-usb-go').dataset.fits = 'false';
+      usbButtons();
+      if (usbPathTimer) { clearTimeout(usbPathTimer); }
+      usbPathTimer = setTimeout(usbCheckPath, 400);
+    });
+    $('st-usb-go').addEventListener('click', function () {
+      const path = $('st-usb-path').value.trim();
+      if (path) { usbCopy(path); }
+    });
+    usbScan();
+    if (section === 'key') {
+      const card = $('st-usb');
+      card.classList.add('highlight');
+      card.scrollIntoView({ block: 'start' });
+      $('st-h-usb').focus({ preventScroll: true });
+      setTimeout(function () { card.classList.remove('highlight'); }, 4000);
+    }
+  }
+
   function initSettings(state) {
-    document.title = 'ITSaNAS settings';
-    $('mode-title').textContent = 'Settings';
+    document.title = 'ITSaNAS — ' + t('Settings');
+    show($('mode-title'), 'Settings');
+    document.body.classList.add('settings-mode');
     $('progress-nav').hidden = true;
     renderSettings(state.settings);
     fillSettings(state.settings);
@@ -692,16 +928,17 @@
     ['disk-move-go', 'disk-export', 'disk-restore', 'disk-portable-go'].forEach(function (id) { $(id).dataset.disk = ''; });
     $('disk-move-go').addEventListener('click', function () {
       disk({ action: 'move-vault', path: $('disk-move').value.trim(), same_disk: $('disk-same').checked ? 'true' : 'false' },
-        'Move the space for others there? ITSaNAS stops hosting for the time of the copy.');
+        N('Move the space for others there? ITSaNAS stops hosting for the time of the copy.'));
     });
     $('disk-export').addEventListener('click', function () { disk({ action: 'export', path: $('disk-backup').value.trim() }); });
     $('disk-restore').addEventListener('click', function () {
-      disk({ action: 'restore', path: $('disk-backup').value.trim() }, 'Read this backup into this machine?');
+      disk({ action: 'restore', path: $('disk-backup').value.trim() }, N('Read this backup into this machine?'));
     });
     $('disk-portable-go').addEventListener('click', function () {
       disk({ action: 'portable', path: $('disk-portable').value.trim() },
-        'Write a portable ITSaNAS there? Whoever has the drive can try to guess your passphrase: use a long one.');
+        N('Write a portable ITSaNAS there? Whoever has the drive can try to guess your passphrase: use a long one.'));
     });
+    initUsb();
     settingsTimer = setInterval(refreshSettings, 2000);
     if (state.run.phase === 'running') { $('st-run').hidden = false; settingsRun(); }
   }
@@ -719,5 +956,8 @@
   }
 
   document.addEventListener('DOMContentLoaded', init);
-  window.addEventListener('beforeunload', function () { if (settingsTimer) { clearInterval(settingsTimer); } });
+  window.addEventListener('beforeunload', function () {
+    if (settingsTimer) { clearInterval(settingsTimer); }
+    if (usbTimer) { clearInterval(usbTimer); }
+  });
 }());

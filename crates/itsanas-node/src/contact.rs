@@ -20,6 +20,16 @@
 //!   answering; that never learns of a machine enrolled after this one
 //!   started, because a device nobody has listed cannot go missing. On a
 //!   connection that is already open, the read is one indexed lookup.
+//! * **Reading again** is the one connection of its own a read costs: a
+//!   device of the account that answered at none of the addresses held for
+//!   it may have moved or restarted on another port, so the next round asks,
+//!   at first [`REREAD_AFTER_MISS`](crate::contact::REREAD_AFTER_MISS) after
+//!   the last read. Without it, a machine that started on a new port was
+//!   dialled at the old one until this node's next hourly publication (hand
+//!   test, 2026-10-22). Each re-read that brings no new address for a machine
+//!   still missing doubles the wait, up to [`PUBLISH_EVERY`](crate::contact::PUBLISH_EVERY), so a machine
+//!   that stays off costs a handful of reads before it settles to the hourly
+//!   one this node makes anyway.
 //!
 //! A node that never moves therefore makes one connection an hour instead of
 //! twelve.
@@ -59,6 +69,54 @@ use crate::{NodeError, Result};
 /// the lifetime is seven days -- but `device list` reports it silent for
 /// longer than it was.
 pub const PUBLISH_EVERY: Duration = Duration::from_secs(3600);
+
+/// How soon after the last read a device of the account that did not answer
+/// makes the next round read the account's devices again.
+///
+/// The hand test of 2026-10-22: a portable key registered at its configured
+/// port, then its daemon ran on another one. The daemon published the port it
+/// really listened on, but the laptop had read the old one and read again only
+/// at its hourly publication, so for up to an hour it dialled a port nobody
+/// listened on. A machine of the account that answers at none of the
+/// addresses held for it is the sign that the book may be stale, so the next
+/// round asks.
+///
+/// This is the first wait, not every one. A read asked for while a machine is
+/// missing doubles the next wait (2 min, 4, 8 ...), up to [`PUBLISH_EVERY`],
+/// whether the coordinator answered or not; the wait falls back to this when
+/// a read lists a new address for a missing machine, or when every missing
+/// machine answers again -- at most once per [`RESET_FLOOR`]. So a laptop shut for the week costs about five
+/// reads before this node settles to its hourly one -- about 29 a day, not
+/// 288 -- and a machine that comes back on a new port after hours away is
+/// found at the latest at that hourly read.
+pub const REREAD_AFTER_MISS: Duration = Duration::from_secs(120);
+
+/// How rarely the wait after a miss may go back to [`REREAD_AFTER_MISS`].
+///
+/// Red team, 2026-10-23: the wait falls back on news -- a read that lists a
+/// new address for a missing machine -- and on a missing machine answering
+/// again. Both are the word of somebody else: a coordinator can list a new
+/// port at every read, and a machine of the account (or whoever holds its
+/// key) can answer one round in two. Unfloored, either held this node at a
+/// read every two minutes for ever -- 720 a day. At most one fall-back per
+/// this long, the doubling wins between them: at most 432 reads a day at a
+/// round every 30 s (three per ten minutes: the fall-back's, then two and
+/// six minutes after it) and 288 at the default five minutes, the round's
+/// own rate, against the 720 an attacker could force before -- 312 and 143
+/// measured by the test. A machine that really moves twice in ten minutes
+/// is found at the doubled wait, minutes later, not an hour.
+pub const RESET_FLOOR: Duration = Duration::from_secs(600);
+
+/// Every how many rounds a private address of a machine local discovery did
+/// not hear here is dialled anyway ([`Contact::dialable`]): every sixth, about
+/// half an hour at the default five-minute round.
+///
+/// Discovery not hearing a machine is weak evidence: another VLAN of the same
+/// house, a VPN numbered 10.x, a Wi-Fi that drops multicast, all put a
+/// reachable machine at a private address no beacon crosses. One connect
+/// timeout every half hour per such address is what finding them costs; an
+/// address that answers is then dialled at every round until it fails.
+pub const PRIVATE_PROBE_EVERY: u64 = 6;
 
 /// How many devices the address book holds.
 ///
@@ -120,6 +178,13 @@ struct Candidate {
     /// presence and a claim is handed to a peer ([`Contact::relayable`]): a
     /// presence alone says where a machine is, not whose.
     claim: Option<SignedClaim>,
+    /// Whether this address answered since this process started and has not
+    /// failed since ([`Contact::worked`], [`Contact::failed`]): a private
+    /// address that answered is dialled although discovery did not hear its
+    /// machine ([`Contact::dialable`]). Not kept on disk: what answered at
+    /// another house last week proves nothing here, and a restart's warm-up
+    /// and probes find it again.
+    proven: bool,
 }
 
 /// The address book's version. A file of another version is read as empty,
@@ -193,6 +258,21 @@ pub struct Contact {
     published: Option<(Option<String>, Instant)>,
     /// When the account's devices were last read.
     read_at: Option<Instant>,
+    /// When a read was last asked for, whether or not the coordinator
+    /// answered: what [`REREAD_AFTER_MISS`] is counted from when it is down.
+    asked_at: Option<Instant>,
+    /// Whether a device of the account in the book answered at none of its
+    /// addresses at the last round, and no read has happened since
+    /// ([`Self::round_reached`]).
+    missed: bool,
+    /// The devices of the book the last complete round reached nowhere. Not
+    /// cleared by a read: it is what a read's news, and the next round's
+    /// answers, are compared with.
+    missing: BTreeSet<DeviceId>,
+    /// How long after the last read a miss makes the next round read again:
+    /// [`REREAD_AFTER_MISS`] doubled at each read asked for while a device is
+    /// missing, up to [`PUBLISH_EVERY`]. `None` is the first wait.
+    miss_wait: Option<Duration>,
     /// Whether the coordinator has answered with a signed list since this
     /// process started. See [`Due::accept_unsigned`].
     signs: bool,
@@ -204,6 +284,12 @@ pub struct Contact {
     /// relays when no machine of the account can be reached (§8 0v). Not
     /// kept on disk: a round finds them again.
     hosts: Vec<(DeviceId, String, Instant)>,
+    /// Complete rounds since this process started ([`Self::round_reached`]):
+    /// what [`PRIVATE_PROBE_EVERY`] counts.
+    rounds: u64,
+    /// When the wait after a miss last fell back to [`REREAD_AFTER_MISS`]
+    /// ([`RESET_FLOOR`]).
+    reset_at: Option<Instant>,
 }
 
 /// How long a host found by [`Contact::hosts_reached`] stays a relay
@@ -239,11 +325,82 @@ impl Contact {
         };
         // A read that failed on its own is retried at once: until one works,
         // this node knows none of its devices' addresses.
-        let read = publish || self.read_at.is_none();
+        //
+        // A device that did not answer at any address held for it may have
+        // moved, or restarted on another port, since the last read: asked
+        // again, at the earliest [`Self::miss_wait`] after the last time, so a
+        // machine that is simply off does not turn every round into a
+        // connection.
+        let last_asked = self.read_at.max(self.asked_at);
+        let wait = self.miss_wait.unwrap_or(REREAD_AFTER_MISS);
+        let reread =
+            self.missed && last_asked.is_none_or(|at| now.saturating_duration_since(at) >= wait);
+        let read = publish || self.read_at.is_none() || reread;
         Due {
             publish,
             read,
             accept_unsigned: !self.signs,
+        }
+    }
+
+    /// Record that the coordinator is about to be asked what `due` says,
+    /// answered or not: a read asked for counts against the wait after a
+    /// miss even when the coordinator is down, and one asked for while a
+    /// device is missing doubles that wait ([`REREAD_AFTER_MISS`]). If the
+    /// read brings a new address for it, [`Self::read`] undoes the doubling.
+    pub fn asked(&mut self, due: &Due, now: Instant) {
+        if due.read {
+            self.asked_at = Some(now);
+            if self.missed {
+                let wait = self.miss_wait.unwrap_or(REREAD_AFTER_MISS);
+                self.miss_wait = Some(wait.saturating_mul(2).min(PUBLISH_EVERY));
+            }
+        }
+    }
+
+    /// Record who the round reached, once it has dialled everybody it was
+    /// going to: a device of the account in the book that is not in `reached`
+    /// answered at none of the addresses held for it, and makes the next
+    /// round read again ([`Self::due`], [`REREAD_AFTER_MISS`]).
+    ///
+    /// Not for a round cut short by a pause or a shutdown: it did not dial
+    /// everybody, so a device it skipped did not fail to answer.
+    ///
+    /// A device that was missing and answered again, or a round that missed
+    /// nobody, puts the wait back to [`REREAD_AFTER_MISS`]: the next time a
+    /// machine goes missing, it may be because it moved.
+    ///
+    /// The fall-back on an answer is floored, as the one on news is
+    /// ([`RESET_FLOOR`]): a machine that answers one round in two would
+    /// otherwise hold the wait at two minutes.
+    pub fn round_reached(&mut self, reached: &BTreeSet<DeviceId>, now: Instant) {
+        self.rounds = self.rounds.saturating_add(1);
+        let missing: BTreeSet<DeviceId> = self
+            .book
+            .keys()
+            .filter(|device| !reached.contains(device))
+            .copied()
+            .collect();
+        if missing.is_empty() || self.missing.iter().any(|device| reached.contains(device)) {
+            self.fall_back(now);
+        }
+        self.missed = !missing.is_empty();
+        self.missing = missing;
+    }
+
+    /// Put the wait after a miss back to [`REREAD_AFTER_MISS`], unless it fell
+    /// back less than [`RESET_FLOOR`] ago. A wait already at its first value
+    /// is not a fall-back and does not start the floor.
+    fn fall_back(&mut self, now: Instant) {
+        if self.miss_wait.is_none() {
+            return;
+        }
+        if self
+            .reset_at
+            .is_none_or(|at| now.saturating_duration_since(at) >= RESET_FLOOR)
+        {
+            self.miss_wait = None;
+            self.reset_at = Some(now);
         }
     }
 
@@ -283,6 +440,20 @@ impl Contact {
         now: Instant,
     ) {
         self.read_at = Some(now);
+        self.missed = false;
+        // News for a machine that is missing -- an address the book did not
+        // hold for it -- is what re-reading is for: the next miss may be the
+        // same story again, so it is asked about soon, not in an hour.
+        let news = found.iter().any(|(device, address)| {
+            self.missing.contains(device)
+                && self
+                    .book
+                    .get(device)
+                    .is_none_or(|held| !held.iter().any(|candidate| candidate.address == *address))
+        });
+        if news {
+            self.fall_back(now);
+        }
         let listed: BTreeSet<DeviceId> = found.iter().map(|(device, _)| *device).collect();
         let before = self.book.len();
         self.book.retain(|device, _| listed.contains(device));
@@ -351,6 +522,7 @@ impl Contact {
             // Never a claim without the presence it vouches for.
             claim: presence.as_ref().and(claim),
             presence,
+            proven: false,
         });
         if candidates.len() > MAX_ADDRESSES {
             sort_best_first(candidates);
@@ -384,7 +556,21 @@ impl Contact {
             && let Some(candidate) = candidates.iter_mut().find(|c| c.address == address)
         {
             candidate.worked = Some(at);
+            candidate.proven = true;
             self.changed = true;
+        }
+    }
+
+    /// Record that `device` did not answer at `address` this round: a private
+    /// address that had answered goes back to being dialled only as
+    /// [`Self::dialable`] allows a machine not heard here.
+    pub fn failed(&mut self, device: DeviceId, address: &str) {
+        if let Some(candidate) = self
+            .book
+            .get_mut(&device)
+            .and_then(|candidates| candidates.iter_mut().find(|c| c.address == address))
+        {
+            candidate.proven = false;
         }
     }
 
@@ -555,17 +741,68 @@ impl Contact {
     /// work from anywhere before the private ones.
     #[must_use]
     pub fn candidates(&self) -> Vec<(DeviceId, String)> {
+        self.ordered()
+            .into_iter()
+            .map(|(device, candidate)| (device, candidate.address))
+            .collect()
+    }
+
+    /// Every candidate, in [`Self::candidates`]'s order.
+    fn ordered(&self) -> Vec<(DeviceId, Candidate)> {
         let mut out = Vec::new();
         for (device, candidates) in &self.book {
             let mut ordered = candidates.clone();
             sort_best_first(&mut ordered);
-            out.extend(
-                ordered
-                    .into_iter()
-                    .map(|candidate| (*device, candidate.address)),
-            );
+            out.extend(ordered.into_iter().map(|candidate| (*device, candidate)));
         }
         out
+    }
+
+    /// [`Self::candidates`], less the addresses on a private network (RFC 1918)
+    /// of a machine that is plausibly not on this one: `heard_here` says
+    /// whether local discovery heard the device, and `None` -- discovery not
+    /// running here -- keeps every address, as before.
+    ///
+    /// The hand test of 2026-10-22: two houses both numbered 192.168.1.x, and
+    /// the laptop in one and a Mac in the other dialled each other's
+    /// 192.168.1.x address from the coordinator at every round, each dial a
+    /// connect timeout. A private address is somebody's own network; the
+    /// coordinator, or a peer relaying it, says where a machine is on *its*
+    /// network, not that this machine shares it. The evidence that it does is
+    /// a beacon heard here. (Both machines having announced from the same
+    /// public address would be evidence too, but the coordinator does not
+    /// record the address it sees a publication come from.)
+    ///
+    /// Not hearing a machine is weak evidence, though (red team,
+    /// 2026-10-23): another VLAN, a VPN numbered 10.x, a Wi-Fi that filters
+    /// multicast, and the first minute of discovery all hide a machine this
+    /// one can reach. So the gate has three doors: `heard_here` answers `None`
+    /// while discovery warms up (`Neighbourhood::heard_here`); one round in
+    /// [`PRIVATE_PROBE_EVERY`] -- the first, then every sixth -- dials every
+    /// private address anyway; and an address that answered
+    /// ([`Self::worked`]) is dialled at every round until it fails
+    /// ([`Self::failed`]). Another house's 192.168.1.x thus costs one connect
+    /// timeout every sixth round, not one every round.
+    ///
+    /// A machine left with no address to dial is missed like any other
+    /// ([`Self::round_reached`]): the coordinator is asked again, at the
+    /// backed-off rate, in case it moved somewhere this machine can reach.
+    #[must_use]
+    pub fn dialable(
+        &self,
+        heard_here: impl Fn(&DeviceId) -> Option<bool>,
+    ) -> Vec<(DeviceId, String)> {
+        let probe = self.rounds.is_multiple_of(PRIVATE_PROBE_EVERY);
+        self.ordered()
+            .into_iter()
+            .filter(|(device, candidate)| {
+                probe
+                    || candidate.proven
+                    || !only_rfc1918(&candidate.address)
+                    || heard_here(device) != Some(false)
+            })
+            .map(|(device, candidate)| (device, candidate.address))
+            .collect()
     }
 
     /// The machine of the account to park on when this one cannot be
@@ -843,6 +1080,21 @@ impl itsanas_net::Relay for SharedBoard {
 
 /// Worked most recently first, then never-worked public before never-worked
 /// private. Stable, so ties keep the order they arrived in.
+/// Whether every entry of `address` (one address, or an `AddressList`) is an
+/// IPv4 address of a private network, RFC 1918. A name, a public or an IPv6
+/// address, a `relay:` -- anything else -- is not.
+fn only_rfc1918(address: &str) -> bool {
+    let entries: Vec<std::net::SocketAddr> = address
+        .split(',')
+        .map(|entry| entry.trim().parse())
+        .collect::<std::result::Result<_, _>>()
+        .unwrap_or_default();
+    !entries.is_empty()
+        && entries
+            .iter()
+            .all(|entry| matches!(entry.ip(), std::net::IpAddr::V4(v4) if v4.is_private()))
+}
+
 fn sort_best_first(candidates: &mut [Candidate]) {
     candidates.sort_by(|a, b| {
         b.worked
@@ -1058,6 +1310,442 @@ mod tests {
             contact.candidates().iter().any(|(d, _)| *d == device(3)),
             "the read did not put the new machine in the book"
         );
+    }
+
+    /// One round as the daemon runs it, against a coordinator that lists
+    /// `listed` and, when `answering` is false, is down: ask what is due,
+    /// dial every candidate until its device answers -- only the addresses in
+    /// `live` do -- and record who was reached. Returns whether a read was
+    /// asked for, and who answered.
+    fn round_against(
+        contact: &mut Contact,
+        listed: &[(DeviceId, String)],
+        answering: bool,
+        live: &[&str],
+        now: Instant,
+    ) -> (bool, BTreeSet<DeviceId>) {
+        let due = contact.due(Some(HOME), now);
+        contact.asked(&due, now);
+        if answering {
+            if due.publish {
+                contact.published(Some(HOME), now);
+            }
+            if due.read {
+                contact.read(listed, &[], &[], now);
+            }
+        }
+        let mut reached = BTreeSet::new();
+        for (device, address) in contact.candidates() {
+            if !reached.contains(&device) && live.contains(&address.as_str()) {
+                reached.insert(device);
+                contact.worked(device, &address, 1_000);
+            }
+        }
+        contact.round_reached(&reached, now);
+        (due.read, reached)
+    }
+
+    /// The hand test of 2026-10-22: a portable key registered while its
+    /// configuration said port 9798, then its daemon ran with `--listen` on
+    /// 9811 and published that. The laptop had read 9798 and read again only
+    /// at its hourly publication, so it dialled a port nobody listened on for
+    /// up to an hour. A machine of the account that answers nowhere now makes
+    /// the next round read again: the new port is dialled within two rounds,
+    /// at a portable copy's minute as at the default five, and once it
+    /// answers nothing more is asked before the hour.
+    #[test]
+    fn red_team_a_machine_that_restarted_on_another_port_is_dialled_there_within_two_rounds() {
+        let key = device(13);
+        let (old, new) = ("192.168.1.13:9798", "192.168.1.13:9811");
+        for every in [Duration::from_secs(60), ROUND] {
+            let mut contact = Contact::new();
+            let start = Instant::now();
+            contact.published(Some(HOME), start);
+            contact.read(&[(key, old.to_owned())], &[], &[], start);
+            // From here on the coordinator lists where the key really is.
+            let listed = [(key, new.to_owned())];
+
+            let rounds = u32::try_from(PUBLISH_EVERY.as_secs() / every.as_secs()).expect("rounds");
+            let found = (1..rounds).find(|&round| {
+                round_against(&mut contact, &listed, true, &[new], start + every * round)
+                    .1
+                    .contains(&key)
+            });
+            assert!(
+                found.is_some_and(|round| round <= 2),
+                "at a round every {every:?}, the key on its new port was first reached at \
+                 round {found:?}: the old port was dialled until the hourly read"
+            );
+            let found = found.expect("found");
+            for round in found + 1..rounds {
+                assert!(
+                    !round_against(&mut contact, &listed, true, &[new], start + every * round).0,
+                    "round {round} read again although every machine answered"
+                );
+            }
+        }
+    }
+
+    /// The rounds, from 1 to `rounds - 1`, `every` apart, at which a read was
+    /// asked for while no machine of the account answers anywhere, against a
+    /// coordinator that lists `listed(round)`.
+    fn reads_over(
+        contact: &mut Contact,
+        start: Instant,
+        every: Duration,
+        rounds: u32,
+        answering: bool,
+        listed: &dyn Fn(u32) -> Vec<(DeviceId, String)>,
+    ) -> Vec<u32> {
+        (1..rounds)
+            .filter(|&round| {
+                round_against(
+                    contact,
+                    &listed(round),
+                    answering,
+                    &[],
+                    start + every * round,
+                )
+                .0
+            })
+            .collect()
+    }
+
+    /// The other side of the rule above: a machine of the account that is
+    /// really off -- a laptop shut for the week -- must not turn every round
+    /// into a connection to the coordinator. With a fixed two-minute wait it
+    /// cost 288 reads a day at the default round and 720 at a round every
+    /// 30 s (`MIN_INTERVAL`), against the 24 this node makes anyway. Doubling
+    /// the wait after each read that brings nothing new settles it in about
+    /// five reads to the hourly one: never two reads within
+    /// `REREAD_AFTER_MISS`, at most 30 in the day, and exactly one an hour
+    /// over its second half.
+    #[test]
+    fn red_team_a_machine_that_stays_off_for_a_day_costs_about_thirty_reads_not_288() {
+        let day = Duration::from_secs(24 * 3600);
+        for every in [Duration::from_secs(30), ROUND] {
+            let mut contact = Contact::new();
+            let start = Instant::now();
+            contact.published(Some(HOME), start);
+            contact.read(&listing(&[2]), &[], &[], start);
+            let rounds = u32::try_from(day.as_secs() / every.as_secs()).expect("rounds");
+            let reads = reads_over(&mut contact, start, every, rounds, true, &|_| listing(&[2]));
+
+            let gaps = reads.windows(2).map(|pair| every * (pair[1] - pair[0]));
+            assert!(
+                gaps.clone().all(|gap| gap >= REREAD_AFTER_MISS),
+                "at a round every {every:?}, two reads came closer than {REREAD_AFTER_MISS:?}"
+            );
+            assert!(
+                reads.len() <= 30,
+                "at a round every {every:?}, a laptop that stays off for a day made {} reads; \
+                 one an hour plus a handful while the wait doubles is about 29",
+                reads.len()
+            );
+            let second_half = reads
+                .iter()
+                .filter(|&&round| every * round >= day / 2)
+                .count();
+            assert_eq!(
+                second_half, 12,
+                "at a round every {every:?}, the wait had not settled to one read an hour \
+                 after twelve hours of a machine that is off"
+            );
+        }
+    }
+
+    /// A coordinator that is down is asked with the same back-off: a read
+    /// asked for counts whether or not it was answered, or a node would dial
+    /// a dead coordinator every two minutes for as long as a laptop is shut.
+    /// Rounds every 30 s for most of an hour: reads at 2, 6, 14 and 30
+    /// minutes, not 29.
+    #[test]
+    fn red_team_a_coordinator_that_is_down_is_asked_with_the_same_back_off() {
+        let every = Duration::from_secs(30);
+        let mut contact = Contact::new();
+        let start = Instant::now();
+        contact.published(Some(HOME), start);
+        contact.read(&listing(&[2]), &[], &[], start);
+        let reads = reads_over(&mut contact, start, every, 120, false, &|_| listing(&[2]));
+        let minutes: Vec<u64> = reads
+            .iter()
+            .map(|&round| (every * round).as_secs() / 60)
+            .collect();
+        assert_eq!(
+            minutes,
+            [2, 6, 14, 30],
+            "a dead coordinator was asked at minutes {minutes:?} of the hour"
+        );
+    }
+
+    /// The wait goes back to two minutes when it has reason to: a read that
+    /// lists a new address for the missing machine (it moved, and may move
+    /// again before it answers), or the machine answering again (the next
+    /// time it goes missing may be a move, not a shutdown).
+    #[test]
+    fn red_team_news_or_an_answer_puts_the_wait_after_a_miss_back_to_two_minutes() {
+        let every = Duration::from_secs(30);
+        let laptop = device(2);
+        let (old, new) = ("192.168.1.2:9797", "192.168.1.2:9811");
+
+        // News: reads at 2, 6 and 14 minutes bring nothing; the one at 30
+        // lists the new port, where the laptop does not answer yet. The next
+        // read comes two minutes later, not 32.
+        let mut contact = Contact::new();
+        let start = Instant::now();
+        contact.published(Some(HOME), start);
+        contact.read(&[(laptop, old.to_owned())], &[], &[], start);
+        let listed = |round: u32| {
+            let at = if round < 60 { old } else { new };
+            vec![(laptop, at.to_owned())]
+        };
+        let reads = reads_over(&mut contact, start, every, 70, true, &listed);
+        let minutes: Vec<u64> = reads
+            .iter()
+            .map(|&round| (every * round).as_secs() / 60)
+            .collect();
+        assert_eq!(
+            minutes,
+            [2, 6, 14, 30, 32],
+            "after a read that listed a new address, the next came at {minutes:?}"
+        );
+
+        // An answer: off for three hours, the wait is an hour. The laptop
+        // answers one round, then is off again: the next read comes two
+        // minutes after that miss, not an hour after the last read.
+        let mut contact = Contact::new();
+        let start = Instant::now();
+        contact.published(Some(HOME), start);
+        contact.read(&[(laptop, old.to_owned())], &[], &[], start);
+        let off = 3 * 120;
+        reads_over(
+            &mut contact,
+            start,
+            every,
+            off,
+            true,
+            &listed_at(laptop, old),
+        );
+        let (_, reached) = round_against(
+            &mut contact,
+            &listed_at(laptop, old)(0),
+            true,
+            &[old],
+            start + every * off,
+        );
+        assert!(
+            reached.contains(&laptop),
+            "the laptop at its address was not reached"
+        );
+        let next = (off + 1..off + 120).find(|&round| {
+            round_against(
+                &mut contact,
+                &listed_at(laptop, old)(round),
+                true,
+                &[],
+                start + every * round,
+            )
+            .0
+        });
+        assert!(
+            next.is_some_and(|round| every * (round - off) <= REREAD_AFTER_MISS + every * 2),
+            "the laptop answered and went missing again; the next read came {:?} later",
+            next.map(|round| every * (round - off))
+        );
+    }
+
+    fn listed_at(device: DeviceId, address: &str) -> impl Fn(u32) -> Vec<(DeviceId, String)> {
+        let address = address.to_owned();
+        move |_| vec![(device, address.clone())]
+    }
+
+    /// The hand test of 2026-10-22: the laptop's house and the Mac's are both
+    /// 192.168.1.x, and the laptop dialled the Mac's 192.168.1.x address from
+    /// the coordinator at every round, timing out each time. A private address
+    /// of a machine discovery did not hear is dialled only at a probe round,
+    /// one in [`PRIVATE_PROBE_EVERY`]; a public address, a list with one, a
+    /// name and a relay always are; and a node whose discovery is off, or
+    /// warming up, dials as it always did.
+    #[test]
+    fn red_team_a_private_address_of_another_house_is_not_dialled() {
+        let (mac, pi) = (device(5), device(6));
+        let mut contact = Contact::new();
+        contact.read(
+            &[
+                (mac, "192.168.1.20:9797".to_owned()),
+                (mac, "10.0.0.20:9797".to_owned()),
+                (mac, "172.16.4.20:9797".to_owned()),
+                (pi, "192.168.1.30:9797".to_owned()),
+                (pi, "203.0.113.30:9797".to_owned()),
+                (pi, "192.168.1.30:9797,[2001:db8::30]:9797".to_owned()),
+                (pi, "pi.example.net:9797".to_owned()),
+            ],
+            &[],
+            &[],
+            Instant::now(),
+        );
+        let private = [
+            "192.168.1.20:9797",
+            "10.0.0.20:9797",
+            "172.16.4.20:9797",
+            "192.168.1.30:9797",
+        ];
+        let addresses = |contact: &Contact, heard: Option<bool>| -> Vec<String> {
+            contact
+                .dialable(|_| heard)
+                .into_iter()
+                .map(|(_, address)| address)
+                .collect()
+        };
+
+        // Two hours of five-minute rounds, nobody answering at a private
+        // address: the other house is dialled at the probe rounds only.
+        let start = Instant::now();
+        let mut probed = Vec::new();
+        for round in 0..24u32 {
+            let elsewhere = addresses(&contact, Some(false));
+            if elsewhere
+                .iter()
+                .any(|address| private.contains(&address.as_str()))
+            {
+                probed.push(round);
+            }
+            for kept in [
+                "203.0.113.30:9797",
+                "192.168.1.30:9797,[2001:db8::30]:9797",
+                "pi.example.net:9797",
+            ] {
+                assert!(
+                    elsewhere.iter().any(|address| address == kept),
+                    "round {round}: {kept} was not dialled"
+                );
+            }
+            for address in private {
+                let device = if address.ends_with(".30:9797") {
+                    pi
+                } else {
+                    mac
+                };
+                contact.failed(device, address);
+            }
+            contact.round_reached(&BTreeSet::new(), start + ROUND * round);
+        }
+        assert_eq!(
+            probed,
+            [0, 6, 12, 18],
+            "a private address of a machine discovery never heard here was dialled at \
+             rounds {probed:?} of 24, not one in {PRIVATE_PROBE_EVERY}"
+        );
+        assert_eq!(
+            addresses(&contact, Some(true)).len(),
+            7,
+            "a machine heard on this LAN lost an address"
+        );
+        assert_eq!(
+            addresses(&contact, None).len(),
+            7,
+            "with discovery off or warming up, an address was dropped"
+        );
+    }
+
+    /// The other side of the gate (red team, 2026-10-23): a NAS at 10.0.2.5
+    /// on another VLAN of the same house, or behind a VPN, is never heard by
+    /// discovery and is reachable all the same. It is dialled while discovery
+    /// warms up, at every probe round after that, and -- once a probe has
+    /// reached it -- at every round, until it fails.
+    #[test]
+    fn red_team_a_machine_on_another_vlan_is_still_dialled() {
+        let nas = device(7);
+        let address = "10.0.2.5:9797";
+        let mut contact = Contact::new();
+        let start = Instant::now();
+        contact.read(&[(nas, address.to_owned())], &[], &[], start);
+        // Past the first round, which is a probe round of its own.
+        contact.round_reached(&BTreeSet::new(), start);
+        let dialled = |contact: &Contact, heard: Option<bool>| {
+            contact
+                .dialable(|_| heard)
+                .iter()
+                .any(|(device, at)| *device == nas && at == address)
+        };
+
+        assert!(
+            dialled(&contact, None),
+            "the VLAN's NAS was not dialled while discovery warmed up"
+        );
+
+        // Discovery warmed up and never hears it; nothing answers.
+        let mut probes = Vec::new();
+        for round in 1..13u32 {
+            if dialled(&contact, Some(false)) {
+                probes.push(round);
+                contact.failed(nas, address);
+            }
+            contact.round_reached(&BTreeSet::new(), start + ROUND * round);
+        }
+        assert_eq!(
+            probes,
+            [6, 12],
+            "the VLAN's NAS was dialled at rounds {probes:?}, not every \
+             {PRIVATE_PROBE_EVERY}th"
+        );
+
+        // The probe of round 12 answered: dialled at every round from then on.
+        contact.worked(nas, address, 1_000);
+        for round in 13..20u32 {
+            assert!(
+                dialled(&contact, Some(false)),
+                "round {round}: the NAS answered and was not dialled again"
+            );
+            contact.round_reached(&BTreeSet::from([nas]), start + ROUND * round);
+        }
+        // Until it fails: then back to the probes.
+        contact.failed(nas, address);
+        contact.round_reached(&BTreeSet::new(), start + ROUND * 20);
+        assert!(
+            !dialled(&contact, Some(false)),
+            "an address that stopped answering was still dialled at every round"
+        );
+    }
+
+    /// The fall-back to two minutes is somebody else's word (red team,
+    /// 2026-10-23): a machine of the account answering one round in two, and
+    /// a coordinator listing a new port at every read, each put the wait back
+    /// to [`REREAD_AFTER_MISS`] and held this node at a read every two minutes
+    /// -- 720 a day at a round every 30 s. Floored to one fall-back per
+    /// [`RESET_FLOOR`], the doubling wins: never more than 432 a day at
+    /// 30 s rounds (three reads per ten minutes: the fall-back's, two and
+    /// six minutes after it), and no more than the 288 rounds of a day at
+    /// the default five minutes.
+    #[test]
+    fn red_team_a_machine_toggling_every_round_cannot_hold_the_wait_at_two_minutes() {
+        let day = Duration::from_secs(24 * 3600);
+        let laptop = device(2);
+        for (every, most) in [(Duration::from_secs(30), 432), (ROUND, 288)] {
+            let mut contact = Contact::new();
+            let start = Instant::now();
+            contact.published(Some(HOME), start);
+            contact.read(&[(laptop, "192.168.1.2:9000".to_owned())], &[], &[], start);
+            let rounds = u32::try_from(day.as_secs() / every.as_secs()).expect("rounds");
+            let reads = (1..rounds)
+                .filter(|&round| {
+                    // An answer one round in two at its address, and a new
+                    // port beside it at every read.
+                    let home = "192.168.1.2:9000";
+                    let listed = [
+                        (laptop, home.to_owned()),
+                        (laptop, format!("192.168.1.2:{}", 9000 + round)),
+                    ];
+                    let live: &[&str] = if round % 2 == 0 { &[home] } else { &[] };
+                    round_against(&mut contact, &listed, true, live, start + every * round).0
+                })
+                .count();
+            assert!(
+                reads <= most,
+                "at a round every {every:?}, a machine toggling every round cost {reads} reads \
+                 in a day; the floor allows at most {most}"
+            );
+        }
     }
 
     /// The coordinator chooses which presences it lists -- stale ones, or
