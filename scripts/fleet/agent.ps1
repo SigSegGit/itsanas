@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     administrators_authorized_keys (or the user's authorized_keys):
-      restrict,command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Users\<you>\.itsanas-fleet\agent.ps1" ssh-ed25519 AAAA... itsanas-fleet-ci
+      restrict,command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\Users\<you>\.itsanas-fleet\agent.ps1\"" ssh-ed25519 AAAA... itsanas-fleet-ci
 
     Win32-OpenSSH runs this script whatever the caller asked, with the request
     in SSH_ORIGINAL_COMMAND, as sshd does on Linux. What it does is the kit's
@@ -17,8 +17,8 @@
     whether one is there and its digest, and read the test node's status
     snapshot. No C scan: the laptop's vault is not read from here (yet).
 
-    Configuration: agent.json beside this script, written by hand or by a setup
-    to come (docs/FLEET-CI.md, "What it does not do yet"):
+    Configuration: agent.json beside this script, written by setup.ps1
+    (docs/FLEET-CI.md, "The laptop, once"):
       { "Folder": "C:\\Users\\you\\ITSaNAS-test", "Kit": "...\\acceptance.ps1",
         "Receipts": "...", "Homes": { "test": "C:\\Users\\you\\.itsanas-test" },
         "MaxFiles": 50 }
@@ -41,6 +41,17 @@ $maxFiles = if ($conf.MaxFiles) { [int] $conf.MaxFiles } else { 50 }
 if (-not $folder -or -not (Test-Path -LiteralPath $folder -PathType Container)) { Refuse "the test folder '$folder' does not exist" }
 if (-not (Test-Path -LiteralPath $kit)) { Refuse "no acceptance kit at $kit" }
 if ($conf.Receipts) { $env:ITSANAS_RECEIPTS = [string] $conf.Receipts }
+
+# One request at a time, as agent.sh's flock: two runs at once (a click while
+# the night's run is on) would each count the other's files. The handle is
+# held until this script exits; .NET takes the same flock on Linux.
+$lockDir = if ($conf.Receipts) { [string] $conf.Receipts } else { $here }
+New-Item -ItemType Directory -Force -Path $lockDir | Out-Null
+try {
+    $lock = [System.IO.File]::Open((Join-Path $lockDir 'agent.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+} catch {
+    Refuse 'another request is running on this machine'
+}
 
 # The same wall as agent.sh: plain words or refused whole.
 $request = [string] $env:SSH_ORIGINAL_COMMAND
