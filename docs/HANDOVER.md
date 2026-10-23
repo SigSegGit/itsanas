@@ -11,8 +11,8 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0c
 TITLE: Nicolas tests main on the fleet by hand for a week (reinstall, multi-account, relay, lists, vault, removable disks, deletion), with placement = measured (7a)
-WRITTEN-AT: 2026-10-19
-BASE: 4f8006a
+WRITTEN-AT: 2026-10-23
+BASE: 70c30b4
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -25,7 +25,7 @@ key). Passed: O doctor; M isolation between accounts; a vault move through the
 daemon; B laptop to Mac; G a conflict copy that kept both versions; keyed
 chunking at 95 and 117 MiB/s. Failed because of the test script, not the
 product: the Mac to laptop name had a typo; F (timing) is still to redo.
-Product defects found and fixed in this change: `itsanas update` said
+Product defects found and fixed in #305: `itsanas update` said
 "restarted" while 3 daemons stayed on 0.1.8 (now `<home>/lifecycle`, `stop`
 exits 0, `restart` exits 75, which every supervisor restarts, on the newly
 installed program; `update` prints per node what the lock showed; `signout`
@@ -35,13 +35,34 @@ falls back to asking the daemon to stop; `lifecycle.rs`, proven by
 `home/vault`; the passphrase windows name the account and the passphrase, not
 the 24 words (PR #300 had added the terminal line); `portable` now writes the
 five signed programs and three launchers (`red_team_a_portable_copy_starts_on_every_system_and_hosts_nobody`)
-and says "this system only" without a release. Still open: the Settings page
-is shown in English and badly laid out on the Mac; store writes at 11-17 MiB/s
-and a 32 MiB save at 1.8-2.9 s (`bench`); a TLS identity mismatch at the home
-public address, port 9799, where another device answers; PowerShell
-NativeCommandError noise in Windows daemon logs. 8.0c stays Nicolas's: A-M
-and O ran in part above, F is to redo, and the real disk pulled mid-write is
-not done.
+and says "this system only" without a release. Also fixed in #305, later
+than this paragraph first said: Settings in French on one readable column,
+and the Windows wrapper's NativeCommandError noise
+(`red_team_the_windows_wrapper_logs_plain_utf8_and_restarts_a_requested_restart_at_once`).
+Fixed 2026-10-23 (below): the TLS identity mismatch at the home public
+address, port 9799. Still open: store writes at 11-17 MiB/s and a 32 MiB
+save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
+2.2x on Windows and are not the default (ROADMAP, "Decision: pack files, and
+not urgently") -- making them the default is Nicolas's call, not a hand-test
+fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
+real disk pulled mid-write is not done.
+
+**2026-10-23: a router port that reaches another machine is withdrawn.**
+The hand test's "TLS identity mismatch at port 9799": the Freebox forwards
+9799 to the VM by hand, and a daemon on 9799 (the laptop's third account)
+had the router say yes to opening the same port. The coordinator's probe
+already said "answered, but not as this device"; the daemon printed it and
+kept publishing the address, so every member dialled the VM at every round
+and the laptop, believing itself reachable, never parked on a relay. Now a
+port the router opened that the probe disproves is withdrawn for the run
+(`hear_reachability` in `daemon.rs`); a written `announce` is still only
+reported. The diagnosis is from the code and the forwards listed in this
+file, not from a log of that run: if `daemon-*.log` on the laptop shows no
+"the router opened port 9799" line, the mismatch had another origin and is
+still open. Not built: refusing the mapping up front (a router does not show
+its hand-made forwards over `UPnP`). Also merged: Dependabot #288 (serde_json,
+zeroize, redb 2.6.4, sha2), built against main with `--locked` first. #256
+(`feat/mcp-server`) is Nicolas's own and left to him.
 
 **2026-10-22: this account on a USB key.** `itsanas copy-to-key DIR` (and the
 trays' *Copy this account to a USB key...*, which opens `settings --section
