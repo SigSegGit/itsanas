@@ -2743,17 +2743,14 @@ mod tests {
         let owner = keys(1).user_id();
         three_chunks(&vault, owner);
         vault.check_disk(100).unwrap();
+        // Size and write time, not bytes: Windows refuses to read a database
+        // another handle has locked. After a pause, so a write moves the time.
         let file = || {
-            let mut bytes = Vec::new();
-            for entry in std::fs::read_dir(dir.path()).unwrap() {
-                let path = entry.unwrap().path();
-                if path.extension().is_some_and(|ext| ext == "redb") {
-                    bytes.extend(std::fs::read(path).unwrap());
-                }
-            }
-            bytes
+            let meta = std::fs::metadata(dir.path().join("vault.redb")).unwrap();
+            (meta.len(), meta.modified().unwrap())
         };
         let before = file();
+        std::thread::sleep(std::time::Duration::from_millis(50));
         assert_eq!(vault.check_disk(100).unwrap().removed, 0);
         assert!(
             file() == before,

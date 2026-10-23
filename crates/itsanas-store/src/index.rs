@@ -3175,10 +3175,13 @@ mod tests {
         );
     }
 
-    /// The bytes of the index file: a call that commits rewrites at least
-    /// the header, so equal bytes mean no commit.
-    fn file_of(dir: &tempfile::TempDir) -> Vec<u8> {
-        std::fs::read(dir.path().join("index.redb")).expect("read")
+    /// What the file looks like from outside: its size and when it was last
+    /// written. Not its bytes -- Windows refuses to read a database another
+    /// handle has locked -- and taken after a pause, so a write that follows
+    /// moves the time even on a coarse filesystem clock.
+    fn file_of(dir: &tempfile::TempDir) -> (u64, std::time::SystemTime) {
+        let meta = std::fs::metadata(dir.path().join("index.redb")).expect("metadata");
+        (meta.len(), meta.modified().expect("mtime"))
     }
 
     /// An idle round's contacts write nothing (ROADMAP, "An idle node's disk
@@ -3197,6 +3200,7 @@ mod tests {
         index.admit_member(&peer, false).unwrap();
         index.note_seen(&peer, 1000).unwrap();
         let before = file_of(&dir);
+        std::thread::sleep(std::time::Duration::from_millis(50));
 
         index.clear_loss(&chunk(1)).unwrap();
         assert!(

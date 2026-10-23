@@ -1979,13 +1979,20 @@ fn a_loss_sweep_over_a_healthy_disk_writes_nothing() {
         store.missing_locally(&start, 64).expect("sweep"),
         Vec::<ChunkId>::new()
     );
-    let before = std::fs::read(&index).expect("read");
+    // Size and write time, not bytes: Windows refuses to read a database
+    // another handle has locked. After a pause, so a write moves the time.
+    let file = || {
+        let meta = std::fs::metadata(&index).expect("metadata");
+        (meta.len(), meta.modified().expect("mtime"))
+    };
+    let before = file();
+    std::thread::sleep(std::time::Duration::from_millis(50));
     assert_eq!(
         store.missing_locally(&start, 64).expect("sweep"),
         Vec::<ChunkId>::new()
     );
     assert!(
-        std::fs::read(&index).expect("read") == before,
+        file() == before,
         "a sweep that found every blob in place committed to the index"
     );
 }
