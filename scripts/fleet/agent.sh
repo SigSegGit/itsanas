@@ -188,6 +188,9 @@ case "$*" in
                 [ -r "$snapshot" ] || { echo "NOSNAPSHOT $2 has no status.snapshot: its daemon has not run here"; exit 1; }
                 taken=$(sed -n '1s/^snapshot \([0-9]*\) every \([0-9]*\).*/\1 \2/p' "$snapshot")
                 printf 'snapshot %s now %s\n' "$taken" "$(date +%s)"
+                # The running daemon's version, from the release after 0.1.12 on.
+                ver=$(sed -n '1s/.* version \([0-9A-Za-z.+-]*\).*/\1/p' "$snapshot")
+                printf 'version %s\n' "${ver:-unknown}"
                 grep -E '^  (username|device|files|live chunks)' "$snapshot"
                 ;;
             *)

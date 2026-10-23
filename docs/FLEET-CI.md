@@ -17,6 +17,7 @@ Fleet → Run workflow). For each machine that answers:
 
 | Row | What it checks | Kit phase |
 | --- | --- | --- |
+| **V** | the machines' running daemons are one build (the snapshot's `version`, from the release after 0.1.12 on): an `update` that restarted nothing shows here. The runner, which runs this checkout, is left out | -- |
 | **S** | the `test` node's daemon took a round in the last three intervals (its `status.snapshot`) | -- |
 | **B** | a file written on the first machine is byte for byte on every other | `B write`, `B check` |
 | **F** | deleted there, it is gone everywhere, and still gone a round later | `F delete`, `F check` |
@@ -123,8 +124,6 @@ ignored -- red each time.
   `administrators_authorized_keys`, `agent.json`) is Nicolas's decision.
 - ⬜ **E and G**, which need a machine of the account offline: stopping a
   container is docker, which is root. Not in v1, on purpose.
-- ⬜ **Versions**: that every node runs the same build (an `update` that left
-  daemons behind). The snapshot does not carry the version yet.
 - ⬜ **Logs**: the self-dial of 2026-10-22 was in a log, and the agent reads
   none (container logs are docker's).
 - **C reads only what the host holds for `test`**, never the rest of its vault

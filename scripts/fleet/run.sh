@@ -127,9 +127,16 @@ else
     # A snapshot is written after every round; one older than a few intervals
     # is a daemon that stopped, hung, or is not running at all -- which is
     # what the laptop's three daemons on 0.1.8 looked like (hand test).
+    versions=""
     for host in "${up[@]}"; do
         out=$(ask "$host" status test 2>&1)
         read -r _ taken every _ now <<<"$(printf '%s' "$out" | head -1)"
+        # The runner (member.sh) runs this checkout, not a release: only the
+        # machines' own daemons are compared below.
+        if [ "$host" != runner ]; then
+            version=$(printf '%s\n' "$out" | sed -n 's/^version //p' | head -1)
+            versions="$versions $host=${version:-unknown}"
+        fi
         if [[ "$taken" =~ ^[0-9]+$ && "$every" =~ ^[0-9]+$ && "$now" =~ ^[0-9]+$ ]]; then
             age=$((now - taken))
             if [ "$age" -le $((STALE * every + 60)) ]; then
@@ -141,6 +148,21 @@ else
             row FAIL "S $host: no snapshot: $(printf '%s' "$out" | head -1)"
         fi
     done
+
+    # ------------------------------------------- V: every machine runs one build
+    # An update that restarted nothing leaves daemons on the old program
+    # while the new one is on disk (the laptop, 2026-10-22). The snapshot
+    # says which build the running daemon is.
+    known=$(printf '%s\n' $versions | sed -n 's/^[^=]*=//p' | grep -v '^unknown$' | sort -u)
+    if [ -z "$versions" ]; then
+        :
+    elif [ -z "$known" ]; then
+        row SKIP "V: no machine's snapshot names its version (daemons from 0.1.12 or before)"
+    elif [ "$(printf '%s\n' "$known" | wc -l)" -gt 1 ]; then
+        row FAIL "V: the machines run different builds:$versions"
+    else
+        row PASS "V: every machine that says runs $known:$versions"
+    fi
 
     # ------------------------------------------------- B: a file appears elsewhere
     out=$(ask "$writer" B write 2>&1)

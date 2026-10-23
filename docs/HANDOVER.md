@@ -1185,8 +1185,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       anything else** at resume; fix what it finds, ahead of everything
       below. (3) The laptop (Windows): `acceptance.ps1` gets B, F and C phases
       and an agent in PowerShell, OpenSSH Server behind Tailscale only. (4)
-      Versions in the snapshot (an `update` that left nodes behind) and E/G,
-      which need a node stopped (docker, so root: decide first).
+      E/G, which need a node stopped (docker, so root: decide first).
+      Done 2026-10-23: versions in the snapshot and the fleet's V row.
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
       `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
       Battery is reported (`powercfg /batteryreport`) and not judged; bytes

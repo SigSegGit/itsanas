@@ -115,6 +115,8 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
             if ($lines[0] -match '^snapshot (\d+) every (\d+)') {
                 Write-Output "snapshot $($Matches[1]) $($Matches[2]) now $([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
             }
+            $version = if ($lines[0] -match ' version ([0-9A-Za-z.+-]+)') { $Matches[1] } else { 'unknown' }
+            Write-Output "version $version"
             $lines | Where-Object { $_ -match '^  (username|device|files|live chunks)' }
             exit 0
         }
