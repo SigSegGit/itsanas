@@ -42,6 +42,7 @@ usage: acceptance.sh <test> <phase> [arguments]
 
   B write <folder>                     a file of random bytes into the synced folder
   B check <folder> <name> <sha256>     that file, byte for byte, on another machine
+  B check <folder> <code>              the same, from the 8-character code `write` printed
   C plant <folder>                     a file carrying a unique canary
   C scan <canary> <host-state-dir>     the canary appears nowhere a host stores
   D check <path> <sha256>              a file of the restored account reads back intact
@@ -77,7 +78,23 @@ verdict() {
     [ "$result" = PASS ]
 }
 
-sha_of() { sha256sum "$1" | cut -d' ' -f1; }
+# `shasum -a 256` where there is no sha256sum: macOS has shipped only the
+# former for most of its versions, and partners test on Macs. Not seen
+# failing on the Mac of 2026-10-22 -- found reading the kit for the codes.
+if command -v sha256sum >/dev/null 2>&1; then
+    sha256() { sha256sum "$@"; }
+else
+    sha256() { shasum -a 256 "$@"; }
+fi
+sha_of() { sha256 "$1" | cut -d' ' -f1; }
+
+# The first eight hex digits of a digest, as two groups of four: what a person
+# reads aloud from one machine and types on another. The hand test of
+# 2026-10-22 failed once on a typo in a file name copied from the Mac to the
+# laptop, and a 64-digit digest is worse; eight digits name one file among a
+# folder's with odds of billions to one, and a wrong one is a FAIL, not a
+# false PASS.
+code_of() { local sha=$1; printf '%s-%s' "${sha:0:4}" "${sha:4:4}"; }
 
 need_dir() { [ -d "$1" ] || { echo "no such directory: $1" >&2; exit 2; }; }
 
@@ -92,7 +109,31 @@ write_phase() {
     need_dir "$folder"
     local name="acceptance-$test-$(date -u +%Y%m%dT%H%M%SZ)-$$.bin"
     random_bytes "$folder/$name"
-    verdict PASS "$test" write "$name sha256 $(sha_of "$folder/$name")"
+    local sha
+    sha=$(sha_of "$folder/$name")
+    verdict PASS "$test" write "$name sha256 $sha code $(code_of "$sha")"
+}
+
+# `check` from the code alone: the kit's files for this test in the folder,
+# one of which must have a digest starting with it.
+check_code_phase() {
+    local test=$1 folder=$2 code=$3 want file
+    need_dir "$folder"
+    want=$(printf '%s' "$code" | tr -d ' -' | tr 'A-F' 'a-f')
+    if ! printf '%s' "$want" | grep -Eq '^[0-9a-f]{8}$'; then
+        verdict FAIL "$test" check "'$code' is not a code: eight characters, 0-9 and a-f, as write printed them"
+        return
+    fi
+    for file in "$folder"/acceptance-"$test"-*.bin; do
+        [ -f "$file" ] || continue
+        case "$(sha_of "$file")" in
+            "$want"*)
+                verdict PASS "$test" check "$(basename "$file") identical, code $(code_of "$want")"
+                return
+                ;;
+        esac
+    done
+    verdict FAIL "$test" check "no file of test $test in $folder has code $(code_of "$want"): not here yet, or it arrived different"
 }
 
 check_phase() {
@@ -231,7 +272,7 @@ g_check() {
     # One line both machines print, so "they agree" is a comparison of two
     # strings rather than of two directory listings read by eye.
     local digest
-    digest=$( { printf '%s %s\n' "$base" "$(sha_of "$dir/$base")"; for s in $siblings; do printf '%s %s\n' "$(basename "$s")" "$(sha_of "$s")"; done; } | sha256sum | cut -c1-16)
+    digest=$( { printf '%s %s\n' "$base" "$(sha_of "$dir/$base")"; for s in $siblings; do printf '%s %s\n' "$(basename "$s")" "$(sha_of "$s")"; done; } | sha256 | cut -c1-16)
     verdict PASS G check "$base and $(printf '%s\n' "$siblings" | wc -l | tr -d ' ') conflict copy, $distinct distinct versions, agreement digest $digest"
 }
 
@@ -351,7 +392,9 @@ o_away() {
     local name
     name="acceptance-O-$(date -u +%Y%m%dT%H%M%SZ)-$$.bin"
     random_bytes "$folder/$name"
-    verdict PASS O away "coordinator reached from this network; published $announced; $name sha256 $(sha_of "$folder/$name")"
+    local sha
+    sha=$(sha_of "$folder/$name")
+    verdict PASS O away "coordinator reached from this network; published $announced; $name sha256 $sha code $(code_of "$sha")"
 }
 
 j_count() {
@@ -387,6 +430,7 @@ shift 2
 case "$test $phase $#" in
     "B write 1" | "E write 1") write_phase "$test" "$1" ;;
     "B check 3" | "E check 3") check_phase "$test" "$1" "$2" "$3" ;;
+    "B check 2" | "E check 2" | "O check 2") check_code_phase "$test" "$1" "$2" ;;
     "C plant 1") c_plant "$1" ;;
     "C scan 2") c_scan "$1" "$2" ;;
     "D check 2") d_check "$1" "$2" ;;

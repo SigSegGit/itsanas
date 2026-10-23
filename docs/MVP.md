@@ -535,6 +535,11 @@ nobody has IPv6 fails this test, correctly, and the fix for that case is
 
 ### Running them with the kit
 
+**Most of what follows no longer needs a person**: S, B, F and C run every
+night on the Pi, the VM and a CI runner away from home ([FLEET-CI.md](FLEET-CI.md),
+once set up). What stays by hand is A, J, H, N, the laptop, and the partners'
+machines ([TEST-PARTENAIRE.md](TEST-PARTENAIRE.md)).
+
 `scripts/acceptance.sh` turns each test into phases that end in `PASS` or `FAIL`
 with the numbers, and appends every verdict to
 `~/.itsanas-receipts/acceptance.txt` — paste that file, not an impression. It
@@ -553,7 +558,7 @@ the line for "nothing to send". Since 2026-09-15 the round adds
 | Test | Where | Command |
 | --- | --- | --- |
 | A | every machine | no phase: the criterion is that nothing was typed but the three commands |
-| B | machine 1, then 2 and 3 | `B write ~/ITSaNAS` → name and sha256; then `B check ~/ITSaNAS <name> <sha256>` |
+| B | machine 1, then 2 and 3 | `B write ~/ITSaNAS` → name, sha256 and an 8-character code; then `B check ~/ITSaNAS <code>` (or `<name> <sha256>`). The code is what a partner reads aloud ([TEST-PARTENAIRE.md](TEST-PARTENAIRE.md)): a name copied by hand failed the hand test of 2026-10-22 |
 | C | machine 1, then the host of **another** account | `C plant ~/ITSaNAS` → canary, which is the file's name as well as its content; then `C scan <canary> ~/.itsanas` (the control is built in). Only on another account's host: your own machine's index holds file names in the clear, correctly, and the scan will find the canary there |
 | D | the rebuilt machine | `itsanas login --username <name> --from <coordinator>`, `itsanas register`, one `itsanas sync` with no address (it asks the coordinator for the account's other machines, so one of them must be up; the daemon also reaches hosts on the local network), then `D check <path> <sha256>` |
 | E | machine 1, then 3 | `E write ~/ITSaNAS`, machine 1 off; later `E check ~/ITSaNAS <name> <sha256>` on machine 3. The kit cannot tell whether 1 and 3 ever met — that part is the person's discipline, so switch machine 3 off *before* machine 1 writes |

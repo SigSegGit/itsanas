@@ -183,6 +183,12 @@ jobs:
       # what runs.
       - name: Every gate in scripts/ is actually run here
         run: python scripts/check-ci.py
+      # The fleet run (fleet.yml) happens at night on machines nobody is
+      # watching, behind a key that can leak. Its agent must refuse every
+      # request but its fixed list, and its scenarios must be able to say
+      # FAIL; both are checked here on every push, without any fleet.
+      - name: The fleet agent is a wall, and the fleet run can fail
+        run: bash scripts/check-fleet.sh
       # A wrong scope does not fail anything: it makes CI green by testing
       # less, which is the one bug a CI cannot catch by running. So the
       # decision is tested here without git or GitHub -- a crypto-only change
