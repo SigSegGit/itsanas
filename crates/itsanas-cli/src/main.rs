@@ -1658,13 +1658,22 @@ fn disk_use(node: &Node) -> Result<DiskUse> {
     })
 }
 
-/// The text `itsanas status` prints, built rather than printed.
+/// `status`'s "listen" line: where the daemon writing the snapshot really
+/// listens, when it is not the configured address.
 ///
-/// Separated from the command so the daemon can write the same text to a
-/// snapshot after every round. The store allows one writer, so with the daemon
-/// up `status` cannot open it -- and answering "the node is busy" to somebody
-/// asking what their node is doing is the least useful thing this program could
-/// say.
+/// `daemon --listen` overrides the configuration for one run, and a snapshot
+/// that printed the configured port sent a reader to one nobody was on (hand
+/// test, 2026-10-22). `register` reads this line back (`daemon_listening`).
+fn listen_line(node: &Node, listening: Option<&str>) -> String {
+    match listening.filter(|bound| *bound != node.config.listen) {
+        Some(bound) => format!(
+            "  listen          {bound} (where this run is bound; configured {})",
+            node.config.listen
+        ),
+        None => format!("  listen          {}", node.config.listen),
+    }
+}
+
 /// `status`'s "used" line, and the warning when the disk can no longer
 /// hold the pledge.
 fn used_line(node: &Node, hosted: u64) -> String {
@@ -1682,7 +1691,17 @@ fn used_line(node: &Node, hosted: u64) -> String {
     )
 }
 
-fn render_status(node: &Node) -> Result<String> {
+/// The text `itsanas status` prints, built rather than printed.
+///
+/// Separated from the command so the daemon can write the same text to a
+/// snapshot after every round. The store allows one writer, so with the daemon
+/// up `status` cannot open it -- and answering "the node is busy" to somebody
+/// asking what their node is doing is the least useful thing this program could
+/// say.
+///
+/// `listening` is where the daemon writing the snapshot really listens, and
+/// `None` from `status` itself, which runs no listener.
+fn render_status(node: &Node, listening: Option<&str>) -> Result<String> {
     let mut out = String::new();
 
     // A local macro, so the body below reads the way it did when it printed.
@@ -1793,7 +1812,7 @@ fn render_status(node: &Node) -> Result<String> {
     );
     w!();
     w!("network");
-    w!("  listen          {}", node.config.listen);
+    w!("{}", listen_line(node, listening));
     // What other machines are told, which is the number that decides whether
     // anybody outside this LAN can reach this one -- and which differs from
     // `listen` exactly when somebody has set it up to.
@@ -2247,7 +2266,7 @@ fn status(home: &Path, brief: bool) -> Result<()> {
 
     match open(home) {
         Ok(node) => {
-            print!("{}", render_status(&node)?);
+            print!("{}", render_status(&node, None)?);
             Ok(())
         }
         // Still handled, because the daemon can take the lock between the probe
@@ -2444,6 +2463,12 @@ fn register(home: &Path, recovery: bool, withdraw: bool, invite: Option<&str>) -
     // `register` also announces this device's address: after `leave` that
     // would hand the peers, told it was gone, a fresh address to dial.
     refuse_if_departed(home)?;
+    // Before the passphrase, as `status` asks: with the daemon up, the store
+    // is its, and the open below would fail after the prompt with a message
+    // about locks that does not say what matters here.
+    if Node::exists(home) && itsanas_store::Store::is_locked(Node::store_path(home)) {
+        return Err(CliError::Usage(register_beside_daemon(home)));
+    }
     let node = open(home)?;
     let published = register_and_announce(&node, invite)?;
     println!(
@@ -2515,6 +2540,48 @@ fn register_and_announce(
     // configured value told the reader an address no peer can dial.
     let listen = node.config.listen.clone();
     Ok(coordinator::announce(node, &listen, now).map_err(|error| error.to_string()))
+}
+
+/// Why `register` does not run beside this node's daemon, and where that
+/// daemon listens.
+///
+/// `register` announces the configured `listen` (`register_and_announce`).
+/// A daemon started with `--listen` elsewhere publishes the address it really
+/// listens on, and an announcement of the configured one would send the
+/// account's other machines to a port nobody is on (hand test, 2026-10-22).
+/// The store is the daemon's while it runs, so `register` cannot open the
+/// node anyway; what it can do is say where the daemon is, from the snapshot
+/// the daemon writes every round, as `status` does.
+fn register_beside_daemon(home: &Path) -> String {
+    let configured = config::Config::load(&Node::config_path(home))
+        .ok()
+        .map(|config| config.listen);
+    let listening = match (daemon_listening(home), configured) {
+        (Some(bound), Some(configured)) if bound != configured => format!(
+            ", listening on {bound} by its last report (not the configured {configured}); it \
+             publishes that address itself, at its start and whenever it changes. `itsanas \
+             listen {bound}` makes it the configured one, which `register` announces"
+        ),
+        (Some(bound), _) => format!(
+            ", listening on {bound} by its last report; it publishes that address itself, \
+             at its start and whenever it changes"
+        ),
+        (None, _) => String::new(),
+    };
+    format!(
+        "this node's daemon is running{listening}. `register` opens the node, which the \
+         daemon holds: stop the daemon, run `itsanas register`, and start the daemon again."
+    )
+}
+
+/// Where this node's daemon said it listens, from the `listen` line of its
+/// snapshot (`render_status`), if it left one.
+fn daemon_listening(home: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(home.join(SNAPSHOT)).ok()?;
+    text.lines()
+        .find_map(|line| line.trim_start().strip_prefix("listen "))
+        .and_then(|rest| rest.split_whitespace().next())
+        .map(str::to_owned)
 }
 
 /// The coordinator this node last registered with, if any.
@@ -5727,6 +5794,51 @@ mod tests {
             refused.to_string().contains("itsanas rejoin"),
             "register reached the node (or the network) instead of naming rejoin: {refused}"
         );
+    }
+
+    /// Hand test, 2026-10-22: `register` announces the configured `listen`,
+    /// and a daemon run with `--listen` elsewhere is on another port. With
+    /// that daemon up, `register` says so before asking for a passphrase,
+    /// and names the port the daemon really listens on, read back from the
+    /// snapshot it writes -- which must therefore carry that port, not the
+    /// configured one. Sabotaged (no check before the open; the snapshot
+    /// printing the configured port): red.
+    #[test]
+    fn register_beside_a_running_daemon_names_the_port_it_really_listens_on() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        // Held open for the whole test, as a running daemon holds it.
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        assert_eq!(node.config.listen, "0.0.0.0:9797");
+        let snapshot = super::render_status(&node, Some("0.0.0.0:9811")).expect("render");
+        assert!(
+            snapshot.contains("listen          0.0.0.0:9811"),
+            "the daemon's snapshot names the configured port, not the one it listens on:\n\
+             {snapshot}"
+        );
+        std::fs::write(
+            home.join(SNAPSHOT),
+            format!(
+                "snapshot {} every 60\n{snapshot}",
+                itsanas_discover::now_unix()
+            ),
+        )
+        .expect("snapshot");
+
+        let refused =
+            register(&home, false, false, None).expect_err("register beside a running daemon");
+        let said = refused.to_string();
+        assert!(
+            said.contains("daemon is running")
+                && said.contains("0.0.0.0:9811")
+                && said.contains("itsanas listen 0.0.0.0:9811"),
+            "register did not say where the running daemon listens: {said}"
+        );
+
+        // `status` itself runs no listener: the configured port, unqualified.
+        let own = super::render_status(&node, None).expect("render");
+        assert!(own.contains("listen          0.0.0.0:9797\n"), "{own}");
     }
 
     /// What a sync pulled must reach the synced folder without a `scan`: the

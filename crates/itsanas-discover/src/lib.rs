@@ -35,6 +35,7 @@
 
 pub mod beacon;
 pub mod error;
+pub mod interfaces;
 pub mod lan;
 pub mod neighbours;
 
@@ -43,5 +44,6 @@ pub use beacon::{
     OwnerTag,
 };
 pub use error::{DiscoverError, Result};
+pub use interfaces::{LocalNets, is_virtual_adapter};
 pub use lan::{ANNOUNCE_INTERVAL, DEFAULT_PORT, EXPIRY, Lan, now_unix};
 pub use neighbours::{Candidate, DEFAULT_CAPACITY, Heard, Neighbour, Neighbours};

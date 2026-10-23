@@ -39,7 +39,7 @@ use std::{
 
 use itsanas_crypto::{DeviceId, DeviceKeys};
 use itsanas_discover::{
-    ANNOUNCE_INTERVAL, Candidate, EXPIRY, Heard, HouseholdKey, Lan, Neighbours, now_unix,
+    ANNOUNCE_INTERVAL, Candidate, EXPIRY, Heard, HouseholdKey, Lan, LocalNets, Neighbours, now_unix,
 };
 
 /// How long to wait on the socket before checking for shutdown.
@@ -60,6 +60,9 @@ const COMPLAINT_INTERVAL: Duration = Duration::from_secs(300);
 #[derive(Debug)]
 pub struct Neighbourhood {
     table: Mutex<Neighbours>,
+    /// Whether discovery is running here, so that what it has not heard
+    /// means something ([`Self::heard_here`]).
+    listening: AtomicBool,
 }
 
 impl Neighbourhood {
@@ -68,7 +71,28 @@ impl Neighbourhood {
     pub fn new() -> Self {
         Self {
             table: Mutex::new(Neighbours::default()),
+            listening: AtomicBool::new(false),
         }
+    }
+
+    /// Say that discovery runs on this machine's network, so that a machine
+    /// of the account it has not heard is not on it ([`Self::heard_here`]).
+    pub fn listening(&self) {
+        self.listening.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether `device` was heard on this machine's local network: `None`
+    /// when discovery is not running here, so silence proves nothing.
+    #[must_use]
+    pub fn heard_here(&self, device: &DeviceId) -> Option<bool> {
+        if !self.listening.load(Ordering::Relaxed) {
+            return None;
+        }
+        Some(
+            self.table
+                .lock()
+                .is_ok_and(|table| table.get(device).is_some()),
+        )
     }
 
     /// Addresses to try, this node's own machines first.
@@ -157,6 +181,10 @@ pub fn run(
     // (a fixed nonce would be a fixed tag), and nobody should wait five
     // minutes to learn why it is invisible.
     let mut next_entropy_complaint = Instant::now();
+    // Read again at every expiry: a laptop that moved, or a VM started, has
+    // other adapters than at start.
+    let mut nets = LocalNets::of_this_machine();
+    neighbourhood.listening();
 
     while !shutdown.load(Ordering::Relaxed) {
         if Instant::now() >= next_announce {
@@ -184,7 +212,13 @@ pub fn run(
                     // Our own broadcast, heard back. Not news.
                     continue;
                 }
-                report(neighbourhood, &announcement, from, household);
+                report_via(
+                    neighbourhood,
+                    &announcement,
+                    from,
+                    nets.via_virtual(from),
+                    household,
+                );
             }
             Ok(None) => {}
             Err(error) if error.is_foreign_traffic() => {}
@@ -207,15 +241,30 @@ pub fn run(
                 table.expire(now_unix().saturating_sub(EXPIRY.as_secs()));
             }
             next_expiry = Instant::now() + EXPIRY;
+            nets = LocalNets::of_this_machine();
         }
     }
 }
 
-/// Record one announcement and print it only if it is news.
+/// [`report_via`], for an announcement heard on a real network.
+#[cfg(test)]
 fn report(
     neighbourhood: &Neighbourhood,
     announcement: &itsanas_discover::Announcement,
     from: std::net::IpAddr,
+    household: &HouseholdKey,
+) {
+    report_via(neighbourhood, announcement, from, false, household);
+}
+
+/// Record one announcement and print it only if it is news. `via_virtual`
+/// when it came in over one of this machine's virtual networks, where a copy
+/// of a beacon heard on a real one moves nothing (`Neighbours::record_via`).
+fn report_via(
+    neighbourhood: &Neighbourhood,
+    announcement: &itsanas_discover::Announcement,
+    from: std::net::IpAddr,
+    via_virtual: bool,
     household: &HouseholdKey,
 ) {
     let Ok(mut table) = neighbourhood.table.lock() else {
@@ -233,7 +282,7 @@ fn report(
         "another user's"
     };
 
-    match table.record(announcement, from, now_unix()) {
+    match table.record_via(announcement, from, now_unix(), via_virtual) {
         Heard::New => println!(
             "found {whose} device {} at {}:{}",
             announcement.device.short(),

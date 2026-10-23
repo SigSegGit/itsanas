@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1337 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 393 are red-team tests.**
+**Last updated: 2026-10-22 — 1349 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 402 are red-team tests.**
 
-**1221 of the 1337 tests have an entry of their own on this page** — an *entry*,
+**1233 of the 1349 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,16 +173,16 @@ guarantee and is not one.
 | `itsanas-coord` unit | 123 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 17 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 1 |
-| `itsanas-discover` unit | 43 |
+| `itsanas-discover` unit | 48 |
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 194 |
+| `itsanas-cli` unit | 195 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 142 |
+| `itsanas-node` unit | 148 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -211,11 +211,11 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 45 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 53 |
+| `identity` | keys, accounts, devices, claims, invitations | 50 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 54 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 59 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
-| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
+| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 27 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 49 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 87 |
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (194)
+# `itsanas-cli` — unit tests (195)
 
 ## `bench` — measuring this machine (4)
 
@@ -1454,7 +1454,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are (46)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are (47)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1491,6 +1491,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_after_migration_a_command_without_a_name_refuses`** | With neither `--instance` nor `--home`, a machine holding only named instances refuses and names them, instead of falling back to `~/.itsanas` where `init` would make a second identity and a stale `itsanas.service` would start it. A machine with no node at all still gets `~/.itsanas`, or the first `init` could never run. Sabotaged (always fall back): red. |
 | **`red_team_a_departed_node_stays_departed_until_it_rejoins`** | After `itsanas leave` the home holds a `departed` file; the daemon exits 0 at once (so `Restart=on-failure` and the logon task do not loop), `serve` and `sync` refuse, each naming `itsanas rejoin`, and `rejoin` undoes it. Otherwise systemd would bring back a machine its peers were told had gone. Sabotaged (the check reads another file): red. |
 | **`red_team_a_departed_node_cannot_register_again`** | `register` publishes this device's address as well as its claim; after `itsanas leave` it ran unguarded, so a departed node could hand the peers that were told it had gone a fresh address. It now refuses first, naming `itsanas rejoin`. Sabotaged (guard removed): red. |
+| `register_beside_a_running_daemon_names_the_port_it_really_listens_on` | Hand test, 2026-10-22: `register` announces the configured `listen`, and a daemon run with `--listen` elsewhere is on another port. With the daemon holding the store, `register` refuses before any passphrase, naming the port the daemon really listens on and `itsanas listen <it>`, read from the daemon's snapshot -- whose `listen` line now carries the bound port, not the configured one; `status`'s own rendering still says the configured port. Sabotaged (no check before the open; snapshot printing the configured port; register not reading it): red. |
 | **`red_team_a_drain_never_counts_an_owner_it_could_not_ask_as_done`** | `itsanas leave --drain-for` prints counts only (owners left one replica fewer, owners not askable). An owner that was unreachable or too old for protocol 8 is never folded into "drained": that would be the one number in the last sentence a person reads before switching off that lies. Sabotaged (unaskable counted as done): red. |
 | **`red_team_a_node_under_the_other_home_variable_is_not_shadowed`** | On Windows the CLI prefers `USERPROFILE`; a node made when `HOME` won is invisible there, and `init`/`login` would mint a second identity. A derived home with no node, when the other variable's home holds one at the same place, is refused with the path and `--home` named; an explicit `--home` is never second-guessed. Sabotaged (`stranded_node` never finding): red. |
 | `migration_advice_says_the_old_unit_restart_loops` | After `migrate` the old unit still points at `~/.itsanas`, fails at each start and is restarted by `Restart=` or the logon task until disabled; the advice says so. Sabotaged (sentence softened): red. |
@@ -1569,14 +1570,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (159)
+# `itsanas-node` — a node on disk (165)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `coordinator` — publishing an address, and whose deletion a host believes (21)
+## `coordinator` — publishing an address, and whose deletion a host believes (22)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -1587,6 +1588,7 @@ anything.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_an_address_on_a_virtual_adapter_is_not_published`** | Hand test, 2026-10-22: a laptop with VMware's two host networks, WSL's switch and Tailscale publishes its Wi-Fi address whichever of them the route to the coordinator leaves by (`on_a_real_adapter`, applied to `address_now` and to the published address alike, so the two keep agreeing); a real adapter's address stands, and a machine with only virtual adapters keeps its own. Sabotaged (virtual address kept): red. |
 | **`red_team_a_node_with_an_opened_port_and_ipv6_offers_both_and_every_one_is_dialable`** | A port opened by UPnP or NAT-PMP and a global IPv6 address make one list, both resolvable by a dialler, within the signed presence's 255 bytes (not on Windows); announced from the release after `ANNOUNCE_LISTS` is turned on. Sabotaged (IPv6 not appended): red. |
 | **`red_team_a_home_node_announces_its_global_ipv6_not_its_private_ipv4`** | With no `announce` and no port opened by UPnP, a node behind a home NAT announces its global IPv6 address rather than the private IPv4 only its LAN can dial (not on Windows, whose listener is IPv4 only); a public IPv4 address stays; link-local, unique-local, documentation and loopback addresses are never taken for global. Sabotaged (preference off): red. |
 | **`red_team_a_coordinator_cannot_make_a_host_drop_an_account_that_never_asked`** | A host frees an account's data only on a deletion the account itself signed, and only for an account it asked about: a forged tombstone (another key's signature over the victim's id) and an unasked one are ignored. Sabotaged (signature not checked): red. |
@@ -1608,22 +1610,29 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (27)
+## `contact` — when the coordinator is dialled at all (32)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
-its address changes, and hourly, and reads the account's devices only on the
-connection a publication opens. Every instant is this machine's own; nothing
+its address changes, and hourly, and reads the account's devices on the
+connection a publication opens -- and on one of its own only after a machine of
+the account answered nowhere, two minutes after the last read and then with the
+wait doubled up to the hour while it stays missing. Every instant is this machine's own; nothing
 here reads a peer's clock or trusts the coordinator's order.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_private_address_of_another_house_is_not_dialled`** | Hand test, 2026-10-22: the laptop's house and a Mac's house were both 192.168.1.x, and each dialled the other's 192.168.1.x address from the coordinator at every round, to a connect timeout. `Contact::dialable`, which `dial_listed` dials from, drops an address whose every entry is RFC 1918 when local discovery is running and has not heard that machine; a public address, a list holding one, a name and a relay are kept, and so is everything when discovery is off or heard the machine. Same public address as evidence of one LAN is not built: the coordinator does not record where a publication came from. Sabotaged (no gate; any private entry instead of every one): red. |
 | **`red_team_a_host_of_another_account_relays_only_after_the_accounts_own_machines`** | §8 0v. Hosts of other accounts the round reached and that proved themselves come after every machine of the account as relays, a host on a private address is never offered, and a quiet round does not drop a host (a day without proof does). Sabotaged (hosts first; hosts cleared every round): red. |
 | **`red_team_a_relay_the_account_knows_is_dialled_at_the_books_address`** | §8 0v. A `relay:<id>@<at>` presence is dialled through the relay at the book's address when the relay is a machine of the account, whatever address the presence carries; a host of another account, in no book, is dialled at the carried address with its key pinned; an unknown relay with no address is not dialled; the relay chosen to park on is the first public, non-relay address. Sabotaged (private addresses allowed as relay): red. |
 | **`a_machine_that_never_moves_dials_the_coordinator_once_an_hour`** | The number the step is justified by: 288 rounds of a Pi that never moves make 24 connections, 24 publications and 24 reads -- every read on a publication's connection, none on its own. |
 | **`red_team_a_machine_that_found_everybody_by_broadcast_still_publishes`** | The Rodin finding of 2026-09-21 against the first rule ("dial when the round reached nobody"): a Pi that found the VM by broadcast never published, and a laptop elsewhere could not find it. The rule is not given who was reached; publishing at start and hourly are each sabotaged and each turns this red. |
 | **`a_machine_that_changes_network_publishes_at_once`** | A laptop whose address changed publishes on the next round, not in an hour; an unchanged address inside the hour costs no connection; losing the route counts as a change. |
 | **`a_machine_enrolled_after_this_one_started_is_dialled_within_the_hour`** | Why reads ride on every publication instead of waiting for a listed device to go missing: a machine enrolled after this one started is on no list, so it can never go missing. Eleven rounds make no connection, the hourly one reads, and the new machine is in the book. |
+| **`red_team_a_machine_that_restarted_on_another_port_is_dialled_there_within_two_rounds`** | Hand test, 2026-10-22: a portable key registered at 9798, its daemon ran with `--listen` on 9811 and published that, and the laptop, which had read 9798, dialled it there until its hourly read. A machine of the account that answers at none of its addresses (`Contact::round_reached`) now makes the next round read again: at rounds of 60 s and of 300 s the key is reached on its new port by round 2, and once it answers no further read is asked before the hour. Sabotaged (no re-read after a miss; misses not recorded): red. |
+| **`red_team_a_machine_that_stays_off_for_a_day_costs_about_thirty_reads_not_288`** | The bound on the rule above: a laptop shut for a day, at rounds of 30 s and of 300 s. The wait after a miss doubles at each read asked for while it is missing (2, 4, 8, 16, 32 minutes, capped at `PUBLISH_EVERY`), so the day costs 27 reads -- four extra, then the hourly one -- never two within `REREAD_AFTER_MISS`, and exactly 12 in the second half. A fixed two-minute wait made 288 and 720. Sabotaged (no doubling; doubling only on answered reads; no re-read): red. The cap at the hour is not separately verified: the publication's hourly read already bounds it. |
+| **`red_team_a_coordinator_that_is_down_is_asked_with_the_same_back_off`** | The attempt counts, not the answer (`Contact::asked`): with the coordinator down, rounds every 30 s for 59.5 minutes ask at minutes 2, 6, 14 and 30, not 29 times. Sabotaged (no doubling; doubling only on answered reads; no re-read): red. |
+| **`red_team_news_or_an_answer_puts_the_wait_after_a_miss_back_to_two_minutes`** | The resets: a read at minute 30 that lists a new address for the missing laptop brings the next read at 32, not 62; a laptop off for three hours that answers one round and goes missing again is read for within two minutes of that, not at the hour. Sabotaged (no reset on news; no reset on an answer): red. |
 | **`red_team_a_coordinator_cannot_grow_the_address_book_without_bound`** | The coordinator still decides which presences it lists -- an older one unsigned, any of them stale. 65 536 devices in one answer leave `MAX_DEVICES` in the table; a thousand addresses for one device leave `MAX_ADDRESSES`. |
 | **`red_team_addresses_that_never_worked_do_not_displace_one_that_did`** | Twenty stale addresses for the Pi, from a coordinator that lies or is only out of date, arrive after its LAN address answered: that address is still dialled first and the rest is capped. Order is this machine's record of success, never the list's. |
 | **`red_team_a_coordinator_that_has_signed_cannot_talk_this_node_down_to_an_unsigned_list`** | §8 0o 2b.1, found by Rodin: a coordinator that hangs up on `SignedPeers`, as an older one does, would have the client fall back to `Peers`, whose addresses it can forge -- the signature check made advisory against the one party it checks. Once a coordinator has signed, `Due::accept_unsigned` stays false for every later hour. Sabotaged by leaving it true. |
@@ -2022,7 +2031,7 @@ destructive if wrong.
 
 ---
 
-# `itsanas-discover` — serverless local discovery (43)
+# `itsanas-discover` — serverless local discovery (48)
 
 The only parser in the project fed unsolicited packets by anybody, with no
 handshake in front of it. Everything else sits behind TLS and behind a peer that
@@ -2052,10 +2061,11 @@ hardware it will actually run on.
 | `a_zero_port_is_refused` | An announcement nothing can serve is either a bug or bait for a connection that cannot succeed. |
 | `an_announcement_round_trips` | The basic path. |
 
-## `neighbours` — the bounded table (14)
+## `neighbours` — the bounded table (15)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_copies_of_a_beacon_over_virtual_networks_do_not_move_a_device`** | Hand test, 2026-10-22: Windows sends a broadcast out of every adapter, so the laptop heard the portable key beside it at 192.168.1.142, 192.168.19.1 and 192.168.117.1 each interval and logged a move at each. A copy heard over a virtual network (`record_via`) refreshes a device heard on a real one within `EXPIRY` and moves nothing; a device heard only over a virtual network (a VM on a host-only network) is recorded, and a real network takes over from it at once and again after `EXPIRY` of silence. Sabotaged (copies move the device): red. |
 | **`a_rebooted_pi_with_a_reset_clock_is_still_followed_to_its_new_address`** | Why the *receiver's* clock decides and the sender's is ignored. Superseding by sender clock would leave a rebooted Pi pinned to a stale address until NTP ran — exactly when someone is waiting for it to come back. |
 | **`the_table_never_grows_past_its_capacity`** | A device id is a free keypair, so anyone on the network can mint valid announcements without limit. Unbounded means an out-of-memory kill on the Pi, triggered by a stranger. |
 | **`a_flood_of_strangers_cannot_evict_a_known_peer`** | The eviction attack. Without protection, a flood pushes the Pi out of every table and the household stops syncing while every node believes discovery is working. |
@@ -2070,6 +2080,20 @@ hardware it will actually run on.
 | `repeating_the_same_announcement_is_not_reported_as_news` | A beacon arrives every thirty seconds forever. Logging each one makes an unreadable journal, which is the same as no journal on the day something breaks. |
 | `a_new_device_is_recorded_with_the_address_it_was_heard_from` | The address comes from the datagram, never from the packet. |
 | `a_capacity_of_zero_is_treated_as_one_rather_than_never_recording` | A misconfiguration degrades rather than silently disabling discovery. |
+
+## `interfaces` — real networks and virtual ones (4)
+
+Which of this machine's adapters a hypervisor or an overlay made up. By name,
+because VMware, Hyper-V, VirtualBox and WSL number their networks from the
+same private ranges a home router uses; by address too for Tailscale-like
+overlays (100.64.0.0/10, `fd7a:115c:a1e0::/48`). Read through `if-addrs`.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_virtual_adapters_are_told_from_real_ones_by_name`** | Windows's friendly names (`vEthernet (WSL)`, `VMware Network Adapter VMnet1`, `VirtualBox Host-Only Network`, `Tailscale`, ZeroTier) and the Unix ones (`vmnet8`, `vboxnet0`, `docker0`, `br-…`, `virbr0`, `veth…`, `tailscale0`, `utun3`, `wg0`, `zt…`) are virtual; `Wi-Fi`, `Ethernet 2`, `eth0`, `wlan0`, `en0`, `enp3s0`, `wlp2s0` are not; a Tailscale address is an overlay under any name. Sabotaged (names ignored; the overlay range ignored): red. |
+| **`red_team_a_beacon_over_a_virtual_network_is_known_for_one`** | On the hand test's laptop, a source on the Wi-Fi's network is real and one on VMware's or WSL's is virtual; a source on no network of this machine, or any source when no adapter could be listed, is not called virtual; a real LAN inside Docker's /16 stays real. Sabotaged (overlap with a real network ignored): red. |
+| `the_address_to_announce_is_on_a_real_adapter` | `is_virtual` knows the host adapters' own addresses and `physical_v4` picks the Wi-Fi. |
+| `this_machines_adapters_can_be_read` | Reading this machine's adapters does not fail and never lists the loopback. |
 
 ## `lan` — the socket (12)
 

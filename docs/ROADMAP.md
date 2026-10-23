@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1337 test functions, 14 of them `#[ignore]`d into the slow job, and 393 of
+**1349 test functions, 14 of them `#[ignore]`d into the slow job, and 402 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1975,11 +1975,31 @@ makes the next round due 5 s later (`SETTLE`, `control.rs`), never sooner than
 costs a round per half minute at most; only files taken in or deleted here
 count, not what a peer's push wrote out. A portable copy's base interval is
 60 s instead of 300 s (`PORTABLE_INTERVAL`, `daemon.rs`), and its banner says
-`portable  yes` on stdout. Still open: the daemon publishes the port it really
-listens on, but `register` announces `config.listen`, and a peer reads the
-coordinator only at its hourly publication (`PUBLISH_EVERY`), so a peer that
-read before the key's daemon started dials the registered port for up to an
-hour.
+`portable  yes` on stdout. The daemon publishes the port it really listens on,
+but `register` announces `config.listen`, and a peer read the coordinator only
+at its hourly publication (`PUBLISH_EVERY`), so a peer that read before the
+key's daemon started dialled the registered port for up to an hour.
+**The stale address is now handled (2026-10-22):** a machine of the account
+that answers at none of the addresses held for it makes the next round read
+the coordinator again, two minutes after the last read (`REREAD_AFTER_MISS`,
+`contact.rs`), so the new port is dialled within two rounds; while it stays
+missing the wait doubles up to the hour (2026-10-23), so a machine that stays
+off costs about four extra reads, not 288 a day; the daemon's
+snapshot gives the port it is bound to, and `register` beside a running daemon
+names that port before asking for a passphrase instead of failing on the lock.
+**Two houses on 192.168.1.x, and virtual adapters (2026-10-23):** the laptop
+and a Mac in another house dialled each other's 192.168.1.x address from the
+coordinator at every round; a private (RFC 1918) address of the account's
+machines is now dialled only when local discovery heard that machine here
+(`Contact::dialable`), or when discovery is off. The laptop's log also said the
+portable key beside it "moved" every round between 192.168.1.142 and its VMware
+host networks 192.168.19.1 and 192.168.117.1: a beacon copy heard over a virtual
+network no longer moves a device heard on a real one, and an address on a
+virtual adapter (Hyper-V, VMware, VirtualBox, WSL, Docker, Tailscale-like
+overlays) is not published when a real one exists (`itsanas_discover::interfaces`,
+through the new `if-addrs` dependency). Still open: "same public address" as
+evidence of one LAN needs the coordinator to record where a publication came
+from, a protocol change.
 
 ### At most 10 live devices per account — 2026-09-30, raised 2026-10-22
 
