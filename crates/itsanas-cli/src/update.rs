@@ -333,6 +333,27 @@ impl<'a> Updater<'a> {
             .map_err(|_| not_ours(format!("its bytes are not release {}'s", self.running)))
     }
 
+    /// The bytes this program's own signed release programs take together,
+    /// from its manifest: what `itsanas copy-to-key` needs on the key for
+    /// them.
+    ///
+    /// # Errors
+    ///
+    /// No pinned key, no such release, or a manifest that is not the signed
+    /// one.
+    pub(crate) fn release_bytes(&self) -> Result<u64> {
+        let Some(trust) = &self.trust else {
+            return Err(refused(&ReleaseError::NoKeyPinned));
+        };
+        let (bytes, signature) = self.fetch_manifest(&format!("download/v{}", self.running))?;
+        let manifest =
+            itsanas_release::verify_signed(&bytes, &signature, trust).map_err(|e| refused(&e))?;
+        Ok(manifest
+            .files
+            .iter()
+            .fold(0u64, |sum, entry| sum.saturating_add(entry.size)))
+    }
+
     /// Every binary of this program's own signed release, each checked
     /// against the manifest, written into `dir` under its release name
     /// (`itsanas-<target>[.exe]`). What `itsanas portable` puts on a key, so

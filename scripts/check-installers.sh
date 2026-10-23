@@ -1128,6 +1128,7 @@ if [ -n "$PY" ]; then
                 '  item Until I resume -> itsanas --instance b pause [confirm]' \
                 '  item 15 min -> itsanas --instance b interval 15m [checked]' \
                 'item Settings... -> itsanas --instance b settings' \
+                'item Copy this account to a USB key... -> itsanas --instance b settings --section key' \
                 'item Sign out... -> itsanas --instance b signout [confirm]' \
                 'item Remove this machine... -> itsanas --instance b leave [confirm]' 'item Quit the icon -> quit'; do
         printf '%s\n' "$healthy" | grep -qxF -- "$line" \

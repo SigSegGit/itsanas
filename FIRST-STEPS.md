@@ -267,6 +267,24 @@ nobody. Its keys are sealed by the passphrase alone, so anyone holding the
 drive and guessing the passphrase holds your account; choose a long one and
 keep the drive with you.
 
+**Your account on a USB key.** Plug the key in, then the ITSaNAS icon ->
+*Copy this account to a USB key...*, which opens Settings at that section
+(the section itself is not in this version's page yet: until it is, run
+`itsanas copy-to-key /media/usb`). Two windows ask, in turn, this machine's
+passphrase and a NEW one for the key: at least 12 characters, not this
+machine's, not `123456789012`, not your username. Nothing is written before
+both are right and the key has room for the programs and your files. The key
+then holds a portable copy (above) with your account already in it, as a
+device of its own, and a synced folder `ITSaNAS/Fichiers`. It enrols itself
+with the coordinator at once, or the first time it is started if the
+coordinator could not be reached; it says which. On another computer:
+double-click `ITSaNAS.cmd` (Windows) or `itsanas.command` (Mac), or run
+`sh itsanas.sh` (Linux); type the key's passphrase, and the window shows the
+sync until you close it. **Whoever has the key and its passphrase has your
+account**, and removing the key from your devices later does not lock them
+out: keep it like a house key. A key that already holds an account is never
+written over.
+
 **On a USB key, format it exFAT.** Moving the vault, `backup export` and
 `portable` ask the system what the target drive is formatted as, and say so in
 their result when it limits you. NTFS: a Mac reads the drive but cannot write to
@@ -404,7 +422,8 @@ An ITSaNAS icon starts at login: in the notification area on Windows, in the
 menu bar on a Mac, and as an indicator on a Linux desktop (it needs
 python3-gi and AppIndicator; without them, use `itsanas settings`). Its menu
 has the same choices: open the folder, pause for 1 hour, 8 hours or until you
-resume, sync now, sync every, Settings..., Sign out..., Remove this machine..., open the log, restart.
+resume, sync now, sync every, Settings..., Copy this account to a USB key...,
+Sign out..., Remove this machine..., open the log, restart.
 The Mac and Linux icons have not yet been run on a real desktop.
 
 ---

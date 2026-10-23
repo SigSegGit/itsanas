@@ -218,6 +218,14 @@ impl Identity {
     ///
     /// If there is no node, the passphrase is wrong, or the config is invalid.
     fn unlock(home: &Path, passphrase: &str) -> Result<NodeSecrets> {
+        Ok(postcard::from_bytes(&Self::unlock_encoded(
+            home, passphrase,
+        )?)?)
+    }
+
+    /// The keystore's plaintext, the encoded [`NodeSecrets`], wiped when
+    /// dropped.
+    fn unlock_encoded(home: &Path, passphrase: &str) -> Result<zeroize::Zeroizing<Vec<u8>>> {
         let keystore_path = Node::keystore_path(home);
         let bytes = match std::fs::read(&keystore_path) {
             Ok(bytes) => bytes,
@@ -233,11 +241,26 @@ impl Identity {
         };
 
         let keystore = Keystore::from_bytes(&bytes)?;
-        let plaintext = keystore
-            .unlock(passphrase, KEYSTORE_LABEL)
-            .map_err(|_| NodeError::Unlock)?;
+        Ok(zeroize::Zeroizing::new(
+            keystore
+                .unlock(passphrase, KEYSTORE_LABEL)
+                .map_err(|_| NodeError::Unlock)?,
+        ))
+    }
 
-        Ok(postcard::from_bytes(&plaintext)?)
+    /// The account's secrets, encoded as [`Node::restore_from_secrets`] reads
+    /// them, from this machine's keystore and its passphrase.
+    ///
+    /// What `itsanas copy-to-key` seals again, under the key's own
+    /// passphrase. Reads the keystore only, so it works while the daemon
+    /// holds the store. The bytes carry this machine's device seed too; the
+    /// restore keeps only the master and gives the key a device of its own.
+    ///
+    /// # Errors
+    ///
+    /// If there is no node or the passphrase is wrong.
+    pub fn secrets(home: &Path, passphrase: &str) -> Result<EncodedSecrets> {
+        Self::unlock_encoded(home, passphrase).map(EncodedSecrets)
     }
 
     /// The account's 24 recovery words again, from this machine's keystore.
@@ -265,6 +288,26 @@ impl Identity {
             device: DeviceKeys::from_seed(&SecretBytes::new(secrets.device_seed)),
             user: UserKeys::derive(&master),
         })
+    }
+}
+
+/// A node's encoded secrets ([`Identity::secrets`]), wiped when dropped and
+/// never printed.
+pub struct EncodedSecrets(zeroize::Zeroizing<Vec<u8>>);
+
+impl EncodedSecrets {
+    /// The bytes, for [`Node::restore_from_secrets`].
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for EncodedSecrets {
+    /// Says what it is and nothing of it: a derived `Debug` (or
+    /// `Zeroizing`'s) would print the master secret byte by byte.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("EncodedSecrets(redacted)")
     }
 }
 
@@ -1072,6 +1115,30 @@ mod tests {
         assert_eq!(again.as_str().split_whitespace().count(), 24);
 
         assert!(Identity::recovery_phrase(&home, "not the passphrase").is_err());
+    }
+
+    /// `copy-to-key` reads the secrets while the daemon runs and seals them
+    /// again elsewhere: the same account, a new device, and the bytes never
+    /// printed by a stray `{:?}`.
+    #[test]
+    fn the_encoded_secrets_restore_the_account_and_never_print() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let home = dir.path().join("node");
+        let (node, _) = Node::create(&home, "a passphrase", "test").expect("create");
+
+        assert!(Identity::secrets(&home, "not the passphrase").is_err());
+        let secrets = Identity::secrets(&home, "a passphrase").expect("read while running");
+        assert_eq!(format!("{secrets:?}"), "EncodedSecrets(redacted)");
+
+        let copy = Node::restore_from_secrets(
+            &dir.path().join("key"),
+            "another passphrase",
+            "test",
+            secrets.as_bytes(),
+        )
+        .expect("restore");
+        assert_eq!(copy.store.owner(), node.store.owner());
+        assert_ne!(copy.store.device_id(), node.store.device_id());
     }
 
     /// THE SECOND ACCOUNT: a node home on a disk that is not mounted is an

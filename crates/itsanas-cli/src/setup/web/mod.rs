@@ -1329,7 +1329,7 @@ fn pin_folder(os: &str, folder: &Path) -> std::result::Result<String, String> {
 
 /// `itsanas setup` on a desktop.
 pub(crate) fn wizard(home: &Path, instance: Option<&str>) -> Result<()> {
-    if open(home, instance, Mode::Setup)? {
+    if open(home, instance, Mode::Setup, None)? {
         println!("This machine is set up. `itsanas settings` changes it later.");
         Ok(())
     } else {
@@ -1341,15 +1341,24 @@ pub(crate) fn wizard(home: &Path, instance: Option<&str>) -> Result<()> {
     }
 }
 
-/// `itsanas settings`.
-pub(crate) fn settings(home: &Path, instance: Option<&str>) -> Result<()> {
+/// `itsanas settings [--section NAME]`.
+pub(crate) fn settings(home: &Path, instance: Option<&str>, section: Option<&str>) -> Result<()> {
     if !Node::exists(home) {
         return Err(CliError::NoNode(home.to_path_buf()));
     }
-    open(home, instance, Mode::Settings).map(|_| ())
+    open(home, instance, Mode::Settings, section).map(|_| ())
 }
 
-fn open(home: &Path, instance: Option<&str>, mode: Mode) -> Result<bool> {
+/// The page's address, opened at `section`: inside the one fragment an
+/// address has, after the page key, which `app.js` reads wherever it is.
+pub(crate) fn section_url(url: String, section: Option<&str>) -> String {
+    match section {
+        Some(section) => format!("{url}&section={section}"),
+        None => url,
+    }
+}
+
+fn open(home: &Path, instance: Option<&str>, mode: Mode, section: Option<&str>) -> Result<bool> {
     let server = Server::bind(
         home,
         instance,
@@ -1357,7 +1366,7 @@ fn open(home: &Path, instance: Option<&str>, mode: Mode) -> Result<bool> {
         &crate::config::user_home(),
         Backends::of_this_machine(home, instance),
     )?;
-    let url = server.url();
+    let url = section_url(server.url(), section);
     if desktop_here() {
         println!("Opening ITSaNAS in your browser.");
         println!("If no page opened, paste this into your browser:");

@@ -26,7 +26,7 @@ use crate::error::{CliError, Result};
 pub const DIR: &str = "ITSaNAS";
 
 /// The file in a portable home that makes its daemon a client only.
-pub const MARKER: &str = "portable";
+pub const MARKER: &str = crate::config::PORTABLE_MARKER;
 
 /// Whether the node at `home` is a portable one.
 pub fn is_portable(home: &Path) -> bool {
@@ -51,8 +51,9 @@ fn readme() -> String {
      Mac:     double-click itsanas.command (or `sh itsanas.command` in the Terminal)\r\n\
      Linux:   sh itsanas.sh\r\n\
      \r\n\
-     With no arguments it opens the setup page; with arguments it runs that command,\r\n\
-     e.g. `sh itsanas.command status`.\r\n\
+     With no arguments it opens the setup page, or, once an account is on this key,\r\n\
+     runs it in that window: closing the window stops it. With arguments it runs\r\n\
+     that command, e.g. `sh itsanas.command status`.\r\n\
      \r\n\
      Your keys live in the home folder next to it, sealed by your passphrase.\r\n\
      Whoever finds this drive can try passphrases offline for as long as they\r\n\
@@ -64,18 +65,25 @@ fn readme() -> String {
 }
 
 /// The Windows launcher. No parenthesised block: a `)` in an argument
-/// would end it.
+/// would end it. With no arguments: the account on the key, run in this
+/// window (`daemon`, which asks its passphrase here), or `setup` when the key
+/// holds none yet.
 const CMD: &str = "@echo off\r\n\
-    if \"%~1\"==\"\" goto setup\r\n\
+    if \"%~1\"==\"\" goto plain\r\n\
     \"%~dp0bin\\itsanas-x86_64-pc-windows-msvc.exe\" --home \"%~dp0home\" %*\r\n\
     exit /b %errorlevel%\r\n\
-    :setup\r\n\
-    \"%~dp0bin\\itsanas-x86_64-pc-windows-msvc.exe\" --home \"%~dp0home\" setup\r\n";
+    :plain\r\n\
+    if exist \"%~dp0home\\keystore.bin\" goto account\r\n\
+    \"%~dp0bin\\itsanas-x86_64-pc-windows-msvc.exe\" --home \"%~dp0home\" setup\r\n\
+    exit /b %errorlevel%\r\n\
+    :account\r\n\
+    \"%~dp0bin\\itsanas-x86_64-pc-windows-msvc.exe\" --home \"%~dp0home\" daemon\r\n";
 
 /// The Mac and Linux launcher (`itsanas.command`, double-clicked in the
 /// Finder, and `itsanas.sh`): picks this computer's program. A key mounted
 /// without the right to run programs (FAT32 on Linux, `noexec`) runs a copy
-/// from the temporary folder instead.
+/// from the temporary folder instead. With no arguments: the account on the
+/// key in the foreground (`daemon`), or `setup` when the key holds none.
 const SH: &str = r#"#!/bin/sh
 # ITSaNAS portable: picks the program for this computer, keeps the home on the key.
 here=$(cd "$(dirname "$0")" && pwd)
@@ -93,7 +101,9 @@ if [ ! -x "$exe" ]; then
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/itsanas-portable.XXXXXX") || exit 1
   cp "$exe" "$tmp/$b" && chmod 700 "$tmp/$b" && exe="$tmp/$b" || exit 1
 fi
-if [ $# -eq 0 ]; then set -- setup; fi
+if [ $# -eq 0 ]; then
+  if [ -f "$here/home/keystore.bin" ]; then set -- daemon; else set -- setup; fi
+fi
 exec "$exe" --home "$here/home" "$@"
 "#;
 
@@ -114,7 +124,10 @@ pub fn make(dir: &Path) -> Result<String> {
 }
 
 /// [`make`], with where the release's programs come from passed in.
-fn make_with(dir: &Path, fetch: impl FnOnce(&Path) -> Result<Vec<String>>) -> Result<String> {
+pub(crate) fn make_with(
+    dir: &Path,
+    fetch: impl FnOnce(&Path) -> Result<Vec<String>>,
+) -> Result<String> {
     let dir = crate::jobs::check_path(dir).map_err(CliError::Usage)?;
     // A drive letter that is not plugged in gave the system's own words
     // ("the specified path is not found", os error 3): say which.
@@ -268,6 +281,51 @@ mod tests {
         assert!(said.contains("only") && said.contains("offline"), "{said}");
         let bin = drive.path().join(DIR).join("bin");
         assert_eq!(std::fs::read_dir(bin).expect("bin").count(), 1);
+    }
+
+    /// Double-clicked with an account on the key, the launcher runs it in
+    /// its window (closing the window stops it); with none, it opens setup.
+    /// Run for real through `sh`, with a stand-in program that prints what
+    /// it was given. The Windows launcher says the same in its own words.
+    #[cfg(unix)]
+    #[test]
+    fn the_launcher_runs_the_account_on_the_key_or_opens_setup() {
+        let target = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("linux", "x86_64") => "itsanas-x86_64-unknown-linux-gnu",
+            ("linux", "aarch64") => "itsanas-aarch64-unknown-linux-gnu",
+            ("macos", "aarch64") => "itsanas-aarch64-apple-darwin",
+            ("macos", "x86_64") => "itsanas-x86_64-apple-darwin",
+            _ => return,
+        };
+        let drive = tempfile::tempdir().expect("drive");
+        make_with(drive.path(), |bin| {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::create_dir_all(bin).expect("bin");
+            let program = bin.join(target);
+            std::fs::write(&program, "#!/bin/sh\necho \"$@\"\n").expect("program");
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755))
+                .expect("executable");
+            Ok(vec![target.to_owned()])
+        })
+        .expect("made");
+        let root = drive.path().join(DIR);
+        let launched = || {
+            let output = std::process::Command::new("sh")
+                .arg(root.join("itsanas.sh"))
+                .output()
+                .expect("sh");
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        };
+        let home = root.join("home");
+        assert!(launched().ends_with("/home setup"), "{}", launched());
+        std::fs::write(home.join("keystore.bin"), b"sealed").expect("account");
+        assert!(launched().ends_with("/home daemon"), "{}", launched());
+
+        assert!(
+            CMD.contains("if exist \"%~dp0home\\keystore.bin\" goto account")
+                && CMD.contains("--home \"%~dp0home\" daemon"),
+            "{CMD}"
+        );
     }
 
     #[test]

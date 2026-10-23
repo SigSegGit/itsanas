@@ -14,6 +14,7 @@
 mod backup;
 mod bench;
 mod control;
+mod copy_to_key;
 mod daemon;
 mod discovery;
 mod drives;
@@ -212,7 +213,12 @@ enum Command {
     Signin,
     /// Open this machine's settings in the browser: status, pause, sync now,
     /// interval, space offered, folder, coordinator, sign out.
-    Settings,
+    Settings {
+        /// Open the page at this section: `key` is "Copy this account to a
+        /// USB key", what the tray icon's item opens.
+        #[arg(long, value_parser = ["key"])]
+        section: Option<String>,
+    },
     /// Show this node's identity, contents and hosting.
     Status {
         /// One line for a tray icon or a script: `healthy`, `paused`,
@@ -319,6 +325,23 @@ enum Command {
     Portable {
         /// The drive or directory to write `ITSaNAS/` into.
         dir: PathBuf,
+    },
+    /// Copy this account to a USB key that runs it on any computer.
+    ///
+    /// A portable copy (every system's program) whose home holds this
+    /// account under a passphrase of its own, with a device of its own. Asks
+    /// this machine's passphrase and a new one for the key, in windows of the
+    /// system's own. Whoever has the key and its passphrase has the account.
+    CopyToKey {
+        /// The key's drive or a folder on it; `ITSaNAS/` is written there.
+        dir: PathBuf,
+        /// Ask the passphrases here, then copy in the background, writing
+        /// each step to `<home>/copy-to-key.status`.
+        #[arg(long)]
+        detach: bool,
+        /// The background copy's own: its passphrases on standard input.
+        #[arg(long, hide = true)]
+        passphrases_on_stdin: bool,
     },
     /// Set, or show, the directory kept in step with this account.
     ///
@@ -850,7 +873,7 @@ fn run() -> Result<()> {
         command @ (Command::Setup { .. }
         | Command::Signout
         | Command::Signin
-        | Command::Settings) => setup_command(&home, cli.instance.as_deref(), command),
+        | Command::Settings { .. }) => setup_command(&home, cli.instance.as_deref(), command),
         command @ (Command::Pause { .. }
         | Command::Resume
         | Command::SyncNow
@@ -866,12 +889,10 @@ fn run() -> Result<()> {
         Command::Rm { path } => remove(&home, &path),
         Command::Folder { path, confirm } => folder(&home, path.as_deref(), confirm),
         Command::Backup { action } => backup_command(&home, action),
-        Command::Portable { dir } => make_portable(&dir),
-        Command::Vault {
-            path,
-            same_disk,
-            move_data,
-        } => vault(&home, path.as_deref(), same_disk, move_data),
+        command
+        @ (Command::Portable { .. } | Command::CopyToKey { .. } | Command::Vault { .. }) => {
+            to_a_drive(&home, command)
+        }
         Command::Scan { deep } => scan(&home, deep),
         Command::Space {
             pledge,
@@ -927,7 +948,7 @@ fn setup_command(home: &Path, instance: Option<&str>, command: Command) -> Resul
         } => setup::command(home, instance, text, answers.as_deref(), phrase_file),
         Command::Signout => setup::sign::signout(home, instance),
         Command::Signin => setup::sign::signin(home, instance),
-        Command::Settings => setup::web::settings(home, instance),
+        Command::Settings { section } => setup::web::settings(home, instance, section.as_deref()),
         _ => unreachable!("only setup, signout, signin and settings are sent here"),
     }
 }
@@ -3222,6 +3243,24 @@ fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `portable`, `copy-to-key` and `vault`: what `run` sends to a drive.
+fn to_a_drive(home: &Path, command: Command) -> Result<()> {
+    match command {
+        Command::Portable { dir } => make_portable(&dir),
+        Command::CopyToKey {
+            dir,
+            detach,
+            passphrases_on_stdin,
+        } => copy_to_key::command(home, &dir, detach, passphrases_on_stdin),
+        Command::Vault {
+            path,
+            same_disk,
+            move_data,
+        } => vault(home, path.as_deref(), same_disk, move_data),
+        _ => unreachable!("only portable, copy-to-key and vault are sent here"),
+    }
 }
 
 /// Whether a running daemon holds this node's store: disk work then goes
