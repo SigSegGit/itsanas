@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1378 test functions, 14 of them `#[ignore]`d into the slow job, and 422 of
+**1379 test functions, 14 of them `#[ignore]`d into the slow job, and 423 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -832,7 +832,11 @@ device and reaching a different one is refused.
   not on Windows, whose listener is IPv4 only); NAT-PMP is tried after
   UPnP; every dialler accepts a list of addresses, and announcing a router's
   port together with the global IPv6 address is ready for the next release
-  (2026-10-13). A node behind NAT can push but cannot be dialled. Partly
+  (2026-10-13). A router's yes is not proof: since 2026-10-23 a port it
+  opened that the coordinator's probe disproves (a hand-made forward of the
+  same port to another machine answered, or nothing did) stops being
+  published, and the machine parks on a relay like one whose router refused
+  (`red_team_a_router_port_that_reaches_another_machine_is_withdrawn`). A node behind NAT can push but cannot be dialled. Partly
   mitigated already: `session::drain_vault` means a node that only ever accepts
   connections still learns what was pushed to it. Hole punching and relay
   fallback would want QUIC, which is now an optimisation rather than a

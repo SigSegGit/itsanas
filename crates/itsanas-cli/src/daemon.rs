@@ -908,30 +908,97 @@ fn check_reachable(node: &Node, published: &str, reach: &mut Reach) {
     reach.published = Some(published.to_owned());
 
     match coordinator::check_me(node) {
-        Ok(Some(coordinator::Reachability::Reachable(detail))) => {
+        Ok(answer) => {
+            let found = coordinator::found_address();
+            let heard = hear_reachability(answer, published, found.as_deref(), reach);
+            for line in &heard.lines {
+                println!("{line}");
+            }
+            if heard.withdraw_found {
+                coordinator::set_found_address(None);
+            }
+        }
+        Err(error) => eprintln!("itsanas: could not ask whether we are reachable: {error}"),
+    }
+}
+
+/// What the daemon does with the coordinator's answer about `published`.
+struct Heard {
+    /// What to print, already said once per verdict.
+    lines: Vec<String>,
+    /// Whether the address the router said it opened stops being published.
+    withdraw_found: bool,
+}
+
+/// [`check_reachable`]'s decisions, without the coordinator or the statics.
+///
+/// `found` is the address `UPnP` or NAT-PMP gave (`None` with an `announce`,
+/// which is never found). When the coordinator could not reach this device
+/// there, the router's yes was not worth what it said: a hand-made forward of
+/// the same port to another machine wins over the router's own mapping (hand
+/// test 2026-10-22: the home address's port 9799 answered as the VM), or a
+/// firewall drops what the router lets in. Kept, that address sends every
+/// member to the wrong machine at every round, and it is also what tells
+/// [`fn@unreachable`] that this machine needs no relay. Withdrawn, the next
+/// publication is the honest local one and the parking thread finds a relay.
+/// For the rest of this run: a NAT-PMP renewal that reports a new address
+/// publishes it again, and the new address is probed in its turn.
+fn hear_reachability(
+    answer: Option<coordinator::Reachability>,
+    published: &str,
+    found: Option<&str>,
+    reach: &mut Reach,
+) -> Heard {
+    let mut heard = Heard {
+        lines: Vec::new(),
+        withdraw_found: false,
+    };
+    match answer {
+        Some(coordinator::Reachability::Reachable(detail)) => {
             if reach.verdict != Some(true) {
-                println!("reachable: {detail}");
+                heard.lines.push(format!("reachable: {detail}"));
             }
             reach.verdict = Some(true);
         }
-        Ok(Some(coordinator::Reachability::Unreachable(detail))) => {
+        Some(coordinator::Reachability::Unreachable(detail)) => {
             if reach.verdict != Some(false) {
-                println!("NOT reachable from outside: {detail}");
-                println!("  Other members cannot dial this machine. It can still take");
-                println!("  part by dialling them, and one reachable side per pair is");
-                println!("  enough -- but if a forward was meant to work, it does not.");
+                heard
+                    .lines
+                    .push(format!("NOT reachable from outside: {detail}"));
+                heard
+                    .lines
+                    .push("  Other members cannot dial this machine. It can still take".to_owned());
+                heard
+                    .lines
+                    .push("  part by dialling them, and one reachable side per pair is".to_owned());
+                heard.lines.push(
+                    "  enough -- but if a forward was meant to work, it does not.".to_owned(),
+                );
             }
             reach.verdict = Some(false);
+            // The published form is the found address, then perhaps this
+            // machine's IPv6 address (`with_global_ipv6`); the probe tried
+            // the whole list.
+            if let Some(found) = found
+                && published.split(',').next() == Some(found)
+            {
+                heard.lines.push(format!(
+                    "  The router said it opened {found}, but that is not this machine: \
+                     it is no longer published, and this machine reaches the others \
+                     through a relay of the account if one is up."
+                ));
+                heard.withdraw_found = true;
+            }
         }
         // Not an answer, so it does not become one. Leaving the verdict alone
         // means the next round asks again rather than reporting a guess.
-        Ok(Some(coordinator::Reachability::Unknown(_))) => {}
+        Some(coordinator::Reachability::Unknown(_)) => {}
         // Too old to answer. Not a verdict, and saying nothing is right: the
         // alternative is telling a member their forward is broken when what is
         // out of date is the coordinator.
-        Ok(None) => reach.verdict = None,
-        Err(error) => eprintln!("itsanas: could not ask whether we are reachable: {error}"),
+        None => reach.verdict = None,
     }
+    heard
 }
 
 /// Say the first time something from outside this network arrives.
@@ -2362,6 +2429,97 @@ fn install_signal_handler() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Red team, hand test 2026-10-22. The laptop's third account listens on
+    /// 9799, the router said yes to opening 9799 for it, and a hand-made
+    /// forward of 9799 to the VM answered instead: the coordinator's probe
+    /// said so, and the daemon went on publishing the address. Every member
+    /// dialled the VM there at every round and was refused, and the laptop,
+    /// believing itself reachable, never parked on a relay. An address the
+    /// router gave and the probe disproves is withdrawn; an `announce`
+    /// somebody wrote is theirs to fix, and stays.
+    #[test]
+    fn red_team_a_router_port_that_reaches_another_machine_is_withdrawn() {
+        let other = || {
+            Some(coordinator::Reachability::Unreachable(
+                "203.0.113.9:9799 answered, but not as this device".to_owned(),
+            ))
+        };
+        let mut reach = Reach::new();
+        let heard = hear_reachability(
+            other(),
+            "203.0.113.9:9799",
+            Some("203.0.113.9:9799"),
+            &mut reach,
+        );
+        assert!(
+            heard.withdraw_found,
+            "a router port the coordinator found another machine behind stayed published: \
+             every member keeps dialling the wrong machine, and this one never parks on a relay"
+        );
+        assert!(
+            heard
+                .lines
+                .iter()
+                .any(|line| line.contains("no longer published")),
+            "the withdrawal was not said: {:?}",
+            heard.lines
+        );
+
+        // With this machine's IPv6 address after it, the probe tried both.
+        let mut reach = Reach::new();
+        let listed = hear_reachability(
+            other(),
+            "203.0.113.9:9799,[2001:db8::7]:9799",
+            Some("203.0.113.9:9799"),
+            &mut reach,
+        );
+        assert!(
+            listed.withdraw_found,
+            "the list form kept a disproved router port"
+        );
+
+        // A written `announce` is never found: told, not withdrawn.
+        let mut reach = Reach::new();
+        let written = hear_reachability(other(), "ngas.fr:9799", None, &mut reach);
+        assert!(!written.withdraw_found);
+        assert!(
+            !written.lines.is_empty(),
+            "an unreachable announce went unsaid"
+        );
+
+        // A router port that does reach this machine stays.
+        let mut reach = Reach::new();
+        let good = hear_reachability(
+            Some(coordinator::Reachability::Reachable(
+                "it is this device".to_owned(),
+            )),
+            "203.0.113.9:9799",
+            Some("203.0.113.9:9799"),
+            &mut reach,
+        );
+        assert!(!good.withdraw_found, "a working router port was withdrawn");
+
+        // No verdict is no reason either.
+        for answer in [
+            Some(coordinator::Reachability::Unknown(
+                "probed within the hour".to_owned(),
+            )),
+            None,
+        ] {
+            let mut reach = Reach::new();
+            let unsure = hear_reachability(
+                answer,
+                "203.0.113.9:9799",
+                Some("203.0.113.9:9799"),
+                &mut reach,
+            );
+            assert!(
+                !unsure.withdraw_found,
+                "a router port was withdrawn on no verdict"
+            );
+        }
+    }
 
     /// Red team, 2026-10-23. A key that enrols at its first daemon start ran
     /// `register_and_announce`, which announced the configured `listen`
