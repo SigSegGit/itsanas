@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-23 — 1379 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 423 are red-team tests.**
+**Last updated: 2026-10-23 — 1382 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 424 are red-team tests.**
 
-**1263 of the 1379 tests have an entry of their own on this page** — an *entry*,
+**1266 of the 1382 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -173,16 +173,16 @@ guarantee and is not one.
 | `itsanas-coord` unit | 123 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 17 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 1 |
-| `itsanas-discover` unit | 50 |
+| `itsanas-discover` unit | 51 |
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 219 |
+| `itsanas-cli` unit | 220 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 152 |
+| `itsanas-node` unit | 153 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -211,7 +211,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 60 |
+| `identity` | keys, accounts, devices, claims, invitations | 61 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 55 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 59 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (219)
+# `itsanas-cli` — unit tests (220)
 
 ## `bench` — measuring this machine (4)
 
@@ -1282,10 +1282,11 @@ tested: no window was opened by a test.
 | `the_windows_reply_survives_any_code_page` | The window's reply comes back base64-encoded, so a non-ASCII passphrase is not mangled by the console code page. |
 | `the_secret_window_is_the_platforms_own_or_the_terminal` | The backend choice is the platform's own window when there is a desktop and the terminal otherwise (an SSH session included), and gives a clear error naming what to install when there is neither. |
 
-## `service` — the background service under the installers' names, and the Windows wrapper's log and restarts (8)
+## `service` — the background service under the installers' names, and the Windows wrapper's log and restarts, brought up to date by `update` (9)
 
 | Test | What it proves |
 | --- | --- |
+| `an_update_brings_an_old_wrapper_up_to_date_and_creates_none` | `update` rewrites each node's `run-daemon*.ps1` that differs from this version's (`refresh_windows_wrapper`, called from `restart_every_node`): the laptop's log after 0.1.12 still showed `NativeCommandError` blocks, because only `setup` wrote the wrapper. An up-to-date wrapper is left alone, a missing one is not created. Takes effect at the next logon: the running loop keeps the text it started with. Sabotaged (never rewritten): red. |
 | `every_name_matches_what_the_installers_and_clean_scripts_use` | Task, unit, plist, passphrase-file and tray-autostart names, with and without an instance, match provision.ps1/provision.sh/macos.sh and clean.ps1/clean.sh. |
 | `names_and_paths_are_quoted_where_they_land` | Instance names and paths are quoted in the generated task script, unit and plist, and none of them contains the passphrase. |
 | `the_passphrase_file_reads_back_in_both_forms` | A passphrase file written by setup or by the installers reads back as the same passphrase. |
@@ -1594,7 +1595,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (169)
+# `itsanas-node` — a node on disk (170)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1635,7 +1636,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all (34)
+## `contact` — when the coordinator is dialled at all, and never this node for another device (35)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1647,6 +1648,7 @@ here reads a peer's clock or trusts the coordinator's order.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_an_address_that_is_this_node_is_never_dialled_for_another_device`** | Hand test 2026-10-22, the laptop's `daemon.log`: `192.168.1.142:9797: unreachable (tls: expected to reach device 14dd30325b23 but 36f669090138 answered)` 376 times, one per round over four runs -- the USB key copied from the laptop had enrolled at the laptop's own address. `Contact::dialable` never returns an address `is_this_listener` calls this node: one of this machine's addresses (`LocalNets::holds`, loopback included) at this node's own port, every entry of a list, or the address it publishes (`announce`, the router's). The same machine at another port (a second account on the laptop) and a list with another machine in it are dialled. Sabotaged three times (the filter removed, the port ignored, the published address ignored): red each time. |
 | **`red_team_a_private_address_of_another_house_is_not_dialled`** | Hand test, 2026-10-22: the laptop's house and a Mac's house were both 192.168.1.x, and each dialled the other's 192.168.1.x address from the coordinator at every round, to a connect timeout. `Contact::dialable`, which `dial_listed` dials from, drops an address whose every entry is RFC 1918 when local discovery is running and has not heard that machine; a public address, a list holding one, a name and a relay are kept, and so is everything when discovery is off, warming up, or heard the machine. Since the red-team pass of 2026-10-23 the gate opens one round in `PRIVATE_PROBE_EVERY` (6): over 24 rounds with nobody answering, the other house's addresses are dialled at rounds 0, 6, 12 and 18 only. Same public address as evidence of one LAN is not built: the coordinator does not record where a publication came from. Sabotaged (no gate; any private entry instead of every one; a probe at every round): red. |
 | **`red_team_a_machine_on_another_vlan_is_still_dialled`** | Red team, 2026-10-23: the gate above also dropped a NAS at 10.0.2.5 on another VLAN, behind a VPN or a Wi-Fi that filters multicast, which discovery never hears and this machine reaches. It is dialled while discovery warms up (`heard_here` answers `None`), at rounds 6 and 12 after that, at every round once a probe reached it (`Contact::worked` marks it proven, in memory only), and back to the probes once it fails (`Contact::failed`, from `dial_listed`). Sabotaged (no probe; no proven door; `failed` not clearing it): red each time. |
 | **`red_team_a_host_of_another_account_relays_only_after_the_accounts_own_machines`** | §8 0v. Hosts of other accounts the round reached and that proved themselves come after every machine of the account as relays, a host on a private address is never offered, and a quiet round does not drop a host (a day without proof does). Sabotaged (hosts first; hosts cleared every round): red. |
@@ -2059,7 +2061,7 @@ destructive if wrong.
 
 ---
 
-# `itsanas-discover` — serverless local discovery (50)
+# `itsanas-discover` — serverless local discovery (51)
 
 The only parser in the project fed unsolicited packets by anybody, with no
 handshake in front of it. Everything else sits behind TLS and behind a peer that
@@ -2110,7 +2112,7 @@ hardware it will actually run on.
 | `a_new_device_is_recorded_with_the_address_it_was_heard_from` | The address comes from the datagram, never from the packet. |
 | `a_capacity_of_zero_is_treated_as_one_rather_than_never_recording` | A misconfiguration degrades rather than silently disabling discovery. |
 
-## `interfaces` — real networks and virtual ones (5)
+## `interfaces` — real networks and virtual ones, and which addresses are this machine (6)
 
 Which of this machine's adapters a hypervisor or an overlay made up. By name,
 because VMware, Hyper-V, VirtualBox and WSL number their networks from the
@@ -2122,6 +2124,7 @@ address on a network card stays the card's (red team, 2026-10-23).
 
 | Test | What it proves |
 | --- | --- |
+| `this_machine_holds_its_adapters_addresses_and_loopback_only` | `LocalNets::holds`: the hand-test laptop's Wi-Fi and VMware addresses, loopback and the unspecified address are this machine; a neighbour on the same /24 and a public address are not, or a neighbour would never be dialled. |
 | **`red_team_virtual_adapters_are_told_from_real_ones_by_name`** | Windows's friendly names (`vEthernet (WSL)`, `VMware Network Adapter VMnet1`, `VirtualBox Host-Only Network`, `Tailscale`, ZeroTier) and the Unix ones (`vmnet8`, `vboxnet0`, `docker0`, `br-…`, `virbr0`, `veth…`, `tailscale0`, `utun3`, `wg0`, `zt…`) are virtual; `Wi-Fi`, `Ethernet 2`, `eth0`, `wlan0`, `en0`, `enp3s0`, `wlp2s0` are not, nor is a Hyper-V external switch (`vEthernet (External)`, red team 2026-10-23); a Tailscale address is an overlay under any name. Sabotaged (names ignored; the overlay range ignored; the external switch called virtual): red. |
 | **`red_team_a_beacon_over_a_virtual_network_is_known_for_one`** | On the hand test's laptop, a source on the Wi-Fi's network is real and one on VMware's or WSL's is virtual; a source on no network of this machine, or any source when no adapter could be listed, is not called virtual; a real LAN inside Docker's /16 stays real. Sabotaged (overlap with a real network ignored): red. |
 | **`red_team_an_external_switch_and_a_cgnat_card_are_real_adapters`** | Red team, 2026-10-23: `is_virtual`, which decides whether a routed address is swapped (`on_a_real_adapter`), is false for the address of `vEthernet (External)` and for a 100.64/10 address on a card named `Wi-Fi` (carrier-grade NAT), which `is_virtual_adapter` still calls an overlay by its range. Sabotaged (by address too; the external switch virtual): red. |

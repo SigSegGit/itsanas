@@ -1601,7 +1601,15 @@ fn one_round(
     // The account's devices at the addresses the coordinator last gave, the
     // one that last worked first. Pinned: the coordinator supplies addresses
     // and is not trusted to say who lives at one.
-    dial_listed(node, shutdown, neighbourhood, contact, &mut reached, scope);
+    dial_listed(
+        node,
+        shutdown,
+        neighbourhood,
+        contact,
+        &mut reached,
+        scope,
+        bound,
+    );
 
     // What the account's own machines just sent is written now, not after the
     // other accounts' hosts below, where the slow and older builds are (a
@@ -1825,11 +1833,22 @@ fn dial_listed(
     contact: &mut Contact,
     reached: &mut BTreeSet<DeviceId>,
     scope: PolicyScope,
+    bound: std::net::SocketAddr,
 ) {
+    // Never this node itself, whatever device the book names there.
+    let here = itsanas_discover::LocalNets::of_this_machine();
+    let found = coordinator::found_address();
+    let published: Vec<&str> = [node.config.announce.as_deref(), found.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect();
+    let is_me = |address: &str| {
+        itsanas_node::contact::is_this_listener(address, bound.port(), &here, &published)
+    };
     // A private address only of a machine heard on this LAN, or one that
     // answered, or at a probe round: two houses on 192.168.1.x are not one
     // network, and another VLAN or a VPN may be (`Contact::dialable`).
-    for (device, address) in contact.dialable(|device| neighbourhood.heard_here(device)) {
+    for (device, address) in contact.dialable(|device| neighbourhood.heard_here(device), is_me) {
         if halted(node, shutdown) || reached.contains(&device) {
             continue;
         }

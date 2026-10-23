@@ -183,6 +183,15 @@ impl LocalNets {
             .any(|net| net.virtual_name && net.ip == local)
     }
 
+    /// Whether `ip` is this machine: one of its adapters' addresses, a
+    /// loopback or the unspecified address. An address listed for another
+    /// device that names this machine at this node's own port is this node,
+    /// whatever the list says (`Contact::dialable`).
+    #[must_use]
+    pub fn holds(&self, ip: IpAddr) -> bool {
+        ip.is_loopback() || ip.is_unspecified() || self.nets.iter().any(|net| net.ip == ip)
+    }
+
     /// The first IPv4 address of a real adapter that a neighbour could dial:
     /// not loopback, not link-local.
     #[must_use]
@@ -200,6 +209,26 @@ mod tests {
 
     fn v4(text: &str) -> IpAddr {
         text.parse().unwrap()
+    }
+
+    #[test]
+    fn this_machine_holds_its_adapters_addresses_and_loopback_only() {
+        let laptop = hand_test_laptop();
+        for own in [
+            "192.168.1.142",
+            "192.168.19.1",
+            "127.0.0.1",
+            "::1",
+            "0.0.0.0",
+        ] {
+            assert!(laptop.holds(v4(own)), "{own} was taken for another machine");
+        }
+        for other in ["192.168.1.11", "192.168.1.143", "203.0.113.9"] {
+            assert!(
+                !laptop.holds(v4(other)),
+                "{other} was taken for this machine: a neighbour at it would never be dialled"
+            );
+        }
     }
 
     /// The laptop of the hand test: its Wi-Fi, a VMware host-only and NAT

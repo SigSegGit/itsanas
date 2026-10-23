@@ -739,6 +739,18 @@ fn write_file(path: &Path, text: &str) -> Result<()> {
     std::fs::write(path, text).map_err(io(path))
 }
 
+/// Rewrite `path` with `text` when it exists and says something else;
+/// `true` when it was rewritten. A missing file is a node `setup` never
+/// installed as a service here, and is not created.
+fn refresh_file(path: &Path, text: &str) -> std::io::Result<bool> {
+    match std::fs::read(path) {
+        Ok(old) if old == text.as_bytes() => Ok(false),
+        Ok(_) => std::fs::write(path, text).map(|()| true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 /// The real service of one node on this machine.
 #[derive(Clone, Debug)]
 pub(crate) struct Platform {
@@ -800,6 +812,31 @@ impl Platform {
             }
         }
         run(&mut command, None)
+    }
+
+    /// Bring this node's Windows wrapper up to this version, if `setup`
+    /// wrote one, and say so. `update` replaces the program and nothing else,
+    /// so a wrapper from an older `setup` stayed as it was: the laptop's log
+    /// of 2026-10-22 still wrapped each line in a `NativeCommandError` block
+    /// after #305 fixed the wrapper, and treated exit 75 as a failure. A
+    /// wrapper's loop already running keeps the text it started with; the
+    /// new one runs from the next logon.
+    pub(crate) fn refresh_windows_wrapper(&self) -> Option<String> {
+        if self.os != "windows" {
+            return None;
+        }
+        let wrapper = self
+            .paths
+            .state_dir(self.os)
+            .join(format!("run-daemon{}.ps1", self.names.suffix));
+        match refresh_file(&wrapper, &windows_wrapper(&self.names)) {
+            Ok(true) => Some(format!(
+                "wrapper {} brought up to date (used from the next logon)",
+                wrapper.display()
+            )),
+            Ok(false) => None,
+            Err(error) => Some(format!("could not update {}: {error}", wrapper.display())),
+        }
     }
 
     fn install_windows(&self, tray: bool) -> Result<String> {
@@ -1239,6 +1276,33 @@ mod tests {
             code_from_encoding(written),
             code_from_encoding(script.lines().map(str::to_owned).collect()),
             "install/provision.ps1 and `itsanas setup` write different wrappers"
+        );
+    }
+
+    #[test]
+    fn an_update_brings_an_old_wrapper_up_to_date_and_creates_none() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let wrapper = dir.path().join("run-daemon-test.ps1");
+        let now = windows_wrapper(&Names::of(Some("test")));
+        assert!(
+            !refresh_file(&wrapper, &now).expect("refresh"),
+            "a node with no wrapper reported one rewritten"
+        );
+        assert!(
+            !wrapper.exists(),
+            "a wrapper was created for a node setup never installed as a service"
+        );
+        std::fs::write(&wrapper, "& itsanas.exe daemon *>&1 | Out-File daemon.log").expect("old");
+        assert!(refresh_file(&wrapper, &now).expect("refresh"));
+        assert_eq!(
+            std::fs::read_to_string(&wrapper).expect("read"),
+            now,
+            "an old wrapper survived the update: its daemon logs NativeCommandError blocks \
+             and waits a failure pause on every requested restart"
+        );
+        assert!(
+            !refresh_file(&wrapper, &now).expect("refresh"),
+            "an up-to-date wrapper was rewritten at every update"
         );
     }
 
