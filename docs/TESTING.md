@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-23 — 1382 test functions across 39 binaries, 14 of them
+**Last updated: 2026-10-23 — 1383 test functions across 39 binaries, 14 of them
 `#[ignore]`d, plus 2 doctests. 424 are red-team tests.**
 
-**1266 of the 1382 tests have an entry of their own on this page** — an *entry*,
+**1267 of the 1383 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 220 |
+| `itsanas-cli` unit | 221 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 153 |
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (220)
+# `itsanas-cli` — unit tests (221)
 
 ## `bench` — measuring this machine (4)
 
@@ -1456,12 +1456,13 @@ requests are tested on the bytes a router sends.
 | **`red_team_only_a_granting_answer_opens_a_port_or_names_an_address`** | Only a NAT-PMP answer of the right opcode, result 0, for this port and with a lifetime counts; a refusal, a truncated answer, a UDP mapping's answer, another port's or a deletion never makes the node announce an address nobody can dial; the router's external port is the one announced. Sabotaged (result code ignored): red. |
 | **`red_team_an_answer_from_another_machine_on_the_lan_is_ignored`** | An answer from any address but the gateway's port 5351 is not read, so another machine on the LAN cannot choose the address this node announces. Sabotaged (source not checked): red. |
 | `the_gateway_is_read_from_the_routing_table_or_guessed_on_the_lan` | The default route of `/proc/net/route` (little-endian hex), else the `.1` and `.254` of the local `/24`; a mapping is renewed at half the lease the router granted, never sooner than a minute. |
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, and the enrolment at start (13)
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, and the enrolment at start (14)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_a_relay_that_closes_the_park_is_passed_over_for_the_next`** | `park_loop` over a scripted `ParkSite`: a relay that closed the park is skipped for the next one rather than redialled at every look. Sabotage: no `failed.insert` (red). |
 | **`red_team_a_daemon_enrols_at_its_bound_address_with_the_coordinator_it_uses`** | Red team, 2026-10-23: a key enrolling at its first daemon start ran `register_and_announce`, which announced the configured `listen` beside the rounds' publication of the bound one. `enrol_at_daemon_start` hands the enrolment the bound address (`enrol_once` registers with `register_only`, then announces it); the `registered` marker names the coordinator, and a marker naming another one than the configured coordinator is dropped, so the node enrols there once; the same one never enrols again. Sabotaged (the configured `listen` passed; the stale marker kept): red both. |
+| `the_daemon_takes_itself_at_its_bound_port_and_its_published_addresses` | The daemon's side of the self-dial guard (`this_listener`): an address is this node at the port the daemon is **bound** to, not the configured `listen` (a node configured for 9797 and started on 9811 is at 9811, and 9797 is the next account), and at both published addresses (`announce`, the router's). Asked for by the CI reviewer on #307: the contact.rs test builds its own port. Sabotaged (the configured port; the router's address dropped): red both. |
 | **`red_team_a_router_port_that_reaches_another_machine_is_withdrawn`** | Hand test, 2026-10-22: the home address's port 9799 answered as the VM, which a hand-made forward sends it to, while a daemon there published it as its own. A port the router said it opened (`UPnP`, NAT-PMP) that the coordinator's probe disproves (another device answered, or nothing did) is no longer published (`hear_reachability`, `withdraw_found`): every member was dialling the wrong machine at every round, and the machine, believing itself reachable, never parked on a relay. Also in the list form with this machine's IPv6 address. A written `announce` is reported and kept; a probe that reached this device, an `Unknown` answer and an old coordinator withdraw nothing. Sabotaged (never withdraw; withdraw an `announce` too): red both. |
 | **`red_team_once_every_relay_has_failed_the_first_is_tried_again`** | The skip list rotates: a machine with one relay that refused once parks on it again. Sabotage: no `failed.clear()` (red). |
 | **`red_team_a_machine_never_parks_on_itself`** | The book lists this machine too; it never parks on its own listener. Sabotage: the `me` filter removed (red). |
