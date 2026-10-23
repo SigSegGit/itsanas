@@ -338,6 +338,15 @@ if command -v pwsh >/dev/null 2>&1; then
     [ "$status" -ne 0 ] && [ "$status2" -ne 0 ] && [ "$before" = "$(sha256sum "$keys")" ] &&
         ok "a key that is not one plain ed25519 key is refused, the keys file untouched" ||
         bad "setup.ps1 took a bad key (exit $status, $status2): $out $out2"
+    bad_prof="$WORK/win%PATH%prof"
+    mkdir -p "$bad_prof/ITSaNAS-test"
+    cp -r "$prof/.itsanas-test" "$bad_prof/"
+    sed -i "s|^folder = .*|folder = $bad_prof/ITSaNAS-test|" "$bad_prof/.itsanas-test/config"
+    out=$(ITSANAS_FLEET_PROFILE="$bad_prof" ITSANAS_FLEET_KEYS="$keys" pwsh -NoProfile -File scripts/fleet/setup.ps1 "$cikey" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] && [ "$before" = "$(sha256sum "$keys")" ] &&
+        ok "a profile whose path cmd.exe would expand is refused, the keys file untouched" ||
+        bad "setup.ps1 wrote a keys line for a path with a % (exit $status): $out"
     mv "$prof/.itsanas-test" "$prof/.itsanas-test-away"
     rm "$prof/.itsanas-test-away/keystore.bin"
     out=$(setup "$cikey" 2>&1)

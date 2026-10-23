@@ -133,7 +133,9 @@ if ($admin -and -not $env:ITSANAS_FLEET_KEYS) {
 $shell = if ($onWindows) { 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File' } else { 'pwsh -NoProfile -File' }
 $agent = Join-Path $dest 'agent.ps1'
 # The path quoted, with \" as sshd's options want it: a profile can be
-# C:\Users\Nicolas Girard.
+# C:\Users\Nicolas Girard. A quote would end the option early, a % is
+# expanded by cmd.exe, which runs the forced command: refused, not escaped.
+if ($agent -match '["%]|[\x00-\x1f]') { Die "the agent's path '$agent' holds a quote, a % or a control character, which the keys line cannot carry" }
 $line = "restrict,command=`"$shell \`"$agent\`"`" $Key"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $keys) | Out-Null
 $kept = @()
