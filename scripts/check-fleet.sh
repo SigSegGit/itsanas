@@ -192,7 +192,19 @@ echo "the fleet workflow can only run from main"
 # adds a trigger "to test it on the PR" undoes all of it, so it is checked.
 fleet_yml=.github/workflows/fleet.yml
 if python3 - "$fleet_yml" <<'PY'
-import sys, yaml
+import re, sys
+try:
+    import yaml
+except ImportError:
+    # No PyYAML on this machine: the same two rules, read off the text.
+    text = open(sys.argv[1]).read()
+    on = re.search(r"^on:\n((?:[ #].*\n|\n)*)", text, re.M).group(1)
+    triggers = set(re.findall(r"^  ([a-z_]+):", on, re.M))
+    assert triggers <= {"workflow_dispatch", "schedule"}, f"triggers {sorted(triggers)}"
+    jobs = re.search(r"^jobs:\n((?:[ #].*\n|\n)*)", text, re.M).group(1)
+    names = re.findall(r"^  ([A-Za-z0-9_-]+):", jobs, re.M)
+    assert len(re.findall(r"^    environment: fleet$", jobs, re.M)) == len(names), "a job outside fleet"
+    sys.exit(0)
 doc = yaml.safe_load(open(sys.argv[1]))
 on = doc.get(True, doc.get("on"))  # YAML reads a bare `on:` as true
 triggers = set(on) if isinstance(on, dict) else {on} if isinstance(on, str) else set(on)
