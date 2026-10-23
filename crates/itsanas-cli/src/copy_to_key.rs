@@ -242,12 +242,37 @@ pub(crate) fn content_in(snapshot: &str) -> Option<u64> {
 /// inside this account's home, vault or synced folder (or holding one), or a
 /// key that already holds an account.
 pub(crate) fn check_target(home: &Path, config: &Config, dir: &Path) -> Result<PathBuf> {
-    let dir = crate::jobs::check_path(dir).map_err(CliError::Usage)?;
+    refusal(home, config, dir).map_err(|refused| CliError::Usage(refused.said))
+}
+
+/// Why a target will not do, as a word the Settings page translates and the
+/// sentence the command prints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Refusal {
+    /// `path`, `missing`, `inside`, `account` or `room`.
+    pub(crate) why: &'static str,
+    pub(crate) said: String,
+}
+
+/// [`check_target`], with the kind of refusal kept.
+pub(crate) fn refusal(
+    home: &Path,
+    config: &Config,
+    dir: &Path,
+) -> std::result::Result<PathBuf, Refusal> {
+    let refused = |why, said| Err(Refusal { why, said });
+    let dir = match crate::jobs::check_path(dir) {
+        Ok(dir) => dir,
+        Err(said) => return refused("path", said),
+    };
     if crate::drives::existing_ancestor(&dir).is_none() {
-        return Err(CliError::Usage(format!(
-            "{} does not exist: no drive or folder there (is the key plugged in?)",
-            dir.display()
-        )));
+        return refused(
+            "missing",
+            format!(
+                "{} does not exist: no drive or folder there (is the key plugged in?)",
+                dir.display()
+            ),
+        );
     }
     let root = dir.join(portable::DIR);
     let vault = Node::vault_path(home, config);
@@ -260,21 +285,66 @@ pub(crate) fn check_target(home: &Path, config: &Config, dir: &Path) -> Result<P
     }
     for (outer, what) in theirs {
         if root.starts_with(&outer) || outer.starts_with(&root) {
-            return Err(CliError::Usage(format!(
-                "{} is inside {what} ({}), or holds it: the key would copy the account into \
-                 itself. Choose the key's own drive",
-                dir.display(),
-                outer.display()
-            )));
+            return refused(
+                "inside",
+                format!(
+                    "{} is inside {what} ({}), or holds it: the key would copy the account into \
+                     itself. Choose the key's own drive",
+                    dir.display(),
+                    outer.display()
+                ),
+            );
         }
     }
     if Node::exists(&root.join("home")) {
-        return Err(CliError::Usage(format!(
-            "this key already holds an account ({}); choose another folder. Nothing was changed",
-            root.join("home").display()
-        )));
+        return refused(
+            "account",
+            format!(
+                "this key already holds an account ({}); choose another folder. Nothing was \
+                 changed",
+                root.join("home").display()
+            ),
+        );
     }
     Ok(root)
+}
+
+/// What the five programs take: the release's size when it was read, else
+/// the guess [`room`] counts.
+#[must_use]
+pub(crate) fn programs_bytes(programs: Option<u64>) -> u64 {
+    programs.unwrap_or(PROGRAMS_GUESS)
+}
+
+/// The account's files on this machine, from the status its daemon last
+/// wrote; `None` before it wrote one.
+#[must_use]
+pub(crate) fn content_of(home: &Path) -> Option<u64> {
+    std::fs::read_to_string(home.join(SNAPSHOT))
+        .ok()
+        .and_then(|text| content_in(&text))
+}
+
+/// Whether `dir` will take the copy, as the Settings page lists it: every
+/// refusal of [`check_target`] and [`room`], and the format's warning, which
+/// does not stop it.
+pub(crate) fn assess(
+    home: &Path,
+    config: &Config,
+    dir: &Path,
+    free: Option<u64>,
+    format: Option<&crate::drives::Format>,
+    programs: Option<u64>,
+) -> (std::result::Result<(), Refusal>, Option<String>) {
+    let fits = refusal(home, config, dir).and_then(|_| {
+        room(programs, content_of(home), free)
+            .map(|_| ())
+            .map_err(|said| Refusal { why: "room", said })
+    });
+    (
+        fits,
+        crate::drives::warning(format, "the copy of your account"),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +404,83 @@ impl Status<'_> {
     }
 }
 
+/// A run's progress, as [`Status`] wrote it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Progress {
+    pub(crate) step: String,
+    pub(crate) done: bool,
+    pub(crate) said: String,
+    pub(crate) error: Option<String>,
+}
+
+/// The progress of the last run from this home, and when it was written;
+/// `None` when no run wrote one, or it is not what [`Status`] writes.
+pub(crate) fn progress(home: &Path) -> Option<(Progress, std::time::SystemTime)> {
+    let path = home.join(STATUS);
+    let file = std::fs::File::open(&path).ok()?;
+    let written = file.metadata().and_then(|meta| meta.modified()).ok()?;
+    let mut text = String::new();
+    file.take(64 * 1024).read_to_string(&mut text).ok()?;
+    Some((parse_progress(&text)?, written))
+}
+
+/// Forget the last run's progress, before a new one starts.
+pub(crate) fn forget_progress(home: &Path) {
+    let _ = std::fs::remove_file(home.join(STATUS));
+}
+
+/// The one line [`Status::write`] writes, read back.
+fn parse_progress(text: &str) -> Option<Progress> {
+    let rest = text.trim().strip_prefix("{\"step\":")?;
+    let (step, rest) = read_json_string(rest)?;
+    let rest = rest.strip_prefix(",\"done\":")?;
+    let (done, rest) = if let Some(rest) = rest.strip_prefix("true") {
+        (true, rest)
+    } else {
+        (false, rest.strip_prefix("false")?)
+    };
+    let (said, rest) = read_json_string(rest.strip_prefix(",\"said\":")?)?;
+    let rest = rest.strip_prefix(",\"error\":")?;
+    let (error, rest) = if let Some(rest) = rest.strip_prefix("null") {
+        (None, rest)
+    } else {
+        let (error, rest) = read_json_string(rest)?;
+        (Some(error), rest)
+    };
+    (rest == "}").then_some(Progress {
+        step,
+        done,
+        said,
+        error,
+    })
+}
+
+/// A JSON string literal at the start of `text`, as [`json_string`] writes
+/// it, and what follows.
+fn read_json_string(text: &str) -> Option<(String, &str)> {
+    let mut chars = text.strip_prefix('"')?.char_indices();
+    let mut out = String::new();
+    while let Some((at, c)) = chars.next() {
+        match c {
+            '"' => return Some((out, &text[1 + at + 1..])),
+            '\\' => match chars.next()?.1 {
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                'u' => {
+                    let hex: String = (0..4)
+                        .filter_map(|_| chars.next().map(|(_, c)| c))
+                        .collect();
+                    out.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+                }
+                other => out.push(other),
+            },
+            c => out.push(c),
+        }
+    }
+    None
+}
+
 // ---------------------------------------------------------------------------
 // The copy
 // ---------------------------------------------------------------------------
@@ -388,9 +535,7 @@ fn copy_steps(
     }
 
     status.step("space", "checking the room on the key");
-    let content = std::fs::read_to_string(home.join(SNAPSHOT))
-        .ok()
-        .and_then(|text| content_in(&text));
+    let content = content_of(home);
     let counted =
         room(programs, content, crate::drives::free_bytes(dir)).map_err(CliError::Usage)?;
 
@@ -628,6 +773,45 @@ fn in_background(home: &Path, dir: &Path, passes: &Passphrases) -> Result<String
         "Copying in the background. Follow it in Settings, or in {}",
         home.join(STATUS).display()
     ))
+}
+
+/// `itsanas --home HOME copy-to-key DIR --detach`, for the Settings page: the
+/// child opens the two passphrase windows itself (the page never sees a
+/// passphrase), then hands the copy to a background run of its own and
+/// exits. Its progress is [`progress`].
+///
+/// # Errors
+///
+/// When this program cannot be started again.
+pub(crate) fn start_detached(home: &Path, dir: &Path) -> Result<std::process::Child> {
+    let exe = std::env::current_exe().map_err(|source| CliError::Io {
+        path: PathBuf::from("<this program>"),
+        source,
+    })?;
+    let mut command = Command::new(exe);
+    command
+        .arg("--home")
+        .arg(home)
+        .arg("copy-to-key")
+        .arg(dir)
+        .arg("--detach")
+        .env_remove("ITSANAS_INSTANCE")
+        .env_remove("ITSANAS_HOME")
+        .env_remove(crate::PASSPHRASE_ENV)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        // No console window flashing behind the passphrase windows.
+        use std::os::windows::process::CommandExt as _;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command.spawn().map_err(|source| CliError::Io {
+        path: PathBuf::from("<copy-to-key>"),
+        source,
+    })
 }
 
 /// The two lines [`in_background`] writes: this machine's passphrase, then

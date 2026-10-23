@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1337 test functions, 14 of them `#[ignore]`d into the slow job, and 393 of
+**1347 test functions, 14 of them `#[ignore]`d into the slow job, and 395 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1465,8 +1465,8 @@ Major step: Rodin on the plan before the code.
 ### Next, asked by Nicolas — 2026-10-08
 
 - ✅ **The vault on another disk** (2026-10-13, HANDOVER §8 0s): `itsanas vault PATH`; a dropped mount is refused, never recreated empty.
-- 🟨 **Export an account to a new key from the tray icon, on every system**
-  (Nicolas, 2026-10-22). The design question is settled: a **local** copy, no
+- ✅ **Export an account to a new key from the tray icon, on every system**
+  (Nicolas, 2026-10-22; the Settings section 2026-10-23). The design question is settled: a **local** copy, no
   coordinator escrow and no 24 words. Done: `itsanas copy-to-key DIR
   [--detach]` (`copy_to_key.rs`) asks this machine's passphrase and a new one
   for the key in the system's own windows (12 characters at least, not this
@@ -1479,10 +1479,19 @@ Major step: Rodin on the plan before the code.
   account full, at the key's first daemon start (`enrol_at_start`). The
   launchers run the key's account in their window (`daemon`) when it has one.
   The three trays have *Copy this account to a USB key...*, which opens
-  `settings --section key`. Proven by the eight `red_team_*` tests of
-  `copy_to_key/tests.rs`. Missing: the Settings section the tray opens (it
-  will run `copy-to-key --detach` and follow `<home>/copy-to-key.status`), and
-  a device label (no field in the config or the claim carries one).
+  `settings --section key`. That section lists the USB keys and external
+  disks (`drives::candidates`: `Get-Volume` Removable or Fixed on USB on
+  Windows, `/Volumes` on macOS, `/media/$USER`, `/run/media/$USER` and `/mnt`
+  on Linux) with their free room and format, greys out with the reason a key
+  without room or holding an account, warns of NTFS and FAT32, offers
+  "Another folder…" and Refresh, then starts `copy-to-key PATH --detach`
+  (`POST /api/copy-to-key`, one at a time) and follows
+  `<home>/copy-to-key.status` step by step; no command line, and the
+  passphrases only in the copy's own windows. Proven by the eight
+  `red_team_*` tests of `copy_to_key/tests.rs` and the two of `web/tests.rs`;
+  the drive parsers are tested on samples of each system's output, and the
+  real listing on Windows and macOS is still to be seen by hand. Not in it: a
+  device label (no field in the config or the claim carries one).
   **Open problem:** the key's keystore holds the account's master secret, so a
   lost key with its passphrase is the whole account, and `device forget` stops
   the other machines dialling it, not its holder reading and writing. The real

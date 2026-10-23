@@ -432,3 +432,53 @@ fn a_key_enrols_at_once_when_the_coordinator_answers() {
         .expect("copied");
     assert!(said.contains("enrolled with 127.0.0.1:9"), "{said}");
 }
+
+/// What the Settings page reads back is what each step wrote, quotes, line
+/// breaks and all; a file that is not the copy's own reads as nothing.
+#[test]
+fn the_page_reads_back_each_step_the_copy_wrote() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let status = super::Status(dir.path());
+    assert!(super::progress(dir.path()).is_none(), "no run, no progress");
+    status.step(
+        "programs",
+        "writing \"the programs\"\nfor C:\\ and /Volumes",
+    );
+    let (read, _) = super::progress(dir.path()).expect("progress");
+    assert_eq!(read.step, "programs");
+    assert!(!read.done);
+    assert_eq!(read.said, "writing \"the programs\"\nfor C:\\ and /Volumes");
+    assert_eq!(read.error, None);
+    status.ended(&Err(CliError::Usage("no room\u{1}left".to_owned())));
+    let (read, _) = super::progress(dir.path()).expect("progress");
+    assert!(read.done);
+    assert_eq!(read.step, "failed");
+    assert_eq!(read.error.as_deref(), Some("no room\u{1}left"));
+    std::fs::write(dir.path().join(STATUS), "{\"step\":\"x\"}").expect("garbage");
+    assert!(super::progress(dir.path()).is_none());
+    super::forget_progress(dir.path());
+    assert!(!dir.path().join(STATUS).exists());
+}
+
+/// The kind of each refusal is kept for the page, which says it in the
+/// person's language.
+#[test]
+fn each_refusal_of_a_target_says_its_kind() {
+    let world = World::new();
+    let config = Config::load(&Node::config_path(&world.home)).expect("config");
+    let kind = |dir: &Path| {
+        super::refusal(&world.home, &config, dir)
+            .err()
+            .map(|refused| refused.why)
+    };
+    assert_eq!(kind(Path::new("KEY")), Some("path"));
+    assert_eq!(kind(&world.drive.join("x\ny")), Some("path"));
+    assert_eq!(kind(&world.home), Some("inside"));
+    assert_eq!(kind(&world.drive), None);
+    let held = world.key_home();
+    std::fs::create_dir_all(&held).expect("home");
+    std::fs::write(held.join("keystore.bin"), b"x").expect("keystore");
+    assert_eq!(kind(&world.drive), Some("account"));
+    let (fits, _) = super::assess(&world.home, &config, &world.drive, Some(1), None, None);
+    assert_eq!(fits.err().map(|refused| refused.why), Some("account"));
+}

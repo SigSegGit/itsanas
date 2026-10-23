@@ -306,3 +306,43 @@ nav[hidden] + main { grid-column: 1 / -1; }
   .field > .label { grid-column: 1; }
   .field > label:not(.choice) { padding-top: 0; }
 }
+
+/* ---- Copy this account to a USB key: one row per drive ---- */
+.keys { list-style: none; padding: 0; margin: 12px 0 0; }
+.keys li {
+  display: flex;
+  gap: 12px 16px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.keys li:last-child { border-bottom: 1px solid var(--line); }
+.key-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 16rem; }
+.key-text strong { overflow-wrap: anywhere; }
+.key-facts { color: var(--muted); font-size: 0.95rem; }
+.why { color: var(--bad); font-size: 0.95rem; }
+.warn {
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.95rem;
+}
+.why:empty, .warn:empty { display: none; }
+button.link {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+  padding: 10px 4px;
+}
+#st-usb .actions { margin-top: 12px; }
+#st-usb progress { width: 100%; max-width: 34rem; height: 12px; }
+#st-usb { scroll-margin-top: 16px; }
+.card.highlight { box-shadow: 0 0 0 3px var(--focus); transition: box-shadow 0.4s; }
+
+@media (max-width: 640px) {
+  .keys li button { width: 100%; }
+}
