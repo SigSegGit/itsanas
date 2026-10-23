@@ -1276,6 +1276,20 @@ fn paused_round(
 /// Failing to write it is not worth interrupting a sync round over, and not
 /// worth a line in the log every five minutes either. `status` says how old the
 /// snapshot is, so a stale one announces itself.
+/// The snapshot's first line: when, how often, and which program wrote it.
+///
+/// The version last, after what every reader parses (`brief_status`,
+/// `status`, `snapshot_counts`, the fleet agent): it is the version of the
+/// *running daemon*, which is what an `update` that restarted nothing leaves
+/// behind -- three laptop daemons on 0.1.8 while the program on disk was
+/// newer (hand test, 2026-10-22). The fleet run compares it across machines.
+fn snapshot_header(now: u64, every: u64) -> String {
+    format!(
+        "snapshot {now} every {every} version {}",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
 fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr) {
     let Ok(text) = crate::render_status(node, Some(&bound.to_string())) else {
         return;
@@ -1290,9 +1304,8 @@ fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr) 
     // one: "stale" is two intervals without a round, and the interval is this
     // process's to know (`--interval`, the metered plan), nobody else's.
     let stamped = format!(
-        "snapshot {} every {}\n{text}",
-        itsanas_discover::now_unix(),
-        interval.as_secs()
+        "{}\n{text}",
+        snapshot_header(itsanas_discover::now_unix(), interval.as_secs())
     );
 
     let final_path = node.home.join(crate::node::SNAPSHOT);
@@ -2463,6 +2476,26 @@ fn install_signal_handler() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_snapshot_says_which_version_wrote_it_and_still_reads_as_before() {
+        let header = snapshot_header(1_792_000_000, 300);
+        assert!(
+            header.ends_with(&format!(" version {}", env!("CARGO_PKG_VERSION"))),
+            "the snapshot does not say which program wrote it: a daemon an update left \
+             behind looks like the others ({header})"
+        );
+        // `brief_status` reads the words in this order; the tray's colour
+        // comes from it.
+        let words: Vec<&str> = header.split_whitespace().take(4).collect();
+        assert_eq!(words, ["snapshot", "1792000000", "every", "300"]);
+        let text = format!("{header}\naccount\n  files           3\n");
+        assert_eq!(
+            crate::setup::verify::snapshot_counts(&text),
+            Some((1_792_000_000, 3)),
+            "the version broke the reader of the stamp and the file count"
+        );
+    }
 
     /// The daemon's side of `red_team_an_address_that_is_this_node_is_never_dialled_for_another_device`
     /// (contact.rs): the port that makes an address this node is the one the

@@ -49,8 +49,8 @@ machine() {
         mkdir -p "$other/vault/owners/$TEST_UID"
         head -c 4096 /dev/urandom >"$other/vault/owners/$TEST_UID/chunk"
     fi
-    printf 'snapshot %s every 300\naccount\n  username        test\n' \
-        "$(($(date +%s) - age))" >"$WORK/$name/test/status.snapshot"
+    printf 'snapshot %s every 300 version %s\naccount\n  username        test\n' \
+        "$(($(date +%s) - age))" "${VERSION:-0.1.13}" >"$WORK/$name/test/status.snapshot"
     cat >"$WORK/$name/agent.conf" <<EOF
 FOLDER="$folder"
 KIT="$PWD/scripts/acceptance.sh"
@@ -154,9 +154,13 @@ machine vm "$WORK/synced"
 fleet "pi vm" "vm:other"
 status=$?
 expect pass "two machines that share the file: S, B, F and C pass" "" "$status"
-for scenario in "PASS  S pi" "PASS  B pi -> vm" "PASS  F pi -> vm" "PASS  F vm: still absent" "PASS  C vm:other"; do
+for scenario in "PASS  V: every machine that says runs 0.1.13" "PASS  S pi" "PASS  B pi -> vm" "PASS  F pi -> vm" "PASS  F vm: still absent" "PASS  C vm:other"; do
     grep -qF "$scenario" "$WORK/run.log" || bad "the passing run has no '$scenario'"
 done
+
+VERSION=0.1.12 machine behind "$WORK/synced"
+fleet "pi behind" ""
+expect fail "a machine whose daemon runs another build is FAIL V" "^FAIL  V: the machines run different builds: pi=0.1.13 behind=0.1.12" $?
 
 machine island "$WORK/island"
 fleet "pi island" ""
