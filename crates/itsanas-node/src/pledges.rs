@@ -29,6 +29,10 @@ pub const SHARED_DIR_ENV: &str = "ITSANAS_PLEDGES_DIR";
 /// removed without its entry would otherwise hold the disk for ever.
 pub const STALE_AFTER_SECS: u64 = 7 * 24 * 3600;
 
+/// How old the stamp of an unchanged promise may get before it is written
+/// again: an hour, against readers that call it stale after a week.
+pub const PUBLISH_STEP: u64 = 3600;
+
 /// What one node says it promised.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Promise {
@@ -141,6 +145,20 @@ pub fn publish(
     held: u64,
     now: u64,
 ) -> std::io::Result<()> {
+    // The same promise, stamped less than `PUBLISH_STEP` ago, is not
+    // written again: readers judge the stamp in days (`STALE_AFTER_SECS`),
+    // and the daemon publishes several times a round, each one a file
+    // rewritten for nothing (ROADMAP, "An idle node's disk writes").
+    let unchanged = own(home).is_some_and(|was| {
+        was.pledge == pledge
+            && was.held == held
+            && was.updated <= now
+            && now - was.updated < PUBLISH_STEP
+    });
+    let shared_entry = shared.map(|dir| dir.join(format!("{device}.state")));
+    if unchanged && shared_entry.as_ref().is_none_or(|entry| entry.is_file()) {
+        return Ok(());
+    }
     let text = render(pledge, held, now);
     std::fs::write(home.join(STATE_FILE), &text)?;
     if let Some(dir) = shared {
@@ -266,6 +284,43 @@ mod tests {
         // What `Node::exists` looks for.
         std::fs::write(home.join("keystore.bin"), b"x").unwrap();
         home
+    }
+
+    /// The daemon publishes its promise several times a round; the same
+    /// promise inside `PUBLISH_STEP` is not rewritten (a file rewritten for
+    /// nothing is disk wear), a changed one is at once, and an unchanged one
+    /// again once the step has passed, so it never reads as stale. Sabotaged
+    /// (always write): red.
+    #[test]
+    fn the_same_promise_is_written_once_a_step_and_a_new_one_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = home(dir.path(), ".itsanas-a");
+        let shared = dir.path().join("shared");
+        publish(&a, Some(&shared), "aa", 30, 0, 100).unwrap();
+        publish(&a, Some(&shared), "aa", 30, 0, 100 + PUBLISH_STEP - 1).unwrap();
+        assert_eq!(
+            own(&a).unwrap().updated,
+            100,
+            "an unchanged promise was rewritten"
+        );
+        publish(&a, Some(&shared), "aa", 30, 5, 101).unwrap();
+        assert_eq!(
+            own(&a).unwrap().held,
+            5,
+            "a changed promise was not written"
+        );
+        publish(&a, Some(&shared), "aa", 30, 5, 101 + PUBLISH_STEP).unwrap();
+        assert_eq!(
+            own(&a).unwrap().updated,
+            101 + PUBLISH_STEP,
+            "the stamp never moves"
+        );
+        std::fs::remove_file(shared.join("aa.state")).unwrap();
+        publish(&a, Some(&shared), "aa", 30, 5, 102 + PUBLISH_STEP).unwrap();
+        assert!(
+            shared.join("aa.state").is_file(),
+            "a lost shared entry was not written back"
+        );
     }
 
     #[test]

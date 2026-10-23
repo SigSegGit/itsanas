@@ -363,6 +363,24 @@ impl Index {
     /// vouches that `device` is somebody. Inbound sessions from anyone go
     /// through [`Index::note_seen_if_known`].
     pub(super) fn note_seen_in(&self, device: &DeviceId, now: u64) -> Result<()> {
+        // The hour already marked and the contact stamp fresh: nothing to
+        // write, so no commit (`SEEN_STEP`). Every session after the first
+        // in an hour is this one.
+        if self.seen_within_step(device, now)? {
+            let txn = self.db.begin_read()?;
+            let rings = txn.open_table(DEVICE_UPTIME)?;
+            let meta = txn.open_table(META)?;
+            if !plan(
+                read_ring(&rings, device)?,
+                Clock::read(&meta)?,
+                hour_of(now),
+                true,
+            )
+            .writes()
+            {
+                return Ok(());
+            }
+        }
         let txn = self.db.begin_write()?;
         {
             txn.open_table(DEVICE_SEEN)?

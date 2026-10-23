@@ -373,6 +373,19 @@ fn chunk_range_end(owner: UserId) -> [u8; 64] {
     chunk_key(owner, &ChunkId::from_bytes([0xFF; 32]))
 }
 
+/// Commit `txn` only if it `changed` anything; abort it otherwise. An
+/// aborted write writes nothing, where a commit of nothing still costs a
+/// copy-on-write header and its pages (ROADMAP, "An idle node's disk
+/// writes").
+fn commit_if(txn: redb::WriteTransaction, changed: bool) -> Result<()> {
+    if changed {
+        txn.commit()?;
+    } else {
+        txn.abort()?;
+    }
+    Ok(())
+}
+
 fn chunk_from_key(bytes: &[u8]) -> Option<ChunkId> {
     if bytes.len() != 64 {
         return None;
@@ -1079,7 +1092,7 @@ impl Vault {
             return Ok(check);
         }
 
-        let (rows, reached_end) = {
+        let (rows, reached_end, was) = {
             let txn = self.db.begin_read()?;
             let cursor = txn
                 .open_table(CHECK_CURSOR)?
@@ -1105,7 +1118,7 @@ impl Vault {
                     rows.push(key);
                 }
             }
-            (rows, reached_end)
+            (rows, reached_end, cursor)
         };
 
         let mut gone: Vec<[u8; 64]> = Vec::new();
@@ -1133,6 +1146,7 @@ impl Vault {
         // so a row whose file exists now is kept.
         let _writing = self.chunk_writes();
         let txn = self.db.begin_write()?;
+        let changed;
         {
             let mut table = txn.open_table(CHUNKS)?;
             let mut totals = txn.open_table(TOTALS)?;
@@ -1160,16 +1174,19 @@ impl Vault {
                 per_owner.insert(owner_bytes.as_slice(), mine.saturating_sub(old))?;
             }
             let mut cursor = txn.open_table(CHECK_CURSOR)?;
-            match rows.last() {
-                Some(last) if !reached_end => {
+            let next = rows.last().filter(|_| !reached_end);
+            match next {
+                Some(last) => {
                     cursor.insert(CHECK_CURSOR_KEY, last.as_slice())?;
                 }
-                _ => {
+                None => {
                     cursor.remove(CHECK_CURSOR_KEY)?;
                 }
             }
+            changed = check.removed > 0 || was.as_deref() != next.map(<[u8; 64]>::as_slice);
         }
-        txn.commit()?;
+        // A pass over a small vault ends where it began, every round.
+        commit_if(txn, changed)?;
         // A full pass done: give back the space of what was removed since,
         // for owners whose chunks are in packs (blob files gave it back at
         // removal). Once a pass, not per removal: a compaction moves up to a
@@ -2714,6 +2731,31 @@ mod tests {
         );
         assert_eq!(vault.chunk_summary(owner).unwrap(), before);
         assert_eq!(vault.chunk_rows().unwrap(), 3);
+    }
+
+    /// The check runs every round, and on a small vault a pass ends where it
+    /// began: nothing removed and the cursor unchanged is no commit
+    /// (ROADMAP, "An idle node's disk writes"). A pass that does remove a
+    /// row still commits it. Sabotaged (always commit): red.
+    #[test]
+    fn a_disk_check_that_finds_nothing_to_do_writes_nothing() {
+        let (dir, vault) = vault();
+        let owner = keys(1).user_id();
+        three_chunks(&vault, owner);
+        vault.check_disk(100).unwrap();
+        // Size and write time, not bytes: Windows refuses to read a database
+        // another handle has locked. After a pause, so a write moves the time.
+        let file = || {
+            let meta = std::fs::metadata(dir.path().join("vault.redb")).unwrap();
+            (meta.len(), meta.modified().unwrap())
+        };
+        let before = file();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(vault.check_disk(100).unwrap().removed, 0);
+        assert!(
+            file() == before,
+            "a disk check that found nothing to do committed"
+        );
     }
 
     fn chunk(byte: u8) -> ChunkId {

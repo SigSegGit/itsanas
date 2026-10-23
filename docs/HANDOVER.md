@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: Nicolas finishes the setup of docs/FLEET-CI.md (agents on the Pi and VM done 2026-10-23; secrets and the first run left), then a session reads the first fleet runs and fixes what they find
+TITLE: The fleet tested by CI: the first run (2026-10-23) was red only because the runner knew no host key for the Pi and the VM, most likely a FLEET_KNOWN_HOSTS written UTF-16 by PowerShell 5.1 (issue #312); Nicolas resets it with ssh-keyscan piped to gh secret set, then a session reads the run and fixes what it finds
 WRITTEN-AT: 2026-10-23
-BASE: 1abe0c3
+BASE: c4ec6a2
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -46,6 +46,19 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-23, late: an idle round's no-op commits removed (MVP H, issue
+#93).** Counted on a bench (`scripts/idle-writes.sh`, now in the tree):
+eleven commits an idle round, most rewriting a row with what it held.
+Read-before-write in `clear_loss`, `admit_member`, the contact stamp
+(`SEEN_STEP` = 15 min) and `note_seen_in`, the sweep through
+`settle_losses`, `check_disk` aborting a pass that changed nothing
+(`commit_if`), `pledges::publish` once an hour unless the promise changed:
+218 to about 100 KB a round. `Durability::None` saves nothing on redb 2
+(`examples/commit_cost.rs`). Left: the audit record and the kept claim (one
+commit each, both real changes), the fleet's own number, and one
+transaction per round. Trap: `record_holders(&[], ..)` returns before
+stamping contact; test the stamp with a chunk already fresh.
 
 **2026-10-23, night: test L built (§8 0y).** The icon said green over
 files that existed on this disk alone: `brief_status` knew the daemon and

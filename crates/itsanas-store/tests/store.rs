@@ -1958,3 +1958,41 @@ fn red_team_a_node_does_not_tell_its_own_account_it_holds_what_its_disk_lost() {
         "the set this node wants held must not shrink because it lost a copy"
     );
 }
+
+/// The local-loss sweep runs every round over a slice of the live chunks.
+/// On a healthy disk it used to commit once per chunk it looked at -- four
+/// of an idle round's eleven commits (ROADMAP, "An idle node's disk
+/// writes"); now a pass that finds every blob where it should be writes
+/// nothing, and a blob gone is still recorded as lost. Sabotaged (the
+/// per-chunk `clear_loss` back): red.
+#[test]
+fn a_loss_sweep_over_a_healthy_disk_writes_nothing() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let store = store_for(&testkit::alice().master, dir.path());
+    store
+        .write_file("a.txt", &vec![1u8; 200_000])
+        .expect("write");
+    store.flush_segment().expect("flush");
+    let index = dir.path().join("index.redb");
+    let start = ChunkId::from_bytes([0; 32]);
+    assert_eq!(
+        store.missing_locally(&start, 64).expect("sweep"),
+        Vec::<ChunkId>::new()
+    );
+    // Size and write time, not bytes: Windows refuses to read a database
+    // another handle has locked. After a pause, so a write moves the time.
+    let file = || {
+        let meta = std::fs::metadata(&index).expect("metadata");
+        (meta.len(), meta.modified().expect("mtime"))
+    };
+    let before = file();
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    assert_eq!(
+        store.missing_locally(&start, 64).expect("sweep"),
+        Vec::<ChunkId>::new()
+    );
+    assert!(
+        file() == before,
+        "a sweep that found every blob in place committed to the index"
+    );
+}
