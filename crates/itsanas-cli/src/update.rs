@@ -665,28 +665,75 @@ pub(crate) fn command(check_only: bool) -> Result<()> {
 fn restart_every_node(version: &str) {
     for (name, home) in crate::config::node_homes(&crate::config::user_home()) {
         let _ = std::fs::remove_file(home.join(NOTICE_FILE));
-        let label = if name.is_empty() {
-            home.display().to_string()
-        } else {
-            name
-        };
-        let said = match crate::lifecycle::restart_and_wait(&home) {
-            crate::lifecycle::Restarted::Yes => format!("{label}: restarted on {version}"),
-            crate::lifecycle::Restarted::WasNotRunning => {
-                format!("{label}: not running; it starts on {version} next time")
-            }
-            crate::lifecycle::Restarted::StoppedOnly => format!(
-                "{label}: stopped, and nothing started it again: start it with \
-                 `itsanas --home {} signin`",
-                home.display()
-            ),
-            crate::lifecycle::Restarted::No => format!(
-                "{label}: still running the old version (it did not answer the restart \
-                 request in two minutes; an older daemon does not know it): log out and \
-                 back in, or restart the machine"
-            ),
-        };
+        // `node_homes` names the default node "(unnamed)": its service has no
+        // instance suffix.
+        let instance = (name != "(unnamed)").then_some(name.as_str());
+        let service = crate::setup::service::Platform::of_this_machine(&home, instance);
+        let said = restart_line(
+            &name,
+            &home,
+            version,
+            crate::lifecycle::restart_and_wait(&home),
+            &service,
+            &mut || crate::lifecycle::wait_for_comeback(&home),
+        );
         println!("{said}");
+    }
+}
+
+/// What `update` says of one node after asking it to restart, and the one
+/// thing it does about it: a daemon that stopped and that nothing started
+/// again has its service started here.
+///
+/// Hand test, 2026-10-22: of three daemons on the laptop, `test` stopped
+/// for the update and stayed down. Its Windows wrapper had treated exit 75
+/// as a failure and waited its failure pause, which doubles at every
+/// failure and was never reset, so a daemon whose wrapper had been through
+/// a few failures (a start racing a daemon still holding the store, after
+/// that node was stopped by hand and started again) waited longer than the
+/// minute `restart_and_wait` watches. The wrapper now restarts on 75 at
+/// once; a wrapper written by an older `setup` is not rewritten by an
+/// update, so this is still needed, as it is for any service manager that
+/// gave up. `came_back` waits for the store to be held again.
+pub(crate) fn restart_line(
+    label: &str,
+    home: &Path,
+    version: &str,
+    outcome: crate::lifecycle::Restarted,
+    service: &dyn crate::setup::ServiceControl,
+    came_back: &mut dyn FnMut() -> bool,
+) -> String {
+    use crate::lifecycle::Restarted;
+    let signin = format!("`itsanas --home {} signin`", home.display());
+    match outcome {
+        Restarted::Yes => format!("{label}: restarted on {version}"),
+        Restarted::WasNotRunning => {
+            format!("{label}: not running; it starts on {version} next time")
+        }
+        Restarted::StoppedOnly if !service.installed() => format!(
+            "{label}: stopped, and nothing started it again (no background service is \
+             installed for it): start it with {signin}"
+        ),
+        Restarted::StoppedOnly => match service.start() {
+            Ok(()) if came_back() => format!(
+                "{label}: restarted on {version} (it stopped and its service did not start \
+                 it again, so `itsanas update` started the service)"
+            ),
+            Ok(()) => format!(
+                "{label}: stopped; `itsanas update` started its service, but the node has \
+                 not come back within a minute: look at {}, or start it with {signin}",
+                service.log_hint()
+            ),
+            Err(error) => format!(
+                "{label}: stopped, and its service could not be started ({error}): start it \
+                 with {signin}"
+            ),
+        },
+        Restarted::No => format!(
+            "{label}: still running the old version (it did not answer the restart \
+             request in two minutes; an older daemon does not know it): log out and \
+             back in, or restart the machine"
+        ),
     }
 }
 

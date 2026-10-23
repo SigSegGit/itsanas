@@ -62,7 +62,10 @@ the only questions come at the end, after a beep. The steps by hand:
    draft is writable by anyone with write access to the repository, so this
    check is what makes a tampered draft one nobody signs. It then shows the
    draft's version and targets, asks "Sign it and publish it?", asks the passphrase, signs, uploads
-   `manifest.txt.sig`, publishes, and says what it published.
+   `manifest.txt.sig`, publishes, and says what it published. Keys pressed
+   before the question (during `release.ps1`'s wait, or at the previous run's
+   "press a key") are dropped first, and an empty answer asks again ("type y
+   to sign and publish, n to stop"), three times at most, instead of stopping.
 
 It needs `gh` logged in (`gh auth login`) and Rust (it builds the signing tool
 from the checkout, so the code that touches the key is the reviewed code).
@@ -138,6 +141,12 @@ default (log, and "update available: X" in `itsanas status`), `auto`
    exits with a failure code instead, which its service (the Windows wrapper,
    systemd `Restart=on-failure`, launchd `KeepAlive`) answers by starting the
    new program -- stopping its own service from inside would kill it half way.
+   `itsanas update` asks each daemon to exit 75, which the Windows wrapper
+   restarts at once (other failures after a pause); a daemon that stopped and
+   is not back within a minute has its service started by `update`
+   (`ServiceControl::start`), because a wrapper written by an older `setup`,
+   which `update` does not rewrite, may still be waiting out a long failure
+   pause.
 
 **Not verified:** never run against the real GitHub (no signed release exists
 yet; the key is pinned since 2026-10-07); the Windows rename of a running `itsanas.exe` and

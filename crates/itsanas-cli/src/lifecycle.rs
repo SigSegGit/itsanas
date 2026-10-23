@@ -129,11 +129,16 @@ pub fn restart_and_wait(home: &Path) -> Restarted {
     if ask(home, Request::Restart).is_err() || !wait_until(NOTICE, || !running(home)) {
         return Restarted::No;
     }
-    if wait_until(COMEBACK, || running(home)) {
+    if wait_for_comeback(home) {
         Restarted::Yes
     } else {
         Restarted::StoppedOnly
     }
+}
+
+/// Wait up to [`COMEBACK`] for the daemon of `home` to hold its store again.
+pub fn wait_for_comeback(home: &Path) -> bool {
+    wait_until(COMEBACK, || running(home))
 }
 
 #[cfg(test)]
