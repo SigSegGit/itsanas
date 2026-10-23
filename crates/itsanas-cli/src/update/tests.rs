@@ -619,6 +619,8 @@ fn red_team_a_node_left_stopped_by_an_update_has_its_service_started() {
         );
         assert!(said.starts_with(starts_with), "{outcome:?}: {said}");
     }
+}
+
 /// `copy-to-key` asks how much room the programs take before it writes one:
 /// the signed manifest's sizes, added up, and nothing from a manifest
 /// another key signed.
