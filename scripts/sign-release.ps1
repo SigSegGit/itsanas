@@ -48,10 +48,21 @@ function Stop-Plain {
     exit 1
 }
 
+# The question comes after release.ps1's twenty-minute wait, or after a
+# previous run's "press a key" pause: twice it read a keypress made meanwhile
+# as an empty answer and stopped (hand test, 2026-10-22). So the keys waiting
+# in the console are dropped first, and an empty line asks again, three times
+# at most, instead of meaning no.
 function Confirm-Yes {
-    param([string] $Question)
-    $answer = Read-Host "$Question [y/N]"
-    return $answer -match '^(y|yes|o|oui)$'
+    param([string] $Question, [string] $Hint = 'type y for yes, n for no')
+    try { $Host.UI.RawUI.FlushInputBuffer() } catch { }
+    for ($asked = 1; $asked -le 3; $asked++) {
+        $answer = "$(Read-Host "$Question [y/N]")".Trim()
+        if ($answer -match '^(y|yes|o|oui)$') { return $true }
+        if ($answer) { return $false }
+        Write-Host $Hint
+    }
+    return $false
 }
 
 # The signing tool is built from this checkout, so the code that touches the
@@ -128,7 +139,7 @@ try {
     Write-Host ''
     Write-Host "Draft ${Tag}: ITSaNAS $version, $($targets.Count) binaries:"
     $targets | ForEach-Object { Write-Host "  $_" }
-    if (-not (Confirm-Yes 'Sign it and publish it?')) {
+    if (-not (Confirm-Yes 'Sign it and publish it?' 'type y to sign and publish, n to stop')) {
         Stop-Plain 'nothing was signed or published'
     }
 

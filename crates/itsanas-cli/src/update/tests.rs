@@ -506,3 +506,117 @@ fn a_downloaded_file_over_the_cap_is_refused_not_read_whole() {
         "a file over the cap was read whole"
     );
 }
+
+/// A stand-in for a node's background service: whether it is installed,
+/// whether starting it works, and what was asked of it.
+struct Service {
+    installed: bool,
+    starts: bool,
+    calls: RefCell<Vec<&'static str>>,
+}
+
+impl Service {
+    fn new(installed: bool, starts: bool) -> Self {
+        Self {
+            installed,
+            starts,
+            calls: RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl crate::setup::ServiceControl for Service {
+    fn passphrase_file(&self) -> PathBuf {
+        PathBuf::from("/nowhere/passphrase")
+    }
+    fn installed(&self) -> bool {
+        self.installed
+    }
+    fn install(&self, _: bool) -> crate::error::Result<String> {
+        self.calls.borrow_mut().push("install");
+        Ok(String::new())
+    }
+    fn start(&self) -> crate::error::Result<()> {
+        self.calls.borrow_mut().push("start");
+        if self.starts {
+            Ok(())
+        } else {
+            Err(crate::error::CliError::Usage("schtasks said no".to_owned()))
+        }
+    }
+    fn stop(&self) -> crate::error::Result<()> {
+        self.calls.borrow_mut().push("stop");
+        Ok(())
+    }
+    fn set_autostart(&self, _: bool) -> crate::error::Result<()> {
+        self.calls.borrow_mut().push("autostart");
+        Ok(())
+    }
+    fn log_hint(&self) -> String {
+        "the daemon log".to_owned()
+    }
+}
+
+/// `itsanas update` left one of three laptop daemons stopped (hand test,
+/// 2026-10-22). A daemon that stops for the restart and that nothing starts
+/// again has its service started by `update`, which says so; every other
+/// outcome leaves the service alone. Sabotage: answer `StoppedOnly` with the
+/// old "start it with signin" line and no `start()` -- this goes red.
+#[test]
+fn red_team_a_node_left_stopped_by_an_update_has_its_service_started() {
+    use crate::lifecycle::Restarted;
+    let home = Path::new("/home/n/.itsanas-test");
+    let line = |outcome, service: &Service, back: bool| {
+        let mut asked = 0;
+        let said = super::restart_line("test", home, "0.1.11", outcome, service, &mut || {
+            asked += 1;
+            back
+        });
+        (said, asked)
+    };
+
+    let service = Service::new(true, true);
+    let (said, asked) = line(Restarted::StoppedOnly, &service, true);
+    assert_eq!(*service.calls.borrow(), ["start"], "{said}");
+    assert_eq!(asked, 1, "the comeback is watched after the start");
+    assert!(said.starts_with("test: restarted on 0.1.11"), "{said}");
+    assert!(
+        said.contains("started the service"),
+        "it says it did: {said}"
+    );
+
+    let (said, _) = line(Restarted::StoppedOnly, &Service::new(true, true), false);
+    assert!(
+        said.contains("has not come back") && said.contains("the daemon log"),
+        "{said}"
+    );
+    assert!(said.contains("signin"), "{said}");
+
+    let refusing = Service::new(true, false);
+    let (said, asked) = line(Restarted::StoppedOnly, &refusing, true);
+    assert_eq!(*refusing.calls.borrow(), ["start"]);
+    assert_eq!(asked, 0, "a start that failed is not waited for");
+    assert!(
+        said.contains("could not be started (schtasks said no)") && said.contains("signin"),
+        "{said}"
+    );
+
+    let absent = Service::new(false, true);
+    let (said, _) = line(Restarted::StoppedOnly, &absent, true);
+    assert!(absent.calls.borrow().is_empty(), "no service to start");
+    assert!(said.contains("signin"), "{said}");
+
+    for (outcome, starts_with) in [
+        (Restarted::Yes, "test: restarted on 0.1.11"),
+        (Restarted::WasNotRunning, "test: not running"),
+        (Restarted::No, "test: still running the old version"),
+    ] {
+        let service = Service::new(true, true);
+        let (said, asked) = line(outcome, &service, true);
+        assert!(
+            service.calls.borrow().is_empty() && asked == 0,
+            "{outcome:?} touched the service: {said}"
+        );
+        assert!(said.starts_with(starts_with), "{outcome:?}: {said}");
+    }
+}

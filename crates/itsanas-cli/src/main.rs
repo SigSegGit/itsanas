@@ -1033,25 +1033,54 @@ fn passphrase(confirm: bool) -> Result<String> {
         )));
     }
 
-    let label = PROMPT_FOR.get().map(String::as_str);
-    eprintln!(
-        "{}",
-        passphrase_explanation(confirm, label, PROMPT_COMMAND.get().map(String::as_str))
-    );
-    let entered =
-        rpassword::prompt_password(prompt_text("Passphrase", label)).map_err(|error| {
-            CliError::Io {
-                path: PathBuf::from("<terminal>"),
-                source: error,
-            }
-        })?;
+    ask_passphrase(
+        confirm,
+        PROMPT_FOR.get().map(String::as_str),
+        PROMPT_COMMAND.get().map(String::as_str),
+        &mut || rpassword::ConfigBuilder::new().build(),
+    )
+}
+
+/// What the terminal shows before a passphrase is read: the explanation, a
+/// line break, then the prompt -- one text, which `rpassword` writes and
+/// flushes in one go on the stream it then reads from (`/dev/tty`, or
+/// `CONOUT$` on Windows). The explanation used to go to stderr and the prompt
+/// to the terminal, so with stderr piped through `tee` the prompt came first
+/// and the explanation after it, on the same line (Mac, hand test of
+/// 2026-10-22).
+fn passphrase_prompt(explanation: Option<&str>, what: &str, label: Option<&str>) -> String {
+    let prompt = prompt_text(what, label);
+    match explanation {
+        Some(explanation) => format!("{explanation}\n{prompt}"),
+        None => prompt,
+    }
+}
+
+/// Ask the passphrase on the terminal `terminal` opens, once or (choosing
+/// one) twice. The terminal is a parameter so that a test sees what is
+/// written, and in which order; [`passphrase`] passes `rpassword`'s own.
+fn ask_passphrase(
+    confirm: bool,
+    label: Option<&str>,
+    command: Option<&str>,
+    terminal: &mut dyn FnMut() -> rpassword::Config,
+) -> Result<String> {
+    let read = |prompt: String, config: rpassword::Config| {
+        rpassword::prompt_password_with_config(prompt, config).map_err(|error| CliError::Io {
+            path: PathBuf::from("<terminal>"),
+            source: error,
+        })
+    };
+    let explanation = passphrase_explanation(confirm, label, command);
+    let entered = read(
+        passphrase_prompt(Some(&explanation), "Passphrase", label),
+        terminal(),
+    )?;
 
     if confirm {
-        let again = rpassword::prompt_password(prompt_text("Confirm passphrase", label)).map_err(
-            |error| CliError::Io {
-                path: PathBuf::from("<terminal>"),
-                source: error,
-            },
+        let again = read(
+            passphrase_prompt(None, "Confirm passphrase", label),
+            terminal(),
         )?;
         if again != entered {
             return Err(CliError::Usage("the passphrases did not match".to_owned()));
@@ -1269,6 +1298,8 @@ fn login(
         "  device  : {} (new for this machine)",
         node.store.device_id()
     );
+    println!();
+    println!("{}", recovered_note(false));
     println!();
     println!("Nothing has been downloaded yet. Run `itsanas sync <peer>` to pull");
     println!("your data from a peer or a host that is holding it.");
@@ -2241,8 +2272,7 @@ fn login_from_coordinator(
     );
     println!("  coordinator : {address} (kept for this machine)");
     println!();
-    println!("Your 24-word phrase is unchanged and still the ultimate backup:");
-    println!("this recovered the same identity, it did not create a new one.");
+    println!("{}", recovered_note(true));
     println!();
     println!("Nothing has been downloaded yet. Next, on this machine:");
     println!("  itsanas register           enrol it, so your other machines find it");
@@ -2251,6 +2281,22 @@ fn login_from_coordinator(
     println!("  itsanas daemon");
 
     Ok(())
+}
+
+/// What a recovery says about the 24 words. After the words were typed,
+/// that they are still the backup; after `--from`, where the person may not
+/// have them at hand, that this is the same account, whose words have not
+/// changed and are shown by `itsanas words` on any of its machines. "Your
+/// 24-word phrase is unchanged" said after `--from` read as if they ought to
+/// be on the desk (hand test, 2026-10-22).
+fn recovered_note(from_coordinator: bool) -> &'static str {
+    if from_coordinator {
+        "This is the same account as before, not a new one: its 24 recovery words\n\
+         are the same as before. `itsanas words` shows them, on any machine of the account."
+    } else {
+        "Your 24-word phrase is unchanged and still the ultimate backup:\n\
+         this recovered the same identity, it did not create a new one."
+    }
 }
 
 /// Fetch the account's recovery container from `address`, open it with
@@ -4789,8 +4835,20 @@ fn words(home: &Path) -> Result<()> {
     println!("write them on paper, keep the paper away from this machine, and");
     println!("clear this window afterwards.");
     println!();
-    print!("{}", phrase_grid(phrase.as_str()));
+    print!("{}", words_text(phrase.as_str()));
     Ok(())
+}
+
+/// What `itsanas words` shows: the numbered grid to copy onto paper, then the
+/// same words on one line, to paste into `login` or a phrase file -- the grid
+/// pasted as it stands carries its numbers and its line breaks.
+fn words_text(phrase: &str) -> String {
+    let words: Vec<&str> = phrase.split_whitespace().collect();
+    format!(
+        "{}\nOn one line, to copy and paste:\n{}\n",
+        phrase_grid(phrase),
+        words.join(" ")
+    )
 }
 
 fn doctor(home: &Path, deep: bool) -> Result<()> {
@@ -5184,6 +5242,87 @@ mod tests {
         assert!(text.contains("'test'"), "{text}");
         assert!(text.contains(".itsanas-test"), "{text}");
         assert_eq!(prompt_text("Passphrase", None), "Passphrase: ");
+    }
+
+    /// A terminal for `ask_passphrase` that keeps one transcript: what was
+    /// written reaches it only when flushed, and the first read of each
+    /// answer is marked `<read>` -- so the order a person sees is the order
+    /// in the transcript.
+    #[derive(Clone, Default)]
+    struct Transcript {
+        shown: std::rc::Rc<std::cell::RefCell<String>>,
+        pending: std::rc::Rc<std::cell::RefCell<Vec<u8>>>,
+    }
+
+    impl std::io::Write for Transcript {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.pending.borrow_mut().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            let pending = std::mem::take(&mut *self.pending.borrow_mut());
+            self.shown
+                .borrow_mut()
+                .push_str(&String::from_utf8_lossy(&pending));
+            Ok(())
+        }
+    }
+
+    struct Typed {
+        answer: std::io::Cursor<Vec<u8>>,
+        seen: Transcript,
+        marked: bool,
+    }
+
+    impl std::io::Read for Typed {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if !std::mem::replace(&mut self.marked, true) {
+                self.seen.shown.borrow_mut().push_str("<read>");
+            }
+            self.answer.read(buf)
+        }
+    }
+
+    #[test]
+    fn red_team_the_passphrase_explanation_is_on_the_terminal_and_flushed_before_the_prompt() {
+        // The Mac log through `tee` read "Passphrase for 'test' (...): Type
+        // the passphrase of the account 'test' ...": the explanation went to
+        // stderr, the prompt to the terminal. Sabotage: print the explanation
+        // with eprintln! again and pass the bare prompt -- the transcript
+        // then starts with the prompt.
+        let terminal = Transcript::default();
+        let label = Some("'test' (/Users/n/.itsanas-test)");
+        let typed = super::ask_passphrase(true, label, Some("init"), &mut || {
+            rpassword::ConfigBuilder::new()
+                .input_reader(Typed {
+                    answer: std::io::Cursor::new(b"correct horse\n".to_vec()),
+                    seen: terminal.clone(),
+                    marked: false,
+                })
+                .output_writer(terminal.clone())
+                .build()
+        })
+        .expect("the passphrase is read");
+        assert_eq!(typed, "correct horse");
+        let shown = terminal.shown.borrow().clone();
+        let explanation = passphrase_explanation(true, label, Some("init"));
+        let expected = format!("{explanation}\n{}<read>", prompt_text("Passphrase", label));
+        assert!(
+            shown.starts_with(&expected),
+            "the explanation, then the prompt, both shown before the answer is read: {shown:?}"
+        );
+        assert_eq!(
+            shown.matches(explanation.as_str()).count(),
+            1,
+            "explained once, not again at the confirmation: {shown:?}"
+        );
+        assert!(
+            shown.contains(&format!(
+                "{}<read>",
+                prompt_text("Confirm passphrase", label)
+            )),
+            "{shown:?}"
+        );
     }
 
     #[test]
@@ -5586,6 +5725,42 @@ mod tests {
         let phrase = words.join(" ");
         assert_eq!(phrase_words(&phrase_grid(&phrase)), phrase);
         assert_eq!(phrase_words(&words.join("\n")), phrase, "one word a line");
+    }
+
+    /// `itsanas words` shows the grid for paper and the same words on one
+    /// line for a paste. Sabotage: print the grid alone -- no line of the
+    /// output is then the phrase.
+    #[test]
+    fn itsanas_words_prints_the_grid_and_then_the_words_on_one_line() {
+        let words: Vec<String> = (1..=24).map(|i| format!("word{i}")).collect();
+        let phrase = words.join(" ");
+        let text = super::words_text(&phrase);
+        let grid = phrase_grid(&phrase);
+        assert!(text.starts_with(&grid), "the grid first: {text}");
+        let last = text.lines().last().unwrap_or_default();
+        assert_eq!(
+            last, phrase,
+            "the last line is the 24 words, in order: {text}"
+        );
+    }
+
+    /// After `--from` the person may not have the words at hand: the message
+    /// says it is the same account and where to see them, and keeps the
+    /// "ultimate backup" sentence for the path where they were just typed.
+    /// Sabotage: return the words version for both.
+    #[test]
+    fn a_recovery_from_a_coordinator_says_where_the_words_are_and_the_words_path_keeps_its_note() {
+        let from = super::recovered_note(true);
+        assert!(from.contains("same account"), "{from}");
+        assert!(from.contains("24 recovery words"), "{from}");
+        assert!(from.contains("same as before"), "{from}");
+        assert!(from.contains("`itsanas words`"), "{from}");
+        assert!(from.contains("any machine of the account"), "{from}");
+        assert!(!from.contains("ultimate backup"), "{from}");
+        let typed = super::recovered_note(false);
+        assert!(typed.contains("24-word phrase is unchanged"), "{typed}");
+        assert!(typed.contains("ultimate backup"), "{typed}");
+        assert!(typed.contains("did not create a new one"), "{typed}");
     }
 
     /// A tray shows what this says, so a daemon that holds the store but has

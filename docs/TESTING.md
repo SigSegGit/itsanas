@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-22 — 1313 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 382 are red-team tests.**
+**Last updated: 2026-10-22 — 1318 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 385 are red-team tests.**
 
-**1197 of the 1313 tests have an entry of their own on this page** — an *entry*,
+**1202 of the 1318 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 172 |
+| `itsanas-cli` unit | 177 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 140 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 24 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 49 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 84 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 87 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -311,7 +311,7 @@ checks had already gone wrong:
 | `check-counts.py` | Any number about tests in README.md, ROADMAP.md or this file that the source does not support. All three disagreed with the tree and with each other. |
 | `check-messages.py` | A line continuation collapsed into a message or a command. `cargo fmt` eats them in string literals and the scripts that write large edits eat them everywhere else; the Android job ran with thirteen literal spaces in it from the day it was written. |
 | `check-wired.py` | A `pub fn` with no call site. Four mechanisms were designed, implemented, tested, documented and wired to nothing. |
-| `check-installers.sh` | An installer that does not parse, uses bash syntax while claiming POSIX, is missing from `install/README.md`, demands a Rust version Cargo.toml does not, writes a systemd `ReadWritePaths` without the leading dash that lets a unit start before the path exists, cannot be re-run over the coordinator binary it installed (the copy step is cut out of `coordinator.sh` and run against a file that is already its destination, and against an older one it must still replace), or cannot undo itself — every entry point is *run* with `--clean` and has to reach the uninstaller's dry run. A grep for the flag would have passed on all three ways that delegation breaks: a missing sibling, a case arm that shifts and falls through, and a script that never had the arm at all. Two instances are provisioned with `provision.sh --instance` in a throwaway HOME (a stub `itsanas`, a `systemctl` that only logs), `b` is cleaned with `--purge-account`, and `a`'s home, passphrase file, enablement and the shared unit template must survive while nothing stops or disables `itsanas@a` (HANDOVER §8 0i; sabotaged by globbing `*.environment` and by disabling `itsanas@*`, red both times). The tray's logon shortcut (§8 0f): the shortcut's name and arguments are read out of `provision.ps1` as written and evaluated for two instances and the default node -- each must run the installed script through `conhost --headless` with its own `-Instance`, under a name of its own -- then `clean.ps1 -Instance zz-check-b -Yes` runs against a throwaway Startup folder holding all three and must remove b's alone (sabotaged by dropping `-Instance`, by globbing `ITSaNAS tray*.lnk` in the clean, and by one name for every node; red all three times). The PATH line (§8 3e): the `path-line` block must be identical in `linux.sh` and `macos.sh`, and is run in a throwaway HOME under zsh -- two installs leave one marked line in `~/.zprofile` without gluing it onto a last line that has no newline, `clean.sh --yes` removes that line and leaves the person's untouched, and a Debian `~/.profile` that already puts `$HOME/.local/bin` on the PATH gets no second entry (sabotaged by dropping the duplicate check, by a clean that keeps the line, by dropping the Debian check, and by editing one copy of the block; red all four times). Red-team pass on the release batch: `tray-autostart.sh` refuses an `ITSANAS_BIN` holding a newline or `%` and writes no `.desktop` entry (sabotaged by dropping the pattern: red); `get.ps1` puts the old `itsanas.exe` back when the new one cannot be renamed in (a mocked `Rename-Item` throws; sabotaged by dropping the restore: red), and on Windows adds to the user PATH in a throwaway HKCU key keeping `%USERPROFILE%` and REG_EXPAND_SZ (sabotaged by writing it expanded as REG_SZ: red); `sign-release.sh`, against a fake `gh` and the checkout's `itsanas-release`, reaches the signing question for an untouched draft and stops before it, with nothing uploaded or published, for a draft with a binary byte changed or a manifest version that is not the tag's (sabotaged by skipping `check`: red). |
+| `check-installers.sh` | An installer that does not parse, uses bash syntax while claiming POSIX, is missing from `install/README.md`, demands a Rust version Cargo.toml does not, writes a systemd `ReadWritePaths` without the leading dash that lets a unit start before the path exists, cannot be re-run over the coordinator binary it installed (the copy step is cut out of `coordinator.sh` and run against a file that is already its destination, and against an older one it must still replace), or cannot undo itself — every entry point is *run* with `--clean` and has to reach the uninstaller's dry run. A grep for the flag would have passed on all three ways that delegation breaks: a missing sibling, a case arm that shifts and falls through, and a script that never had the arm at all. Two instances are provisioned with `provision.sh --instance` in a throwaway HOME (a stub `itsanas`, a `systemctl` that only logs), `b` is cleaned with `--purge-account`, and `a`'s home, passphrase file, enablement and the shared unit template must survive while nothing stops or disables `itsanas@a` (HANDOVER §8 0i; sabotaged by globbing `*.environment` and by disabling `itsanas@*`, red both times). The tray's logon shortcut (§8 0f): the shortcut's name and arguments are read out of `provision.ps1` as written and evaluated for two instances and the default node -- each must run the installed script through `conhost --headless` with its own `-Instance`, under a name of its own -- then `clean.ps1 -Instance zz-check-b -Yes` runs against a throwaway Startup folder holding all three and must remove b's alone (sabotaged by dropping `-Instance`, by globbing `ITSaNAS tray*.lnk` in the clean, and by one name for every node; red all three times). The PATH line (§8 3e): the `path-line` block must be identical in `linux.sh` and `macos.sh`, and is run in a throwaway HOME under zsh -- two installs leave one marked line in `~/.zprofile` without gluing it onto a last line that has no newline, `clean.sh --yes` removes that line and leaves the person's untouched, and a Debian `~/.profile` that already puts `$HOME/.local/bin` on the PATH gets no second entry (sabotaged by dropping the duplicate check, by a clean that keeps the line, by dropping the Debian check, and by editing one copy of the block; red all four times). Red-team pass on the release batch: `tray-autostart.sh` refuses an `ITSANAS_BIN` holding a newline or `%` and writes no `.desktop` entry (sabotaged by dropping the pattern: red); `get.ps1` puts the old `itsanas.exe` back when the new one cannot be renamed in (a mocked `Rename-Item` throws; sabotaged by dropping the restore: red), and on Windows adds to the user PATH in a throwaway HKCU key keeping `%USERPROFILE%` and REG_EXPAND_SZ (sabotaged by writing it expanded as REG_SZ: red); `sign-release.sh`, against a fake `gh` and the checkout's `itsanas-release`, reaches the signing question for an untouched draft and stops before it, with nothing uploaded or published, for a draft with a binary byte changed or a manifest version that is not the tag's (sabotaged by skipping `check`: red). The signing question (hand test, 2026-10-22: twice an empty answer, a keypress made during `release.ps1`'s wait or after a previous run's `pause`, stopped the release): `sign-release.sh`'s `confirm()` runs with its terminal swapped for a file and must ask again on an empty line, saying "type y to sign and publish, n to stop", three times at most (empty, empty, y signs; three empty lines stop; n stops at once); `sign-release.ps1`'s `Confirm-Yes` must call `FlushInputBuffer()` before its first `Read-Host`, and where `pwsh` is (the CI runner) runs with `Read-Host` and `Write-Host` stood in for, to the same four cases. Sabotaged by hand (the sh empty-line arm removed; the PowerShell flush removed): red both times. |
 
 The workflow also runs **daily on a schedule, in full**, so a newly published
 advisory against a dependency -- or a new rustc, or a new runner image --
@@ -1156,7 +1156,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (172)
+# `itsanas-cli` — unit tests (177)
 
 ## `bench` — measuring this machine (4)
 
@@ -1231,7 +1231,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_a_username_already_taken_is_refused_before_any_key_is_written`** | With a coordinator that already holds the name, the account step fails before any keystore is written or any word shown, and says the name is taken. Sabotaged (check ignored): red. |
 | **`red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`** | The built-in coordinator's device id is pinned (and parses), so a machine answering at its name that is not it is refused; another coordinator gets no pin. Sabotaged (pin never applied): red. |
 
-## `update::tests` — the self-update: only a signed, newer, intact release replaces the program (14)
+## `update::tests` — the self-update: only a signed, newer, intact release replaces the program, and every node back on it (15)
 
 `crates/itsanas-cli/src/update.rs` (tests in `update/tests.rs`). `itsanas
 update [--check]` and the daemon's daily look. The tests serve a fake release
@@ -1257,6 +1257,7 @@ with `scripts/sabotage.py`: every defence below turned its test red.
 | `without_a_pinned_key_nothing_is_fetched` | With no key (`trust: None`, as in every build before the key was pinned), `check` answers "no key" without one request: a build that can trust nothing does not ask. |
 | **`red_team_a_failed_swap_puts_the_old_program_back`** | The replace is two renames; when the second fails the first is undone and the old program is where the service starts it; when the first fails nothing moved. Sabotaged (no rollback): red. |
 | `the_daily_look_follows_the_setting` | `off` makes no request and clears the notice; `notify` writes the version `status` shows and installs nothing; `auto` installs and clears the notice. |
+| **`red_team_a_node_left_stopped_by_an_update_has_its_service_started`** | After `itsanas update`, a daemon that stopped for its restart and that nothing started again within a minute has its service started by `update` (`schtasks /Run`, `systemctl --user start`, launchd's bootstrap: `ServiceControl::start`, as `signin` does), which then watches it come back and says that it started it; a failed start, a node that does not come back, or no service installed each say so and name `signin`; any other outcome leaves the service alone. One of three laptop daemons stayed down after 0.1.10 to 0.1.11 (hand test, 2026-10-22). Against a stand-in service. Sabotaged (no `start()`): red. |
 
 ## `answers` — the unattended answers file (2)
 
@@ -1279,7 +1280,7 @@ tested: no window was opened by a test.
 | `the_windows_reply_survives_any_code_page` | The window's reply comes back base64-encoded, so a non-ASCII passphrase is not mangled by the console code page. |
 | `the_secret_window_is_the_platforms_own_or_the_terminal` | The backend choice is the platform's own window when there is a desktop and the terminal otherwise (an SSH session included), and gives a clear error naming what to install when there is neither. |
 
-## `service` — the background service under the installers' names (7)
+## `service` — the background service under the installers' names, and the Windows wrapper's log and restarts (8)
 
 | Test | What it proves |
 | --- | --- |
@@ -1289,6 +1290,7 @@ tested: no window was opened by a test.
 | **`red_team_a_windows_passphrase_starting_with_a_hash_reads_back`** | A bare Windows passphrase such as `#Horse-Battery-9` is not taken for linux.sh's commented placeholder, and is written and read back, so setup does not stop at the Secret step for ever; Sabotaged (any leading # read as the placeholder): red. |
 | `the_passphrase_file_is_written_whole_and_alone` | The service's passphrase file is written in full, with owner-only permissions, and holds nothing else. |
 | `the_windows_tray_starts_now_and_only_once` | The Windows tray script starts the icon at once, not only at the next logon, and first looks for one already running for that node (default or instance), so a second setup adds no second icon. Sabotaged (no start; check ignoring the instance): red. |
+| **`red_team_the_windows_wrapper_logs_plain_utf8_and_restarts_a_requested_restart_at_once`** | The wrapper the logon task runs sets the console's encoding to UTF-8 before the daemon starts, merges stderr with `2>&1` and writes each line as its text (`ForEach-Object { "$_" }`), so `daemon-NAME.log` holds what the daemon wrote: it showed `nÔÇÖa pu ├¬tre` and a `NativeCommandError` block around each stderr line (hand test, 2026-10-22). Exit 0 still ends the loop; exit 75 restarts at once with the failure pause reset; any other code restarts after the pause. The script is ASCII (written without a BOM), and `install/provision.ps1` writes the same code. Sabotaged four times (encoding line, the `ForEach-Object`, the exit-75 branch, the `ForEach-Object` in provision.ps1): red each time. |
 | `the_windows_scripts_parse` | (Windows) The generated wrapper, task, tray and ACL scripts, the secret window and the tray icon script all pass PowerShell's Parser::ParseFile, with and without an instance. |
 
 ## `verify` — the final check (3)
@@ -1424,7 +1426,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place (43)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are (46)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1472,6 +1474,9 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `a_timed_pause_shows_paused_only_while_it_holds` | Status --brief, which every tray reads, says paused only while the pause holds, so an expired timed pause never shows a blue icon over a node that is syncing again. |
 | **`red_team_a_passphrase_prompt_names_the_account_it_unlocks`** | The passphrase prompt reads `Passphrase for 'NAME' (HOME): `, not `Passphrase:`, so three accounts on one machine are told apart; with no label it stays `Passphrase: `. Sabotage: drop the label and it goes red. |
 | `a_passphrase_prompt_says_whether_to_choose_or_type_and_what_it_is_not` | Before the prompt, a line says whether to choose a new passphrase or type the one chosen when the account was set up on this machine, for which account and which `itsanas` command, and that it is not the 24 recovery words (Nicolas, 2026-10-22: "Passphrase for 'nicolas'" alone left him guessing). Also: the subcommand is found past `--home PATH`. |
+| **`red_team_the_passphrase_explanation_is_on_the_terminal_and_flushed_before_the_prompt`** | The explanation and the prompt are one text written and flushed on the terminal `rpassword` reads from, before the answer is read, and the explanation is not repeated at the confirmation. It went to stderr while the prompt went to the terminal, so a Mac log through `tee` showed the prompt first and the explanation after it on the same line (hand test, 2026-10-22). Driven through `rpassword`'s own writer and reader, standing in for the terminal. Sabotaged (explanation back on stderr): red. |
+| `itsanas_words_prints_the_grid_and_then_the_words_on_one_line` | `itsanas words` prints the numbered grid for paper and then the 24 words on one line, in order, to paste into `login` or a phrase file. Sabotaged (the grid alone): red. |
+| `a_recovery_from_a_coordinator_says_where_the_words_are_and_the_words_path_keeps_its_note` | After `login --from` the message says this is the same account, that its 24 words are the same as before, and that `itsanas words` shows them on any machine of the account -- not "your 24-word phrase is unchanged", which read as if the words had to be at hand. The words path keeps the "ultimate backup" sentence. Sabotaged (the words version for both): red. |
 | **`red_team_a_vault_moves_onto_an_existing_empty_mount_point_and_never_into_itself`** | A move stages inside the target (`.itsanas-incoming`) and renames the entries up with the marker last, so it works on a mount point or drive root and writes nothing beside it; a target inside the vault, or one holding it, is refused. Sabotaged. |
 | **`red_team_a_vault_moved_away_can_come_back_to_its_default_place`** | A vault moved to another disk can be moved back to `home/vault`, the default place, which was refused as if it were inside the home; moving into the vault itself is still refused. |
 | **`red_team_a_vault_is_not_moved_onto_a_key_too_small_for_it`** | A move is refused before copying when the target's free space is under the vault's size plus 10%; a drive with room for the bare size but not the margin is refused, one with the margin goes through. Sabotaged (checking against the bare size): red. |

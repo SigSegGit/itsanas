@@ -143,7 +143,10 @@ afterwards: it skips what is done and never makes a second account.
 
 Lost the words but still have a machine of the account and its passphrase?
 `itsanas words` (with `--instance NAME` where there are several) asks that
-passphrase and shows the 24 words again, even while ITSaNAS runs.
+passphrase and shows the 24 words again, even while ITSaNAS runs: numbered
+for paper, then on one line to copy and paste. A machine recovered with
+`itsanas login --from` holds the same account, so its words are the same and
+`itsanas words` shows them there too.
 
 `itsanas setup --text` asks the same questions in the terminal, and an SSH
 session uses the terminal by itself. Later, `itsanas settings` opens the same
@@ -160,8 +163,11 @@ Setup asks what to do when a new version is out: **install it by itself**
 `itsanas update --check` says whether there is one; `itsanas update` installs
 it and restarts every account's background service on the machine (no
 `--instance` needed): it asks each daemon itself to restart, and prints per
-account what it found: restarted, not running, stopped only, or still on the
-old version. `itsanas bench` is machine-wide in the same way.
+account what it found: restarted, not running, or still on the old version.
+A daemon that stopped for the restart and that nothing started again within a
+minute has its background service started by `update` itself, which says so
+("it stopped and its service did not start it again"); when that fails too it
+names `itsanas signin`. `itsanas bench` is machine-wide in the same way.
 
 A new version is installed only if it is newer than yours and carries the
 signature of the ITSaNAS release key compiled into your copy, and its download

@@ -30,10 +30,22 @@ CHECKOUT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd) || exit 1
 
 fail() { printf '\nerror: %s\n' "$1" >&2; exit 1; }
 
-confirm() {
-    printf '%s [y/N] ' "$1"
-    read -r answer < /dev/tty || return 1
-    case "$answer" in y|Y|yes|YES|o|oui) return 0 ;; *) return 1 ;; esac
+# An empty line asks again, three times at most, instead of meaning no: on
+# Windows a keypress made during the wait before the question was read as an
+# empty answer and stopped the release (hand test, 2026-10-22).
+confirm() {  # question [hint]
+    tries=0
+    while [ "$tries" -lt 3 ]; do
+        printf '%s [y/N] ' "$1"
+        read -r answer < /dev/tty || return 1
+        case "$answer" in
+            y|Y|yes|YES|o|oui) return 0 ;;
+            '') echo "${2:-type y for yes, n for no}" ;;
+            *) return 1 ;;
+        esac
+        tries=$((tries + 1))
+    done
+    return 1
 }
 
 # Built from this checkout, so the code that touches the key is the code in the
@@ -91,7 +103,8 @@ TARGETS=$(awk '$1 == "file" { print $2 }' "$MANIFEST")
 echo
 echo "Draft $TAG: ITSaNAS $VERSION, binaries for:"
 printf '%s\n' "$TARGETS" | sed 's/^/  /'
-confirm "Sign it and publish it?" || fail "nothing was signed or published"
+confirm "Sign it and publish it?" "type y to sign and publish, n to stop" \
+    || fail "nothing was signed or published"
 
 release_tool sign "$MANIFEST" --key "$KEY" \
     || fail "not signed (the reason is just above): nothing was published"
