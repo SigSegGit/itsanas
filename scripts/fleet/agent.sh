@@ -172,7 +172,10 @@ case "$*" in
                 # not have learnt the name either.
                 for db in "$home"/*.redb "$vault"/*.redb; do
                     [ -f "$db" ] || continue
-                    if grep -a -F -q -- "$3" "$db"; then
+                    # -z: lines end at NUL, which a database is full of, so
+                    # grep never holds a run of a binary file between two
+                    # newlines -- megabytes of it -- as one line.
+                    if grep -a -z -F -q -- "$3" "$db"; then
                         echo "FAIL  C scan    the canary is readable in $db"
                         exit 1
                     fi

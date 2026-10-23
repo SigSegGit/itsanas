@@ -184,6 +184,33 @@ FLEET_SSH=false fleet "pi gone" ""
 expect fail "one machine answering is FAIL: nothing was tested" "fewer than two machines answered" $?
 grep -qE '^SKIP  gone does not answer' "$WORK/run.log" || bad "a host that does not answer is not said SKIP"
 
+echo "the fleet workflow can only run from main"
+
+# What keeps the key to Nicolas's machines out of a stranger's hands is not
+# code but three lines of fleet.yml: no pull_request trigger, the `fleet`
+# environment (main only), and secrets read nowhere else. A later edit that
+# adds a trigger "to test it on the PR" undoes all of it, so it is checked.
+fleet_yml=.github/workflows/fleet.yml
+if python3 - "$fleet_yml" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+on = doc.get(True, doc.get("on"))  # YAML reads a bare `on:` as true
+triggers = set(on) if isinstance(on, dict) else {on} if isinstance(on, str) else set(on)
+assert triggers <= {"workflow_dispatch", "schedule"}, f"triggers {sorted(triggers)}"
+for name, job in doc["jobs"].items():
+    assert job.get("environment") == "fleet", f"job {name} runs outside the fleet environment"
+PY
+then
+    ok "fleet.yml runs on schedule or by hand only, every job in the fleet environment"
+else
+    bad "fleet.yml can run on something else than a schedule or a click, or outside the fleet environment"
+fi
+if grep -n 'secrets\.FLEET_\|secrets\.TS_' .github/workflows/*.yml | grep -v "^$fleet_yml:" | grep -q .; then
+    bad "a workflow other than fleet.yml reads a fleet secret: $(grep -ln 'secrets.FLEET_' .github/workflows/*.yml | grep -v fleet.yml)"
+else
+    ok "no other workflow reads a fleet secret"
+fi
+
 echo "the Windows agent refuses the same requests"
 
 if command -v pwsh >/dev/null 2>&1; then
