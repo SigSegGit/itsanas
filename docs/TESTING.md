@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-23 — 1391 test functions across 39 binaries, 14 of them
+**Last updated: 2026-10-23 — 1395 test functions across 39 binaries, 14 of them
 `#[ignore]`d, plus 2 doctests. 429 are red-team tests.**
 
-**1275 of the 1391 tests have an entry of their own on this page** — an *entry*,
+**1279 of the 1395 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,9 +158,9 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 21 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 222 |
+| `itsanas-store` unit | 224 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
-| `itsanas-store` integration (`tests/store.rs`) | 47 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 48 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 228 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 153 |
+| `itsanas-node` unit | 154 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -462,7 +462,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (184, plus the 38 vault tests below)
+# `itsanas-store` — unit tests (185, plus the 39 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -614,10 +614,11 @@ something nobody looked at, and disagreeing for a reason that is not data.
 | `an_empty_blob_is_storable_and_distinguishable_from_a_missing_one` | Zero-length content is not confused with absence. |
 | `total_bytes_counts_stored_bytes` | Size accounting is correct. |
 
-## `index` — transactional metadata (12)
+## `index` — transactional metadata, and an idle round that commits nothing (13)
 
 | Test | What it proves |
 | --- | --- |
+| `an_idle_round_of_contacts_commits_nothing_and_the_stamp_still_moves` | ROADMAP "An idle node's disk writes": forgetting a loss never recorded, admitting a member already admitted, and a contact inside `SEEN_STEP` (15 min) with nothing new leave the index file's bytes unchanged -- each was a commit a round, about 24 KB on redb. The stamp still moves once the step has passed, a clock set back is written, and a recorded loss is still forgotten. Sabotaged (each of the four read-before-writes removed): red. |
 | **`red_team_an_open_racing_a_lock_probe_still_opens`** | `Index::is_locked` (what `status` and the tray ask) probes by opening, which takes the exclusive lock for an instant; a daemon starting in that instant failed with `Locked` and stayed down. `Index::open` now waits out a lock for up to `LOCK_PATIENCE` (2 s). A thread probing every 5 ms while 100 opens run: none fails; a lock held for good is still `Locked`. A probe spinning with no pause starved every open on Linux CI (a load no caller makes; the tray polls every few seconds). Sabotaged (patience 0): red, 78 of 100 opens gave up. |
 | **`two_files_sharing_a_chunk_both_hold_it`** | Deleting one of two files that share a chunk does not take the other's data with it. |
 | **`a_file_that_repeats_a_chunk_counts_each_occurrence`** | A file of ten identical blocks references one chunk ten times. Getting this wrong frees live data on the first delete. |
@@ -724,12 +725,13 @@ holds a copy of.
 
 ---
 
-# `itsanas-store` — integration tests (47)
+# `itsanas-store` — integration tests (48)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
 | Test | What it proves |
 | --- | --- |
+| `a_loss_sweep_over_a_healthy_disk_writes_nothing` | `missing_locally`, run every round, over a store whose blobs are all there: the index file is unchanged. It committed once per chunk it looked at (four of an idle round's eleven commits); now it settles in one transaction, or none. Sabotaged (`settle_losses` always writing): red. |
 | **`alices_entire_corpus_round_trips_byte_identical`** | M2 exit criterion. Every fixture file survives chunking, sealing, storage and reassembly unchanged. |
 | **`no_users_plaintext_ever_touches_the_disk`** | M2 exit criterion, and the single most important property in the project. Both canaries are scanned against both stores — a user's own store must not leak their plaintext either, because that laptop can be stolen. Includes a vacuity check proving the canary really is in the plaintext, so the scan cannot pass by scanning nothing. |
 | **`an_insertion_at_the_start_of_a_large_file_reuses_almost_every_chunk`** | M2 exit criterion, end to end through the real store. |
@@ -835,7 +837,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (38 of the store's unit tests)
+# `itsanas-store` — the vault (39 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -843,6 +845,7 @@ about reading.
 
 | Test | What it proves |
 | --- | --- |
+| `a_disk_check_that_finds_nothing_to_do_writes_nothing` | `check_disk` runs every round; on a small vault a pass ends where it began, and nothing removed with the cursor unchanged is an aborted write, not a commit (`commit_if`). Sabotaged (always commit): red. |
 | **`red_team_the_claims_presented_last_are_handed_out_past_sixteen_devices`** | A host keeps the claim of every device that ever presented one, withdrawn or not, and answered `Request::Claims` with the first `MAX_CLAIMS_PER_ANSWER` (16) by device id: past sixteen devices ever (ten live since #303, plus a few replaced), live ones whose ids sorted last were missing from every answer, and a sibling learning the roster from that host never admitted them. Found 2026-10-23 building the fleet's CI member, which would have added a device a night. `CLAIM_SEEN` in vault.rs numbers each presentation and the answer is the sixteen presented last, so withdrawn devices, which stop presenting, fall out; no protocol change, older clients still get at most sixteen. A device presenting again comes back; another account's claims never count. Sabotaged (no ordering; presentations not recorded): red both. |
 | **`red_team_a_vault_whose_disk_went_writes_nothing_on_the_bare_mount_point`** | Unix only, as above. With `vault.redb` gone from its root (the disk unplugged under an open vault), storing refuses and no directory is created on the bare mount point. |
 | **`red_team_forgetting_a_deleted_owner_frees_its_bytes_and_nobody_elses`** | `Vault::forget_owner`, run when an account's coordinator hands over its signed deletion: the owner's chunks, chains and blob directory go, the running total the pledge reads stays equal to what is left, another owner's bytes are untouched, and the owner leaves `owners()`. Sabotaged (chain bytes kept): red. |
@@ -1612,7 +1615,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (170)
+# `itsanas-node` — a node on disk (171)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1789,7 +1792,7 @@ to the peer, each turns the matching test red.
 | **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
 | `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
 
-## `pledges` — what the other nodes on this disk promised (4)
+## `pledges` — what the other nodes on this disk promised (5)
 
 `src/pledges.rs`. Two accounts on the Freebox VM each pledged 30 GB on a disk
 that could not hold 60 (ROADMAP, "Pledges are not reserved"). Each red-team
@@ -1798,6 +1801,7 @@ not read, the pledge kept whatever the free space.
 
 | Test | What it proves |
 | --- | --- |
+| `the_same_promise_is_written_once_a_step_and_a_new_one_at_once` | The daemon published its promise several times a round, each a file rewritten for nothing: the same promise inside `PUBLISH_STEP` (an hour, against a seven-day staleness) is not written, a changed one is at once, an unchanged one again after the step, and a lost shared entry is written back. Sabotaged (always write): red. |
 | **`red_team_a_sibling_promise_on_the_same_disk_is_counted`** | A second home on the same disk sees the first one's pledge, so `itsanas pledge` refuses to promise the same free space twice. |
 | **`red_team_a_shared_entry_from_another_container_is_counted_and_a_stale_one_named`** | A Docker client sees a neighbour container's promise through `ITSANAS_PLEDGES_DIR`; an entry not updated for seven days is not counted and is named, so a removed container neither holds the disk for ever nor vanishes unsaid. |
 | **`red_team_a_disk_that_filled_up_stops_taking_chunks_before_the_last_byte`** | When the disk can no longer hold the pledge, the host takes no more chunks than free space minus a 256 MiB reserve, and `status` says CANNOT KEEP. |

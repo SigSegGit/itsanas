@@ -32,6 +32,16 @@ pub use placement::{CensusRow, ShortPage, TRIGGER_LIMIT};
 use placement::{DEVICE_NETWORK, DEVICE_PASSED, DEVICE_UPTIME, RELEASED, SHORT_SINCE};
 
 /// Path → postcard-encoded [`FileEntry`].
+/// How fresh a contact stamp (`DEVICE_SEEN`) must be for a contact that
+/// changes nothing else to leave it alone.
+///
+/// Every reader of the stamp asks in days ([`holders::CONFIRMED_FOR`], the
+/// release window, `LIVE_FOR`) and the uptime ring in hours, so a stamp up
+/// to fifteen minutes old answers all of them as a fresh one would. What it
+/// saves is a commit per peer per round -- about twenty kilobytes each on a
+/// copy-on-write engine (ROADMAP, "An idle node's disk writes").
+pub const SEEN_STEP: u64 = 15 * 60;
+
 const FILES: TableDefinition<'_, &str, &[u8]> = TableDefinition::new("files");
 /// Chunk address → how many file slots reference it.
 const CHUNK_REFS: TableDefinition<'_, &[u8], u64> = TableDefinition::new("chunk_refs");
@@ -1006,6 +1016,16 @@ impl Index {
 
     /// Forget a loss, because the chunk is back or was never really gone.
     pub fn clear_loss(&self, chunk: &ChunkId) -> Result<()> {
+        // Almost always nothing to forget; a read costs no commit.
+        if self
+            .db
+            .begin_read()?
+            .open_table(LOSSES)?
+            .get(chunk.as_bytes().as_slice())?
+            .is_none()
+        {
+            return Ok(());
+        }
         let txn = self.db.begin_write()?;
         {
             txn.open_table(LOSSES)?
@@ -1766,6 +1786,16 @@ impl Index {
         Ok(seen.get(device.as_bytes().as_slice())?.map(|v| v.value()))
     }
 
+    /// Whether `device`'s contact row was stamped less than [`SEEN_STEP`]
+    /// ago, and not in this node's future (a clock set back is rewritten).
+    pub(crate) fn seen_within_step(&self, device: &DeviceId, now: u64) -> Result<bool> {
+        let txn = self.db.begin_read()?;
+        let seen = txn.open_table(DEVICE_SEEN)?;
+        Ok(seen
+            .get(device.as_bytes().as_slice())?
+            .is_some_and(|row| row.value() <= now && now - row.value() < SEEN_STEP))
+    }
+
     pub fn note_audit(&self, device: &DeviceId, passed: bool, now: u64) -> Result<Reliability> {
         let mut record = self.reliability(device)?;
         let was_paused = record.paused;
@@ -1910,8 +1940,13 @@ impl Index {
     }
 
     fn record_due(&self, due: &[ChunkId], device: &DeviceId, now: u64) -> Result<()> {
-        // Contact is always recorded: it is one row, and it is what every
-        // liveness question in this crate reads.
+        // Contact is always recorded -- it is what every liveness question
+        // in this crate reads -- but to [`SEEN_STEP`], not to the second: one
+        // row rewritten every round was one commit every round, and the
+        // readers ask in days.
+        if due.is_empty() && self.seen_within_step(device, now)? {
+            return Ok(());
+        }
         let txn = self.db.begin_write()?;
         {
             txn.open_table(DEVICE_SEEN)?
@@ -2058,6 +2093,17 @@ impl Index {
     ///
     /// If the index cannot be written.
     pub fn admit_member(&self, device: &DeviceId, revoked: bool) -> Result<()> {
+        // Every round admits the same members again: a row that already says
+        // what this would write is not written (no commit).
+        let current = self
+            .db
+            .begin_read()?
+            .open_table(ROSTER)?
+            .get(device.as_bytes().as_slice())?
+            .map(|row| row.value());
+        if current == Some(0) || current == Some(u8::from(!revoked)) {
+            return Ok(());
+        }
         let txn = self.db.begin_write()?;
         {
             let mut roster = txn.open_table(ROSTER)?;
@@ -3126,6 +3172,70 @@ mod tests {
             "{agreeing} of {} shared positions agree between two audit keys, so \
              the order barely depends on the key",
             left.len()
+        );
+    }
+
+    /// The bytes of the index file: a call that commits rewrites at least
+    /// the header, so equal bytes mean no commit.
+    fn file_of(dir: &tempfile::TempDir) -> Vec<u8> {
+        std::fs::read(dir.path().join("index.redb")).expect("read")
+    }
+
+    /// An idle round's contacts write nothing (ROADMAP, "An idle node's disk
+    /// writes"): forgetting a loss that was never recorded, admitting a
+    /// member already admitted, and hearing from a peer again within
+    /// `SEEN_STEP` with nothing new for it. Each of these used to be a commit
+    /// a round, some twenty kilobytes each on a copy-on-write engine -- on an
+    /// SD card, the wear this project has already destroyed one of. And the
+    /// stamp still moves once the step has passed, or liveness would freeze.
+    /// Sabotaged (each read-before-write removed in turn): red.
+    #[test]
+    fn an_idle_round_of_contacts_commits_nothing_and_the_stamp_still_moves() {
+        let (dir, index) = index();
+        let peer = device(7);
+        index.record_holders(&[chunk(1)], &peer, 1000).unwrap();
+        index.admit_member(&peer, false).unwrap();
+        index.note_seen(&peer, 1000).unwrap();
+        let before = file_of(&dir);
+
+        index.clear_loss(&chunk(1)).unwrap();
+        assert!(
+            file_of(&dir) == before,
+            "forgetting a loss nobody recorded committed"
+        );
+        index.admit_member(&peer, false).unwrap();
+        assert!(
+            file_of(&dir) == before,
+            "admitting a member already admitted committed"
+        );
+        index
+            .record_holders(&[chunk(1)], &peer, 1000 + SEEN_STEP - 1)
+            .unwrap();
+        index.note_seen(&peer, 1000 + SEEN_STEP - 1).unwrap();
+        assert!(
+            file_of(&dir) == before,
+            "a contact inside SEEN_STEP with nothing new committed: one commit per peer per round"
+        );
+        assert_eq!(index.last_seen(&peer).unwrap(), Some(1000));
+
+        index
+            .record_holders(&[chunk(1)], &peer, 1000 + SEEN_STEP)
+            .unwrap();
+        assert_eq!(
+            index.last_seen(&peer).unwrap(),
+            Some(1000 + SEEN_STEP),
+            "the contact stamp no longer moves: a live peer would age into a dead one"
+        );
+        // A clock set back is written, not taken for fresh.
+        index.record_holders(&[chunk(1)], &peer, 500).unwrap();
+        assert_eq!(index.last_seen(&peer).unwrap(), Some(500));
+        // And a real change still lands inside the step.
+        index.note_loss(&chunk(1), 2000).unwrap();
+        index.clear_loss(&chunk(1)).unwrap();
+        assert_eq!(
+            index.known_losses_from(&chunk(0), 10).unwrap(),
+            Vec::<ChunkId>::new(),
+            "a recorded loss was not forgotten"
         );
     }
 

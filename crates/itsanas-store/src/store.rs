@@ -946,19 +946,20 @@ impl Store {
     /// because the thing it detects is a disk quietly losing a file, and a disk
     /// quietly losing a file is not an emergency until you need the file.
     pub fn missing_locally(&self, cursor: &ChunkId, scan: usize) -> Result<Vec<ChunkId>> {
-        let mut found = Vec::new();
-        for address in self.index.live_chunks_from(cursor, scan)? {
-            if self.blobs.contains(&address) {
-                // It may have been recorded as lost and then restored by a
-                // filesystem repair or a backup underneath us. Clearing here
-                // costs one lookup and stops repair asking peers for ever
-                // about something that came back on its own.
-                self.index.clear_loss(&address)?;
-            } else {
-                self.index.note_loss(&address, now_unix())?;
-                found.push(address);
-            }
-        }
+        // What is here may have been recorded as lost and then restored by a
+        // filesystem repair or a backup underneath us; clearing it stops
+        // repair asking peers for ever about something that came back on its
+        // own. Settled in one transaction, and in none when nothing changed:
+        // this runs every round, and it used to commit once per chunk it
+        // looked at -- four of the eleven commits of an idle round, each
+        // some twenty kilobytes on a copy-on-write engine (ROADMAP, "An idle
+        // node's disk writes").
+        let (present, found): (Vec<ChunkId>, Vec<ChunkId>) = self
+            .index
+            .live_chunks_from(cursor, scan)?
+            .into_iter()
+            .partition(|address| self.blobs.contains(address));
+        self.index.settle_losses(&present, &found, now_unix())?;
         Ok(found)
     }
 

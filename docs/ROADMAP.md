@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1391 test functions, 14 of them `#[ignore]`d into the slow job, and 429 of
+**1395 test functions, 14 of them `#[ignore]`d into the slow job, and 429 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -2177,6 +2177,32 @@ probe, one for the reliability record, and `refresh_released` and
 `take_on_hosting` open their own. One transaction per round is the end state and
 is a real refactor of the index API; 129 MB/day is where this sits until then,
 against 313 when it was found.
+
+**2026-10-23: the commits of a round that changes nothing, removed.** Counted
+first, on a bench anyone can rerun (`scripts/idle-writes.sh`: a coordinator
+and two accounts hosting each other on one machine, idle): **eleven commits
+an idle round**, four of them `clear_loss` from the local-loss sweep, which
+committed once per chunk it looked at whether or not a loss was recorded,
+and the rest rows rewritten with what they already held -- a member
+admitted again, the contact stamp moved by seconds, a disk-check cursor
+put back where it was, the pledge file rewritten seven times a round with a
+new `updated`. Now each reads before it writes: the sweep settles in one
+transaction or none, `clear_loss` and `admit_member` leave a row that
+already says it, the contact stamp moves in steps of `SEEN_STEP` (15
+minutes, against readers that ask in days, and the hourly uptime ring
+untouched within its hour), `check_disk` aborts a pass that changed
+nothing, and `pledges::publish` rewrites an unchanged promise once an hour
+(`PUBLISH_STEP`, against a seven-day staleness). **218 KB a round on the
+bench before, about 100 after**, two commits left: the audit's reliability
+record, which does change, and the claim a host keeps, re-signed by its
+device every round (`issued_unix`), which is not skipped because a sibling
+judges a claim's freshness by that stamp. Also measured, and a dead end:
+`Durability::None` costs the same bytes as a durable commit on redb 2
+(`crates/itsanas-store/examples/commit_cost.rs`: 24 KB per one-row commit
+either way; the same 200 writes cost 4.8 MB one per commit, 1.4 MB seven per
+commit, 0.6 MB in one). Not yet measured on the fleet, whose rounds touch
+more peers; what is left there is the same shape, and the end state is
+still one transaction per round.
 
 ### The have/missing sweep was O(account) per round, per peer — reconciled now
 
