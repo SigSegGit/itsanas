@@ -690,6 +690,9 @@ fn restart_every_node(version: &str) {
         // instance suffix.
         let instance = (name != "(unnamed)").then_some(name.as_str());
         let service = crate::setup::service::Platform::of_this_machine(&home, instance);
+        if let Some(said) = service.refresh_windows_wrapper() {
+            println!("{name}: {said}");
+        }
         let said = restart_line(
             &name,
             &home,
@@ -713,9 +716,9 @@ fn restart_every_node(version: &str) {
 /// a few failures (a start racing a daemon still holding the store, after
 /// that node was stopped by hand and started again) waited longer than the
 /// minute `restart_and_wait` watches. The wrapper now restarts on 75 at
-/// once; a wrapper written by an older `setup` is not rewritten by an
-/// update, so this is still needed, as it is for any service manager that
-/// gave up. `came_back` waits for the store to be held again.
+/// once; a wrapper written by an older `setup` is rewritten by the update
+/// (`refresh_windows_wrapper`) but runs only from the next logon, so this is
+/// still needed, as it is for any service manager that gave up. `came_back` waits for the store to be held again.
 pub(crate) fn restart_line(
     label: &str,
     home: &Path,

@@ -469,7 +469,7 @@ enum Command {
     /// refuses to finish; it says how many owners were left one replica short,
     /// never who. Afterwards `daemon` exits at once, and `serve`, `sync` and `register`
     /// refuse, until `itsanas rejoin`. The device keeps its claim, and so its
-    /// slot among the account's 5: `itsanas device forget <id>`, run from
+    /// slot among the account's devices: `itsanas device forget <id>`, run from
     /// another device, frees it.
     Leave {
         /// Minutes to wait for the owners to re-place what rests on this
@@ -3845,7 +3845,7 @@ fn leave(home: &Path, drain_for: u64) -> Result<()> {
     println!("the daemon will not start here again until `itsanas rejoin`");
     if node.config.coordinator.is_some() {
         // Leaving is not withdrawing: the claim stays live, so this device
-        // still takes one of the account's 5 slots. Said here, because the
+        // still takes one of the account's slots. Said here, because the
         // next person to hit the limit will not think of this machine.
         println!(
             "this device still holds one of the account's {} device slots; to free it, run \

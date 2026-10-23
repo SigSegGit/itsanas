@@ -39,13 +39,32 @@ and says "this system only" without a release. Also fixed in #305, later
 than this paragraph first said: Settings in French on one readable column,
 and the Windows wrapper's NativeCommandError noise
 (`red_team_the_windows_wrapper_logs_plain_utf8_and_restarts_a_requested_restart_at_once`).
-Fixed 2026-10-23 (below): the TLS identity mismatch at the home public
-address, port 9799. Still open: store writes at 11-17 MiB/s and a 32 MiB
+The TLS identity mismatch: see the two 2026-10-23 paragraphs below; the
+log showed a different cause than the first one assumed. Still open: store writes at 11-17 MiB/s and a 32 MiB
 save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 2.2x on Windows and are not the default (ROADMAP, "Decision: pack files, and
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-23, later: the laptop dialled itself for the USB key; update
+refreshes the Windows wrappers.** Nicolas's laptop `daemon.log` (account
+`nicolas`, port 9797, device `36f669...`) settles the mismatch: 376 times, one
+per round over four runs, `192.168.1.142:9797: unreachable (tls: expected to
+reach device 14dd30325b23 but 36f669090138 answered)` -- the key copied from
+the laptop had enrolled at the laptop's own address (the enrolment bug #305
+fixed), and the laptop dialled itself for it. Gone in the last two runs.
+UPnP was not involved: when the router opened 9797, the probe said "it is
+this device". So #306 (next paragraph) is a sound defence the log does not
+call for. Now `Contact::dialable` never returns an address that is this
+node (`is_this_listener`: this machine's addresses at this node's port, or
+what it publishes), whatever device the book names there; another account
+on the same machine, at another port, is still dialled. And `update`
+rewrites each node's `run-daemon*.ps1` when it differs (only `setup` wrote
+it, so the log's last run still had `NativeCommandError` blocks after
+0.1.12); the new text runs from the next logon. The "port 9799" of the
+hand-test notes was not in this log: if it was seen, it is in another
+account's `daemon-NAME.log`, not read yet.
 
 **2026-10-23: a router port that reaches another machine is withdrawn.**
 The hand test's "TLS identity mismatch at port 9799": the Freebox forwards

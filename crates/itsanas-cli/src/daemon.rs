@@ -1601,7 +1601,15 @@ fn one_round(
     // The account's devices at the addresses the coordinator last gave, the
     // one that last worked first. Pinned: the coordinator supplies addresses
     // and is not trusted to say who lives at one.
-    dial_listed(node, shutdown, neighbourhood, contact, &mut reached, scope);
+    dial_listed(
+        node,
+        shutdown,
+        neighbourhood,
+        contact,
+        &mut reached,
+        scope,
+        bound,
+    );
 
     // What the account's own machines just sent is written now, not after the
     // other accounts' hosts below, where the slow and older builds are (a
@@ -1825,11 +1833,19 @@ fn dial_listed(
     contact: &mut Contact,
     reached: &mut BTreeSet<DeviceId>,
     scope: PolicyScope,
+    bound: std::net::SocketAddr,
 ) {
+    // Never this node itself, whatever device the book names there.
+    let is_me = this_listener(
+        node.config.announce.clone(),
+        coordinator::found_address(),
+        bound,
+        itsanas_discover::LocalNets::of_this_machine(),
+    );
     // A private address only of a machine heard on this LAN, or one that
     // answered, or at a probe round: two houses on 192.168.1.x are not one
     // network, and another VLAN or a VPN may be (`Contact::dialable`).
-    for (device, address) in contact.dialable(|device| neighbourhood.heard_here(device)) {
+    for (device, address) in contact.dialable(|device| neighbourhood.heard_here(device), is_me) {
         if halted(node, shutdown) || reached.contains(&device) {
             continue;
         }
@@ -1875,6 +1891,24 @@ fn dial_listed(
         if outcome.earned_trust {
             neighbourhood.confirm(outcome.device);
         }
+    }
+}
+
+/// Whether an address is this node, for [`dial_listed`]: this machine's
+/// addresses at the port the daemon is **bound** to -- not the configured
+/// `listen`, which a daemon started with `--listen` does not use (the same
+/// mistake the enrolment made, 2026-10-23) -- or what it publishes, written
+/// (`announce`) or opened by the router (`found`).
+fn this_listener(
+    announce: Option<String>,
+    found: Option<String>,
+    bound: std::net::SocketAddr,
+    here: itsanas_discover::LocalNets,
+) -> impl Fn(&str) -> bool {
+    let published: Vec<String> = announce.into_iter().chain(found).collect();
+    move |address: &str| {
+        let published: Vec<&str> = published.iter().map(String::as_str).collect();
+        itsanas_node::contact::is_this_listener(address, bound.port(), &here, &published)
     }
 }
 
@@ -2429,6 +2463,38 @@ fn install_signal_handler() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The daemon's side of `red_team_an_address_that_is_this_node_is_never_dialled_for_another_device`
+    /// (contact.rs): the port that makes an address this node is the one the
+    /// daemon is bound to, and both published addresses count. A node
+    /// configured for 9797 and started on 9811 is at 9811; 9797 on the same
+    /// machine is the next account.
+    #[test]
+    fn the_daemon_takes_itself_at_its_bound_port_and_its_published_addresses() {
+        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+        let laptop = itsanas_discover::LocalNets::from_interfaces([(
+            "Wi-Fi".to_owned(),
+            ip("192.168.1.142"),
+            ip("255.255.255.0"),
+        )]);
+        let is_me = this_listener(
+            Some("ngas.fr:9811".to_owned()),
+            Some("86.238.26.80:9811".to_owned()),
+            "0.0.0.0:9811".parse().expect("bound"),
+            laptop,
+        );
+        for itself in ["192.168.1.142:9811", "ngas.fr:9811", "86.238.26.80:9811"] {
+            assert!(
+                is_me(itself),
+                "{itself} is this daemon and would be dialled for another device"
+            );
+        }
+        assert!(
+            !is_me("192.168.1.142:9797"),
+            "the configured port was taken for the bound one: the next account on this \
+             machine would never be dialled"
+        );
+    }
 
     /// Red team, hand test 2026-10-22. The laptop's third account listens on
     /// 9799, the router said yes to opening 9799 for it, and a hand-made

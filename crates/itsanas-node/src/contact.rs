@@ -787,14 +787,22 @@ impl Contact {
     /// A machine left with no address to dial is missed like any other
     /// ([`Self::round_reached`]): the coordinator is asked again, at the
     /// backed-off rate, in case it moved somewhere this machine can reach.
+    ///
+    /// Never an address `is_me` says is this node ([`is_this_listener`]):
+    /// whatever device the book names there, this node is what answers. Hand
+    /// test 2026-10-22: a USB key copied from the laptop had enrolled at the
+    /// laptop's own `192.168.1.142:9797`, and the laptop's node dialled
+    /// itself for the key at every round, 376 times in one log.
     #[must_use]
     pub fn dialable(
         &self,
         heard_here: impl Fn(&DeviceId) -> Option<bool>,
+        is_me: impl Fn(&str) -> bool,
     ) -> Vec<(DeviceId, String)> {
         let probe = self.rounds.is_multiple_of(PRIVATE_PROBE_EVERY);
         self.ordered()
             .into_iter()
+            .filter(|(_, candidate)| !is_me(&candidate.address))
             .filter(|(device, candidate)| {
                 probe
                     || candidate.proven
@@ -1083,6 +1091,33 @@ impl itsanas_net::Relay for SharedBoard {
 /// Whether every entry of `address` (one address, or an `AddressList`) is an
 /// IPv4 address of a private network, RFC 1918. A name, a public or an IPv6
 /// address, a `relay:` -- anything else -- is not.
+/// Whether `address` reaches this node: the address it publishes itself
+/// (`published`, compared as written), or a list whose every entry is one of
+/// this machine's addresses (`here`) at this node's own `port`. The same
+/// machine at another port is another node -- a second account on the same
+/// laptop -- and is dialled. A name is never this node by this test: it would
+/// take a resolution, and a stale name costs what any unreachable one does.
+#[must_use]
+pub fn is_this_listener(
+    address: &str,
+    port: u16,
+    here: &itsanas_discover::LocalNets,
+    published: &[&str],
+) -> bool {
+    if published.contains(&address) {
+        return true;
+    }
+    let entries: Vec<std::net::SocketAddr> = address
+        .split(',')
+        .map(|entry| entry.trim().parse())
+        .collect::<std::result::Result<_, _>>()
+        .unwrap_or_default();
+    !entries.is_empty()
+        && entries
+            .iter()
+            .all(|entry| entry.port() == port && here.holds(entry.ip()))
+}
+
 fn only_rfc1918(address: &str) -> bool {
     let entries: Vec<std::net::SocketAddr> = address
         .split(',')
@@ -1566,6 +1601,74 @@ mod tests {
     /// one in [`PRIVATE_PROBE_EVERY`]; a public address, a list with one, a
     /// name and a relay always are; and a node whose discovery is off, or
     /// warming up, dials as it always did.
+    /// Hand test 2026-10-22, the laptop's `daemon.log`: 376 times, one per
+    /// round over four runs, `192.168.1.142:9797: unreachable (tls: expected
+    /// to reach device 14dd30325b23 but 36f669090138 answered)`. The USB key
+    /// copied from the laptop had enrolled at the laptop's own address, and
+    /// the laptop's node, listening there, dialled itself for the key. An
+    /// address that is this node -- one of this machine's addresses at this
+    /// node's own port, or what it publishes -- is never dialled, whatever
+    /// device the book names. The same machine at another port is the next
+    /// account on the laptop, and is.
+    #[test]
+    fn red_team_an_address_that_is_this_node_is_never_dialled_for_another_device() {
+        let (key, second_account, pi) = (device(7), device(8), device(9));
+        let mut contact = Contact::new();
+        contact.read(
+            &[
+                (key, "192.168.1.142:9797".to_owned()),
+                (key, "127.0.0.1:9797".to_owned()),
+                (key, "86.238.26.80:9797".to_owned()),
+                (key, "192.168.1.142:9797,[::1]:9797".to_owned()),
+                (second_account, "192.168.1.142:9798".to_owned()),
+                (pi, "192.168.1.11:9797".to_owned()),
+                (pi, "192.168.1.11:9797,192.168.1.142:9797".to_owned()),
+            ],
+            &[],
+            &[],
+            Instant::now(),
+        );
+        let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+        let laptop = itsanas_discover::LocalNets::from_interfaces([(
+            "Wi-Fi".to_owned(),
+            ip("192.168.1.142"),
+            ip("255.255.255.0"),
+        )]);
+        let published = ["86.238.26.80:9797"];
+        let dialled: Vec<String> = contact
+            .dialable(
+                |_| Some(true),
+                |address| is_this_listener(address, 9797, &laptop, &published),
+            )
+            .into_iter()
+            .map(|(_, address)| address)
+            .collect();
+
+        for itself in [
+            "192.168.1.142:9797",
+            "127.0.0.1:9797",
+            "86.238.26.80:9797",
+            "192.168.1.142:9797,[::1]:9797",
+        ] {
+            assert!(
+                !dialled.iter().any(|address| address == itself),
+                "{itself} is this node, and it was dialled for another device: the node \
+                 dials itself at every round and is refused by its own pinning"
+            );
+        }
+        for other in [
+            "192.168.1.142:9798",
+            "192.168.1.11:9797",
+            "192.168.1.11:9797,192.168.1.142:9797",
+        ] {
+            assert!(
+                dialled.iter().any(|address| address == other),
+                "{other} is another node (another account on this machine, or a list with \
+                 another machine in it) and was not dialled: {dialled:?}"
+            );
+        }
+    }
+
     #[test]
     fn red_team_a_private_address_of_another_house_is_not_dialled() {
         let (mac, pi) = (device(5), device(6));
@@ -1592,7 +1695,7 @@ mod tests {
         ];
         let addresses = |contact: &Contact, heard: Option<bool>| -> Vec<String> {
             contact
-                .dialable(|_| heard)
+                .dialable(|_| heard, |_| false)
                 .into_iter()
                 .map(|(_, address)| address)
                 .collect()
@@ -1664,7 +1767,7 @@ mod tests {
         contact.round_reached(&BTreeSet::new(), start);
         let dialled = |contact: &Contact, heard: Option<bool>| {
             contact
-                .dialable(|_| heard)
+                .dialable(|_| heard, |_| false)
                 .iter()
                 .any(|(device, at)| *device == nas && at == address)
         };
