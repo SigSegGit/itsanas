@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: the first run (2026-10-23) was red only because the runner knew no host key for the Pi and the VM, most likely a FLEET_KNOWN_HOSTS written UTF-16 by PowerShell 5.1 (issue #312); Nicolas resets it with ssh-keyscan piped to gh secret set, then a session reads the run and fixes what it finds
-WRITTEN-AT: 2026-10-23
-BASE: c4ec6a2
+TITLE: The fleet tested by CI: green since run 40006387602 (runner and VM; B, F, S pass); the Pi is skipped until Nicolas resets its line of FLEET_KNOWN_HOSTS (docs/FLEET-CI.md, "FLEET_KNOWN_HOSTS from Windows PowerShell"); a session reads each run's SKIP lines and fixes what they find
+WRITTEN-AT: 2026-10-24
+BASE: 1ccfb42
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -243,7 +243,7 @@ it); a host's own claim, returned when presenting, admits it when it is a
 sibling; a sibling presenting to a node that never dials is admitted on the
 spot. Found by the release-only daemon tests: without that last rule a node
 that is only pushed to applied nothing. Seven tests, six red-team, each
-sabotaged red. Not built: the read scoping (§10 7), an end-to-end socket test
+sabotaged red. The read scoping (§10 7) followed in #294, entry above. Not built: an end-to-end socket test
 of a VM learning a laptop through a Pi; and a withdrawn device on a network
 with no coordinator still reads with its old claim (§9).
 
@@ -1084,7 +1084,7 @@ Each of these has a test that fails if it is:
 | Concurrent edits keep both, winner chosen by a deterministic total order | A rule two devices could disagree about makes them overwrite each other forever | `the_winner_is_the_same_whichever_side_asks` |
 | A concurrent delete loses to an edit | An unexpected file costs a second; a lost edit is unrecoverable | `a_delete_racing_an_edit_never_destroys_the_edit` |
 | The network never deletes data as a punishment | Total economic failure returns a member to a local backup, nothing worse | `only_default_permits_reclaiming_...` |
-| Availability anyone else reports never reaches placement; what this device measured does. Decided by Nicolas, 2026-10-14 (it replaced "availability affects entitlement, never placement") | The decision that risks data must not depend on a number an untrusted party produced; what this node saw of a host over its own sessions, on its own clock, is not that. The coordinator's `AvailabilityRecord` is never read | ECONOMICS.md §3; `hours_this_node_did_not_try_are_not_counted_against_a_device`; `unknown_availability_counts_as_unreachable`; `no_floating_point_is_involved` with `the_float_guard_lists_every_module_of_the_crate`. ⬜ No test yet greps the roster builder for a coordinator type |
+| Availability anyone else reports never reaches placement; what this device measured does. Decided by Nicolas, 2026-10-14 (it replaced "availability affects entitlement, never placement") | The decision that risks data must not depend on a number an untrusted party produced; what this node saw of a host over its own sessions, on its own clock, is not that. The coordinator's `AvailabilityRecord` is never read | ECONOMICS.md §3; `hours_this_node_did_not_try_are_not_counted_against_a_device`; `unknown_availability_counts_as_unreachable`; `no_floating_point_is_involved` with `the_float_guard_lists_every_module_of_the_crate`; and `red_team_no_coordinator_crate_can_reach_the_roster_builder` (2026-10-19), which fails if a coordinator crate becomes a dependency of the roster builder |
 | Placement only adds copies | The one way placement could lose data is by taking a copy away, so there is exactly one removal path (next two rows) and a satisfied chunk asks for nothing | `a_satisfied_chunk_wants_nobody`; `repair_never_plans_a_deletion` |
 | A `MayEvict` mark never deletes; it is honoured only for the same account, and an owner marks at most 4096 chunks a day | A mark is permission, used only when that account's own next store hits `ACCOUNT_FULL`; a stranger or another account must not be able to empty a host, and a clock set back must not buy a fresh day | `red_team_eviction_deletes_nothing_when_the_marks_cannot_cover_the_need`; `red_team_permission_to_evict_is_refused_from_another_account_a_stranger_and_with_no_bound`; `red_team_eviction_never_takes_another_owners_chunks`; `red_team_an_owner_marks_at_most_a_days_cap_even_with_its_clock_set_back`; `red_team_a_peer_speaking_protocol_9_is_never_asked_to_evict` |
 | A release (the owner letting a host go) needs an audit passed within `LIVE_FOR`, a margin of one account and a quarter of the miss goal beyond the target, and a margin that already counts the account's own devices | Releasing on a stale record, or letting two own devices each release "the" spare copy, ends below the target. The owner stops counting the copy at once, conservatively, and releases a (chunk, host) once per `CONFIRMED_FOR` | `red_team_release_needs_an_audit_passed_within_live_for`; `release_picks_the_lowest_ranked_holder_and_only_with_margin`; `red_team_concurrent_own_devices_never_release_below_the_goal`; `red_team_release_needs_a_local_copy_and_margin_and_happens_once_per_confirmed_window` |
@@ -1489,7 +1489,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `red_team_what_the_account_holds_elsewhere_counts_against_it`,
       `red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns`.
       **Remaining, 🟨:** the native quotas below, which are research and
-      presentation; and 1b's disk check. The original text follows. Start
+      presentation. (1b's disk check, listed here until 2026-10-24, was built
+      2026-09-30: #198 for pushes, #202 for pulls.) The original text follows. Start
       from `Store::write_stream` (`crates/itsanas-store/src/store.rs`) and 8.1b
       below, which names the check; the in-process refusal is the deliverable,
       native quotas are research only. Red-team test expected: a write that
@@ -2170,7 +2171,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
            key is written.
          - 🟨 (4) **The coordinator is built in**: default `itsanas.ngas.fr:9898`
            (TCP; Nicolas points the name at the Freebox and forwards 9898 to
-           the VM), the field moves under "Advanced". Not hidden: the code is
+           the VM), the field moves under "Advanced". Pinned since #250: the coordinator's
+           device id is compiled in beside it and applied only to that address
+           (`red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`).
+           Not hidden: the code is
            public and the address shows in `netstat`; what limits a DDoS is a
            name that can be repointed and peers that keep working without it.
          - 🟨 (9) **The 24 words can be copied and saved to a file**, with a
@@ -2196,12 +2200,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
          node's home, which the service step refuses today
          (`refuse_a_home_the_service_would_not_run`); (4) default
          `itsanas.ngas.fr:9898` (`setup::DEFAULT_COORDINATOR`), field under
-         "Advanced", **not pinned**: pin its device id in the default once
-         the coordinator runs (`install/coordinator.sh` prints it); (9)
+         "Advanced"; it was not pinned here, and is since #250
+         (`DEFAULT_COORDINATOR_DEVICE`, `pinned_for`); (9)
          Copy / Save in the Windows window only; macOS (`osascript`) and
          Linux (`zenity`/`kdialog`) windows only lost the "on paper" text;
-         (5a) `upnp.rs`, IGD only, no NAT-PMP/PCP, the public address read
-         once at start (a new public IP is announced only after a restart),
+         (5a) `upnp.rs`, IGD only here (NAT-PMP, `natpmp.rs`, came with #265; still
+         no PCP), the public address read once at start (a new public IP is announced only after a restart),
          never seen against a real router; (1) `install/windows/itsanas.iss`
          + `release.yml` job `setup-exe`, never built (first run: the v0.1.1
          tag); its uninstaller only signs out. Also built: the coordinator's
@@ -2332,10 +2336,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the one signed presence string (`itsanas_tls::reach::AddressList`,
       at most 4, every dialler and the coordinator's probe, a list private
       if any entry is). Announcing a port opened by the router together with
-      the global IPv6 address is built (`with_global_ipv6`) but off
-      (`ANNOUNCE_LISTS = false`): a peer older than this release cannot dial
-      a list, and `updates = notify` means the fleet does not update itself
-      (Rodin). **Next: turn it on in the release after this one.** Red team
+      the global IPv6 address (`with_global_ipv6`) was off at first, since a
+      peer older than that release could not dial a list; ✅ **on since
+      0.1.7** (#269, `ANNOUNCE_LISTS = true` in `itsanas-node`
+      `coordinator.rs`). This line still said "next: turn it on" until
+      2026-10-24. **Left:** Windows over IPv6 (below), and PCP or hole
+      punching only if the fleet shows the rest falls short. Red team
       on the diff: the probe refused lists, lists sorted as public, NAT-PMP
       overclaimed LAN anti-spoofing, the granted lease ignored, a double-NAT
       mapping left open: all fixed. PCP and hole punching (QUIC) only if the fleet
@@ -2498,8 +2504,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
       in its menu since 2026-10-06 (0w (1))**, and pause keeps hosting -- a
       deliberate change from item 1 of the specification below, said in 0w.
       **Left:** Nicolas sees the icon once and says what it gets wrong; then
-      disconnect and decommission, each behind its confirmation, now planned
-      as 0w (5) and (7). The text below stays the specification for them. Original
+      disconnect and decommission, each behind its confirmation: built as 0w (5)
+      and (7) (the entry "Remove this machine...", #260; never seen on a real
+      desktop). The text below stays the specification for them. Original
       plan, kept for reference: do it in two PRs. First, alone: pick the crates (`tray-icon` + `tao`/`winit`,
       or `windows`-crate `Shell_NotifyIcon` directly) by running `cargo deny
       check` with them added and confirming `scripts/check-unsafe.py` still
@@ -2610,9 +2617,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       phone test needs a fresh build (`scripts/build-apk.sh`). macOS: source
       install only.
 
-1. **Enforce the space split. Asked for by Nicolas on 2026-09-14.** Step (a) is
-   built; (b), (c) and (d) are what is left, and **nothing on
-   the network enforces the split yet**. Verified facts:
+1. **Enforce the space split. Asked for by Nicolas on 2026-09-14.** All four
+   steps (a)-(d) are built, below (hosts bound each owner since 2026-10-04,
+   #220-#224); this header said "(b), (c) and (d) are what is left, and
+   nothing on the network enforces the split yet" until 2026-10-24. The facts
+   below were verified before that and are kept for their reasoning:
 
    - The split is `itsanas-coord::accounting::Split`, and its default is
      **30/70** — keep three parts of every ten a machine commits. It replaced
@@ -2811,10 +2820,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
    a. ✅ **Integrity, by hand: what a hostile peer can make this node believe.**
       Done 2026-09-30 (see §0; ROADMAP "The integrity surface, by hand" has the
-      table). Open from it: the lifted-body re-signing (protocol change, the
-      device id into `SealContext` for new segments or an account device
-      roster), a hostile host stalling a round with any refused segment, and the
-      two `itsanas-redteam` residues. Original text follows.
+      table). Open from it: the two `itsanas-redteam` residues. (The lifted-body
+      re-signing was closed by the account roster, 2f, #293; a hostile host
+      stalling a round with any refused segment by 2c, #211.) Original text follows.
       Chosen 2026-09-30 as `NEXT` because every other open §8 item is
       host-side enforcement (1c, deferred by 0), or waits on Nicolas (0c, 0f's
       menu, 0i, 0k, 3c, 5). Not yet read for this: start from where a pulled
@@ -2832,8 +2840,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
    b. ✅ **Confidentiality, by hand: what a host learns, alone or comparing notes
       with another.** Built 2026-09-30 (see §0; ROADMAP "The confidentiality
-      surface, by hand" has the table). Open from it: reads not scoped to the
-      account (§10 question 7, option 2 would close it). Original text follows.
+      surface, by hand" has the table). Reads not scoped to the account, which
+      this list held open, are answered only to the account's own devices
+      since #294 (protocol 11, `red_team_nobody_but_the_account_reads_what_a_host_holds_for_it`). Original text follows.
       Next because it is the last unexamined §8 2 surface and
       every other open item is host-side (1c) or waits on Nicolas. Not yet read
       for this. Start from the plaintext a host sees: `SegmentEnvelope`
@@ -2857,8 +2866,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       ROADMAP "At most 10 live devices per account"). Decided by Nicolas on
       2026-09-30, verbatim: « Il faut limiter le nombre d'appareils par
       compte. 5 max me semble bien. » Lettered d and placed before c because
-      it was decided after c was written and went first. Open from it: a
-      withdraw in the Android app; a cap on withdrawn rows (5 live, any
+      it was decided after c was written and went first. Open from it: a cap on withdrawn rows (5 live, any
       number withdrawn); the re-sign corner named in ROADMAP.
 
    c. ✅ **A hostile host cannot stall a whole pull with one refused segment.**
@@ -3031,12 +3039,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
       (macOS job) that a second run leaves one line, and that `--clean`
       removes it. Linux (`install/linux.sh`) likely has the same PATH
       warning: look, and fix it the same way if so.
-   f. **The account device roster** (§10 item 7, option 2, decided
-      2026-10-05). Not yet planned in detail: a signed list of at most five
-      device ids per account, checked when a segment is opened, so a host
-      that re-signs a genuine body under its own key is refused. Plan it
-      cold first: where the roster lives (coordinator, beside the claims),
-      how it reaches a reader, what a keystore-replaced device does.
+   f. ✅ **The account device roster** (§10 item 7, option 2, decided
+      2026-10-05). Built 2026-10-19 in #293, both halves (§10 item 7): the
+      roster is the account's `NodeClaim`s kept in the store and fed by
+      sessions, hosts' claims and `Request::Claims`; a chain whose device is
+      not on it waits; reads are answered only to a device whose claim names
+      the account (`Owners::may_read`). This line said "not yet planned"
+      until 2026-10-24, five days after it shipped. Left: an end-to-end
+      socket test of a VM learning a laptop through a Pi, and a withdrawn
+      device on a network with no coordinator (§9).
 4. **Verification at a terabyte.** The criterion: under 100 MB a day to verify
    under a terabyte (DESIGN.md §6.5). Not met yet; three steps.
 
