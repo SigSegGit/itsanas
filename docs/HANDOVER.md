@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: the first run (2026-10-23) was red only because the runner knew no host key for the Pi and the VM, most likely a FLEET_KNOWN_HOSTS written UTF-16 by PowerShell 5.1 (issue #312); Nicolas resets it with ssh-keyscan piped to gh secret set, then a session reads the run and fixes what it finds
-WRITTEN-AT: 2026-10-23
-BASE: c4ec6a2
+TITLE: The fleet tested by CI: green since run 40006387602 (runner and VM; B, F, S pass); the Pi is skipped until Nicolas resets its line of FLEET_KNOWN_HOSTS (docs/FLEET-CI.md, "FLEET_KNOWN_HOSTS from Windows PowerShell"); a session reads each run's SKIP lines and fixes what they find
+WRITTEN-AT: 2026-10-24
+BASE: 1ccfb42
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -1084,7 +1084,7 @@ Each of these has a test that fails if it is:
 | Concurrent edits keep both, winner chosen by a deterministic total order | A rule two devices could disagree about makes them overwrite each other forever | `the_winner_is_the_same_whichever_side_asks` |
 | A concurrent delete loses to an edit | An unexpected file costs a second; a lost edit is unrecoverable | `a_delete_racing_an_edit_never_destroys_the_edit` |
 | The network never deletes data as a punishment | Total economic failure returns a member to a local backup, nothing worse | `only_default_permits_reclaiming_...` |
-| Availability anyone else reports never reaches placement; what this device measured does. Decided by Nicolas, 2026-10-14 (it replaced "availability affects entitlement, never placement") | The decision that risks data must not depend on a number an untrusted party produced; what this node saw of a host over its own sessions, on its own clock, is not that. The coordinator's `AvailabilityRecord` is never read | ECONOMICS.md §3; `hours_this_node_did_not_try_are_not_counted_against_a_device`; `unknown_availability_counts_as_unreachable`; `no_floating_point_is_involved` with `the_float_guard_lists_every_module_of_the_crate`. ⬜ No test yet greps the roster builder for a coordinator type |
+| Availability anyone else reports never reaches placement; what this device measured does. Decided by Nicolas, 2026-10-14 (it replaced "availability affects entitlement, never placement") | The decision that risks data must not depend on a number an untrusted party produced; what this node saw of a host over its own sessions, on its own clock, is not that. The coordinator's `AvailabilityRecord` is never read | ECONOMICS.md §3; `hours_this_node_did_not_try_are_not_counted_against_a_device`; `unknown_availability_counts_as_unreachable`; `no_floating_point_is_involved` with `the_float_guard_lists_every_module_of_the_crate`; and `red_team_no_coordinator_crate_can_reach_the_roster_builder` (2026-10-19), which fails if a coordinator crate becomes a dependency of the roster builder |
 | Placement only adds copies | The one way placement could lose data is by taking a copy away, so there is exactly one removal path (next two rows) and a satisfied chunk asks for nothing | `a_satisfied_chunk_wants_nobody`; `repair_never_plans_a_deletion` |
 | A `MayEvict` mark never deletes; it is honoured only for the same account, and an owner marks at most 4096 chunks a day | A mark is permission, used only when that account's own next store hits `ACCOUNT_FULL`; a stranger or another account must not be able to empty a host, and a clock set back must not buy a fresh day | `red_team_eviction_deletes_nothing_when_the_marks_cannot_cover_the_need`; `red_team_permission_to_evict_is_refused_from_another_account_a_stranger_and_with_no_bound`; `red_team_eviction_never_takes_another_owners_chunks`; `red_team_an_owner_marks_at_most_a_days_cap_even_with_its_clock_set_back`; `red_team_a_peer_speaking_protocol_9_is_never_asked_to_evict` |
 | A release (the owner letting a host go) needs an audit passed within `LIVE_FOR`, a margin of one account and a quarter of the miss goal beyond the target, and a margin that already counts the account's own devices | Releasing on a stale record, or letting two own devices each release "the" spare copy, ends below the target. The owner stops counting the copy at once, conservatively, and releases a (chunk, host) once per `CONFIRMED_FOR` | `red_team_release_needs_an_audit_passed_within_live_for`; `release_picks_the_lowest_ranked_holder_and_only_with_margin`; `red_team_concurrent_own_devices_never_release_below_the_goal`; `red_team_release_needs_a_local_copy_and_margin_and_happens_once_per_confirmed_window` |
@@ -2332,10 +2332,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the one signed presence string (`itsanas_tls::reach::AddressList`,
       at most 4, every dialler and the coordinator's probe, a list private
       if any entry is). Announcing a port opened by the router together with
-      the global IPv6 address is built (`with_global_ipv6`) but off
-      (`ANNOUNCE_LISTS = false`): a peer older than this release cannot dial
-      a list, and `updates = notify` means the fleet does not update itself
-      (Rodin). **Next: turn it on in the release after this one.** Red team
+      the global IPv6 address (`with_global_ipv6`) was off at first, since a
+      peer older than that release could not dial a list; ✅ **on since
+      0.1.7** (#269, `ANNOUNCE_LISTS = true` in `itsanas-node`
+      `coordinator.rs`). This line still said "next: turn it on" until
+      2026-10-24. **Left:** Windows over IPv6 (below), and PCP or hole
+      punching only if the fleet shows the rest falls short. Red team
       on the diff: the probe refused lists, lists sorted as public, NAT-PMP
       overclaimed LAN anti-spoofing, the granted lease ignored, a double-NAT
       mapping left open: all fixed. PCP and hole punching (QUIC) only if the fleet
@@ -3031,12 +3033,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
       (macOS job) that a second run leaves one line, and that `--clean`
       removes it. Linux (`install/linux.sh`) likely has the same PATH
       warning: look, and fix it the same way if so.
-   f. **The account device roster** (§10 item 7, option 2, decided
-      2026-10-05). Not yet planned in detail: a signed list of at most five
-      device ids per account, checked when a segment is opened, so a host
-      that re-signs a genuine body under its own key is refused. Plan it
-      cold first: where the roster lives (coordinator, beside the claims),
-      how it reaches a reader, what a keystore-replaced device does.
+   f. ✅ **The account device roster** (§10 item 7, option 2, decided
+      2026-10-05). Built 2026-10-19 in #293, both halves (§10 item 7): the
+      roster is the account's `NodeClaim`s kept in the store and fed by
+      sessions, hosts' claims and `Request::Claims`; a chain whose device is
+      not on it waits; reads are answered only to a device whose claim names
+      the account (`Owners::may_read`). This line said "not yet planned"
+      until 2026-10-24, five days after it shipped. Left: an end-to-end
+      socket test of a VM learning a laptop through a Pi, and a withdrawn
+      device on a network with no coordinator (§9).
 4. **Verification at a terabyte.** The criterion: under 100 MB a day to verify
    under a terabyte (DESIGN.md §6.5). Not met yet; three steps.
 
