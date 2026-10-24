@@ -243,7 +243,7 @@ it); a host's own claim, returned when presenting, admits it when it is a
 sibling; a sibling presenting to a node that never dials is admitted on the
 spot. Found by the release-only daemon tests: without that last rule a node
 that is only pushed to applied nothing. Seven tests, six red-team, each
-sabotaged red. Not built: the read scoping (§10 7), an end-to-end socket test
+sabotaged red. The read scoping (§10 7) followed in #294, entry above. Not built: an end-to-end socket test
 of a VM learning a laptop through a Pi; and a withdrawn device on a network
 with no coordinator still reads with its old claim (§9).
 
@@ -1489,7 +1489,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `red_team_what_the_account_holds_elsewhere_counts_against_it`,
       `red_team_an_opened_node_bounds_its_writes_by_what_its_pledge_earns`.
       **Remaining, 🟨:** the native quotas below, which are research and
-      presentation; and 1b's disk check. The original text follows. Start
+      presentation. (1b's disk check, listed here until 2026-10-24, was built
+      2026-09-30: #198 for pushes, #202 for pulls.) The original text follows. Start
       from `Store::write_stream` (`crates/itsanas-store/src/store.rs`) and 8.1b
       below, which names the check; the in-process refusal is the deliverable,
       native quotas are research only. Red-team test expected: a write that
@@ -2170,7 +2171,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
            key is written.
          - 🟨 (4) **The coordinator is built in**: default `itsanas.ngas.fr:9898`
            (TCP; Nicolas points the name at the Freebox and forwards 9898 to
-           the VM), the field moves under "Advanced". Not hidden: the code is
+           the VM), the field moves under "Advanced". Pinned since #250: the coordinator's
+           device id is compiled in beside it and applied only to that address
+           (`red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`).
+           Not hidden: the code is
            public and the address shows in `netstat`; what limits a DDoS is a
            name that can be repointed and peers that keep working without it.
          - 🟨 (9) **The 24 words can be copied and saved to a file**, with a
@@ -2196,12 +2200,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
          node's home, which the service step refuses today
          (`refuse_a_home_the_service_would_not_run`); (4) default
          `itsanas.ngas.fr:9898` (`setup::DEFAULT_COORDINATOR`), field under
-         "Advanced", **not pinned**: pin its device id in the default once
-         the coordinator runs (`install/coordinator.sh` prints it); (9)
+         "Advanced"; it was not pinned here, and is since #250
+         (`DEFAULT_COORDINATOR_DEVICE`, `pinned_for`); (9)
          Copy / Save in the Windows window only; macOS (`osascript`) and
          Linux (`zenity`/`kdialog`) windows only lost the "on paper" text;
-         (5a) `upnp.rs`, IGD only, no NAT-PMP/PCP, the public address read
-         once at start (a new public IP is announced only after a restart),
+         (5a) `upnp.rs`, IGD only here (NAT-PMP, `natpmp.rs`, came with #265; still
+         no PCP), the public address read once at start (a new public IP is announced only after a restart),
          never seen against a real router; (1) `install/windows/itsanas.iss`
          + `release.yml` job `setup-exe`, never built (first run: the v0.1.1
          tag); its uninstaller only signs out. Also built: the coordinator's
@@ -2500,8 +2504,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
       in its menu since 2026-10-06 (0w (1))**, and pause keeps hosting -- a
       deliberate change from item 1 of the specification below, said in 0w.
       **Left:** Nicolas sees the icon once and says what it gets wrong; then
-      disconnect and decommission, each behind its confirmation, now planned
-      as 0w (5) and (7). The text below stays the specification for them. Original
+      disconnect and decommission, each behind its confirmation: built as 0w (5)
+      and (7) (the entry "Remove this machine...", #260; never seen on a real
+      desktop). The text below stays the specification for them. Original
       plan, kept for reference: do it in two PRs. First, alone: pick the crates (`tray-icon` + `tao`/`winit`,
       or `windows`-crate `Shell_NotifyIcon` directly) by running `cargo deny
       check` with them added and confirming `scripts/check-unsafe.py` still
@@ -2612,9 +2617,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       phone test needs a fresh build (`scripts/build-apk.sh`). macOS: source
       install only.
 
-1. **Enforce the space split. Asked for by Nicolas on 2026-09-14.** Step (a) is
-   built; (b), (c) and (d) are what is left, and **nothing on
-   the network enforces the split yet**. Verified facts:
+1. **Enforce the space split. Asked for by Nicolas on 2026-09-14.** All four
+   steps (a)-(d) are built, below (hosts bound each owner since 2026-10-04,
+   #220-#224); this header said "(b), (c) and (d) are what is left, and
+   nothing on the network enforces the split yet" until 2026-10-24. The facts
+   below were verified before that and are kept for their reasoning:
 
    - The split is `itsanas-coord::accounting::Split`, and its default is
      **30/70** — keep three parts of every ten a machine commits. It replaced
@@ -2813,10 +2820,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
    a. ✅ **Integrity, by hand: what a hostile peer can make this node believe.**
       Done 2026-09-30 (see §0; ROADMAP "The integrity surface, by hand" has the
-      table). Open from it: the lifted-body re-signing (protocol change, the
-      device id into `SealContext` for new segments or an account device
-      roster), a hostile host stalling a round with any refused segment, and the
-      two `itsanas-redteam` residues. Original text follows.
+      table). Open from it: the two `itsanas-redteam` residues. (The lifted-body
+      re-signing was closed by the account roster, 2f, #293; a hostile host
+      stalling a round with any refused segment by 2c, #211.) Original text follows.
       Chosen 2026-09-30 as `NEXT` because every other open §8 item is
       host-side enforcement (1c, deferred by 0), or waits on Nicolas (0c, 0f's
       menu, 0i, 0k, 3c, 5). Not yet read for this: start from where a pulled
@@ -2834,8 +2840,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
 
    b. ✅ **Confidentiality, by hand: what a host learns, alone or comparing notes
       with another.** Built 2026-09-30 (see §0; ROADMAP "The confidentiality
-      surface, by hand" has the table). Open from it: reads not scoped to the
-      account (§10 question 7, option 2 would close it). Original text follows.
+      surface, by hand" has the table). Reads not scoped to the account, which
+      this list held open, are answered only to the account's own devices
+      since #294 (protocol 11, `red_team_nobody_but_the_account_reads_what_a_host_holds_for_it`). Original text follows.
       Next because it is the last unexamined §8 2 surface and
       every other open item is host-side (1c) or waits on Nicolas. Not yet read
       for this. Start from the plaintext a host sees: `SegmentEnvelope`
@@ -2859,8 +2866,7 @@ Detail and measurements are in ROADMAP.md; this is the map.
       ROADMAP "At most 10 live devices per account"). Decided by Nicolas on
       2026-09-30, verbatim: « Il faut limiter le nombre d'appareils par
       compte. 5 max me semble bien. » Lettered d and placed before c because
-      it was decided after c was written and went first. Open from it: a
-      withdraw in the Android app; a cap on withdrawn rows (5 live, any
+      it was decided after c was written and went first. Open from it: a cap on withdrawn rows (5 live, any
       number withdrawn); the re-sign corner named in ROADMAP.
 
    c. ✅ **A hostile host cannot stall a whole pull with one refused segment.**
