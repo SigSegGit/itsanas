@@ -937,7 +937,7 @@ impl Contact {
         let mut outcome = Relayed::default();
         for row in rows {
             let Ok(row) = postcard::from_bytes::<ClaimedPresence>(row) else {
-                outcome.refused += 1;
+                outcome.forged += 1;
                 continue;
             };
             let device = row.presence.presence.device;
@@ -945,11 +945,11 @@ impl Contact {
                 continue;
             }
             if row.verify_for(owner).is_err() || row.presence.presence.at_unix > horizon {
-                outcome.refused += 1;
+                outcome.forged += 1;
                 continue;
             }
             let Some(held) = self.book.get(&device) else {
-                outcome.refused += 1;
+                outcome.unknown += 1;
                 continue;
             };
             let latest_claim = held
@@ -966,7 +966,7 @@ impl Contact {
             let fresh = latest_claim.is_some_and(|at| row.claim.claim.issued_unix >= at)
                 && latest_presence.is_none_or(|at| row.presence.presence.at_unix >= at);
             if !fresh {
-                outcome.refused += 1;
+                outcome.stale += 1;
                 continue;
             }
             let address = row.presence.presence.address.clone();
@@ -1003,13 +1003,24 @@ impl Contact {
 }
 
 /// What [`Contact::relayed`] did with a peer's answer.
+///
+/// The refusals in three counts, because they do not mean the same thing
+/// and the first fleet run (2026-10-23) printed all three as one warning,
+/// every round: a sibling relaying a withdrawn machine, or an address older
+/// than one this node heard first-hand, is ordinary; a row that fails its
+/// signatures is the one worth a line in the log.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Relayed {
     /// Rows that joined or refreshed the book.
     pub kept: usize,
-    /// Rows refused: undecodable, forged, another account's, a machine the
-    /// book does not know, or older than what it holds.
-    pub refused: usize,
+    /// Undecodable, failing the device's or the owner's signature (forged,
+    /// or another account's), or dated past the clock skew.
+    pub forged: usize,
+    /// Genuine, for a machine the book does not hold: withdrawn, or not
+    /// listed to this node by the coordinator (yet).
+    pub unknown: usize,
+    /// Genuine, and older than the claim or presence the book holds.
+    pub stale: usize,
 }
 
 /// The book as the listener answers from it: who may ask, and what they get.
@@ -2361,7 +2372,7 @@ mod tests {
             outcome,
             Relayed {
                 kept: 1,
-                refused: 0
+                ..Relayed::default()
             }
         );
         let addresses: Vec<_> = contact.candidates().into_iter().map(|(_, a)| a).collect();
@@ -2390,7 +2401,8 @@ mod tests {
             outcome,
             Relayed {
                 kept: 0,
-                refused: 1
+                forged: 1,
+                ..Relayed::default()
             }
         );
         assert_eq!(
@@ -2418,7 +2430,8 @@ mod tests {
             outcome,
             Relayed {
                 kept: 0,
-                refused: 1
+                forged: 1,
+                ..Relayed::default()
             }
         );
         assert_eq!(
@@ -2452,7 +2465,8 @@ mod tests {
             outcome,
             Relayed {
                 kept: 0,
-                refused: 1
+                unknown: 1,
+                ..Relayed::default()
             }
         );
         assert!(
@@ -2481,7 +2495,7 @@ mod tests {
             outcome,
             Relayed {
                 kept: 1,
-                refused: 0
+                ..Relayed::default()
             },
             "a presence dated 2099 in the book refused every honest one after it: the \
              relay stays blind to that machine for good"
@@ -2489,7 +2503,7 @@ mod tests {
 
         let ahead = dated(&owner(1), 2, AWAY, NOW + MAX_CLOCK_SKEW + 1, 10);
         let outcome = contact.relayed(&encoded(&[ahead]), me(), this_machine(), NOW);
-        assert_eq!(outcome.refused, 1, "a row dated past the skew was kept");
+        assert_eq!(outcome.forged, 1, "a row dated past the skew was kept");
     }
 
     /// The Pi left `AWAY` for `HOME`. A relay replays its genuine, older
@@ -2506,7 +2520,8 @@ mod tests {
             outcome,
             Relayed {
                 kept: 0,
-                refused: 1
+                stale: 1,
+                ..Relayed::default()
             }
         );
         assert_eq!(
@@ -2531,7 +2546,8 @@ mod tests {
             outcome,
             Relayed {
                 kept: 0,
-                refused: 1
+                stale: 1,
+                ..Relayed::default()
             },
             "a claim the owner has replaced was taken back in"
         );

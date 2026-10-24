@@ -1903,12 +1903,16 @@ fn dial_listed(
                 node.store.device_id(),
                 itsanas_discover::now_unix(),
             );
-            if relayed.refused > 0 {
+            // Only what fails its signatures is worth a line: a withdrawn
+            // machine or an address older than one heard first-hand is what
+            // siblings relay every round (`Relayed`), and printing those
+            // drowned the one case that means somebody is lying.
+            if relayed.forged > 0 {
                 eprintln!(
                     "itsanas: {address} relayed {} address(es) of this account's machines \
-                     that do not check out (forged, another account's, a machine not \
-                     listed here, or older than what this node holds); ignored",
-                    relayed.refused
+                     that fail their signatures (forged, another account's, or dated in \
+                     the future); ignored",
+                    relayed.forged
                 );
             }
         }
