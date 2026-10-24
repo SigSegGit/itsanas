@@ -84,6 +84,14 @@ SSH_ORIGINAL_COMMAND="status test" ITSANAS_FLEET_CONF="$DEST/agent.conf" sh "$DE
 SSH_ORIGINAL_COMMAND="sh" ITSANAS_FLEET_CONF="$DEST/agent.conf" sh "$DEST/agent.sh" | sed 's/^/  /' || true
 
 echo
-echo "this machine's host key, for FLEET_KNOWN_HOSTS (replace localhost by the"
-echo "name the runner's ssh config gives this machine):"
-ssh-keyscan -t ed25519 localhost 2>/dev/null | sed 's/^/  /'
+# Read from the file sshd serves, not with `ssh-keyscan localhost`: on the
+# Pi and the VM that printed nothing on 2026-10-23 (sshd not answering on
+# localhost there), and the first fleet run skipped the Pi for want of it.
+echo "this machine's host key, for FLEET_KNOWN_HOSTS: one line, the name and port the"
+echo "runner dials first (for example [ngas.fr]:22010), then these two words:"
+key=$(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null)
+if [ -n "$key" ]; then
+    echo "  $key"
+else
+    echo "  (no /etc/ssh/ssh_host_ed25519_key.pub here; from another machine: ssh-keyscan -t ed25519 -p PORT HOST)"
+fi

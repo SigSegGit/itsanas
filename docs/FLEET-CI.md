@@ -99,7 +99,7 @@ ignored -- red each time.
    | --- | --- | --- |
    | `FLEET_SSH_KEY` | secret | the private half, `fleet-ci` |
    | `FLEET_SSH_CONFIG` | secret | `Host pi` / `HostName ...` / `User ...` (and `ProxyJump vm` without Tailscale), the same for `vm` |
-   | `FLEET_KNOWN_HOSTS` | secret | the lines `setup.sh` printed, `localhost` replaced by each `HostName` |
+   | `FLEET_KNOWN_HOSTS` | secret | one line per machine: `[HostName]:Port` (or `HostName` on port 22), then the two words `setup.sh` printed (see below) |
    | `FLEET_TEST_PHRASE` | secret | the 24 words of the `test` account, on one line |
    | `FLEET_HOME_KEY` | secret | a long random string (`openssl rand -hex 32`): seals the member's home in the cache |
    | `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` | secret | only with Tailscale |
@@ -109,6 +109,21 @@ ignored -- red each time.
 
 5. **Run it once by hand** (Actions → Fleet → Run workflow) and read the table
    in the run's summary.
+
+**FLEET_KNOWN_HOSTS from Windows PowerShell**, the way that worked on
+2026-10-23: read each machine's key through ssh and pipe the lines to `gh`.
+Two ways that did not: a file written with `>` (Windows PowerShell 5.1 writes
+UTF-16, which ssh on the runner cannot read, so every machine is "No
+ED25519 host key is known"), and `ssh-keyscan` (it printed nothing there).
+
+    $pi = (ssh -p 22010 USER@HOST cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
+    $vm = (ssh -p 22011 USER@HOST cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
+    $k = "[HOST]:22010 $($pi[0]) $($pi[1])", "[HOST]:22011 $($vm[0]) $($vm[1])"
+    $k   # two lines, each "[HOST]:port ssh-ed25519 AAAA..."
+    ($k -join "`n") | gh secret set FLEET_KNOWN_HOSTS --env fleet -R OWNER/REPO
+
+A machine whose key is missing or wrong is a SKIP row naming the host key,
+never a red run on its own -- read the SKIP lines of the first runs.
 
 ### The laptop, once (when Nicolas decides to)
 

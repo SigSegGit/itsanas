@@ -47,6 +47,20 @@ not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
 
+**2026-10-24: the first green fleet run, and its log read.** Run
+40006387602: S on the runner and the VM, B and F runner -> VM (test O, from
+a datacentre through the coordinator and the relay); the Pi skipped (no
+host key for `[ngas.fr]:22010` in FLEET_KNOWN_HOSTS, Nicolas's to redo), V
+skipped (0.1.12 daemons), C skipped (`nicolas` on the VM holds nothing for
+`test`). Issue #312 closed. The member's log printed "relayed 5 address(es)
+... that do not check out" every round: `Contact::relayed` counted forged,
+unknown and stale rows as one. Now `Relayed { kept, forged, unknown, stale }`
+and only `forged` is printed; the red-team tests each assert their own
+count (sabotaged: an unknown or stale row counted as forged, red). Still
+in that log, not yet explained: "could not park on <vm>:9798 (peer closed
+connection without sending TLS close_notify)" and "relay:<pi>@<vm>: this
+peer relays nothing for this device" every round.
+
 **2026-10-23, late: an idle round's no-op commits removed (MVP H, issue
 #93).** Counted on a bench (`scripts/idle-writes.sh`, now in the tree):
 eleven commits an idle round, most rewriting a row with what it held.
