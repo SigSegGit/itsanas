@@ -46,11 +46,14 @@ What is missing before this is a *network* rather than a personal sync tool:
   book and the escrow locker; `itsanas coordinator`, `itsanas register` and
   `itsanas login --from` are wired. **Recovering an account from a passphrase
   alone works** — verified with the real binaries, not only in tests.
-- **Placement is recorded but not acted on.** A node now knows which peers
-  hold each of its chunks, records it on every sync round, and `itsanas status`
-  says plainly whether the data exists anywhere else. What is missing is a
-  repair loop that *chooses* peers to fix a shortfall — which matters once
-  there are more peers than a node pushes to anyway.
+- 🟨 **Placement acts, behind a setting, and has never run on the fleet.** A
+  node knows which peers hold each of its chunks, records it on every sync
+  round, and `itsanas status` says whether the data exists anywhere else. By
+  default (`placement = everyone`) every holder takes everything, which is
+  right while there are fewer peers than copies wanted; `placement = measured`
+  (2026-10-19, HANDOVER §8 7) chooses hosts by measured availability and lets
+  surplus copies go (`MayEvict`). It becomes the default only after a week of
+  its figures on the fleet (§8 7(a)).
 - ~~**Nothing challenges a host on a schedule.**~~ Built. The daemon audits
   every peer it contacts on chunks **drawn at random** from what the ledger says
   that peer took, and a host that cannot prove it still holds one has that
