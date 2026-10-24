@@ -184,8 +184,12 @@ never a red run on its own -- read the SKIP lines of the first runs.
   `restrict` is from its documentation, not from a run.
 - ⬜ **E and G**, which need a machine of the account offline: stopping a
   container is docker, which is root. Not in v1, on purpose.
-- ⬜ **Logs**: the self-dial of 2026-10-22 was in a log, and the agent reads
-  none (container logs are docker's).
+- 🟨 **Logs**: the self-dial of 2026-10-22 was in a log, and the agent reads
+  none (container logs are docker's). The runner's own member daemon is read:
+  at the end of a run `member.sh stop` prints its lines that repeated, most
+  first, with addresses and ids blanked so one kind of line is one row, then
+  its last forty lines. The first green run's log was eight copies of two
+  lines, which forty lines of tail did not say.
 - **C reads only what the host holds for `test`**, never the rest of its vault
   (on the Pi, a terabyte to read every night for nothing). A host that holds
   nothing for `test` is a SKIP row: a scan of nothing proves nothing.

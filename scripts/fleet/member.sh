@@ -164,6 +164,15 @@ stop() {
         kill "$pid" 2>/dev/null
         # The store is closed when the process is gone, not when it is told.
         for _ in $(seq 30); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+        # What repeats, counted: a line printed every round is the thing to
+        # read first, and forty lines of tail showed one round of it. The
+        # first fleet run's log was eight copies of two lines (relay rows
+        # "that do not check out", a park refused) and nothing said so.
+        # Addresses and counts are blanked so one kind of line is one row.
+        echo "fleet member: the daemon's lines that repeated, most first:"
+        sed -E 's/[0-9a-f]{12,}/<id>/g; s/\[[0-9a-f:]+\]:[0-9]+|[0-9]+(\.[0-9]+){3}(:[0-9]+)?/<addr>/g; s/[0-9]+/<n>/g' \
+            "$DIR/daemon.log" 2>/dev/null | sort | uniq -c | sort -rn | awk '$1 > 1' | head -12 |
+            cut -c1-200 | sed 's/^/  /'
         echo "fleet member: the daemon's last lines:"
         tail -40 "$DIR/daemon.log" 2>/dev/null | sed 's/^/  /'
     fi
