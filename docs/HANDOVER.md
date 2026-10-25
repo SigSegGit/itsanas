@@ -1295,7 +1295,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
       relay aside (§0). Still open from that run's log, for the next session:
       the `v4,[v6]` dial that prints only the IPv6 error, and C vm:nicolas
       holding nothing for `test`. V stays SKIP until a release carries the
-      version line and the VM runs it.
+      version line and the VM runs it: the workspace is 0.1.13 from
+      2026-10-25 for that; tag `v0.1.13`, `sign-release` (Nicolas's key and
+      passphrase, never a session's), then `itsanas update` on the Pi and
+      the VM over his own SSH (the CI key runs only the kit).
    y. 🟨 **Test L: told, unasked, that the files are not safe yet.** Built
       2026-10-23 (see §0; MVP.md L): `safety.rs`, `brief_status`'s
       `exposed`, the three trays and Settings. **Left:** seen on a real
