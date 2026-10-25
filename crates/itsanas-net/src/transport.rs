@@ -480,8 +480,8 @@ impl PeerServer {
     }
 
     /// Park on `relay` and serve, over the splice, the one caller it hands
-    /// on (§8 0v); returns once that caller is done (`true`) or the relay
-    /// closed the park with nobody (`false`, which the caller backs off on:
+    /// on (§8 0v); returns once that caller is done, however its session
+    /// ended (`true`), or the relay closed the park with nobody (`false`, which the caller backs off on:
     /// a relay that closes every park must not be dialled in a loop).
     /// The daemon calls it again, with a pause, for as long as this node is
     /// reachable only that way.
@@ -491,7 +491,8 @@ impl PeerServer {
     ///
     /// # Errors
     ///
-    /// A relay that refuses, is too old, or cannot be reached.
+    /// A relay that refuses, is too old, or cannot be reached, and a caller
+    /// handed on that fails to prove itself over the splice.
     pub fn serve_parked(
         &self,
         relay: impl ToSocketAddrs,
@@ -555,8 +556,15 @@ impl PeerServer {
         // An ordinary session's budget: a caller, or the relay, trickling
         // requests does not keep this machine from parking again.
         let until = Instant::now() + PEER_SESSION_BUDGET;
-        while let Some(request) = connection.receive::<Request>()? {
-            if !answer(&mut connection, &request, peer, true, service, shutdown)?
+        // However the caller's session ends, the park did its job. No client
+        // sends TLS close_notify, so a caller that is done ends it with an
+        // end of stream rustls reports as an error; taken for the relay
+        // failing, it set the relay aside and kept this machine unparked
+        // for a pause, refusing every caller meanwhile (fleet run
+        // 40176979039: 23 refusals to 3 splices). A direct session's end is
+        // not reported either (`serve_until`).
+        while let Ok(Some(request)) = connection.receive::<Request>() {
+            if !answer(&mut connection, &request, peer, true, service, shutdown).unwrap_or(false)
                 || Instant::now() >= until
             {
                 break;

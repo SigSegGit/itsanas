@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: green since run 40006387602 (runner and VM; B, F, S pass); the Pi is skipped until Nicolas resets its line of FLEET_KNOWN_HOSTS (docs/FLEET-CI.md, "FLEET_KNOWN_HOSTS from Windows PowerShell"); a session reads each run's SKIP lines and fixes what they find
-WRITTEN-AT: 2026-10-24
-BASE: 1ccfb42
+TITLE: The fleet tested by CI: green since run 40006387602 (runner and VM; B, F, S pass); the Pi is skipped until Nicolas resets its line of FLEET_KNOWN_HOSTS (docs/FLEET-CI.md, "FLEET_KNOWN_HOSTS from Windows PowerShell"); a session reads each run's SKIP lines and the member's repeated lines, and fixes what they find
+WRITTEN-AT: 2026-10-25
+BASE: 0053816
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -47,6 +47,32 @@ not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
 
+**2026-10-25: a caller served through a park no longer unparks the
+machine.** Run 40176979039 (green, 5 checked; the Pi still SKIP on its host
+key, V SKIP because the VM's daemons are 0.1.12 and no release carries the
+version line yet, C vm:nicolas SKIP, nothing for `test` there). The member's
+log: 23 x "relay:<id>@82.67.35.234:9798: ... this peer relays nothing for
+this device" to 3 splices that went through, and "could not park on
+82.67.35.234:9798 (... without sending TLS close_notify)". 82.67.35.234:9798
+is the Freebox forward to the **Pi**'s 9798 (the `test` node there is the
+relay), not the VM. Cause: no client ever sends close_notify (nothing in
+`itsanas-tls`/`-net` calls it), so a caller done with a parked machine ended
+`serve_parked` on an UnexpectedEof that it returned as an error; `park_loop`
+took that for the relay failing, set it aside and paused 60 s
+(`PARK_PAUSE`) before parking again, and every caller in between was
+refused. Now whatever ends the caller's session after the splice reads as a
+caller served (`Ok(true)`, park again at once); a handshake that fails over
+the splice is still an error (a relay handing garbage must not be dialled
+in a loop). Proven by
+`red_team_a_caller_that_hangs_up_through_a_park_reads_as_a_caller_served`
+(sabotaged: red with the run's exact message). The fix is in the daemon
+that parks: the Pi's and VM's 0.1.12 daemons keep the bug until they run a
+release with it; the runner has it from the next night. Not touched, a lead
+for the next run: a dial to `v4,[v6]` on a runner with no IPv6 prints only
+the last error ("Network is unreachable"), hiding what the IPv4 attempt
+said (`connect_within` in `itsanas-tls/src/reach.rs`); and why
+`nicolas` on the VM holds nothing for `test` (C SKIP every night).
+
 **2026-10-24: the first green fleet run, and its log read.** Run
 40006387602: S on the runner and the VM, B and F runner -> VM (test O, from
 a datacentre through the coordinator and the relay); the Pi skipped (no
@@ -57,9 +83,9 @@ skipped (0.1.12 daemons), C skipped (`nicolas` on the VM holds nothing for
 unknown and stale rows as one. Now `Relayed { kept, forged, unknown, stale }`
 and only `forged` is printed; the red-team tests each assert their own
 count (sabotaged: an unknown or stale row counted as forged, red). Still
-in that log, not yet explained: "could not park on <vm>:9798 (peer closed
-connection without sending TLS close_notify)" and "relay:<pi>@<vm>: this
-peer relays nothing for this device" every round.
+in that log: "could not park on <vm>:9798 (... close_notify)" and "this
+peer relays nothing for this device" every round -- explained and fixed
+2026-10-25 (next paragraph); the address was the Pi's, not the VM's.
 
 **2026-10-23, late: an idle round's no-op commits removed (MVP H, issue
 #93).** Counted on a bench (`scripts/idle-writes.sh`, now in the tree):
@@ -1265,6 +1291,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       over `SSH_ORIGINAL_COMMAND` (never run there). (4)
       E/G, which need a node stopped (docker, so root: decide first).
       Done 2026-10-23: versions in the snapshot and the fleet's V row.
+      Done 2026-10-25: a caller served through a park no longer sets the
+      relay aside (§0). Still open from that run's log, for the next session:
+      the `v4,[v6]` dial that prints only the IPv6 error, and C vm:nicolas
+      holding nothing for `test`. V stays SKIP until a release carries the
+      version line and the VM runs it.
    y. 🟨 **Test L: told, unasked, that the files are not safe yet.** Built
       2026-10-23 (see §0; MVP.md L): `safety.rs`, `brief_status`'s
       `exposed`, the three trays and Settings. **Left:** seen on a real

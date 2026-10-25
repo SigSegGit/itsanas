@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-23 — 1395 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 429 are red-team tests.**
+**Last updated: 2026-10-25 — 1396 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 430 are red-team tests.**
 
-**1279 of the 1395 tests have an entry of their own on this page** — an *entry*,
+**1280 of the 1396 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -166,7 +166,7 @@ guarantee and is not one.
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-net` unit | 66 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 61 |
-| `itsanas-net` relay (`tests/relay.rs`) | 6 |
+| `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
@@ -215,7 +215,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 55 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 60 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
-| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 30 |
+| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 31 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 50 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 97 |
@@ -1062,7 +1062,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_a_host_that_lost_a_blob_behind_its_index_is_caught_by_the_next_due_walk`** | The downside §10 8 names, closed: a host's blob deleted behind its index, one pass of its disk check, and the owner's due walk lists the bucket that now differs, offers the chunk again and puts it back -- without listing the whole account. Sabotaged by the check keeping the row. |
 | **`red_team_a_peer_refused_on_push_cannot_be_hosted_by_being_pulled`** | Found by the redteam agent on §8 1c: the bound sat on `StoreChunk` and `StoreSegment`, and the hosting pull -- the peer naming owner and chunks, this node fetching them -- was checked against this node's pledge only. `host_for_bounded` asks the same bound before each chunk; against a bound that refuses, nothing is taken and the refusal is reported. Sabotaged by skipping it. |
 
-# `itsanas-net` — relay tests (6)
+# `itsanas-net` — relay tests (7)
 
 A machine nobody can reach, over real sockets: R listens, B parks on R, A
 reaches B only through R. `tests/relay.rs`.
@@ -1070,6 +1070,7 @@ reaches B only through R. `tests/relay.rs`.
 | Test | What it proves |
 | --- | --- |
 | **`red_team_a_relay_that_closes_the_park_with_nobody_is_told_apart_from_a_caller_served`** | §8 0v, red team on the daemon wiring: `serve_parked` says `true` only once a caller was served; a relay that closes the park with nobody never reads as one, so the daemon backs off and tries the next relay instead of dialling it in a loop. Sabotaged (errors swallowed as a served caller): red. |
+| **`red_team_a_caller_that_hangs_up_through_a_park_reads_as_a_caller_served`** | Fleet run 40176979039, §8 0x: no client sends TLS close_notify, so a caller done with a parked machine left `serve_parked` an end of stream rustls reports as an error. The daemon took it for the relay failing ("could not park on ... close_notify"), set the relay aside and stayed unparked for a pause, and callers meanwhile got `NOT_RELAYING` (23 times to 3 splices in that run). A caller served through R and dropped without a goodbye now reads as `Ok(true)`. Sabotaged (the session's end propagated as an error): red, with the run's exact message. |
 | **`a_machine_nobody_can_reach_syncs_through_a_relay`** | §8 0v. A full round from A reaches B through R, the session's peer is B (end to end), A holds B's file afterwards, and R kept nothing of what it carried. |
 | **`red_team_a_device_parked_on_the_relay_cannot_receive_another_devices_callers`** | Asking R for a device nobody parked as reaches nobody, with the refusal a stranger gets (`NOT_RELAYING`). |
 | **`red_team_a_relay_refuses_strangers_the_same_way_whether_or_not_the_target_is_parked`** | A caller outside the relay's account gets `NOT_RELAYING` even when the target is parked, so the refusal does not say who is parked. |

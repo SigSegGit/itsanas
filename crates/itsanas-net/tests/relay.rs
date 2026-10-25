@@ -286,6 +286,56 @@ fn red_team_a_relay_that_closes_the_park_with_nobody_is_told_apart_from_a_caller
 }
 
 #[test]
+fn red_team_a_caller_that_hangs_up_through_a_park_reads_as_a_caller_served() {
+    // Fleet run 40176979039: no client sends TLS close_notify, so a caller
+    // done with a parked machine leaves it an end of stream rustls calls an
+    // error. The park read it as the relay failing: the daemon printed
+    // "could not park on <relay> (... close_notify ...)", set that relay
+    // aside and waited a pause before parking again, and every caller in
+    // between was told "this peer relays nothing for this device" -- 23
+    // times in that run, against 3 splices that went through.
+    let r = node(70);
+    let b = node(71);
+    let a = node(72);
+    let book = Book(None);
+    let server = PeerServer::bind("127.0.0.1:0").unwrap();
+    let address = server.local_addr().unwrap();
+    let shutdown = AtomicBool::new(false);
+    let parker_stop = AtomicBool::new(false);
+    let service = PeerService::new(&r.store, &r.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped)
+        .with_relay(&book);
+    let parked_server = PeerServer::bind("127.0.0.1:0").unwrap();
+    let parked_service = PeerService::new(&b.store, &b.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped);
+    let parked = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let _ = server.serve_until(&service, &r.device, &shutdown);
+        });
+        let _stop = Stop(&shutdown, address);
+        let parker = scope.spawn(|| {
+            parked_server.serve_parked(
+                address,
+                r.store.device_id(),
+                &parked_service,
+                &b.device,
+                &parker_stop,
+            )
+        });
+        let mut client = through(address, &r, b.store.device_id(), &a).expect("through the relay");
+        session::round(&a.store, &a.vault, &mut client).expect("round through the relay");
+        // How every daemon ends a session: the client dropped, no goodbye.
+        drop(client);
+        parker.join().unwrap()
+    });
+    assert!(
+        matches!(parked, Ok(true)),
+        "a caller served and gone read as a relay that failed, so the daemon \
+         would leave the park and refuse callers until its next look: {parked:?}"
+    );
+}
+
+#[test]
 fn red_team_a_parked_machine_lets_go_at_once_and_the_relay_sees_it_gone() {
     // A stopping daemon waited out a 30 s read on its park, and the relay
     // learned a parker was gone only at its next keepalive -- splicing
