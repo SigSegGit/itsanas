@@ -42,7 +42,7 @@ jobs:
     env:
       HAS_TAILSCALE: ${{ secrets.TS_OAUTH_CLIENT_ID != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # The member runs main as it is, not the last release: a fleet run is
@@ -54,7 +54,7 @@ jobs:
       # forwarded port of the VM and uses it as the jump host.
       - name: Tailscale, if configured
         if: env.HAS_TAILSCALE == 'true'
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -79,7 +79,7 @@ jobs:
       # its device id (scripts/fleet/member.sh): the same device every night.
       # A cache from main is readable by other branches' runs, which is why
       # the home is sealed before it is saved.
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         with:
           path: .fleet-member
           key: fleet-member-${{ github.run_id }}
@@ -112,7 +112,7 @@ jobs:
           FLEET_HOME_KEY: ${{ secrets.FLEET_HOME_KEY }}
         run: bash scripts/fleet/member.sh stop || true
 
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v6
         if: always() && steps.member.outputs.hosts == 'runner'
         with:
           path: .fleet-member
