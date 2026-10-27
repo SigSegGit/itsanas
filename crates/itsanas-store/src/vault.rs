@@ -963,6 +963,25 @@ impl Vault {
         Ok(())
     }
 
+    /// The claim kept for `device` and the account it was kept for, if any:
+    /// read before [`Self::keep_claim`], so a claim that says nothing new
+    /// costs no commit.
+    ///
+    /// # Errors
+    ///
+    /// The database's.
+    pub fn kept_claim(&self, device: DeviceId) -> Result<Option<(UserId, Vec<u8>)>> {
+        let txn = self.db.begin_read()?;
+        let Some(row) = txn.open_table(CLAIMS)?.get(device.as_bytes().as_slice())? else {
+            return Ok(None);
+        };
+        let bytes = row.value();
+        let Some((owner, claim)) = bytes.split_first_chunk::<32>() else {
+            return Ok(None);
+        };
+        Ok(Some((UserId::from_bytes(*owner), claim.to_vec())))
+    }
+
     /// The claims kept for `owner`, at most [`MAX_CLAIMS_PER_ANSWER`], the
     /// most recently presented first.
     ///

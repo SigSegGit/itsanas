@@ -103,6 +103,16 @@ pub const UNPROVEN_FULL: &str =
 /// hour at the default interval).
 pub const STANDING_FOR: Duration = Duration::from_secs(2 * 60 * 60);
 
+/// How far a device's claim may be re-dated before the copy a host keeps
+/// for its siblings is written again (`Owners::adds_nothing`), in seconds.
+///
+/// A device signs its claim afresh at every connection, so its date moves
+/// every round and nothing else does. The kept copy is what siblings are
+/// handed (`Vault::claims_for`), and they only order one device's claims by
+/// date (`SignedClaim::supersedes`): a copy up to a quarter of an hour old
+/// orders the same, as the contact stamp's `SEEN_STEP` does for its readers.
+pub const KEEP_CLAIM_STEP: u64 = 15 * 60;
+
 /// What a host answers a device the coordinator says was withdrawn.
 pub const WITHDRAWN: &str = "the coordinator says this device was withdrawn by its account";
 /// What a host answers a device of another account it has not confirmed
@@ -685,6 +695,23 @@ impl itsanas_net::Owners for ClaimBook {
         ClaimBook::admits(self, caller, owner, incoming, store, vault, host_pledge)
     }
 
+    fn adds_nothing(&self, kept: &[u8], presented: &[u8]) -> bool {
+        let (Ok(kept), Ok(presented)) = (
+            postcard::from_bytes::<SignedClaim>(kept),
+            postcard::from_bytes::<SignedClaim>(presented),
+        ) else {
+            return false;
+        };
+        let (kept, presented) = (&kept.claim, &presented.claim);
+        // An older claim never replaces a newer one, whatever it says: a
+        // device's claims are ordered by their date (`supersedes`).
+        let older = presented.issued_unix <= kept.issued_unix;
+        let redated = kept.pledged_bytes == presented.pledged_bytes
+            && kept.revoked == presented.revoked
+            && presented.issued_unix < kept.issued_unix.saturating_add(KEEP_CLAIM_STEP);
+        kept.owner == presented.owner && kept.device == presented.device && (older || redated)
+    }
+
     fn presented_for(&self, caller: DeviceId) -> Option<UserId> {
         // `take` verified the signature and refused a revoked claim; what is
         // left out here is a device the coordinator since said is withdrawn.
@@ -771,6 +798,78 @@ mod tests {
         }
         .sign(account);
         postcard::to_stdvec(&signed).unwrap()
+    }
+
+    /// The idle bench of 2026-10-27, 84 KB a round with nothing to do: every
+    /// connection re-signs the device's claim (`Node::claim_bytes` dates it
+    /// now), and the host rewrote the copy it keeps for the account's other
+    /// machines -- one commit per peer per round for a claim that said
+    /// nothing new. Kept again only when something but its date changed, or
+    /// its date moved [`KEEP_CLAIM_STEP`]; never replaced by an older one.
+    #[test]
+    fn red_team_a_claim_presented_again_unchanged_is_not_written_again() {
+        use itsanas_net::{PeerService, Pledge, Request};
+        let host = host();
+        let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+            .with_owners(&host.book);
+        let alice = account(0x0A);
+        let dated = |pledged: u64, issued: u64| {
+            let signed = NodeClaim {
+                owner: alice.user_id(),
+                device: device(0x21),
+                pledged_bytes: pledged,
+                issued_unix: issued,
+                revoked: false,
+            }
+            .sign(&alice);
+            postcard::to_stdvec(&signed).unwrap()
+        };
+        let present = |bytes: &[u8]| {
+            service
+                .handle(
+                    &Request::Claim {
+                        claim: bytes.to_vec(),
+                    },
+                    device(0x21),
+                )
+                .unwrap()
+        };
+        let kept = || host.vault.claims_for(alice.user_id()).unwrap();
+
+        let first = dated(100, NOW);
+        present(&first);
+        assert_eq!(kept(), vec![first.clone()], "the premise: a claim is kept");
+
+        present(&dated(100, NOW + 300));
+        assert_eq!(
+            kept(),
+            vec![first.clone()],
+            "the same claim re-signed five minutes later was written again: a commit per \
+             peer per round on a node with nothing to do"
+        );
+
+        let pledged = dated(200, NOW + 360);
+        present(&pledged);
+        assert_eq!(
+            kept(),
+            vec![pledged.clone()],
+            "a new pledge was not kept, and siblings are handed the old one"
+        );
+
+        let later = dated(200, NOW + 360 + KEEP_CLAIM_STEP);
+        present(&later);
+        assert_eq!(
+            kept(),
+            vec![later.clone()],
+            "a claim a whole step newer was not kept: siblings would be handed one ever older"
+        );
+
+        present(&first);
+        assert_eq!(
+            kept(),
+            vec![later],
+            "an older claim presented again replaced the newer one kept"
+        );
     }
 
     #[test]
