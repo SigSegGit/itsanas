@@ -128,9 +128,15 @@ else
     # is a daemon that stopped, hung, or is not running at all -- which is
     # what the laptop's three daemons on 0.1.8 looked like (hand test).
     versions=""
+    declare -A copies_of=() files_of=() version_of=() every_of=() now_of=()
     for host in "${up[@]}"; do
         out=$(ask "$host" status test 2>&1)
         read -r _ taken every _ now <<<"$(printf '%s' "$out" | head -1)"
+        copies_of[$host]=$(printf '%s\n' "$out" | sed -n 's/^copies //p' | head -1)
+        files_of[$host]=$(printf '%s\n' "$out" | sed -n 's/^  files  *//p' | head -1)
+        version_of[$host]=$(printf '%s\n' "$out" | sed -n 's/^version //p' | head -1)
+        every_of[$host]=$every
+        now_of[$host]=$now
         # The runner (member.sh) runs this checkout, not a release: only the
         # machines' own daemons are compared below.
         if [ "$host" != runner ]; then
@@ -163,6 +169,40 @@ else
     else
         row PASS "V: every machine that says runs $known:$versions"
     fi
+
+    # -------------------------------- L: each machine says whether it is safe
+    # What the test node counts is what its icon draws (MVP.md L: told,
+    # unasked, that the files are not safe yet). The row tests the telling:
+    # short is said in the row, and is a PASS; a daemon that stores files
+    # and counts nothing is a FAIL, because its icon cannot say it.
+    for host in "${up[@]}"; do
+        copies=${copies_of[$host]:-}
+        files=${files_of[$host]:-}
+        files=${files//[^0-9]/}
+        files=${files:-0}
+        version=${version_of[$host]:-unknown}
+        if [ -z "$copies" ]; then
+            row SKIP "L $host: its agent does not report copies yet (run scripts/fleet/setup.sh there again)"
+        elif [[ "$copies" =~ ^([0-9]+)\ of\ ([0-9]+)(\ since\ ([0-9]+))?$ ]]; then
+            have=${BASH_REMATCH[1]} want=${BASH_REMATCH[2]} since=${BASH_REMATCH[4]}
+            if [ "$have" -ge "$want" ]; then
+                row PASS "L $host: the test node counts $have of $want copies elsewhere: safe"
+            # `Copies::exposed` (safety.rs), to the second: >=, not >.
+            # What the icon shows also depends on a pause, which this row
+            # does not know: it says what the copies rule says.
+            elif [ -z "$since" ] || [ $(( ${now_of[$host]:-0} - since )) -ge $(( 2 * ${every_of[$host]:-300} )) ]; then
+                row PASS "L $host: the test node counts $have of $want copies elsewhere: NOT safe, past the grace, so it reads exposed"
+            else
+                row PASS "L $host: the test node counts $have of $want copies elsewhere: NOT safe, within the grace of two rounds, so it does not read exposed yet"
+            fi
+        elif [ "$version" = unknown ]; then
+            row SKIP "L $host: its daemon is from 0.1.12 or before, which counts no copies"
+        elif [[ "$files" =~ ^[1-9] ]]; then
+            row FAIL "L $host: its daemon ($version) stores $files file(s) and counts no copies: its icon cannot say they are not safe"
+        else
+            row SKIP "L $host: the test node stores nothing yet, so there are no copies to count"
+        fi
+    done
 
     # ------------------------------------------------- B: a file appears elsewhere
     out=$(ask "$writer" B write 2>&1)
