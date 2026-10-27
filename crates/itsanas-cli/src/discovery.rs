@@ -440,14 +440,19 @@ mod tests {
             "192.168.1.20".parse().unwrap(),
             &owner(),
         );
+        // Read after `report`, which stamps the beacon with its own clock: read
+        // before it, a second boundary crossed in between made the beacon one
+        // second younger than the test thought, and on the slow ARM runner it
+        // was then still heard at EXPIRY + 1 (#330's CI).
+        let heard_at = now_unix();
         hood.confirm(keys.device_id());
         let device = keys.device_id();
         assert_eq!(
-            hood.heard_here_at(&device, start + Duration::from_secs(1), now),
+            hood.heard_here_at(&device, start + Duration::from_secs(1), heard_at),
             Some(true)
         );
         assert_eq!(
-            hood.heard_here_at(&device, start + WARM_UP, now + EXPIRY.as_secs() + 1),
+            hood.heard_here_at(&device, start + WARM_UP, heard_at + EXPIRY.as_secs() + 1),
             Some(false),
             "a machine of the account heard once was heard here for ever"
         );
