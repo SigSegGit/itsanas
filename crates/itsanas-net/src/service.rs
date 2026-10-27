@@ -209,6 +209,14 @@ pub trait Owners: Sync {
         None
     }
 
+    /// Whether `presented` tells nothing that `kept`, the claim this host
+    /// keeps for the same device, does not: the same claim re-signed a
+    /// little later, or an older one. Such a claim is not written again
+    /// (an idle round's commit). `false` by default, which keeps every claim.
+    fn adds_nothing(&self, _kept: &[u8], _presented: &[u8]) -> bool {
+        false
+    }
+
     /// Whether `caller` may read what this host holds for `owner`: its
     /// segments, heads, chunks, summaries and audit proofs. A device of that
     /// account, by a claim it presented ([`Self::presented_for`]); nobody
@@ -763,7 +771,17 @@ impl<'a> PeerService<'a> {
                     // be handed it (`Request::Claims`). A failed write costs
                     // a sibling one round of waiting, never this session.
                     if let Some(owner) = owners.presented_for(caller) {
-                        let _ = self.vault.keep_claim(caller, owner, claim);
+                        // Read first: every connection re-signs the claim,
+                        // and rewriting one that says nothing new was a
+                        // commit per peer per round (the idle bench).
+                        let unchanged = self.vault.kept_claim(caller).ok().flatten().is_some_and(
+                            |(kept_for, kept)| {
+                                kept_for == owner && owners.adds_nothing(&kept, claim)
+                            },
+                        );
+                        if !unchanged {
+                            let _ = self.vault.keep_claim(caller, owner, claim);
+                        }
                         // A sibling: `present` verified this account's
                         // signature and refused a revocation, which is what
                         // admission to the roster is. A machine that is only

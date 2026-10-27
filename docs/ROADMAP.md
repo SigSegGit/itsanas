@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1403 test functions, 14 of them `#[ignore]`d into the slow job, and 433 of
+**1404 test functions, 14 of them `#[ignore]`d into the slow job, and 434 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -2198,8 +2198,15 @@ nothing, and `pledges::publish` rewrites an unchanged promise once an hour
 (`PUBLISH_STEP`, against a seven-day staleness). **218 KB a round on the
 bench before, about 100 after**, two commits left: the audit's reliability
 record, which does change, and the claim a host keeps, re-signed by its
-device every round (`issued_unix`), which is not skipped because a sibling
-judges a claim's freshness by that stamp. Also measured, and a dead end:
+device every round (`issued_unix`). **2026-10-27: that second one is gone,
+84 to 60 KB a round** on the bench, measured twice under WSL -- the level
+of a daemon with no peer at all (61 KB above), so an idle sync round now
+writes nothing of its own. The reason given here for keeping it was wrong:
+the kept claims feed only `admit_roster` (membership) and are ordered by
+date only against each other (`supersedes`), so a copy up to
+`KEEP_CLAIM_STEP` (15 min) old says the same; a new pledge, a later step,
+are written, and an older claim never replaces a newer one
+(`Owners::adds_nothing`, `red_team_a_claim_presented_again_unchanged_is_not_written_again`). Also measured, and a dead end:
 `Durability::None` costs the same bytes as a durable commit on redb 2
 (`crates/itsanas-store/examples/commit_cost.rs`: 24 KB per one-row commit
 either way; the same 200 writes cost 4.8 MB one per commit, 1.4 MB seven per

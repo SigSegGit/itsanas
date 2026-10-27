@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0x
 TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until v0.1.13 is deployed); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: 25e005f
+BASE: efbbdee
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -58,6 +58,29 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-27, evening: an idle round's last own commit removed (MVP H,
+#93).** The idle bench (`scripts/idle-writes.sh`) runs under WSL on the
+laptop: `wsl.exe`, then `CARGO_HOME=$HOME/.cargo-win` (a link to the
+Windows registry: WSL has no network) and `cargo build --release
+--offline`. It said 84 KB a round. The host rewrote the claim it keeps for
+a peer's siblings at every connection, because the claim is re-signed
+each time; ROADMAP said that was needed for freshness, and the code says
+no reader looks at the date beyond ordering one device's claims. Now
+`Owners::adds_nothing` (owners.rs) keeps it unwritten when only its date
+moved, by less than `KEEP_CLAIM_STEP`, or when it is older: **60 KB a
+round, a peerless daemon's level** -- on the bench (two accounts on one
+machine), not on the fleet, where the Pi's rounds touch more peers. Not
+measured: which file the 60 KB floor goes to (no strace in WSL; it is the
+next cut's first fact, not a guess). Weakened, said by Rodin: a live
+device's place in `claims_for`'s "presented last" order now moves once a
+quarter of an hour, so past 16 devices a withdrawn one that presented just
+before can be handed out ahead of a live one for up to 15 min. Same night,
+run 40545103603 (on demand, green, 6 checked): the laptop line 31 -> 5 in
+twenty minutes, and it now says IPv4 "connection timed out"; relay refusals
+31 -> 9; B runner -> VM in 67 s (264 the night before: rounds no longer
+wait on dead machines); L runner "2 of 2 copies elsewhere: safe"; L vm
+SKIP until `setup.sh`.
 
 **2026-10-27, late night: a new address no longer resets a machine's
 wait.** Rodin's question on #322 as a test
