@@ -21,7 +21,7 @@ Fleet → Run workflow). For each machine that answers:
 | **S** | the `test` node's daemon took a round in the last three intervals (its `status.snapshot`) | -- |
 | **B** | a file written on the first machine is byte for byte on every other | `B write`, `B check` |
 | **F** | deleted there, it is gone everywhere, and still gone a round later | `F delete`, `F check` |
-| **C** | a canary written on the first machine, once it has crossed, is nowhere in what another account's node holds for `test` (its vault's directory for that owner) nor in that node's databases; SKIP, not PASS, when it holds nothing for `test` | `C plant`, `C scan` |
+| **C** | a canary written on the first machine, once it has crossed, is nowhere in what another account's node holds for `test` (its vault's directory for that owner) nor in that node's databases; SKIP, not PASS, when it holds nothing for `test`, with what that account's own daemon says of its pledge and how many peers it hosts (`status.snapshot`), or that it has none | `C plant`, `C scan` |
 
 The **first machine is the runner itself**, a member of the `test` account
 for the length of the run (`scripts/fleet/member.sh`): a VM in a datacentre

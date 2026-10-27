@@ -164,7 +164,21 @@ case "$*" in
                 # every night for nothing.
                 held="$vault/owners/$TEST_UID"
                 if [ ! -d "$held" ] || [ -z "$(find -H "$held" -type f | head -1)" ]; then
-                    echo "NOTHOSTED $4 holds nothing for test in $vault: there is nothing here to read"
+                    # Why, as far as that account's daemon says: a zero
+                    # pledge and a host `test` never met read the same
+                    # otherwise (C SKIP every night until 2026-10-27).
+                    snapshot="$home/status.snapshot"
+                    if [ -r "$snapshot" ]; then
+                        # Another account's file, and the line ends up in the
+                        # run's public summary: letters, digits, dots and
+                        # spaces only, and short.
+                        pledged=$(sed -n 's/^  pledged  *//p' "$snapshot" | head -1 | tr -cd '0-9A-Za-z. ' | cut -c1-16)
+                        hosted=$(sed -n 's/^  peers hosted  *//p' "$snapshot" | head -1 | tr -cd '0-9' | cut -c1-6)
+                        why="its daemon says pledged ${pledged:-unknown}, ${hosted:-unknown} peer(s) hosted"
+                    else
+                        why="no status.snapshot: its daemon has not run here"
+                    fi
+                    echo "NOTHOSTED $4 holds nothing for test in $vault: there is nothing here to read ($why)"
                     exit 3
                 fi
                 kit C scan "$3" "$held" || exit 1
