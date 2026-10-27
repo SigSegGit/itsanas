@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1408 test functions, 15 of them `#[ignore]`d into the slow job, and 438 of
+**1409 test functions, 15 of them `#[ignore]`d into the slow job, and 439 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -2226,8 +2226,11 @@ disk so a pass survives restarts) and the audit's reliability record
 (`note_audit`) -- and two snapshots. Two other no-op commits were found in
 the first rounds after a start, and removed (`put_chunk` re-indexing a
 chunk held at its size, `forget_holders` forgetting nothing); they do not
-show in an idle round, so they changed its 50 KB by nothing. Below this,
-the end state is still one transaction per round. Also measured, and a dead end:
+show in an idle round, so they changed its 50 KB by nothing. Then the
+cursor: written at most every `CHECK_CURSOR_STEP` (15 min) and moved in
+memory between, **36-40 KB a round** (measured twice). What is left is the
+audit's reliability record, one commit a round, and two snapshots. Below
+this, the end state is still one transaction per round. Also measured, and a dead end:
 `Durability::None` costs the same bytes as a durable commit on redb 2
 (`crates/itsanas-store/examples/commit_cost.rs`: 24 KB per one-row commit
 either way; the same 200 writes cost 4.8 MB one per commit, 1.4 MB seven per

@@ -231,6 +231,32 @@ const ORDER_KEY_LEN: usize = 32 + 8 + 32;
 /// rows at a terabyte on an hourly policy, 12 MB of keys in one `Vec` on a
 /// machine whose measured peak is 17 MiB. Found by the CI reviewer. The daemon
 /// calls again until its slice is done; memory stays at one batch.
+/// How long the disk check's cursor may move in memory before it is written
+/// ([`Vault::check_disk`]).
+///
+/// It is on disk so that a pass survives restarts -- a laptop restarted every
+/// day would otherwise check only the first rows of a big vault -- and it was
+/// written at every round: one of an idle round's two commits (2026-10-27).
+/// A restart now resumes at most this far back, checking those rows twice.
+pub const CHECK_CURSOR_STEP: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// The rows one disk check looks at ([`Vault::check_disk`]).
+struct CheckSlice {
+    rows: Vec<[u8; 64]>,
+    /// Whether they run to the last row: the pass ends with them.
+    reached_end: bool,
+    /// The cursor as written on disk.
+    on_disk: Option<Vec<u8>>,
+}
+
+/// The disk check's cursor as this process last moved it, and when it was
+/// last written ([`CHECK_CURSOR_STEP`]).
+#[derive(Debug)]
+struct CursorMemo {
+    cursor: Option<Vec<u8>>,
+    written: std::time::Instant,
+}
+
 pub const MAX_CHECK_BATCH: usize = 4096;
 
 /// What one slice of [`Vault::check_disk`] found.
@@ -285,6 +311,9 @@ pub struct Vault {
     /// unlinked, ENOSPC on the redb commit being the likely one. Without it a
     /// clean shutdown after such a failure blessed the drift for good.
     suspect: std::sync::atomic::AtomicBool,
+    /// The disk check's cursor between writes ([`CHECK_CURSOR_STEP`]);
+    /// `None` until the first check of this process, which reads it from disk.
+    check_cursor: std::sync::Mutex<Option<CursorMemo>>,
 }
 
 /// Marks the vault suspect unless defused: held across a blob write or
@@ -379,11 +408,50 @@ fn chunk_range_end(owner: UserId) -> [u8; 64] {
 /// writes").
 fn commit_if(txn: redb::WriteTransaction, changed: bool) -> Result<()> {
     if changed {
-        txn.commit()?;
+        crate::commit(txn)?;
     } else {
         txn.abort()?;
     }
     Ok(())
+}
+
+/// Move the disk check's cursor to `next` (`None`: a pass ended), in memory,
+/// and on disk at the first step, with a removal, at the end of a pass, or a
+/// step after the last write ([`CHECK_CURSOR_STEP`]). Whether the disk's
+/// cursor changed.
+fn pace_cursor(
+    txn: &redb::WriteTransaction,
+    memo: &mut Option<CursorMemo>,
+    next: Option<&[u8; 64]>,
+    on_disk: Option<&[u8]>,
+    removed: bool,
+    now: std::time::Instant,
+) -> Result<bool> {
+    let write = removed
+        || next.is_none()
+        || memo
+            .as_ref()
+            .is_none_or(|memo| now.saturating_duration_since(memo.written) >= CHECK_CURSOR_STEP);
+    if write {
+        let mut cursor = txn.open_table(CHECK_CURSOR)?;
+        match next {
+            Some(last) => {
+                cursor.insert(CHECK_CURSOR_KEY, last.as_slice())?;
+            }
+            None => {
+                cursor.remove(CHECK_CURSOR_KEY)?;
+            }
+        }
+    }
+    let written = match memo.as_ref() {
+        Some(memo) if !write => memo.written,
+        _ => now,
+    };
+    *memo = Some(CursorMemo {
+        cursor: next.map(|last| last.to_vec()),
+        written,
+    });
+    Ok(write && on_disk != next.map(<[u8; 64]>::as_slice))
 }
 
 fn chunk_from_key(bytes: &[u8]) -> Option<ChunkId> {
@@ -465,6 +533,7 @@ impl Vault {
             // Suspect until the rebuild below has finished: if it fails, the
             // vault is dropped here and must leave the mark as it found it.
             suspect: std::sync::atomic::AtomicBool::new(true),
+            check_cursor: std::sync::Mutex::new(None),
         };
         vault.reconcile_chunks_if_needed()?;
         vault.backfill_segment_bytes()?;
@@ -1113,40 +1182,67 @@ impl Vault {
     ///
     /// If the index cannot be read or written.
     pub fn check_disk(&self, limit: usize) -> Result<DiskCheck> {
+        self.check_disk_at(limit, std::time::Instant::now())
+    }
+
+    /// The next `limit` rows after the disk check's cursor -- this process's,
+    /// which may be ahead of the disk's, or the disk's at its first check --
+    /// whether they reach the last row, and the cursor on disk.
+    fn check_slice(&self, memo: Option<&CursorMemo>, limit: usize) -> Result<CheckSlice> {
+        let txn = self.db.begin_read()?;
+        let on_disk = txn
+            .open_table(CHECK_CURSOR)?
+            .get(CHECK_CURSOR_KEY)?
+            .map(|value| value.value().to_vec());
+        let cursor = memo.map_or_else(|| on_disk.clone(), |memo| memo.cursor.clone());
+        let table = txn.open_table(CHUNKS)?;
+        let mut rows: Vec<[u8; 64]> = Vec::with_capacity(limit.min(1 << 16));
+        let range = match &cursor {
+            Some(after) => table.range::<&[u8]>((
+                std::ops::Bound::Excluded(after.as_slice()),
+                std::ops::Bound::Unbounded,
+            ))?,
+            None => table.range::<&[u8]>(..)?,
+        };
+        let mut reached_end = true;
+        for row in range {
+            if rows.len() == limit {
+                reached_end = false;
+                break;
+            }
+            let (key, _) = row?;
+            if let Ok(key) = <[u8; 64]>::try_from(key.value()) {
+                rows.push(key);
+            }
+        }
+        Ok(CheckSlice {
+            rows,
+            reached_end,
+            on_disk,
+        })
+    }
+
+    /// [`Self::check_disk`] at `now`, which paces the cursor's writes.
+    ///
+    /// # Errors
+    ///
+    /// If the index cannot be read or written.
+    pub fn check_disk_at(&self, limit: usize, now: std::time::Instant) -> Result<DiskCheck> {
         let mut check = DiskCheck::default();
         let limit = limit.min(MAX_CHECK_BATCH);
         if limit == 0 {
             return Ok(check);
         }
+        let mut memo = self
+            .check_cursor
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let (rows, reached_end, was) = {
-            let txn = self.db.begin_read()?;
-            let cursor = txn
-                .open_table(CHECK_CURSOR)?
-                .get(CHECK_CURSOR_KEY)?
-                .map(|value| value.value().to_vec());
-            let table = txn.open_table(CHUNKS)?;
-            let mut rows: Vec<[u8; 64]> = Vec::with_capacity(limit.min(1 << 16));
-            let range = match &cursor {
-                Some(after) => table.range::<&[u8]>((
-                    std::ops::Bound::Excluded(after.as_slice()),
-                    std::ops::Bound::Unbounded,
-                ))?,
-                None => table.range::<&[u8]>(..)?,
-            };
-            let mut reached_end = true;
-            for row in range {
-                if rows.len() == limit {
-                    reached_end = false;
-                    break;
-                }
-                let (key, _) = row?;
-                if let Ok(key) = <[u8; 64]>::try_from(key.value()) {
-                    rows.push(key);
-                }
-            }
-            (rows, reached_end, cursor)
-        };
+        let CheckSlice {
+            rows,
+            reached_end,
+            on_disk,
+        } = self.check_slice(memo.as_ref(), limit)?;
 
         let mut gone: Vec<[u8; 64]> = Vec::new();
         let mut owner_blobs: Option<(UserId, BlobStore)> = None;
@@ -1200,17 +1296,16 @@ impl Vault {
                     .map_or(0, |total| total.value());
                 per_owner.insert(owner_bytes.as_slice(), mine.saturating_sub(old))?;
             }
-            let mut cursor = txn.open_table(CHECK_CURSOR)?;
             let next = rows.last().filter(|_| !reached_end);
-            match next {
-                Some(last) => {
-                    cursor.insert(CHECK_CURSOR_KEY, last.as_slice())?;
-                }
-                None => {
-                    cursor.remove(CHECK_CURSOR_KEY)?;
-                }
-            }
-            changed = check.removed > 0 || was.as_deref() != next.map(<[u8; 64]>::as_slice);
+            let moved = pace_cursor(
+                &txn,
+                &mut memo,
+                next,
+                on_disk.as_deref(),
+                check.removed > 0,
+                now,
+            )?;
+            changed = check.removed > 0 || moved;
         }
         // A pass over a small vault ends where it began, every round.
         commit_if(txn, changed)?;
@@ -2696,6 +2791,62 @@ mod tests {
     /// Lose a blob the way a disk does: the file goes, the index row stays.
     fn lose_behind_the_index(vault: &Vault, owner: UserId, chunk: &ChunkId) {
         vault.blobs_for(owner).unwrap().damage(chunk).unwrap();
+    }
+
+    /// The idle bench's commits, counted over idle rounds only (2026-10-27):
+    /// one of the two left was the disk check's cursor, moved and written at
+    /// every round. Written now at the first step, when a row is removed, when
+    /// a pass ends, and otherwise at most every [`CHECK_CURSOR_STEP`]; between
+    /// writes it moves in memory, so the pass goes on. A restart resumes at the
+    /// cursor last written: a few rows checked twice, none skipped.
+    #[test]
+    fn red_team_the_disk_checks_cursor_is_not_written_at_every_step() {
+        use std::time::{Duration, Instant};
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        let chunks: Vec<ChunkId> = (1..=8u8)
+            .map(|byte| ChunkId::from_bytes([byte * 0x10; 32]))
+            .collect();
+        for chunk in &chunks {
+            vault.put_chunk(owner, chunk, b"bytes").unwrap();
+        }
+        let start = Instant::now();
+        let minute = Duration::from_secs(60);
+
+        let before = crate::commits();
+        vault.check_disk_at(1, start).unwrap();
+        assert_eq!(
+            crate::commits() - before,
+            1,
+            "the first step's cursor was not written"
+        );
+
+        let before = crate::commits();
+        for step in 1..4 {
+            vault.check_disk_at(1, start + minute * step).unwrap();
+        }
+        assert_eq!(
+            crate::commits() - before,
+            0,
+            "the disk check's cursor was written at every step: a commit every idle round"
+        );
+
+        lose_behind_the_index(&vault, owner, &chunks[4]);
+        assert_eq!(
+            vault.check_disk_at(1, start + minute * 4).unwrap().removed,
+            1,
+            "the fifth row was not the fifth step's: the cursor kept in memory did not move"
+        );
+
+        let before = crate::commits();
+        vault
+            .check_disk_at(1, start + minute * 5 + CHECK_CURSOR_STEP)
+            .unwrap();
+        assert_eq!(
+            crate::commits() - before,
+            1,
+            "the cursor went a whole step unwritten: every restart would begin the pass again"
+        );
     }
 
     #[test]
