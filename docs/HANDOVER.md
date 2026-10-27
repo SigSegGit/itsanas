@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0x
 TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until the Pi and the VM rebuild their Docker clients, item 1 of the list in §0); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: 8ca6e1d
+BASE: 4a475ae
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -88,6 +88,18 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-27, after midnight: the disk check's cursor paced (MVP H).**
+One of the two idle commits: `check_disk`'s cursor, written every round so
+a pass survives restarts. Now `Vault::check_disk_at` keeps it in memory
+(`CursorMemo`) and writes it at the first step, with a removal, at the end
+of a pass, or after `CHECK_CURSOR_STEP` (15 min): a restart resumes at most
+that far back. **50 to 36-40 KB a round** on the bench at one minute.
+Proven by `red_team_the_disk_checks_cursor_is_not_written_at_every_step`
+(three sabotages red). Left: `note_audit`'s reliability record, one commit
+a round -- real counts; pacing it like the cursor would lose up to a step of
+audit passes on a crash, and a failure must be written at once, so it is a
+design question, not a quick cut. Then the snapshot (two a round).
 
 **2026-10-27, late night: what an idle round still commits, counted.**
 Every `.commit()` of `itsanas-store` instrumented in a throwaway worktree
