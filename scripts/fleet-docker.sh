@@ -175,6 +175,22 @@ for acct in $ACCOUNTS; do
     $SUDO docker logs "itsanas-$acct-client-1" 2>&1 | sed -n 's/^ *user id *//p' | head -1
 done
 $SUDO docker ps --filter name=itsanas --format '  {{.Names}}  {{.Status}}'
+
+# Which build each daemon runs, from its snapshot: a re-run whose pull or
+# build failed left the old daemons up, and nothing here said so (the VM,
+# 2026-10-27, seen only in the next fleet run). The checkout's version is
+# what they must say.
+want=$(sed -n 's/^version = "\(.*\)"/\1/p' "$CHECKOUT/Cargo.toml" | head -1)
+say; say "== The build each account's daemon runs (the checkout says $want):"
+sleep 5
+for acct in $ACCOUNTS; do
+    ran=$(sed -n '1s/.* version \([0-9A-Za-z.+-]*\).*/\1/p' "$DATA/$acct/home/status.snapshot" 2>/dev/null)
+    if [ "$ran" = "$want" ]; then
+        printf '  %-10s %s\n' "$acct" "$ran"
+    else
+        printf '  %-10s %s   <- NOT the checkout'"'"'s build: look at the build step above\n' "$acct" "${ran:-unknown (0.1.12 or before, or no snapshot yet)}"
+    fi
+done
 if [ "$REBOOT_FOR_LIMITS" -eq 1 ]; then
     say; say "  REBOOT this machine (sudo reboot) so the containers' memory limits apply;"
     say "  they restart by themselves (restart: unless-stopped)."
