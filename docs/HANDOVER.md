@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0x
 TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until the Pi and the VM rebuild their Docker clients, item 1 of the list in §0); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: 4a475ae
+BASE: 37e45b0
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
