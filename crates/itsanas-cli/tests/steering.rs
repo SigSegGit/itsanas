@@ -221,6 +221,50 @@ fn red_team_a_paused_daemon_takes_in_no_file_until_resumed() {
     );
 }
 
+/// The idle bench of 2026-10-27: an idle daemon rewrote its snapshot at every
+/// two-second pass of its loop, most of an idle node's disk writes. Through
+/// the real loop: once settled, a daemon with nothing to do leaves the stamp
+/// alone for ten seconds -- five passes -- and a file dropped in the folder is
+/// in the snapshot within seconds, not at the next half-minute heartbeat.
+/// Sabotage: the snapshot written at every pass; a folder change not passed
+/// on as news.
+#[test]
+#[ignore = "two Argon2id derivations and a running daemon; the release job runs it"]
+fn red_team_an_idle_daemon_leaves_its_snapshot_alone_between_rounds() {
+    let base = tempfile::tempdir().expect("temp dir");
+    let (home, folder, _) = node_with_folder(base.path(), "idle");
+    let daemon = Daemon::start(&home, base.path().join("daemon.log"));
+    wait_for(&home, &daemon, "the daemon never reported", |_| true);
+
+    std::thread::sleep(Duration::from_secs(3));
+    let (settled, _) = snapshot(&home).expect("a snapshot");
+    std::thread::sleep(Duration::from_secs(10));
+    let (later, _) = snapshot(&home).expect("a snapshot");
+    assert_eq!(
+        later,
+        settled,
+        "an idle daemon rewrote its snapshot within ten seconds: every pass of the \
+         loop writes it, most of an idle node's disk writes\n--- daemon log\n{}",
+        daemon.log()
+    );
+
+    let dropped = Instant::now();
+    std::fs::write(folder.join("news.txt"), b"something to say").expect("write");
+    wait_for(
+        &home,
+        &daemon,
+        "a file dropped in was never reported",
+        |(_, files)| files == 1,
+    );
+    assert!(
+        dropped.elapsed() < Duration::from_secs(12),
+        "a file dropped in took {:?} to reach the snapshot: a change waited for the \
+         heartbeat instead of being written at once\n--- daemon log\n{}",
+        dropped.elapsed(),
+        daemon.log()
+    );
+}
+
 /// A pause asked for while a round is under way. The round is held open by
 /// a "peer" this test owns, which accepts the daemon's connection and says
 /// nothing; the pause and a new file arrive meanwhile. When the peer lets go,

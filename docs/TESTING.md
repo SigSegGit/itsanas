@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-27 — 1405 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 435 are red-team tests.**
+**Last updated: 2026-10-27 — 1406 test functions across 39 binaries, 15 of them
+`#[ignore]`d, plus 2 doctests. 436 are red-team tests.**
 
-**1289 of the 1405 tests have an entry of their own on this page** — an *entry*,
+**1290 of the 1406 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -188,7 +188,7 @@ guarantee and is not one.
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
 | `itsanas-node` withdrawals (`tests/withdrawals.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
-| `itsanas-cli` steering (`tests/steering.rs`) | 9 (9 `#[ignore]`d) |
+| `itsanas-cli` steering (`tests/steering.rs`) | 10 (10 `#[ignore]`d) |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-release` release (`tests/release.rs`) | 14 |
 | `itsanas-testkit` unit | 7 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 31 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 50 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 98 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 99 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1137,7 +1137,7 @@ Two things this test is careful about, both learned the hard way:
 
 ---
 
-# `itsanas-cli` — the daemon loop, driven (9, `#[ignore]`d)
+# `itsanas-cli` — the daemon loop, driven (10, `#[ignore]`d)
 
 `tests/steering.rs`. The only tests that run `sync_loop`: each starts the real
 daemon on a throwaway node and reads the snapshot it writes every time round
@@ -1152,6 +1152,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 | --- | --- |
 | **`red_team_an_unplugged_vault_disk_pauses_the_daemon_and_its_return_resumes_it`** | Unix only (Windows will not rename a directory holding an open file; the marker test below runs everywhere). A vault on a USB disk unplugged under a running daemon: the daemon writes nothing on the bare mount point, does not exit, opens a stand-in vault in `home/vault-while-away` (`Node::open_away`), keeps syncing its own files, refuses to host others with `HOSTING_AWAY`, and prints "hosting again" and restarts on the real vault when the disk returns. Sabotaged. Rewritten on 2026-10-19 for away mode. Found two bugs on its first run: `Vault::blobs_for` rebuilt `owners/<id>/blobs` on the mount point, and the second run inherited the stop flag. |
 | **`red_team_a_paused_daemon_takes_in_no_file_until_resumed`** | A daemon started paused: a file written into the folder is not taken into the store while it loops (two snapshots three seconds apart both say `files 0`), and is after `itsanas resume`. The unit tests in `control` prove the decisions; this proves the loop obeys them -- the CI reviewer's finding on #243: deleting the loop's guard passed every unit test. Sabotaged (`take_in` called while paused): red, with the two below. |
+| **`red_team_an_idle_daemon_leaves_its_snapshot_alone_between_rounds`** | The wiring of `snapshot_due` in the real `sync_loop`, which the unit test above it cannot see: once settled, an idle daemon leaves `status.snapshot`'s stamp alone for ten seconds (five passes), and a file dropped in the folder reaches it within seconds (about one, measured), not at the half-minute heartbeat. Sabotaged under WSL (written at every pass: red; a folder change not passed on as news: 19 s, red). |
 | **`red_team_a_pause_landing_mid_round_takes_in_no_file`** | A pause asked for while a round is under way. A "peer" the test owns accepts the daemon's connection and says nothing, holding the round open; the pause and a new file arrive; the peer lets go. The folder scans inside and at the end of the round re-read the pause, so the store still holds nothing. Sabotaged (either re-read removed): red. Not covered: `halted` stopping the dials to further peers, which needs a second one. |
 | **`red_team_a_paused_daemon_adopts_nothing_its_own_devices_push`** | The paused node's listener keeps serving, by design, so a second device of the account (restored from the 24 words `init` printed) pushes a file into its vault; the store must not adopt it until `resume`. It asserts the push really sent something -- its first run passed on nothing, because a node with no pledge refuses its own account's push. **The test the first version of this guard needed:** a `match` arm that ignored the vault drain's result while the drain ran anyway. Sabotaged (that version put back): red. |
 | **`red_team_a_timed_pause_ends_by_itself_without_resume`** | A real daemon paused through a control file with until = now+4 takes in a file written during the pause by itself once the end passes, never before it and without `itsanas resume`, and logs "pause over, syncing resumed"; Sabotaged (until ignored; comparison inverted): red. |
@@ -1478,7 +1479,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | Test | What it proves |
 | --- | --- |
 | **`red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green`** | Through the daemon's own `write_snapshot`: a real node with one file and no peer writes `version <v> copies 0 of 2`, `brief_status` then reads `exposed … 0 2`, a second round grants no grace, and the version is still where the fleet agent reads it. Sabotaged (the header without the copies): red. |
-| **`red_team_an_idle_daemon_writes_its_snapshot_a_few_times_a_round_not_every_pass`** | The idle bench read with inotify, 2026-10-27: `status.snapshot` was rewritten at every pass of the loop, every two seconds whatever the interval -- 43200 a day, 150 a five-minute round at some 4 KB of journal each, and the whole status counted again each time (164 KB a round at a one-minute round). A day of two-second passes through `snapshot_due`: written after every round (off the half-minute grid), at once when the interval changes, at most every `SNAPSHOT_EVERY` (30 s) otherwise, and never longer than that or a round. 164 to 50 KB a round at a one-minute round on the bench. Sabotaged (a round is no news; the interval change ignored; no shorter wait at a short round; written at every pass): red each. Not covered: the wiring in `sync_loop` (the steering tests, which read the stamp as a heartbeat, pass with it under WSL). |
+| **`red_team_an_idle_daemon_writes_its_snapshot_a_few_times_a_round_not_every_pass`** | The idle bench read with inotify, 2026-10-27: `status.snapshot` was rewritten at every pass of the loop, every two seconds whatever the interval -- 43200 a day, 150 a five-minute round at some 4 KB of journal each, and the whole status counted again each time (164 KB a round at a one-minute round). A day of two-second passes through `snapshot_due`: written after every round (off the half-minute grid), at once when the interval changes, at most every `SNAPSHOT_EVERY` (30 s) otherwise, and never longer than that or a round. 164 to 50 KB a round at a one-minute round on the bench. Sabotaged (a round is no news; the interval change ignored; no shorter wait at a short round; written at every pass): red each. The wiring in `sync_loop` is `red_team_an_idle_daemon_leaves_its_snapshot_alone_between_rounds`'s. |
 | **`red_team_a_relay_that_closes_the_park_is_passed_over_for_the_next`** | `park_loop` over a scripted `ParkSite`: a relay that closed the park is skipped for the next one rather than redialled at every look. Sabotage: no `failed.insert` (red). |
 | **`red_team_a_daemon_enrols_at_its_bound_address_with_the_coordinator_it_uses`** | Red team, 2026-10-23: a key enrolling at its first daemon start ran `register_and_announce`, which announced the configured `listen` beside the rounds' publication of the bound one. `enrol_at_daemon_start` hands the enrolment the bound address (`enrol_once` registers with `register_only`, then announces it); the `registered` marker names the coordinator, and a marker naming another one than the configured coordinator is dropped, so the node enrols there once; the same one never enrols again. Sabotaged (the configured `listen` passed; the stale marker kept): red both. |
 | `the_snapshot_says_which_version_wrote_it_and_still_reads_as_before` | The snapshot's first line ends `version <the running daemon's version>`, after the words every reader parses (`brief_status` reads `snapshot <t> every <s>` in that order, `snapshot_counts` the stamp and the file count): an `update` that restarted nothing left three laptop daemons on 0.1.8 (hand test, 2026-10-22), and the fleet run's V row compares this across machines. Sabotaged (no version; the version before `every`): red both. |
