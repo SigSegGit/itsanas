@@ -84,6 +84,8 @@ ignored -- red each time.
 2. **On the Pi and on the VM**, as the user whose ITSaNAS containers run, in
    the checkout: `git pull && bash scripts/fleet/setup.sh "$(cat fleet-ci.pub)"`.
    It prints `hello`, the test node's snapshot, a refused `sh`, and the host key.
+   **Again after every agent change** (the agent is a copy): `git pull && bash
+   scripts/fleet/setup.sh`, with no key -- it keeps the one it installed.
    A vault moved off the home (`itsanas vault --move`) needs one line added to
    `~/.itsanas-fleet/agent.conf`: `VAULT_<account>="<host path of that vault>"`.
 3. **How the runner gets in.** Either

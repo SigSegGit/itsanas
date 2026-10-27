@@ -2,7 +2,8 @@
 # Put the fleet agent on this machine (the Pi or the VM), once, as the user
 # whose containers run the accounts (scripts/fleet-docker.sh).
 #
-#   bash scripts/fleet/setup.sh "ssh-ed25519 AAAA... itsanas-fleet-ci"
+#   bash scripts/fleet/setup.sh "ssh-ed25519 AAAA... itsanas-fleet-ci"   (the first time)
+#   bash scripts/fleet/setup.sh                                       (after that)
 #
 # What it does, and nothing else:
 #
@@ -24,9 +25,15 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 KEY=${1:-}
+# Run again with no key -- after every agent change, which is the common
+# case -- and the key installed behind the agent last time is kept: nobody
+# has the public half at hand on the Pi months later (2026-10-27).
+if [ -z "$KEY" ] && [ -f "$HOME/.ssh/authorized_keys" ]; then
+    KEY=$(sed -n 's/^restrict,command="[^"]*\/\.itsanas-fleet\/agent\.sh" //p' "$HOME/.ssh/authorized_keys" | head -1)
+fi
 case "$KEY" in
     ssh-ed25519\ *) ;;
-    *) echo "usage: setup.sh \"ssh-ed25519 AAAA... itsanas-fleet-ci\"  (the public half of the CI key)"; exit 2 ;;
+    *) echo "usage: setup.sh \"ssh-ed25519 AAAA... itsanas-fleet-ci\"  (the public half of the CI key; once installed, run it again with nothing)"; exit 2 ;;
 esac
 
 DEST="$HOME/.itsanas-fleet"
@@ -89,7 +96,7 @@ echo
 # localhost there), and the first fleet run skipped the Pi for want of it.
 echo "this machine's host key, for FLEET_KNOWN_HOSTS: one line, the name and port the"
 echo "runner dials first (for example [ngas.fr]:22010), then these two words:"
-key=$(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null)
+key=$(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || true)
 if [ -n "$key" ]; then
     echo "  $key"
 else
