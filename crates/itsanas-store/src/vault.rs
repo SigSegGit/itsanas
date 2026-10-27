@@ -416,7 +416,8 @@ fn order_range(owner: UserId) -> ([u8; ORDER_KEY_LEN], [u8; ORDER_KEY_LEN]) {
 /// Drop `owner`'s mark on `address`, if there is one, inside `txn`: called in
 /// the transaction that stores or removes the chunk, so a mark never outlives
 /// the decision it was about.
-fn unmark(txn: &redb::WriteTransaction, owner: UserId, address: &ChunkId) -> Result<()> {
+/// Whether a mark was removed.
+fn unmark(txn: &redb::WriteTransaction, owner: UserId, address: &ChunkId) -> Result<bool> {
     let marked_at = txn
         .open_table(EVICTABLE)?
         .remove(chunk_key(owner, address).as_slice())?
@@ -425,7 +426,7 @@ fn unmark(txn: &redb::WriteTransaction, owner: UserId, address: &ChunkId) -> Res
         txn.open_table(EVICTION_ORDER)?
             .remove(order_key(owner, at, address).as_slice())?;
     }
-    Ok(())
+    Ok(marked_at.is_some())
 }
 
 impl Vault {
@@ -543,10 +544,13 @@ impl Vault {
             .ok_or_else(|| StoreError::Corrupt("a chunk just written is not on disk".to_owned()))?;
         // Indexed whether or not it was new: a blob present without its index
         // row is exactly the state that makes a reconciliation disagree for
-        // ever, and re-inserting an existing key costs nothing.
+        // ever. But committed only if that changed something: a commit is
+        // some 24 KB whatever it holds, and a peer re-offering a chunk held
+        // here at its size did so in the first rounds after a start.
         let txn = self.db.begin_write()?;
+        let old;
         {
-            let old = txn
+            old = txn
                 .open_table(CHUNKS)?
                 .insert(chunk_key(owner, address).as_slice(), size)?
                 .map(|old| old.value());
@@ -565,8 +569,12 @@ impl Vault {
         // Stored again, so wanted again: an owner that re-sends a chunk it
         // marked is counting this copy, and evicting it later would take a
         // copy the owner believes in.
-        unmark(&txn, owner, address)?;
-        txn.commit()?;
+        let unmarked = unmark(&txn, owner, address)?;
+        if old == Some(size) && !unmarked {
+            txn.abort()?;
+        } else {
+            crate::commit(txn)?;
+        }
         unsure.defuse();
         Ok(stored)
     }
@@ -1770,6 +1778,45 @@ mod tests {
 
     fn keys(byte: u8) -> UserKeys {
         UserKeys::derive(&MasterSecret::from_bytes([byte; 32]))
+    }
+
+    /// The idle bench of 2026-10-27, its commits counted: a peer offering a
+    /// chunk this vault already holds -- in the first rounds after a start,
+    /// between two accounts hosting each other -- re-indexed it and committed, "costing
+    /// nothing" as the comment said; a commit is some 24 KB on redb 2
+    /// (`examples/commit_cost.rs`). Unchanged now costs none; a chunk new,
+    /// or one marked evictable (stored again is wanted again), still does.
+    #[test]
+    fn red_team_a_chunk_stored_again_unchanged_costs_no_commit() {
+        let (_dir, vault) = vault();
+        let owner = keys(1).user_id();
+        let address = ChunkId::from_bytes([7; 32]);
+        let before = crate::commits();
+        assert!(vault.put_chunk(owner, &address, b"sealed").unwrap());
+        assert_eq!(crate::commits() - before, 1, "a new chunk was not indexed");
+
+        let before = crate::commits();
+        assert!(!vault.put_chunk(owner, &address, b"sealed").unwrap());
+        assert_eq!(
+            crate::commits() - before,
+            0,
+            "a chunk this vault already held, offered again, cost a commit: one per peer \
+             in the first rounds after a start"
+        );
+
+        vault.mark_evictable(owner, &[address], 1_000).unwrap();
+        let before = crate::commits();
+        vault.put_chunk(owner, &address, b"sealed").unwrap();
+        assert_eq!(
+            crate::commits() - before,
+            1,
+            "a chunk marked evictable and stored again was not unmarked"
+        );
+        assert_eq!(
+            vault.mark_evictable(owner, &[address], 2_000).unwrap(),
+            1,
+            "the chunk stored again was still marked, and would be evicted"
+        );
     }
 
     // Unix only: Windows refuses to rename a directory holding an open file,

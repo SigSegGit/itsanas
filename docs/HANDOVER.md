@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0x
 TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until the Pi and the VM rebuild their Docker clients, item 1 of the list in §0); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: 0950ed7
+BASE: 8ca6e1d
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -88,6 +88,24 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-27, late night: what an idle round still commits, counted.**
+Every `.commit()` of `itsanas-store` instrumented in a throwaway worktree
+(`../itsanas-instr`, an `eprintln!` before each; not committed) and only
+the measured rounds read: **two commits a round**, `check_disk`'s cursor
+and `note_audit`'s reliability record, both real changes, plus two
+snapshots: the bench's 50 KB. The whole-life count had also shown
+`put_chunk` re-indexing a chunk held at its size and `forget_holders`
+committing nothing; both now abort (`crate::commit`, a test-only counter,
+proves it: `red_team_a_chunk_stored_again_unchanged_costs_no_commit`,
+`red_team_forgetting_what_was_never_recorded_costs_no_commit`, three
+sabotages red), but they belong to the first rounds after a start, and
+the idle round's 50 KB did not move. Trap: count over the measured window,
+not the process's life -- the first attempt blamed warm-up commits.
+Fleet run 40577831374 the same evening, after Nicolas's step 1: V still
+SKIP, S vm "0s ago" (the old two-second snapshot) and L vm "agent does not
+report copies" -- the VM still runs the old build and the old agent copy;
+the Pi SKIP on its host key (step 3 not done).
 
 **2026-10-27, night: the snapshot was most of an idle node's writes (MVP
 H, #93).** inotify via ctypes under WSL (the bench copy in the scratchpad,

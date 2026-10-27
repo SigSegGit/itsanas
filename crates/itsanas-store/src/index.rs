@@ -2031,6 +2031,10 @@ impl Index {
             return Ok(());
         }
         let txn = self.db.begin_write()?;
+        // A peer answering "missing" about chunks it never held does so in
+        // the first rounds after a start: such a forget removes nothing, and
+        // is not committed.
+        let mut changed = false;
         {
             let mut holders = txn.open_table(HOLDERS)?;
             let mut holdings = txn.open_table(HOLDINGS)?;
@@ -2043,16 +2047,23 @@ impl Index {
                     .remove(holders::key(chunk, device).as_slice())?
                     .is_some()
                 {
+                    changed = true;
                     bump(&mut counts, device, -1)?;
                     // One copy fewer: may now be short. Queued only when a
                     // record was really removed, so a peer answering
                     // "missing" about chunks it never had queues nothing.
                     placement::enqueue_in(&mut short, &refs, chunk, now_unix())?;
                 }
-                holdings.remove(holders::by_device(device, &tag, chunk).as_slice())?;
+                changed |= holdings
+                    .remove(holders::by_device(device, &tag, chunk).as_slice())?
+                    .is_some();
             }
         }
-        txn.commit()?;
+        if changed {
+            crate::commit(txn)?;
+        } else {
+            txn.abort()?;
+        }
         Ok(())
     }
 
@@ -2677,6 +2688,41 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let index = Index::open(dir.path().join("index.redb"), test_audit_key()).expect("open");
         (dir, index)
+    }
+
+    /// The idle bench of 2026-10-27, its commits counted: a peer answering
+    /// "missing" about chunks it never held -- in the first rounds after a
+    /// start -- had
+    /// `forget_holders` commit a transaction that removed nothing, some 24 KB
+    /// on redb 2. Nothing to forget now costs no commit; a record really
+    /// forgotten still does, and is gone.
+    #[test]
+    fn red_team_forgetting_what_was_never_recorded_costs_no_commit() {
+        let (_dir, index) = index();
+        let (d, other) = (device(1), device(2));
+        let chunks = [chunk(1), chunk(2)];
+        index.record_holders(&chunks[..1], &d, 100).unwrap();
+
+        let before = crate::commits();
+        index.forget_holders(&chunks, &other).unwrap();
+        assert_eq!(
+            crate::commits() - before,
+            0,
+            "forgetting holders that were never recorded cost a commit: one per peer in the first rounds"
+        );
+
+        let before = crate::commits();
+        index.forget_holders(&chunks, &d).unwrap();
+        assert_eq!(
+            crate::commits() - before,
+            1,
+            "a real forget was not committed"
+        );
+        assert_eq!(
+            index.held_by(&d).unwrap(),
+            0,
+            "the record was not forgotten"
+        );
     }
 
     /// `is_locked` takes the lock for an instant; an open landing in that

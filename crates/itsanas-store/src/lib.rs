@@ -64,6 +64,27 @@ pub mod summary;
 pub mod vault;
 pub mod version;
 
+/// Commit `txn`, counted under test, so a test can say that a call which
+/// changed nothing wrote nothing: an idle node's disk writes are its commits
+/// (ROADMAP, "An idle node's disk writes"), whatever the rows say.
+pub(crate) fn commit(txn: redb::WriteTransaction) -> Result<()> {
+    #[cfg(test)]
+    COMMITS.with(|count| count.set(count.get() + 1));
+    txn.commit()?;
+    Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static COMMITS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Commits made on this thread so far ([`commit`]).
+#[cfg(test)]
+pub(crate) fn commits() -> u64 {
+    COMMITS.with(std::cell::Cell::get)
+}
+
 /// How many machines a chunk should be on before it counts as safe.
 ///
 /// Three, because two is one plus a coincidence: a chunk on two machines is one

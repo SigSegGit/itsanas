@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-27 — 1406 test functions across 39 binaries, 15 of them
-`#[ignore]`d, plus 2 doctests. 436 are red-team tests.**
+**Last updated: 2026-10-27 — 1408 test functions across 39 binaries, 15 of them
+`#[ignore]`d, plus 2 doctests. 438 are red-team tests.**
 
-**1290 of the 1406 tests have an entry of their own on this page** — an *entry*,
+**1292 of the 1408 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -158,7 +158,7 @@ guarantee and is not one.
 | `itsanas-wire` unit | 17 |
 | `itsanas-tls` unit | 24 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
-| `itsanas-store` unit | 224 |
+| `itsanas-store` unit | 226 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
 | `itsanas-store` integration (`tests/store.rs`) | 48 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
@@ -213,11 +213,11 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 64 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 55 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 61 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 62 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 31 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 50 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 51 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 99 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
@@ -462,7 +462,7 @@ These protect the test data itself. See [TEST-USERS.md](TEST-USERS.md).
 
 ---
 
-# `itsanas-store` — unit tests (185, plus the 39 vault tests below)
+# `itsanas-store` — unit tests (186, plus the 40 vault tests below)
 
 | **`red_team_a_holder_silent_past_the_window_stops_counting_as_a_copy`** | The ledger was optimistic in the one direction that loses data. Repair drained `under_replicated`, which counted **every holder record whatever its age** — so a machine that died six months ago still counted as one of your three copies and repair never fired. The only thing that withdraws those records is a *failed audit*, which needs that machine to answer; a dead one never does. The account believed it had three copies, had one, and nothing said otherwise. |
 | `a_holder_that_keeps_answering_keeps_counting` | The other half, and what stops the window being a data-loss machine of its own: a window that expired live records would re-replicate a healthy fleet's entire content on a schedule. |
@@ -547,6 +547,7 @@ What placement needs of the ledger: how long a device has been seen, which chunk
 | `a_known_device_is_noted_reached_or_not` | A dial that fails counts against a device already known, and a success counts for it. |
 | `a_chunk_s_first_reference_queues_it_and_a_second_does_not_add_a_row` | A chunk enters the short queue on its first reference (0 to 1), in the transaction that takes it. |
 | `forgetting_holders_queues_only_the_records_really_removed` | `forget_holders` queues the chunks it removed a record for, not the ones it was asked about and did not hold. |
+| **`red_team_forgetting_what_was_never_recorded_costs_no_commit`** | The idle bench's commits, counted (2026-10-27): a peer answering "missing" about chunks it never held, in the first rounds after a start, had `forget_holders` commit a transaction that removed nothing, some 24 KB on redb 2. Counted by `crate::commit` (a test-only counter): nothing to forget costs no commit, a real forget one and the record is gone. Sabotaged (always committed): red. |
 | `a_device_leaving_queues_every_chunk_it_held` | `forget_device` for a leaving device queues its recorded chunks. |
 | `a_draining_device_queues_its_chunks_with_the_grant` | `note_draining` queues the device's recorded chunks. |
 | `a_host_paused_by_its_audits_queues_its_chunks_once` | The audit transition into paused queues the host's chunks; a second failed audit does not. |
@@ -837,7 +838,7 @@ failure reproduces exactly. `tests/convergence.rs`.
 
 ---
 
-# `itsanas-store` — the vault (39 of the store's unit tests)
+# `itsanas-store` — the vault (40 of the store's unit tests)
 
 Storage for *other people's* data. The vault holds no keys and no constructor
 takes one, so these tests are about accepting, serving and accounting — never
@@ -848,6 +849,7 @@ about reading.
 | `a_disk_check_that_finds_nothing_to_do_writes_nothing` | `check_disk` runs every round; on a small vault a pass ends where it began, and nothing removed with the cursor unchanged is an aborted write, not a commit (`commit_if`). Sabotaged (always commit): red. |
 | **`red_team_the_claims_presented_last_are_handed_out_past_sixteen_devices`** | A host keeps the claim of every device that ever presented one, withdrawn or not, and answered `Request::Claims` with the first `MAX_CLAIMS_PER_ANSWER` (16) by device id: past sixteen devices ever (ten live since #303, plus a few replaced), live ones whose ids sorted last were missing from every answer, and a sibling learning the roster from that host never admitted them. Found 2026-10-23 building the fleet's CI member, which would have added a device a night. `CLAIM_SEEN` in vault.rs numbers each presentation and the answer is the sixteen presented last, so withdrawn devices, which stop presenting, fall out; no protocol change, older clients still get at most sixteen. A device presenting again comes back; another account's claims never count. Sabotaged (no ordering; presentations not recorded): red both. |
 | **`red_team_a_vault_whose_disk_went_writes_nothing_on_the_bare_mount_point`** | Unix only, as above. With `vault.redb` gone from its root (the disk unplugged under an open vault), storing refuses and no directory is created on the bare mount point. |
+| **`red_team_a_chunk_stored_again_unchanged_costs_no_commit`** | The idle bench's commits, counted: a peer offering a chunk this vault already held, in the first rounds after a start between two accounts hosting each other, re-indexed it and committed ("costs nothing", the comment said; a commit is some 24 KB). Unchanged now costs none; a new chunk does, and so does one marked evictable, which is unmarked (stored again is wanted again). Sabotaged (always committed; an unmark not counted as a change): red each. |
 | **`red_team_forgetting_a_deleted_owner_frees_its_bytes_and_nobody_elses`** | `Vault::forget_owner`, run when an account's coordinator hands over its signed deletion: the owner's chunks, chains and blob directory go, the running total the pledge reads stays equal to what is left, another owner's bytes are untouched, and the owner leaves `owners()`. Sabotaged (chain bytes kept): red. |
 | **`red_team_held_bytes_for_one_owner_needs_no_walk`** | `Node::held_for_others` runs on every reconcile pass and called `stats_for`, two walks of our own blobs each time. `held_bytes_for` reads a per-owner running total (the vault_owner_chunk_bytes table, changed in the chunk's own transaction) plus the owner's chain rows. It equals the walk after puts and a removal, keeps its answer when a blob file is deleted behind the vault's back (so it did not walk), and an unclean open rebuilds it from the disk. Sabotaged twice (`stats_for` again; the rebuild not writing the per-owner rows): red. |
 | **`a_segment_with_a_bad_signature_is_refused_before_it_is_stored`** | A host that stored unverified envelopes would be a convenient way to attribute garbage to someone else's device. |
