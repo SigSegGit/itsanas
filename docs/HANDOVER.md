@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: green every night since run 40006387602 (S, B, F pass; Pi SKIP on its host key, V SKIP until v0.1.13 is signed and deployed by Nicolas); a session reads the latest run's SKIP lines and the member's repeated lines, and fixes what they find -- next lead: why the runner dials the sleeping laptop every round
+TITLE: The fleet tested by CI: green every night (S, B, F pass; Pi SKIP on its host key, V SKIP until v0.1.13 is signed and deployed by Nicolas); a session reads the latest run's SKIP lines and the member's repeated lines, and fixes what they find -- next lead: C vm:nicolas holds nothing for test
 WRITTEN-AT: 2026-10-27
-BASE: a4e8978
+BASE: 39ea415
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -46,6 +46,35 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-27, later: a machine of the account that is off is dialled
+less and less, not at every round.** The same run's other repeated line,
+31 x "relay:<pi>@82.67.35.234:9798: ... this peer relays nothing for this
+device", is **not** the Pi's park bug (the 10-25 paragraph below assumed
+it): it is the same sleeping laptop `test` node, dialled through the relay
+it once parked on, right after the direct dial -- 31 and 31. Now a device
+of the book that answered nowhere waits `QUIET_AFTER_MISS` (1 min), doubled
+at each round it missed, up to `QUIET_AT_MOST` (30 min), before
+`Contact::dialable` offers it again (`crates/itsanas-node/src/contact.rs`,
+`Contact::failed` counts one miss per round); `worked`, `round_reached`, an
+address the book did not hold, and discovery hearing it end the wait at
+once. A machine back on loses little: it dials the others itself on start,
+and a session pushes and pulls both ways (`round_placed`). The ring
+(`placing::unreached`) counts hours tried, and 30 min plus a round keeps
+every hour tried. Proven by
+`red_team_a_machine_that_stays_off_is_dialled_about_fifty_times_a_day_not_288`,
+`red_team_a_machine_back_on_is_dialled_at_once`,
+`a_machine_that_fails_at_three_addresses_in_one_round_missed_once`; seven
+sabotages (no wait, no cap, each of the four doors, per-address counting),
+red each time. Two existing tests changed premise, honestly: in
+`red_team_a_private_address_of_another_house_is_not_dialled` the Pi now
+answers at its public address and only dialled addresses fail. Not covered
+(Rodin): configured peers (`dial_configured`) and the LAN loop are outside
+the rule, so a configured peer that is off still costs 5 s a round; and no
+test composes the wait with a coordinator handing a new address at every
+read (bounded by the read back-off and `RESET_FLOOR`, reasoned, not tested).
+Traps: a Python heredoc in Git Bash broke on the `'''` of a script -- write
+the script with the Write tool.
 
 **2026-10-27: a dial over several addresses says what each one answered.**
 Run 40478381966 (green, 5 checked; Pi SKIP host key, V SKIP 0.1.12, C
@@ -1319,16 +1348,17 @@ Detail and measurements are in ROADMAP.md; this is the map.
       Done 2026-10-23: versions in the snapshot and the fleet's V row.
       Done 2026-10-25: a caller served through a park no longer sets the
       relay aside (§0). Done 2026-10-27: a dial over `v4,[v6]` names what
-      each address answered (§0). Still open, for the next session, in
-      order: (i) read the next run's member log, now that the laptop line
-      says what IPv4 answered, and find why the runner dials the laptop
-      (`86.238.26.80:9811`, not a fleet machine) every round -- the contact
-      book (`crates/itsanas-node/src/contact.rs`) dials every device the
-      account's book names; a machine that never answers might belong
-      behind the probe-round rule that private addresses already follow
-      (`PRIVATE_PROBE_EVERY`), and a red-team test would count the dials
-      to a dead public address over N rounds; (ii) C vm:nicolas holding
-      nothing for `test`. V stays SKIP until a release carries the
+      each address answered (§0). Done 2026-10-27: a machine of the
+      account that is off waits up to 30 min between dials
+      (`QUIET_AFTER_MISS`, §0); the next run's member log should show the
+      laptop line about 15 times in twenty minutes at the runner's 30 s
+      round, not 31, and the relay refusals with it. Still open, for the
+      next session: C vm:nicolas holding nothing for `test` -- the row is
+      `scripts/fleet/run.sh` C, which runs `acceptance.sh C scan` as
+      `nicolas` on the VM over the vault at
+      `/home/itsomeone/itsanas-data/nicolas/home/vault`; find whether
+      `nicolas` is a host of `test` at all (its pledge, `placements`, the
+      `test` node's `status` on the VM) before reading it as a scan bug. V stays SKIP until a release carries the
       version line and the VM runs it: the workspace is 0.1.13 from
       2026-10-25 for that; tag `v0.1.13`, `sign-release` (Nicolas's key and
       passphrase, never a session's), then `itsanas update` on the Pi and
