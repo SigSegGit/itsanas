@@ -292,6 +292,32 @@ else
     ok "no other workflow reads a fleet secret"
 fi
 
+echo "setup.sh installs the key once, and keeps it when run again"
+# Run again after every agent change (it copies agent.sh), and the key it
+# needs as its argument was the one thing nobody kept at hand: on
+# 2026-10-27 the handover had to tell Nicolas to sed it out of
+# authorized_keys. A fake HOME with what fleet-docker.sh leaves behind.
+SETUP_HOME="$WORK/setup-home"
+mkdir -p "$SETUP_HOME/ITSaNAS-test" "$SETUP_HOME/itsanas-data/test/home"
+printf 'snapshot %s every 300\naccount\n  user id         %s\n' "$(date +%s)" "$TEST_UID" \
+    >"$SETUP_HOME/itsanas-data/test/home/status.snapshot"
+CI_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForCheckFleetOnly0000000000000000 itsanas-fleet-ci"
+setup() { HOME="$SETUP_HOME" bash scripts/fleet/setup.sh "$@" >"$WORK/setup.log" 2>&1; }
+installed() { grep -c 'restrict,command=".*/\.itsanas-fleet/agent\.sh" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKey' "$SETUP_HOME/.ssh/authorized_keys" 2>/dev/null; }
+if setup; then
+    bad "setup.sh with no key and none installed did not refuse: $(head -2 "$WORK/setup.log")"
+else
+    ok "setup.sh with no key and none installed refuses"
+fi
+setup "$CI_KEY" && [ "$(installed)" = 1 ] &&
+    ok "setup.sh installs the key behind the agent" || bad "setup.sh did not install the key: $(head -3 "$WORK/setup.log")"
+echo "# an old line" >"$SETUP_HOME/.itsanas-fleet/agent.sh"
+if setup && [ "$(installed)" = 1 ] && grep -q 'SSH_ORIGINAL_COMMAND' "$SETUP_HOME/.itsanas-fleet/agent.sh"; then
+    ok "setup.sh run again with no key keeps the key installed and refreshes the agent"
+else
+    bad "setup.sh run again with no key did not keep the key (installed $(installed)): $(head -3 "$WORK/setup.log")"
+fi
+
 echo "the Windows agent refuses the same requests"
 
 if command -v pwsh >/dev/null 2>&1; then

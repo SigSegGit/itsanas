@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0x
 TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until the Pi and the VM rebuild their Docker clients, item 1 of the list in §0); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: 5515203
+BASE: c83e5bf
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -36,11 +36,11 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
    itsomeone@ngas.fr` (`-p 22010` for the Pi), then there:
 
        cd ~/itsanas && git pull --ff-only && bash scripts/fleet-docker.sh vm
-       bash scripts/fleet/setup.sh "$(sed -n 's/^restrict,command="[^"]*agent.sh" //p' ~/.ssh/authorized_keys | head -1)"
+       bash scripts/fleet/setup.sh
 
    (`... fleet-docker.sh pi` on the Pi; the accounts exist, so it asks
-   nothing; the Pi compiles for a while). The `sed` takes back the CI key
-   `setup.sh` installed last time, which it needs as its argument.
+   nothing; the Pi compiles for a while). `setup.sh` with no argument keeps
+   the CI key it installed last time (since #328).
 2. Both host keys into CI (the Pi is SKIP on its key), laptop PowerShell:
 
        $pi = (ssh -i $HOME\.ssh\itsanas_session -p 22010 itsomeone@ngas.fr cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
