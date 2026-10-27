@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: green every night (S, B, F pass; Pi SKIP on its host key, V SKIP until v0.1.13 is signed and deployed by Nicolas); a session reads the latest run's SKIP lines and the member's repeated lines, and fixes what they find -- next lead: read the C SKIP line once Nicolas re-runs setup.sh on the VM
+TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until v0.1.13 is deployed); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: d3bd22f
+BASE: 0160a94
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -28,7 +28,7 @@ session cannot do any of them):
 2. The Pi's line of `FLEET_KNOWN_HOSTS` (FLEET-CI.md, "FLEET_KNOWN_HOSTS
    from Windows PowerShell"): the Pi is SKIP every night on its host key.
 3. `scripts/fleet/setup.sh` again on the VM (and the Pi), so the agent copy
-   there carries the C SKIP's reason (§0, 2026-10-27).
+   there carries the C SKIP's reason and the L row's count (§0, 2026-10-27).
 4. Review Dependabot #320 (fleet.yml actions; CI green, blocked on review).
    #256 (`feat/mcp-server`) is his own.
 
@@ -58,6 +58,23 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-27, night: a fleet row L (§8 0y).** Test L had never run on the
+fleet. `run.sh` now writes a row L per machine from what its `test` node
+counts (`copies H of W [since T]`, the snapshot header the icon draws;
+`agent.sh` and `agent.ps1` `status` print `copies ...` or `copies none`):
+safe; NOT safe past the grace (reads `exposed`, `>=` as in `Copies::exposed`
+-- Rodin caught a `>` there); NOT safe within the two-round grace. It does
+not claim the icon's colour: a pause wins over `exposed` in `brief_status`.
+All PASS -- the row tests the telling, and says the shortfall in words. FAIL
+only for a daemon naming its build that stores files and counts nothing;
+SKIP for 0.1.12 daemons, a node storing nothing, an agent copy without the
+line. Proven in `check-fleet.sh` (five checks, red first; three sabotages:
+the agent never reporting, no FAIL branch, no grace -- red each). The
+runner's row works from the next night (it runs this checkout); the Pi's
+and the VM's after `setup.sh` again (item 3 of the list above). Not
+covered: `agent.ps1`'s line was checked by hand in Windows PowerShell, not
+by `check-fleet.sh`, which needs `pwsh`.
 
 **2026-10-27, last: the C SKIP says why.** `nicolas` on the VM held
 nothing for `test` every night and the row said only that. One lead from
@@ -1396,7 +1413,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       the VM over his own SSH (the CI key runs only the kit).
    y. 🟨 **Test L: told, unasked, that the files are not safe yet.** Built
       2026-10-23 (see §0; MVP.md L): `safety.rs`, `brief_status`'s
-      `exposed`, the three trays and Settings. **Left:** seen on a real
+      `exposed`, the three trays and Settings. Done 2026-10-27: a nightly
+      fleet row L with each machine's count (§0, FLEET-CI.md). **Left:** seen on a real
       desktop (Windows balloon, `notify-send`, macOS notification), which is
       Nicolas's at the next hand test; the phone (the Android app shows no
       copy count); and the other ARCHITECTURE §7 rows (no round for N

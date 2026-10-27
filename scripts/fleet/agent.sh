@@ -205,6 +205,10 @@ case "$*" in
                 # The running daemon's version, from the release after 0.1.12 on.
                 ver=$(sed -n '1s/.* version \([0-9A-Za-z.+-]*\).*/\1/p' "$snapshot")
                 printf 'version %s\n' "${ver:-unknown}"
+                # The copies the daemon counted, which its icon draws
+                # (MVP.md L, from 0.1.13 on): "2 of 2", "1 of 2 since T".
+                copies=$(sed -n '1s/.* copies \([0-9][0-9]* of [0-9][0-9]*\( since [0-9][0-9]*\)*\).*/\1/p' "$snapshot")
+                printf 'copies %s\n' "${copies:-none}"
                 grep -E '^  (username|device|files|live chunks)' "$snapshot"
                 ;;
             *)

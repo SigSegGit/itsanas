@@ -128,6 +128,9 @@ switch ("$($w[0]) $(if ($n -gt 1) { $w[1] })") {
             }
             $version = if ($lines[0] -match ' version ([0-9A-Za-z.+-]+)') { $Matches[1] } else { 'unknown' }
             Write-Output "version $version"
+            # The copies the daemon counted, which its icon draws (MVP.md L).
+            $copies = if ($lines[0] -match ' copies (\d+ of \d+( since \d+)?)') { $Matches[1] } else { 'none' }
+            Write-Output "copies $copies"
             $lines | Where-Object { $_ -match '^  (username|device|files|live chunks)' }
             exit 0
         }

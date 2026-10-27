@@ -49,8 +49,12 @@ machine() {
         mkdir -p "$other/vault/owners/$TEST_UID"
         head -c 4096 /dev/urandom >"$other/vault/owners/$TEST_UID/chunk"
     fi
-    printf 'snapshot %s every 300 version %s\naccount\n  username        test\n' \
-        "$(($(date +%s) - age))" "${VERSION:-0.1.13}" >"$WORK/$name/test/status.snapshot"
+    # COPIES: the copies part of the header ("2 of 2", "1 of 2 since T"),
+    # empty for none; FILES: the files line.
+    local copies=${COPIES-2 of 2}
+    printf 'snapshot %s every 300 version %s%s\naccount\n  username        test\nyour data\n  files           %s\n' \
+        "$(($(date +%s) - age))" "${VERSION:-0.1.13}" "${copies:+ copies $copies}" "${FILES:-3}" \
+        >"$WORK/$name/test/status.snapshot"
     cat >"$WORK/$name/agent.conf" <<EOF
 FOLDER="$folder"
 KIT="$PWD/scripts/acceptance.sh"
@@ -168,7 +172,7 @@ machine vm "$WORK/synced"
 fleet "pi vm" "vm:other"
 status=$?
 expect pass "two machines that share the file: S, B, F and C pass" "" "$status"
-for scenario in "PASS  V: every machine that says runs 0.1.13" "PASS  S pi" "PASS  B pi -> vm" "PASS  F pi -> vm" "PASS  F vm: still absent" "PASS  C vm:other"; do
+for scenario in "PASS  V: every machine that says runs 0.1.13" "PASS  S pi" "PASS  B pi -> vm" "PASS  F pi -> vm" "PASS  F vm: still absent" "PASS  C vm:other" "PASS  L pi: the test node counts 2 of 2 copies elsewhere: safe"; do
     grep -qF "$scenario" "$WORK/run.log" || bad "the passing run has no '$scenario'"
 done
 
@@ -211,6 +215,35 @@ rm "$WORK/bare/other/status.snapshot"
 fleet "pi bare" "bare:other"
 grep -qE '^SKIP  C bare:other: .*no status\.snapshot' "$WORK/run.log" ||
     bad "a C SKIP on a host whose daemon never ran did not say so: $(grep 'C bare' "$WORK/run.log")"
+
+# L: what each machine's test node counts, which is what its icon draws
+# (MVP.md L). Short past the grace is said, and still PASS: the row tests
+# that the machine tells, not that the fleet is full.
+COPIES="1 of 2" machine short "$WORK/synced"
+fleet "pi short" ""
+grep -qE '^PASS  L short: the test node counts 1 of 2 copies elsewhere: NOT safe, past the grace, so it reads exposed' "$WORK/run.log" ||
+    bad "a machine short of copies was not said NOT safe: $(grep ' L short' "$WORK/run.log")"
+COPIES="1 of 2 since $(date +%s)" machine saving "$WORK/synced"
+fleet "pi saving" ""
+grep -qE '^PASS  L saving: .*1 of 2 .*within the grace' "$WORK/run.log" ||
+    bad "a shortfall inside its grace was not told apart: $(grep ' L saving' "$WORK/run.log")"
+# At the second the grace ends, the icon reads exposed (`Copies::exposed`
+# uses >=): the row must not say "within the grace" then. The agent's clock
+# and the snapshot's are the same machine's, read a moment apart.
+COPIES="1 of 2 since $(( $(date +%s) - 600 ))" machine edge "$WORK/synced"
+fleet "pi edge" ""
+grep -qE '^PASS  L edge: .*past the grace' "$WORK/run.log" ||
+    bad "a shortfall exactly two rounds old was said within the grace: $(grep ' L edge' "$WORK/run.log")"
+# A daemon that names its build and stores files, and counts no copies:
+# its icon cannot say the files are not safe. FAIL.
+COPIES="" machine blind "$WORK/synced"
+fleet "pi blind" ""
+expect fail "a daemon storing files that counts no copies is FAIL L" "^FAIL  L blind" $?
+# Nothing stored: no question to answer, not a failure.
+COPIES="" FILES=0 machine empty "$WORK/synced"
+fleet "pi empty" ""
+grep -qE '^SKIP  L empty: ' "$WORK/run.log" ||
+    bad "a test node storing nothing was not SKIP L: $(grep ' L empty' "$WORK/run.log")"
 
 machine stopped "$WORK/synced" 3000
 fleet "pi stopped" ""

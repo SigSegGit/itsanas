@@ -378,8 +378,10 @@ Settings page says it too. Proven by
 `red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green` and the
 trays' comparison in `check-installers.sh`; **the notification call itself**
 (`notify-send`, a Windows balloon, `display notification`) runs on no CI
-runner and has been seen on no screen. To pass: a person on the fleet sees
-it, unasked. Not covered: the phone, and a node whose holders are only
+runner and has been seen on no screen. Since 2026-10-27 the nightly fleet
+run has a row L that says what each machine's `test` node counts
+(FLEET-CI.md): the count the icon draws, read on the real machines, not
+the icon itself. To pass: a person on the fleet sees it, unasked. Not covered: the phone, and a node whose holders are only
 quiet (records past the freshness horizon count as no copy, so a laptop back
 from a week away can be orange for one round).
 
