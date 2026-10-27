@@ -58,7 +58,8 @@ pub const MAX_CONTROL_BYTES: u64 = 4096;
 
 /// The shortest interval a person can ask for.
 ///
-/// Every round dials each machine the account knows, so the floor is what
+/// Every round dials each machine the account knows that is on or due its
+/// next try (`contact::QUIET_AFTER_MISS`), so the floor is what
 /// keeps a slip of the finger -- `interval 0`, or a file edited by hand -- from
 /// becoming a daemon that dials in a tight loop, hammering its peers and
 /// spending somebody's mobile data. `--interval`, the operator's flag, keeps

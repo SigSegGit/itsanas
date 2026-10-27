@@ -1868,8 +1868,12 @@ fn dial_listed(
     );
     // A private address only of a machine heard on this LAN, or one that
     // answered, or at a probe round: two houses on 192.168.1.x are not one
-    // network, and another VLAN or a VPN may be (`Contact::dialable`).
-    for (device, address) in contact.dialable(|device| neighbourhood.heard_here(device), is_me) {
+    // network, and another VLAN or a VPN may be (`Contact::dialable`). A
+    // machine that answered nowhere waits a little longer at each miss, up
+    // to half an hour (`QUIET_AFTER_MISS`): most of an account is off.
+    let now = Instant::now();
+    for (device, address) in contact.dialable(|device| neighbourhood.heard_here(device), is_me, now)
+    {
         if halted(node, shutdown) || reached.contains(&device) {
             continue;
         }
@@ -1888,7 +1892,7 @@ fn dial_listed(
             true,
             scope,
         ) else {
-            contact.failed(device, &address);
+            contact.failed(device, &address, Instant::now());
             continue;
         };
         reached.insert(outcome.device);
