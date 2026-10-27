@@ -203,6 +203,12 @@ struct Quiet {
     round: u64,
     /// Not dialled before this ([`QUIET_AFTER_MISS`]).
     until: Instant,
+    /// An address the book did not hold arrived since the last miss: dialled
+    /// at the next round, once, whatever `until` says. Not a reset of
+    /// `misses`: a coordinator listing a new port at every read bought three
+    /// dials a read that way (the ramp's 1, 2, 4 minutes each time), and buys
+    /// one now.
+    news: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -568,8 +574,11 @@ impl Contact {
             return;
         }
         // An address the book did not hold: the machine may have moved, and
-        // is dialled there at the next round ([`QUIET_AFTER_MISS`]).
-        self.quiet.remove(&device);
+        // is dialled there at the next round ([`QUIET_AFTER_MISS`]) -- once:
+        // the wait it was in goes on doubling if that fails too.
+        if let Some(quiet) = self.quiet.get_mut(&device) {
+            quiet.news = true;
+        }
         let candidates = self.book.entry(device).or_default();
         candidates.push(Candidate {
             address: address.to_owned(),
@@ -636,7 +645,9 @@ impl Contact {
             misses: 0,
             round,
             until: now,
+            news: false,
         });
+        quiet.news = false;
         if quiet.misses == 0 || quiet.round != round {
             quiet.misses = quiet.misses.saturating_add(1);
             quiet.round = round;
@@ -884,7 +895,7 @@ impl Contact {
                     || self
                         .quiet
                         .get(device)
-                        .is_none_or(|quiet| now >= quiet.until)
+                        .is_none_or(|quiet| quiet.news || now >= quiet.until)
             })
             .filter(|(device, candidate)| {
                 probe
@@ -2000,6 +2011,60 @@ mod tests {
                 .iter()
                 .any(|(device, _)| *device == laptop),
             "one round's failures at three addresses counted as three misses"
+        );
+    }
+
+    /// Rodin on #322: the wait ends on an address the book did not hold, so
+    /// a coordinator listing a new port at every read could have this node
+    /// dial a machine that is off at every read. Reads are backed off and
+    /// floored on their own (`REREAD_AFTER_MISS`, `RESET_FLOOR`), so that
+    /// buys at most one dial a read: over a day of 30 s rounds, a few hundred,
+    /// never the 2880 of a dial a round.
+    #[test]
+    fn red_team_a_coordinator_listing_a_new_port_every_read_buys_a_dial_a_read_at_most() {
+        let laptop = device(2);
+        let every = Duration::from_secs(30);
+        let day = Duration::from_secs(24 * 3600);
+        let start = Instant::now();
+        let mut contact = Contact::new();
+        contact.published(Some(HOME), start);
+        let (mut reads, mut dials) = (0u32, 0u32);
+        let rounds = u32::try_from(day.as_secs() / every.as_secs()).expect("rounds");
+        for round in 0..rounds {
+            let now = start + every * round;
+            let due = contact.due(Some(HOME), now);
+            contact.asked(&due, now);
+            if due.publish {
+                contact.published(Some(HOME), now);
+            }
+            if due.read {
+                reads += 1;
+                let moved = format!("203.0.113.2:{}", 10_000 + round);
+                contact.read(&[(laptop, moved)], &[], &[], now);
+            }
+            let dialled: Vec<String> = contact
+                .dialable(|_| Some(false), |_| false, now)
+                .into_iter()
+                .filter(|(device, _)| *device == laptop)
+                .map(|(_, address)| address)
+                .collect();
+            if !dialled.is_empty() {
+                dials += 1;
+            }
+            for address in &dialled {
+                contact.failed(laptop, address, now);
+            }
+            contact.round_reached(&BTreeSet::new(), now);
+        }
+        assert!(
+            dials <= reads + 60,
+            "a coordinator handing out a new port bought {dials} dials of a machine that is \
+             off with {reads} reads: more than one a read plus the wait's own"
+        );
+        assert!(
+            dials <= 500,
+            "a coordinator handing out a new port at every read had this node dial a \
+             machine that is off {dials} times in a day of 30 s rounds"
         );
     }
 

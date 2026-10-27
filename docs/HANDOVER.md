@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0x
 TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until v0.1.13 is deployed); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: 0160a94
+BASE: 25e005f
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -58,6 +58,16 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-27, late night: a new address no longer resets a machine's
+wait.** Rodin's question on #322 as a test
+(`red_team_a_coordinator_listing_a_new_port_every_read_buys_a_dial_a_read_at_most`):
+a coordinator listing a new port for an off machine at every read bought
+948 dials in a day of 30 s rounds for 324 reads, because news *removed*
+the wait and the ramp restarted at 1 min each time. Now news sets
+`Quiet::news`, one dial at the next round, and a failure there doubles on
+from where the wait was: one dial a read at most. Sabotaged (news resets
+the wait; no news door): red each.
 
 **2026-10-27, night: a fleet row L (§8 0y).** Test L had never run on the
 fleet. `run.sh` now writes a row L per machine from what its `test` node
@@ -118,7 +128,9 @@ answers at its public address and only dialled addresses fail. Not covered
 (Rodin): configured peers (`dial_configured`) and the LAN loop are outside
 the rule, so a configured peer that is off still costs 5 s a round; and no
 test composes the wait with a coordinator handing a new address at every
-read (bounded by the read back-off and `RESET_FLOOR`, reasoned, not tested).
+read (bounded by the read back-off and `RESET_FLOOR`, reasoned, not tested)
+-- tested the same night, and the reasoning was wrong by three: see the
+next paragraph up.
 Traps: a Python heredoc in Git Bash broke on the `'''` of a script -- write
 the script with the Write tool.
 
