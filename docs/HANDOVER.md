@@ -10,15 +10,27 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: green every night (S, B, F pass; Pi SKIP on its host key, V SKIP until v0.1.13 is signed and deployed by Nicolas); a session reads the latest run's SKIP lines and the member's repeated lines, and fixes what they find -- next lead: C vm:nicolas holds nothing for test
+TITLE: The fleet tested by CI: green every night (S, B, F pass; Pi SKIP on its host key, V SKIP until v0.1.13 is signed and deployed by Nicolas); a session reads the latest run's SKIP lines and the member's repeated lines, and fixes what they find -- next lead: read the C SKIP line once Nicolas re-runs setup.sh on the VM
 WRITTEN-AT: 2026-10-27
-BASE: 39ea415
+BASE: d3bd22f
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**Waiting on Nicolas, a few minutes each, in this order** (2026-10-27; a
+session cannot do any of them):
+1. Release v0.1.13: tag `v0.1.13`, `sign-release` (his key and
+   passphrase), then `itsanas update` on the Pi and the VM over his own SSH.
+   Until then V is SKIP every night and the Pi parks with the 0.1.12 bug.
+2. The Pi's line of `FLEET_KNOWN_HOSTS` (FLEET-CI.md, "FLEET_KNOWN_HOSTS
+   from Windows PowerShell"): the Pi is SKIP every night on its host key.
+3. `scripts/fleet/setup.sh` again on the VM (and the Pi), so the agent copy
+   there carries the C SKIP's reason (§0, 2026-10-27).
+4. Review Dependabot #320 (fleet.yml actions; CI green, blocked on review).
+   #256 (`feat/mcp-server`) is his own.
 
 **2026-10-22, hand test** (laptop with 3 accounts, Mandarine's Mac, a USB
 key). Passed: O doctor; M isolation between accounts; a vault move through the
@@ -46,6 +58,23 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-27, last: the C SKIP says why.** `nicolas` on the VM held
+nothing for `test` every night and the row said only that. One lead from
+the runner's log, not a conclusion: the member's 2 x "refused 1 offer(s):
+its pledge is full or zero" are the **Pi**'s `test` node
+(82.67.35.234:9798), so that node hosts nothing more; the VM's `nicolas`
+is another account the runner never dials (only the VM's own `test` node
+meets it there, on that machine's LAN). `agent.sh`'s NOTHOSTED line now
+adds "its daemon says pledged <size>, <n> peer(s) hosted", read from that
+account's `status.snapshot`, or "no status.snapshot" -- letters, digits,
+dots and spaces only, cut short, because another account's file reaches
+the run's public summary (Rodin). Proven in `check-fleet.sh` (three new
+checks, red before; the pledge read and the filter each sabotaged: red). **It reaches the VM only when Nicolas runs `setup.sh` there again**
+(the agent is a copy, by design). Trap: `git checkout <file>` to undo a
+sabotage also undid the fix it was sabotaging -- restore from a copy, not
+from git. `check-fleet.sh` runs green under WSL (`wsl.exe -e bash -c ...`);
+its Git Bash failures are Windows paths only.
 
 **2026-10-27, later: a machine of the account that is off is dialled
 less and less, not at every round.** The same run's other repeated line,
@@ -1353,12 +1382,14 @@ Detail and measurements are in ROADMAP.md; this is the map.
       (`QUIET_AFTER_MISS`, §0); the next run's member log should show the
       laptop line about 15 times in twenty minutes at the runner's 30 s
       round, not 31, and the relay refusals with it. Still open, for the
-      next session: C vm:nicolas holding nothing for `test` -- the row is
-      `scripts/fleet/run.sh` C, which runs `acceptance.sh C scan` as
-      `nicolas` on the VM over the vault at
-      `/home/itsomeone/itsanas-data/nicolas/home/vault`; find whether
-      `nicolas` is a host of `test` at all (its pledge, `placements`, the
-      `test` node's `status` on the VM) before reading it as a scan bug. V stays SKIP until a release carries the
+      next session: C vm:nicolas holding nothing for `test`. Done
+      2026-10-27: the SKIP line says the account's pledge and how many
+      peers it hosts (§0), once Nicolas re-runs `setup.sh` on the VM. Then
+      read it: pledged 0 B is Nicolas's to set (`itsanas pledge`); a
+      pledge with 0 peer(s) hosted means the VM's `test` node never
+      offered to `nicolas` on the same machine -- look at why discovery or
+      placement leaves a sibling account on one host out (`dial_order`,
+      `placing`), with a test of two accounts on one machine. V stays SKIP until a release carries the
       version line and the VM runs it: the workspace is 0.1.13 from
       2026-10-25 for that; tag `v0.1.13`, `sign-release` (Nicolas's key and
       passphrase, never a session's), then `itsanas update` on the Pi and

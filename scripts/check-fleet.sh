@@ -193,6 +193,24 @@ fleet "pi bare" "bare:other"
 expect pass "a host holding nothing for test is not a failure" "" $?
 grep -qE '^SKIP  C bare:other: other holds nothing' "$WORK/run.log" ||
     bad "a host holding nothing for test was not said SKIP: $(grep 'C bare' "$WORK/run.log")"
+# And why, as far as that account's own daemon says: run 40478381966 and
+# every night before it said "nicolas holds nothing for test" and nothing
+# else, so nobody could tell a zero pledge from a host test never met.
+printf 'snapshot %s every 300\nhosting for other people\n  pledged         0 B\n  peers hosted    0\n' \
+    "$(date +%s)" >"$WORK/bare/other/status.snapshot"
+fleet "pi bare" "bare:other"
+grep -qE '^SKIP  C bare:other: .*pledged 0 B, 0 peer\(s\) hosted' "$WORK/run.log" ||
+    bad "a C SKIP did not say the host's pledge and how many it hosts: $(grep 'C bare' "$WORK/run.log")"
+printf 'snapshot %s every 300\n  pledged         [x](https://evil.example)|**\n  peers hosted    7`rm`\n' \
+    "$(date +%s)" >"$WORK/bare/other/status.snapshot"
+fleet "pi bare" "bare:other"
+if grep 'C bare' "$WORK/run.log" | grep -qE '\]\(|\||\*\*|`'; then
+    bad "another account's snapshot put markdown into the run's summary: $(grep 'C bare' "$WORK/run.log")"
+fi
+rm "$WORK/bare/other/status.snapshot"
+fleet "pi bare" "bare:other"
+grep -qE '^SKIP  C bare:other: .*no status\.snapshot' "$WORK/run.log" ||
+    bad "a C SKIP on a host whose daemon never ran did not say so: $(grep 'C bare' "$WORK/run.log")"
 
 machine stopped "$WORK/synced" 3000
 fleet "pi stopped" ""
