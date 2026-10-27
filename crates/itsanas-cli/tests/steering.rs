@@ -7,9 +7,10 @@
 //! #243, and the gap HANDOVER §8 0w (1) named). This test starts the real
 //! binary on a throwaway node and watches what it reports.
 //!
-//! What it watches is the snapshot the daemon writes every time round its
-//! loop (`status.snapshot`, the file `itsanas status` and the tray read): its
-//! stamp says a loop went by, its `files` line says what the store holds.
+//! What it watches is the snapshot the daemon writes after a round, when the
+//! folder changes, and at most every half minute otherwise (`snapshot_due`;
+//! `status.snapshot`, the file `itsanas status` and the tray read): its
+//! stamp says loops went by, its `files` line says what the store holds.
 //!
 //! # Why this is `#[ignore]`d
 //!

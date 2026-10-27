@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-27 — 1404 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 434 are red-team tests.**
+**Last updated: 2026-10-27 — 1405 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 435 are red-team tests.**
 
-**1288 of the 1404 tests have an entry of their own on this page** — an *entry*,
+**1289 of the 1405 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 228 |
+| `itsanas-cli` unit | 229 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 159 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 31 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 50 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 97 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 98 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1162,7 +1162,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (228)
+# `itsanas-cli` — unit tests (229)
 
 ## `bench` — measuring this machine (4)
 
@@ -1473,11 +1473,12 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_node_never_safe_is_exposed_from_its_first_round`** | A node whose files are on its disk only is exposed from its **first** round, and still on its second: no grace for a node that was never safe, which is the person who installs it, drops files in and leaves. Nothing stored is no question. Sabotaged (a grace from a missing previous header; a new `since` every round): red. |
 | **`red_team_a_save_on_a_safe_account_is_unsaid_for_the_grace_and_said_after`** | Safe, then a save: `since` is set and the shortfall is unsaid for `GRACE_INTERVALS` (2) rounds, keeps its age across rounds, is said after, and clears when the copies are back. Sabotaged (a new `since` each round): red. |
 
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version and copies, and the enrolment at start (16)
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (17)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green`** | Through the daemon's own `write_snapshot`: a real node with one file and no peer writes `version <v> copies 0 of 2`, `brief_status` then reads `exposed … 0 2`, a second round grants no grace, and the version is still where the fleet agent reads it. Sabotaged (the header without the copies): red. |
+| **`red_team_an_idle_daemon_writes_its_snapshot_a_few_times_a_round_not_every_pass`** | The idle bench read with inotify, 2026-10-27: `status.snapshot` was rewritten at every pass of the loop, every two seconds whatever the interval -- 43200 a day, 150 a five-minute round at some 4 KB of journal each, and the whole status counted again each time (164 KB a round at a one-minute round). A day of two-second passes through `snapshot_due`: written after every round (off the half-minute grid), at once when the interval changes, at most every `SNAPSHOT_EVERY` (30 s) otherwise, and never longer than that or a round. 164 to 50 KB a round at a one-minute round on the bench. Sabotaged (a round is no news; the interval change ignored; no shorter wait at a short round; written at every pass): red each. Not covered: the wiring in `sync_loop` (the steering tests, which read the stamp as a heartbeat, pass with it under WSL). |
 | **`red_team_a_relay_that_closes_the_park_is_passed_over_for_the_next`** | `park_loop` over a scripted `ParkSite`: a relay that closed the park is skipped for the next one rather than redialled at every look. Sabotage: no `failed.insert` (red). |
 | **`red_team_a_daemon_enrols_at_its_bound_address_with_the_coordinator_it_uses`** | Red team, 2026-10-23: a key enrolling at its first daemon start ran `register_and_announce`, which announced the configured `listen` beside the rounds' publication of the bound one. `enrol_at_daemon_start` hands the enrolment the bound address (`enrol_once` registers with `register_only`, then announces it); the `registered` marker names the coordinator, and a marker naming another one than the configured coordinator is dropped, so the node enrols there once; the same one never enrols again. Sabotaged (the configured `listen` passed; the stale marker kept): red both. |
 | `the_snapshot_says_which_version_wrote_it_and_still_reads_as_before` | The snapshot's first line ends `version <the running daemon's version>`, after the words every reader parses (`brief_status` reads `snapshot <t> every <s>` in that order, `snapshot_counts` the stamp and the file count): an `update` that restarted nothing left three laptop daemons on 0.1.8 (hand test, 2026-10-22), and the fleet run's V row compares this across machines. Sabotaged (no version; the version before `every`): red both. |

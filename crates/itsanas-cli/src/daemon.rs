@@ -128,6 +128,51 @@ fn portable_line(portable: bool) -> Option<&'static str> {
 /// minutes to be noticed would be indistinguishable from a hang.
 const SHUTDOWN_POLL: Duration = Duration::from_millis(200);
 
+/// The longest the snapshot goes unwritten between rounds, or a round when
+/// that is shorter ([`snapshot_due`]).
+///
+/// Its stamp is what says the daemon is alive: an icon reads `stale` past two
+/// intervals (`brief_status`), the fleet's S row reads its age, and the
+/// steering tests wait for a newer one as proof a pass of the loop went by.
+/// Half a minute keeps all three; every pass of the loop (two seconds) cost an
+/// idle node most of its disk writes (2026-10-27).
+const SNAPSHOT_EVERY: Duration = Duration::from_secs(30);
+
+/// When the snapshot was last written, and for which interval: what
+/// [`snapshot_due`] decides from, once a pass of the loop.
+#[derive(Default)]
+struct SnapshotPace(Option<(Instant, Duration)>);
+
+impl SnapshotPace {
+    /// Write the snapshot if it is due; `news` when this pass ran a round or
+    /// took in a change.
+    fn after(&mut self, node: &Node, interval: Duration, bound: std::net::SocketAddr, news: bool) {
+        let now = Instant::now();
+        if snapshot_due(self.0, now, interval, news) {
+            write_snapshot(node, interval, bound);
+            self.0 = Some((now, interval));
+        }
+    }
+}
+
+/// Whether this pass of the loop writes the snapshot: the first time, when
+/// `news` (a round ran, the folder changed), when the interval is not the one
+/// last written (the stamp is read against it), and otherwise once
+/// [`SNAPSHOT_EVERY`] -- or a round, if shorter -- has passed since the last.
+/// `last` is when the last one was written and for which interval.
+fn snapshot_due(
+    last: Option<(Instant, Duration)>,
+    now: Instant,
+    interval: Duration,
+    news: bool,
+) -> bool {
+    let Some((at, written_for)) = last else {
+        return true;
+    };
+    news || written_for != interval
+        || now.saturating_duration_since(at) >= SNAPSHOT_EVERY.min(interval)
+}
+
 /// How often every file is re-hashed rather than trusted by size and mtime.
 ///
 /// The fast path misses a file rewritten within the same second at exactly the
@@ -1058,6 +1103,7 @@ fn sync_loop(
     // it at a restart costs a pass started again, and the vault, whose rows
     // other people's rounds rely on, keeps its cursor on disk.
     let mut own_check: Option<itsanas_crypto::ChunkId> = None;
+    let mut snap = SnapshotPace::default();
 
     while !shutdown.load(Ordering::Relaxed) {
         for said in steering.refresh(Control::read(&node.home), itsanas_discover::now_unix()) {
@@ -1072,7 +1118,8 @@ fn sync_loop(
         if deep {
             next_deep = Instant::now() + DEEP_SCAN_EVERY;
         }
-        if !paused && take_in(node, folder.as_ref(), deep) {
+        let changed_here = !paused && take_in(node, folder.as_ref(), deep);
+        if changed_here {
             steering.changed_here(Instant::now());
         }
 
@@ -1132,32 +1179,35 @@ fn sync_loop(
             }
         }
 
-        write_snapshot(node, interval, bound);
+        snap.after(node, interval, bound, changed_here || next != Next::Wait);
 
         let next_sync = last_round.map_or_else(Instant::now, |last| last + interval);
         wait_for_work(folder.as_ref(), next_sync, shutdown);
         between_rounds(node, shutdown);
-        // Looked at every couple of seconds, not once a round: a disk plugged
-        // back in should be hosting again in seconds, not in an hour.
-        // And the other way: unplugged, this run stops at once and the next
-        // one serves this account alone, rather than an hour of rounds onto
-        // the bare mount point.
-        let present = vault_present(&node.vault_dir());
-        if node.away == present {
-            if present {
-                eprintln!(
-                    "itsanas: the vault's disk is back at {}; hosting again",
-                    node.vault_dir().display()
-                );
-            } else {
-                eprintln!(
-                    "itsanas: the vault at {} lost its marker (was the disk unplugged?); pausing",
-                    node.vault_dir().display()
-                );
-            }
-            PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
-            shutdown.store(true, Ordering::SeqCst);
+        stop_if_the_vault_came_or_went(node, shutdown);
+    }
+}
+
+/// Looked at every couple of seconds, not once a round: a disk plugged back
+/// in should be hosting again in seconds, not in an hour. And the other way:
+/// unplugged, this run stops at once and the next one serves this account
+/// alone, rather than an hour of rounds onto the bare mount point.
+fn stop_if_the_vault_came_or_went(node: &Node, shutdown: &AtomicBool) {
+    let present = vault_present(&node.vault_dir());
+    if node.away == present {
+        if present {
+            eprintln!(
+                "itsanas: the vault's disk is back at {}; hosting again",
+                node.vault_dir().display()
+            );
+        } else {
+            eprintln!(
+                "itsanas: the vault at {} lost its marker (was the disk unplugged?); pausing",
+                node.vault_dir().display()
+            );
         }
+        PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
+        shutdown.store(true, Ordering::SeqCst);
     }
 }
 
@@ -2513,6 +2563,70 @@ mod tests {
             crate::setup::verify::snapshot_counts(&text),
             Some((1_792_000_000, 3)),
             "the version broke the reader of the stamp and the file count"
+        );
+    }
+
+    /// The idle bench of 2026-10-27, read with inotify: `status.snapshot`
+    /// was rewritten at every pass of the loop, every two seconds, whatever
+    /// the interval -- 150 rewrites a five-minute round, some 4 KB of
+    /// journal each, the largest share of an idle node's disk writes (164 KB
+    /// a round at a one-minute round, against 60 at ten seconds), and the
+    /// whole status, copies included, counted again each time. A day of
+    /// two-second passes at the default round: written after every round,
+    /// at once when the folder changed or the interval did, otherwise at
+    /// most every [`SNAPSHOT_EVERY`] -- and never left longer, so a stale
+    /// icon still means a stuck daemon.
+    #[test]
+    fn red_team_an_idle_daemon_writes_its_snapshot_a_few_times_a_round_not_every_pass() {
+        let start = Instant::now();
+        let pass = Duration::from_secs(2);
+        let interval = Duration::from_secs(300);
+        let passes = 24 * 3600 / 2;
+        let mut last: Option<(Instant, Duration)> = None;
+        let (mut writes, mut longest) = (0u32, Duration::ZERO);
+        for i in 0..passes {
+            let now = start + pass * i;
+            // Off the half-minute grid, so a round's write is not the
+            // heartbeat's by chance.
+            let round = i % 150 == 7;
+            if snapshot_due(last, now, interval, round) {
+                if let Some((at, _)) = last {
+                    longest = longest.max(now - at);
+                }
+                writes += 1;
+                last = Some((now, interval));
+            } else {
+                assert!(
+                    !round,
+                    "pass {i}: a round ran and the snapshot was not written"
+                );
+            }
+        }
+        assert!(
+            writes <= 3_200,
+            "{writes} snapshots in a day of five-minute rounds: written at nearly every \
+             two-second pass, 43200 a day"
+        );
+        assert!(
+            longest <= SNAPSHOT_EVERY,
+            "the snapshot went {longest:?} unwritten: an icon reads a live daemon as stale"
+        );
+
+        let now = start + pass * passes;
+        let fresh = Some((now, interval));
+        assert!(
+            snapshot_due(fresh, now, Duration::from_secs(3600), false),
+            "the interval changed and the snapshot kept the old one: a daemon moved to an \
+             hourly round reads as stale a minute later"
+        );
+        let short = Duration::from_secs(10);
+        assert!(
+            snapshot_due(Some((now, short)), now + short, short, false),
+            "at a ten-second round the snapshot waited longer than a round"
+        );
+        assert!(
+            !snapshot_due(fresh, now + pass, interval, false),
+            "nothing happened two seconds later and the snapshot was written again"
         );
     }
 
