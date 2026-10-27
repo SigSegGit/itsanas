@@ -195,8 +195,9 @@ fn bind_dual_stack(address: SocketAddr) -> io::Result<TcpListener> {
 /// while the IPv4 record beside it would have worked, and the failure looked
 /// like the peer being down rather than like one of two routes being shut.
 ///
-/// The error returned is the last one, because the last address tried is the
-/// one that had no alternative left.
+/// When none answers, the error names every address and what it answered,
+/// with the kind of the first failure about the peer rather than about this
+/// machine's routes: one address's error alone hid the others.
 pub fn connect_to_one_of(addresses: &[SocketAddr]) -> io::Result<TcpStream> {
     connect_within(addresses, CONNECT_TIMEOUT)
 }
@@ -245,17 +246,57 @@ impl std::net::ToSocketAddrs for AddressList<'_> {
 /// to the person whose router is misconfigured, and the coordinator running the
 /// probe has members waiting.
 pub fn connect_within(addresses: &[SocketAddr], timeout: Duration) -> io::Result<TcpStream> {
-    let mut last: Option<io::Error> = None;
+    if addresses.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "no address to connect to",
+        ));
+    }
 
+    let mut failures = Vec::with_capacity(addresses.len());
     for address in addresses {
         match TcpStream::connect_timeout(address, timeout) {
             Ok(stream) => return Ok(stream),
-            Err(error) => last = Some(error),
+            Err(error) => failures.push((*address, error)),
         }
     }
 
-    Err(last
-        .unwrap_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no address to connect to")))
+    Err(every_address_failed(failures))
+}
+
+/// One error for a dial where every address failed, naming what each said.
+///
+/// Returning one address's error alone hid the others: a runner with no IPv6
+/// dialling `v4,[v6]` printed only "Network is unreachable", which is this
+/// machine's excuse, never the IPv4 answer that says what is wrong between the
+/// two machines (fleet run 40478381966, 31 times). The kind is the first one
+/// that is about the peer rather than about this machine's routes, so a caller
+/// sorting by kind reads "it did not answer", not "no IPv6 here".
+fn every_address_failed(mut failures: Vec<(SocketAddr, io::Error)>) -> io::Error {
+    if failures.len() == 1 {
+        // The caller names the address already; repeating it reads as two.
+        return failures.remove(0).1;
+    }
+
+    let only_this_machine = |kind: io::ErrorKind| {
+        matches!(
+            kind,
+            io::ErrorKind::NetworkUnreachable
+                | io::ErrorKind::HostUnreachable
+                | io::ErrorKind::AddrNotAvailable
+        )
+    };
+    let kind = failures
+        .iter()
+        .map(|(_, error)| error.kind())
+        .find(|kind| !only_this_machine(*kind))
+        .unwrap_or_else(|| failures[0].1.kind());
+    let said = failures
+        .iter()
+        .map(|(address, error)| format!("{address}: {error}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    io::Error::new(kind, said)
 }
 
 #[cfg(test)]
@@ -368,8 +409,8 @@ mod tests {
         assert_eq!(stream.peer_addr().unwrap(), live);
     }
 
-    /// The failure a caller sees must be the one that has no alternative left,
-    /// not the first of several.
+    /// Several addresses that all fail are still one failure, and none at all
+    /// is a failure too.
     #[test]
     fn nothing_answering_anywhere_is_still_an_error() {
         let dead = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 1);
@@ -380,6 +421,82 @@ mod tests {
         assert!(
             connect_to_one_of(&[]).is_err(),
             "an empty address list is a failure, not a connection"
+        );
+    }
+
+    /// Fleet run 40478381966: 31 dials to a `v4,[v6]` pair from a runner with
+    /// no IPv6 printed only "Network is unreachable", the IPv6 attempt's
+    /// excuse, so the IPv4 failure -- the one that says what is wrong between
+    /// the two machines -- was never seen.
+    #[test]
+    fn a_failure_on_every_address_says_what_each_one_answered() {
+        let v4: SocketAddr = "198.51.100.7:9811".parse().unwrap();
+        let v6: SocketAddr = "[2001:db8::7]:9811".parse().unwrap();
+        let error = every_address_failed(vec![
+            (
+                v4,
+                io::Error::new(io::ErrorKind::TimedOut, "connection timed out"),
+            ),
+            (
+                v6,
+                io::Error::new(io::ErrorKind::NetworkUnreachable, "Network is unreachable"),
+            ),
+        ]);
+        let said = error.to_string();
+        assert!(
+            said.contains("198.51.100.7:9811: connection timed out"),
+            "the IPv4 failure was hidden behind the IPv6 one: {said}"
+        );
+        assert!(
+            said.contains("[2001:db8::7]:9811: Network is unreachable"),
+            "the IPv6 failure must still be named: {said}"
+        );
+        assert_eq!(
+            error.kind(),
+            io::ErrorKind::TimedOut,
+            concat!(
+                "a caller sorting failures by kind read 'this machine has no IPv6' ",
+                "instead of 'the peer did not answer'"
+            )
+        );
+    }
+
+    /// One address: its own error, untouched, since the caller already names
+    /// the address and a message that repeats it reads as two failures.
+    #[test]
+    fn a_failure_on_one_address_is_that_address_s_own_error() {
+        let only: SocketAddr = "198.51.100.7:9811".parse().unwrap();
+        let error = every_address_failed(vec![(
+            only,
+            io::Error::new(io::ErrorKind::ConnectionRefused, "connection refused"),
+        )]);
+        assert_eq!(
+            error.kind(),
+            io::ErrorKind::ConnectionRefused,
+            "a lone failure lost its kind, so a refused port no longer reads as refused"
+        );
+        assert_eq!(
+            error.to_string(),
+            "connection refused",
+            "a lone failure was rewrapped, and the log names its address twice"
+        );
+    }
+
+    /// The same, through the real dialler: two closed ports, both named.
+    #[test]
+    fn a_dial_to_two_closed_ports_names_both() {
+        // Both held while the ports are read, so the system cannot hand the
+        // same one out twice; dropped before dialling, so both are closed.
+        let a = StdListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let b = StdListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let (first, second) = (a.local_addr().unwrap(), b.local_addr().unwrap());
+        drop((a, b));
+        let said = connect_to_one_of(&[first, second])
+            .expect_err("nothing listens on either port")
+            .to_string();
+        assert!(
+            said.contains(&first.to_string()) && said.contains(&second.to_string()),
+            "a dial over two addresses must say what each one answered: {said}"
         );
     }
 
