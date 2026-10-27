@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1404 test functions, 14 of them `#[ignore]`d into the slow job, and 434 of
+**1405 test functions, 14 of them `#[ignore]`d into the slow job, and 435 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -2206,7 +2206,20 @@ the kept claims feed only `admit_roster` (membership) and are ordered by
 date only against each other (`supersedes`), so a copy up to
 `KEEP_CLAIM_STEP` (15 min) old says the same; a new pledge, a later step,
 are written, and an older claim never replaces a newer one
-(`Owners::adds_nothing`, `red_team_a_claim_presented_again_unchanged_is_not_written_again`). Also measured, and a dead end:
+(`Owners::adds_nothing`, `red_team_a_claim_presented_again_unchanged_is_not_written_again`).
+**The same evening, the floor itself: the snapshot.** The bench at a
+ten-second round hid it; inotify on node 1's home (no strace in WSL) showed
+`status.snapshot` rewritten at every pass of the loop, every two seconds
+whatever the interval, beside one commit of each database a round. At a
+one-minute round: **164 KB a round**, 30 rewrites of some 4 KB of journal
+each; at the default five minutes that is 150 rewrites, about 600 KB a
+round, on the order of the 129-313 MB/day sampled on the fleet. Now
+written after a round, when the folder or the interval changes, and
+otherwise at most every half minute (`snapshot_due`, `SNAPSHOT_EVERY`):
+**50 KB a round at one minute**, measured; ten rewrites a round at five
+minutes, extrapolated, not measured. Its stamp keeps every reader's
+meaning: `stale` past two intervals, the fleet's S row, the steering
+tests' heartbeat (all nine pass under WSL). Also measured, and a dead end:
 `Durability::None` costs the same bytes as a durable commit on redb 2
 (`crates/itsanas-store/examples/commit_cost.rs`: 24 KB per one-row commit
 either way; the same 200 writes cost 4.8 MB one per commit, 1.4 MB seven per

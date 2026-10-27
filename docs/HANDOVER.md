@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0x
 TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until the Pi and the VM rebuild their Docker clients, item 1 of the list in §0); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: c83e5bf
+BASE: 3c935f5
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -88,6 +88,22 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-27, night: the snapshot was most of an idle node's writes (MVP
+H, #93).** inotify via ctypes under WSL (the bench copy in the scratchpad,
+no strace there) showed `status.snapshot` rewritten at every two-second
+pass of `sync_loop`, whatever the interval: 164 KB a round at a one-minute
+round, about 600 at the default five (extrapolated), the fleet's
+129-313 MB/day in order of size. Now `snapshot_due` writes it after a
+round, when the folder or the interval changes, and at most every
+`SNAPSHOT_EVERY` (30 s): 50 KB a round at one minute, measured. The fleet
+showed it all along: "S vm: last round 2s ago (every 300s)" was the
+snapshot's age, not the round's. Proven by
+`red_team_an_idle_daemon_writes_its_snapshot_a_few_times_a_round_not_every_pass`
+(four sabotages red; the first version's rounds fell on the heartbeat's
+grid and let "a round is no news" pass -- moved off it). The nine steering
+tests, which read the stamp as a heartbeat, pass under WSL. Next fact to
+get: the same bench at a five-minute round, and on the Pi.
 
 **2026-10-27, evening: an idle round's last own commit removed (MVP H,
 #93).** The idle bench (`scripts/idle-writes.sh`) runs under WSL on the
