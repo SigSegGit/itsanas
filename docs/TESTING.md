@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-27 — 1402 test functions across 39 binaries, 14 of them
-`#[ignore]`d, plus 2 doctests. 432 are red-team tests.**
+**Last updated: 2026-10-27 — 1403 test functions across 39 binaries, 14 of them
+`#[ignore]`d, plus 2 doctests. 433 are red-team tests.**
 
-**1286 of the 1402 tests have an entry of their own on this page** — an *entry*,
+**1287 of the 1403 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 228 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 157 |
+| `itsanas-node` unit | 158 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -211,7 +211,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 63 |
+| `identity` | keys, accounts, devices, claims, invitations | 64 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 55 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 60 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
@@ -1616,7 +1616,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (174)
+# `itsanas-node` — a node on disk (175)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1657,7 +1657,7 @@ anything.
 
 ---
 
-## `contact` — when the coordinator is dialled at all, and never this node for another device (38)
+## `contact` — when the coordinator is dialled at all, and never this node for another device (39)
 
 §8 0o phase 2a. A round used to dial the coordinator every time, 288
 connections a day per node whatever happened. Now it publishes at start, when
@@ -1675,6 +1675,7 @@ here reads a peer's clock or trusts the coordinator's order.
 | **`red_team_a_machine_that_stays_off_is_dialled_about_fifty_times_a_day_not_288`** | Fleet run 40478381966: the runner dialled the laptop's `test` node, shut at home, at every 30 s round -- 31 connect timeouts of 5 s and 31 refusals from the relay it had once parked on, in twenty minutes; 288 a day at the default round for every machine of the account that is off. A device that answered nowhere waits `QUIET_AFTER_MISS` (1 min), doubled at each miss, up to `QUIET_AT_MOST` (30 min) before `Contact::dialable` offers it again: at most 60 dials in a day at 30 s or 5 min rounds, and never more than 30 min plus a round between two, so every hour of its ring is still tried. Sabotaged (no wait; no cap): red. |
 | **`red_team_a_machine_back_on_is_dialled_at_once`** | The way out of that wait: after an hour off, the laptop is offered at the next round when discovery hears it here, when the round reached it elsewhere (`round_reached`), when it answered at its address (`worked`), or when the coordinator lists an address the book did not hold; a read repeating the same address is no news and keeps the wait. Sabotaged (each of the four doors removed in turn): red each time. |
 | `a_machine_that_fails_at_three_addresses_in_one_round_missed_once` | A round's failures at a LAN address, a public one and a relay are one miss, not three: counted per address, the first wait was four minutes instead of one. Sabotaged (counted per address): red. |
+| **`red_team_a_coordinator_listing_a_new_port_every_read_buys_a_dial_a_read_at_most`** | Rodin's question on #322, made a test: a coordinator listing a new port for a machine that is off at every read. The first version reset the wait on any new address, and a day of 30 s rounds cost 948 dials for 324 reads (the ramp's 1, 2, 4 minutes after each). Now news allows one dial at the next round and the wait goes on doubling: at most one dial a read plus the wait's own, and under 500 a day. Sabotaged (news resets the wait): red. |
 | **`red_team_a_host_of_another_account_relays_only_after_the_accounts_own_machines`** | §8 0v. Hosts of other accounts the round reached and that proved themselves come after every machine of the account as relays, a host on a private address is never offered, and a quiet round does not drop a host (a day without proof does). Sabotaged (hosts first; hosts cleared every round): red. |
 | **`red_team_a_relay_the_account_knows_is_dialled_at_the_books_address`** | §8 0v. A `relay:<id>@<at>` presence is dialled through the relay at the book's address when the relay is a machine of the account, whatever address the presence carries; a host of another account, in no book, is dialled at the carried address with its key pinned; an unknown relay with no address is not dialled; the relay chosen to park on is the first public, non-relay address. Sabotaged (private addresses allowed as relay): red. |
 | **`a_machine_that_never_moves_dials_the_coordinator_once_an_hour`** | The number the step is justified by: 288 rounds of a Pi that never moves make 24 connections, 24 publications and 24 reads -- every read on a publication's connection, none on its own. |
