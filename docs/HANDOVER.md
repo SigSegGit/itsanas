@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0x
 TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until the Pi and the VM rebuild their Docker clients, item 1 of the list in §0); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: 3c935f5
+BASE: 0950ed7
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -102,7 +102,9 @@ snapshot's age, not the round's. Proven by
 `red_team_an_idle_daemon_writes_its_snapshot_a_few_times_a_round_not_every_pass`
 (four sabotages red; the first version's rounds fell on the heartbeat's
 grid and let "a round is no news" pass -- moved off it). The nine steering
-tests, which read the stamp as a heartbeat, pass under WSL. Next fact to
+tests, which read the stamp as a heartbeat, pass under WSL. The wiring has its own
+daemon-level test since #330
+(`red_team_an_idle_daemon_leaves_its_snapshot_alone_between_rounds`). Next fact to
 get: the same bench at a five-minute round, and on the Pi.
 
 **2026-10-27, evening: an idle round's last own commit removed (MVP H,
