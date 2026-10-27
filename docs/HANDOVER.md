@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0x
 TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until the Pi and the VM rebuild their Docker clients, item 1 of the list in §0); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: 8ca6e1d
+BASE: 4a475ae
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -41,6 +41,16 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
    (`... fleet-docker.sh pi` on the Pi; the accounts exist, so it asks
    nothing; the Pi compiles for a while). `setup.sh` with no argument keeps
    the CI key it installed last time (since #328).
+   To check it took (fleet run 40577831374 showed the VM still on the old
+   build after a first attempt), on each machine:
+
+       head -1 ~/itsanas-data/test/home/status.snapshot
+       grep -c copies ~/.itsanas-fleet/agent.sh
+
+   The first must end with `version 0.1.13` (and `copies ...`), the second
+   print a number above 0. `fleet-docker.sh` also prints each account's
+   running build at the end since #333, and flags one that is not the
+   checkout's.
 2. Both host keys into CI (the Pi is SKIP on its key), laptop PowerShell:
 
        $pi = (ssh -i $HOME\.ssh\itsanas_session -p 22010 itsomeone@ngas.fr cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
