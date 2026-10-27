@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until v0.1.13 is deployed); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
+TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until the Pi and the VM rebuild their Docker clients, item 1 of the list in §0); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
 WRITTEN-AT: 2026-10-27
-BASE: efbbdee
+BASE: 5515203
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,17 +20,47 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**Waiting on Nicolas, a few minutes each, in this order** (2026-10-27; a
-session cannot do any of them):
-1. Release v0.1.13: tag `v0.1.13`, `sign-release` (his key and
-   passphrase), then `itsanas update` on the Pi and the VM over his own SSH.
-   Until then V is SKIP every night and the Pi parks with the 0.1.12 bug.
-2. The Pi's line of `FLEET_KNOWN_HOSTS` (FLEET-CI.md, "FLEET_KNOWN_HOSTS
-   from Windows PowerShell"): the Pi is SKIP every night on its host key.
-3. `scripts/fleet/setup.sh` again on the VM (and the Pi), so the agent copy
-   there carries the C SKIP's reason and the L row's count (§0, 2026-10-27).
-4. Review Dependabot #320 (fleet.yml actions; CI green, blocked on review).
-   #256 (`feat/mcp-server`) is his own.
+**Waiting on Nicolas, in this order, as commands to paste** (2026-10-27; a
+session cannot do any of them, and gives him these commands first, every
+time -- he does not want to remember them). The Pi and the VM run their
+accounts in **Docker** (`scripts/fleet-docker.sh`): their version is the
+image's, rebuilt from `~/itsanas`, and `itsanas update` does not apply there
+(`install/docker/README.md`). That is why V says 0.1.12; an earlier version
+of this list said "release, then `itsanas update`", which was wrong. Access:
+`~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
+22011 (VM), from his private notes, checked 2026-09-17.
+
+1. The VM, then the Pi: rebuild the coordinator (VM) and the three clients
+   from `main`, then refresh the fleet agent's copy (the C reason, the L
+   count). On the laptop, `ssh -i $HOME\.ssh\itsanas_session -p 22011
+   itsomeone@ngas.fr` (`-p 22010` for the Pi), then there:
+
+       cd ~/itsanas && git pull --ff-only && bash scripts/fleet-docker.sh vm
+       bash scripts/fleet/setup.sh "$(sed -n 's/^restrict,command="[^"]*agent.sh" //p' ~/.ssh/authorized_keys | head -1)"
+
+   (`... fleet-docker.sh pi` on the Pi; the accounts exist, so it asks
+   nothing; the Pi compiles for a while). The `sed` takes back the CI key
+   `setup.sh` installed last time, which it needs as its argument.
+2. Both host keys into CI (the Pi is SKIP on its key), laptop PowerShell:
+
+       $pi = (ssh -i $HOME\.ssh\itsanas_session -p 22010 itsomeone@ngas.fr cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
+       $vm = (ssh -i $HOME\.ssh\itsanas_session -p 22011 itsomeone@ngas.fr cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
+       $k = "[ngas.fr]:22010 $($pi[0]) $($pi[1])", "[ngas.fr]:22011 $($vm[0]) $($vm[1])"
+       $k
+       ($k -join "`n") | gh secret set FLEET_KNOWN_HOSTS --env fleet -R SigSegGit/itsanas
+
+3. Dependabot #320 (fleet.yml actions; CI green, needs his review):
+
+       gh pr review 320 --approve -R SigSegGit/itsanas
+       gh pr merge 320 --squash --delete-branch -R SigSegGit/itsanas
+
+4. Release v0.1.13 for the laptop, the Mac and testers (about 20 min; it
+   beeps, asks `y`, then the release key's passphrase):
+
+       cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
+
+   #256 (`feat/mcp-server`) is his own. After 1 and 2, a session runs the
+   fleet itself (`gh workflow run fleet.yml`) and reads V, L vm and C.
 
 **2026-10-22, hand test** (laptop with 3 accounts, Mandarine's Mac, a USB
 key). Passed: O doctor; M isolation between accounts; a vault move through the
@@ -1441,11 +1471,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
       pledge with 0 peer(s) hosted means the VM's `test` node never
       offered to `nicolas` on the same machine -- look at why discovery or
       placement leaves a sibling account on one host out (`dial_order`,
-      `placing`), with a test of two accounts on one machine. V stays SKIP until a release carries the
-      version line and the VM runs it: the workspace is 0.1.13 from
-      2026-10-25 for that; tag `v0.1.13`, `sign-release` (Nicolas's key and
-      passphrase, never a session's), then `itsanas update` on the Pi and
-      the VM over his own SSH (the CI key runs only the kit).
+      `placing`), with a test of two accounts on one machine. V stays SKIP until the Pi's and the VM's
+      Docker clients are rebuilt from `main` (`fleet-docker.sh`, item 1 of
+      the list at the top of §0; not a release: `itsanas update` does not
+      apply in a container).
    y. 🟨 **Test L: told, unasked, that the files are not safe yet.** Built
       2026-10-23 (see §0; MVP.md L): `safety.rs`, `brief_status`'s
       `exposed`, the three trays and Settings. Done 2026-10-27: a nightly
