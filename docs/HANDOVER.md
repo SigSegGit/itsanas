@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: green since run 40006387602 (runner and VM; B, F, S pass); the Pi is skipped until Nicolas resets its line of FLEET_KNOWN_HOSTS (docs/FLEET-CI.md, "FLEET_KNOWN_HOSTS from Windows PowerShell"); a session reads each run's SKIP lines and the member's repeated lines, and fixes what they find
-WRITTEN-AT: 2026-10-25
-BASE: 0053816
+TITLE: The fleet tested by CI: green every night since run 40006387602 (S, B, F pass; Pi SKIP on its host key, V SKIP until v0.1.13 is signed and deployed by Nicolas); a session reads the latest run's SKIP lines and the member's repeated lines, and fixes what they find -- next lead: why the runner dials the sleeping laptop every round
+WRITTEN-AT: 2026-10-27
+BASE: a4e8978
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -46,6 +46,32 @@ save at 1.8-2.9 s (`bench`), which is the blob-file layout; packs measured
 not urgently") -- making them the default is Nicolas's call, not a hand-test
 fix. 8.0c stays Nicolas's: A-M and O ran in part above, F is to redo, and the
 real disk pulled mid-write is not done.
+
+**2026-10-27: a dial over several addresses says what each one answered.**
+Run 40478381966 (green, 5 checked; Pi SKIP host key, V SKIP 0.1.12, C
+vm:nicolas SKIP again). Its member log: 31 x "86.238.26.80:9811,[2a01:cb00:...]:9811:
+unreachable (i/o: Network is unreachable)" -- the runner dialling the
+**laptop**'s house (that address is the laptop's, `contact.rs` test of
+2026-10-22) and printing only the IPv6 attempt's excuse, because
+`connect_within` (`itsanas-tls/src/reach.rs`) returned the last error. Now
+`every_address_failed` names each address and its answer, with the kind of
+the first failure about the peer, not about this machine's routes
+(NetworkUnreachable, HostUnreachable, AddrNotAvailable set aside); one
+address keeps its own error untouched. No caller of the dial reads the kind
+(checked: the only `.kind()` matches are a bind, a park read, discovery).
+Proven by `a_failure_on_every_address_says_what_each_one_answered`,
+`a_failure_on_one_address_is_that_address_s_own_error`,
+`a_dial_to_two_closed_ports_names_both` (red first with the run's message;
+each rule sabotaged red). **The bottleneck is not code:** v0.1.13 (25 Oct)
+is untagged and unsigned, so the Pi and the VM still run 0.1.12 with the
+park bug, V stays SKIP, and the 31 x "relays nothing for this device" cannot
+be told apart from that known bug until they run it -- tag, `sign-release`
+and `itsanas update` on both are Nicolas's. Dependabot #320 (fleet.yml
+actions, CI green) is blocked by branch protection: Nicolas's review.
+Traps this time: `cargo fmt` turns a `\`-continued string into literal
+spaces (`check-messages.py` caught it; use `concat!`); Python `write_text`
+on Windows writes CRLF -- write bytes; `check-fleet.sh` fails in Git Bash on
+Windows paths, which is the environment, not the tree (CI runs it on Linux).
 
 **2026-10-25: a caller served through a park no longer unparks the
 machine.** Run 40176979039 (green, 5 checked; the Pi still SKIP on its host
@@ -1292,9 +1318,17 @@ Detail and measurements are in ROADMAP.md; this is the map.
       E/G, which need a node stopped (docker, so root: decide first).
       Done 2026-10-23: versions in the snapshot and the fleet's V row.
       Done 2026-10-25: a caller served through a park no longer sets the
-      relay aside (§0). Still open from that run's log, for the next session:
-      the `v4,[v6]` dial that prints only the IPv6 error, and C vm:nicolas
-      holding nothing for `test`. V stays SKIP until a release carries the
+      relay aside (§0). Done 2026-10-27: a dial over `v4,[v6]` names what
+      each address answered (§0). Still open, for the next session, in
+      order: (i) read the next run's member log, now that the laptop line
+      says what IPv4 answered, and find why the runner dials the laptop
+      (`86.238.26.80:9811`, not a fleet machine) every round -- the contact
+      book (`crates/itsanas-node/src/contact.rs`) dials every device the
+      account's book names; a machine that never answers might belong
+      behind the probe-round rule that private addresses already follow
+      (`PRIVATE_PROBE_EVERY`), and a red-team test would count the dials
+      to a dead public address over N rounds; (ii) C vm:nicolas holding
+      nothing for `test`. V stays SKIP until a release carries the
       version line and the VM runs it: the workspace is 0.1.13 from
       2026-10-25 for that; tag `v0.1.13`, `sign-release` (Nicolas's key and
       passphrase, never a session's), then `itsanas update` on the Pi and

@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-10-25 ~20:17 (reprise 2026-10-27) | ~40 min actives | 160 k contexte ; fenêtre 5 h n/d (non relevée au départ) | 0x | au bout | ✅ | Run fleet du 27/10 lu : le dial `v4,[v6]` nomme ce que chaque adresse a répondu (3 tests, sabotés) ; #320 bloquée par la protection ; goulot = release v0.1.13 non signée | suivi |
 | 2026-10-07 ~18:00 | ~3 h | n/d | 0w (6b) en lot | au bout | 🟨 | Les 13 points de Nicolas en une PR : nom vérifié à la frappe et refusé avant toute clé, coordinateur intégré, welcome.txt, parcourir/ouvrir/épingler le dossier, curseur d'espace, FR/EN, 24 mots copiables (Windows), UPnP, ITSaNAS-Setup.exe, mise à jour nocturne du coordinateur ; v0.1.1 prête à tagger ; rien testé en vrai | suivi |
 | 2026-10-07 ~16:00 | ~1 h | n/d | v0.1.0 + 0w (6b) | au bout | 🟨 | v0.1.0 publiée, signée, vérifiée de l'extérieur, installée par get.ps1 ; 13 retours de Nicolas consignés en 0w (6b) avec ses décisions ; (11) l'icône démarre à la fin du setup (sabotée rouge, deux sens) | suivi |
 | 2026-10-07 ~13:00 | ~20 min | n/d | 0t (clé) | au bout | ✅ | Clé de release épinglée (`RELEASE_KEY`), test qui vérifie les octets contre l'hex de keygen (saboté rouge) ; première clé régénérée car le fichier avait été envoyé dans le chat ; nouveau trou §9 (un binaire compilé annonce une mise à jour qu'il refusera) | suivi |

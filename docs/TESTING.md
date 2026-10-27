@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-25 — 1396 test functions across 39 binaries, 14 of them
+**Last updated: 2026-10-27 — 1399 test functions across 39 binaries, 14 of them
 `#[ignore]`d, plus 2 doctests. 430 are red-team tests.**
 
-**1280 of the 1396 tests have an entry of their own on this page** — an *entry*,
+**1283 of the 1399 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -156,7 +156,7 @@ guarantee and is not one.
 | `itsanas-crypto` unit | 66 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-wire` unit | 17 |
-| `itsanas-tls` unit | 21 |
+| `itsanas-tls` unit | 24 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 224 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
@@ -2400,7 +2400,7 @@ The five remaining tests cover `Connection`, the generic `Read + Write` wrapper:
 
 ---
 
-# `itsanas-tls` — device authentication and listener limits (26)
+# `itsanas-tls` — device authentication and listener limits (29)
 
 Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
 `reach.rs`, five integration tests in `tests/handshake.rs`.
@@ -2430,6 +2430,9 @@ Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
 | **`an_address_that_does_not_answer_does_not_hide_the_one_that_does`** | A dual-stack name resolves to an AAAA record *and* an A record, and plenty of networks drop IPv6. Connecting to only the first resolved address turned "one of two routes is shut" into "the peer is down". Fails when the dialler stops at the first address. |
 | `an_address_that_names_one_interface_is_not_widened_to_all_of_them` | The dual-stack substitution happens only where the configuration said "anywhere". Widening `127.0.0.1` would put a node meant to be private on every interface of the machine. |
 | `nothing_answering_anywhere_is_still_an_error` | Trying several addresses must still fail when none answers, rather than returning the last error as success or hanging on an empty list. |
+| **`a_failure_on_every_address_says_what_each_one_answered`** | Fleet run 40478381966: 31 dials from a runner with no IPv6 to a `v4,[v6]` pair printed only "Network is unreachable", the IPv6 attempt's excuse, and never what the IPv4 attempt answered. The error now names every address and its answer, and takes the kind of the first failure that is about the peer, not about this machine's routes. Sabotaged (the kind of a route failure kept): red. |
+| `a_failure_on_one_address_is_that_address_s_own_error` | One address: its own error, kind and text, so a log that names the address does not name it twice. Sabotaged (every failure rewrapped): red. |
+| `a_dial_to_two_closed_ports_names_both` | The same through the real dialler: two closed ports on this machine, both named in the error. Red before the fix, with the platform's "refused" for the second port alone. |
 
 ---
 
