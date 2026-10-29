@@ -43,7 +43,13 @@ run reports it.
 
 A run is **red** when a row says FAIL, or when fewer than two machines answered
 (nothing crossed a network). A machine that does not answer is a **SKIP** row,
-with the reason. A red run opens an issue titled `fleet: red`, or comments on
+with the reason. A SKIP is counted from night to night (in `.fleet-member`,
+the runner's cache): the seventh night in a row the same row is SKIP, it is
+FAIL, saying since when and why -- C was SKIP six nights over a setup defect
+nobody had named. A row listed in `scripts/fleet/planned-skips` waits on a
+numbered item of "Waiting on Nicolas" (HANDOVER §0) and stays SKIP however
+long, its line ending "(planned: Waiting on Nicolas item N)";
+`check-fleet.sh` fails when that item is gone from the list. A red run opens an issue titled `fleet: red`, or comments on
 the one already open; the session that resumes the project reads it first.
 
 ## Why it is safe to hold a key to Nicolas's machines in CI
@@ -126,7 +132,8 @@ ED25519 host key is known"), and `ssh-keyscan` (it printed nothing there).
     ($k -join "`n") | gh secret set FLEET_KNOWN_HOSTS --env fleet -R OWNER/REPO
 
 A machine whose key is missing or wrong is a SKIP row naming the host key,
-never a red run on its own -- read the SKIP lines of the first runs.
+not a red run until its seventh night in a row (unless it is planned, as the
+Pi's is while its key waits) -- read the SKIP lines of the first runs.
 
 ### The laptop, once (when Nicolas decides to)
 
@@ -165,8 +172,8 @@ never a red run on its own -- read the SKIP lines of the first runs.
 5. **In the `fleet` environment**: `laptop` added to `FLEET_HOSTS` (not to
    `FLEET_SCAN`: the Windows agent offers no C scan), a `Host laptop` block in
    `FLEET_SSH_CONFIG` (its tailnet name, the Windows user), and the host key
-   line in `FLEET_KNOWN_HOSTS`. A night the laptop sleeps is a SKIP row, never
-   a red run on its own.
+   line in `FLEET_KNOWN_HOSTS`. A night the laptop sleeps is a SKIP row; seven
+   in a row are a red run, on purpose: nothing has checked it for a week.
 
 ## What it does not do yet
 

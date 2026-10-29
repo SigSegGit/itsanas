@@ -253,6 +253,59 @@ FLEET_SSH=false fleet "pi gone" ""
 expect fail "one machine answering is FAIL: nothing was tested" "fewer than two machines answered" $?
 grep -qE '^SKIP  gone does not answer' "$WORK/run.log" || bad "a host that does not answer is not said SKIP"
 
+echo "a SKIP nobody planned turns red after seven nights; a planned one does not"
+
+# C was SKIP every night from 2026-10-24 to 2026-10-29 over a setup defect,
+# because a SKIP counted as green for ever (HANDOVER §8 0x). A SKIP that
+# waits on an item of "Waiting on Nicolas" is planned and stays SKIP:
+# reddening it would reopen "fleet: red" nightly to say what the list says.
+NOHOST=1 machine night "$WORK/synced"
+day() { date -u -d "@$(( $(date +%s) - $1 * 86400 ))" +%F; }
+printf '# label<TAB>item\n' >"$WORK/planned"
+nights() {
+    FLEET_SKIPS="$WORK/skips" FLEET_PLANNED="$WORK/planned" FLEET_TODAY=$(day "$1") \
+        fleet "pi night" "night:other"
+}
+rm -f "$WORK/skips"
+for n in 6 5 4 3 2 1; do nights "$n" >/dev/null; done
+grep -qE '^SKIP  C night:other: ' "$WORK/run.log" ||
+    bad "an unplanned SKIP on its sixth night was not still SKIP: $(grep 'C night' "$WORK/run.log")"
+first=$(day 6)
+nights 0
+expect fail "an unplanned SKIP on its seventh night is FAIL" "^FAIL  C night:other: SKIP 7 nights in a row since $first: other holds nothing" $?
+# A PASS between restarts the count.
+rm -f "$WORK/skips"
+for n in 6 5 4; do nights "$n" >/dev/null; done
+machine night "$WORK/synced"
+nights 3 >/dev/null
+rm -rf "$WORK/night"; NOHOST=1 machine night "$WORK/synced"
+for n in 2 1 0; do nights "$n" >/dev/null; done
+grep -qE '^SKIP  C night:other: ' "$WORK/run.log" ||
+    bad "a PASS in between did not restart the count: $(grep 'C night' "$WORK/run.log")"
+# Planned: seven nights and more, still SKIP, and it says which item.
+printf 'C night:other\t1\n' >>"$WORK/planned"
+rm -f "$WORK/skips"
+for n in 8 7 6 5 4 3 2 1; do nights "$n" >/dev/null; done
+nights 0
+expect pass "a planned SKIP eight nights old is not a failure" "" $?
+grep -qE '^SKIP  C night:other: .*\(planned: Waiting on Nicolas item 1\)' "$WORK/run.log" ||
+    bad "a planned SKIP did not name its item: $(grep 'C night' "$WORK/run.log")"
+
+# The planned skips in the repository each name an item the list still has:
+# a skip cannot stay planned after its reason is gone.
+items=$(awk '/^\*\*Waiting on Nicolas/{on=1} on && /^## /{exit} on && /^[0-9]+\. /{sub(/\..*/,""); print}' docs/HANDOVER.md)
+[ -n "$items" ] || bad "no numbered item under \"Waiting on Nicolas\" in HANDOVER §0"
+planned_items() {
+    grep -vE '^(#|$)' "$1" | while IFS=$'\t' read -r label item; do
+        [ -n "$label" ] && [ -n "$item" ] || { echo "malformed: $label"; continue; }
+        printf '%s\n' "$items" | grep -qx "$item" || echo "$label names item $item, which Waiting on Nicolas no longer has"
+    done
+}
+stale=$(planned_items scripts/fleet/planned-skips)
+[ -z "$stale" ] && ok "every planned fleet skip names a live item of Waiting on Nicolas" || bad "$stale"
+printf 'C night:other\t99\n' >"$WORK/stale"
+[ -n "$(planned_items "$WORK/stale")" ] || bad "a planned skip naming a gone item passed the gate"
+
 echo "fleet-docker.sh opens the port discovery listens on"
 
 # Another account's node on the home LAN is found by discovery's UDP beacons
