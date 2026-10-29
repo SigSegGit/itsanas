@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: once Nicolas has run fleet-docker.sh (which pledges every account still at zero and lets discovery's UDP 21037 through ufw) and setup.sh again on the VM and the Pi (item 1 of the list in §0), a session runs the fleet and reads C vm:nicolas (PASS, or "pledged 2.0 GiB, 0 peer(s) hosted", which points at discovery between the LAN's accounts, not the pledge), V and L vm; the Pi SKIPs, planned, until its host key is in CI (item 2). Done: an unplanned SKIP turns red on its seventh night (#339)
+TITLE: The fleet tested by CI: C passes on the real fleet (run 40941797343); left, the test that proves C's route in cargo -- two accounts on one machine, both pledging, discovery over real sockets, no peer add, the second account's vault/owners/<first uid> holds chunks after a round (sabotage: strangers skipped in dial_order; the host at pledge 0)
 WRITTEN-AT: 2026-10-29
-BASE: 38f0d31
+BASE: 4b5b877
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -30,66 +30,25 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
 
-1. The VM, then the Pi: rebuild the coordinator (VM) and the three clients
-   from `main`, then refresh the fleet agent's copy (the C reason, the L
-   count). On the laptop, `ssh -i $HOME\.ssh\itsanas_session -p 22011
-   itsomeone@ngas.fr` (`-p 22010` for the Pi), then there:
-
-       cd ~/itsanas && git pull --ff-only && bash scripts/fleet-docker.sh vm
-       bash scripts/fleet/setup.sh
-
-   (`... fleet-docker.sh pi` on the Pi; the accounts exist, so it asks
-   nothing; the Pi compiles for a while). `setup.sh` with no argument keeps
-   the CI key it installed last time (since #328). Since #336 the script
-   also pledges 2G for every account still at zero, the default, which
-   none of the Docker accounts had left since 2026-10-14 (a pledge set by
-   hand is kept), and lets discovery's UDP 21037 through ufw instead of
-   UDP 9797-9799, where nothing listens. A `WARNING: '<account>' still
-   pledges nothing` means that disk cannot hold it beside the others'
-   promises (the VM's 22 GB was full on 2026-10-06: `df -h ~` first), and
-   then, with a smaller size for the accounts still at zero only,
-
-       FLEET_PLEDGE=500M bash scripts/fleet-docker.sh vm
-
-   To check it took (fleet run 40577831374 showed the VM still on the old
-   build after a first attempt), on each machine:
-
-       head -1 ~/itsanas-data/test/home/status.snapshot
-       grep -c copies ~/.itsanas-fleet/agent.sh
-       grep -H pledge_bytes ~/itsanas-data/*/home/config
-       sudo ufw status | grep 21037
-
-   The first must end with `version 0.1.13` (and `copies ...`), the second
-   print a number above 0, the third a number above 0 for `nicolas` and
-   `test` at least, the fourth an ALLOW line (or nothing at all if ufw is
-   inactive there). After a round or two, on the VM,
-
-       docker logs itsanas-test-client-1 2>&1 | grep -c "another user's device"
-
-   should print a number above 0: the VM's `test` node has heard
-   `nicolas` (C's only route, §8 0x). `fleet-docker.sh` also prints each
-   account's running build at the end since #333, and flags one that is
-   not the checkout's.
-2. Both host keys into CI (the Pi is SKIP on its key), laptop PowerShell:
-
-       $pi = (ssh -i $HOME\.ssh\itsanas_session -p 22010 itsomeone@ngas.fr cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
-       $vm = (ssh -i $HOME\.ssh\itsanas_session -p 22011 itsomeone@ngas.fr cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
-       $k = "[ngas.fr]:22010 $($pi[0]) $($pi[1])", "[ngas.fr]:22011 $($vm[0]) $($vm[1])"
-       $k
-       ($k -join "`n") | gh secret set FLEET_KNOWN_HOSTS --env fleet -R SigSegGit/itsanas
-
-3. Dependabot #320 (fleet.yml actions; CI green, needs his review):
+1. Dependabot #320 (fleet.yml actions; CI green, needs his review):
 
        gh pr review 320 --approve -R SigSegGit/itsanas
        gh pr merge 320 --squash --delete-branch -R SigSegGit/itsanas
 
-4. Release v0.1.13 for the laptop, the Mac and testers (about 20 min; it
+2. Release v0.1.13 for the laptop, the Mac and testers (about 20 min; it
    beeps, asks `y`, then the release key's passphrase):
 
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
 
-   #256 (`feat/mcp-server`) is his own. After 1 and 2, a session runs the
-   fleet itself (`gh workflow run fleet.yml`) and reads V, L vm and C.
+   #256 (`feat/mcp-server`) is his own.
+
+**2026-10-29, night: the fleet all green, C closed.** Nicolas did the
+VM/Pi rebuild and the host keys (the old items 1 and 2 of the list above,
+struck, with their lines in `scripts/fleet/planned-skips`). Run
+40941797343: 15 checked, 0 failed, 3 of 3 machines; C PASS on both hosts;
+V 0.1.13. Only row worth a look: L runner "1 of 2 copies, NOT safe" -- the
+runner's own node, which joins for twenty minutes a night; the row tests
+that it says so, and it does. Next: C's route proved in cargo (§8 0x).
 
 **2026-10-29, late: a fleet SKIP nobody planned turns red on its seventh
 night (#339; §8 0x).** `row()` in `scripts/fleet/run.sh` counts each SKIP
@@ -1613,8 +1572,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       holders and the account's own devices count, so it is closed. That
       route needed UDP 21037 through ufw, and `fleet-docker.sh` opened
       9797-9799/udp: fixed in #336, kept so by `check-fleet.sh`. Nothing in
-      placement excludes a host behind the same router. **Next, for the
-      session after that run:** C PASS closes it; a SKIP saying "pledged
+      placement excludes a host behind the same router. **Closed
+      2026-10-29: run 40941797343 (by hand, after Nicolas rebuilt the VM
+      and the Pi and put both host keys in CI): C vm:nicolas and C
+      pi:nicolas PASS, V 0.1.13 everywhere, 15 checked, 0 failed.** What
+      was written before that run: C PASS closes it; a SKIP saying "pledged
       2.0 GiB, 0 peer(s) hosted" means the beacons still do not reach a
       `test` node there (ufw on the Pi, the looped-back broadcast between
       containers on one host: not read in the code) -- the `docker logs`
