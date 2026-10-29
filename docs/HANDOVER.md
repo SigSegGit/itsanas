@@ -10,7 +10,7 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: first build Nicolas's decision of 2026-10-29 (a row SKIP seven nights in a row turns the run red, §8 0x); then, once Nicolas has run fleet-docker.sh (which now pledges every account still at zero and lets discovery's UDP 21037 through ufw) and setup.sh again on the VM and the Pi (item 1 of the list in §0), a session runs the fleet and reads C vm:nicolas (PASS, or "pledged 2.0 GiB, 0 peer(s) hosted", which points at discovery between the LAN's accounts, not the pledge), V and L vm; the Pi SKIPs until its host key is in CI (item 2)
+TITLE: The fleet tested by CI: first build Nicolas's decision of 2026-10-29 (a row SKIP seven nights in a row turns the run red unless scripts/fleet/planned-skips ties it to an item of "Waiting on Nicolas", §8 0x); then, once Nicolas has run fleet-docker.sh (which now pledges every account still at zero and lets discovery's UDP 21037 through ufw) and setup.sh again on the VM and the Pi (item 1 of the list in §0), a session runs the fleet and reads C vm:nicolas (PASS, or "pledged 2.0 GiB, 0 peer(s) hosted", which points at discovery between the LAN's accounts, not the pledge), V and L vm; the Pi SKIPs until its host key is in CI (item 2)
 WRITTEN-AT: 2026-10-29
 BASE: b044468
 -->
@@ -1613,23 +1613,42 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `vault/owners/<first uid>` holds chunks. Sabotage: skip strangers in
       `dial_order` (red); the host at pledge 0 (red). `acceptance-local.sh`
       proves hosting between accounts, but through `peer add`.
-      **Decided by Nicolas, 2026-10-29 (Rodin on #336): a row SKIP seven
-      nights in a row turns the run red**, so it opens or adds to the
-      `fleet: red` issue. C was SKIP every night from 2026-10-24 to
-      2026-10-29 over a setup defect, read each morning as information,
-      because `run.sh` counts a SKIP as green for ever. **Not built: the
-      next session builds it first, before reading the run.** Facts for it:
-      `row()` in `run.sh` (~62) counts FAIL and PASS only; `.fleet-member`
-      is restored from the last run (`restore-keys: fleet-member-`,
-      fleet.yml ~82) and saved after it even when it is red (`if: always()`,
-      ~115), so a small file there -- a row's stable label (`C vm:nicolas`,
-      never its reason) and the first night it was SKIP -- carries the count
-      with no change to fleet.yml; a PASS or a FAIL clears the label; the
-      FAIL says how many nights and the last reason. In `check-fleet.sh`:
-      seven SKIP nights FAIL, six still SKIP, a PASS between restarts the
-      count; each sabotaged. A run without the cache (first night, cache
-      evicted) starts the count afresh, which errs towards silence for a
-      week, not towards a red night. V stays SKIP until the Pi's and the VM's
+      **Decided by Nicolas, 2026-10-29 (Rodin on #336), made precise the
+      same day: a SKIP nobody planned turns red after seven nights; a SKIP
+      that waits on a named action does not.** C was SKIP every night from
+      2026-10-24 to 2026-10-29 over a setup defect nobody had named, read
+      each morning as information, because `run.sh` counts a SKIP as green
+      for ever. But the Pi's SKIP (host key) and V's (0.1.12 daemons) each
+      wait on an item of "Waiting on Nicolas" at the top of §0: turning them
+      red would reopen `fleet: red` every night to say what the list already
+      says, and a red that is always on is a red nobody reads. Nicolas: "red
+      it" does not mean "red for principle". Same rule as CI's planned
+      skips (§4b, `ci_scope.py verify`): a skip is green only when
+      something decided and explained it. **Kept nightly and on the GitHub
+      runner, not moved to a timer on the VM:** the runner is itself a
+      member on a network that is not home (test O), which no timer at home
+      can be, and the run's red already reaches the session through the
+      issue; what made the run red "without reason" was the rule, not the
+      schedule. **Not built: the next session builds it first, before
+      reading the run.** Facts for it: `row()` in `run.sh` (~62) counts FAIL
+      and PASS only; `.fleet-member` is restored from the last run
+      (`restore-keys: fleet-member-`, fleet.yml ~82) and saved after it even
+      when it is red (`if: always()`, ~115), so a small file there -- a
+      row's stable label (`C vm:nicolas`, never its reason) and the first
+      night it was SKIP -- carries the count with no change to fleet.yml; a
+      PASS or a FAIL clears the label; the FAIL says how many nights and
+      the last reason. Planned skips live in a file in the repository
+      (`scripts/fleet/planned-skips`): one line per row label, naming the
+      number of its item in "Waiting on Nicolas"; such a row stays SKIP
+      however long, and its summary line says "planned: item N". A gate
+      (`check-fleet.sh`) fails when an entry names an item the list no
+      longer has, so a skip cannot stay planned after its reason is gone.
+      In `check-fleet.sh`: seven unplanned SKIP nights FAIL, six still
+      SKIP, a PASS between restarts the count, a planned row seven nights
+      stays SKIP, a stale entry fails the gate; each sabotaged. A run
+      without the cache (first night, cache evicted) starts the count
+      afresh, which errs towards silence for a week, not towards a red
+      night. V stays SKIP until the Pi's and the VM's
       Docker clients are rebuilt from `main` (`fleet-docker.sh`, item 1 of
       the list at the top of §0; not a release: `itsanas update` does not
       apply in a container).
