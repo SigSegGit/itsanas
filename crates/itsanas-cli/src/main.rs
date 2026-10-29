@@ -4382,7 +4382,12 @@ fn report_keeping_settings(node: &Node) {
 /// in shell, PowerShell and again in the Android settings screen. Three copies
 /// of a rule is three answers to one question.
 fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> Result<()> {
-    let mut node = open(home)?;
+    space_on(&mut open(home)?, pledge, keep, apply)
+}
+
+/// [`space`] on a node already open, so a test reaches it without a
+/// passphrase prompt.
+fn space_on(node: &mut Node, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> Result<()> {
     let split = node.config.split;
 
     let wanted_pledge = match pledge {
@@ -4454,6 +4459,14 @@ fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> 
         ));
     }
 
+    // And the other nodes on this disk: the installers pledge through here
+    // (`provision.sh`), and until 2026-10-29 this compared the pledge with the
+    // free space alone, which `pledge` had stopped doing on 2026-10-12.
+    let held_for_others = node.held_for_others()?;
+    if let Some(refusal) = disk_refusal(node, wanted_pledge, held_for_others) {
+        refusals.push(refusal);
+    }
+
     println!();
     if refusals.is_empty() {
         match wanted_keep {
@@ -4487,6 +4500,7 @@ fn space(home: &Path, pledge: Option<&str>, keep: Option<&str>, apply: bool) -> 
     node.config.pledge_bytes = wanted_pledge;
     node.config.keep_bytes = wanted_keep;
     node.save_config()?;
+    publish_pledge(node, wanted_pledge, held_for_others);
     println!();
     println!("set.");
     Ok(())
@@ -4527,13 +4541,29 @@ fn set_pledge(node: &mut Node, bytes: u64) -> Result<Option<String>> {
         )
     });
 
-    // Refusing to promise a disk this machine has not got. A host that accepts
-    // data and then runs out has failed the person who trusted it, and "I
-    // offered more than I had" is not a failure anybody discovers until it
-    // matters.
-    // And not the space another node on this disk already promised: each one
-    // compared with the free space alone, and two accounts on the Freebox VM
-    // promised the same 30 GB twice (ROADMAP, "Pledges are not reserved").
+    if let Some(refusal) = disk_refusal(node, bytes, held) {
+        return Err(CliError::Usage(refusal));
+    }
+
+    node.config.pledge_bytes = bytes;
+    node.save_config()?;
+    publish_pledge(node, bytes, held);
+    Ok(warning)
+}
+
+/// Why `node`'s disk cannot take a promise of `bytes`, `held` being what it
+/// already stores for other accounts; `None` when it fits, or when the
+/// filesystem will not say what is free.
+///
+/// Refusing to promise a disk this machine has not got: a host that accepts
+/// data and then runs out has failed the person who trusted it, and "I
+/// offered more than I had" is not a failure anybody discovers until it
+/// matters. And not the space another node on this disk already promised:
+/// each one compared with the free space alone, and two accounts on the
+/// Freebox VM promised the same 30 GB twice (ROADMAP, "Pledges are not
+/// reserved"). `pledge` and `space --apply` both ask here, so neither is the
+/// way around the other.
+fn disk_refusal(node: &Node, bytes: u64, held: u64) -> Option<String> {
     let free = fs4::available_space(node.vault_dir()).unwrap_or(0);
     let shared = itsanas_node::pledges::shared_dir();
     let (others, stale) = itsanas_node::pledges::others(
@@ -4543,8 +4573,8 @@ fn set_pledge(node: &mut Node, bytes: u64) -> Result<Option<String>> {
         itsanas_discover::now_unix(),
     );
     let room = itsanas_node::pledges::room(free, held, &others);
-    if free > 0 && bytes > room {
-        return Err(CliError::Usage(format!(
+    (free > 0 && bytes > room).then(|| {
+        format!(
             "offering {} on a disk with {} free, already holding {} for others; \
              at most {} can be offered here{}",
             format_size(bytes),
@@ -4559,22 +4589,21 @@ fn set_pledge(node: &mut Node, bytes: u64) -> Result<Option<String>> {
                     itsanas_node::pledges::describe(&others, &stale, format_size)
                 )
             }
-        )));
-    }
+        )
+    })
+}
 
-    node.config.pledge_bytes = bytes;
-    node.save_config()?;
-    // Published now, not at the next round: a second setup a minute later
-    // must already see this promise.
+/// Tell the other nodes on this disk about a pledge just set, now and not at
+/// the next round: a second setup a minute later must already see it.
+fn publish_pledge(node: &Node, bytes: u64, held: u64) {
     let _ = itsanas_node::pledges::publish(
         &node.home,
-        shared.as_deref(),
+        itsanas_node::pledges::shared_dir().as_deref(),
         &node.store.device_id().to_hex(),
         bytes,
         held,
         itsanas_discover::now_unix(),
     );
-    Ok(warning)
 }
 
 fn serve(home: &Path, listen: Option<&str>) -> Result<()> {
@@ -5542,7 +5571,7 @@ mod tests {
         drain_summary, first_free_port, instances_report, looks_like_a_closed_pipe,
         migrate_unnamed, passphrase_explanation, phrase_grid, phrase_words, prompt_label,
         prompt_text, record_departure, refuse_if_departed, register, rejoin, resolve_device,
-        set_pledge, sibling_ports, snapshot_status, steer, sync_folder,
+        set_pledge, sibling_ports, snapshot_status, space_on, steer, sync_folder,
     };
 
     /// `itsanas sync` names a refused chain on its summary line, and says
@@ -5600,6 +5629,74 @@ mod tests {
         // same pledge goes through.
         node.config.keep_bytes = None;
         set_pledge(&mut node, 1024 * 1024).expect("a small pledge with no keep");
+    }
+
+    /// `space --pledge X --apply` is how the installers pledge
+    /// (`provision.sh`), and it compared the pledge with the free space
+    /// alone: a second instance on the disk could promise what the first had
+    /// promised, the bug `pledge` was fixed for on 2026-10-12 (ROADMAP,
+    /// "Pledges are not reserved"). It now asks the same question, and says
+    /// the promise to the disk at once, as `pledge` does, so the next setup
+    /// sees it. Sabotage: drop the disk refusal from `space_on`, or its
+    /// `publish_pledge`.
+    #[test]
+    fn red_team_space_apply_cannot_promise_what_another_node_on_the_disk_promised() {
+        const MIB: u64 = 1024 * 1024;
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        let (mut node, _phrase) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        // A second instance beside it promised more than any disk holds, and
+        // stores none of it yet: all of it is still owed by the free space.
+        let sibling = base.path().join(".itsanas-dominique");
+        fake_node(&sibling, "dominique", None);
+        let promised = sibling.join(itsanas_node::pledges::STATE_FILE);
+        std::fs::write(
+            &promised,
+            format!(
+                "pledge={}\nheld=0\nupdated={}\n",
+                u64::MAX / 2,
+                itsanas_discover::now_unix()
+            ),
+        )
+        .expect("the sibling's promise");
+        let path = itsanas_node::Node::config_path(&home);
+        let before = std::fs::read(&path).expect("config");
+
+        let refused = space_on(&mut node, Some("1M"), None, true);
+        assert!(
+            refused.is_err(),
+            "space --apply promised a disk another node on it had already promised: the \
+             second member to fill it finds its host short, through no fault of its own"
+        );
+        assert_eq!(
+            std::fs::read(&path).expect("config"),
+            before,
+            "a refused space --apply still rewrote the node file"
+        );
+        assert_eq!(node.config.pledge_bytes, 0, "refused, yet set in memory");
+        // One rule for both commands: neither is the way around the other.
+        let pledge = set_pledge(&mut node, MIB);
+        assert!(
+            pledge
+                .as_ref()
+                .is_err_and(|error| error.to_string().contains("promised space too")),
+            "{pledge:?}"
+        );
+
+        // With the sibling's promise gone the same numbers fit, and this
+        // node's promise is on the disk for the next setup at once, not at
+        // its daemon's next round.
+        std::fs::remove_file(&promised).expect("remove");
+        space_on(&mut node, Some("1M"), None, true).expect("a small pledge on a free disk");
+        assert_eq!(node.config.pledge_bytes, MIB);
+        let published = itsanas_node::pledges::own(&home).map(|promise| promise.pledge);
+        assert_eq!(
+            published,
+            Some(MIB),
+            "space --apply set a pledge the other nodes on this disk cannot see yet: the next \
+             instance set up a minute later promises the same room"
+        );
     }
 
     /// A node home as `instances` sees one: a keystore and a config, no keys.

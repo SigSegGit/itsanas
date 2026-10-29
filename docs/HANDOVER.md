@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: green every night (S, B, F pass; L from the runner at once, from the Pi and the VM after setup.sh again; Pi SKIP on its host key, V SKIP until the Pi and the VM rebuild their Docker clients, item 1 of the list in §0); a session reads the latest run's SKIP lines, its L rows and the member's repeated lines, and fixes what they find
-WRITTEN-AT: 2026-10-27
-BASE: 37e45b0
+TITLE: The fleet tested by CI: once Nicolas has run fleet-docker.sh (which now pledges every account still at zero and lets discovery's UDP 21037 through ufw) and setup.sh again on the VM and the Pi (item 1 of the list in §0), a session runs the fleet and reads C vm:nicolas (PASS, or "pledged 2.0 GiB, 0 peer(s) hosted", which points at discovery between the LAN's accounts, not the pledge), V and L vm; the Pi SKIPs until its host key is in CI (item 2)
+WRITTEN-AT: 2026-10-29
+BASE: b044468
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -20,7 +20,7 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**Waiting on Nicolas, in this order, as commands to paste** (2026-10-27; a
+**Waiting on Nicolas, in this order, as commands to paste** (2026-10-29; a
 session cannot do any of them, and gives him these commands first, every
 time -- he does not want to remember them). The Pi and the VM run their
 accounts in **Docker** (`scripts/fleet-docker.sh`): their version is the
@@ -40,17 +40,36 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 
    (`... fleet-docker.sh pi` on the Pi; the accounts exist, so it asks
    nothing; the Pi compiles for a while). `setup.sh` with no argument keeps
-   the CI key it installed last time (since #328).
+   the CI key it installed last time (since #328). Since #336 the script
+   also pledges 2G for every account still at zero, the default, which
+   none of the Docker accounts had left since 2026-10-14 (a pledge set by
+   hand is kept), and lets discovery's UDP 21037 through ufw instead of
+   UDP 9797-9799, where nothing listens. A `WARNING: '<account>' still
+   pledges nothing` means that disk cannot hold it beside the others'
+   promises (the VM's 22 GB was full on 2026-10-06: `df -h ~` first), and
+   then, with a smaller size for the accounts still at zero only,
+
+       FLEET_PLEDGE=500M bash scripts/fleet-docker.sh vm
+
    To check it took (fleet run 40577831374 showed the VM still on the old
    build after a first attempt), on each machine:
 
        head -1 ~/itsanas-data/test/home/status.snapshot
        grep -c copies ~/.itsanas-fleet/agent.sh
+       grep -H pledge_bytes ~/itsanas-data/*/home/config
+       sudo ufw status | grep 21037
 
    The first must end with `version 0.1.13` (and `copies ...`), the second
-   print a number above 0. `fleet-docker.sh` also prints each account's
-   running build at the end since #333, and flags one that is not the
-   checkout's.
+   print a number above 0, the third a number above 0 for `nicolas` and
+   `test` at least, the fourth an ALLOW line (or nothing at all if ufw is
+   inactive there). After a round or two, on the VM,
+
+       docker logs itsanas-test-client-1 2>&1 | grep -c "another user's device"
+
+   should print a number above 0: the VM's `test` node has heard
+   `nicolas` (C's only route, §8 0x). `fleet-docker.sh` also prints each
+   account's running build at the end since #333, and flags one that is
+   not the checkout's.
 2. Both host keys into CI (the Pi is SKIP on its key), laptop PowerShell:
 
        $pi = (ssh -i $HOME\.ssh\itsanas_session -p 22010 itsomeone@ngas.fr cat /etc/ssh/ssh_host_ed25519_key.pub) -split ' '
@@ -71,6 +90,44 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 
    #256 (`feat/mcp-server`) is his own. After 1 and 2, a session runs the
    fleet itself (`gh workflow run fleet.yml`) and reads V, L vm and C.
+
+**2026-10-29: main's scheduled CI red on ARM, and the nightly C SKIP
+found.** (1) Run 40861451062: `a_key_without_room_or_already_holding_an_account_does_not_fit_and_says_why`
+raced the thread `/api/keys` measures the programs on (the 45 MiB guess
+until it is done, the stand-in's 1 KiB after): a 1 MiB key was refused or
+offered on whichever won. Fixed in the test (#335): 512 bytes, and a second
+read once `programs_known` is true. A lead left, from Rodin: the page never
+reads `programs_known` and rescans only on open or Refresh, so its first
+list is always judged against the guess; v0.1.12's programs are 36.0 MiB
+(40.4 with the Windows installer), so the error goes the safe way, by
+about 4.6 MiB. (2) Fleet run 40855090799: nothing new from the product (the
+VM still on the old build, the Pi SKIP on its host key), but the member's
+log had the VM's `test` node (9798; nicolas is 9797 and mandarine 9799, in
+`fleet-docker.sh`'s order) refusing its offers, "its pledge is full or
+zero". `fleet-docker.sh` had never pledged since #281; `fleet-reset.sh`,
+which it replaced, pledged 10G. Fixed in #336, with the product gap the
+same reading turned up: `space --apply`, the installers' path, ignored the
+other nodes' promises that `pledge` counts since 2026-10-12 (`disk_refusal`,
+`red_team_space_apply_cannot_promise_what_another_node_on_the_disk_promised`).
+(3) A workflow read C's route in the code the same evening (§8 0x): another
+account's node on the LAN is found by discovery alone, and `fleet-docker.sh`
+let UDP 9797-9799 through ufw "for discovery" while discovery listens on
+21037. Fixed in #336 too, with `check-fleet.sh` reading the port from
+`lan.rs` (sabotaged both ways: the old rule, the port moved in the source);
+the fleet's pledge went from 10G to 2G, for the VM's 22 GB disk. (4) MVP H
+(#93), the fact the night of 2026-10-27 asked for: the idle bench at the
+default five-minute round (`INT=300 R=3 bash scripts/idle-writes.sh`, build
+b072b15, under WSL as below) says **82 and 76 KB a round**, about 23 MB a day
+a node, against 50 at one minute. The difference is about eight more 4 KB
+writes a round, which fits the snapshot's 30 s heartbeat (`SNAPSHOT_EVERY`,
+ten a round at five minutes, two at one) -- inferred, not traced: WSL has no
+strace. Still to get: the same on the Pi.
+Traps: Python's `write_text` on Windows writes CRLF (a sabotage script
+did; work in bytes); `cargo clippy -p itsanas-cli --all-features` fails in
+`itsanas-coord` (`unused_self`) under that crate's feature set, while the
+workspace run CI does is clean; `check-fleet.sh` still FAILs on paths under
+Git Bash, run it under WSL. When a document and the code disagree, the code
+is right and the document is the bug.
 
 **2026-10-22, hand test** (laptop with 3 accounts, Mandarine's Mac, a USB
 key). Passed: O doctor; M isolation between accounts; a vault move through the
@@ -145,7 +202,7 @@ grid and let "a round is no news" pass -- moved off it). The nine steering
 tests, which read the stamp as a heartbeat, pass under WSL. The wiring has its own
 daemon-level test since #330
 (`red_team_an_idle_daemon_leaves_its_snapshot_alone_between_rounds`). Next fact to
-get: the same bench at a five-minute round, and on the Pi.
+get: the same bench on the Pi (at five minutes: 82 KB a round, 2026-10-29, above).
 
 **2026-10-27, evening: an idle round's last own commit removed (MVP H,
 #93).** The idle bench (`scripts/idle-writes.sh`) runs under WSL on the
@@ -1521,15 +1578,45 @@ Detail and measurements are in ROADMAP.md; this is the map.
       account that is off waits up to 30 min between dials
       (`QUIET_AFTER_MISS`, §0); the next run's member log should show the
       laptop line about 15 times in twenty minutes at the runner's 30 s
-      round, not 31, and the relay refusals with it. Still open, for the
-      next session: C vm:nicolas holding nothing for `test`. Done
+      round, not 31, and the relay refusals with it (run 40855090799,
+      2026-10-29: 6 private-address timeouts and 5 relay refusals in the
+      member's window, the ramp and `PRIVATE_PROBE_EVERY` as designed). Done
       2026-10-27: the SKIP line says the account's pledge and how many
-      peers it hosts (§0), once Nicolas re-runs `setup.sh` on the VM. Then
-      read it: pledged 0 B is Nicolas's to set (`itsanas pledge`); a
-      pledge with 0 peer(s) hosted means the VM's `test` node never
-      offered to `nicolas` on the same machine -- look at why discovery or
-      placement leaves a sibling account on one host out (`dial_order`,
-      `placing`), with a test of two accounts on one machine. V stays SKIP until the Pi's and the VM's
+      peers it hosts (§0). **C vm:nicolas holding nothing for `test`,
+      found 2026-10-29 (§0):** `fleet-docker.sh` had never pledged since
+      #281, the default is zero, and the VM's `test` node refused the
+      runner's offers, "its pledge is full or zero". Fixed in #336, in
+      effect once Nicolas runs it again (item 1 of §0's list). **C's only
+      route, read in the code by a workflow the same day (three readers,
+      one adversarial verifier):** the coordinator lists only the asker's
+      own account (`located(.., node.store.owner())`, coordinator.rs
+      ~1039) and a relay never introduces a machine, so the runner never
+      dials `nicolas` at all -- its missing `:9797` line is expected. Test's
+      chunks reach `nicolas@VM` only through a `test` node on the home LAN
+      that hears its discovery beacon and dials it as a stranger
+      (`dial_order`, daemon.rs ~1696; at most `NEW_PEERS_PER_ROUND` = 4 a
+      round), then pushes everything (`placement = everyone`,
+      `sweep_everything`); the reverse pull (`WantHosted`) stops at three
+      holders and the account's own devices count, so it is closed. That
+      route needed UDP 21037 through ufw, and `fleet-docker.sh` opened
+      9797-9799/udp: fixed in #336, kept so by `check-fleet.sh`. Nothing in
+      placement excludes a host behind the same router. **Next, for the
+      session after that run:** C PASS closes it; a SKIP saying "pledged
+      2.0 GiB, 0 peer(s) hosted" means the beacons still do not reach a
+      `test` node there (ufw on the Pi, the looped-back broadcast between
+      containers on one host: not read in the code) -- the `docker logs`
+      line of item 1 says which. **The test that proves the route, not
+      built:** two accounts on one machine, both pledging, discovery on
+      over real sockets (`Lan::bind_to`, as in
+      `two_accounts_on_one_machine_hear_each_other_and_keep_apart`), no
+      `peer add`; after a round the second account's
+      `vault/owners/<first uid>` holds chunks. Sabotage: skip strangers in
+      `dial_order` (red); the host at pledge 0 (red). `acceptance-local.sh`
+      proves hosting between accounts, but through `peer add`.
+      **For Nicolas to decide** (Rodin on #336): whether a row
+      that stays SKIP for a week turns the fleet red. C was SKIP every night
+      from 2026-10-24 to 2026-10-29 over a setup defect, read each morning
+      as information; `run.sh` counts a SKIP as green for ever. V stays SKIP until the Pi's and the VM's
       Docker clients are rebuilt from `main` (`fleet-docker.sh`, item 1 of
       the list at the top of §0; not a release: `itsanas update` does not
       apply in a container).

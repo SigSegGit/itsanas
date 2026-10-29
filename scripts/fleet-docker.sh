@@ -15,8 +15,19 @@
 # account has its own passphrase, kept in its own mode-600 env file, as three
 # people sharing a machine would have.
 #
+# Every account pledges FLEET_PLEDGE (2G unless set), because the default is
+# zero and a node that pledges nothing hosts nobody: from 2026-10-14, when this
+# script replaced fleet-reset.sh, which pledged 10G, the nightly test C read
+# "nicolas holds nothing for test" and the VM's `test` node refused the
+# runner's offers, "its pledge is full or zero" (fleet run 40855090799;
+# MVP.md: "Before anything: every machine pledges"). 2G, not 10G: the VM's
+# disk is 22 GB beside the coordinator (full on 2026-10-06), three accounts
+# promise on it, and the fleet's test files are a few MB.
+#
 # Safe to run again: an account whose node exists is left as it is and only
-# brought up. The native install is removed every time, which is the point.
+# brought up, except a pledge still at zero, which gets the fleet's; a pledge
+# set by hand is kept. The native install is removed every time, which is the
+# point.
 set -u
 
 ROLE="${1:-}"
@@ -26,6 +37,7 @@ case "$ROLE" in
 esac
 
 ACCOUNTS="nicolas test mandarine"
+PLEDGE="${FLEET_PLEDGE:-2G}"
 COORD=itsanas.ngas.fr:9898
 COORD_ID=2cfb515fc90749d7248f4af404ecb34b5417e0c1339565c8036a9dde70cf72ce
 REPO=https://github.com/SigSegGit/itsanas.git
@@ -123,11 +135,18 @@ fi
 say; say "== 4/5 The client image (a Raspberry Pi takes a while: it compiles)"
 $SUDO docker compose -f "$DOCKER_DIR/compose.client.yml" -p itsanas-build build || fail "client image build"
 
-# The members listen on the host's network; ufw filters that like any process.
+# The members listen on the host's network; ufw filters that like any process:
+# their TCP ports, and local discovery's UDP beacons on 21037
+# (itsanas_discover::DEFAULT_PORT; check-fleet.sh reads it there). Until
+# 2026-10-29 this opened UDP 9797-9799 "for discovery", where nothing listens,
+# so wherever ufw is active the beacons were dropped -- and another account's
+# node on the LAN is found by discovery alone, never handed out by the
+# coordinator, which is the only way test C's host gets anything.
 if command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
     sudo ufw allow 9797:9799/tcp comment 'itsanas members' >/dev/null
-    sudo ufw allow 9797:9799/udp comment 'itsanas discovery' >/dev/null
-    say "  ufw: 9797-9799 opened for the members"
+    sudo ufw allow 21037/udp comment 'itsanas discovery' >/dev/null
+    sudo ufw delete allow 9797:9799/udp >/dev/null 2>&1
+    say "  ufw: 9797-9799/tcp opened for the members, 21037/udp for discovery"
 fi
 
 say; say "== 5/5 The accounts: $ACCOUNTS"
@@ -161,6 +180,25 @@ for acct in $ACCOUNTS; do
         dc run --rm client folder /data/folder || fail "folder $acct"
         dc run --rm client coordinator "$COORD" --device "$COORD_ID" || fail "coordinator $acct"
         dc run --rm client register || fail "register $acct (is the coordinator reachable?)"
+    fi
+    # The config is plain text and `pledge_bytes` absent means zero. Not read
+    # (another owner, say) is not zero: a pledge set by hand must survive.
+    if [ -r "$home/config" ]; then
+        pledged=$(sed -n 's/^pledge_bytes = //p' "$home/config" | head -1)
+        if [ "${pledged:-0}" = 0 ]; then
+            # One writer: a running daemon holds the store, and `pledge` opens it.
+            dc stop >/dev/null 2>&1
+            if dc run --rm client pledge "$PLEDGE"; then
+                say "  pledged $PLEDGE to the other accounts"
+            else
+                say "  WARNING: '$acct' still pledges nothing, so it hosts nobody (the reason is above)."
+                say "  With room, then: FLEET_PLEDGE=<size> bash $0 $ROLE"
+            fi
+        else
+            say "  pledge kept: $(numfmt --to=iec "$pledged" 2>/dev/null || echo "$pledged bytes")"
+        fi
+    else
+        say "  WARNING: $home/config cannot be read here; its pledge was left as it is"
     fi
     dc up -d || fail "start $acct"
     echo "bonjour de $(hostname) pour $acct, $(date)" > "$folder/bonjour-$(hostname).txt"
