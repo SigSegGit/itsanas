@@ -253,6 +253,22 @@ FLEET_SSH=false fleet "pi gone" ""
 expect fail "one machine answering is FAIL: nothing was tested" "fewer than two machines answered" $?
 grep -qE '^SKIP  gone does not answer' "$WORK/run.log" || bad "a host that does not answer is not said SKIP"
 
+echo "fleet-docker.sh opens the port discovery listens on"
+
+# Another account's node on the home LAN is found by discovery's UDP beacons
+# alone (the coordinator lists only the asker's own account), and test C needs
+# it found. fleet-docker.sh opened UDP 9797-9799 "for discovery" from
+# 2026-10-14 to 2026-10-29 while discovery listens on 21037, so the port is
+# read from the source here, not restated.
+port=$(sed -n 's/^pub const DEFAULT_PORT: u16 = \([0-9]*\);.*/\1/p' crates/itsanas-discover/src/lan.rs)
+if [ -z "$port" ]; then
+    bad "no DEFAULT_PORT in crates/itsanas-discover/src/lan.rs: this check reads the wrong place"
+elif grep -qE "ufw allow $port/udp" scripts/fleet-docker.sh; then
+    ok "fleet-docker.sh lets discovery's UDP $port through ufw"
+else
+    bad "fleet-docker.sh does not open UDP $port to ufw (itsanas_discover::DEFAULT_PORT): the accounts on the LAN never hear each other, and C finds its host empty"
+fi
+
 echo "the fleet workflow can only run from main"
 
 # What keeps the key to Nicolas's machines out of a stranger's hands is not
