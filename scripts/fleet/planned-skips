@@ -1,0 +1,10 @@
+# Fleet rows whose SKIP waits on a named action: <row label><TAB><item>,
+# the item's number in "Waiting on Nicolas" at the top of docs/HANDOVER.md §0.
+# Such a row stays SKIP however many nights; any other SKIP turns FAIL on its
+# seventh night in a row (scripts/fleet/run.sh). scripts/check-fleet.sh fails
+# when an item named here is gone from the list: remove the line with the item.
+# The label is what the row says before its first ": ".
+pi does not answer	2
+V	1
+C vm:nicolas	1
+C pi:nicolas	2

@@ -38,6 +38,14 @@
 #   FLEET_SCAN_TIMEOUT  seconds a C scan may take (default 600)
 #   FLEET_SETTLE    seconds after F before looking again that the file stayed
 #                   gone: longer than a round (default 360)
+#   FLEET_SKIPS     a file that carries, from one night to the next, each
+#                   row SKIP since when (default .fleet-member/skips when that
+#                   directory exists, else none: a SKIP is never counted)
+#   FLEET_PLANNED   the skips that wait on a named action (default
+#                   scripts/fleet/planned-skips)
+#   FLEET_SKIP_NIGHTS  nights an unplanned SKIP may last before it is FAIL
+#                   (default 7)
+#   FLEET_TODAY     today, YYYY-MM-DD in UTC (for scripts/check-fleet.sh)
 
 set -uo pipefail
 
@@ -51,10 +59,32 @@ TIMEOUT=${FLEET_TIMEOUT:-20}
 SETTLE=${FLEET_SETTLE:-360}
 SCAN_TIMEOUT=${FLEET_SCAN_TIMEOUT:-600}
 AGENT="$(cd "$(dirname "$0")" && pwd)/agent.sh"
+# The fleet workflow restores .fleet-member from last night and saves it even
+# on a red run, so the count lives there with no change to fleet.yml.
+SKIPS=${FLEET_SKIPS-}
+[ -z "${FLEET_SKIPS+set}" ] && [ -d .fleet-member ] && SKIPS=.fleet-member/skips
+PLANNED=${FLEET_PLANNED:-"$(cd "$(dirname "$0")" && pwd)/planned-skips"}
+SKIP_NIGHTS=${FLEET_SKIP_NIGHTS:-7}
+TODAY=${FLEET_TODAY:-$(date -u +%F)}
 
 failures=0
 tested=0
 results=()
+skipped=()
+
+# A row's stable name: what comes before its first ": " ("C vm:nicolas",
+# "V", "pi does not answer"), never its reason, which changes night to night.
+label() { printf '%s' "${1%%: *}"; }
+# The item of "Waiting on Nicolas" a planned skip waits on, or nothing.
+planned() {
+    [ -f "$PLANNED" ] || return 0
+    awk -F'	' -v l="$1" '$0 !~ /^#/ && $1 == l { print $2; exit }' "$PLANNED"
+}
+# The night a row was first SKIP in the current run of SKIPs, or nothing.
+skipped_since() {
+    [ -n "$SKIPS" ] && [ -f "$SKIPS" ] || return 0
+    awk -F'	' -v l="$1" '$1 == l { print $2; exit }' "$SKIPS"
+}
 
 say() { printf '%s\n' "$*"; }
 # One row of the verdict table. FAIL counts; SKIP is said, with why, and
@@ -62,6 +92,28 @@ say() { printf '%s\n' "$*"; }
 row() {
     local result=$1
     shift
+    # A SKIP said the same way every night is green for ever unless it is
+    # counted: C was SKIP from 2026-10-24 to 2026-10-29 over a setup defect
+    # nobody had named (HANDOVER §8 0x). A SKIP that waits on an item of
+    # "Waiting on Nicolas" is planned and stays SKIP, as CI's planned skips
+    # stay green; any other turns FAIL on its SKIP_NIGHTS-th night.
+    if [ "$result" = SKIP ]; then
+        local name item since nights
+        name=$(label "$*")
+        item=$(planned "$name")
+        if [ -n "$item" ]; then
+            set -- "$* (planned: Waiting on Nicolas item $item)"
+        elif [ -n "$SKIPS" ]; then
+            since=$(skipped_since "$name")
+            since=${since:-$TODAY}
+            skipped+=("$name"$'	'"$since")
+            nights=$(( ( $(date -u -d "$TODAY" +%s) - $(date -u -d "$since" +%s) ) / 86400 + 1 ))
+            if [ "$nights" -ge "$SKIP_NIGHTS" ]; then
+                result=FAIL
+                set -- "$name: SKIP $nights nights in a row since $since: ${*#"$name: "}"
+            fi
+        fi
+    fi
     results+=("$result  $*")
     say "$result  $*"
     case "$result" in
@@ -289,6 +341,14 @@ else
 fi
 
 # ------------------------------------------------------------------ verdict
+
+# Only tonight's unplanned SKIPs carry over: a PASS, a FAIL, or a row that
+# was not reached clears its count.
+if [ -n "$SKIPS" ]; then
+    printf '%s
+' "${skipped[@]}" | grep -v '^$' >"$SKIPS.new" || true
+    mv "$SKIPS.new" "$SKIPS"
+fi
 
 say
 say "fleet: $tested checked, $failures failed, ${#up[@]} of $(wc -w <<<"$HOSTS" | tr -d ' ') machines answered"

@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0x
-TITLE: The fleet tested by CI: first build Nicolas's decision of 2026-10-29 (a row SKIP seven nights in a row turns the run red unless scripts/fleet/planned-skips ties it to an item of "Waiting on Nicolas", §8 0x); then, once Nicolas has run fleet-docker.sh (which now pledges every account still at zero and lets discovery's UDP 21037 through ufw) and setup.sh again on the VM and the Pi (item 1 of the list in §0), a session runs the fleet and reads C vm:nicolas (PASS, or "pledged 2.0 GiB, 0 peer(s) hosted", which points at discovery between the LAN's accounts, not the pledge), V and L vm; the Pi SKIPs until its host key is in CI (item 2)
+TITLE: The fleet tested by CI: once Nicolas has run fleet-docker.sh (which pledges every account still at zero and lets discovery's UDP 21037 through ufw) and setup.sh again on the VM and the Pi (item 1 of the list in §0), a session runs the fleet and reads C vm:nicolas (PASS, or "pledged 2.0 GiB, 0 peer(s) hosted", which points at discovery between the LAN's accounts, not the pledge), V and L vm; the Pi SKIPs, planned, until its host key is in CI (item 2). Done: an unplanned SKIP turns red on its seventh night (#339)
 WRITTEN-AT: 2026-10-29
-BASE: b044468
+BASE: 38f0d31
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -90,6 +90,19 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 
    #256 (`feat/mcp-server`) is his own. After 1 and 2, a session runs the
    fleet itself (`gh workflow run fleet.yml`) and reads V, L vm and C.
+
+**2026-10-29, late: a fleet SKIP nobody planned turns red on its seventh
+night (#339; §8 0x).** `row()` in `scripts/fleet/run.sh` counts each SKIP
+row by its label (what comes before its first ": ") in
+`.fleet-member/skips`, which the workflow restores and saves; a PASS, a
+FAIL or an absent row clears it. `scripts/fleet/planned-skips` lists the
+rows that wait on an item of the list above (today: the Pi's two, items 2;
+V and C vm:nicolas, item 1): they stay SKIP, saying which item. **When you
+strike an item from the list, strike its lines there too**: `check-fleet.sh`
+fails otherwise, on purpose. Not changed: `fleet.yml`, so the count needs
+the runner to take part (the cache is saved only then). Trap that cost a
+round: `expect ... "$(day 6)" $?` reads the status of `day`, not of the run
+-- capture the date first. Run `check-fleet.sh` under WSL, not Git Bash.
 
 **2026-10-29: main's scheduled CI red on ARM, and the nightly C SKIP
 found.** (1) Run 40861451062: `a_key_without_room_or_already_holding_an_account_does_not_fit_and_says_why`
@@ -1629,8 +1642,8 @@ Detail and measurements are in ROADMAP.md; this is the map.
       member on a network that is not home (test O), which no timer at home
       can be, and the run's red already reaches the session through the
       issue; what made the run red "without reason" was the rule, not the
-      schedule. **Not built: the next session builds it first, before
-      reading the run.** Facts for it: `row()` in `run.sh` (~62) counts FAIL
+      schedule. **Built 2026-10-29 (#339)**, as below; the facts it was
+      built from: `row()` in `run.sh` (~62) counts FAIL
       and PASS only; `.fleet-member` is restored from the last run
       (`restore-keys: fleet-member-`, fleet.yml ~82) and saved after it even
       when it is red (`if: always()`, ~115), so a small file there -- a
