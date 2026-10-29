@@ -1491,6 +1491,31 @@ fn candidate(
     }
 }
 
+/// The row `/api/keys` wrote for `drive`, up to the next row.
+fn key_row<'a>(body: &'a str, drive: &Path) -> &'a str {
+    let quoted = super::json::quote(&drive.display().to_string());
+    body.split("{\"path\":")
+        .find(|row| row.starts_with(&quoted))
+        .unwrap_or_else(|| panic!("no row for {}: {body}", drive.display()))
+}
+
+/// `/api/keys` once the page's thread has measured the programs: before
+/// that, every row is measured against the guess.
+fn keys_once_measured(page: &Page) -> String {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let body = page.api("GET", "/api/keys", "").body;
+        if body.contains("\"programs_known\":true") {
+            return body;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the programs were never measured: {body}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 /// The paths the stand-in copy was started for, and whether it still runs.
 #[derive(Clone, Default)]
 struct Copies {
@@ -1597,7 +1622,11 @@ fn a_key_without_room_or_already_holding_an_account_does_not_fit_and_says_why() 
     let inside = world.home.clone();
     let listed = [
         candidate(&roomy, Some(64 << 30), Some(crate::drives::Format::ExFat)),
-        candidate(&small, Some(1 << 20), Some(crate::drives::Format::Fat32)),
+        // Smaller than the programs whichever size the page reads: the
+        // guess until its thread has measured them, the stand-in's 1 KiB
+        // after. A 1 MiB key was refused or offered on whichever thread won
+        // (it lost once, on ARM, 2026-10-29).
+        candidate(&small, Some(512), Some(crate::drives::Format::Fat32)),
         candidate(&taken, Some(64 << 30), None),
         candidate(&windows, Some(64 << 30), Some(crate::drives::Format::Ntfs)),
         candidate(&inside, Some(64 << 30), None),
@@ -1611,15 +1640,13 @@ fn a_key_without_room_or_already_holding_an_account_does_not_fit_and_says_why() 
     );
     let reply = page.api("GET", "/api/keys", "");
     assert_eq!(reply.status, 200, "{}", reply.body);
-    let rows: Vec<&str> = reply.body.split("{\"path\":").skip(1).collect();
-    assert_eq!(rows.len(), 5, "{}", reply.body);
-    let row = |drive: &Path| {
-        let quoted = super::json::quote(&drive.display().to_string());
-        *rows
-            .iter()
-            .find(|row| row.starts_with(&quoted))
-            .unwrap_or_else(|| panic!("no row for {}: {}", drive.display(), reply.body))
-    };
+    assert_eq!(
+        reply.body.matches("{\"path\":").count(),
+        5,
+        "{}",
+        reply.body
+    );
+    let row = |drive: &Path| key_row(&reply.body, drive);
     assert!(
         row(&roomy).contains("\"fits\":true,\"why\":null"),
         "a key with room was refused: {}",
@@ -1628,7 +1655,7 @@ fn a_key_without_room_or_already_holding_an_account_does_not_fit_and_says_why() 
     let small_row = row(&small);
     assert!(
         small_row.contains("\"fits\":false,\"why\":\"room\""),
-        "a 1 MiB key was offered for a copy of the programs alone: {small_row}"
+        "a 512-byte key was offered for a copy of the programs alone: {small_row}"
     );
     assert!(
         json_field(small_row, "reason").contains("free"),
@@ -1664,6 +1691,15 @@ fn a_key_without_room_or_already_holding_an_account_does_not_fit_and_says_why() 
             reply.body
         );
     }
+
+    // Once the programs are measured, the same key is still too small: the
+    // refusal does not depend on the guess.
+    let measured = keys_once_measured(&page);
+    let small_measured = key_row(&measured, &small);
+    assert!(
+        small_measured.contains("\"fits\":false,\"why\":\"room\""),
+        "a 512-byte key was offered once the programs were measured at 1 KiB: {small_measured}"
+    );
 
     // "Another folder…": the same row for a path the person chose.
     let chosen = page.api("POST", "/api/keys", &path_form(&taken));
