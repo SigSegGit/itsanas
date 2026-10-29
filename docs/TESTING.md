@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-27 — 1409 test functions across 39 binaries, 15 of them
-`#[ignore]`d, plus 2 doctests. 439 are red-team tests.**
+**Last updated: 2026-10-29 — 1410 test functions across 39 binaries, 15 of them
+`#[ignore]`d, plus 2 doctests. 440 are red-team tests.**
 
-**1293 of the 1409 tests have an entry of their own on this page** — an *entry*,
+**1294 of the 1410 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 229 |
+| `itsanas-cli` unit | 230 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 159 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 31 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 51 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 99 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 100 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1166,7 +1166,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (229)
+# `itsanas-cli` — unit tests (230)
 
 ## `bench` — measuring this machine (4)
 
@@ -1504,7 +1504,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green (48)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised (49)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1551,6 +1551,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_an_empty_mount_point_is_not_a_reachable_folder`** | An unmounted disk leaves an empty mount point; `instances` must say UNREACHABLE unless 0l's `.itsanas-folder` marker is there, never trust `is_dir` alone. |
 | `a_refused_chain_is_said_on_the_sync_line` | `itsanas sync`'s summary names a device chain the peer served and this node refused (§8 2c), and adds nothing when there is none; without it the round reads as a finished sync with one device's changes left out. Sabotaged (the line dropped from `deferred_note`): red. |
 | **`red_team_pledge_under_what_keep_needs_is_refused_and_saves_nothing`** | `itsanas pledge 1M` on a node keeping 20 GiB is refused with the `space --pledge .. --keep .. --apply` command, and neither the node file nor the node in memory changes; with no keep the same pledge goes through, so the setter is not one that refuses everything (HANDOVER §8 3a). Sabotaged (the `check_split` call in `set_pledge` dropped, or moved below the assignment; `check_split` always `Ok`): red. |
+| **`red_team_space_apply_cannot_promise_what_another_node_on_the_disk_promised`** | `space --pledge 1M --apply` beside a second instance that promised more than any disk holds is refused, and neither the node file nor the node in memory changes; `pledge` refuses the same pledge, saying the other nodes promised space too; with that promise gone the same numbers go through and this node's own `pledge.state` says 1 MiB at once, for the next setup to see. The other node is a sibling home here; the Docker case, a neighbour container through `ITSANAS_PLEDGES_DIR`, is the same `shared_dir()` call, proven at `pledges.rs` level only (`red_team_a_shared_entry_from_another_container_is_counted_and_a_stale_one_named`). `space --apply` is how `provision.sh` pledges, and until 2026-10-29 it compared the pledge with the free space alone (ROADMAP, "Pledges are not reserved"). Sabotaged (the disk refusal dropped from `space_on`; its `publish_pledge` dropped): red. |
 | `a_timed_pause_shows_paused_only_while_it_holds` | Status --brief, which every tray reads, says paused only while the pause holds, so an expired timed pause never shows a blue icon over a node that is syncing again. |
 | **`red_team_a_passphrase_prompt_names_the_account_it_unlocks`** | The passphrase prompt reads `Passphrase for 'NAME' (HOME): `, not `Passphrase:`, so three accounts on one machine are told apart; with no label it stays `Passphrase: `. Sabotage: drop the label and it goes red. |
 | `a_passphrase_prompt_says_whether_to_choose_or_type_and_what_it_is_not` | Before the prompt, a line says whether to choose a new passphrase or type the one chosen when the account was set up on this machine, for which account and which `itsanas` command, and that it is not the 24 recovery words (Nicolas, 2026-10-22: "Passphrase for 'nicolas'" alone left him guessing). Also: the subcommand is found past `--home PATH`. |

@@ -44,7 +44,10 @@ group): `crontab -e`, then
 services, the systemd coordinator; the VM keeps its pinned `device.key`), runs
 the coordinator (vm) and one client per account with its own data directory,
 port (9797, 9798, 9799) and mode-600 env file (`ITSANAS_ENV_FILE`): one
-passphrase per account.
+passphrase per account. Each account pledges `FLEET_PLEDGE` (10G unless set)
+while its pledge is still zero, the default, so it hosts the other accounts;
+a pledge set by hand is kept, and one the disk cannot hold is refused and said,
+the account starting anyway as a client.
 
 ## A client in Docker (any Linux, the Raspberry Pi included)
 
