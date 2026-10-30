@@ -255,6 +255,29 @@ pub fn keepable(pledge: u64, held: u64, free: Option<u64>) -> u64 {
     }
 }
 
+/// The file [`probe_write`] creates and removes at the vault's root.
+pub const PROBE_FILE: &str = ".write-probe";
+
+/// Whether the vault at `vault` still takes a write, by making one.
+///
+/// Written, flushed to the disk and removed: a read-only remount or a full
+/// quota can accept the `open` and refuse the data, and only `sync_all`
+/// reports some of them. A file left by a probe cut short is truncated by
+/// the next one.
+///
+/// # Errors
+///
+/// Whatever the disk said when it refused.
+pub fn probe_write(vault: &Path) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let path = vault.join(PROBE_FILE);
+    let mut file = std::fs::File::create(&path)?;
+    file.write_all(b"itsanas")?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::remove_file(&path)
+}
+
 /// The others, one line each, for a refusal.
 #[must_use]
 pub fn describe(others: &[Promise], stale: &[String], size: impl Fn(u64) -> String) -> String {
@@ -370,6 +393,52 @@ mod tests {
         );
         assert_eq!(keepable(30 * gb, 0, Some(100 * gb)), 30 * gb);
         assert_eq!(keepable(30 * gb, 0, None), 30 * gb);
+    }
+
+    /// A vault remounted read-only after disk errors keeps its free space:
+    /// `keepable` sees room, and only a write finds out. Sabotage: the probe
+    /// returns Ok without writing.
+    #[cfg(unix)]
+    #[test]
+    fn red_team_a_vault_that_takes_no_write_fails_the_probe() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let vault = dir.path().join("vault");
+        std::fs::create_dir_all(&vault).unwrap();
+        probe_write(&vault).expect("a writable vault failed the probe: every host would read red");
+        assert_eq!(
+            std::fs::read_dir(&vault).unwrap().count(),
+            0,
+            "the probe left its file in the vault, once a round"
+        );
+
+        let set = |mode| std::fs::set_permissions(&vault, std::fs::Permissions::from_mode(mode));
+        set(0o555).unwrap();
+        // Root writes through 0o555, so there is nothing to refuse it (CI
+        // does not run as root).
+        let root = std::fs::write(vault.join("as-root"), b"x").is_ok();
+        let refused = probe_write(&vault);
+        set(0o755).unwrap();
+        if root {
+            return;
+        }
+        assert!(
+            refused.is_err(),
+            "a vault that takes no write passed the probe: its host goes on promising room \
+             every push to it fails on"
+        );
+    }
+
+    /// The same on every platform: a vault path that is no directory.
+    #[test]
+    fn a_vault_path_that_is_no_directory_fails_the_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = dir.path().join("vault");
+        std::fs::write(&vault, b"not a directory").unwrap();
+        assert!(
+            probe_write(&vault).is_err(),
+            "a vault that is a plain file passed the probe: its host reads green"
+        );
     }
 
     #[test]

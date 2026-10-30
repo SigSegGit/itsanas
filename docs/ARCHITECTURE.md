@@ -475,8 +475,13 @@ silently, so the daemon should raise explicit alerts on the conditions below.
 > and at once otherwise, turns the tray red or orange and raises one desktop
 > notification (`safety.rs`, MVP.md test L). The trays also show a daemon that
 > stopped writing its snapshot (`stale`) and a disk short of its pledge
-> (`short`). The other rows have no alert yet; `itsanas status` and `doctor`
-> say them when asked. This table is the specification.
+> (`short`). **Two more (2026-10-30):** rounds that reached no other machine
+> for the larger of six hours and twelve intervals turn the tray orange with
+> one notification (`isolated`; the header's `reached T`), and a vault that
+> refused the daemon's once-a-round write probe turns it orange and makes
+> `status` say CANNOT KEEP and why (`unwritable`). The other rows have no
+> alert yet; `itsanas status` and `doctor` say them when asked. This table is
+> the specification.
 
 Conditions that must eventually alert:
 
@@ -484,9 +489,9 @@ Conditions that must eventually alert:
 | --- | --- |
 | Online node count below the replication floor | New writes cannot reach their durability target |
 | Any chunk below minimum replicas past a grace period | Data is one failure from loss. ✅ as "fewer than two complete copies elsewhere" (the tray and a notification) |
-| No successful sync round in *N* minutes | Sync is broken, not merely quiet |
+| No successful sync round in *N* minutes | Sync is broken, not merely quiet. ✅ as "no round reached another machine" for max(6 h, 12 intervals) (`isolated`: the tray and a notification) |
 | A proof-of-storage challenge fails | A host is not holding what it claims |
-| Local pledged space exhausted or unwritable | Node can no longer meet its side of the bargain |
+| Local pledged space exhausted or unwritable | Node can no longer meet its side of the bargain. ✅ both: free space short of the pledge (`short`) and a vault that refuses the write probe (`unwritable`), the tray orange and `status` CANNOT KEEP |
 | Local free space below reserve | Host is about to start failing writes |
 
 ## 8. What is deliberately not protected

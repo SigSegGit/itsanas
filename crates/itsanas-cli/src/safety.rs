@@ -27,6 +27,15 @@
 //! about -- the one about to drop their files in and walk away. Nor does a
 //! header written by a version that did not carry the count: what the node
 //! was before is unknown, and unknown is not safe.
+//!
+//! # Reaching nobody
+//!
+//! The copies are counted from holders heard from within `LIVE_FOR`, a week.
+//! A laptop that runs every round and reaches no other machine (offline, its
+//! coordinator moved, every peer off) writes a fresh snapshot each time, so
+//! it is not `stale`, and keeps its copies for that week. The header carries
+//! when a round last reached another machine (`reached T`), and past
+//! [`isolated_for`]'s threshold the icon says so.
 
 /// How many sync intervals a shortfall that follows a safe state goes unsaid.
 pub const GRACE_INTERVALS: u64 = 2;
@@ -118,6 +127,32 @@ impl Copies {
                 now.saturating_sub(since) >= every.saturating_mul(GRACE_INTERVALS)
             })
     }
+}
+
+/// The shortest silence that reads `isolated`: a laptop closed for an evening
+/// is not news, and orange every evening is a colour nobody reads.
+pub const ISOLATED_AFTER: u64 = 6 * 3600;
+
+/// The same in rounds, for a long interval: twelve hourly rounds, not six,
+/// before one slow coordinator turns the icon orange.
+pub const ISOLATED_INTERVALS: u64 = 12;
+
+/// When a round last reached another machine, from a header's `reached T`.
+#[must_use]
+pub fn last_reached(header: &str) -> Option<u64> {
+    let words: Vec<&str> = header.split_whitespace().collect();
+    let at = words.iter().position(|word| *word == "reached")?;
+    words.get(at + 1)?.parse().ok()
+}
+
+/// How long this node has reached no other machine, once that is long enough
+/// to say. `None` for a node that never has: it is `exposed` already, and
+/// there is no contact to age. `every` is the sync interval in seconds.
+#[must_use]
+pub fn isolated_for(header: &str, now: u64, every: u64) -> Option<u64> {
+    let silent = now.saturating_sub(last_reached(header)?);
+    let threshold = ISOLATED_AFTER.max(every.saturating_mul(ISOLATED_INTERVALS));
+    (silent >= threshold).then_some(silent)
 }
 
 #[cfg(test)]

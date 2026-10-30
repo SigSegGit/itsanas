@@ -52,6 +52,9 @@ $signoutWords = "This stops ITSaNAS on this machine and forgets the passphrase h
 
 # What a node whose files are not where they should be yet is told (MVP.md
 # test L), in the menu and in the one notification it gets.
+# What a node that has reached no other machine for hours is told
+# (ARCHITECTURE §7), in the menu and in its one notification.
+$isolatedAdvice = "Check that this machine is online, and that the account's other machines are on."
 $exposedAdvice = 'Add a machine to this account, or keep its other machines on, so copies exist elsewhere.'
 
 # ---------------------------------------------------------------- the model
@@ -81,8 +84,26 @@ function Get-Copies([string]$Brief) {
     return $null
 }
 
+# `isolated AGE SILENT`: how long no round has reached another machine.
+function Get-Silent([string]$Brief) {
+    $parts = "$Brief".Trim() -split '\s+'
+    if ($parts.Count -ge 3 -and $parts[0] -eq 'isolated' -and $parts[2] -match '^\d+$') {
+        return [int64]$parts[2]
+    }
+    return $null
+}
+
+# Hours, then days: the shortest silence said is six hours.
+function Format-Silence([int64]$Seconds) {
+    if ($Seconds -lt 48 * 3600) { return "$([math]::Floor($Seconds / 3600)) h" }
+    return "$([math]::Floor($Seconds / 86400)) days"
+}
+
 # The state as the status line and the tooltip say it.
 function Get-StateWords([string]$Brief) {
+    $silent = Get-Silent $Brief
+    if ($null -ne $silent) { return "not synced with any machine for $(Format-Silence $silent)" }
+    if ((Split-Brief $Brief)[0] -eq 'unwritable') { return 'its vault cannot be written (itsanas status says why)' }
     $copies = Get-Copies $Brief
     if ($null -eq $copies) { return (Split-Brief $Brief)[0] }
     if ($copies[0] -eq 0) { return "only on this machine (0 of $($copies[1]) copies elsewhere)" }
@@ -91,8 +112,14 @@ function Get-StateWords([string]$Brief) {
 
 # The notification when $Brief follows $Before, or $null: once when a node
 # becomes exposed, again only if it loses a copy. An icon just started has no
-# previous brief, so a person logging on is told once.
+# previous brief, so a person logging on is told once. The same for a node
+# that reaches nobody: once, when it starts.
 function Get-Notice([string]$Before, [string]$Brief, [string]$Label) {
+    $silent = Get-Silent $Brief
+    if ($null -ne $silent) {
+        if ($null -ne (Get-Silent $Before)) { return $null }
+        return "${Label}: not synced with any machine for $(Format-Silence $silent). $isolatedAdvice"
+    }
     $now = Get-Copies $Brief
     if ($null -eq $now) { return $null }
     $then = Get-Copies $Before
@@ -133,6 +160,7 @@ function Get-Menu([string]$Brief, [string]$IntervalLine) {
     $menu += New-Entry 'item' 'Open the synced folder' 'open-folder'
     $menu += New-Entry 'status' "${label}: $(Get-StateWords $Brief)$(Format-Age $age)" $null
     if ($null -ne (Get-Copies $Brief)) { $menu += New-Entry 'status' $exposedAdvice $null }
+    if ($null -ne (Get-Silent $Brief)) { $menu += New-Entry 'status' $isolatedAdvice $null }
     $menu += New-Entry 'sep' '' $null
     if ($state -eq 'signed-out') {
         $menu += New-Entry 'item' 'Sign in...' @('signin')
