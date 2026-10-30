@@ -158,6 +158,7 @@ nothing is lost.
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | **Get two machines syncing** — every command shown has been run, with its real output |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Global architecture: layers, data model, placement, coordinator, transport |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | **Roadmap versus current state** — what is built, what is not, with exit criteria |
+| [Wiki](https://github.com/SigSegGit/itsanas/wiki) | **The roadmap as a picture**: milestone map, MVP acceptance grid, how a file travels. Drawn from ROADMAP.md and MVP.md; sources in `docs/wiki/` |
 | [docs/DESIGN.md](docs/DESIGN.md) | Every mechanism explained in detail, including what was rejected and why |
 | [docs/TESTING.md](docs/TESTING.md) | **Every test catalogued** with the property it proves, and what each CI job is for |
 | [docs/TEST-USERS.md](docs/TEST-USERS.md) | The three published test identities, keys in plaintext |
