@@ -53,6 +53,9 @@ REMOVE_WORDS = (
 EXPOSED_ADVICE = (
     "Add a machine to this account, or keep its other machines on, so copies exist elsewhere."
 )
+# What a node that has reached no other machine for hours is told
+# (ARCHITECTURE §7), in the menu and in its one notification.
+ISOLATED_ADVICE = "Check that this machine is online, and that the account's other machines are on."
 NO_TOOLKIT = (
     "itsanas-tray: no GTK for Python here (python3-gi), so no tray icon; "
     "the web Settings page does the same: itsanas settings"
@@ -111,9 +114,29 @@ def copies_of(brief):
     return None
 
 
+def silent_of(brief):
+    """`isolated AGE SILENT`: how long no round has reached another machine."""
+    parts = (brief or "").split()
+    if len(parts) >= 3 and parts[0] == "isolated" and parts[2].isdigit():
+        return int(parts[2])
+    return None
+
+
+def format_silence(seconds):
+    """Hours, then days: the shortest silence said is six hours."""
+    if seconds < 48 * 3600:
+        return "%d h" % (seconds // 3600)
+    return "%d days" % (seconds // 86400)
+
+
 def state_words(brief):
     """The state as the status line and the tooltip say it."""
     state, _ = split_brief(brief)
+    silent = silent_of(brief)
+    if silent is not None:
+        return "not synced with any machine for %s" % format_silence(silent)
+    if state == "unwritable":
+        return "its vault cannot be written (itsanas status says why)"
     copies = copies_of(brief)
     if copies is None:
         return state
@@ -128,7 +151,17 @@ def notice(previous, brief, label):
 
     Once when a node becomes exposed, and again only if it loses a copy: an
     alarm repeated every 30 s is one nobody reads. A tray just started has
-    no previous, so a person logging in to an exposed node is told once."""
+    no previous, so a person logging in to an exposed node is told once.
+    The same for a node that reaches nobody: once, when it starts."""
+    silent = silent_of(brief)
+    if silent is not None:
+        if silent_of(previous) is not None:
+            return None
+        return "%s: not synced with any machine for %s. %s" % (
+            label,
+            format_silence(silent),
+            ISOLATED_ADVICE,
+        )
     now = copies_of(brief)
     if now is None:
         return None
@@ -188,6 +221,8 @@ def menu(brief, interval_line, label):
     ]
     if copies_of(brief) is not None:
         items.append(entry("status", EXPOSED_ADVICE))
+    if silent_of(brief) is not None:
+        items.append(entry("status", ISOLATED_ADVICE))
     items.append(entry("sep", ""))
     if state == "signed-out":
         items.append(entry("item", "Sign in...", ["signin"]))

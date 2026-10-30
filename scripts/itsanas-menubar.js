@@ -39,6 +39,9 @@ var REMOVE_WORDS = 'This hands what this machine keeps for other people to other
 // What a node whose files are not where they should be yet is told (MVP.md
 // test L), in the menu and in the one notification it gets.
 var EXPOSED_ADVICE = 'Add a machine to this account, or keep its other machines on, so copies exist elsewhere.';
+// What a node that has reached no other machine for hours is told
+// (ARCHITECTURE §7), in the menu and in its one notification.
+var ISOLATED_ADVICE = "Check that this machine is online, and that the account's other machines are on.";
 
 var COLOURS = {
     green: [46, 160, 67],
@@ -88,8 +91,26 @@ function copiesOf(brief) {
     return null;
 }
 
+// `isolated AGE SILENT`: how long no round has reached another machine.
+function silentOf(brief) {
+    var parts = String(brief || '').trim().split(/\s+/);
+    if (parts.length >= 3 && parts[0] === 'isolated' && /^\d+$/.test(parts[2])) {
+        return parseInt(parts[2], 10);
+    }
+    return null;
+}
+
+// Hours, then days: the shortest silence said is six hours.
+function formatSilence(seconds) {
+    if (seconds < 48 * 3600) { return Math.floor(seconds / 3600) + ' h'; }
+    return Math.floor(seconds / 86400) + ' days';
+}
+
 // The state as the status line and the tooltip say it.
 function stateWords(brief) {
+    var silent = silentOf(brief);
+    if (silent !== null) { return 'not synced with any machine for ' + formatSilence(silent); }
+    if (splitBrief(brief)[0] === 'unwritable') { return 'its vault cannot be written (itsanas status says why)'; }
     var copies = copiesOf(brief);
     if (copies === null) { return splitBrief(brief)[0]; }
     if (copies[0] === 0) { return 'only on this machine (0 of ' + copies[1] + ' copies elsewhere)'; }
@@ -98,8 +119,14 @@ function stateWords(brief) {
 
 // The notification when `brief` follows `previous`, or null: once when a node
 // becomes exposed, again only if it loses a copy. A menu bar item just
-// started has no previous, so a person logging in is told once.
+// started has no previous, so a person logging in is told once. The same
+// for a node that reaches nobody: once, when it starts.
 function notice(previous, brief, label) {
+    var silent = silentOf(brief);
+    if (silent !== null) {
+        if (silentOf(previous) !== null) { return null; }
+        return label + ': not synced with any machine for ' + formatSilence(silent) + '. ' + ISOLATED_ADVICE;
+    }
     var now = copiesOf(brief);
     if (now === null) { return null; }
     var before = copiesOf(previous);
@@ -143,6 +170,7 @@ function menuModel(brief, intervalLine, label) {
         entry('status', label + ': ' + stateWords(brief) + formatAge(split[1]))
     ];
     if (copiesOf(brief) !== null) { items.push(entry('status', EXPOSED_ADVICE)); }
+    if (silentOf(brief) !== null) { items.push(entry('status', ISOLATED_ADVICE)); }
     items.push(entry('sep', ''));
     if (state === 'signed-out') {
         items.push(entry('item', 'Sign in...', ['signin']));

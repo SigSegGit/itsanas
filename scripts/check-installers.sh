@@ -1116,7 +1116,7 @@ if [ -n "$PY" ]; then
     command -v node >/dev/null 2>&1 && others="$others js"
     command -v pwsh >/dev/null 2>&1 && others="$others ps1"
     briefs=('healthy 30' 'paused 4000' 'stale 900' 'stopped' 'departed' 'signed-out' '')
-    briefs+=('exposed 30 0 2' 'exposed 30 1 2')
+    briefs+=('exposed 30 0 2' 'exposed 30 1 2' 'isolated 30 25200' 'isolated 30 400000' 'unwritable 30')
     for brief in "${briefs[@]}"; do
         for instance in '' b; do
             for every in 'every 15 min (set with `itsanas interval`)' 'auto: the daemon'"'"'s own setting'; do
@@ -1168,6 +1168,22 @@ if [ -n "$PY" ]; then
         done
         lost=$(tray_menu "$tray" '' 'exposed 30 0 2' 'auto: x' 'exposed 30 1 2')
         printf '%s\n' "$lost" | grep -q '^notice .*only on this machine' || { bad "the $tray tray says nothing when the last copy elsewhere goes"; menus_ok=0; }
+        # ARCHITECTURE §7: a node whose rounds reach nobody for hours is
+        # orange, says for how long and what to check, and is told once when
+        # it starts, not at every poll after.
+        isolated=$(tray_menu "$tray" '' 'isolated 30 25200' 'auto: x' 'healthy 30')
+        advice="Check that this machine is online, and that the account's other machines are on."
+        wanted=('icon orange' 'status ITSaNAS: not synced with any machine for 7 h (30 s ago)' "status $advice" "notice ITSaNAS: not synced with any machine for 7 h. $advice")
+        for line in "${wanted[@]}"; do
+            printf '%s\n' "$isolated" | grep -qxF -- "$line" || { bad "the $tray tray of a node that reached nobody for seven hours lacks: $line"; menus_ok=0; }
+        done
+        if tray_menu "$tray" '' 'isolated 30 28800' 'auto: x' 'isolated 30 25200' | grep -q '^notice '; then
+            bad "the $tray tray notifies again for a node still reaching nobody: an alarm every poll"; menus_ok=0
+        fi
+        unwritable=$(tray_menu "$tray" '' 'unwritable 30' 'auto: x')
+        for line in 'icon orange' 'status ITSaNAS: its vault cannot be written (itsanas status says why) (30 s ago)'; do
+            printf '%s\n' "$unwritable" | grep -qxF -- "$line" || { bad "the $tray tray of a node whose vault takes no write lacks: $line"; menus_ok=0; }
+        done
     done
     paused=$(tray_menu py '' 'paused 60' 'auto: x')
     for line in 'icon blue' 'item Resume syncing -> itsanas resume' '  item Automatic -> itsanas interval auto [checked]'; do
