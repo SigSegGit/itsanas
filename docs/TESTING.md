@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-29 — 1410 test functions across 39 binaries, 15 of them
-`#[ignore]`d, plus 2 doctests. 440 are red-team tests.**
+**Last updated: 2026-10-30 — 1414 test functions across 39 binaries, 15 of them
+`#[ignore]`d, plus 2 doctests. 443 are red-team tests.**
 
-**1294 of the 1410 tests have an entry of their own on this page** — an *entry*,
+**1298 of the 1414 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -162,10 +162,10 @@ guarantee and is not one.
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
 | `itsanas-store` integration (`tests/store.rs`) | 48 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
-| `itsanas-sync` unit | 12 |
+| `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-net` unit | 66 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 61 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 63 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
@@ -182,7 +182,7 @@ guarantee and is not one.
 | `itsanas-cli` unit | 230 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 159 |
+| `itsanas-node` unit | 160 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -216,7 +216,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 63 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 31 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 27 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 51 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 100 |
 
@@ -766,7 +766,7 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 ---
 | **`red_team_a_node_does_not_tell_its_own_account_it_holds_what_its_disk_lost`** | Found by Rodin on the 4c plan: a machine answers its own account's summary from its index, so a Pi whose disk lost a blob kept agreeing with the laptop, which re-stamped it as a copy. `Store::check_disk` records the loss and `held_summary` leaves it out, while `chunk_summary` -- the set this node wants held -- keeps it. Sabotaged by counting losses in `held_summary`. |
 
-# `itsanas-sync` — unit tests (12)
+# `itsanas-sync` — unit tests (13)
 
 ## `conflict` — deciding who keeps the original path (10)
 
@@ -783,12 +783,13 @@ Full path from plaintext to disk and back. `tests/store.rs`.
 | `a_file_with_no_extension_gets_the_marker_appended` | Extension-less names are handled. |
 | `a_multi_dot_name_splits_on_the_last_dot` | `archive.tar.gz` splits sensibly. |
 
-## `engine` — sync reporting (2)
+## `engine` — sync reporting (3)
 
 | Test | What it proves |
 | --- | --- |
 | `a_report_counts_every_outcome_kind` | Each of the seven outcomes is tallied, a file with no room counts as deferred as well as `no_room`, and a deferred operation asks for another round. |
 | **`a_quiet_round_reports_no_work_and_no_retry`** | A round that only recognised things it already knew reports no progress. If it reported progress, the settle loop would never terminate. |
+| `a_report_names_the_first_refused_devices_and_counts_them_all` | Five refused devices: all five counted, the first `REFUSED_DEVICES_NAMED` (3) named. A device key is free, so naming every one would let a host set the length of the owner's sync line. Sabotaged (every device named): red. |
 
 ---
 
@@ -994,7 +995,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (61)
+# `itsanas-net` — two-node tests (63)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -1008,7 +1009,9 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_a_stranger_is_not_told_which_chunks_this_node_has_lost`** | An attack that repair itself introduced. Asking a peer "do you have chunk X?" tells it this node does not. The ids are blinded so nothing about the content leaks — but *which chunks now exist only on hosts* is precisely the list to delete to destroy somebody's data, and the first version asked every peer it connected to, strangers the discovery loop had just dialled included. A peer is now asked only about chunks the ledger already records it as holding, which discloses nothing it did not tell this node itself. |
 | **`what_doctor_finds_is_what_repair_fixes_first`** | Two detectors that ignored each other. `doctor` knows every local loss in one pass; the daemon's sampling scan needs fifty-five days to reach a given chunk on a terabyte store. Somebody running `doctor` because a file would not open therefore learned the answer and had no way to act on it. They now share a queue, and a loss `doctor` found is repaired in the next round rather than eventually. |
 | **`a_disk_that_quietly_lost_a_block_gets_it_back_from_a_host`** | The half of repair that pushing cannot do. `push` restores *replication* by offering a peer what the peer lacks; it can put nothing back on **this** disk, and a chunk missing here is the one failure the placement ledger was built to survive. A dropped block, an inode lost to a power cut, a partial restore: the file is unreadable, the bytes are on three other machines, and until now nothing reached for them and the only cure was a human running `doctor` and knowing what to do next. |
-| **`red_team_one_forged_chain_does_not_stall_the_pull_of_the_others`** | §8 2c, end to end. A host keeps, beside an account's genuine chain, one it made up: a free device key signing a segment under the victim's user id, its body sealed under another account's key. The signature verifies so the vault keeps it; the body does not open, and that used to fail the whole pull -- the genuine file never arrived, on this round or any later one, because the forged segment is replayed from the vault. Now the genuine file is adopted, the round reports `refused_chains: 1`, and does so again on the next round while new honest work still arrives. Sabotaged (the refused chain propagated again; the count reported as 0): red. |
+| **`red_team_one_forged_chain_does_not_stall_the_pull_of_the_others`** | §8 2c, end to end. A host keeps, beside an account's genuine chain, one it made up: a free device key signing a segment under the victim's user id, its body sealed under another account's key. The signature verifies so the vault keeps it; the body does not open, and that used to fail the whole pull -- the genuine file never arrived, on this round or any later one, because the forged segment is replayed from the vault. Now the genuine file is adopted, the round reports `refused_chains: 1`, and does so again on the next round while new honest work still arrives, naming the stranger's device. Sabotaged (the refused chain propagated again; the count reported as 0; the names left empty while the count stays): red. |
+| **`red_team_a_forged_chain_pushed_into_the_vault_does_not_stall_drain_vault`** | §8 2c, the push door. A sibling behind NAT is learnt only from what it pushes, and `drain_vault` is what applies it, every daemon loop and in `backup restore`. A stranger's forged segment pushed beside it failed the whole drain, on every loop for good. Now the sibling's file is adopted and the drain reports and names the refused chain. Sabotaged (`drain_vault` back on `apply_segments`): red. |
+| **`red_team_a_forged_chain_does_not_stop_fetch_only`** | §8 2c, the on-demand door: `chunks_for` then `fetch_only`, as `itsanas get`, the phone's open and a budgeted round do it. A metadata round leaves the forged segment in the victim's own vault, and both the lookup and the fetch failed on it, so a file the account had could not be opened on any later day. Now the file arrives and the fetch names the refused device. Sabotaged (the catalogue walk strict again; `fetch_only` back on one `apply_replaying`): red both times. |
 | **`red_team_a_peer_that_trickles_cannot_hold_the_caller_past_its_budget`** | A peer opens a TLS record announcing 16 KiB and sends it one byte a second, so no single read ever reaches the 30-second timeout. Until `PEER_SESSION_BUDGET` (300 s, the daemon's whole conversation with one peer) such a peer held a daemon's round for as long as it kept going: 45 minutes on a laptop on 2026-10-06, with an older-build node behind a VMware adapter, while none of its files left and none of its peers' were written. With a 2 s budget the caller is refused within 10 s. Sabotaged (the budget ignored): still connected after 20 s, red. |
 | **`red_team_a_relay_that_serves_noise_is_not_written_down_as_a_holder`** | Same liar, over the real transport. The pull recorded every chunk a peer *answered* as held by it before anything checked the bytes, so the ledger counted a copy that does not exist and repair would ask the liar first; and the file was adopted. Now only chunks on this disk afterwards are recorded, and the file stays absent. |
 | **`red_team_a_file_refused_for_room_is_fetched_once_room_is_made`** | A 300 KB file pulled over the wire by a device whose disk ceiling is 10 KB is deferred, not written, and the chain stays unapplied; with the ceiling lifted the next `session::pull` brings the file. Sabotage: the applied markers moved even after a deferral (red: the file never arrives). |
@@ -1549,7 +1552,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_what_a_sync_pulled_lands_in_the_folder`** | `itsanas sync` by hand fetched into the store and left the synced folder empty until an `itsanas scan` no guide names (found by a persona run of FIRST-STEPS, HANDOVER §8 q). A file put in the store as a pull would must be written out by `sync_folder`, which `sync` runs after its rounds. Sabotaged (it returns at once): red. |
 | `the_phrase_as_init_prints_it_reads_back_as_the_words` | `init` prints the words as a numbered grid; a person pastes that into `--phrase-file`. The numbers are dropped, words are never guessed at, and one word a line works too. |
 | **`red_team_an_empty_mount_point_is_not_a_reachable_folder`** | An unmounted disk leaves an empty mount point; `instances` must say UNREACHABLE unless 0l's `.itsanas-folder` marker is there, never trust `is_dir` alone. |
-| `a_refused_chain_is_said_on_the_sync_line` | `itsanas sync`'s summary names a device chain the peer served and this node refused (§8 2c), and adds nothing when there is none; without it the round reads as a finished sync with one device's changes left out. Sabotaged (the line dropped from `deferred_note`): red. |
+| `a_refused_chain_is_said_on_the_sync_line` | `itsanas sync`'s summary names a device chain the peer served and this node refused (§8 2c), with the short id of each device named in the report and `and N more` for the rest, and adds nothing when there is none; without it the round reads as a finished sync with one device's changes left out, and without the ids the owner cannot tell a forgery from a stale sibling of their own. Sabotaged (the line dropped from `deferred_note`; the ids left off): red. |
 | **`red_team_pledge_under_what_keep_needs_is_refused_and_saves_nothing`** | `itsanas pledge 1M` on a node keeping 20 GiB is refused with the `space --pledge .. --keep .. --apply` command, and neither the node file nor the node in memory changes; with no keep the same pledge goes through, so the setter is not one that refuses everything (HANDOVER §8 3a). Sabotaged (the `check_split` call in `set_pledge` dropped, or moved below the assignment; `check_split` always `Ok`): red. |
 | **`red_team_space_apply_cannot_promise_what_another_node_on_the_disk_promised`** | `space --pledge 1M --apply` beside a second instance that promised more than any disk holds is refused, and neither the node file nor the node in memory changes; `pledge` refuses the same pledge, saying the other nodes promised space too; with that promise gone the same numbers go through and this node's own `pledge.state` says 1 MiB at once, for the next setup to see. The other node is a sibling home here; the Docker case, a neighbour container through `ITSANAS_PLEDGES_DIR`, is the same `shared_dir()` call, proven at `pledges.rs` level only (`red_team_a_shared_entry_from_another_container_is_counted_and_a_stale_one_named`). `space --apply` is how `provision.sh` pledges, and until 2026-10-29 it compared the pledge with the free space alone (ROADMAP, "Pledges are not reserved"). Sabotaged (the disk refusal dropped from `space_on`; its `publish_pledge` dropped): red. |
 | `a_timed_pause_shows_paused_only_while_it_holds` | Status --brief, which every tray reads, says paused only while the pause holds, so an expired timed pause never shows a blue icon over a node that is syncing again. |
@@ -1622,7 +1625,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (176)
+# `itsanas-node` — a node on disk (177)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1792,7 +1795,7 @@ contradicted; and what goes beyond what proof earns comes out of one share,
 | **`red_team_placement_reads_only_confirmed_claims_as_accounts`** | Which account a device belongs to, for placement, comes only from a confirmed claim; an unconfirmed one is `Account::Unknown`. |
 | **`red_team_only_a_confirmed_device_of_the_account_speaks_for_it`** | The `MayEvict` gate: only a confirmed device of the account speaks for it. |
 
-## `keeping` — a round on a device short of room (3)
+## `keeping` — a round on a device short of room (4)
 
 `src/keeping.rs`. Where the choice, the catalogue and a real socket meet. Both
 tests were confirmed by sabotage: removing the release, and removing the notice
@@ -1802,6 +1805,7 @@ to the peer, each turns the matching test red.
 | --- | --- |
 | **`a_full_device_makes_room_for_a_better_ranked_file`** | The property that separates a budget from a ratchet. The first version filled up once and from then on nothing new could arrive, because nothing old could leave — measured on the trial device, told to keep 200 KiB and holding 907 KiB with no path back down. |
 | **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
+| **`red_team_a_forged_chain_does_not_stop_a_budgeted_round`** | §8 2c, the phone's door. A budgeted round lists the account from its vault and fetches what it chose; a stranger's segment the host kept lands in that vault, and both the listing and the fetch failed on it, so every budgeted round errored for good and the phone fetched nothing again. Now the chosen file arrives and the round names the refused device. Sabotaged (the catalogue walk strict again; `fetch_only` back on one `apply_replaying`): red both times. Not proven here: the switch to `refresh_tolerant`, which no honest test server can reach (see `red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call`). |
 | `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
 
 ## `pledges` — what the other nodes on this disk promised (5)

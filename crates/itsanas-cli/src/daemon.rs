@@ -1233,19 +1233,44 @@ fn take_in(node: &Node, folder: Option<&(Folder, Option<Watcher>)>, deep: bool) 
     // peers configured, or because its peers are behind NAT and can only
     // push — would hold its own data and never look at it.
     match session::drain_vault(&node.store, &node.vault) {
-        Ok(report) if report.changed_anything() => {
-            println!(
-                "pushed to us: {} files, {} conflicts",
-                report.adopted, report.conflicted
-            );
-            if let Some((folder, _)) = folder {
-                changed |= reconcile(node, folder, false);
+        Ok(report) => {
+            if report.changed_anything() {
+                println!(
+                    "pushed to us: {} files, {} conflicts",
+                    report.adopted, report.conflicted
+                );
+                if let Some((folder, _)) = folder {
+                    changed |= reconcile(node, folder, false);
+                }
             }
+            report_drain_refusals(&report);
         }
-        Ok(_) => {}
         Err(error) => eprintln!("itsanas: could not apply pushed data: {error}"),
     }
     changed
+}
+
+/// Say a chain pushed into this vault was refused, held back as push refusals are.
+///
+/// The forged segment stays in the vault and every loop drains it again, so
+/// the line would otherwise repeat each loop for good.
+fn report_drain_refusals(report: &itsanas_sync::SyncReport) {
+    const KEY: &str = "pushed to us";
+    let Ok(mut reported) = REFUSALS_REPORTED.lock() else {
+        return;
+    };
+    match crate::describe_refused_chains(report) {
+        Some(refused) => {
+            let now = Instant::now();
+            if refusal_due(reported.get(KEY).copied(), now) {
+                println!("{KEY}: {refused}");
+                reported.insert(KEY.to_owned(), now);
+            }
+        }
+        None => {
+            reported.remove(KEY);
+        }
+    }
 }
 
 /// Say it once when a round reached nobody.

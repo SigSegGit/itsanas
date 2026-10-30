@@ -3252,9 +3252,22 @@ pub(crate) fn deferred_note(pull: &itsanas_sync::SyncReport) -> String {
 /// leaving it out would read as a finished sync.
 pub(crate) fn describe_refused_chains(pull: &itsanas_sync::SyncReport) -> Option<String> {
     (pull.refused_chains > 0).then(|| {
+        // Named, so the owner can tell a stranger's key from a sibling of
+        // their own; bounded, because a device key is free and a host can
+        // serve a forgery per key it minted.
+        let mut devices: Vec<String> = pull.refused_devices.iter().map(DeviceId::short).collect();
+        let unnamed = pull.refused_chains.saturating_sub(devices.len());
+        if unnamed > 0 && !devices.is_empty() {
+            devices.push(format!("and {unnamed} more"));
+        }
+        let named = if devices.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", devices.join(", "))
+        };
         format!(
-            "{} device chain(s) from this peer refused: a segment failed its signature, \
-             chain or seal check; those devices' changes wait for an honest copy",
+            "{} device chain(s) from this peer refused{named}: a segment failed its \
+             signature, chain or seal check; those devices' changes wait for an honest copy",
             pull.refused_chains
         )
     })
@@ -3367,6 +3380,11 @@ fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
                 dir.display(),
                 report.adopted
             );
+            // A backup disk anyone could write to may carry a forged chain;
+            // the rest is restored, and the owner is told what was not.
+            if let Some(refused) = describe_refused_chains(&report) {
+                println!("  {refused}");
+            }
         }
     }
     Ok(())
@@ -5574,23 +5592,48 @@ mod tests {
         set_pledge, sibling_ports, snapshot_status, space_on, steer, sync_folder,
     };
 
-    /// `itsanas sync` names a refused chain on its summary line, and says
-    /// nothing extra when there is none. Sabotage: drop the push of
-    /// `describe_refused_chains` in `deferred_note` -- the round then reads as
-    /// a finished sync with one device's changes silently left out.
+    /// `itsanas sync` names a refused chain on its summary line, and the
+    /// device it came from, and says nothing extra when there is none.
+    /// Sabotage: drop the push of `describe_refused_chains` in `deferred_note`
+    /// -- the round then reads as a finished sync with one device's changes
+    /// silently left out; leave the device names off -- the owner cannot tell
+    /// a forgery from a stale sibling of their own.
     #[test]
     fn a_refused_chain_is_said_on_the_sync_line() {
         let quiet = itsanas_sync::SyncReport::default();
         assert_eq!(super::deferred_note(&quiet), "");
 
+        let device = DeviceId::from_bytes([0x3F; 32]);
         let refused = itsanas_sync::SyncReport {
             refused_chains: 1,
+            refused_devices: vec![device],
             ..itsanas_sync::SyncReport::default()
         };
         let line = super::deferred_note(&refused);
         assert!(
             line.contains("1 device chain(s) from this peer refused"),
             "a refused chain left no trace on the sync line: {line:?}"
+        );
+        assert!(
+            line.contains(&device.short()),
+            "the sync line did not name the refused device: {line:?}"
+        );
+
+        // A peer serving many forgeries gets a bounded line, not one name
+        // per key it minted.
+        let named: Vec<DeviceId> = (1..=itsanas_sync::REFUSED_DEVICES_NAMED)
+            .map(|seed| DeviceId::from_bytes([u8::try_from(seed).expect("small"); 32]))
+            .collect();
+        let many = itsanas_sync::SyncReport {
+            refused_chains: named.len() + 2,
+            refused_devices: named.clone(),
+            ..itsanas_sync::SyncReport::default()
+        };
+        let line = super::deferred_note(&many);
+        assert!(
+            named.iter().all(|device| line.contains(&device.short()))
+                && line.contains("and 2 more"),
+            "the sync line did not name the first refused devices and count the rest: {line:?}"
         );
     }
 

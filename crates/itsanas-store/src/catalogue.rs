@@ -329,7 +329,19 @@ fn walk_vault(
             complete = false;
         }
 
-        fold(store, segments, &mut latest)?;
+        // A body that does not open under the account's key was not written by
+        // it: a free device key signing under this account id, which any vault
+        // keeps because it checks a signature and not membership. That chain is
+        // left out whole, as the pull leaves it out, or one forgery fails every
+        // listing and every on-demand open for good. The pull names the device.
+        let Ok(bodies) = segments
+            .iter()
+            .map(|envelope| store.open_segment(envelope))
+            .collect::<Result<Vec<_>>>()
+        else {
+            continue;
+        };
+        fold(bodies, &mut latest);
     }
 
     // And this device's own chain, for the same reason and with the same bound.
@@ -340,7 +352,13 @@ fn walk_vault(
     } else {
         mine
     };
-    fold(store, mine, &mut latest)?;
+    // Strict here: this device's own chain failing to open is its own disk or
+    // key gone wrong, not a stranger's word, and a listing should say so.
+    let mine = mine
+        .iter()
+        .map(|envelope| store.open_segment(envelope))
+        .collect::<Result<Vec<_>>>()?;
+    fold(mine, &mut latest);
 
     // Including what this device has written and not yet announced. A file
     // written and released before the next flush would otherwise be in no log
@@ -357,14 +375,9 @@ fn walk_vault(
     Ok((latest, complete))
 }
 
-/// Apply a run of segments to the running answer.
-fn fold(
-    store: &Store,
-    segments: Vec<crate::SegmentEnvelope>,
-    latest: &mut BTreeMap<String, Latest>,
-) -> Result<()> {
-    for envelope in segments {
-        let body = store.open_segment(&envelope)?;
+/// Apply a run of opened segments to the running answer.
+fn fold(bodies: Vec<crate::oplog::SegmentBody>, latest: &mut BTreeMap<String, Latest>) {
+    for body in bodies {
         for entry in body.entries {
             let (path, file) = match &entry.operation {
                 Operation::Upsert { path, entry } => (path.clone(), Some(entry.clone())),
@@ -374,7 +387,6 @@ fn fold(
             record(latest, path, version, file);
         }
     }
-    Ok(())
 }
 
 /// Keep the operation that should decide what a listing shows.

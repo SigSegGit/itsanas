@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1410 test functions, 15 of them `#[ignore]`d into the slow job, and 440 of
+**1414 test functions, 15 of them `#[ignore]`d into the slow job, and 443 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1899,11 +1899,27 @@ any vault (signature, not membership) and was enough to stop that account's
 pull on every node that fetched it, round after round. Tests:
 `red_team_one_forged_chain_does_not_stall_the_pull_of_the_others`,
 `red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call`.
+
+On 2026-10-30 the other doors. `drain_vault` (the daemon's only intake from a
+sibling behind NAT, and `backup restore`'s) and `fetch_only` (`itsanas get`,
+the phone's open, a budgeted `keeping::round`) apply per chain through the
+same `apply_per_chain`, and the catalogue walk behind `chunks_for`,
+`chunks_for_all` and `catalogue` leaves out a device chain whose body does
+not open, where one forged segment used to fail every listing and every
+on-demand open. `SyncReport::refused_devices` names the first three refused
+devices (`REFUSED_DEVICES_NAMED`) and the refused line prints their short ids,
+`and N more` past that; the daemon says a chain refused at the drain once per
+half hour, and `backup restore` says it. Tests:
+`red_team_a_forged_chain_pushed_into_the_vault_does_not_stall_drain_vault`,
+`red_team_a_forged_chain_does_not_stop_fetch_only`,
+`red_team_a_forged_chain_does_not_stop_a_budgeted_round`,
+`a_report_names_the_first_refused_devices_and_counts_them_all`,
+`a_refused_chain_is_said_on_the_sync_line`.
 Named, not done, one line each:
-- `fetch_only`, `drain_vault` and the budgeted path of `keeping::round` (strict `refresh`) still fail whole on one bad chain.
+- The budgeted `keeping::round` now refreshes through `refresh_tolerant`, untested end to end for the reason above; its forgery test goes red on the catalogue walk and on `fetch_only`, not on that switch.
 - The refresh stage is tested on `keep_chain` directly, not end to end: no test server can serve a tampered segment.
 - A refused chain stays in the vault: relayed onward, re-opened and re-refused on every content round; no quarantine.
-- The report counts chains, it does not name the device.
+- The daemon's drain line and `backup restore`'s refused line have no test of their own; both print `describe_refused_chains`, which has.
 - Keeping strangers' segments out of an account at all is the roster of HANDOVER §10 question 7.
 
 **The confidentiality surface, by hand -- 2026-09-30 (HANDOVER §8 2b).**

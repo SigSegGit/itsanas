@@ -3233,9 +3233,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       number withdrawn); the re-sign corner named in ROADMAP.
 
    c. ✅ **A hostile host cannot stall a whole pull with one refused segment.**
-      Built 2026-10-01 on `pull_scoped` only (see §0; ROADMAP "One refused
-      chain no longer stalls a pull" lists what is left). Original text
-      follows. Named by 2a (ROADMAP "The integrity surface, by hand", "Not examined or
+      Built 2026-10-01 on `pull_scoped`; on 2026-10-30 also on `drain_vault`,
+      `fetch_only`, the catalogue walk (`itsanas get`, the phone's open, a
+      budgeted `keeping::round`), and the refused line names the device
+      (ROADMAP "One refused chain no longer stalls a pull" lists what is
+      left). Original text follows. Named by 2a (ROADMAP "The integrity surface, by hand", "Not examined or
       not tested here"): one segment that fails any check -- signature,
       `open`, `validate_chain` -- errors the whole pull, so one bad host
       stops a round that honest segments from other devices' chains could

@@ -896,6 +896,12 @@ fn red_team_one_forged_chain_does_not_stall_the_pull_of_the_others() {
             "the {attempt} round left a chain out without saying so"
         );
         assert_eq!(
+            report.pull.refused_devices,
+            vec![stranger.device_id()],
+            "the {attempt} round counted a refused chain without naming its device: \
+             the owner cannot tell a forgery from a stale sibling of their own"
+        );
+        assert_eq!(
             victim
                 .store
                 .read_file("honest.bin")
@@ -908,6 +914,172 @@ fn red_team_one_forged_chain_does_not_stall_the_pull_of_the_others() {
     assert!(
         victim.store.read_file("later.bin").expect("read").is_some(),
         "honest work written after the forgery was not adopted"
+    );
+}
+
+/// The forgery of §8 2c: a free device key signing a segment under `owner`'s
+/// account id, its body sealed under a key that is not the account's. The
+/// signature verifies, so any vault keeps it; the body never opens.
+fn a_forged_chain(owner: itsanas_crypto::UserId) -> (DeviceKeys, itsanas_store::SegmentEnvelope) {
+    use itsanas_store::{LogEntry, Operation, SegmentEnvelope, VersionVector};
+
+    let stranger = DeviceKeys::from_seed(&SecretBytes::new([0x02; 32]));
+    let wrong_root = UserKeys::derive(&MasterSecret::from_bytes([0xE5; 32]));
+    let forged = SegmentEnvelope::create(
+        wrong_root.oplog_root(),
+        owner,
+        &stranger,
+        None,
+        vec![LogEntry {
+            sequence: 1,
+            recorded_unix: 0,
+            operation: Operation::Remove {
+                path: "honest.bin".to_owned(),
+                version: VersionVector::default(),
+            },
+        }],
+    )
+    .expect("forge");
+    (stranger, forged)
+}
+
+#[test]
+fn red_team_a_forged_chain_pushed_into_the_vault_does_not_stall_drain_vault() {
+    // THE ATTACK (§8 2c, the push door). A node behind NAT cannot be dialled,
+    // so its siblings learn its work only from what it pushes into their
+    // vaults, and `drain_vault` is the one thing that applies it. A stranger
+    // with a free device key pushes one forged segment beside it. Applied as
+    // one batch, the forgery failed the whole drain, on every daemon loop for
+    // good: the daemon's only intake from that sibling, and backup restore's,
+    // stopped by one segment.
+    let master = alice();
+    let victim = node(&master, 89);
+    let author = node(&master, 90);
+
+    author
+        .store
+        .write_file("honest.bin", b"pushed by a sibling nobody can dial")
+        .expect("write");
+    author.store.flush_segment().expect("flush");
+    with_server(&victim, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).expect("dial");
+        session::push(&author.store, &mut client).expect("push");
+    });
+
+    let (stranger, forged) = a_forged_chain(victim.store.owner());
+    victim
+        .vault
+        .put_segment(&forged)
+        .expect("a vault checks the signature, not membership, so it keeps this");
+
+    let report = session::drain_vault(&victim.store, &victim.vault).unwrap_or_else(|error| {
+        panic!(
+            "draining the vault failed outright ({error}): one forged segment stops \
+             every sibling behind NAT from ever reaching this node"
+        )
+    });
+
+    assert_eq!(
+        victim
+            .store
+            .read_file("honest.bin")
+            .expect("read")
+            .as_deref(),
+        Some(b"pushed by a sibling nobody can dial".as_slice()),
+        "the sibling's pushed file was not adopted beside the forged chain"
+    );
+    assert_eq!(
+        report.refused_chains, 1,
+        "the drain left a chain out without saying so"
+    );
+    assert_eq!(
+        report.refused_devices,
+        vec![stranger.device_id()],
+        "the drain did not name the device whose chain it refused"
+    );
+}
+
+#[test]
+fn red_team_a_forged_chain_does_not_stop_fetch_only() {
+    // THE ATTACK (§8 2c, the on-demand door). A device with a budget opens a
+    // file by `chunks_for` then `fetch_only`: `itsanas get`, the phone's open,
+    // a budgeted keeping round. Both read every chain in the vault, and the
+    // forged one, kept by an earlier metadata round, sits there for good. It
+    // failed both calls, so a file the account plainly had could not be
+    // opened on any later day.
+    let master = alice();
+    let liar = node(&MasterSecret::from_bytes([0xE6; 32]), 91);
+    let author = node(&master, 92);
+    let victim = node(&master, 93);
+
+    let content = a_file_of_many_chunks(48, 64 << 10);
+    author
+        .store
+        .write_file("honest.bin", &content)
+        .expect("write");
+    author.store.flush_segment().expect("flush");
+    with_server(&liar, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &author.device, author.store.owner(), None).expect("dial");
+        session::push(&author.store, &mut client).expect("push");
+    });
+    let (stranger, forged) = a_forged_chain(victim.store.owner());
+    liar.vault
+        .put_segment(&forged)
+        .expect("a host checks the signature, not membership, so it keeps this");
+
+    let report = with_server(&liar, Pledge::gigabytes(1), |address| {
+        let mut client =
+            PeerClient::connect(address, &victim.device, victim.store.owner(), None).expect("dial");
+        // The list first, as a phone on a metered link does: the forged
+        // segment is now in the victim's own vault.
+        session::pull_scoped(
+            &victim.store,
+            &victim.vault,
+            &mut client,
+            session::Scope::Metadata,
+        )
+        .expect("a metadata round");
+
+        let wanted: std::collections::BTreeSet<ChunkId> =
+            itsanas_store::chunks_for(&victim.store, &victim.vault, "honest.bin")
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "looking the file up failed ({error}): `itsanas get` and the \
+                         phone answer an error for a file the account has"
+                    )
+                })
+                .expect("the genuine file is in the account's log")
+                .into_iter()
+                .collect();
+        session::fetch_only(&victim.store, &victim.vault, &mut client, &wanted).unwrap_or_else(
+            |error| {
+                panic!(
+                    "fetching the file failed outright ({error}): one forged chain \
+                     stops every on-demand open"
+                )
+            },
+        )
+    });
+
+    assert_eq!(
+        victim
+            .store
+            .read_file("honest.bin")
+            .expect("read")
+            .as_deref(),
+        Some(content.as_slice()),
+        "the file asked for did not arrive beside the forged chain"
+    );
+    assert_eq!(
+        report.refused_chains, 1,
+        "the fetch left a chain out without saying so"
+    );
+    assert_eq!(
+        report.refused_devices,
+        vec![stranger.device_id()],
+        "the fetch did not name the device whose chain it refused"
     );
 }
 

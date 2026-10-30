@@ -44,7 +44,8 @@ pub mod source;
 
 pub use conflict::{CONFLICT_MARKER, sibling_path, wins_original_path, with_marker};
 pub use engine::{
-    Applied, Divergence, Outcome, Replay, SyncReport, apply_replaying, apply_segments, diff,
+    Applied, Divergence, Outcome, REFUSED_DEVICES_NAMED, Replay, SyncReport, apply_replaying,
+    apply_segments, diff,
 };
 pub use error::{Result, SyncError};
 pub use source::{ChunkSource, EmptySource};

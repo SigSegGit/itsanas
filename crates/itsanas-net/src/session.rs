@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use itsanas_crypto::{ChunkId, DeviceId, UserId};
 use itsanas_store::{SegmentEnvelope, Store, StoreError, Vault, summary};
-use itsanas_sync::{ChunkSource, SyncReport, apply_segments};
+use itsanas_sync::{ChunkSource, Replay, SyncReport};
 
 use crate::{
     error::{NetError, Result},
@@ -108,7 +108,7 @@ impl PushReport {
 }
 
 /// What a whole round did.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RoundReport {
     pub push: PushReport,
     pub pull: SyncReport,
@@ -1015,6 +1015,24 @@ pub fn fetch_only(
     client: &mut PeerClient,
     wanted: &BTreeSet<ChunkId>,
 ) -> Result<SyncReport> {
+    fetch_only_noting(store, vault, client, wanted, &mut BTreeSet::new())
+}
+
+/// [`fetch_only`], adding to `refused` the devices whose chain it left out.
+///
+/// For a round that refused chains at its [`refresh_tolerant`] step already:
+/// its report then counts each device once across both.
+///
+/// # Errors
+///
+/// If the peer fails, or the store cannot be written.
+pub fn fetch_only_noting(
+    store: &Store,
+    vault: &Vault,
+    client: &mut PeerClient,
+    wanted: &BTreeSet<ChunkId>,
+    refused: &mut BTreeSet<DeviceId>,
+) -> Result<SyncReport> {
     let owner = store.owner();
     let mine = store.device_id();
 
@@ -1046,7 +1064,9 @@ pub fn fetch_only(
     segments.extend(store.segments()?);
 
     if segments.is_empty() {
-        return Ok(SyncReport::default());
+        let mut report = SyncReport::default();
+        report.note_refused(refused);
+        return Ok(report);
     }
 
     let source = SelectedChunks {
@@ -1058,14 +1078,18 @@ pub fn fetch_only(
     // not: see the comment above `segments.extend(store.segments()?)`. Safe
     // here and only here, because this source serves a chosen set and declines
     // everything else -- replaying with a source that serves everything would
-    // undo every release on the next round.
-    let (report, _) = itsanas_sync::apply_replaying(
+    // undo every release on the next round. Per chain, as `pull_scoped`: the
+    // vault keeps a forged chain for good, and opening a file must not wait on
+    // it.
+    let mut report = apply_per_chain(
         store,
         &segments,
         &source,
+        refused,
         itsanas_sync::Replay::IncludingOwn,
     )
     .map_err(|error| NetError::Refused(error.to_string()))?;
+    report.note_refused(refused);
 
     let served = kept(store, source.served.into_inner());
     if !served.is_empty() {
@@ -1308,6 +1332,23 @@ pub fn refresh(
     refresh_chains(store, vault, client, Tolerate::Nothing).map(|(fetched, _)| fetched)
 }
 
+/// [`refresh`], leaving out a device chain the peer served forged instead of
+/// failing the call, and returning the devices it left out.
+///
+/// For a round that goes on to fetch what it chose: one forged chain must not
+/// stop it learning the others.
+///
+/// # Errors
+///
+/// If the peer fails, or the vault cannot be written.
+pub fn refresh_tolerant(
+    store: &Store,
+    vault: &Vault,
+    client: &mut PeerClient,
+) -> Result<(Vec<SegmentEnvelope>, BTreeSet<DeviceId>)> {
+    refresh_chains(store, vault, client, Tolerate::RefusedChains)
+}
+
 /// Whether a segment that fails its checks ends the call or only its chain.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tolerate {
@@ -1416,6 +1457,7 @@ fn apply_per_chain(
     segments: &[SegmentEnvelope],
     source: &dyn ChunkSource,
     refused: &mut BTreeSet<DeviceId>,
+    replay: itsanas_sync::Replay,
 ) -> itsanas_sync::Result<SyncReport> {
     let mut chains: BTreeMap<DeviceId, Vec<SegmentEnvelope>> = BTreeMap::new();
     for envelope in segments {
@@ -1435,7 +1477,7 @@ fn apply_per_chain(
             refused.insert(device);
             continue;
         }
-        let (report, _) = apply_segments(store, &chain, source)?;
+        let (report, _) = itsanas_sync::apply_replaying(store, &chain, source, replay)?;
         total.absorb(&report);
     }
     Ok(total)
@@ -1516,10 +1558,9 @@ pub fn pull_scoped(
     }
 
     if fetched.is_empty() {
-        return Ok(SyncReport {
-            refused_chains: refused.len(),
-            ..SyncReport::default()
-        });
+        let mut report = SyncReport::default();
+        report.note_refused(&refused);
+        return Ok(report);
     }
 
     let peer = client.peer_device();
@@ -1528,12 +1569,18 @@ pub fn pull_scoped(
             client: RefCell::new(client),
             served: RefCell::new(Vec::new()),
         };
-        let outcome = apply_per_chain(store, &fetched, &source, &mut refused);
+        let outcome = apply_per_chain(store, &fetched, &source, &mut refused, Replay::OthersOnly);
         let served = kept(store, source.served.into_inner());
         (outcome, served)
     } else {
         (
-            apply_per_chain(store, &fetched, &itsanas_sync::EmptySource, &mut refused),
+            apply_per_chain(
+                store,
+                &fetched,
+                &itsanas_sync::EmptySource,
+                &mut refused,
+                Replay::OthersOnly,
+            ),
             Vec::new(),
         )
     };
@@ -1547,7 +1594,7 @@ pub fn pull_scoped(
     }
 
     let mut report = outcome.map_err(|error| NetError::Refused(error.to_string()))?;
-    report.refused_chains = refused.len();
+    report.note_refused(&refused);
 
     // Only a round that finished everything may move the markers. One deferral
     // and they stay where they are, so the next content round replays.
@@ -1599,9 +1646,13 @@ pub fn drain_vault(store: &Store, vault: &Vault) -> Result<SyncReport> {
         return Ok(SyncReport::default());
     }
 
+    // Per chain, as `pull_scoped`: anyone with a device key can push a forged
+    // segment here, and as one batch it failed every drain for good.
     let source = VaultChunks { vault, owner };
-    let (report, _) = apply_segments(store, &segments, &source)
+    let mut refused = BTreeSet::new();
+    let mut report = apply_per_chain(store, &segments, &source, &mut refused, Replay::OthersOnly)
         .map_err(|error| NetError::Refused(error.to_string()))?;
+    report.note_refused(&refused);
 
     Ok(report)
 }
