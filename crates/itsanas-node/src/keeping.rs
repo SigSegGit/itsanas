@@ -145,7 +145,9 @@ pub fn round_placed(
     session::note_contact(store, client)?;
 
     let push = session::push_placed(store, client, scope, placement)?;
-    let fetched = session::refresh(store, vault, client)?;
+    // Tolerant, as `pull_scoped` is: a host serving one device's chain
+    // tampered must not stop this device learning every other chain.
+    let (fetched, mut refused) = session::refresh_tolerant(store, vault, client)?;
 
     let mut report = KeepingReport::default();
 
@@ -153,13 +155,9 @@ pub fn round_placed(
         // The list is current and nothing was downloaded, which is the whole
         // point of a metadata round. Choosing now would be choosing what to
         // fetch on a connection this device has decided not to fetch over.
-        return Ok((
-            session::RoundReport {
-                push,
-                pull: itsanas_sync::SyncReport::default(),
-            },
-            report,
-        ));
+        let mut pull = itsanas_sync::SyncReport::default();
+        pull.note_refused(&refused);
+        return Ok((session::RoundReport { push, pull }, report));
     }
     drop(fetched);
 
@@ -188,7 +186,7 @@ pub fn round_placed(
     report.fetched = wanted_paths.len();
 
     let wanted = itsanas_store::chunks_for_all(store, vault, &wanted_paths)?;
-    let pull = session::fetch_only(store, vault, client, &wanted)?;
+    let pull = session::fetch_only_noting(store, vault, client, &wanted, &mut refused)?;
 
     // **Challenge before letting go, on the connection that is already open.**
     //
@@ -560,6 +558,79 @@ mod tests {
         assert_eq!(
             still, 0,
             "the peer still counts a device that let the chunk go as a copy"
+        );
+    }
+
+    /// THE ATTACK (§8 2c, the phone's door). A device with a budget takes the
+    /// selective path, which lists the account from its vault and fetches what
+    /// it chose. A stranger's segment the host kept -- a free device key, a
+    /// body sealed under a key that is not the account's -- lands in this
+    /// vault too, and both the listing and the fetch failed on it: every
+    /// budgeted round errored, for good, and the phone fetched nothing again.
+    #[test]
+    fn red_team_a_forged_chain_does_not_stop_a_budgeted_round() {
+        use itsanas_store::{LogEntry, Operation, SegmentEnvelope, VersionVector};
+
+        let master = MasterSecret::from_bytes([0x8F; 32]);
+        let big = machine(&master, 86);
+        let small = machine(&master, 87);
+
+        big.store
+            .write_file("wanted.bin", &vec![6u8; 100 * 1024])
+            .expect("write");
+        big.store.flush_segment().expect("flush");
+
+        let stranger = DeviceKeys::from_seed(&SecretBytes::new([0x03; 32]));
+        let wrong_root = UserKeys::derive(&MasterSecret::from_bytes([0xE7; 32]));
+        let forged = SegmentEnvelope::create(
+            wrong_root.oplog_root(),
+            big.store.owner(),
+            &stranger,
+            None,
+            vec![LogEntry {
+                sequence: 1,
+                recorded_unix: 0,
+                operation: Operation::Remove {
+                    path: "wanted.bin".to_owned(),
+                    version: VersionVector::default(),
+                },
+            }],
+        )
+        .expect("forge");
+        big.vault
+            .put_segment(&forged)
+            .expect("a host checks the signature, not membership, so it keeps this");
+
+        let (round_report, keeping) = with_server(&big, |address| {
+            let mut client =
+                PeerClient::connect(address, &small.device, small.store.owner(), None).unwrap();
+            round(
+                &small.store,
+                &small.vault,
+                &tight(),
+                &mut client,
+                itsanas_net::session::Scope::Everything,
+            )
+        })
+        .unwrap_or_else(|error| {
+            panic!(
+                "the budgeted round failed outright ({error}): one forged chain stops a \
+                 phone from fetching anything again"
+            )
+        });
+
+        assert_eq!(
+            keeping.fetched, 1,
+            "the file the budget chose was not fetched"
+        );
+        assert!(
+            small.store.read_file("wanted.bin").expect("read").is_some(),
+            "the chosen file did not arrive beside the forged chain"
+        );
+        assert_eq!(
+            round_report.pull.refused_devices,
+            vec![stranger.device_id()],
+            "the round left a chain out without naming its device"
         );
     }
 

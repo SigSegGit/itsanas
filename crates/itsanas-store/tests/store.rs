@@ -1678,6 +1678,77 @@ fn a_deleted_file_is_not_resurrected_by_reading_this_devices_own_log() {
     );
 }
 
+/// A chain left out of the listing makes it say so, and names the device.
+///
+/// The walk leaves out another device's chain whose segment does not open, so
+/// one forgery in the vault cannot fail every listing for good. The same skip
+/// takes a genuine sibling's segment damaged on this disk, and a listing that
+/// then called itself complete would show that sibling's deleted files as
+/// present and its new ones as gone, with nothing to say why. Sabotage: drop
+/// `complete = false` or `left_out.push(device)` in `walk_vault`.
+#[test]
+fn red_team_a_chain_the_listing_leaves_out_marks_it_incomplete_and_is_named() {
+    use itsanas_crypto::SecretBytes;
+    use itsanas_store::{LogEntry, SegmentEnvelope, VersionVector};
+
+    let master = testkit::alice().master;
+    let here = tempfile::tempdir().expect("temp dir");
+    let store = store_for(&master, here.path());
+    let vault = itsanas_store::Vault::open(here.path().join("vault")).expect("vault");
+
+    // A sibling's honest chain, as its push would leave it in this vault.
+    let elsewhere = tempfile::tempdir().expect("temp dir");
+    let sibling = store_for(&master, elsewhere.path());
+    sibling
+        .write_file("sibling.txt", b"written on the laptop")
+        .expect("write");
+    sibling.flush_segment().expect("flush");
+    for envelope in sibling.segments().expect("segments") {
+        vault
+            .put_segment(&envelope)
+            .expect("an honest segment is kept");
+    }
+
+    // And one chain whose body does not open under this account's key.
+    let stranger = DeviceKeys::from_seed(&SecretBytes::new([0x5A; 32]));
+    let wrong_root = UserKeys::derive(&MasterSecret::from_bytes([0x5B; 32]));
+    let unopenable = SegmentEnvelope::create(
+        wrong_root.oplog_root(),
+        store.owner(),
+        &stranger,
+        None,
+        vec![LogEntry {
+            sequence: 1,
+            recorded_unix: 0,
+            operation: Operation::Remove {
+                path: "sibling.txt".to_owned(),
+                version: VersionVector::default(),
+            },
+        }],
+    )
+    .expect("segment");
+    vault
+        .put_segment(&unopenable)
+        .expect("a vault checks the signature, not membership, so it keeps this");
+
+    let listing = itsanas_store::catalogue(&store, &vault)
+        .expect("one unopenable chain failed the whole listing");
+    assert!(
+        listing.files.iter().any(|file| file.path == "sibling.txt"),
+        "the honest sibling's file went missing beside the chain left out"
+    );
+    assert!(
+        !listing.complete,
+        "a listing that left a device's chain out called itself complete: that device's \
+         files and deletes vanish without a word"
+    );
+    assert_eq!(
+        listing.left_out,
+        vec![stranger.device_id()],
+        "the listing did not name the device whose chain it left out"
+    );
+}
+
 /// Releasing does not make this device forget who else holds the content.
 ///
 /// A limit has to work more than once. The first version erased the holder

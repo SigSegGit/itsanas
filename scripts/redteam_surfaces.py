@@ -88,6 +88,7 @@ SURFACES = [
     ]),
     ('peers-sync', 'two nodes over sockets, logs and convergence', [
         'itsanas-net/tests/two_nodes.rs',
+        'itsanas-node/src/keeping.rs',
         'itsanas-sync/tests/convergence.rs',
         'itsanas-store/src/oplog.rs',
     ]),

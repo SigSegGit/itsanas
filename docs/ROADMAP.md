@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1445 test functions, 20 of them `#[ignore]`d into the slow job, and 467 of
+**1454 test functions, 20 of them `#[ignore]`d into the slow job, and 471 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1937,11 +1937,40 @@ any vault (signature, not membership) and was enough to stop that account's
 pull on every node that fetched it, round after round. Tests:
 `red_team_one_forged_chain_does_not_stall_the_pull_of_the_others`,
 `red_team_a_host_serving_a_forged_segment_loses_that_chain_not_the_call`.
+
+On 2026-10-30 the other doors. `drain_vault` (the daemon's only intake from a
+sibling behind NAT, and `backup restore`'s) and `fetch_only` (`itsanas get`,
+the phone's open, a budgeted `keeping::round`) apply per chain through the
+same `apply_per_chain`, and the catalogue walk behind `chunks_for`,
+`chunks_for_all` and `catalogue` leaves out a device chain whose body does
+not open, where one forged segment used to fail every listing and every
+on-demand open. `SyncReport::refused_devices` names the first three refused
+devices (`REFUSED_DEVICES_NAMED`) and the refused line prints their short ids,
+`and N more` past that, worded by where the chain was met (`from this peer`,
+`pushed into this vault`, `on the backup`); the daemon says a refused set at
+the drain once per half hour and a new one at once, and `backup restore`
+says it in the foreground and as the daemon's disk job alike
+(`backup::restore_summary`). A chain the catalogue walk leaves out makes the
+listing incomplete and is named in `Catalogue::left_out`, which `itsanas ls`
+prints: a genuine sibling's segment damaged on this disk lands there too. This
+device's own chain is never refused: in `apply_per_chain`, as in the walk, it
+failing to open is an error. Tests:
+`red_team_a_forged_chain_pushed_into_the_vault_does_not_stall_drain_vault`,
+`red_team_a_forged_chain_does_not_stop_fetch_only`,
+`red_team_a_forged_chain_does_not_stop_a_budgeted_round`,
+`a_report_names_the_first_refused_devices_and_counts_them_all`,
+`a_refused_chain_is_said_on_the_sync_line`,
+`red_team_a_chain_the_listing_leaves_out_marks_it_incomplete_and_is_named`,
+`this_devices_own_chain_failing_to_open_is_an_error_not_a_refusal`,
+`a_restore_says_the_chains_it_refused_on_the_backup`,
+`a_listing_that_left_a_chain_out_says_so`,
+`the_drain_says_a_new_refused_chain_at_once_and_the_same_one_once_a_window`.
 Named, not done, one line each:
-- `fetch_only`, `drain_vault` and the budgeted path of `keeping::round` (strict `refresh`) still fail whole on one bad chain.
+- The budgeted `keeping::round` now refreshes through `refresh_tolerant`, untested end to end for the reason above; its forgery test goes red on the catalogue walk and on `fetch_only`, not on that switch.
 - The refresh stage is tested on `keep_chain` directly, not end to end: no test server can serve a tampered segment.
 - A refused chain stays in the vault: relayed onward, re-opened and re-refused on every content round; no quarantine.
-- The report counts chains, it does not name the device.
+- The prints themselves are not under test: the daemon's drain line (its throttle `drain_refusal_due` is), `backup restore`'s line (its text `restore_summary` is), `itsanas ls`'s note (its text `describe_left_out` is).
+- The phone's listing carries `complete` (now false when a chain is left out), not the device ids; `itsanas-drive` and the callers of `fetch_only` do not show a refused set.
 - Keeping strangers' segments out of an account at all is the roster of HANDOVER §10 question 7.
 
 **The confidentiality surface, by hand -- 2026-09-30 (HANDOVER §8 2b).**

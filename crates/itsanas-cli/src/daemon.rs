@@ -419,15 +419,7 @@ fn run_disk_job(node: &Node, shutdown: &AtomicBool) {
                 &format!("reading the backup at {target}"),
             );
             crate::backup::restore(node, &job.path)
-                .map(|(moved, report)| {
-                    format!(
-                        "read {} segments and {} chunks ({}) from {target}; {} file(s) adopted",
-                        moved.segments,
-                        moved.chunks,
-                        itsanas_node::config::format_size(moved.bytes),
-                        report.adopted
-                    )
-                })
+                .map(|(moved, report)| crate::backup::restore_summary(&moved, &report, &target))
                 .map_err(|error| error.to_string())
         }
     };
@@ -1302,19 +1294,66 @@ fn take_in(node: &Node, folder: Option<&(Folder, Option<Watcher>)>, deep: bool) 
     // peers configured, or because its peers are behind NAT and can only
     // push — would hold its own data and never look at it.
     match session::drain_vault(&node.store, &node.vault) {
-        Ok(report) if report.changed_anything() => {
-            println!(
-                "pushed to us: {} files, {} conflicts",
-                report.adopted, report.conflicted
-            );
-            if let Some((folder, _)) = folder {
-                changed |= reconcile(node, folder, false);
+        Ok(report) => {
+            if report.changed_anything() {
+                println!(
+                    "pushed to us: {} files, {} conflicts",
+                    report.adopted, report.conflicted
+                );
+                if let Some((folder, _)) = folder {
+                    changed |= reconcile(node, folder, false);
+                }
             }
+            report_drain_refusals(&report);
         }
-        Ok(_) => {}
         Err(error) => eprintln!("itsanas: could not apply pushed data: {error}"),
     }
     changed
+}
+
+/// The refused set the drain last printed, and when.
+///
+/// Its own slot rather than a key in [`REFUSALS_REPORTED`], whose keys are peer
+/// labels: a peer configured under the drain's key would have shared its quiet.
+type DrainRefusal = (Vec<DeviceId>, usize, Instant);
+
+static DRAIN_REFUSAL_REPORTED: std::sync::Mutex<Option<DrainRefusal>> = std::sync::Mutex::new(None);
+
+/// Whether the drain's refusals are worth a line, given the last one printed.
+///
+/// The same refused set is said once per [`OUTAGE_QUIET`]: the forged segment
+/// stays in the vault and every loop drains it again. A different set is said
+/// at once -- held back with the old one, a second forged chain pushed five
+/// minutes after the first went unsaid for the rest of the half hour.
+fn drain_refusal_due(
+    previous: Option<&DrainRefusal>,
+    report: &itsanas_sync::SyncReport,
+    now: Instant,
+) -> bool {
+    previous.is_none_or(|(devices, chains, last)| {
+        *devices != report.refused_devices
+            || *chains != report.refused_chains
+            || refusal_due(Some(*last), now)
+    })
+}
+
+/// Say a chain pushed into this vault was refused, held back as push refusals are.
+fn report_drain_refusals(report: &itsanas_sync::SyncReport) {
+    let Ok(mut reported) = DRAIN_REFUSAL_REPORTED.lock() else {
+        return;
+    };
+    match crate::describe_refused_chains(report, crate::ChainSource::Vault) {
+        Some(refused) => {
+            let now = Instant::now();
+            if drain_refusal_due(reported.as_ref(), report, now) {
+                println!("{refused}");
+                *reported = Some((report.refused_devices.clone(), report.refused_chains, now));
+            }
+        }
+        None => {
+            *reported = None;
+        }
+    }
 }
 
 /// Say it once when a round reached nobody.
@@ -2731,7 +2770,7 @@ fn report_round(peer: &str, report: &session::RoundReport) {
     if let Some(no_room) = crate::describe_no_room(&report.pull) {
         println!("{peer}: {no_room}");
     }
-    if let Some(refused) = crate::describe_refused_chains(&report.pull) {
+    if let Some(refused) = crate::describe_refused_chains(&report.pull, crate::ChainSource::Peer) {
         println!("{peer}: {refused}");
     }
     let Ok(mut reported) = REFUSALS_REPORTED.lock() else {
@@ -2772,6 +2811,59 @@ fn install_signal_handler() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The drain says a refused set once per half hour, and a new one at once.
+    ///
+    /// The forged segment stays in the vault and every loop drains it again,
+    /// so the same set is held back; a second forged chain is news, and keyed
+    /// on one fixed label it went unsaid for the rest of the window.
+    /// Sabotage: drop the comparison of the refused devices (or of the count)
+    /// in `drain_refusal_due` -- the second chain then waits half an hour.
+    #[test]
+    fn the_drain_says_a_new_refused_chain_at_once_and_the_same_one_once_a_window() {
+        let first = itsanas_sync::SyncReport {
+            refused_chains: 1,
+            refused_devices: vec![DeviceId::from_bytes([0xA1; 32])],
+            ..itsanas_sync::SyncReport::default()
+        };
+        let start = Instant::now();
+        assert!(
+            drain_refusal_due(None, &first, start),
+            "the first refusal went unsaid"
+        );
+
+        let said = (first.refused_devices.clone(), first.refused_chains, start);
+        let soon = start + Duration::from_secs(300);
+        assert!(
+            !drain_refusal_due(Some(&said), &first, soon),
+            "the same refused chain was said again five minutes later: every loop repeats it"
+        );
+        assert!(
+            drain_refusal_due(Some(&said), &first, start + OUTAGE_QUIET),
+            "the same refused chain was never said again after the quiet window"
+        );
+
+        let another = itsanas_sync::SyncReport {
+            refused_chains: 1,
+            refused_devices: vec![DeviceId::from_bytes([0xB2; 32])],
+            ..itsanas_sync::SyncReport::default()
+        };
+        assert!(
+            drain_refusal_due(Some(&said), &another, soon),
+            "a different device's forged chain, pushed five minutes after the first, went \
+             unsaid for the rest of the half hour"
+        );
+        // Past the names a report carries, only the count shows a new chain.
+        let more = itsanas_sync::SyncReport {
+            refused_chains: 2,
+            refused_devices: first.refused_devices.clone(),
+            ..itsanas_sync::SyncReport::default()
+        };
+        assert!(
+            drain_refusal_due(Some(&said), &more, soon),
+            "a chain refused beyond the named ones went unsaid for the rest of the half hour"
+        );
+    }
 
     #[test]
     fn the_snapshot_says_which_version_wrote_it_and_still_reads_as_before() {

@@ -29,6 +29,8 @@
 //! A delete that *demonstrably saw* the edit — its version dominates — is
 //! honoured normally. This rule only governs genuine races.
 
+use std::collections::BTreeSet;
+
 use itsanas_crypto::{ChunkId, DeviceId, UserId};
 use itsanas_store::{
     CausalOrder, FileEntry, LogEntry, Operation, SegmentEnvelope, Store, Tombstone, VersionVector,
@@ -82,8 +84,14 @@ pub struct Outcome {
     pub applied: Applied,
 }
 
+/// How many refused devices a [`SyncReport`] names; past it they are counted.
+///
+/// A device key is free, so a host can serve one forged chain per key it
+/// minted: naming every one would hand it the length of the owner's line.
+pub const REFUSED_DEVICES_NAMED: usize = 3;
+
 /// Statistics for one sync round.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SyncReport {
     pub adopted: usize,
     pub already_known: usize,
@@ -97,6 +105,9 @@ pub struct SyncReport {
     /// its signature, its chain or its seal. Said apart from `deferred`: a
     /// sleeping peer fixes itself, a refused chain waits for an honest copy.
     pub refused_chains: usize,
+    /// The first [`REFUSED_DEVICES_NAMED`] of those devices, in id order, so
+    /// the owner can tell a stranger's key from a stale sibling of their own.
+    pub refused_devices: Vec<DeviceId>,
     /// Device chains left out because their device is not on this account's
     /// roster: a stranger's key, or a sibling whose claim has not reached
     /// this node yet. Applied on a later round once its claim is admitted.
@@ -119,11 +130,12 @@ impl SyncReport {
         }
     }
 
-    /// Add `other`'s counts to this one.
+    /// Add `other`'s counts to this one, all but the refused chains.
     ///
     /// Destructured field by field so that a counter added later fails to
     /// compile here instead of being dropped when per-chain reports are summed.
-    pub const fn absorb(&mut self, other: &Self) {
+    /// The refused chains are left to [`Self::note_refused`].
+    pub fn absorb(&mut self, other: &Self) {
         let Self {
             adopted,
             already_known,
@@ -133,8 +145,9 @@ impl SyncReport {
             deferred,
             no_room,
             refused_chains,
+            refused_devices,
             unrostered_chains,
-        } = *other;
+        } = other;
         self.adopted += adopted;
         self.already_known += already_known;
         self.superseded += superseded;
@@ -143,7 +156,24 @@ impl SyncReport {
         self.deferred += deferred;
         self.no_room += no_room;
         self.unrostered_chains += unrostered_chains;
-        self.refused_chains += refused_chains;
+        // Not summed. The refused chains are a set of devices, set whole by
+        // `note_refused` once a round knows them all: two reports that each
+        // refused the same stranger's chain would add up to two chains, and
+        // the sync line would say "and 1 more" of a device that is not there.
+        let _ = (refused_chains, refused_devices);
+    }
+
+    /// Count and name the devices whose chain this round refused.
+    ///
+    /// Set from the whole refused set rather than summed, because a chain
+    /// refused at two stages of one round is still one device.
+    pub fn note_refused(&mut self, refused: &BTreeSet<DeviceId>) {
+        self.refused_chains = refused.len();
+        self.refused_devices = refused
+            .iter()
+            .copied()
+            .take(REFUSED_DEVICES_NAMED)
+            .collect();
     }
 
     /// Whether anything still needs another round.
@@ -539,6 +569,43 @@ mod tests {
             !report.changed_anything(),
             "a round that only recognised things it already knew reported \
              progress; a sync loop would never settle"
+        );
+    }
+
+    /// Sabotage: name every refused device -- a host minting one key per
+    /// forgery then sets how long the owner's sync line is; sum the refused
+    /// counts in `absorb` -- one stranger refused by two reports is said as
+    /// two devices.
+    #[test]
+    fn a_report_names_the_first_refused_devices_and_counts_them_all() {
+        let refused: BTreeSet<DeviceId> = (1..=5u8)
+            .map(|seed| DeviceId::from_bytes([seed; 32]))
+            .collect();
+        let mut report = SyncReport::default();
+        report.note_refused(&refused);
+
+        assert_eq!(report.refused_chains, 5, "a refused chain went uncounted");
+        assert_eq!(
+            report.refused_devices,
+            refused
+                .iter()
+                .copied()
+                .take(REFUSED_DEVICES_NAMED)
+                .collect::<Vec<_>>(),
+            "the report did not name exactly the first refused devices"
+        );
+
+        // Summing reports leaves the refused set to `note_refused`.
+        let mut total = SyncReport::default();
+        let mut one = SyncReport::default();
+        one.note_refused(&refused.iter().copied().take(1).collect());
+        total.absorb(&one);
+        total.absorb(&one);
+        assert_eq!(
+            (total.refused_chains, total.refused_devices.len()),
+            (0, 0),
+            "absorb summed the refused chains: one stranger refused by two reports is \
+             said as two devices on the sync line"
         );
     }
 }
