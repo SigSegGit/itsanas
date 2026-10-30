@@ -666,21 +666,48 @@ fn park_loop(
     }
 }
 
-/// Whether nothing can dial this machine directly: no port the router
-/// opened, no caller from outside its network ever arrived, and the address
-/// it would publish is a private one. A machine with a public address, or a
-/// forward somebody made by hand, never parks: a relay is slower than a
-/// direct path, and an address replaced by `relay:` is one same-LAN
-/// machines would hairpin through.
+/// Whether nothing can dial this machine directly ([`needs_relay`]), from
+/// the router's port, the listener's witness and the direct address.
 fn unreachable(node: &Node, server: &PeerServer) -> bool {
     let listen = server
         .local_addr()
         .map(|bound| bound.to_string())
         .unwrap_or_default();
-    coordinator::found_address().is_none()
-        && server.witness().from_outside() == 0
-        && coordinator::direct_address(&node.config, &listen)
-            .is_none_or(|address| itsanas_node::coordinator::is_private_address(&address))
+    needs_relay(
+        coordinator::found_address().as_deref(),
+        server.witness().from_outside(),
+        coordinator::direct_address(&node.config, &listen).as_deref(),
+    )
+}
+
+/// Whether nothing can dial this machine directly: no port the router
+/// opened (`found`), no caller from outside its network ever arrived
+/// (`from_outside`), and the address it would publish (`direct`) proves
+/// nothing by itself. A machine with a public IPv4 address, or a forward
+/// somebody made by hand, never parks: a relay is slower than a direct path,
+/// and an address replaced by `relay:` is one same-LAN machines would
+/// hairpin through.
+///
+/// A global IPv6 address is not proof. It is this machine's own, with no NAT
+/// in front, but a home router's IPv6 firewall drops unsolicited callers
+/// (RFC 6092 asks it to by default) and so does Windows Defender Firewall
+/// without a rule, which the installer only suggests. Taken as reachable, a
+/// laptop with IPv6 stopped parking and was dialled at an address that
+/// answered nobody from another house. So it parks until a caller from
+/// outside has arrived: the coordinator's probe of the first publication
+/// (which names the IPv6 address, before the first park a minute later),
+/// or a peer, over IPv6 or over a forward. A caller from this machine's own
+/// /64 does not count (`itsanas_net::transport::Witness`). Once parked, the
+/// presence names the relay only, so a machine whose way in does work but
+/// whose coordinator shares its /64 stays parked: slower, never unreachable.
+fn needs_relay(found: Option<&str>, from_outside: u64, direct: Option<&str>) -> bool {
+    let proves_nothing = |address: &str| {
+        itsanas_node::coordinator::is_private_address(address)
+            || address
+                .split(',')
+                .any(|entry| matches!(entry.trim().parse(), Ok(std::net::SocketAddr::V6(_))))
+    };
+    found.is_none() && from_outside == 0 && direct.is_none_or(proves_nothing)
 }
 
 /// Sleep `length`, a second at a time; `false` once stopping.
@@ -2724,6 +2751,42 @@ mod tests {
             !is_me("192.168.1.142:9797"),
             "the configured port was taken for the bound one: the next account on this \
              machine would never be dialled"
+        );
+    }
+
+    /// Red team on #346. Windows' listener took IPv6 on 2026-10-30, so the
+    /// laptop at home now has a global IPv6 direct address, and that address
+    /// is not private: taken as proof, it stopped parking on a relay. Windows
+    /// Defender Firewall drops an unsolicited caller without a rule (the
+    /// installer only suggests one), and so does a home router's IPv6
+    /// firewall, so nobody from another house reached it at all. Sabotage:
+    /// drop the IPv6 clause of `proves_nothing` in `needs_relay`.
+    #[test]
+    fn red_team_a_global_ipv6_address_alone_does_not_stop_a_machine_parking() {
+        let laptop = "[2a01:e0a:1045:9d30:4839:531c:38a0:648f]:9797";
+        assert!(
+            needs_relay(None, 0, Some(laptop)),
+            "a laptop whose only proof is its own global IPv6 address stopped parking: \
+             behind a firewall that drops inbound IPv6, no other house can reach it"
+        );
+        assert!(
+            !needs_relay(None, 1, Some(laptop)),
+            "a caller from outside reached the IPv6 address and the machine still parked: \
+             its peers took a slower relay for a way in that works"
+        );
+        assert!(
+            !needs_relay(None, 0, Some("88.170.12.34:9797")),
+            "a public IPv4 address parked: everybody can dial it, and a relay only slows them"
+        );
+        assert!(needs_relay(None, 0, Some("192.168.1.142:9797")));
+        assert!(needs_relay(None, 0, None));
+        assert!(
+            !needs_relay(
+                Some("88.170.12.34:9797"),
+                0,
+                Some(&format!("88.170.12.34:9797,{laptop}"))
+            ),
+            "a machine whose router opened its port parked because the list also named IPv6"
         );
     }
 

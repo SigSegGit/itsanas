@@ -2729,18 +2729,42 @@ Detail and measurements are in ROADMAP.md; this is the map.
       and `red_team_a_port_whose_ipv6_half_is_held_is_not_offered_as_free`.
       The address announced survives a temporary-address rotation where
       `/proc/net/if_inet6` is missing (macOS, Windows): `sticky_ipv6` keeps
-      the last one while a socket still binds to it and it is global
-      (`red_team_a_rotated_temporary_ipv6_does_not_move_the_announced_address`).
+      the last one while a socket still binds to it and it is on the /64
+      of the kernel's choice, so a renumbered prefix is left at once
+      (`red_team_a_rotated_temporary_ipv6_does_not_move_the_announced_address`,
+      which also drives two rounds through `announced_ipv6`, the wiring
+      `global_ipv6` uses; `holds_ipv6` by
+      `an_address_this_machine_holds_binds_and_one_it_does_not_never_does`).
       Asked by binding, because `if_addrs` lists only preferred addresses
-      on Windows and a rotated one is deprecated. With no router port the
+      on Windows and a rotated one is deprecated. Linux, which has the
+      table, is not sticky, as before. With no router port the
       publication now takes the global IPv6 over a private IPv4 as the
       probe does (`red_team_what_is_published_with_no_router_port_is_what_the_probe_names`);
-      they had disagreed on any machine at home with IPv6. **Left:** not
+      they had disagreed on any machine at home with IPv6. **A global
+      IPv6 address is not proof of a way in** (red team on #346, 0v): the
+      parking thread's `needs_relay` used to take any non-private direct
+      address as reachable, so the laptop, once it had one, stopped parking
+      while Windows Defender Firewall (no rule) or the router's IPv6
+      firewall dropped every other house. It now parks until a caller from
+      outside has arrived, and a caller from the /64 of the address it
+      reached (this house, the home coordinator's probe) is not from
+      outside (`Witness`, `on_link`):
+      `red_team_a_global_ipv6_address_alone_does_not_stop_a_machine_parking`,
+      `red_team_a_neighbour_on_the_same_ipv6_network_is_not_a_caller_from_outside`.
+      Linux machines with IPv6 and no router port park the same way. A
+      parked presence names the relay only, so a machine whose IPv6 way in
+      does work, with a coordinator on its own /64, stays on the relay:
+      slower, never unreachable. **Left:** not
       yet seen on the laptop from another house (needs a release); on
-      Windows a program that binds `127.0.0.1:p` with `SO_REUSEADDR`
-      can still bind beside the wildcard sockets (measured 2026-10-30, as
-      before this change; only `SO_EXCLUSIVEADDRUSE` stops it, which
-      needs `unsafe`); PCP or hole punching only if the fleet shows the
+      Windows any program of the same user can bind one specific address
+      of the machine on the node's port beside the wildcard sockets, with
+      no option, and takes that address's callers: the announced global
+      IPv6 one, `[::1]`, `127.0.0.1`, the LAN address (measured
+      2026-10-30; a denial of service, the device pin refuses it as
+      anybody else; Linux refuses these binds). Only
+      `SO_EXCLUSIVEADDRUSE` stops it, which needs `unsafe`, forbidden
+      here. Not measured: that a deprecated temporary address still
+      accepts connections on Windows. PCP or hole punching only if the fleet shows the
       rest falls short. Red team
       on the diff: the probe refused lists, lists sorted as public, NAT-PMP
       overclaimed LAN anti-spoofing, the granted lease ignored, a double-NAT

@@ -140,6 +140,18 @@ const BACKLOG: i32 = 128;
 /// `SO_REUSEADDR` is refused either wildcard of the port while they are
 /// held, and is let in beside a `[::]` half built with it.
 ///
+/// **Not held shut on Windows: a specific address.** Without
+/// `SO_EXCLUSIVEADDRUSE`, Windows lets a program of the same user bind one
+/// address of the machine on the node's port, with no option at all, and
+/// the more specific bind takes that address's callers. Measured 2026-10-30
+/// beside both wildcards: the global IPv6 address the node announces,
+/// `[::1]`, `127.0.0.1` and the LAN address all bound. A peer from another
+/// house then reaches that program, and the device pin fails: the node is
+/// undialable there (a denial of service, not a stolen identity). Linux's
+/// dual-stack socket refuses these binds. Only `SO_EXCLUSIVEADDRUSE` stops
+/// it; `socket2` 0.6 has no safe way to set it, and this workspace forbids
+/// `unsafe`.
+///
 /// With port 0 the IPv4 socket picks the port and the IPv6 one takes the
 /// same; an IPv6 twin some other program holds is a port picked again. On a
 /// port that was named, an IPv6 half something else holds is an error,
@@ -149,7 +161,7 @@ const BACKLOG: i32 = 128;
 ///
 /// `a_second_listener_cannot_take_a_port_this_one_holds` and
 /// `red_team_a_second_listener_cannot_take_the_ipv6_port_this_one_holds` hold
-/// this shut. The first failed when this function was first written, which is
+/// the wildcards shut. The first failed when this function was first written, which is
 /// how the hole was found rather than argued about.
 pub fn listen_on(resolved: &[SocketAddr]) -> io::Result<Listeners> {
     let wildcard = resolved
@@ -509,7 +521,9 @@ mod tests {
     /// THE SAME ATTACK, ON THE IPV6 HALF: on Windows the IPv6 side of the
     /// port is a socket of its own. Built with `SO_REUSEADDR`, or not built
     /// at all, it let another program on the machine bind `[::]` on the
-    /// node's port and answer every IPv6 caller in its place.
+    /// node's port and answer every IPv6 caller in its place. The wildcard
+    /// only: on Windows a bind to one specific address of the machine still
+    /// gets in beside it, and nothing safe stops that (see `listen_on`).
     #[test]
     fn red_team_a_second_listener_cannot_take_the_ipv6_port_this_one_holds() {
         let held = listen_on(&[SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)]).unwrap();

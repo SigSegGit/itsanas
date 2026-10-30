@@ -630,7 +630,8 @@ if ($allowed) {
     Write-Info 'the failure is silent: this node will listen, and every peer that'
     Write-Info 'tries to reach it will time out. It can still push its own work.'
     Write-Info ''
-    Write-Info 'In an administrator PowerShell, for the local network only:'
+    Write-Info 'In an administrator PowerShell, on networks marked private. Over IPv6'
+    Write-Info 'this also lets in callers from other houses, which is what it is for:'
     Write-Info ''
     Write-Info '  New-NetFirewallRule -DisplayName "ITSaNAS peer" -Direction Inbound ^'
     Write-Info "    -Action Allow -Protocol TCP -LocalPort $listenPort -Profile Private"

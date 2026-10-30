@@ -6519,7 +6519,11 @@ mod tests {
         );
     }
 
+    // Windows only: elsewhere std's `[::]` is dual-stack, so holding it
+    // already blocks `0.0.0.0`, and a probe of `0.0.0.0` alone passed there
+    // too. Run, it proved nothing it was named for.
     #[test]
+    #[cfg(windows)]
     fn red_team_a_port_whose_ipv6_half_is_held_is_not_offered_as_free() {
         // On Windows a node takes `0.0.0.0` and `[::]` as two sockets. A
         // probe of `0.0.0.0` alone offered a port another program held over

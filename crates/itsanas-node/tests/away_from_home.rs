@@ -201,13 +201,22 @@ fn a_contact_publishes_and_reads_on_one_connection_and_the_probe_agrees() {
         let probe = coordinator::address_now(&laptop.config, listen);
         // Loopback, or this machine's global IPv6 address where it has one
         // (`prefer_global_ipv6`): a runner has none, a machine at home does.
+        // Global, not any IPv6: `[::]`, a link-local or a unique-local
+        // address is one no other house can dial (red team on #346).
         let probed: std::net::SocketAddr = probe
             .as_deref()
             .and_then(|probe| probe.parse().ok())
             .expect("the probe names an address");
+        let global_v6 = |ip: std::net::IpAddr| match ip {
+            std::net::IpAddr::V6(v6) => {
+                let [first, second, ..] = v6.segments();
+                first & 0xe000 == 0x2000 && !(first == 0x2001 && second == 0x0db8)
+            }
+            std::net::IpAddr::V4(_) => false,
+        };
         assert!(
-            probed.port() == 9797 && (probed.ip().is_loopback() || probed.is_ipv6()),
-            "the probe named {probed}, which is not where this machine listens"
+            probed.port() == 9797 && (probed.ip().is_loopback() || global_v6(probed.ip())),
+            "the probe named {probed}, which no member can dial this machine at"
         );
 
         let contacted = coordinator::contact(

@@ -167,14 +167,15 @@ impl Write for Budgeted {
 pub struct Witness {
     /// Connections from an address outside any private range.
     from_outside: AtomicU64,
-    /// Connections from a private, loopback or link-local address.
+    /// Connections from a private, loopback or link-local address, or from
+    /// the IPv6 /64 the connection arrived on ([`on_link`]).
     from_inside: AtomicU64,
 }
 
 impl Witness {
-    /// Count one accepted connection from `from`.
-    fn saw(&self, from: IpAddr) {
-        let counter = if itsanas_tls::reach::is_private_ip(from) {
+    /// Count one accepted connection from `from`, which arrived on `to`.
+    fn saw(&self, from: IpAddr, to: Option<IpAddr>) {
+        let counter = if itsanas_tls::reach::is_private_ip(from) || on_link(from, to) {
             &self.from_inside
         } else {
             &self.from_outside
@@ -192,6 +193,24 @@ impl Witness {
     #[must_use]
     pub fn from_inside(&self) -> u64 {
         self.from_inside.load(Ordering::Relaxed)
+    }
+}
+
+/// Whether `from` is an IPv6 address in the same /64 as `to`, the address it
+/// reached: a machine on this LAN, which crossed no router.
+///
+/// A global IPv6 address is not private, so a neighbour dialling this
+/// machine's global address used to count as a caller from outside. That
+/// count is what tells the daemon its way in works and it needs no relay
+/// (HANDOVER §8 0v): a home machine behind a router that drops inbound IPv6
+/// stopped parking as soon as a machine of its own house dialled it, and
+/// was then unreachable from every other house. IPv4 callers on a
+/// dual-stack socket arrive as `::ffff:a.b.c.d`, all of them under one
+/// /64, so the comparison is between real IPv6 addresses only.
+fn on_link(from: IpAddr, to: Option<IpAddr>) -> bool {
+    match (from.to_canonical(), to.map(|to| to.to_canonical())) {
+        (IpAddr::V6(from), Some(IpAddr::V6(to))) => from.segments()[..4] == to.segments()[..4],
+        _ => false,
     }
 }
 
@@ -298,7 +317,10 @@ impl PeerServer {
                         // Counted before anything can refuse it: what this
                         // answers is "do packets from outside arrive here",
                         // and a connection dropped at the limit arrived.
-                        self.witness.saw(from.ip());
+                        // The address it reached, for the /64 it shares
+                        // with a caller on this LAN (`on_link`).
+                        let to = stream.local_addr().ok().map(|to| to.ip());
+                        self.witness.saw(from.ip(), to);
                         // Windows hands back a socket that inherited the
                         // listener's non-blocking mode, which fails the TLS
                         // handshake with an error that reads like a firewall.
@@ -1282,6 +1304,47 @@ impl PeerClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn red_team_a_neighbour_on_the_same_ipv6_network_is_not_a_caller_from_outside() {
+        // The attack is the house itself: the home coordinator's probe, or a
+        // machine of this LAN, dials the laptop's global IPv6 address. Counted
+        // from outside, it told the daemon its way in works, so the laptop
+        // stopped parking on a relay while the router dropped every caller
+        // from another house. Sabotage: drop `|| on_link(from, to)` in
+        // `Witness::saw`, or the `to_canonical` calls in `on_link`.
+        let here: IpAddr = "2a01:e0a:1045:9d30:4839:531c:38a0:648f".parse().unwrap();
+        let witness = Witness::default();
+
+        witness.saw("2a01:e0a:1045:9d30::17".parse().unwrap(), Some(here));
+        assert_eq!(
+            witness.from_outside(),
+            0,
+            "a machine of this house dialling the global IPv6 address counted as \
+             proof that other houses can: the node would stop parking on a relay \
+             and nobody elsewhere could reach it"
+        );
+        assert_eq!(witness.from_inside(), 1);
+
+        witness.saw("2a01:cb00:1:2::5".parse().unwrap(), Some(here));
+        assert_eq!(
+            witness.from_outside(),
+            1,
+            "a caller from another IPv6 network did not count: a node whose way \
+             in works would keep its peers on a slower relay"
+        );
+
+        // Two IPv4 callers on a dual-stack socket share the /64 `::ffff:0:0`
+        // and say nothing about each other.
+        let mapped_here: IpAddr = "::ffff:203.0.113.5".parse().unwrap();
+        witness.saw("::ffff:198.51.100.9".parse().unwrap(), Some(mapped_here));
+        assert_eq!(
+            witness.from_outside(),
+            2,
+            "a public IPv4 caller was counted as a neighbour because both ends were \
+             IPv4-mapped: a forwarded port that works would look closed"
+        );
+    }
 
     #[test]
     fn binding_a_public_address_no_longer_needs_an_override() {

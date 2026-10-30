@@ -1200,15 +1200,32 @@ fn global_ipv6() -> Option<std::net::Ipv6Addr> {
     if !is_global_ipv6(v6) {
         return None;
     }
-    let mut last = LAST_IPV6
+    let table = std::fs::read_to_string("/proc/net/if_inet6").ok();
+    Some(announced_ipv6(v6, table.as_deref(), &LAST_IPV6, holds_ipv6))
+}
+
+/// [`global_ipv6`] once the kernel has chosen `chosen`: the stable address
+/// beside it where Linux's `table` is there, the one announced last
+/// (`last`, which this updates) where it is not. Split out so two
+/// consecutive calls can be tested without the machine's own addresses.
+fn announced_ipv6(
+    chosen: std::net::Ipv6Addr,
+    table: Option<&str>,
+    last: &std::sync::Mutex<Option<std::net::Ipv6Addr>>,
+    holds: impl Fn(std::net::Ipv6Addr) -> bool,
+) -> std::net::Ipv6Addr {
+    let mut last = last
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let address = std::fs::read_to_string("/proc/net/if_inet6")
-        .ok()
-        .and_then(|table| stable_ipv6(v6, &table))
-        .unwrap_or_else(|| sticky_ipv6(*last, v6, holds_ipv6));
+    // Sticky only where the table is missing, as before this existed on
+    // Linux: there the kernel's choice is already the stable address, or
+    // `stable_ipv6` finds it.
+    let address = match table {
+        Some(table) => stable_ipv6(chosen, table).unwrap_or(chosen),
+        None => sticky_ipv6(*last, chosen, holds),
+    };
     *last = Some(address);
-    Some(address)
+    address
 }
 
 /// The stable address beside `chosen` when `chosen` is a temporary one
@@ -1252,26 +1269,40 @@ fn stable_ipv6(chosen: std::net::Ipv6Addr, table: &str) -> Option<std::net::Ipv6
         .map(|(address, _, _)| *address)
 }
 
-/// The address announced last, while it is still this machine's and global;
-/// `chosen` otherwise.
+/// The address announced last, while it is still this machine's, global and
+/// on the /64 of `chosen`; `chosen` otherwise.
 ///
 /// Where `stable_ipv6` has nothing to read (macOS, Windows) the kernel's
 /// choice is a temporary address (RFC 4941) that it replaces every day. The
-/// one it replaced stays assigned, deprecated, and still accepts connections
-/// until its valid lifetime runs out (a week on Windows), so keeping it moves
-/// the announcement once a week instead of once a day, and never to an
-/// address the machine has dropped.
+/// one it replaced stays assigned, deprecated, until its valid lifetime runs
+/// out, so keeping it moves the announcement less often than every day, and
+/// never to an address the machine has dropped. Not measured: that Windows
+/// still accepts a connection on a deprecated temporary address (RFC 4862
+/// says it should; no rotation was watched here).
+///
+/// Only the interface ID is kept, never the prefix: after a renumbering the
+/// old prefix's address also stays assigned, deprecated, for hours or days,
+/// and kept it sent every peer from another house to a prefix the ISP no
+/// longer routes.
 fn sticky_ipv6(
     previous: Option<std::net::Ipv6Addr>,
     chosen: std::net::Ipv6Addr,
     still_assigned: impl Fn(std::net::Ipv6Addr) -> bool,
 ) -> std::net::Ipv6Addr {
     previous
-        .filter(|previous| is_global_ipv6(*previous) && still_assigned(*previous))
+        // Global follows: `chosen` is (`global_ipv6` checks), and the /64
+        // carries what makes an address global.
+        .filter(|previous| {
+            previous.segments()[..4] == chosen.segments()[..4] && still_assigned(*previous)
+        })
         .unwrap_or(chosen)
 }
 
-/// The IPv6 address `global_ipv6` returned last, for `sticky_ipv6`.
+/// The IPv6 address `global_ipv6` returned last, for `sticky_ipv6`. Per
+/// process: a one-shot command (`itsanas register`) starts with nothing and
+/// may publish the kernel's newer temporary address, until the daemon's next
+/// publication puts back the one it kept. Both still answer; the command
+/// publishes once, so this is not a loop.
 static LAST_IPV6: std::sync::Mutex<Option<std::net::Ipv6Addr>> = std::sync::Mutex::new(None);
 
 /// Whether `address` is still one of this machine's: a socket binds to it.
@@ -1859,15 +1890,56 @@ fe800000000000000000000000000001 02 40 20 80 eth0
             rotated,
             "an address the machine dropped stayed announced, and nobody could dial it"
         );
-        for gone_local in ["2001:db8::1", "fe80::1", "fd00::1"] {
-            let previous: std::net::Ipv6Addr = gone_local.parse().unwrap();
-            assert_eq!(
-                sticky_ipv6(Some(previous), rotated, |_| true),
-                rotated,
-                "{gone_local}, which no other house can dial, stayed announced"
+        // Red team on #346: a renumbered prefix. The old address stays
+        // assigned, deprecated, for hours or days, and binds. Sabotage: drop
+        // the /64 comparison in `sticky_ipv6`.
+        let renumbered: std::net::Ipv6Addr = "2a01:e0a0:9:9::bbbb".parse().unwrap();
+        assert_eq!(
+            sticky_ipv6(Some(announced), renumbered, |_| true),
+            renumbered,
+            "the address on the old prefix stayed announced after a renumbering: \
+             every peer from another house dialled a prefix nobody routes any more"
+        );
+        assert_eq!(sticky_ipv6(None, rotated, both), rotated);
+
+        // The wiring `global_ipv6` goes through, two rounds in a row.
+        // Sabotage: drop `*last = Some(address)` in `announced_ipv6`, or
+        // return `chosen` where the table is missing.
+        let last = std::sync::Mutex::new(None);
+        assert_eq!(announced_ipv6(announced, None, &last, both), announced);
+        assert_eq!(
+            announced_ipv6(rotated, None, &last, both),
+            announced,
+            "the second round forgot the address the first announced: a macOS or \
+             Windows machine republished at every rotation"
+        );
+        // Where Linux's table is there, its answer stands, as before this
+        // existed. Sabotage: apply `sticky_ipv6` with a table too.
+        assert_eq!(
+            announced_ipv6(rotated, Some(""), &last, both),
+            rotated,
+            "on Linux an address kept from an earlier round overrode the kernel's own \
+             stable choice"
+        );
+    }
+
+    #[test]
+    fn an_address_this_machine_holds_binds_and_one_it_does_not_never_does() {
+        // What `sticky_ipv6` asks to know whether a kept address is still
+        // this machine's. Sabotage: `holds_ipv6` always true, or always false.
+        assert!(
+            !holds_ipv6("2001:db8::1".parse().unwrap()),
+            "an address of no machine counted as this one's: a dropped address \
+             would stay announced, and nobody could dial it"
+        );
+        // No IPv6 in the kernel (some CI containers): nothing is held.
+        if std::net::TcpListener::bind((std::net::Ipv6Addr::LOCALHOST, 0)).is_ok() {
+            assert!(
+                holds_ipv6(std::net::Ipv6Addr::LOCALHOST),
+                "an address this machine has was taken for a dropped one: the \
+                 announcement would move at every rotation"
             );
         }
-        assert_eq!(sticky_ipv6(None, rotated, both), rotated);
     }
 
     fn a_claim(revoked: bool) -> SignedClaim {
