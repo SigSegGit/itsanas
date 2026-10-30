@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-29 — 1410 test functions across 39 binaries, 15 of them
-`#[ignore]`d, plus 2 doctests. 440 are red-team tests.**
+**Last updated: 2026-10-30 — 1415 test functions across 39 binaries, 15 of them
+`#[ignore]`d, plus 2 doctests. 444 are red-team tests.**
 
-**1294 of the 1410 tests have an entry of their own on this page** — an *entry*,
+**1299 of the 1415 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 230 |
+| `itsanas-cli` unit | 235 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 159 |
@@ -218,7 +218,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 31 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 51 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 100 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 104 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1166,7 +1166,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (230)
+# `itsanas-cli` — unit tests (235)
 
 ## `bench` — measuring this machine (4)
 
@@ -1477,7 +1477,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_node_never_safe_is_exposed_from_its_first_round`** | A node whose files are on its disk only is exposed from its **first** round, and still on its second: no grace for a node that was never safe, which is the person who installs it, drops files in and leaves. Nothing stored is no question. Sabotaged (a grace from a missing previous header; a new `since` every round): red. |
 | **`red_team_a_save_on_a_safe_account_is_unsaid_for_the_grace_and_said_after`** | Safe, then a save: `since` is set and the shortfall is unsaid for `GRACE_INTERVALS` (2) rounds, keeps its age across rounds, is said after, and clears when the copies are back. Sabotaged (a new `since` each round): red. |
 
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (17)
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the account's machines dialled from the book, the snapshot's version, copies and pace, and the enrolment at start (22)
 
 | Test | What it proves |
 | --- | --- |
@@ -1491,6 +1491,11 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_once_every_relay_has_failed_the_first_is_tried_again`** | The skip list rotates: a machine with one relay that refused once parks on it again. Sabotage: no `failed.clear()` (red). |
 | **`red_team_a_machine_never_parks_on_itself`** | The book lists this machine too; it never parks on its own listener. Sabotage: the `me` filter removed (red). |
 | **`red_team_a_parked_machine_parks_again_after_each_caller_and_withdraws_when_reached`** | One caller per park, so it parks again after each; once reachable it stops and withdraws its `relay:` address. Sabotage: no re-park (red); no final withdrawal (red). |
+| **`red_team_a_relay_address_with_no_known_relay_is_never_dialled`** | `dial_book` (the decisions of `dial_listed`) over a scripted `DialSite`: a book address `relay:<id>` whose relay the book does not hold is skipped, not dialled as a string that is no address (a timeout every round); the machine beside it is dialled. Sabotage: the `continue` removed (red). |
+| **`red_team_a_machine_a_sibling_relays_is_dialled_next_round_and_a_forged_one_never`** | Three machines of one account, all answering; the laptop relays a newer signed address for the Pi and a row for the Mac whose address its device never signed. The next round, the Pi and the Mac are silent at the addresses that worked: the Pi is dialled at the relayed address, the forged one is dialled in no round. Sabotaged (no `contact.relayed`: red, the Pi never redialled; `verify_for` skipped in `Contact::relayed`: red, the forged address dialled). |
+| **`red_team_a_machine_that_did_not_answer_waits_before_it_is_dialled_again`** | A machine that missed is not dialled again by the next round at once (`QUIET_AFTER_MISS`): most of an account is off. Sabotage: no `contact.failed` (red). |
+| **`red_team_answering_is_not_trust`** | Of two machines that answered, only the one whose answer earned trust is confirmed in the neighbourhood: a device key is a free keypair. Sabotage: confirmed unconditionally (red). |
+| **`a_device_reached_by_its_first_address_is_not_dialled_at_its_second`** | A machine with two addresses that answered at the first is not dialled at the second the same round. Sabotage: no `reached.contains` (red). |
 | **`red_team_a_vault_that_drops_while_running_takes_no_chunk`** | When the vault's marker disappears under a running daemon (a NAS unmounted, an empty local mount point left), the room offered for chunks is 0, so nothing lands on the system disk to vanish under the mount; the round then stops the daemon. Sabotaged (marker check off): red. |
 | `the_default_interval_is_neither_a_busy_loop_nor_an_hour` | Too short and three machines polling each other is a constant load on a Pi; too long and the thing feels broken. |
 | `a_portable_copy_syncs_every_minute_unless_told_otherwise` | A portable copy's base interval is 60 s, not 300 s; `--interval` and the policy's own schedule still win. Sabotaged (portable ignored): red. |
