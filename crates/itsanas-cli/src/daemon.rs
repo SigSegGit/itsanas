@@ -1952,12 +1952,15 @@ trait DialSite {
     /// Whether to stop dialling ([`fn@halted`]).
     fn halted(&self) -> bool;
     /// One round with `expect` at `address`, or through the relay `through`;
-    /// `None` if it did not answer.
+    /// `None` if it did not answer. `ask_presences` asks it what it knows of
+    /// the account's other machines (`Outcome::relayed`): [`dial_book`]
+    /// decides it, not the adapter, so that a test sees it asked.
     fn sync(
         &self,
         address: &str,
         through: Option<&(DeviceId, String)>,
         expect: DeviceId,
+        ask_presences: bool,
     ) -> Option<Outcome>;
     /// This machine's clock, as [`Contact::worked`] and [`Contact::relayed`]
     /// read it.
@@ -1981,6 +1984,7 @@ impl DialSite for Dialling<'_> {
         address: &str,
         through: Option<&(DeviceId, String)>,
         expect: DeviceId,
+        ask_presences: bool,
     ) -> Option<Outcome> {
         sync_once(
             self.node,
@@ -1988,7 +1992,7 @@ impl DialSite for Dialling<'_> {
             through,
             Some(expect),
             true,
-            true,
+            ask_presences,
             self.scope,
         )
     }
@@ -2027,7 +2031,10 @@ fn dial_book(
         if address.starts_with(itsanas_node::contact::RELAY_PREFIX) && through.is_none() {
             continue;
         }
-        let Some(outcome) = site.sync(&address, through.as_ref(), device) else {
+        // Every machine of the account is asked what it knows of the others:
+        // that is the presence relay, and without it a machine that moved
+        // while the coordinator was down stays unsynced until it is back.
+        let Some(outcome) = site.sync(&address, through.as_ref(), device, true) else {
             contact.failed(device, &address, Instant::now());
             continue;
         };
@@ -3084,15 +3091,20 @@ mod tests {
 
     /// A scripted world for [`dial_book`]: the addresses that answer, with
     /// whether the answer earned trust and the rows it relayed, and every
-    /// dial written down.
+    /// dial written down with the relay it went through.
     #[derive(Default)]
     struct FakeDials {
         answers: std::cell::RefCell<std::collections::BTreeMap<String, Answer>>,
-        dials: std::cell::RefCell<Vec<(DeviceId, String)>>,
+        dials: std::cell::RefCell<Vec<Dial>>,
+        /// Paused or shut down once this many dials are made.
+        halt_after: std::cell::Cell<Option<usize>>,
     }
 
     /// What an address says when dialled: earned trust, relayed rows.
     type Answer = (bool, Option<Vec<Vec<u8>>>);
+
+    /// One dial: the device expected, the address, the relay it went through.
+    type Dial = (DeviceId, String, Option<(DeviceId, String)>);
 
     impl FakeDials {
         fn answering(answers: &[(&str, Answer)]) -> Self {
@@ -3111,27 +3123,41 @@ mod tests {
 
         /// Every dial so far, forgotten.
         fn dialled(&self) -> Vec<(DeviceId, String)> {
+            self.dialled_through()
+                .into_iter()
+                .map(|(device, address, _)| (device, address))
+                .collect()
+        }
+
+        /// [`Self::dialled`], with the relay each dial went through.
+        fn dialled_through(&self) -> Vec<Dial> {
             std::mem::take(&mut *self.dials.borrow_mut())
         }
     }
 
     impl DialSite for FakeDials {
         fn halted(&self) -> bool {
-            false
+            self.halt_after
+                .get()
+                .is_some_and(|after| self.dials.borrow().len() >= after)
         }
 
         fn sync(
             &self,
             address: &str,
-            _through: Option<&(DeviceId, String)>,
+            through: Option<&(DeviceId, String)>,
             expect: DeviceId,
+            ask_presences: bool,
         ) -> Option<Outcome> {
-            self.dials.borrow_mut().push((expect, address.to_owned()));
+            self.dials
+                .borrow_mut()
+                .push((expect, address.to_owned(), through.cloned()));
             let (earned_trust, relayed) = self.answers.borrow().get(address).cloned()?;
             Some(Outcome {
                 device: expect,
                 earned_trust,
-                relayed,
+                // A peer that is not asked for presences sends none.
+                relayed: relayed.filter(|_| ask_presences),
             })
         }
 
@@ -3346,6 +3372,130 @@ mod tests {
             site.dialled().len(),
             1,
             "a machine already synced this round was dialled again at another address"
+        );
+    }
+
+    #[test]
+    fn a_machine_parked_on_a_relay_is_dialled_through_that_relay() {
+        // A machine behind NAT parks on a relay (§8 0v) and the book lists
+        // it as `relay:<relay>`: dialled at that string it is a connect
+        // failure every round, never a sync. The relay is reached at its own
+        // address from this book when it is a machine of the account, else
+        // at the one the address carries (a host of another account).
+        let prefix = itsanas_node::contact::RELAY_PREFIX;
+        let mut contact = listed(&[
+            (id(9), "203.0.113.9:9797".to_owned()),
+            (id(2), format!("{prefix}{}", id(9))),
+            (id(3), format!("{prefix}{}@198.51.100.8:9797", id(8))),
+        ]);
+        let site = FakeDials::default();
+        dial_round(&site, &mut contact, &Neighbourhood::new());
+        let dials = site.dialled_through();
+        assert!(
+            dials.contains(&(
+                id(2),
+                format!("{prefix}{}", id(9)),
+                Some((id(9), "203.0.113.9:9797".to_owned()))
+            )),
+            "a machine parked on a relay of the account was not dialled through it: it stays \
+             unsynced for as long as it sits behind its NAT ({dials:?})"
+        );
+        assert!(
+            dials.contains(&(
+                id(3),
+                format!("{prefix}{}@198.51.100.8:9797", id(8)),
+                Some((id(8), "198.51.100.8:9797".to_owned()))
+            )),
+            "a machine parked on another account's host was not dialled through the address \
+             its relay address carries: it stays unsynced ({dials:?})"
+        );
+    }
+
+    #[test]
+    fn an_address_that_answered_is_dialled_first_the_next_round() {
+        // A stale address listed first costs a connect timeout every round
+        // before the one that works, unless what answered goes first.
+        let mut contact = listed(&[
+            (id(2), "203.0.113.2:9797".to_owned()),
+            (id(2), "198.51.100.2:9797".to_owned()),
+        ]);
+        let neighbourhood = Neighbourhood::new();
+        let site = FakeDials::answering(&[("198.51.100.2:9797", (true, None))]);
+        dial_round(&site, &mut contact, &neighbourhood);
+        assert_eq!(
+            site.dialled(),
+            vec![
+                (id(2), "203.0.113.2:9797".to_owned()),
+                (id(2), "198.51.100.2:9797".to_owned())
+            ],
+            "the first round did not try the book's addresses in its order"
+        );
+        site.answer(&[
+            ("203.0.113.2:9797", (true, None)),
+            ("198.51.100.2:9797", (true, None)),
+        ]);
+        dial_round(&site, &mut contact, &neighbourhood);
+        assert_eq!(
+            site.dialled(),
+            vec![(id(2), "198.51.100.2:9797".to_owned())],
+            "the address that answered was not dialled first the next round: a stale address \
+             costs a connect timeout every round before the one that works"
+        );
+    }
+
+    #[test]
+    fn a_private_address_that_answered_is_dialled_between_probe_rounds() {
+        // A machine over a VPN or on another VLAN is not heard by discovery
+        // here, so its 10.x address is dialled only on probe rounds -- one
+        // in PRIVATE_PROBE_EVERY -- unless it has answered: then it syncs
+        // every round, not once every six.
+        let mut contact = listed(&[(id(2), "10.0.0.2:9797".to_owned())]);
+        let neighbourhood = Neighbourhood::new();
+        // Discovery has listened long enough that not hearing the machine
+        // counts (`Neighbourhood::heard_here`).
+        neighbourhood.listening_since(
+            Instant::now()
+                .checked_sub(crate::discovery::WARM_UP + Duration::from_secs(1))
+                .expect("an instant before the warm-up"),
+        );
+        let site = FakeDials::answering(&[("10.0.0.2:9797", (true, None))]);
+        dial_round(&site, &mut contact, &neighbourhood);
+        assert_eq!(
+            site.dialled().len(),
+            1,
+            "the first round, a probe round, did not dial the private address"
+        );
+        dial_round(&site, &mut contact, &neighbourhood);
+        assert_eq!(
+            site.dialled(),
+            vec![(id(2), "10.0.0.2:9797".to_owned())],
+            "a private address that answered was not dialled off a probe round: a machine \
+             reached over a VPN syncs once every six rounds"
+        );
+    }
+
+    #[test]
+    fn a_pause_stops_the_book_dials_after_the_machine_under_way() {
+        // `itsanas pause` is the person taking the bandwidth back, and a
+        // shutdown waits for the round: each further machine is a session
+        // more of both.
+        let mut contact = listed(&[
+            (id(2), "203.0.113.2:9797".to_owned()),
+            (id(3), "203.0.113.3:9797".to_owned()),
+            (id(4), "203.0.113.4:9797".to_owned()),
+        ]);
+        let site = FakeDials::answering(&[
+            ("203.0.113.2:9797", (true, None)),
+            ("203.0.113.3:9797", (true, None)),
+            ("203.0.113.4:9797", (true, None)),
+        ]);
+        site.halt_after.set(Some(1));
+        dial_round(&site, &mut contact, &Neighbourhood::new());
+        assert_eq!(
+            site.dialled().len(),
+            1,
+            "machines were still dialled after a pause or a shutdown: the bandwidth paused \
+             for is used anyway, and a shutdown waits a session per machine"
         );
     }
 
