@@ -19,7 +19,7 @@ tables by this file. A person edits ROADMAP.md; `--write` redraws the wiki; and
 CI refuses a tree where the two disagree, which is the whole point.
 
 The Projects board is fed from the same parse (`--items`, read by
-`scripts/project-sync.sh`), so the board, the wiki and the roadmap cannot each
+`scripts/project-sync.py`), so the board, the wiki and the roadmap cannot each
 say something different about M7.
 
 What is checked
@@ -38,7 +38,7 @@ What is checked
 * no test count is typed by hand outside a generated block.
 
 What is NOT checked: that the wiki *repository* matches `docs/wiki/`. Publishing
-is `scripts/wiki-publish.sh`, run with credentials this check does not have.
+is `scripts/wiki-publish.py`, run with credentials this check does not have.
 """
 
 import json
@@ -350,7 +350,7 @@ def items():
         })
     titles = [i["title"] for i in out]
     if len(set(titles)) != len(titles):
-        fail("two board items would share a title; project-sync.sh matches on title")
+        fail("two board items would share a title; project-sync.py matches on title")
     return out
 
 
@@ -384,7 +384,7 @@ def main(argv):
     if not pages:
         fail("docs/wiki/ holds no pages")
     if "--items" in argv:
-        json.dump(items(), sys.stdout, ensure_ascii=False, indent=2)
+        json.dump(items(), sys.stdout, indent=2)   # ASCII: a Windows pipe is not UTF-8
         print()
         return
     stale = []
