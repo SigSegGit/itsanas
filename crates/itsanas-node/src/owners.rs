@@ -113,16 +113,11 @@ pub const STANDING_FOR: Duration = Duration::from_secs(2 * 60 * 60);
 /// orders the same, as the contact stamp's `SEEN_STEP` does for its readers.
 pub const KEEP_CLAIM_STEP: u64 = 15 * 60;
 
-/// What a host answers a device the coordinator says was withdrawn.
-pub const WITHDRAWN: &str = "the coordinator says this device was withdrawn by its account";
-/// What a host answers a device of another account it has not confirmed
-/// with the coordinator lately.
-pub const UNCONFIRMED: &str = "this host has not confirmed this device with the coordinator \
-     lately; it stores here once it has (the next round, if the coordinator answers)";
-
-/// What a host answers an account whose offer its audits contradicted.
-pub const CONTRADICTED: &str = "a device of this account failed this host's storage audits; \
-     it stores here only what its devices have proved they hold for this host";
+// What a host answers a device that was withdrawn, unconfirmed, or
+// contradicted by its audits. The texts live in `itsanas-net`, beside
+// `ACCOUNT_FULL`, so the owner's side matches them exactly and says the real
+// reason instead of "a segment that does not verify".
+pub use itsanas_net::{CONTRADICTED, UNCONFIRMED, WITHDRAWN};
 
 #[derive(Clone, Debug)]
 struct Held {
