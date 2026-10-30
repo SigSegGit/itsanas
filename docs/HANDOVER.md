@@ -9,11 +9,20 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0x
-TITLE: The fleet tested by CI: C passes on the real fleet (run 40941797343); left, the test that proves C's route in cargo -- two accounts on one machine, both pledging, discovery over real sockets, no peer add, the second account's vault/owners/<first uid> holds chunks after a round (sabotage: strangers skipped in dial_order; the host at pledge 0)
+NEXT: 8.0v
+TITLE: `itsanas get` of an absent file reaches the account's machines (coordinator list, else the address book, a parked one through its relay) instead of only `peer add` entries, and `connect_peer` refuses an unpinned `relay:` address; one `peer_targets` for `get` and `sync` (fetch_absent, main.rs; tests and sabotages in §8 0v)
 WRITTEN-AT: 2026-10-30
 BASE: 174b989
 -->
+
+**Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
+permanently?"): every step that touches a machine, the fleet, a release or
+a secret is written with its exact commands, one fenced block each, hosts,
+ports and paths filled in -- in every reply, every plan and every status
+line, also when the session runs them itself.** "Rebuild the VM" without
+its block is the bug he keeps having to point out. A session may and should
+run them itself (SSH, the fleet, merges, Dependabot): only the release
+signature needs him.
 
 Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
@@ -30,12 +39,7 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
 
-1. Dependabot #320 (fleet.yml actions; CI green, needs his review):
-
-       gh pr review 320 --approve -R SigSegGit/itsanas
-       gh pr merge 320 --squash --delete-branch -R SigSegGit/itsanas
-
-2. Release v0.1.13 for the laptop, the Mac and testers (about 20 min; it
+1. Release v0.1.13 for the laptop, the Mac and testers (about 20 min; it
    beeps, asks `y`, then the release key's passphrase):
 
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
@@ -91,6 +95,33 @@ Settings has words for both. **A routine, reversible choice:** the
 threshold is the larger of 6 h and 12 intervals (`safety::ISOLATED_AFTER`,
 `ISOLATED_INTERVALS`) -- an evening with the laptop shut is not orange.
 Left: see ROADMAP M7, "Alerting on the conditions".
+
+**2026-10-30: a batch of six, and the fleet rebuilt by the session.**
+Merged: #342 (C's route in cargo, `tests/route.rs`; it found that a host
+waiting for its coordinator was reported as "a segment that does not
+verify" -- `UNCONFIRMED`/`WITHDRAWN`/`CONTRADICTED` now reach the owner as
+themselves), #347 (that test enrols both homes first: a loaded CI runner
+timed it out), #346 (Windows listens and announces over IPv6, two std
+sockets, no unsafe; the announced address survives temporary-address
+rotation; a machine with IPv6 and no router port still parks until a
+caller from another house has reached it -- 0u), #345 (alerts: rounds that
+reach nobody for hours, a vault that takes no write -- 0y), #344 (one forged
+chain no longer stalls a drain, a fetch or a budgeted round; listings and
+restores say which device's chain they left out), #343 (`dial_listed`
+behind a `DialSite` seam, tested -- 0o), #341 (Dependabot, replacing #320).
+Each PR was built by a builder in its own worktree under
+`D:\GitHub\itsanas-wt\`, attacked by a separate reviewer, and fixed
+before merge. The VM and the Pi were rebuilt from main by the session
+(0.1.13 on every account) and the fleet run by hand: run 41075435985, 15 checked, 0 failed, 3 of 3 machines, C PASS on both hosts, V 0.1.13.
+Traps: (1) a merge of one of these PRs puts the next in conflict on the
+counts -- resolve by keeping main's side and running `check-counts.py`;
+(2) WSL's mirrored networking failed this day (0x8007054f) and WSL fell
+back to no network: the route tests then fail for the machine, not the
+code -- run them natively on Windows; (3) GitHub's GraphQL failed on
+`gh pr merge` for minutes: `gh api -X PUT repos/SigSegGit/itsanas/pulls/N/merge
+-f merge_method=squash` worked; (4) workflow agents with `isolation:
+worktree` get a worktree of the session's repository (itsaresume), not of
+itsanas: make the itsanas worktrees by hand and name them in the prompt.
 
 **2026-10-29, night: the fleet all green, C closed.** Nicolas did the
 VM/Pi rebuild and the host keys (the old items 1 and 2 of the list above,
@@ -2827,6 +2858,47 @@ Detail and measurements are in ROADMAP.md; this is the map.
       reachable, the coordinator at least -- one forward (or one mapping
       opened by UPnP), or a coordinator on a public server.
    v. 🟨 **A relay for two machines that cannot reach each other** (0o's
+      **NEXT (2026-10-30, scouted from the code, line numbers to re-
+      check): `itsanas get` of an absent file reaches the account's
+      machines, a parked one included; `connect_peer` refuses an
+      unpinned `relay:`.** Today `fetch_absent` (crates/itsanas-
+      cli/src/main.rs l.2806-2839, called by `get` at l.2851) dials only
+      `node.config.peers` (l.2813-2820). With no `peer add` entry it
+      answers 'there is no peer to fetch it from', even when the
+      coordinator lists the account's other machines and
+      `<home>/address-book` knows them, including one parked on a relay.
+      That is the case of a laptop away from home with a storage budget.
+      It also calls `connect_peer(.., None)`, which, given a
+      `relay:<id>@<at>` address and no pin, dials the string as a socket
+      and fails (the open point in HANDOVER §0, 2026-10-13 0.1.8).
+      Build: (1) pull `sync`'s target list (main.rs l.4662-4684:
+      configured peers unpinned plus `coordinator::peers` pinned) into
+      `fn peer_targets(node, address) -> Vec<(String,
+      Option<DeviceId>)>`. When the coordinator cannot be reached, it
+      falls back to `Contact::load(&Contact::path(&node.home), owner)`
+      and the book's dialable devices, pinned, with their `relay:`
+      addresses resolved through `Contact::through` into the
+      `relay:<id>@<at>` form. (2) `fetch_absent` and `sync` both use it.
+      (3) `connect_peer` (l.5185-5205): a `relay:` address with `expect
+      == None` returns `NetError::Refused("a relayed address needs the
+      device it reaches")` without dialling, as the daemon's `dial` does
+      (daemon.rs l.2216-2218). (4) Have `peer add` refuse a `relay:`
+      address with the same message. **Tests:** (1) `red_team_an_unpinne
+      d_relay_address_is_refused_not_dialled_as_a_socket` (main.rs
+      tests, l.5207+): `connect_peer("relay:<id>@127.0.0.1:1", ..,
+      None)` returns NetError::Refused. Sabotage: delete the new arm;
+      the error becomes Io or name-resolution and the test turns red.
+      (2) Pure-function tests on the target builder, taking the config
+      peers, the coordinator list (or an error) and a book: with no
+      configured peer and a listed device, it yields `(address,
+      Some(device))`; with the coordinator down, it yields the book's
+      devices pinned; a `relay:` entry whose relay is not in the book is
+      never yielded. Sabotage A: `fetch_absent` keeps reading only
+      `config.peers`; red. Sabotage B: unpinned entries from the book;
+      red on the pin assertion. (3) Optional integration test in
+      crates/itsanas-node/tests or itsanas-cli/tests if a two-node
+      harness already exists: B holds the file, A has only a
+      coordinator, and `get` returns the content.
       phase 3): through a reachable member, data still sealed end to end.
       Asked for by Nicolas on 2026-10-13 without waiting for the fleet: own
       account's machines first, else a reachable host with a low cap, the
