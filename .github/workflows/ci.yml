@@ -113,6 +113,13 @@ jobs:
       # them searched for `25/75` while the files said "costs three pledged".
       - name: Every document states the split the code ships
         run: python scripts/check-bargain.py
+      # The wiki and the Projects board restate which milestone is done and which
+      # acceptance test has passed. A second copy of a status is what drifted
+      # every other time, so the copy is drawn from ROADMAP.md and MVP.md and
+      # this refuses a tree where the two disagree, or where a wiki link points
+      # at a file that is gone, or where a test count is typed by hand.
+      - name: The wiki pages are drawn from the roadmap
+        run: python scripts/check-wiki.py
       # Each session starts cold and reads one block at the top of HANDOVER.md
       # to learn which step is next. That block was prose until 2026-09-14, and
       # the prose said "ten gates, all green" while an eleventh was red. This

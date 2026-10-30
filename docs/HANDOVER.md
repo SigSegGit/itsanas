@@ -11,8 +11,8 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0x
 TITLE: The fleet tested by CI: C passes on the real fleet (run 40941797343); left, the test that proves C's route in cargo -- two accounts on one machine, both pledging, discovery over real sockets, no peer add, the second account's vault/owners/<first uid> holds chunks after a round (sabotage: strangers skipped in dial_order; the host at pledge 0)
-WRITTEN-AT: 2026-10-29
-BASE: 4b5b877
+WRITTEN-AT: 2026-10-30
+BASE: 174b989
 -->
 
 Read this section, then §8. Nothing else is needed to continue. The block
@@ -41,6 +41,40 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
 
    #256 (`feat/mcp-server`) is his own.
+
+3. Publish the wiki (once after the wiki-and-board PR merges, then after any
+   change to ROADMAP.md or MVP.md). If it says it cannot clone, open the
+   Wiki tab, press "Create the first page", save anything, run it again:
+
+       git switch main; git pull; bash scripts/wiki-publish.sh
+
+4. Create / refresh the public Projects board (needs the `project` scope once):
+
+       gh auth refresh -s project
+       bash scripts/project-sync.sh
+
+   Then, in the browser, add a Board view grouped by Status and a Roadmap
+   view: `gh` cannot create views.
+
+**2026-10-30: the wiki and the Projects board exist as files, not yet as
+pages.** The wiki was empty and so was the Projects tab. `docs/wiki/` holds the
+pages (Home, Roadmap, How-it-works, sidebar); every status on them -- the
+milestone map, the table, the A-O acceptance grid, Now / Not started / Deferred,
+the test counts -- sits in a `GENERATED` block drawn from ROADMAP.md and MVP.md
+by `scripts/check-wiki.py`, which CI runs: change a status in the source, run
+`python scripts/check-wiki.py --write`, commit. The board is fed by the same
+parse (`--items` -> `scripts/project-sync.sh`), so wiki, board and roadmap
+cannot disagree. Neither was run against GitHub: a cloud session has no
+credentials for the wiki repository and GraphQL is blocked there, so the
+publish script was proven against a local bare repository and the board script
+against a fake `gh` (create, second run unchanged, a card moved by hand put
+back, an orphan card left alone). **Found while drawing it:** MVP.md section 6
+has no row for tests K, L, M and N, so the grid shows them as "no row yet" (the
+text below the table says C, K and M run in `acceptance-local.sh`); F, G and I
+are marked laboratory-only because section 6 says so. Writing those four rows
+is a better fix than hiding them. **A routine choice:** `.github/workflows/ci.yml`
+needs the `check-wiki.py` step (a session cannot write it; the block is in the
+PR), and `check-ci.py` is red until it is there.
 
 **2026-10-30: two more ARCHITECTURE §7 alerts, `isolated` and
 `unwritable`.** The snapshot header now ends `[ reached T][ unwritable]`,
