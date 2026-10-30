@@ -3246,7 +3246,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
    c. ✅ **A hostile host cannot stall a whole pull with one refused segment.**
       Built 2026-10-01 on `pull_scoped`; on 2026-10-30 also on `drain_vault`,
       `fetch_only`, the catalogue walk (`itsanas get`, the phone's open, a
-      budgeted `keeping::round`), and the refused line names the device
+      budgeted `keeping::round`), and the refused line names the device;
+      after review, a listing that leaves a chain out says so (`ls`), a
+      restore run as a daemon job says its refusals, and this device's own
+      chain is an error, never a refusal
       (ROADMAP "One refused chain no longer stalls a pull" lists what is
       left). Original text follows. Named by 2a (ROADMAP "The integrity surface, by hand", "Not examined or
       not tested here"): one segment that fails any check -- signature,

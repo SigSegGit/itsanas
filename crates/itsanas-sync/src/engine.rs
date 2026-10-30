@@ -130,10 +130,11 @@ impl SyncReport {
         }
     }
 
-    /// Add `other`'s counts to this one.
+    /// Add `other`'s counts to this one, all but the refused chains.
     ///
     /// Destructured field by field so that a counter added later fails to
     /// compile here instead of being dropped when per-chain reports are summed.
+    /// The refused chains are left to [`Self::note_refused`].
     pub fn absorb(&mut self, other: &Self) {
         let Self {
             adopted,
@@ -155,11 +156,11 @@ impl SyncReport {
         self.deferred += deferred;
         self.no_room += no_room;
         self.unrostered_chains += unrostered_chains;
-        self.refused_chains += refused_chains;
-        self.refused_devices.extend(refused_devices);
-        self.refused_devices.sort_unstable();
-        self.refused_devices.dedup();
-        self.refused_devices.truncate(REFUSED_DEVICES_NAMED);
+        // Not summed. The refused chains are a set of devices, set whole by
+        // `note_refused` once a round knows them all: two reports that each
+        // refused the same stranger's chain would add up to two chains, and
+        // the sync line would say "and 1 more" of a device that is not there.
+        let _ = (refused_chains, refused_devices);
     }
 
     /// Count and name the devices whose chain this round refused.
@@ -572,7 +573,9 @@ mod tests {
     }
 
     /// Sabotage: name every refused device -- a host minting one key per
-    /// forgery then sets how long the owner's sync line is.
+    /// forgery then sets how long the owner's sync line is; sum the refused
+    /// counts in `absorb` -- one stranger refused by two reports is said as
+    /// two devices.
     #[test]
     fn a_report_names_the_first_refused_devices_and_counts_them_all() {
         let refused: BTreeSet<DeviceId> = (1..=5u8)
@@ -590,6 +593,19 @@ mod tests {
                 .take(REFUSED_DEVICES_NAMED)
                 .collect::<Vec<_>>(),
             "the report did not name exactly the first refused devices"
+        );
+
+        // Summing reports leaves the refused set to `note_refused`.
+        let mut total = SyncReport::default();
+        let mut one = SyncReport::default();
+        one.note_refused(&refused.iter().copied().take(1).collect());
+        total.absorb(&one);
+        total.absorb(&one);
+        assert_eq!(
+            (total.refused_chains, total.refused_devices.len()),
+            (0, 0),
+            "absorb summed the refused chains: one stranger refused by two reports is \
+             said as two devices on the sync line"
         );
     }
 }

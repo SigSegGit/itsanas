@@ -1452,6 +1452,16 @@ const fn refuses_segment(error: &StoreError) -> bool {
 ///
 /// Errors while *applying* a chain that verified -- a disk, a chunk source --
 /// still end the call, as before: those are not a host's word to refuse.
+///
+/// # Not this device's own chain
+///
+/// Only another device's chain is refused and skipped. This device's own
+/// chain is signed by its own key, so no stranger can put one in its place:
+/// when it fails to open, this disk or this key has gone wrong, and
+/// `catalogue` answers that with an error for the same reason. Refusing it
+/// quietly would name this device as a stranger and tell its owner to wait
+/// for an honest copy of their own work. Under `Replay::OthersOnly` the engine
+/// skips it unread, so it is left out here before being checked.
 fn apply_per_chain(
     store: &Store,
     segments: &[SegmentEnvelope],
@@ -1459,6 +1469,7 @@ fn apply_per_chain(
     refused: &mut BTreeSet<DeviceId>,
     replay: itsanas_sync::Replay,
 ) -> itsanas_sync::Result<SyncReport> {
+    let mine = store.device_id();
     let mut chains: BTreeMap<DeviceId, Vec<SegmentEnvelope>> = BTreeMap::new();
     for envelope in segments {
         chains
@@ -1469,6 +1480,16 @@ fn apply_per_chain(
 
     let mut total = SyncReport::default();
     for (device, chain) in chains {
+        if device == mine {
+            if replay == itsanas_sync::Replay::OthersOnly {
+                continue;
+            }
+            // Strict: the fault is this machine's, and its owner's to see.
+            itsanas_store::validate_chain(&chain)?;
+            for envelope in &chain {
+                store.open_segment(envelope)?;
+            }
+        }
         let verifies = itsanas_store::validate_chain(&chain).is_ok()
             && chain
                 .iter()
@@ -1995,6 +2016,83 @@ mod tests {
         let other = tempfile::tempdir().expect("temp dir");
         let strict = Vault::open(other.path().join("vault")).expect("vault");
         assert!(keep_chain(&strict, chain, Tolerate::Nothing).is_err());
+    }
+
+    /// This device's own chain failing to open is an error, never a refusal.
+    ///
+    /// Signed by this device's own key, so no stranger put it there: it is
+    /// this disk or this key gone wrong. Refused like a stranger's, `itsanas
+    /// get` "succeeded", named this device as the refused one and told its
+    /// owner to wait for an honest copy of their own work. Sabotage: drop the
+    /// strict block for `device == mine` in `apply_per_chain` -- the replay
+    /// then answers `Ok` with this device in `refused`; drop only its
+    /// `OthersOnly` skip -- a pull that never replays this chain fails on it.
+    #[test]
+    fn this_devices_own_chain_failing_to_open_is_an_error_not_a_refusal() {
+        use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
+        use itsanas_store::{LogEntry, Operation, VersionVector};
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let user = UserKeys::derive(&MasterSecret::from_bytes([0xB9; 32]));
+        let owner = user.user_id();
+        let store = Store::open_for_testing(
+            dir.path(),
+            user,
+            DeviceKeys::from_seed(&SecretBytes::new([0xBA; 32])),
+            itsanas_store::ChunkerConfig::default(),
+        )
+        .expect("store");
+        // This device's key, a body sealed under a root that is not the
+        // account's: what a damaged own segment looks like to `open_segment`.
+        let wrong_root = UserKeys::derive(&MasterSecret::from_bytes([0xBB; 32]));
+        let unopenable = SegmentEnvelope::create(
+            wrong_root.oplog_root(),
+            owner,
+            &DeviceKeys::from_seed(&SecretBytes::new([0xBA; 32])),
+            None,
+            vec![LogEntry {
+                sequence: 1,
+                recorded_unix: 0,
+                operation: Operation::Remove {
+                    path: "mine.txt".to_owned(),
+                    version: VersionVector::default(),
+                },
+            }],
+        )
+        .expect("segment");
+        let segments = vec![unopenable];
+
+        let mut refused = BTreeSet::new();
+        let replayed = apply_per_chain(
+            &store,
+            &segments,
+            &itsanas_sync::EmptySource,
+            &mut refused,
+            itsanas_sync::Replay::IncludingOwn,
+        );
+        assert!(
+            replayed.is_err(),
+            "this device's own chain failed to open and the fetch still succeeded: the \
+             owner is told to wait for an honest copy of their own work, not that their \
+             disk or key is failing"
+        );
+        assert!(
+            refused.is_empty(),
+            "this device named itself as a refused stranger: {refused:?}"
+        );
+
+        let pulled = apply_per_chain(
+            &store,
+            &segments,
+            &itsanas_sync::EmptySource,
+            &mut refused,
+            itsanas_sync::Replay::OthersOnly,
+        );
+        assert!(
+            pulled.is_ok() && refused.is_empty(),
+            "a round that never replays this device's own chain failed or refused on it \
+             ({pulled:?}, {refused:?}): every pull would stop on a chain it does not read"
+        );
     }
 
     #[test]

@@ -2675,6 +2675,11 @@ fn list(home: &Path) -> Result<()> {
     // it never fetched, and listing only what is local would tell somebody
     // their files were gone.
     let known = itsanas_store::catalogue(&node.store, &node.vault)?;
+    // Said before the list and before "(no files)", which a chain left out
+    // can make untrue.
+    if let Some(left_out) = describe_left_out(&known) {
+        println!("note: {left_out}");
+    }
 
     if known.files.is_empty() {
         println!("(no files)");
@@ -3240,35 +3245,94 @@ pub(crate) fn deferred_note(pull: &itsanas_sync::SyncReport) -> String {
         (deferred, None) => format!(", {deferred} deferred"),
         (deferred, Some(no_room)) => format!(", {deferred} deferred\n  {no_room}"),
     };
-    if let Some(refused) = describe_refused_chains(pull) {
+    if let Some(refused) = describe_refused_chains(pull, ChainSource::Peer) {
         note.push_str("\n  ");
         note.push_str(&refused);
     }
     note
 }
 
-/// The line a round prints when a peer served a device chain that failed its
-/// checks. The other chains were applied; this one was not, and quietly
-/// leaving it out would read as a finished sync.
-pub(crate) fn describe_refused_chains(pull: &itsanas_sync::SyncReport) -> Option<String> {
-    (pull.refused_chains > 0).then(|| {
-        // Named, so the owner can tell a stranger's key from a sibling of
-        // their own; bounded, because a device key is free and a host can
-        // serve a forgery per key it minted.
-        let mut devices: Vec<String> = pull.refused_devices.iter().map(DeviceId::short).collect();
-        let unnamed = pull.refused_chains.saturating_sub(devices.len());
-        if unnamed > 0 && !devices.is_empty() {
-            devices.push(format!("and {unnamed} more"));
+/// Where a refused chain was met, said on its line.
+///
+/// The forgery came from whoever handed it over, and that is where the owner
+/// goes looking: "from this peer" after a restore sent people hunting for a
+/// misbehaving machine when the segment was on their own backup disk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ChainSource {
+    /// Served by the peer a round pulled from.
+    Peer,
+    /// Pushed into this node's vault by somebody, and met at the drain.
+    Vault,
+    /// Read off a backup disk by `backup restore`.
+    Backup,
+}
+
+impl ChainSource {
+    const fn words(self) -> &'static str {
+        match self {
+            Self::Peer => "from this peer",
+            Self::Vault => "pushed into this vault",
+            Self::Backup => "on the backup",
         }
-        let named = if devices.is_empty() {
-            String::new()
-        } else {
-            format!(" ({})", devices.join(", "))
-        };
+    }
+}
+
+/// ` (ab12cd, ef34gh, and N more)`: the first devices of a set, and a count of
+/// the rest; empty when none is named.
+///
+/// Bounded, because a device key is free and a host can serve a forgery per
+/// key it minted: the owner's line must not grow with them.
+fn name_devices(named: &[DeviceId], total: usize) -> String {
+    let mut devices: Vec<String> = named
+        .iter()
+        .take(itsanas_sync::REFUSED_DEVICES_NAMED)
+        .map(DeviceId::short)
+        .collect();
+    let unnamed = total.saturating_sub(devices.len());
+    if unnamed > 0 && !devices.is_empty() {
+        devices.push(format!("and {unnamed} more"));
+    }
+    if devices.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", devices.join(", "))
+    }
+}
+
+/// The line printed when a device chain failed its checks. The other chains
+/// were applied; this one was not, and quietly leaving it out would read as a
+/// finished sync. Named, so the owner can tell a stranger's key from a
+/// sibling of their own.
+pub(crate) fn describe_refused_chains(
+    pull: &itsanas_sync::SyncReport,
+    source: ChainSource,
+) -> Option<String> {
+    (pull.refused_chains > 0).then(|| {
         format!(
-            "{} device chain(s) from this peer refused{named}: a segment failed its \
-             signature, chain or seal check; those devices' changes wait for an honest copy",
-            pull.refused_chains
+            "{} device chain(s) {} refused{}: a segment failed its signature, chain or \
+             seal check; those devices' changes wait for an honest copy",
+            pull.refused_chains,
+            source.words(),
+            name_devices(&pull.refused_devices, pull.refused_chains)
+        )
+    })
+}
+
+/// The line `itsanas ls` prints when the listing left a device's chain out.
+///
+/// The walk leaves out another device's chain whose segment does not open, so
+/// that one forgery in the vault cannot fail every listing for good. A
+/// genuine sibling's segment damaged on this disk is left out the same way,
+/// and its files and deletes are then missing from the list: said, or the
+/// owner reads a short list as files gone.
+fn describe_left_out(listing: &itsanas_store::catalogue::Catalogue) -> Option<String> {
+    (!listing.left_out.is_empty()).then(|| {
+        format!(
+            "{} device chain(s) left out of this list{}: a segment does not open under this \
+             account's key (a forgery, or a sibling's segment damaged on this disk), so \
+             those devices' files and deletes are not shown",
+            listing.left_out.len(),
+            name_devices(&listing.left_out, listing.left_out.len())
         )
     })
 }
@@ -3384,18 +3448,9 @@ fn backup_command(home: &Path, action: BackupAction) -> Result<()> {
         BackupAction::Restore { dir } => {
             let (moved, report) = backup::restore(&node, &dir)?;
             println!(
-                "read {} segments and {} chunks ({}) from {}; {} file(s) adopted",
-                moved.segments,
-                moved.chunks,
-                format_size(moved.bytes),
-                dir.display(),
-                report.adopted
+                "{}",
+                backup::restore_summary(&moved, &report, &dir.display().to_string())
             );
-            // A backup disk anyone could write to may carry a forged chain;
-            // the rest is restored, and the owner is told what was not.
-            if let Some(refused) = describe_refused_chains(&report) {
-                println!("  {refused}");
-            }
         }
     }
     Ok(())
@@ -5645,6 +5700,80 @@ mod tests {
             named.iter().all(|device| line.contains(&device.short()))
                 && line.contains("and 2 more"),
             "the sync line did not name the first refused devices and count the rest: {line:?}"
+        );
+    }
+
+    /// `backup restore` says the chains it refused, the same whoever runs it.
+    ///
+    /// With a daemon running, a restore is a disk job, and the job's line
+    /// once said only the counts: a restore from a disk carrying a forged
+    /// chain read as done, that device's changes left out without a word.
+    /// And it says where the forgery was -- on the backup -- not "from this
+    /// peer", which sent the owner hunting for a misbehaving machine.
+    /// Sabotage: drop the refused line from `backup::restore_summary`; or
+    /// word it with `ChainSource::Peer`.
+    #[test]
+    fn a_restore_says_the_chains_it_refused_on_the_backup() {
+        let moved = super::backup::Moved {
+            segments: 4,
+            chunks: 9,
+            bytes: 1024,
+        };
+        let clean = itsanas_sync::SyncReport {
+            adopted: 2,
+            ..itsanas_sync::SyncReport::default()
+        };
+        assert_eq!(
+            super::backup::restore_summary(&moved, &clean, "E:\\backup"),
+            "read 4 segments and 9 chunks (1.0 KiB) from E:\\backup; 2 file(s) adopted"
+        );
+
+        let device = DeviceId::from_bytes([0x4E; 32]);
+        let forged = itsanas_sync::SyncReport {
+            adopted: 2,
+            refused_chains: 1,
+            refused_devices: vec![device],
+            ..itsanas_sync::SyncReport::default()
+        };
+        let said = super::backup::restore_summary(&moved, &forged, "E:\\backup");
+        assert!(
+            said.contains("1 device chain(s) on the backup refused")
+                && said.contains(&device.short()),
+            "a restore that refused a forged chain read as done, or did not name it: {said:?}"
+        );
+        assert!(
+            !said.contains("from this peer"),
+            "a restore blamed a peer for a segment on the owner's own backup disk: {said:?}"
+        );
+    }
+
+    /// `itsanas ls` says a device chain it left out, and names the device.
+    ///
+    /// The listing leaves out a chain whose segment does not open, so one
+    /// forgery cannot fail every listing; a sibling's damaged segment is left
+    /// out the same way, and a list that said nothing showed its deleted
+    /// files back and its new ones gone. Sabotage: have `describe_left_out`
+    /// answer `None`, or leave the device names off.
+    #[test]
+    fn a_listing_that_left_a_chain_out_says_so() {
+        let whole = itsanas_store::catalogue::Catalogue {
+            files: Vec::new(),
+            complete: true,
+            left_out: Vec::new(),
+        };
+        assert_eq!(super::describe_left_out(&whole), None);
+
+        let device = DeviceId::from_bytes([0x6C; 32]);
+        let short = itsanas_store::catalogue::Catalogue {
+            files: Vec::new(),
+            complete: false,
+            left_out: vec![device],
+        };
+        let line = super::describe_left_out(&short).unwrap_or_default();
+        assert!(
+            line.contains("1 device chain(s) left out") && line.contains(&device.short()),
+            "a listing that left a device's chain out said nothing, or did not name it: \
+             {line:?}; the owner reads its files as gone"
         );
     }
 

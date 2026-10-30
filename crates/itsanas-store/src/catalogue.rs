@@ -111,7 +111,18 @@ pub struct Catalogue {
     /// listing is then a prefix rather than the whole account, and a caller
     /// showing it to a person should say so — a short list presented as
     /// complete is how somebody concludes their files are gone.
+    ///
+    /// False as well when a chain was left out, see [`Self::left_out`].
     pub complete: bool,
+    /// Other devices whose chain was left out of this listing, in id order,
+    /// because one of its segments does not open under this account's key.
+    ///
+    /// A forgery -- a free device key signing under this account's id, which
+    /// a vault keeps because it checks a signature and not membership -- or a
+    /// sibling's segment damaged on this disk. Leaving the chain out keeps one
+    /// such segment from failing every listing for good; naming it keeps the
+    /// sibling's files, and its deletes, from vanishing without a word.
+    pub left_out: Vec<itsanas_crypto::DeviceId>,
 }
 
 /// Every file this account has, downloaded or not, sorted by path.
@@ -143,7 +154,11 @@ pub fn catalogue(store: &Store, vault: &Vault) -> Result<Catalogue> {
         );
     }
 
-    let (from_log, complete) = walk_vault(store, vault, owner, mine)?;
+    let Walk {
+        latest: from_log,
+        complete,
+        left_out,
+    } = walk_vault(store, vault, owner, mine)?;
     for (path, latest) in from_log {
         // Downloaded already. The vault may hold an older or a newer version;
         // either way this device can open the file, and a content round is what
@@ -185,6 +200,7 @@ pub fn catalogue(store: &Store, vault: &Vault) -> Result<Catalogue> {
     Ok(Catalogue {
         files: out.into_values().collect(),
         complete,
+        left_out,
     })
 }
 
@@ -204,7 +220,7 @@ pub fn catalogue(store: &Store, vault: &Vault) -> Result<Catalogue> {
 pub fn chunks_for(store: &Store, vault: &Vault, path: &str) -> Result<Option<Vec<ChunkId>>> {
     let owner = store.owner();
     let mine = store.device_id();
-    let (from_log, _) = walk_vault(store, vault, owner, mine)?;
+    let from_log = walk_vault(store, vault, owner, mine)?.latest;
 
     let Some(latest) = from_log.get(path) else {
         return Ok(None);
@@ -240,7 +256,7 @@ pub fn chunks_for_all(
 
     let owner = store.owner();
     let mine = store.device_id();
-    let (from_log, _) = walk_vault(store, vault, owner, mine)?;
+    let from_log = walk_vault(store, vault, owner, mine)?.latest;
 
     let mut wanted = BTreeSet::new();
     for path in paths {
@@ -313,9 +329,10 @@ fn walk_vault(
     vault: &Vault,
     owner: UserId,
     mine: itsanas_crypto::DeviceId,
-) -> Result<(BTreeMap<String, Latest>, bool)> {
+) -> Result<Walk> {
     let mut latest: BTreeMap<String, Latest> = BTreeMap::new();
     let mut complete = true;
+    let mut left_out = Vec::new();
 
     for (device, _, _) in vault.heads_for(owner)? {
         if device == mine {
@@ -333,12 +350,17 @@ fn walk_vault(
         // it: a free device key signing under this account id, which any vault
         // keeps because it checks a signature and not membership. That chain is
         // left out whole, as the pull leaves it out, or one forgery fails every
-        // listing and every on-demand open for good. The pull names the device.
+        // listing and every on-demand open for good. Left out *and said*: a
+        // genuine sibling's segment damaged on this disk lands here too, and
+        // its files and deletes must not vanish from a listing calling itself
+        // complete.
         let Ok(bodies) = segments
             .iter()
             .map(|envelope| store.open_segment(envelope))
             .collect::<Result<Vec<_>>>()
         else {
+            complete = false;
+            left_out.push(device);
             continue;
         };
         fold(bodies, &mut latest);
@@ -372,7 +394,22 @@ fn walk_vault(
         record(&mut latest, path, version, file);
     }
 
-    Ok((latest, complete))
+    left_out.sort_unstable();
+    Ok(Walk {
+        latest,
+        complete,
+        left_out,
+    })
+}
+
+/// What one walk of the vault found.
+struct Walk {
+    /// The last word on each path.
+    latest: BTreeMap<String, Latest>,
+    /// Whether every segment was read: see [`Catalogue::complete`].
+    complete: bool,
+    /// Chains left out because a segment does not open: see [`Catalogue::left_out`].
+    left_out: Vec<itsanas_crypto::DeviceId>,
 }
 
 /// Apply a run of opened segments to the running answer.

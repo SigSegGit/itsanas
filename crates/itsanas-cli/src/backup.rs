@@ -64,6 +64,30 @@ pub struct Moved {
     pub bytes: u64,
 }
 
+/// What `backup restore` says when it is done, run in the foreground or
+/// handed to the daemon as a disk job.
+///
+/// One function for both doors. The daemon's job once said only the counts,
+/// so a restore from a disk carrying a forged chain read as done there, with
+/// that device's changes left out and nothing on the job's line -- and with a
+/// daemon running, the job is how every restore runs.
+pub fn restore_summary(moved: &Moved, report: &itsanas_sync::SyncReport, from: &str) -> String {
+    let mut said = format!(
+        "read {} segments and {} chunks ({}) from {from}; {} file(s) adopted",
+        moved.segments,
+        moved.chunks,
+        itsanas_node::config::format_size(moved.bytes),
+        report.adopted
+    );
+    // A backup disk anyone could write to may carry a forged chain; the rest
+    // is restored, and the owner is told what was not.
+    if let Some(refused) = crate::describe_refused_chains(report, crate::ChainSource::Backup) {
+        said.push_str("\n  ");
+        said.push_str(&refused);
+    }
+    said
+}
+
 /// Write this account's cold copy into `dir`, which must be empty or new.
 ///
 /// # Errors
