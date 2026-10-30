@@ -3188,6 +3188,12 @@ fn first_free_port(
         .find(|port| !taken.contains(port) && bindable(*port))
 }
 
+/// Whether a node could listen on every interface at `port` now: the bind
+/// the daemon makes, so on Windows the IPv6 half is asked about too.
+fn port_is_free(port: u16) -> bool {
+    itsanas_net::listen_on(&[SocketAddr::from(([0, 0, 0, 0], port))]).is_ok()
+}
+
 /// Give a new node a port no other node on this machine serves on.
 ///
 /// Two accounts on one machine are two daemons, and every node used to be
@@ -3203,11 +3209,10 @@ fn settle_listen_port(node: &mut Node) -> Result<()> {
         return Ok(());
     }
     let taken = sibling_ports(&node.home);
-    let bindable = |port: u16| std::net::TcpListener::bind(("0.0.0.0", port)).is_ok();
-    if !taken.contains(&current.port()) && bindable(current.port()) {
+    if !taken.contains(&current.port()) && port_is_free(current.port()) {
         return Ok(());
     }
-    match first_free_port(&taken, bindable) {
+    match first_free_port(&taken, port_is_free) {
         Some(port) => {
             let chosen = SocketAddr::new(current.ip(), port);
             node.config.listen = chosen.to_string();
@@ -6684,6 +6689,27 @@ mod tests {
             None,
             "a port nothing can bind was offered as free"
         );
+    }
+
+    // Windows only: elsewhere std's `[::]` is dual-stack, so holding it
+    // already blocks `0.0.0.0`, and a probe of `0.0.0.0` alone passed there
+    // too. Run, it proved nothing it was named for.
+    #[test]
+    #[cfg(windows)]
+    fn red_team_a_port_whose_ipv6_half_is_held_is_not_offered_as_free() {
+        // On Windows a node takes `0.0.0.0` and `[::]` as two sockets. A
+        // probe of `0.0.0.0` alone offered a port another program held over
+        // IPv6, and the node told to move there refused to start again.
+        let Ok(held) = std::net::TcpListener::bind((std::net::Ipv6Addr::UNSPECIFIED, 0)) else {
+            return;
+        };
+        let port = held.local_addr().unwrap().port();
+        assert!(
+            !super::port_is_free(port),
+            "port {port}, held over IPv6 by another program, was offered to a node"
+        );
+        drop(held);
+        assert!(super::port_is_free(port), "a free port was refused");
     }
 
     #[test]

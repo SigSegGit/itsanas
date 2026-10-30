@@ -195,6 +195,11 @@ fn route(
                 port,
                 &["coordinator", &address, "--device", &coordinator.device],
             );
+            // Enrolled before either daemon starts: left to the daemons, the
+            // host could ask about the owner's device before the owner had
+            // enrolled, and then wait for its next standing check -- past
+            // the CI runner's one-minute limit on a loaded run (#343's).
+            run(home, port, &["register"]);
         }
     }
     run(&owner, port, &["pledge", "1G"]);
