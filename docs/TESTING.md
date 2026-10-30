@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-29 — 1410 test functions across 39 binaries, 15 of them
-`#[ignore]`d, plus 2 doctests. 440 are red-team tests.**
+**Last updated: 2026-10-30 — 1415 test functions across 39 binaries, 15 of them
+`#[ignore]`d, plus 2 doctests. 444 are red-team tests.**
 
-**1294 of the 1410 tests have an entry of their own on this page** — an *entry*,
+**1299 of the 1415 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -156,7 +156,7 @@ guarantee and is not one.
 | `itsanas-crypto` unit | 66 (1 `#[ignore]`d) |
 | `itsanas-crypto` property (`tests/properties.rs`) | 15 |
 | `itsanas-wire` unit | 17 |
-| `itsanas-tls` unit | 24 |
+| `itsanas-tls` unit | 25 |
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 227 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
@@ -165,7 +165,7 @@ guarantee and is not one.
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-net` unit | 66 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 61 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 62 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
@@ -179,10 +179,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 230 |
+| `itsanas-cli` unit | 231 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 159 |
+| `itsanas-node` unit | 161 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -212,13 +212,13 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 64 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 55 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 57 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 63 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
-| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 31 |
+| `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 51 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 100 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 101 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -994,7 +994,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (61)
+# `itsanas-net` — two-node tests (62)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -1056,6 +1056,7 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_a_host_that_refuses_everything_is_not_reported_as_nothing_to_send`** | Found by the acceptance bench, whose E, F and G failed on nodes that had pledged nothing while every round said there was nothing to send. The push report counts refusals apart from "already held" and names the reason — `PledgeFull` for the host's `PLEDGE_EXHAUSTED`, which both sides share as one constant. Fails when the count or the reason is dropped. |
 | `a_larger_file_survives_the_wire_byte_for_byte` | Multi-chunk fetch and reassembly. |
 | `a_peer_asking_about_an_unknown_user_gets_an_empty_answer` | No invented chains over the wire either. |
+| **`a_node_on_every_interface_serves_an_ipv6_caller_and_an_ipv4_one`** | A `PeerServer` bound to `0.0.0.0:0` serves a caller dialling `[::1]` and one dialling `127.0.0.1` on the same port (skipped with no IPv6). On Windows those are two sockets; red there before the fix (refused), and sabotaged by accepting from the first socket only: red. |
 | `a_replacement_device_pulls_a_whole_corpus_back_from_a_stranger_in_measured_mode` | The restore test again with `placement = measured`: a stranger the restored account never measured is outside the roster and still takes every chunk that had no proven copy anywhere. |
 
 ---
@@ -1166,7 +1167,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (230)
+# `itsanas-cli` — unit tests (231)
 
 ## `bench` — measuring this machine (4)
 
@@ -1504,7 +1505,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised (49)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised (50)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1524,6 +1525,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`an_age_never_reads_as_fresher_than_it_is`** | With the daemon running, `itsanas status` prints a snapshot rather than refusing, and the header says how old it is. That number decides whether the reader trusts what follows, so every boundary rounds *down* -- towards admitting the snapshot is older. The case that matters is the last one: a daemon that died three days ago must not leave something that reads as current. |
 | **`a_port_another_node_on_this_machine_is_configured_for_is_not_chosen`** | Two accounts on one machine are two daemons. Every node used to be created on 9797, so the second daemon could not bind. The case the kernel cannot see is the one tested: the first account's daemon is stopped, 9797 binds, and handing it out puts two daemons on one port at the next boot. |
 | `a_port_something_already_holds_is_skipped_and_exhaustion_says_so` | A port nothing can bind is never offered, and running out of the hundred-port range returns nothing rather than a port that fails later. |
+| **`red_team_a_port_whose_ipv6_half_is_held_is_not_offered_as_free`** | `port_is_free`, which `init` and the daemon's taken-port message ask, makes the node's own bind (`itsanas_net::listen_on`): a port another program holds over IPv6 is not offered, since on Windows the node takes `[::]` too and would refuse to start there. Red on Windows before the fix; sabotaged (probe of `0.0.0.0` alone): red. |
 | **`the_ports_of_the_other_nodes_beside_this_one_are_found_and_its_own_is_not`** | A sibling node is a directory holding a keystore. A directory without one does not count, and a node's own configuration must not count against it. |
 | **`red_team_a_stopped_node_is_never_reported_as_a_running_one`** | `status` prints the snapshot in two different situations — the daemon is holding the store, or nothing is running and this is what a stopped node last said, possibly last week. One sentence for both would make "this node is running" a claim the command cannot support, and that sentence is what a reader uses to decide whether to trust the numbers under it. |
 | **`red_team_a_running_node_is_reported_with_its_age_and_no_passphrase`** | The other half of `an_age_never_reads_as_fresher_than_it_is`: that one checks the arithmetic, this one checks the arm is reachable at all. `snapshot_status` takes a path and nothing else, so it *cannot* prompt -- the guarantee is structural rather than a promise. A regression here is a node whose health is unreadable without the passphrase. |
@@ -1622,14 +1624,14 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (176)
+# `itsanas-node` — a node on disk (178)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
 Android shell needed exactly the same things: two implementations of the
 passphrase handling is one too many.
 
-## `coordinator` — publishing an address, and whose deletion a host believes (23)
+## `coordinator` — publishing an address, and whose deletion a host believes (25)
 
 Found on a real coordinator, on the Freebox VM, the first time a member
 registered with one: `itsanas register` printed `announced 0.0.0.0:9797`. That
@@ -1642,8 +1644,8 @@ anything.
 | --- | --- |
 | **`red_team_an_address_on_a_virtual_adapter_is_not_published`** | Hand test, 2026-10-22: a laptop with VMware's two host networks, WSL's switch and Tailscale publishes its Wi-Fi address whichever of them the route to the coordinator leaves by (`on_a_real_adapter`, applied to `address_now` and to the published address alike, so the two keep agreeing); a real adapter's address stands, and a machine with only virtual adapters keeps its own. Sabotaged (virtual address kept): red. |
 | **`red_team_an_external_switch_or_a_cgnat_card_keeps_its_routed_address`** | Red team, 2026-10-23: `[("vEthernet (External)", 192.168.1.5), ("Wi-Fi", 10.9.8.7)]` routed by 192.168.1.5 publishes 192.168.1.5 -- a Hyper-V external switch carries the LAN address -- and a 100.64/10 address on a card named "Wi-Fi" is carrier-grade NAT and stays. The routed adapter is judged by its name (`LocalNets::is_virtual`). Sabotaged (judged by address too): red. |
-| **`red_team_a_node_with_an_opened_port_and_ipv6_offers_both_and_every_one_is_dialable`** | A port opened by UPnP or NAT-PMP and a global IPv6 address make one list, both resolvable by a dialler, within the signed presence's 255 bytes (not on Windows); announced from the release after `ANNOUNCE_LISTS` is turned on. Sabotaged (IPv6 not appended): red. |
-| **`red_team_a_home_node_announces_its_global_ipv6_not_its_private_ipv4`** | With no `announce` and no port opened by UPnP, a node behind a home NAT announces its global IPv6 address rather than the private IPv4 only its LAN can dial (not on Windows, whose listener is IPv4 only); a public IPv4 address stays; link-local, unique-local, documentation and loopback addresses are never taken for global. Sabotaged (preference off): red. |
+| **`red_team_a_node_with_an_opened_port_and_ipv6_offers_both_and_every_one_is_dialable`** | A port opened by UPnP or NAT-PMP and a global IPv6 address make one list, both resolvable by a dialler, within the signed presence's 255 bytes, on Windows too since 2026-10-30; announced from the release after `ANNOUNCE_LISTS` is turned on. Sabotaged (IPv6 not appended): red. |
+| **`red_team_a_home_node_announces_its_global_ipv6_not_its_private_ipv4`** | With no `announce` and no port opened by UPnP, a node behind a home NAT announces its global IPv6 address rather than the private IPv4 only its LAN can dial, on Windows too since 2026-10-30; a public IPv4 address stays; link-local, unique-local, documentation and loopback addresses are never taken for global. Sabotaged (preference off): red. |
 | **`red_team_a_coordinator_cannot_make_a_host_drop_an_account_that_never_asked`** | A host frees an account's data only on a deletion the account itself signed, and only for an account it asked about: a forged tombstone (another key's signature over the victim's id) and an unasked one are ignored. Sabotaged (signature not checked): red. |
 | **`red_team_a_refusal_is_no_answer_rather_than_not_enrolled`** | §8 1c (ii), found by the redteam agent: a `Refused` reply to `Standing` (a rate limit, a caller not served) was read as "not enrolled" and ended every fresh confirmation at once. Only a `Standing` reply is about the device; a refusal is no answer. Sabotaged by mapping `Refused` to `Unenrolled`. |
 | **`red_team_an_unpinned_coordinator_is_not_asked_about_other_accounts`** | `pinned` is false without the coordinator's device id configured: unpinned, whoever is on the path answers "live" by echoing the presented claim. That `standing` and the asker consult it is proved in `tests/withdrawals.rs`. |
@@ -1653,10 +1655,12 @@ anything.
 | **`an_address_that_only_its_own_lan_can_dial_is_tried_last`** | The scenario the whole step is for: the laptop is at a friend's house and the coordinator hands it the account's machines, three of them on `192.168.1.x` at home. Dialling those first spends the round's budget and its connection timeouts on addresses that cannot answer — and from a network using the same private range they reach a *stranger's* machine, refused only because the device id is pinned. Addresses reachable from anywhere sort first, by the receiver's own judgement and never by a claim in the presence. |
 | **`the_announced_port_is_not_replaced_by_the_listening_one`** | A port forward exists to map an outside port to a different inside one; `ngas.fr:9801 -> 192.168.1.11:9797` is the normal shape. Substituting the listening port would publish an address the router forwards nothing to, and the failure would read as the peer being offline. |
 | **`a_configured_announce_is_published_instead_of_the_local_address`** | Without it a node behind a router publishes its address on the LAN it is on, which is precisely what no machine in another house can use. |
-| `a_machine_that_moves_still_publishes_where_it_is` | No `announce` is the right configuration for a laptop, and it must still publish something: announcing is also the heartbeat availability is counted from, so a node that stopped would be counted as gone. |
+| `a_machine_that_moves_still_publishes_where_it_is` | No `announce` is the right configuration for a laptop, and it must still publish something: announcing is also the heartbeat availability is counted from, so a node that stopped would be counted as gone. Through `publishable` with no IPv6, since the test machine's own global address would be taken over a private one. |
 | **`red_team_a_presence_its_device_did_not_sign_is_dropped`** | §8 0o phase 2b.1. A coordinator relays presences and does not make them: an address changed after the Pi signed it, and a presence signed by another key with the Pi's id on top, are both dropped and counted, and the genuine one -- dated 1970, as a Pi with no real-time clock dates it -- is kept. The check is who signed, never when. Sabotaged by keeping everything. |
 | **`red_team_a_coordinator_cannot_pass_off_another_accounts_machine_as_yours`** | §8 0o phase 2b.3. The client's check on `ClaimedPeers` (`verified_claimed`): another account's genuine machine, listed under this one, is dropped and counted, and this account's own is kept. Sabotaged by checking only the presence's signature. |
 | **`red_team_a_temporary_ipv6_address_is_replaced_by_the_stable_one_beside_it`** | A deprecated (temporary) IPv6 address is not published when a stable one sits beside it. Sabotaged by ignoring the deprecated flag. |
+| **`red_team_a_rotated_temporary_ipv6_does_not_move_the_announced_address`** | macOS and Windows have no `/proc/net/if_inet6`: `sticky_ipv6` keeps the address announced last while it is still this machine's (a socket binds to it) and global, so the kernel's new temporary address does not republish the machine every day; one the machine dropped, or one that is not global, gives way. Sabotaged (`chosen` returned): red; (still-assigned ignored): red; (global check dropped): red. |
+| **`red_team_what_is_published_with_no_router_port_is_what_the_probe_names`** | With no router port and no relay, the publication takes the global IPv6 address over a private IPv4 one, as the probe (`direct_address`) does; a machine at home with IPv6 had differed from itself every round and republished every round (found when Windows began preferring IPv6). Red before the fix; sabotaged (local address published as it was): red. |
 | **`red_team_what_is_published_is_the_relay_or_the_list_not_only_the_port`** | 0.1.6 published only the router port; what is published is the relay or the list of addresses. Sabotaged by ignoring the relay. |
 | **`red_team_a_machine_rebooted_into_1970_still_dates_its_presence_after_the_last`** | A machine whose clock restarts in 1970 still dates a presence after the last one it signed (`presence.last`). Sabotaged by trusting the clock alone. |
 | `the_private_ranges_a_home_actually_uses_are_all_recognised` | RFC1918, loopback, link-local, carrier-grade NAT (which is what a mobile network and an overlay VPN hand out) and IPv6 unique-local and link-local. Publishing any of them tells members elsewhere to dial a machine inside somebody else's network. |
@@ -2411,7 +2415,7 @@ The five remaining tests cover `Connection`, the generic `Read + Write` wrapper:
 
 ---
 
-# `itsanas-tls` — device authentication and listener limits (29)
+# `itsanas-tls` — device authentication and listener limits (30)
 
 Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
 `reach.rs`, five integration tests in `tests/handshake.rs`.
@@ -2436,8 +2440,9 @@ Six unit tests in `auth.rs`, two in `session.rs`, six in `limits.rs`, seven in
 | `an_ipv4_caller_is_one_caller_however_it_arrives` | A dual-stack listener sees IPv4 callers as `::ffff:a.b.c.d`; they are counted as the IPv4 address, not as a second caller. |
 | `the_overall_cap_holds_across_addresses` | The global cap is a cap. |
 | **`a_closed_connection_gives_its_slot_back_even_after_a_panic`** | A slot that is never returned is a limit that shrinks, one crash at a time, until the listener serves nobody. |
-| **`a_second_listener_cannot_take_a_port_this_one_holds`** | `SO_REUSEADDR` on Windows does not mean what it means on Unix: it lets a *second* process bind a port a first one already holds and take its traffic, and `SO_EXCLUSIVEADDRUSE` — which `TcpListener::bind` sets — is what stops it. A socket built by hand to clear `IPV6_V6ONLY` does not inherit that, and `socket2` 0.6 exposes no safe way to set it. **This test failed the moment it was written**, on the first version of `bind_dual_stack`, which is why Windows now keeps the plain IPv4 listener rather than the dual-stack one. |
-| **`a_node_asked_for_every_interface_is_reachable_over_ipv6_too`** | `listen = 0.0.0.0:9797` is the default and it is IPv4 only, so every IPv6 caller was refused by a node that believed it was accepting from everywhere. IPv6 is the one route between two houses that needs no port forward and costs nothing per machine, so an IPv4-only listener cannot use the cheapest path there is. A wildcard bind takes a dual-stack socket; on a machine with no IPv6 the test asserts the fallback instead, because refusing to start there would be a regression in exchange for a reachability that machine cannot have. |
+| **`a_second_listener_cannot_take_a_port_this_one_holds`** | `SO_REUSEADDR` on Windows does not mean what it means on Unix: set on the node's own socket, it lets a *second* process bind the port and take its traffic. `TcpListener::bind` does not set it there, and the dual-stack socket built by hand does. **This test failed the moment it was written**, on the first version of `bind_dual_stack`, which is why Windows takes two plain std sockets instead (`listen_on`). |
+| **`red_team_a_second_listener_cannot_take_the_ipv6_port_this_one_holds`** | The same for the IPv6 half Windows binds as a socket of its own: while a node holds `0.0.0.0:p`, neither a plain bind of `[::]:p`, nor one asking for `SO_REUSEADDR`, nor a second node can take it. Red before the fix (Windows had no IPv6 half, so `[::]:p` was anybody's). Sabotaged on Windows: no IPv6 half, red; the IPv6 half built with `socket2` and `SO_REUSEADDR`, red (the `SO_REUSEADDR` bind gets in). |
+| **`a_node_asked_for_every_interface_is_reachable_over_ipv6_too`** | `listen = 0.0.0.0:9797` is the default and it is IPv4 only, so every IPv6 caller was refused by a node that believed it was accepting from everywhere. IPv6 is the one route between two houses that needs no port forward and costs nothing per machine, so an IPv4-only listener cannot use the cheapest path there is. A wildcard bind takes a dual-stack socket, or on Windows since 2026-10-30 `0.0.0.0` and `[::]` on one port, and both `[::1]` and `127.0.0.1` connect; on a machine with no IPv6 the test asserts the fallback instead, because refusing to start there would be a regression in exchange for a reachability that machine cannot have. Red on Windows before the fix (its `cfg!(windows)` exemption removed); sabotaged by keeping the IPv4-only listener there: red. |
 | **`an_address_that_does_not_answer_does_not_hide_the_one_that_does`** | A dual-stack name resolves to an AAAA record *and* an A record, and plenty of networks drop IPv6. Connecting to only the first resolved address turned "one of two routes is shut" into "the peer is down". Fails when the dialler stops at the first address. |
 | `an_address_that_names_one_interface_is_not_widened_to_all_of_them` | The dual-stack substitution happens only where the configuration said "anywhere". Widening `127.0.0.1` would put a node meant to be private on every interface of the machine. |
 | `nothing_answering_anywhere_is_still_an_error` | Trying several addresses must still fail when none answers, rather than returning the last error as success or hanging on an empty list. |

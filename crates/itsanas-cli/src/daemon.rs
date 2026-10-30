@@ -2433,9 +2433,8 @@ fn bind_listener(node: &Node, address: &str) -> Result<PeerServer> {
                 std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied
             ) =>
         {
-            let free = crate::first_free_port(&crate::sibling_ports(&node.home), |port| {
-                std::net::TcpListener::bind(("0.0.0.0", port)).is_ok()
-            });
+            let free =
+                crate::first_free_port(&crate::sibling_ports(&node.home), crate::port_is_free);
             Err(CliError::Usage(taken_port_message(address, &error, free)))
         }
         Err(other) => Err(other.into()),

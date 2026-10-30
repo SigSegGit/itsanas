@@ -31,7 +31,7 @@ pub mod service;
 pub mod session;
 pub mod transport;
 /// Framing, re-exported so callers of this crate need not name a second one.
-pub use itsanas_tls::reach::AddressList;
+pub use itsanas_tls::reach::{AddressList, listen_on};
 pub use itsanas_wire as wire;
 
 pub use error::{NetError, Result};

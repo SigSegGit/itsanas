@@ -2703,13 +2703,38 @@ Detail and measurements are in ROADMAP.md; this is the map.
       peer older than that release could not dial a list; ✅ **on since
       0.1.7** (#269, `ANNOUNCE_LISTS = true` in `itsanas-node`
       `coordinator.rs`). This line still said "next: turn it on" until
-      2026-10-24. **Left:** Windows over IPv6 (below), and PCP or hole
-      punching only if the fleet shows the rest falls short. Red team
+      2026-10-24. ✅ 2026-10-30, Windows over IPv6: `listen_on` binds
+      `0.0.0.0:p` and `[::]:p` as two plain std sockets (std leaves
+      `IPV6_V6ONLY` on, so they do not clash, and neither gets
+      `SO_REUSEADDR`), served through one `reach::Listeners` by
+      `PeerServer` and `CoordServer`; `with_global_ipv6` and
+      `prefer_global_ipv6` lost their `cfg!(not(windows))`. A port whose
+      IPv6 half another program holds is an error, never a quiet
+      IPv4-only node, and `port_is_free` (`init`, the daemon's
+      taken-port message) asks the same bind. Proved on Windows by
+      `a_node_asked_for_every_interface_is_reachable_over_ipv6_too`,
+      `red_team_a_second_listener_cannot_take_the_ipv6_port_this_one_holds`,
+      `a_node_on_every_interface_serves_an_ipv6_caller_and_an_ipv4_one`
+      and `red_team_a_port_whose_ipv6_half_is_held_is_not_offered_as_free`.
+      The address announced survives a temporary-address rotation where
+      `/proc/net/if_inet6` is missing (macOS, Windows): `sticky_ipv6` keeps
+      the last one while a socket still binds to it and it is global
+      (`red_team_a_rotated_temporary_ipv6_does_not_move_the_announced_address`).
+      Asked by binding, because `if_addrs` lists only preferred addresses
+      on Windows and a rotated one is deprecated. With no router port the
+      publication now takes the global IPv6 over a private IPv4 as the
+      probe does (`red_team_what_is_published_with_no_router_port_is_what_the_probe_names`);
+      they had disagreed on any machine at home with IPv6. **Left:** not
+      yet seen on the laptop from another house (needs a release); on
+      Windows a program that binds `127.0.0.1:p` with `SO_REUSEADDR`
+      can still bind beside the wildcard sockets (measured 2026-10-30, as
+      before this change; only `SO_EXCLUSIVEADDRUSE` stops it, which
+      needs `unsafe`); PCP or hole punching only if the fleet shows the
+      rest falls short. Red team
       on the diff: the probe refused lists, lists sorted as public, NAT-PMP
       overclaimed LAN anti-spoofing, the granted lease ignored, a double-NAT
       mapping left open: all fixed. PCP and hole punching (QUIC) only if the fleet
-      shows these fall short. Windows over
-      IPv6 needs `SO_EXCLUSIVEADDRUSE` on a hand-built socket (`reach.rs`).
+      shows these fall short.
       Asked for by Nicolas on 2026-10-06 ("make the redirection unnecessary").
       A home node asks its box to open its port and announces what it got;
       a node with a global IPv6 address announces it too. Not planned in

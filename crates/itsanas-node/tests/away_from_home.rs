@@ -104,8 +104,15 @@ fn a_member_elsewhere_is_given_the_address_that_can_answer_first() {
         let phrase = phrase.expect("the first node returns the account phrase");
 
         // A second machine at home with no forward: it publishes where it is,
-        // which is only meaningful on the LAN it is on.
-        let (at_home, _) = member(&homes.path().join("vm"), address, None, Some(&phrase));
+        // which is only meaningful on the LAN it is on. Named, because left
+        // to find it, a test machine with a global IPv6 address publishes
+        // that instead.
+        let (at_home, _) = member(
+            &homes.path().join("vm"),
+            address,
+            Some("192.168.1.20:9797"),
+            Some(&phrase),
+        );
 
         // The laptop, elsewhere. It asks for its own account's machines.
         let (laptop, _) = member(&homes.path().join("laptop"), address, None, Some(&phrase));
@@ -192,7 +199,16 @@ fn a_contact_publishes_and_reads_on_one_connection_and_the_probe_agrees() {
 
         let listen = "0.0.0.0:9797";
         let probe = coordinator::address_now(&laptop.config, listen);
-        assert_eq!(probe.as_deref(), Some("127.0.0.1:9797"));
+        // Loopback, or this machine's global IPv6 address where it has one
+        // (`prefer_global_ipv6`): a runner has none, a machine at home does.
+        let probed: std::net::SocketAddr = probe
+            .as_deref()
+            .and_then(|probe| probe.parse().ok())
+            .expect("the probe names an address");
+        assert!(
+            probed.port() == 9797 && (probed.ip().is_loopback() || probed.is_ipv6()),
+            "the probe named {probed}, which is not where this machine listens"
+        );
 
         let contacted = coordinator::contact(
             &laptop,

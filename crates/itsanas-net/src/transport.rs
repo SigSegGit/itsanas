@@ -37,7 +37,7 @@
 
 use std::{
     io::{Read, Write},
-    net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
+    net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -50,7 +50,7 @@ use itsanas_store::SegmentEnvelope;
 use itsanas_tls::{
     Authenticated, Identity, Socket,
     limits::{ConnectionLimits, Slot},
-    reach::{connect_to_one_of, listen_on},
+    reach::{Listeners, connect_to_one_of, listen_on},
 };
 use itsanas_wire::Connection;
 
@@ -198,7 +198,7 @@ impl Witness {
 /// Accepts peer connections and answers them from a [`PeerService`].
 #[derive(Debug)]
 pub struct PeerServer {
-    listener: TcpListener,
+    listener: Listeners,
     config: Arc<rustls_config::Server>,
     handshake_deadline: Duration,
     witness: Arc<Witness>,
