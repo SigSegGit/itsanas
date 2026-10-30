@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-30 — 1420 test functions across 40 binaries, 18 of them
-`#[ignore]`d, plus 2 doctests. 449 are red-team tests.**
+**Last updated: 2026-10-30 — 1428 test functions across 40 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 457 are red-team tests.**
 
-**1304 of the 1420 tests have an entry of their own on this page** — an *entry*,
+**1312 of the 1428 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,16 +179,16 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 234 |
+| `itsanas-cli` unit | 238 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 161 |
+| `itsanas-node` unit | 163 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
 | `itsanas-node` withdrawals (`tests/withdrawals.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
-| `itsanas-cli` steering (`tests/steering.rs`) | 10 (10 `#[ignore]`d) |
+| `itsanas-cli` steering (`tests/steering.rs`) | 12 (12 `#[ignore]`d) |
 | `itsanas-cli` route (`tests/route.rs`) | 3 (3 `#[ignore]`d) |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-release` release (`tests/release.rs`) | 14 |
@@ -214,12 +214,12 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 64 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 55 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 68 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 70 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 31 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 51 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 104 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 110 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1159,13 +1159,13 @@ derivations; the release job runs them on Linux (about 7 s for the three).
 
 | Test | What it proves |
 | --- | --- |
-| **`red_team_another_account_found_by_discovery_alone_hosts_the_chunks`** | No `peer add`: after a few five-second rounds the second account's vault holds chunks of the first. Sabotaged: strangers skipped in `dial_order`'s loop (red, with the two below). **Not tested:** the host no longer printing "could not take on hosting" every round between accounts (`NOT_YOUR_ACCOUNT` is now silent there): it shows only after the host has dialled the owner for half a minute or more, and a check waiting for it inside the patience stayed green with the silencing removed. |
+| **`red_team_another_account_found_by_discovery_alone_hosts_the_chunks`** | No `peer add`: after a few five-second rounds the second account's vault holds chunks of the first, and the owner's snapshot header carries `reached T`: a stranger found on the LAN that kept its chunks is a contact for `isolated`. Sabotaged: strangers skipped in `dial_order`'s loop (red, with the two below); the LAN loop of `one_round` counting nobody as a contact (red, under WSL). **Not tested:** the host no longer printing "could not take on hosting" every round between accounts (`NOT_YOUR_ACCOUNT` is now silent there): it shows only after the host has dialled the owner for half a minute or more, and a check waiting for it inside the patience stayed green with the silencing removed. |
 | **`red_team_a_host_without_a_coordinator_is_said_to_wait_for_one_not_to_reject_segments`** | Without a coordinator the host stores nothing, and the owner's log says the host waits for its coordinator to confirm the device -- not "a segment that does not verify", which it said before. Sabotaged (the `UNCONFIRMED` arm dropped in `Offer::from_response`): red. |
-| **`red_team_a_host_that_pledges_nothing_hosts_nothing_and_says_so`** | A host at pledge 0, confirmed and found, stores nothing, and the owner's log says its pledge is full or zero: the fleet's C row was SKIP six nights over exactly this. |
+| **`red_team_a_host_that_pledges_nothing_hosts_nothing_and_says_so`** | A host at pledge 0, confirmed and found, stores nothing, and the owner's log says its pledge is full or zero: the fleet's C row was SKIP six nights over exactly this. And that stranger, which answered and kept nothing, is no contact: the owner's header, read once a snapshot postdates the refusal, still says `reached never since` (the review of #345: a café LAN kept a cut-off laptop green). Sabotaged under WSL (every machine that answered counts): red. |
 
 ---
 
-# `itsanas-cli` — the daemon loop, driven (10, `#[ignore]`d)
+# `itsanas-cli` — the daemon loop, driven (12, `#[ignore]`d)
 
 `tests/steering.rs`. The only tests that run `sync_loop`: each starts the real
 daemon on a throwaway node and reads the snapshot it writes every time round
@@ -1187,11 +1187,13 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 | `disk_jobs_go_through_the_running_daemon_which_carries_on_after_them` | A real daemon, `itsanas backup export`, `backup restore` and `vault NEW --move` while it runs: each writes `<home>/job`, the daemon runs it between rounds (move: closes the node, then restarts on the new vault), writes `job-result`, the CLI reads it and no passphrase is asked; afterwards the daemon still syncs. Sabotaged. |
 | **`red_team_a_portable_copy_keeps_its_home_on_the_drive_and_hosts_nobody`** | `itsanas portable DIR` writes `DIR/ITSaNAS/` with the program, a launcher passing `--home` next to itself, and `home/portable`; the daemon started from it keeps every file of its home on the drive and hosts nobody (client only). Sabotaged. |
 | **`red_team_a_daemon_asked_to_restart_or_stop_exits_with_the_code_that_says_so`** | A real daemon given `restart` in `<home>/lifecycle` exits 75 (the code Windows wrapper loop, systemd `Restart=on-failure` and launchd `SuccessfulExit=false` all start again), given `stop` exits 0 (none does), and the file is removed so the request acts once. From the 2026-10-22 hand test, where `update` said "restarted" and three daemons stayed on 0.1.8. |
+| **`red_team_a_round_that_reaches_the_account_stamps_the_contact`** | The wiring of `isolated` in the real `sync_loop`, which every unit test builds by hand (the review of #345: deleting the stamp left them all green and the alert dead). A daemon whose configured peer, a second device of the account, answers its round writes `reached T` on its header, T no earlier than its start; the peer, only dialled into, writes `reached never since T` -- an inbound connection is no contact. Sabotaged under WSL (the stamp dropped; stamped every round): red, both. |
+| **`red_team_a_running_daemon_says_when_its_vault_takes_no_write`** | Unix only (mode 0o555; skipped as root). The wiring of `unwritable`: a node pledging 100M whose vault root is made read-only after `init` and one `status` (its database file and the account's directories exist, so the daemon starts and its own `status` runs) has ` unwritable` on its header after the first round and `CANNOT KEEP    the vault at` in the snapshot `status` prints. Sabotaged under WSL (the `probe_vault` call dropped from `sync_loop`): red. |
 | **`red_team_a_vault_whose_marker_goes_away_is_left_alone_until_it_returns`** | The unplug test that also runs on Windows: the vault's marker goes away under a running daemon, nothing is written on the bare place, the daemon does not exit, and it resumes when the marker returns. A real disk pulled mid-write remains the manual 8.0c test. Sabotaged. |
 
 ---
 
-# `itsanas-cli` — unit tests (234)
+# `itsanas-cli` — unit tests (238)
 
 ## `bench` — measuring this machine (4)
 
@@ -1492,7 +1494,7 @@ requests are tested on the bytes a router sends.
 | **`red_team_only_a_granting_answer_opens_a_port_or_names_an_address`** | Only a NAT-PMP answer of the right opcode, result 0, for this port and with a lifetime counts; a refusal, a truncated answer, a UDP mapping's answer, another port's or a deletion never makes the node announce an address nobody can dial; the router's external port is the one announced. Sabotaged (result code ignored): red. |
 | **`red_team_an_answer_from_another_machine_on_the_lan_is_ignored`** | An answer from any address but the gateway's port 5351 is not read, so another machine on the LAN cannot choose the address this node announces. Sabotaged (source not checked): red. |
 | `the_gateway_is_read_from_the_routing_table_or_guessed_on_the_lan` | The default route of `/proc/net/route` (little-endian hex), else the `.1` and `.254` of the local `/24`; a mapping is renewed at half the lease the router granted, never sooner than a minute. |
-## `safety` — whether the account's files are elsewhere yet, as the icon reads it (3)
+## `safety` — whether the account's files are elsewhere yet, as the icon reads it (5)
 
 MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`, and `status --brief` says `exposed` from it.
 
@@ -1501,14 +1503,18 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | `the_count_reads_back_as_written_and_a_header_without_one_has_none` | `copies 0 of 2`, `copies 1 of 2 since T` and `copies 3 of 2` read back as written after the version; a header from 0.1.12 (no count) and a malformed count read as none. |
 | **`red_team_a_node_never_safe_is_exposed_from_its_first_round`** | A node whose files are on its disk only is exposed from its **first** round, and still on its second: no grace for a node that was never safe, which is the person who installs it, drops files in and leaves. Nothing stored is no question. Sabotaged (a grace from a missing previous header; a new `since` every round): red. |
 | **`red_team_a_save_on_a_safe_account_is_unsaid_for_the_grace_and_said_after`** | Safe, then a save: `since` is set and the shortfall is unsaid for `GRACE_INTERVALS` (2) rounds, keeps its age across rounds, is said after, and clears when the copies are back. Sabotaged (a new `since` each round): red. |
+| **`red_team_a_node_that_never_reached_anybody_turns_isolated`** | The review of #345: a node with nothing stored (no `copies`, never `exposed`) that no round ever reached anybody from -- a Mac with an empty folder behind a firewall, or a header from before `reached` -- read green for good. `reached_words` writes `reached never since T` on the first snapshot with no contact, keeps T at the next, and `isolated_for` ages it: `isolated` at six hours; a contact then replaces it with `reached T`. Sabotaged (the wait restarted at every snapshot; `isolated_for` reading only `reached T`): red, both. |
+| **`red_team_a_contact_dated_in_the_future_is_not_kept`** | The review of #345: the larger value wins at every write, so a `reached` stamped with a clock a day ahead (a resumed VM, a dead RTC) stayed for good and the machine read healthy cut off that whole day. A contact later than now, carried or this process's own, and a wait dated later, are dropped; a real past contact is kept. Sabotaged (no filter): red. |
 
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start, the last contact carried and the vault's write probe (19)
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start, the last contact carried and the vault's write probe (21)
 
 | Test | What it proves |
 | --- | --- |
 | **`red_team_the_snapshot_a_lone_node_writes_turns_its_icon_from_green`** | Through the daemon's own `write_snapshot`: a real node with one file and no peer writes `version <v> copies 0 of 2`, `brief_status` then reads `exposed … 0 2`, a second round grants no grace, and the version is still where the fleet agent reads it. Sabotaged (the header without the copies): red. |
-| **`red_team_the_last_contact_outlives_a_round_and_a_restart_that_reached_nobody`** | Through `write_snapshot`: a header left by an earlier run with `reached T` a day old keeps T while this process has reached nobody yet, so a restart neither forgets a day of silence nor starts it again; a round that reached a machine stamps now, and the next one that reached nobody keeps it. Sabotaged (now stamped every round; only this process's own contact): red, both. |
-| **`red_team_a_vault_the_probe_could_not_write_reaches_the_icon_and_status`** | A failed write probe, through `write_snapshot`: the header carries ` unwritable`, `brief_status` reads `unwritable ...`, and the text `status` prints says `cannot be written (why)`. Sabotaged (the header without ` unwritable`; the `unwritable` arm dropped): red, both. |
+| **`red_team_the_last_contact_outlives_a_round_and_a_restart_that_reached_nobody`** | Through `write_snapshot`: a header left by an earlier run with `reached T` a day old keeps T while this process has reached nobody yet, so a restart neither forgets a day of silence nor starts it again; a round that reached a machine stamps now, and the next one that reached nobody keeps it. Sabotaged (now stamped every round; only this process's own contact): red, both. It builds `Seen` by hand: that `sync_loop` stamps it is `red_team_a_round_that_reaches_the_account_stamps_the_contact` (steering). |
+| **`red_team_a_vault_the_probe_could_not_write_reaches_the_icon_and_status`** | A failed write probe, through `write_snapshot`: the header carries ` unwritable`, `brief_status` reads `unwritable ...`, and the text `status` prints says `cannot be written (why)`. Sabotaged (the header without ` unwritable`; the `unwritable` arm dropped): red, both. It sets `Seen.unwritable` by hand: the probe is the row below, its call from `sync_loop` `red_team_a_running_daemon_says_when_its_vault_takes_no_write` (steering). |
+| **`red_team_the_round_probe_says_unwritable_while_the_vault_refuses_and_stops_after`** | `probe_vault`, which `sync_loop` calls once a round: a writable vault leaves `unwritable` unset, a vault path that is a plain file sets it, a node pledging nothing or away from its vault's disk is not probed, and a vault that takes writes again clears it -- else the icon stays orange for good. Runs on Windows. Sabotaged (never set; never cleared; a pledge of 0 probed; an away node probed): red, all four. |
+| **`red_team_a_stranger_that_only_answered_is_no_contact`** | The review of #345: every machine a round completed with stamped the contact, rationed LAN strangers included, whose identity costs nothing -- a laptop on a café LAN read green all week with nothing of its account synced. `counts_as_contact`: the account's own machine (beacon tag), a host confirmed before, or one that earned trust this round; not a stranger that only authenticated. Configured peers and the coordinator's listed machines count as they are. Sabotaged (every machine counts): red. Its use in `one_round`'s LAN loop is the two `tests/route.rs` rows on the contact. |
 | **`red_team_an_idle_daemon_writes_its_snapshot_a_few_times_a_round_not_every_pass`** | The idle bench read with inotify, 2026-10-27: `status.snapshot` was rewritten at every pass of the loop, every two seconds whatever the interval -- 43200 a day, 150 a five-minute round at some 4 KB of journal each, and the whole status counted again each time (164 KB a round at a one-minute round). A day of two-second passes through `snapshot_due`: written after every round (off the half-minute grid), at once when the interval changes, at most every `SNAPSHOT_EVERY` (30 s) otherwise, and never longer than that or a round. 164 to 50 KB a round at a one-minute round on the bench. Sabotaged (a round is no news; the interval change ignored; no shorter wait at a short round; written at every pass): red each. The wiring in `sync_loop` is `red_team_an_idle_daemon_leaves_its_snapshot_alone_between_rounds`'s. |
 | **`red_team_a_relay_that_closes_the_park_is_passed_over_for_the_next`** | `park_loop` over a scripted `ParkSite`: a relay that closed the park is skipped for the next one rather than redialled at every look. Sabotage: no `failed.insert` (red). |
 | **`red_team_a_daemon_enrols_at_its_bound_address_with_the_coordinator_it_uses`** | Red team, 2026-10-23: a key enrolling at its first daemon start ran `register_and_announce`, which announced the configured `listen` beside the rounds' publication of the bound one. `enrol_at_daemon_start` hands the enrolment the bound address (`enrol_once` registers with `register_only`, then announces it); the `registered` marker names the coordinator, and a marker naming another one than the configured coordinator is dropped, so the node enrols there once; the same one never enrols again. Sabotaged (the configured `listen` passed; the stale marker kept): red both. |
@@ -1651,7 +1657,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (178)
+# `itsanas-node` — a node on disk (180)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1833,7 +1839,7 @@ to the peer, each turns the matching test red.
 | **`releasing_content_withdraws_this_device_from_the_peers_ledger`** | A device that lets go of content and does not say so becomes a liar, and the lie inflates the one number somebody consults before believing their data is safe. The audit would find it eventually: sixteen chunks per peer per round, which on a million-chunk account is most of a year. |
 | `a_machine_with_room_takes_the_ordinary_path` | A laptop chooses nothing and takes the whole account, exactly as before the selective path existed. |
 
-## `pledges` — what the other nodes on this disk promised, and whether its vault still takes a write (7)
+## `pledges` — what the other nodes on this disk promised, and whether its vault still takes a write (9)
 
 `src/pledges.rs`. Two accounts on the Freebox VM each pledged 30 GB on a disk
 that could not hold 60 (ROADMAP, "Pledges are not reserved"). Each red-team
@@ -1846,8 +1852,10 @@ not read, the pledge kept whatever the free space.
 | **`red_team_a_sibling_promise_on_the_same_disk_is_counted`** | A second home on the same disk sees the first one's pledge, so `itsanas pledge` refuses to promise the same free space twice. |
 | **`red_team_a_shared_entry_from_another_container_is_counted_and_a_stale_one_named`** | A Docker client sees a neighbour container's promise through `ITSANAS_PLEDGES_DIR`; an entry not updated for seven days is not counted and is named, so a removed container neither holds the disk for ever nor vanishes unsaid. |
 | **`red_team_a_disk_that_filled_up_stops_taking_chunks_before_the_last_byte`** | When the disk can no longer hold the pledge, the host takes no more chunks than free space minus a 256 MiB reserve, and `status` says CANNOT KEEP. |
-| **`red_team_a_vault_that_takes_no_write_fails_the_probe`** | (Unix) `pledges::probe_write` writes, flushes and removes a file: a writable vault passes and keeps nothing; one at mode 0o555 fails, as a disk remounted read-only does while its free space says nothing is wrong. Skipped as root, which writes through 0o555. Sabotaged (Ok without writing): red, under WSL. |
+| **`red_team_a_vault_that_takes_no_write_fails_the_probe`** | (Unix) `pledges::probe_write` writes, flushes and removes a file: a writable vault passes and keeps nothing; one at mode 0o555 fails, as a disk remounted read-only does while its free space says nothing is wrong. Skipped as root, which writes through 0o555. Sabotaged (Ok without writing): red, under WSL. Refused at the `open`, like the row below: past the `open` is the `/dev/full` row. |
 | `a_vault_path_that_is_no_directory_fails_the_probe` | The probe on every platform: a vault path that is a plain file fails it. Red on Windows against the first stub, which wrote nothing. |
+| **`red_team_a_vault_that_opens_the_file_and_refuses_what_follows_fails_the_probe`** | (Linux) The full quota the probe's doc names: `.write-probe` is `/dev/full`, which takes the `open` and fails the write with ENOSPC, and the flush too, so the probe fails -- the two tests above would pass a probe that only opened. Sabotaged under WSL (`write_all` and `sync_all` dropped): red. Either dropped alone stays green, `/dev/full` refusing both: which step catches a real full disk is not tested apart. |
+| **`red_team_a_probe_whose_file_could_not_be_removed_still_passes`** | The review of #345: the write went through and only the removal was refused -- on Windows an indexer or OneDrive holding the file open as it closes -- and the vault read CANNOT KEEP while it kept every chunk. A refused removal now passes; the next probe truncates the file. Sabotaged (the removal's error returned): red. |
 | `its_own_entries_are_not_counted_against_itself` | A node's own published promise is never counted against it. |
 
 ## `config` — settings (29)

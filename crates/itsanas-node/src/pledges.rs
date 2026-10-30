@@ -267,15 +267,28 @@ pub const PROBE_FILE: &str = ".write-probe";
 ///
 /// # Errors
 ///
-/// Whatever the disk said when it refused.
+/// Whatever the disk said when it refused the file, its bytes or the flush.
+/// Not a refused removal: the disk took the write by then, and on Windows an
+/// indexer, a backup agent or `OneDrive` opening the file as it closes makes
+/// `DeleteFile` fail with a sharing violation -- a vault that keeps every
+/// chunk would read CANNOT KEEP. The next probe truncates what is left.
 pub fn probe_write(vault: &Path) -> std::io::Result<()> {
+    probe_write_then(vault, |path| std::fs::remove_file(path))
+}
+
+/// [`probe_write`], removing the file with `remove`, so a test can refuse it.
+fn probe_write_then(
+    vault: &Path,
+    remove: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
     use std::io::Write as _;
     let path = vault.join(PROBE_FILE);
     let mut file = std::fs::File::create(&path)?;
     file.write_all(b"itsanas")?;
     file.sync_all()?;
     drop(file);
-    std::fs::remove_file(&path)
+    let _ = remove(&path);
+    Ok(())
 }
 
 /// The others, one line each, for a refusal.
@@ -426,6 +439,42 @@ mod tests {
             refused.is_err(),
             "a vault that takes no write passed the probe: its host goes on promising room \
              every push to it fails on"
+        );
+    }
+
+    /// A disk that opens the file and refuses what follows: the full quota
+    /// the doc comment names, here `/dev/full` behind the probe's own name,
+    /// which takes the `open` and fails the write with ENOSPC (and the flush
+    /// too). The two tests around this one are refused at the `open`, and
+    /// would pass a probe that only opened. Sabotage: drop `write_all` and
+    /// `sync_all`. Dropping one alone stays green -- `/dev/full` refuses
+    /// both -- so which step catches a real full disk is not tested apart.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn red_team_a_vault_that_opens_the_file_and_refuses_what_follows_fails_the_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink("/dev/full", dir.path().join(PROBE_FILE)).unwrap();
+        assert!(
+            probe_write(dir.path()).is_err(),
+            "a vault that opens the file and takes none of its bytes passed the probe: a \
+             host whose quota is full goes on promising room"
+        );
+    }
+
+    /// The write went through and only the removal was refused: on Windows,
+    /// an indexer or `OneDrive` holding the file open as it closes. That
+    /// vault keeps every chunk sent to it and must not read CANNOT KEEP.
+    /// Sabotage: return the removal's error.
+    #[test]
+    fn red_team_a_probe_whose_file_could_not_be_removed_still_passes() {
+        let dir = tempfile::tempdir().unwrap();
+        let refused = probe_write_then(dir.path(), |_| {
+            Err(std::io::Error::other("sharing violation (os error 32)"))
+        });
+        assert!(
+            refused.is_ok(),
+            "a vault that took the write read unwritable because its probe file stayed open \
+             elsewhere: {refused:?}"
         );
     }
 

@@ -195,6 +195,160 @@ fn still_holds(home: &Path, daemon: &Daemon, files: u64, why: &str) {
     assert_eq!(held, files, "{why}\n--- daemon log\n{}", daemon.log());
 }
 
+/// A second device of the account `init` printed the 24 words of, restored
+/// from them as a numbered grid, which `login` reads as it is.
+fn second_device(base: &Path, printed: &str) -> PathBuf {
+    let grid: String = printed
+        .lines()
+        .filter(|line| {
+            line.split_whitespace().next().is_some_and(|first| {
+                first
+                    .strip_suffix('.')
+                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let phrase = base.join("phrase.txt");
+    std::fs::write(&phrase, &grid).expect("phrase file");
+    let other = base.join("b-home");
+    run(
+        &other,
+        &[
+            "login",
+            "--username",
+            "steering",
+            "--phrase-file",
+            phrase.to_str().expect("utf-8 path"),
+        ],
+    );
+    other
+}
+
+/// Wait until the snapshot's first line satisfies `wanted`, and return it.
+fn wait_for_header(
+    home: &Path,
+    daemon: &Daemon,
+    what: &str,
+    wanted: impl Fn(&str) -> bool,
+) -> String {
+    let deadline = Instant::now() + PATIENCE;
+    let mut last = String::new();
+    while Instant::now() < deadline {
+        let text = std::fs::read_to_string(home.join("status.snapshot")).unwrap_or_default();
+        text.lines().next().unwrap_or("").clone_into(&mut last);
+        if wanted(&last) {
+            return text;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    panic!(
+        "{what}: after {PATIENCE:?} the snapshot's header said {last:?}\n--- daemon log\n{}",
+        daemon.log()
+    );
+}
+
+/// The words after `reached` in a header, if it carries a contact time.
+fn contact_time(header: &str) -> Option<u64> {
+    let words: Vec<&str> = header.split_whitespace().collect();
+    let at = words.iter().position(|word| *word == "reached")?;
+    words.get(at + 1)?.parse().ok()
+}
+
+/// `isolated` ages what the header's `reached` says, and only `sync_loop`
+/// stamps it, from what the round reached: every unit test builds that by
+/// hand, so the stamp could be deleted with all of them green and the alert
+/// dead (the review of #345). A daemon whose configured peer, a machine of
+/// its account, answers its round must write `reached T`; the peer, which
+/// was only dialled into and dialled nobody, must write `reached never
+/// since T` -- an inbound connection is not a contact. Sabotage: drop the
+/// stamp in `sync_loop`, or stamp every round.
+#[test]
+#[ignore = "three Argon2id derivations and two running daemons; the release job runs it"]
+fn red_team_a_round_that_reaches_the_account_stamps_the_contact() {
+    let base = tempfile::tempdir().expect("temp dir");
+    let (home, _folder, printed) = node_with_folder(base.path(), "a");
+    let other = second_device(base.path(), &printed);
+    let peer = Daemon::start(&other, base.path().join("b.log"));
+    run(&home, &["peer", "add", &peer.address()]);
+    let started = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_secs();
+    let daemon = Daemon::start(&home, base.path().join("a.log"));
+
+    let text = wait_for_header(
+        &home,
+        &daemon,
+        "a round that reached the account's other machine left no contact on the \
+         header: `isolated` turns that laptop orange six hours later, synced all along",
+        |header| contact_time(header).is_some(),
+    );
+    let header = text.lines().next().unwrap_or("");
+    assert!(
+        contact_time(header).is_some_and(|at| at >= started),
+        "the contact on the header predates the daemon: {header}"
+    );
+    let theirs = wait_for_header(&other, &peer, "the peer never wrote a snapshot", |header| {
+        header.contains(" reached ")
+    });
+    let theirs = theirs.lines().next().unwrap_or("");
+    assert!(
+        theirs.contains(" reached never since "),
+        "a machine only dialled into, which reached nobody itself, wrote a contact: \
+         {theirs}\n--- its log\n{}",
+        peer.log()
+    );
+}
+
+/// A vault the daemon's probe cannot write, through the running daemon: the
+/// probe is called from `sync_loop` once a round, and a unit test that
+/// hands the word to the snapshot writer passes with that call deleted (the
+/// review of #345). The vault's root made read-only after `init` -- its
+/// database file stays writable, so the daemon starts -- must reach the
+/// header as ` unwritable` and the snapshot `status` prints as CANNOT KEEP.
+/// Sabotage: drop the `probe_vault` call.
+#[cfg(unix)]
+#[test]
+#[ignore = "one Argon2id derivation and a running daemon; the release job runs it"]
+fn red_team_a_running_daemon_says_when_its_vault_takes_no_write() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let base = tempfile::tempdir().expect("temp dir");
+    let (home, _folder, _) = node_with_folder(base.path(), "a");
+    run(&home, &["pledge", "100M"]);
+    // A vault in use already holds this account's directories: `status`
+    // makes them, and without them the daemon's own `status` -- the
+    // snapshot -- fails at the read-only root before any word is written.
+    run(&home, &["status"]);
+    let vault = home.join("vault");
+    let set = |mode| {
+        std::fs::set_permissions(&vault, std::fs::Permissions::from_mode(mode)).expect("chmod");
+    };
+    set(0o555);
+    // Root writes through 0o555: nothing to refuse it (CI is not root).
+    if std::fs::write(vault.join("as-root"), b"x").is_ok() {
+        set(0o755);
+        return;
+    }
+    let daemon = Daemon::start(&home, base.path().join("daemon.log"));
+    let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        wait_for_header(
+            &home,
+            &daemon,
+            "a vault that takes no write never reached the header: the icon stays green \
+             while every chunk sent to it fails",
+            |header| header.split_whitespace().any(|word| word == "unwritable"),
+        )
+    }));
+    // Writable again before anything fails, or the temp dir is left behind.
+    set(0o755);
+    let text = found.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+    assert!(
+        text.contains("CANNOT KEEP    the vault at"),
+        "the snapshot `status` prints does not say the vault takes nothing:\n{text}"
+    );
+}
+
 #[test]
 #[ignore = "two Argon2id derivations and a running daemon; the release job runs it"]
 fn red_team_a_paused_daemon_takes_in_no_file_until_resumed() {
@@ -330,32 +484,7 @@ fn red_team_a_paused_daemon_adopts_nothing_its_own_devices_push() {
     run(&home, &["pledge", "100M"]);
     run(&home, &["pause"]);
 
-    // The second device: the same account, restored from the 24 words `init`
-    // printed as a numbered grid, which `login` reads as it is.
-    let grid: String = printed
-        .lines()
-        .filter(|line| {
-            line.split_whitespace().next().is_some_and(|first| {
-                first
-                    .strip_suffix('.')
-                    .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-            })
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let phrase = base.path().join("phrase.txt");
-    std::fs::write(&phrase, &grid).expect("phrase file");
-    let other = base.path().join("b-home");
-    run(
-        &other,
-        &[
-            "login",
-            "--username",
-            "steering",
-            "--phrase-file",
-            phrase.to_str().expect("utf-8 path"),
-        ],
-    );
+    let other = second_device(base.path(), &printed);
     let source = base.path().join("from-the-other-device.txt");
     std::fs::write(&source, b"pushed while paused").expect("source file");
     run(

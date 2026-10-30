@@ -38,10 +38,10 @@ var REMOVE_WORDS = 'This hands what this machine keeps for other people to other
 
 // What a node whose files are not where they should be yet is told (MVP.md
 // test L), in the menu and in the one notification it gets.
+var EXPOSED_ADVICE = 'Add a machine to this account, or keep its other machines on, so copies exist elsewhere.';
 // What a node that has reached no other machine for hours is told
 // (ARCHITECTURE §7), in the menu and in its one notification.
 var ISOLATED_ADVICE = "Check that this machine is online, and that the account's other machines are on.";
-var EXPOSED_ADVICE = 'Add a machine to this account, or keep its other machines on, so copies exist elsewhere.';
 
 var COLOURS = {
     green: [46, 160, 67],

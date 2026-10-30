@@ -43,9 +43,12 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
    #256 (`feat/mcp-server`) is his own.
 
 **2026-10-30: two more ARCHITECTURE §7 alerts, `isolated` and
-`unwritable`.** The snapshot header now ends `[ reached T][ unwritable]`:
-T is when a round last reached another machine, carried from the previous
-header so a restart neither forgets nor resets it; ` unwritable` is the
+`unwritable`.** The snapshot header now ends `[ reached T][ unwritable]`,
+or `reached never since T` before any contact: T is when a round last
+reached a machine of the account, a configured peer or a host that earned
+trust (not a LAN stranger that only answered), carried from the previous
+header so a restart neither forgets nor resets it, and dropped when later
+than now (a clock that was ahead); ` unwritable` is the
 vault refusing the daemon's write probe (`pledges::probe_write`, once a
 round after `check_disks`, never from `--brief`). `brief_status` reads
 `isolated AGE SILENT` after `exposed`, then `unwritable AGE`, then `short`;

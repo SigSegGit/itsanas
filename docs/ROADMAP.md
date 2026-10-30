@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1420 test functions, 18 of them `#[ignore]`d into the slow job, and 449 of
+**1428 test functions, 20 of them `#[ignore]`d into the slow job, and 457 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1155,11 +1155,27 @@ Still to build:
   `isolated` -- orange, "not synced with any machine for 7 h", one
   notification -- from the `reached T` its snapshot header carries across
   restarts (`red_team_a_daemon_that_reaches_nobody_is_never_drawn_green`,
-  `red_team_the_last_contact_outlives_a_round_and_a_restart_that_reached_nobody`);
-  and a vault that refuses the daemon's once-a-round write probe reads
-  `unwritable`, orange, while `status` says CANNOT KEEP and why
+  `red_team_the_last_contact_outlives_a_round_and_a_restart_that_reached_nobody`),
+  stamped by the real `sync_loop` when its round reaches the account
+  (`red_team_a_round_that_reaches_the_account_stamps_the_contact`), not by a
+  LAN stranger that only authenticated
+  (`red_team_a_stranger_that_only_answered_is_no_contact`; through two
+  daemons, `red_team_a_host_that_pledges_nothing_hosts_nothing_and_says_so`
+  and, a host that kept the chunks counting,
+  `red_team_another_account_found_by_discovery_alone_hosts_the_chunks`), never
+  kept from a clock in the future
+  (`red_team_a_contact_dated_in_the_future_is_not_kept`), and aged from
+  `reached never since T` on a node no round has reached anybody from
+  (`red_team_a_node_that_never_reached_anybody_turns_isolated`); and a vault
+  that refuses the daemon's once-a-round write probe reads `unwritable`,
+  orange, while `status` says CANNOT KEEP and why
   (`red_team_a_vault_that_takes_no_write_fails_the_probe`,
-  `red_team_a_vault_that_cannot_be_written_is_never_drawn_green`). Left:
+  `red_team_a_vault_that_cannot_be_written_is_never_drawn_green`,
+  `red_team_the_round_probe_says_unwritable_while_the_vault_refuses_and_stops_after`,
+  and through the running daemon
+  `red_team_a_running_daemon_says_when_its_vault_takes_no_write`); a refused
+  removal of the probe's file is no refusal
+  (`red_team_a_probe_whose_file_could_not_be_removed_still_passes`). Left:
   a contact is a round *this* node dialled out on; a public machine that
   others only dial in to, unparked, can read `isolated` though they reach it
   (the listener's witness counts scanners, so it cannot say who synced).

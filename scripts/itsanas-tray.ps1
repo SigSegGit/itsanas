@@ -52,10 +52,10 @@ $signoutWords = "This stops ITSaNAS on this machine and forgets the passphrase h
 
 # What a node whose files are not where they should be yet is told (MVP.md
 # test L), in the menu and in the one notification it gets.
+$exposedAdvice = 'Add a machine to this account, or keep its other machines on, so copies exist elsewhere.'
 # What a node that has reached no other machine for hours is told
 # (ARCHITECTURE §7), in the menu and in its one notification.
 $isolatedAdvice = "Check that this machine is online, and that the account's other machines are on."
-$exposedAdvice = 'Add a machine to this account, or keep its other machines on, so copies exist elsewhere.'
 
 # ---------------------------------------------------------------- the model
 

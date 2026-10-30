@@ -50,13 +50,12 @@ REMOVE_WORDS = (
 )
 # What a node whose files are not where they should be yet is told (MVP.md
 # test L), in the menu and in the one notification it gets.
-# What a node that has reached no other machine for hours is told
-# (ARCHITECTURE §7), in the menu and in its one notification.
-ISOLATED_ADVICE = "Check that this machine is online, and that the account's other machines are on."
-
 EXPOSED_ADVICE = (
     "Add a machine to this account, or keep its other machines on, so copies exist elsewhere."
 )
+# What a node that has reached no other machine for hours is told
+# (ARCHITECTURE §7), in the menu and in its one notification.
+ISOLATED_ADVICE = "Check that this machine is online, and that the account's other machines are on."
 NO_TOOLKIT = (
     "itsanas-tray: no GTK for Python here (python3-gi), so no tray icon; "
     "the web Settings page does the same: itsanas settings"

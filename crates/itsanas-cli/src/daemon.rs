@@ -147,9 +147,10 @@ struct SnapshotPace(Option<(Instant, Duration)>);
 /// carries it to the icon, which cannot open the store.
 #[derive(Default)]
 struct Seen {
-    /// When a round of this process last reached another machine (unix
-    /// seconds). Not the listener's witness: it counts every connection
-    /// accepted, a port scanner's and this machine's own included.
+    /// When a round of this process last reached another machine that counts
+    /// ([`counts_as_contact`]), unix seconds. Not the listener's witness: it
+    /// counts every connection accepted, a port scanner's and this machine's
+    /// own included.
     reached: Option<u64>,
     /// Why the vault's last write probe failed, while it fails.
     unwritable: Option<String>,
@@ -1166,7 +1167,7 @@ fn sync_loop(
             last_round = Some(Instant::now());
         }
         if next == Next::Round {
-            let (reached, announced) = one_round(
+            let (reached, in_touch, announced) = one_round(
                 node,
                 shutdown,
                 neighbourhood,
@@ -1178,7 +1179,9 @@ fn sync_loop(
                 interval,
             );
             last_round = Some(Instant::now());
-            if !reached.is_empty() {
+            // What `isolated` ages (`steering.rs`'s
+            // red_team_a_round_that_reaches_the_account_stamps_the_contact).
+            if in_touch {
                 seen.reached = Some(itsanas_discover::now_unix());
             }
             board.replace(contact.board());
@@ -1373,22 +1376,20 @@ fn paused_round(
 /// three laptop daemons on 0.1.8 while the program on disk was newer (hand
 /// test, 2026-10-22). The fleet run compares it across machines. Then the
 /// copies, when anything is stored (`safety.rs`): what the icon colours. Then
-/// when a round last reached another machine, and ` unwritable` while the
+/// when a round last reached another machine, or since when none has
+/// (`safety::reached_words`), and ` unwritable` while the
 /// vault refuses a write ([`Seen`]).
 fn snapshot_header(
     now: u64,
     every: u64,
     copies: Option<crate::safety::Copies>,
-    reached: Option<u64>,
+    reached: &str,
     unwritable: bool,
 ) -> String {
     format!(
-        "snapshot {now} every {every} version {}{}{}{}",
+        "snapshot {now} every {every} version {}{}{reached}{}",
         env!("CARGO_PKG_VERSION"),
         copies.map(|c| c.render()).unwrap_or_default(),
-        reached
-            .map(|at| format!(" reached {at}"))
-            .unwrap_or_default(),
         if unwritable { " unwritable" } else { "" }
     )
 }
@@ -1414,9 +1415,8 @@ fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr, 
             now,
         )
     });
-    // So is the last contact: a restarted daemon that has reached nobody yet
-    // must neither forget a week of silence nor start counting it from zero.
-    let reached = seen.reached.max(crate::safety::last_reached(old));
+    // So is the last contact (`safety::reached_words`).
+    let reached = crate::safety::reached_words(seen.reached, old, now);
 
     // The first line is the time it was taken, in seconds, and the reader turns
     // that into an age. Storing the age itself would be wrong the moment it was
@@ -1432,7 +1432,7 @@ fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr, 
             now,
             interval.as_secs(),
             copies,
-            reached,
+            &reached,
             seen.unwritable.is_some()
         )
     );
@@ -1662,7 +1662,8 @@ fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
 /// network. Each is dialled with its device id pinned wherever one is known, so
 /// an address that answers as somebody else is refused rather than trusted.
 ///
-/// Returns who was reached and, if this round published, what it published:
+/// Returns who was reached, whether any of them counts as a contact
+/// ([`counts_as_contact`]) and, if this round published, what it published:
 /// whether that is worth asking to be probed is the caller's question.
 #[allow(clippy::too_many_arguments)]
 fn one_round(
@@ -1675,7 +1676,7 @@ fn one_round(
     scope: PolicyScope,
     folder: Option<&Folder>,
     interval: Duration,
-) -> (BTreeSet<DeviceId>, Option<String>) {
+) -> (BTreeSet<DeviceId>, bool, Option<String>) {
     // The vault's disk dropped under a running daemon: stop this run, rather
     // than run a round that writes hosted data to the local mount point.
     // `itsanas daemon` then waits for the disk and starts again by itself.
@@ -1688,7 +1689,7 @@ fn one_round(
         );
         PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
         shutdown.store(true, Ordering::SeqCst);
-        return (BTreeSet::new(), None);
+        return (BTreeSet::new(), false, None);
     }
     if !node.away && !vault_present(&node.vault_dir()) {
         eprintln!(
@@ -1697,7 +1698,7 @@ fn one_round(
         );
         PAUSED_FOR_VAULT.store(true, Ordering::SeqCst);
         shutdown.store(true, Ordering::SeqCst);
-        return (BTreeSet::new(), None);
+        return (BTreeSet::new(), false, None);
     }
     // The coordinator first, and only with a reason: this machine has not
     // published since it started, has moved, owes its hourly publication, or
@@ -1757,6 +1758,11 @@ fn one_round(
         bound,
     );
 
+    // Everybody so far was typed into the configuration or is a machine of
+    // the account the coordinator listed: a contact. The strangers below
+    // count only as `counts_as_contact` says.
+    let mut in_touch = !reached.is_empty();
+
     // What the account's own machines just sent is written now, not after the
     // other accounts' hosts below, where the slow and older builds are (a
     // laptop's files waited 20 min behind them on 2026-10-06).
@@ -1800,6 +1806,7 @@ fn one_round(
 
         if let Some(outcome) = outcome {
             reached.insert(outcome.device);
+            in_touch |= counts_as_contact(candidate.mine, known, outcome.earned_trust);
             // Authenticating proves possession of a keypair that cost
             // nothing to generate. Only doing something a real host
             // does — storing our data, or serving us our own work —
@@ -1820,7 +1827,19 @@ fn one_round(
         contact.round_reached(&reached, Instant::now());
     }
 
-    (reached, announced)
+    (reached, in_touch, announced)
+}
+
+/// Whether a machine found on the LAN that answered counts as a contact for
+/// `isolated` (`safety::reached_words`): one of the account's (its beacon
+/// carries a tag only the account's key makes), one confirmed before, or one
+/// that just did what only a real host does. Not any stranger that
+/// authenticated: its identity cost nothing to mint, and a laptop on a café
+/// LAN, one stranger answering a round, would read green all week while
+/// nothing of its account synced -- the same reason the listener's witness
+/// is not used.
+const fn counts_as_contact(mine: bool, confirmed: bool, earned_trust: bool) -> bool {
+    mine || confirmed || earned_trust
 }
 
 /// Tell the coordinator where this machine is, and learn where the account's
@@ -2656,7 +2675,7 @@ mod tests {
 
     #[test]
     fn the_snapshot_says_which_version_wrote_it_and_still_reads_as_before() {
-        let header = snapshot_header(1_792_000_000, 300, None, None, false);
+        let header = snapshot_header(1_792_000_000, 300, None, "", false);
         assert!(
             header.ends_with(&format!(" version {}", env!("CARGO_PKG_VERSION"))),
             "the snapshot does not say which program wrote it: a daemon an update left \
@@ -2759,8 +2778,8 @@ mod tests {
         let text = std::fs::read_to_string(home.join(crate::node::SNAPSHOT)).expect("snapshot");
         let header = text.lines().next().unwrap_or("").to_owned();
         assert!(
-            header.ends_with(&format!(
-                " version {} copies 0 of 2",
+            header.contains(&format!(
+                " version {} copies 0 of 2 reached never since ",
                 env!("CARGO_PKG_VERSION")
             )),
             "the snapshot of a node with a file and no peer does not say it has no copy \
@@ -2779,7 +2798,7 @@ mod tests {
                 .lines()
                 .next()
                 .unwrap_or("")
-                .ends_with(" copies 0 of 2"),
+                .contains(" copies 0 of 2 reached "),
             "a second round granted a grace to a node that was never safe: {}",
             again.lines().next().unwrap_or("")
         );
@@ -2862,6 +2881,87 @@ mod tests {
         assert!(
             text.contains("cannot be written (Read-only file system (os error 30))"),
             "the snapshot `status` prints does not say why the vault takes nothing:\n{text}"
+        );
+    }
+
+    /// `probe_vault`, which `sync_loop` calls once a round: it sets
+    /// `unwritable` while the vault refuses, leaves alone a node that
+    /// promised nobody (pledging nothing, or away from its vault's disk),
+    /// and clears the word once the disk takes writes again -- or the icon
+    /// stays orange for good. A plain file stands for the refusing vault, so
+    /// this runs on Windows too. Sabotage: never set it, never clear it, or
+    /// probe a node that pledged nothing.
+    #[test]
+    fn red_team_the_round_probe_says_unwritable_while_the_vault_refuses_and_stops_after() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        let (mut node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        node.config.pledge_bytes = 100 << 20;
+        let mut unwritable = None;
+        probe_vault(&node, &mut unwritable);
+        assert_eq!(
+            unwritable, None,
+            "a vault that takes writes failed the round probe: every host reads orange"
+        );
+
+        let refusing = base.path().join("not-a-directory");
+        std::fs::write(&refusing, b"a file where the vault should be").expect("file");
+        let real = node.config.vault.replace(refusing);
+        probe_vault(&node, &mut unwritable);
+        assert!(
+            unwritable.is_some(),
+            "a vault that takes no write passed the round probe: its host goes on promising \
+             room every push to it fails on"
+        );
+
+        for (pledge, away, who) in [
+            (0, false, "pledging nothing"),
+            (100 << 20, true, "away from its vault's disk"),
+        ] {
+            node.config.pledge_bytes = pledge;
+            node.away = away;
+            let mut quiet = None;
+            probe_vault(&node, &mut quiet);
+            assert_eq!(
+                quiet, None,
+                "a node {who} was told its vault takes no write: it promised nobody"
+            );
+        }
+        node.config.pledge_bytes = 100 << 20;
+        node.away = false;
+
+        node.config.vault = real;
+        probe_vault(&node, &mut unwritable);
+        assert_eq!(
+            unwritable, None,
+            "a vault that takes writes again still reads unwritable: the icon stays orange \
+             for good"
+        );
+    }
+
+    /// Who found on the LAN counts as a contact for `isolated`. A stranger
+    /// that only authenticated does not: its key cost nothing, and a laptop
+    /// on a café LAN would read green all week with nothing of its account
+    /// synced. Sabotage: count every machine that answered.
+    #[test]
+    fn red_team_a_stranger_that_only_answered_is_no_contact() {
+        assert!(
+            !counts_as_contact(false, false, false),
+            "a stranger that only authenticated counts as a contact: a café LAN keeps a \
+             cut-off laptop green"
+        );
+        assert!(
+            counts_as_contact(true, false, false),
+            "the account's own machine"
+        );
+        assert!(
+            counts_as_contact(false, true, false),
+            "a host confirmed before"
+        );
+        assert!(
+            counts_as_contact(false, false, true),
+            "a host that kept our data"
         );
     }
 
