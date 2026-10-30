@@ -1580,14 +1580,25 @@ Detail and measurements are in ROADMAP.md; this is the map.
       2.0 GiB, 0 peer(s) hosted" means the beacons still do not reach a
       `test` node there (ufw on the Pi, the looped-back broadcast between
       containers on one host: not read in the code) -- the `docker logs`
-      line of item 1 says which. **The test that proves the route, not
-      built:** two accounts on one machine, both pledging, discovery on
-      over real sockets (`Lan::bind_to`, as in
-      `two_accounts_on_one_machine_hear_each_other_and_keep_apart`), no
-      `peer add`; after a round the second account's
-      `vault/owners/<first uid>` holds chunks. Sabotage: skip strangers in
-      `dial_order` (red); the host at pledge 0 (red). `acceptance-local.sh`
-      proves hosting between accounts, but through `peer add`.
+      line of item 1 says which. **The test that proves the route: built 2026-10-30
+      (`tests/route.rs`, TESTING.md).** Two real daemons of two accounts,
+      discovery over real sockets on a port of the test's own
+      (`ITSANAS_DISCOVERY_PORT`, `bind_lan`), an in-process coordinator
+      pinned by `--device`, no `peer add`: the second account's vault holds
+      chunks within a few 5 s rounds (7 s for the three tests). Sabotaged
+      (strangers skipped in `dial_order`'s loop): red. **What writing it
+      found:** (1) without a coordinator the host refuses on purpose (a
+      device of another account stores only once the host's coordinator has
+      confirmed it, Nicolas 2026-10-05), but the owner's log said "a segment
+      that does not verify, or does not follow its chain" -- every refusal
+      the owner's side did not recognise read as `Rejected`. `UNCONFIRMED`,
+      `WITHDRAWN` and `CONTRADICTED` now live once in `itsanas-net` and
+      reach the owner as their own `Refusal`, each with its own line. (2)
+      Between accounts the host's pull is always refused
+      (`NOT_YOUR_ACCOUNT`, protocol 11) and it said so every round; now
+      silent (not tested: it shows only after half a minute of dialling). (3) The daemon's banner said `udp 21037` whatever port it
+      bound. (4) A daemon listening on loopback announces its LAN address
+      and is never reached there: only a test rig does that.
       **Decided by Nicolas, 2026-10-29 (Rodin on #336), made precise the
       same day: a SKIP nobody planned turns red after seven nights; a SKIP
       that waits on a named action does not.** C was SKIP every night from

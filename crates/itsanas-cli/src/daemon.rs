@@ -702,7 +702,15 @@ fn bind_lan(discover: bool) -> Option<Lan> {
     // is a test rig rather than a mistake, and it must not stop the daemon that
     // can still sync with its configured peers.
     if discover {
-        match Lan::bind(itsanas_discover::DEFAULT_PORT) {
+        // `ITSANAS_DISCOVERY_PORT` moves a test rig off 21037, so two daemons a
+        // test starts hear each other and not a real node on the same machine
+        // (`tests/route.rs`). Anything that is not a port is the default.
+        let port = std::env::var("ITSANAS_DISCOVERY_PORT")
+            .ok()
+            .and_then(|port| port.parse::<u16>().ok())
+            .filter(|port| *port != 0)
+            .unwrap_or(itsanas_discover::DEFAULT_PORT);
+        match Lan::bind(port) {
             Ok(lan) => Some(lan),
             Err(error) => {
                 eprintln!(
@@ -816,9 +824,10 @@ pub fn run(
         None => println!("  coordinator none (`itsanas coordinator <host:port>`)"),
     }
     match &lan {
-        Some(_) => println!(
+        Some(lan) => println!(
             "  discovery on, udp {} — machines on this network find each other",
-            itsanas_discover::DEFAULT_PORT
+            lan.local_addr()
+                .map_or(itsanas_discover::DEFAULT_PORT, |address| address.port())
         ),
         None if discover => println!("  discovery unavailable — peers must be added by hand"),
         None => println!("  discovery off (--no-discovery)"),
@@ -1603,6 +1612,11 @@ fn take_on_hosting(node: &Node, peer: &str, client: &mut PeerClient) {
             }
             println!("{line}");
         }
+        // A machine of another account never lets this one read what it
+        // holds for itself (`NOT_YOUR_ACCOUNT`, protocol 11): between accounts
+        // the route is the owner's push. Said every round, the expected answer
+        // buried the line that mattered (`tests/route.rs`, 2026-10-30).
+        Err(itsanas_net::NetError::Refused(why)) if why == itsanas_net::NOT_YOUR_ACCOUNT => {}
         Err(error) => println!("{peer}: could not take on hosting ({error})"),
     }
 }

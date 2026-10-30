@@ -3291,6 +3291,17 @@ pub(crate) fn describe_refusal(push: &itsanas_net::PushReport) -> Option<String>
         itsanas_net::Refusal::Rejected => {
             "it rejected them: a segment that does not verify, or does not follow its chain"
         }
+        itsanas_net::Refusal::Unconfirmed => {
+            "it hosts another account only once its coordinator has confirmed this device; \
+             both machines need `itsanas coordinator <host:port> --device <id>`, and the next \
+             round tries again"
+        }
+        itsanas_net::Refusal::Withdrawn => {
+            "its coordinator says this device was withdrawn from the account"
+        }
+        itsanas_net::Refusal::Contradicted => {
+            "this account's devices failed its storage audits, so it stores only what they proved they hold"
+        }
     };
     Some(format!("refused {} offer(s): {why}", push.refused))
 }
