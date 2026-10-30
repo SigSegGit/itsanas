@@ -42,6 +42,22 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 
    #256 (`feat/mcp-server`) is his own.
 
+**2026-10-30: two more ARCHITECTURE §7 alerts, `isolated` and
+`unwritable`.** The snapshot header now ends `[ reached T][ unwritable]`,
+or `reached never since T` before any contact: T is when a round last
+reached a machine of the account, a configured peer or a host that earned
+trust (not a LAN stranger that only answered), carried from the previous
+header so a restart neither forgets nor resets it, and dropped when later
+than now (a clock that was ahead); ` unwritable` is the
+vault refusing the daemon's write probe (`pledges::probe_write`, once a
+round after `check_disks`, never from `--brief`). `brief_status` reads
+`isolated AGE SILENT` after `exposed`, then `unwritable AGE`, then `short`;
+the three trays draw both orange, `isolated` with one notification, and
+Settings has words for both. **A routine, reversible choice:** the
+threshold is the larger of 6 h and 12 intervals (`safety::ISOLATED_AFTER`,
+`ISOLATED_INTERVALS`) -- an evening with the laptop shut is not orange.
+Left: see ROADMAP M7, "Alerting on the conditions".
+
 **2026-10-29, night: the fleet all green, C closed.** Nicolas did the
 VM/Pi rebuild and the host keys (the old items 1 and 2 of the list above,
 struck, with their lines in `scripts/fleet/planned-skips`). Run

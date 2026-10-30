@@ -1685,20 +1685,30 @@ fn listen_line(node: &Node, listening: Option<&str>) -> String {
 }
 
 /// `status`'s "used" line, and the warning when the disk can no longer
-/// hold the pledge.
-fn used_line(node: &Node, hosted: u64) -> String {
-    let used = format!("  used            {}", format_size(hosted));
+/// hold the pledge, or the vault no longer takes a write: `unwritable` is
+/// why the last probe of it failed (`pledges::probe_write`).
+fn used_line(node: &Node, hosted: u64, unwritable: Option<&str>) -> String {
+    let mut used = format!("  used            {}", format_size(hosted));
     let free = fs4::available_space(node.vault_dir()).ok();
     let keepable = itsanas_node::pledges::keepable(node.config.pledge_bytes, hosted, free);
-    if keepable >= node.config.pledge_bytes {
-        return used;
-    }
-    format!(
-        "{used}\n  CANNOT KEEP    this disk can hold only {} of the {} pledged; it takes no more \
+    if keepable < node.config.pledge_bytes {
+        let _ = write!(
+            used,
+            "\n  CANNOT KEEP    this disk can hold only {} of the {} pledged; it takes no more \
              chunks until space is freed or `itsanas pledge` is lowered",
-        format_size(keepable),
-        format_size(node.config.pledge_bytes)
-    )
+            format_size(keepable),
+            format_size(node.config.pledge_bytes)
+        );
+    }
+    if let Some(why) = unwritable {
+        let _ = write!(
+            used,
+            "\n  CANNOT KEEP    the vault at {} cannot be written ({why}); every chunk sent to \
+             it fails until the disk takes writes again",
+            node.vault_dir().display()
+        );
+    }
+    used
 }
 
 /// The text `itsanas status` prints, built rather than printed.
@@ -1712,7 +1722,7 @@ fn used_line(node: &Node, hosted: u64) -> String {
 /// `listening` is where the daemon writing the snapshot really listens, and
 /// `None` from `status` itself, which runs no listener.
 fn render_status(node: &Node, listening: Option<&str>) -> Result<String> {
-    render_status_and_copies(node, listening).map(|(text, _)| text)
+    render_status_and_copies(node, listening, None).map(|(text, _)| text)
 }
 
 /// [`render_status`], and the copies its coverage counted, for the snapshot's
@@ -1720,6 +1730,7 @@ fn render_status(node: &Node, listening: Option<&str>) -> Result<String> {
 fn render_status_and_copies(
     node: &Node,
     listening: Option<&str>,
+    unwritable: Option<&str>,
 ) -> Result<(String, Option<safety::Copies>)> {
     let mut out = String::new();
 
@@ -1815,7 +1826,7 @@ fn render_status_and_copies(
         "  pledged         {}",
         format_size(node.config.pledge_bytes)
     );
-    w!("{}", used_line(node, hosted_bytes));
+    w!("{}", used_line(node, hosted_bytes, unwritable));
     w!("  peers hosted    {hosted_owners}");
     w!("  chunks held     {hosted_chunks}");
     w!(
@@ -2051,7 +2062,9 @@ fn migration_advice(name: &str, to: &Path) -> String {
 }
 
 /// The node's state in one word, for a tray icon: what it shows, not what it
-/// hopes. `short` when the disk can no longer hold the pledge (orange). `healthy` only while a daemon holds the store **and** its last
+/// hopes. `short` when the disk can no longer hold the pledge, `unwritable`
+/// when the vault refuses a write, `isolated` when no round has reached
+/// another machine for hours (all orange). `healthy` only while a daemon holds the store **and** its last
 /// snapshot is within two intervals; a daemon alive but silent longer than
 /// that is `stale` -- a green icon over a hung daemon is the failure a tray
 /// exists to prevent (HANDOVER §8 f). The age follows in seconds.
@@ -2094,7 +2107,9 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
         // A control file nobody can read is not "healthy": the daemon is
         // keeping what it last understood, or started paused (`control.rs`),
         // and the icon should say that something needs a look.
-        let copies = safety::Copies::parse(text.lines().next().unwrap_or(""));
+        let header = text.lines().next().unwrap_or("");
+        let copies = safety::Copies::parse(header);
+        let isolated = safety::isolated_for(header, now, every);
         match control::Control::read(home) {
             Err(_) => format!("unknown {age}"),
             Ok(asked) if asked.pause_holds(now) => format!("paused {age}"),
@@ -2108,6 +2123,17 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
                     since: None,
                 });
                 format!("exposed {age} {} {}", copies.have, copies.want)
+            }
+            // Running every round and reaching nobody: a fresh snapshot over
+            // copies a week can still count (`safety.rs`, ARCHITECTURE §7).
+            // The silence follows, in seconds.
+            Ok(_) if isolated.is_some() => {
+                format!("isolated {age} {}", isolated.unwrap_or_default())
+            }
+            // The vault refused the daemon's last write probe: room on the
+            // disk, and every chunk sent to it fails (`status` says why).
+            Ok(_) if header.split_whitespace().any(|word| word == "unwritable") => {
+                format!("unwritable {age}")
             }
             // Running, but the disk can no longer hold what it promised: not
             // green (`status` says CANNOT KEEP and why).
@@ -6365,6 +6391,98 @@ mod tests {
             "exposed 60 0 2",
             "a pledge the disk cannot hold hid that the person's own files are on this disk only"
         );
+    }
+
+    /// ARCHITECTURE §7, "no successful sync round in N minutes": a daemon
+    /// that runs every round and reaches nobody writes a fresh snapshot each
+    /// time, so `stale` never fires, and `exposed` waits a week for holders to
+    /// age out of `LIVE_FOR`. The last contact the header carries says it; the
+    /// snapshot's own age cannot. Sabotage: drop the `isolated` arm, or read
+    /// the snapshot's age in place of the contact's.
+    #[test]
+    fn red_team_a_daemon_that_reaches_nobody_is_never_drawn_green() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        fake_node(&home, "alice", None);
+        let now = 1_000_000;
+        let write = |every: u64, rest: &str| {
+            std::fs::write(
+                home.join(SNAPSHOT),
+                format!(
+                    "snapshot {} every {every} version 0.1.13{rest}\n  files 3\n",
+                    now - 60
+                ),
+            )
+            .expect("snapshot");
+        };
+
+        write(300, &format!(" copies 2 of 2 reached {}", now - 7 * 3600));
+        assert_eq!(
+            brief_status(&home, true, now),
+            "isolated 60 25200",
+            "a laptop that reached no other machine for seven hours was drawn green: it is \
+             told only when its copies expire, a week later"
+        );
+        write(300, &format!(" copies 2 of 2 reached {}", now - 300));
+        assert_eq!(brief_status(&home, true, now), "healthy 60");
+        write(300, &format!(" copies 2 of 2 reached {}", now - 5 * 3600));
+        assert_eq!(
+            brief_status(&home, true, now),
+            "healthy 60",
+            "a laptop closed for a few hours turned orange: orange would mean every evening"
+        );
+        // An hourly round is twelve hours of silence before it says so: six
+        // would be six rounds, and one slow coordinator.
+        write(3600, &format!(" copies 2 of 2 reached {}", now - 7 * 3600));
+        assert_eq!(brief_status(&home, true, now), "healthy 60");
+        write(3600, &format!(" copies 2 of 2 reached {}", now - 12 * 3600));
+        assert_eq!(brief_status(&home, true, now), "isolated 60 43200");
+
+        // Files on this disk alone say so first: that is the loss.
+        write(300, &format!(" copies 0 of 2 reached {}", now - 7 * 3600));
+        assert_eq!(brief_status(&home, true, now), "exposed 60 0 2");
+        // Never reached anybody: no contact to age, and nothing to say here.
+        write(300, " copies 2 of 2");
+        assert_eq!(brief_status(&home, true, now), "healthy 60");
+    }
+
+    /// ARCHITECTURE §7, "pledged space ... unwritable": free space is not the
+    /// only way to break the promise. A vault remounted read-only after disk
+    /// errors has room and takes nothing, and every push to it fails while the
+    /// icon would read green. The daemon's probe puts ` unwritable` on the
+    /// header and the reason in `status`. Sabotage: drop the `unwritable` arm,
+    /// or the CANNOT KEEP line.
+    #[test]
+    fn red_team_a_vault_that_cannot_be_written_is_never_drawn_green() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        let now = 1_000_000;
+        std::fs::write(
+            home.join(SNAPSHOT),
+            format!(
+                "snapshot {} every 300 version 0.1.13 copies 2 of 2 unwritable\n",
+                now - 60
+            ),
+        )
+        .expect("snapshot");
+        assert_eq!(
+            brief_status(&home, true, now),
+            "unwritable 60",
+            "a node whose vault refuses every write was drawn green: it goes on promising \
+             room it cannot give"
+        );
+
+        let (text, _) = super::render_status_and_copies(&node, None, Some("Read-only file system"))
+            .expect("render");
+        assert!(
+            text.contains("  CANNOT KEEP    the vault at ")
+                && text.contains(" cannot be written (Read-only file system)"),
+            "`status` of a node whose vault cannot be written does not say so:\n{text}"
+        );
+        let (fine, _) = super::render_status_and_copies(&node, None, None).expect("render");
+        assert!(!fine.contains("CANNOT KEEP"), "{fine}");
     }
 
     /// A paused node says so; a hung one is stale whatever it was asked, or a

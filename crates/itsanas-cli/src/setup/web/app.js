@@ -545,6 +545,10 @@
     // MVP.md test L: the daemon runs, the person's files are not elsewhere yet.
     exposed: [N('Running, but your files are not safe yet: add a machine to this account so copies exist elsewhere'), 'bad'],
     short: [N('Running, but this disk can no longer hold what it promised to others'), 'bad'],
+    // ARCHITECTURE §7: rounds that reach no other machine for hours, and a
+    // vault that refuses the daemon's write probe.
+    isolated: [N('Running, but it has not reached any of your other machines for hours: check that this machine is online'), 'bad'],
+    unwritable: [N('Running, but this disk refuses every write: what it promised to others fails'), 'bad'],
     stopped: [N('Not running'), 'bad'],
     departed: [N('This machine has left the network'), 'bad'],
     unknown: [N('Cannot tell right now'), ''],

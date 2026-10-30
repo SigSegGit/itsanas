@@ -171,14 +171,43 @@ impl Drop for Coordinator {
     }
 }
 
+/// Unix seconds, as the daemon stamps its snapshot.
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
+}
+
+/// The first line of the snapshot `home`'s daemon writes, or "".
+fn header(home: &Path) -> String {
+    std::fs::read_to_string(home.join("status.snapshot"))
+        .unwrap_or_default()
+        .lines()
+        .next()
+        .unwrap_or("")
+        .to_owned()
+}
+
+/// Whether a header carries a contact time, `reached T` (not `reached never
+/// since T`): what `isolated` ages.
+fn has_contact(header: &str) -> bool {
+    let words: Vec<&str> = header.split_whitespace().collect();
+    words
+        .iter()
+        .position(|word| *word == "reached")
+        .and_then(|at| words.get(at + 1))
+        .is_some_and(|word| word.parse::<u64>().is_ok())
+}
+
 /// Two accounts on one machine, the host pledging `host_pledge`, both pinned
 /// to a coordinator when `coordinated`. Waits until `done` holds of (what the
-/// host keeps for the other, the owner's log), or the patience runs out.
+/// host keeps for the other, the owner's log, the owner's snapshot header),
+/// or the patience runs out; returns them and the host's log.
 fn route(
     host_pledge: &str,
     coordinated: bool,
-    done: impl Fn(u64, &str) -> bool,
-) -> (u64, String, String) {
+    done: impl Fn(u64, &str, &str) -> bool,
+) -> (u64, String, String, String) {
     let base = tempfile::tempdir().expect("scratch");
     let port = free_port();
     let coordinator = coordinated.then(Coordinator::start);
@@ -217,18 +246,24 @@ fn route(
     let mut held = 0;
     while Instant::now() < deadline {
         held = hosted_for_others(&host);
-        if done(held, &owner_daemon.log()) {
+        if done(held, &owner_daemon.log(), &header(&owner)) {
             break;
         }
         std::thread::sleep(Duration::from_millis(500));
     }
-    (held, owner_daemon.log(), host_daemon.log())
+    (held, owner_daemon.log(), host_daemon.log(), header(&owner))
 }
 
+/// And the host that kept the chunks, a stranger found on the LAN that
+/// earned trust, is a contact: the owner's header carries `reached T`, or a
+/// laptop whose only other copy is a neighbour's host would read `isolated`
+/// while it syncs. Sabotage: the LAN loop of `one_round` counting nobody.
 #[test]
 #[ignore = "two Argon2id derivations and two running daemons; the release job runs it"]
 fn red_team_another_account_found_by_discovery_alone_hosts_the_chunks() {
-    let (held, owner_log, host_log) = route("1G", true, |held, _| held > 0);
+    let (held, owner_log, host_log, owner_header) = route("1G", true, |held, _, header| {
+        held > 0 && has_contact(header)
+    });
     assert!(
         held > 0,
         "after {PATIENCE:?} the other account's node, on the same LAN, pledging and \
@@ -236,13 +271,19 @@ fn red_team_another_account_found_by_discovery_alone_hosts_the_chunks() {
          lead to hosting between accounts, and test C has no route on the fleet\n\
          --- owner\n{owner_log}\n--- host\n{host_log}"
     );
+    assert!(
+        has_contact(&owner_header),
+        "a host found on the LAN kept this account's chunks and the owner's header has no \
+         contact: it reads `isolated` six hours later while it syncs ({owner_header})\n\
+         --- owner\n{owner_log}"
+    );
 }
 
 #[test]
 #[ignore = "two Argon2id derivations and two running daemons; the release job runs it"]
 fn red_team_a_host_without_a_coordinator_is_said_to_wait_for_one_not_to_reject_segments() {
     const WHY: &str = "only once its coordinator has confirmed this device";
-    let (held, owner_log, _) = route("1G", false, |_, log| log.contains(WHY));
+    let (held, owner_log, _, _) = route("1G", false, |_, log, _| log.contains(WHY));
     assert_eq!(
         held, 0,
         "a host stored for a device no coordinator confirmed"
@@ -254,16 +295,41 @@ fn red_team_a_host_without_a_coordinator_is_said_to_wait_for_one_not_to_reject_s
     );
 }
 
+/// And that host, a stranger that answered every round and kept nothing, is
+/// no contact: the owner's header still says `reached never since`, or a
+/// laptop on a café LAN would read green all week with nothing of its
+/// account synced. Waited for until a snapshot stamped after the refusal
+/// was first seen, so it is the one written after that round. Sabotage:
+/// every machine that answered counts (`counts_as_contact`).
 #[test]
 #[ignore = "two Argon2id derivations and two running daemons; the release job runs it"]
 fn red_team_a_host_that_pledges_nothing_hosts_nothing_and_says_so() {
-    let (held, owner_log, _) = route("0", true, |_, log| log.contains("pledge is full or zero"));
+    const WHY: &str = "pledge is full or zero";
+    let said_at = std::cell::Cell::new(None);
+    let (held, owner_log, _, owner_header) = route("0", true, |_, log, header| {
+        if said_at.get().is_none() && log.contains(WHY) {
+            said_at.set(Some(now()));
+        }
+        let stamp = header
+            .strip_prefix("snapshot ")
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|stamp| stamp.parse::<u64>().ok());
+        said_at
+            .get()
+            .zip(stamp)
+            .is_some_and(|(said, stamp)| stamp > said)
+    });
     assert_eq!(
         held, 0,
         "a host that pledged nothing stored another account's chunks"
     );
     assert!(
-        owner_log.contains("pledge is full or zero"),
+        owner_log.contains(WHY),
         "the owner was not told the host pledges nothing\n--- owner\n{owner_log}"
+    );
+    assert!(
+        owner_header.contains(" reached never since "),
+        "a stranger that answered and kept nothing counted as a contact: a cut-off laptop \
+         next to one reads green ({owner_header})\n--- owner\n{owner_log}"
     );
 }
