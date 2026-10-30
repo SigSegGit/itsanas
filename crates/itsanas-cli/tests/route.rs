@@ -119,12 +119,12 @@ fn hosted_for_others(home: &Path) -> u64 {
     fn size(path: &Path) -> u64 {
         match std::fs::read_dir(path) {
             Ok(entries) => entries.flatten().map(|entry| size(&entry.path())).sum(),
-            Err(_) => std::fs::metadata(path).map(|m| m.len()).unwrap_or(0),
+            Err(_) => std::fs::metadata(path).map_or(0, |m| m.len()),
         }
     }
-    std::fs::read_dir(home.join("vault").join("owners"))
-        .map(|owners| owners.flatten().map(|owner| size(&owner.path())).sum())
-        .unwrap_or(0)
+    std::fs::read_dir(home.join("vault").join("owners")).map_or(0, |owners| {
+        owners.flatten().map(|owner| size(&owner.path())).sum()
+    })
 }
 
 /// The fleet's coordinator, in this process: it confirms each account's

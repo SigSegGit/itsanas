@@ -827,8 +827,7 @@ pub fn run(
         Some(lan) => println!(
             "  discovery on, udp {} — machines on this network find each other",
             lan.local_addr()
-                .map(|address| address.port())
-                .unwrap_or(itsanas_discover::DEFAULT_PORT)
+                .map_or(itsanas_discover::DEFAULT_PORT, |address| address.port())
         ),
         None if discover => println!("  discovery unavailable — peers must be added by hand"),
         None => println!("  discovery off (--no-discovery)"),
