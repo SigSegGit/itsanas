@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-30 — 1415 test functions across 39 binaries, 15 of them
-`#[ignore]`d, plus 2 doctests. 444 are red-team tests.**
+**Last updated: 2026-10-30 — 1419 test functions across 40 binaries, 18 of them
+`#[ignore]`d, plus 2 doctests. 448 are red-team tests.**
 
-**1299 of the 1415 tests have an entry of their own on this page** — an *entry*,
+**1303 of the 1419 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -164,7 +164,7 @@ guarantee and is not one.
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 12 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
-| `itsanas-net` unit | 66 |
+| `itsanas-net` unit | 67 |
 | `itsanas-net` two-node (`tests/two_nodes.rs`) | 62 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
@@ -189,6 +189,7 @@ guarantee and is not one.
 | `itsanas-node` withdrawals (`tests/withdrawals.rs`) | 4 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-cli` steering (`tests/steering.rs`) | 10 (10 `#[ignore]`d) |
+| `itsanas-cli` route (`tests/route.rs`) | 3 (3 `#[ignore]`d) |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-release` release (`tests/release.rs`) | 14 |
 | `itsanas-testkit` unit | 7 |
@@ -213,7 +214,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 64 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 57 |
-| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 63 |
+| `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 67 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 27 |
@@ -890,7 +891,7 @@ about reading.
 | **`red_team_a_rebuild_in_batches_agrees_with_the_disk_across_every_boundary`** | The rebuild after an unclean exit streams the index in batches instead of one map; stale rows must be removed in every batch, not only the first, and the total must agree with the disk across each batch boundary. Sabotaged by stopping stale removal after the first batch. |
 | `the_disk_check_keeps_every_row_whose_blob_is_there` | A healthy disk loses nothing to the check: every row examined, none removed, the summary unchanged. |
 
-# `itsanas-net` — unit tests (66)
+# `itsanas-net` — unit tests (67)
 
 ## `protocol` — messages and challenges (14)
 
@@ -949,12 +950,13 @@ about reading.
 | **`red_team_eviction_is_asked_for_the_real_overage`** | Evicting for an `ACCOUNT_FULL` store frees what the incoming chunk exceeds the cap by, not a blanket amount. |
 | `a_full_account_makes_room_from_its_own_marks_and_never_from_anothers` | A store refused for `ACCOUNT_FULL` evicts that account's marked chunks and is admitted once more; it never touches another account. |
 
-## `transport` — binding and serving (3)
+## `transport` — binding and serving (4)
 
 | Test | What it proves |
 | --- | --- |
 | `binding_a_public_address_no_longer_needs_an_override` | Documents a deliberate *removal*. Binding a public address used to be refused, because the transport leaked chunk identifiers and sizes to anyone on the path. TLS closed that, so the refusal became cargo cult and was deleted. The test exists so that nobody restores the refusal believing it was ever a security control. |
 | `loopback_still_binds` | The ordinary case did not regress while the above changed. |
+| **`red_team_a_host_waiting_on_its_coordinator_is_not_reported_as_rejecting_the_segments`** | A host's `UNCONFIRMED`, `WITHDRAWN` and `CONTRADICTED` refusals reach the owner as their own `Refusal` and not as `Rejected`, whose line says "a segment that does not verify": on 2026-10-30 that line sent an investigation after segments and chains when the host was waiting for its coordinator (`tests/route.rs`). The three texts live once, in `itsanas-net`. Sabotaged (any one arm dropped): red. |
 | `a_host_that_has_no_room_for_this_account_is_not_reported_as_rejecting_it` | `Refusal::AccountFull` is distinct from rejection; a full peer is ineligible for both refusals and is not marked as rejecting the account. |
 
 ## `placed` — which records a session reads (1)
@@ -1138,6 +1140,29 @@ Two things this test is careful about, both learned the hard way:
   identically, so this cannot distinguish a store that flushes from one that
   does not. `docs/MVP.md` records the ten-second experiment on real hardware
   that would.
+
+---
+
+# `itsanas-cli` — test C's route, two accounts on one machine (3, `#[ignore]`d)
+
+`tests/route.rs`. The fleet's test C rests on one route: another account's node on
+the LAN, found by discovery alone (the coordinator lists only the asker's own
+account, and a relay introduces nobody), dialled as a stranger, then pushed to
+(HANDOVER §8 0x). It was broken for six nights on the fleet and no cargo test
+noticed: `acceptance-local.sh` proves hosting between accounts through `peer add`,
+`lan.rs` the beacons alone. Each test starts two real daemons of two accounts,
+discovery on over real sockets (moved off 21037 by `ITSANAS_DISCOVERY_PORT`),
+listening on every address (a beacon names the LAN address it left from), with an
+in-process coordinator pinned by `itsanas coordinator --device` where the test
+says so -- a host stores for another account only once its coordinator has
+confirmed the device (Nicolas, 2026-10-05). Ignored for the Argon2id
+derivations; the release job runs them on Linux (about 7 s for the three).
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_another_account_found_by_discovery_alone_hosts_the_chunks`** | No `peer add`: after a few five-second rounds the second account's vault holds chunks of the first. Sabotaged: strangers skipped in `dial_order`'s loop (red, with the two below). **Not tested:** the host no longer printing "could not take on hosting" every round between accounts (`NOT_YOUR_ACCOUNT` is now silent there): it shows only after the host has dialled the owner for half a minute or more, and a check waiting for it inside the patience stayed green with the silencing removed. |
+| **`red_team_a_host_without_a_coordinator_is_said_to_wait_for_one_not_to_reject_segments`** | Without a coordinator the host stores nothing, and the owner's log says the host waits for its coordinator to confirm the device -- not "a segment that does not verify", which it said before. Sabotaged (the `UNCONFIRMED` arm dropped in `Offer::from_response`): red. |
+| **`red_team_a_host_that_pledges_nothing_hosts_nothing_and_says_so`** | A host at pledge 0, confirmed and found, stores nothing, and the owner's log says its pledge is full or zero: the fleet's C row was SKIP six nights over exactly this. |
 
 ---
 

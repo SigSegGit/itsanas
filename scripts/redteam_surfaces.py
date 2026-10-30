@@ -65,6 +65,8 @@ SURFACES = [
         'itsanas-net/src/service.rs',
         'itsanas-store/src/vault.rs',
         'itsanas-net/tests/eviction.rs',
+        'itsanas-net/src/transport.rs',
+        'itsanas-cli/tests/route.rs',
     ]),
     ('placement-audit', 'where copies go, audits, reliability, release', [
         'itsanas-placement/src/',

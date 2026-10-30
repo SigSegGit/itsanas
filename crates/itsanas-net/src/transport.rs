@@ -690,6 +690,15 @@ pub enum Refusal {
     /// has to spare ([`PeerClient::may_evict`]), and the host is no worse a
     /// place for the account's data than before.
     AccountFull,
+    /// The host has not confirmed this device of another account with its
+    /// coordinator lately (`UNCONFIRMED`): nothing was wrong with what was
+    /// sent. Read as [`Self::Rejected`], it sent a session after segments and
+    /// chains when the answer was a coordinator (`tests/route.rs`, 2026-10-30).
+    Unconfirmed,
+    /// The coordinator says this device was withdrawn by its account.
+    Withdrawn,
+    /// This account's devices failed the host's storage audits.
+    Contradicted,
 }
 
 impl Offer {
@@ -704,6 +713,15 @@ impl Offer {
             // holds and what it earned, for the operator's log.
             Response::Refused(reason) if reason.starts_with(crate::service::ACCOUNT_FULL) => {
                 Ok(Self::Refused(Refusal::AccountFull))
+            }
+            Response::Refused(reason) if reason == crate::service::UNCONFIRMED => {
+                Ok(Self::Refused(Refusal::Unconfirmed))
+            }
+            Response::Refused(reason) if reason == crate::service::WITHDRAWN => {
+                Ok(Self::Refused(Refusal::Withdrawn))
+            }
+            Response::Refused(reason) if reason == crate::service::CONTRADICTED => {
+                Ok(Self::Refused(Refusal::Contradicted))
             }
             Response::Refused(_) => Ok(Self::Refused(Refusal::Rejected)),
             _ => Err(NetError::UnexpectedResponse { expected: "stored" }),
@@ -1308,6 +1326,27 @@ mod tests {
             Offer::Refused(Refusal::Rejected),
             "a refusal that is not about room read as one that is"
         );
+    }
+
+    #[test]
+    fn red_team_a_host_waiting_on_its_coordinator_is_not_reported_as_rejecting_the_segments() {
+        // tests/route.rs, 2026-10-30: a host of another account refused every
+        // offer because no coordinator had confirmed the owner's device, and
+        // the owner's log said "a segment that does not verify, or does not
+        // follow its chain" -- an investigation went after segments and chains
+        // when the answer was `itsanas coordinator --device`. Sabotage: drop
+        // any one of the three arms in `Offer::from_response`.
+        for (text, want) in [
+            (crate::service::UNCONFIRMED, Refusal::Unconfirmed),
+            (crate::service::WITHDRAWN, Refusal::Withdrawn),
+            (crate::service::CONTRADICTED, Refusal::Contradicted),
+        ] {
+            assert_eq!(
+                Offer::from_response(Response::Refused(text.to_owned())).unwrap(),
+                Offer::Refused(want),
+                "the owner was told its segments were bad when the host said: {text}"
+            );
+        }
     }
 
     #[test]

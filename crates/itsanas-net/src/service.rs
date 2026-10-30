@@ -47,6 +47,17 @@ pub const PLEDGE_EXHAUSTED: &str = "pledged capacity exhausted";
 /// that rejects what it is sent.
 pub const ACCOUNT_FULL: &str = "this account has stored here what its pledge earns";
 
+/// What a host answers a device the coordinator says was withdrawn.
+pub const WITHDRAWN: &str = "the coordinator says this device was withdrawn by its account";
+/// What a host answers a device of another account it has not confirmed
+/// with the coordinator lately.
+pub const UNCONFIRMED: &str = "this host has not confirmed this device with the coordinator \
+     lately; it stores here once it has (the next round, if the coordinator answers)";
+
+/// What a host answers an account whose offer its audits contradicted.
+pub const CONTRADICTED: &str = "a device of this account failed this host's storage audits; \
+     it stores here only what its devices have proved they hold for this host";
+
 /// How much foreign data this node has agreed to hold, in bytes.
 ///
 /// Enforced when accepting, not when serving: a node that has already taken
