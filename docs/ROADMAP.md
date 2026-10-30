@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1423 test functions, 18 of them `#[ignore]`d into the slow job, and 448 of
+**1431 test functions, 18 of them `#[ignore]`d into the slow job, and 454 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -832,7 +832,15 @@ device and reaching a different one is refused.
   that refuses, a box behind a box and NAT-PMP-only routers are still the
   case below, except that since 2026-10-13 such a node with a global IPv6
   address announces it instead of its private IPv4 (`prefer_global_ipv6`;
-  not on Windows, whose listener is IPv4 only); NAT-PMP is tried after
+  on Windows too since 2026-10-30, which listens on `0.0.0.0` and `[::]`
+  as two std sockets, and macOS and Windows keep the address announced
+  last through a temporary-address rotation, `sticky_ipv6`, never across
+  a renumbered prefix). A global IPv6 address is not taken as proof of a
+  way in: a firewall (Windows Defender's, a home router's) may drop every
+  caller, so such a node still parks on a relay until a caller from
+  outside its own /64 has arrived
+  (`red_team_a_global_ipv6_address_alone_does_not_stop_a_machine_parking`,
+  `red_team_a_neighbour_on_the_same_ipv6_network_is_not_a_caller_from_outside`); NAT-PMP is tried after
   UPnP; every dialler accepts a list of addresses, and announcing a router's
   port together with the global IPv6 address is ready for the next release
   (2026-10-13). A router's yes is not proof: since 2026-10-23 a port it
