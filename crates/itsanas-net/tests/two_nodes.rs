@@ -1425,6 +1425,46 @@ fn a_peer_asking_about_an_unknown_user_gets_an_empty_answer() {
     });
 }
 
+/// A node listening on every interface answers a caller over IPv6 and one
+/// over IPv4 on the same port. On Windows those are two sockets, and a
+/// server that watched only the first left every IPv6 caller -- the one
+/// route between two houses that needs no forward -- waiting on a port
+/// that never answered.
+#[test]
+fn a_node_on_every_interface_serves_an_ipv6_caller_and_an_ipv4_one() {
+    if std::net::TcpListener::bind((std::net::Ipv6Addr::LOCALHOST, 0)).is_err() {
+        // No IPv6 on this runner: nothing to dial it with.
+        return;
+    }
+    let host = node(&alice(), 92);
+    let caller = node(&alice(), 93);
+    let server = PeerServer::bind("0.0.0.0:0").expect("bind every interface");
+    let port = server.local_addr().expect("local address").port();
+    let v4: std::net::SocketAddr = (std::net::Ipv4Addr::LOCALHOST, port).into();
+    let v6: std::net::SocketAddr = (std::net::Ipv6Addr::LOCALHOST, port).into();
+    let shutdown = AtomicBool::new(false);
+    let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
+        .with_owners(&itsanas_net::Unscoped);
+
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let _ = server.serve_until(&service, &host.device, &shutdown);
+        });
+        let _stop = StopOnDrop(&shutdown, v4);
+        for address in [v6, v4] {
+            let mut client =
+                PeerClient::connect(address, &caller.device, caller.store.owner(), None)
+                    .unwrap_or_else(|error| {
+                        panic!("a caller dialling {address} was not served: {error}")
+                    });
+            assert!(
+                client.heads(caller.store.owner()).is_ok(),
+                "a caller over {address} was let in and then not answered"
+            );
+        }
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Convergence over the wire
 // ---------------------------------------------------------------------------

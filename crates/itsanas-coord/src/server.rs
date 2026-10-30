@@ -27,7 +27,7 @@
 //! that needed babysitting would not be one.
 
 use std::io;
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -76,7 +76,7 @@ fn now_unix() -> u64 {
 /// A listening coordinator.
 #[derive(Debug)]
 pub struct CoordServer {
-    listener: TcpListener,
+    listener: itsanas_tls::reach::Listeners,
     config: Arc<ServerConfig>,
     handshake_deadline: Duration,
 }
@@ -623,7 +623,7 @@ mod tests {
     /// understand the peer protocol to answer this question would be a
     /// coordinator that knows what members store.
     fn listening_as(device: DeviceKeys) -> (SocketAddr, std::thread::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
         let address = listener.local_addr().expect("address");
         let handle = std::thread::spawn(move || {
             let identity = Identity::generate().expect("identity");

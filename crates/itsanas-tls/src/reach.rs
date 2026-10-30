@@ -14,6 +14,7 @@
 use std::{
     io,
     net::{IpAddr, SocketAddr, TcpListener, TcpStream},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -128,41 +129,183 @@ const BACKLOG: i32 = 128;
 /// An address that is not unspecified is bound as asked. Somebody who wrote
 /// `127.0.0.1:9797` or one interface's address meant that one.
 ///
-/// # Not on Windows, and this is a real limit rather than an oversight
+/// # On Windows, two sockets
 ///
-/// Clearing `IPV6_V6ONLY` means building the socket by hand, and a socket built
-/// by hand on Windows does not get `SO_EXCLUSIVEADDRUSE`, which
-/// `TcpListener::bind` sets and which is what stops **another process on the
-/// machine binding this node's port and taking its traffic**. `socket2` 0.6
-/// exposes no safe way to set it, and this workspace allows `unsafe` in exactly
-/// one file, which is not this one. Given the choice between a node that can be
-/// hijacked locally and a Windows node that is not dialable over IPv6, the
-/// second is the smaller loss: the machines that have to be *dialed* in this
-/// fleet are the Linux ones that stay at home, and the Windows machine is the
-/// laptop that moves and takes part by dialling out.
+/// The dual-stack socket is built by hand with `SO_REUSEADDR`, which on
+/// Windows lets **another program on the machine bind this node's port and
+/// take its traffic**. So Windows gets two plain `TcpListener::bind`s on the
+/// same port instead, `0.0.0.0` then `[::]`: std leaves `IPV6_V6ONLY` on
+/// there, so the two do not clash, and each keeps exactly the options std
+/// gives it. Measured on Windows 11 (2026-10-30): a socket asking for
+/// `SO_REUSEADDR` is refused either wildcard of the port while they are
+/// held, and is let in beside a `[::]` half built with it.
 ///
-/// `a_second_listener_cannot_take_a_port_this_one_holds` is what holds this
-/// shut. It failed when this function was first written, which is how the hole
-/// was found rather than argued about.
-pub fn listen_on(resolved: &[SocketAddr]) -> io::Result<TcpListener> {
-    #[cfg(not(windows))]
-    {
-        use std::net::{IpAddr, Ipv6Addr};
+/// **Not held shut on Windows: a specific address.** Without
+/// `SO_EXCLUSIVEADDRUSE`, Windows lets a program of the same user bind one
+/// address of the machine on the node's port, with no option at all, and
+/// the more specific bind takes that address's callers. Measured 2026-10-30
+/// beside both wildcards: the global IPv6 address the node announces,
+/// `[::1]`, `127.0.0.1` and the LAN address all bound. A peer from another
+/// house then reaches that program, and the device pin fails: the node is
+/// undialable there (a denial of service, not a stolen identity). Linux's
+/// dual-stack socket refuses these binds. Only `SO_EXCLUSIVEADDRUSE` stops
+/// it; `socket2` 0.6 has no safe way to set it, and this workspace forbids
+/// `unsafe`.
+///
+/// With port 0 the IPv4 socket picks the port and the IPv6 one takes the
+/// same; an IPv6 twin some other program holds is a port picked again. On a
+/// port that was named, an IPv6 half something else holds is an error,
+/// never a quiet IPv4-only node: this node announces its IPv6 address, and
+/// its callers there would reach the other program. A machine with no IPv6
+/// keeps the IPv4 socket alone, for the reason above.
+///
+/// `a_second_listener_cannot_take_a_port_this_one_holds` and
+/// `red_team_a_second_listener_cannot_take_the_ipv6_port_this_one_holds` hold
+/// the wildcards shut. The first failed when this function was first written, which is
+/// how the hole was found rather than argued about.
+pub fn listen_on(resolved: &[SocketAddr]) -> io::Result<Listeners> {
+    let wildcard = resolved
+        .iter()
+        .find(|address| matches!(address.ip(), IpAddr::V4(v4) if v4.is_unspecified()));
 
-        let wildcard = resolved
-            .iter()
-            .find(|address| matches!(address.ip(), IpAddr::V4(v4) if v4.is_unspecified()));
-
-        if let Some(address) = wildcard {
-            let both = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), address.port());
+    if let Some(address) = wildcard {
+        #[cfg(windows)]
+        return bind_side_by_side(address.port());
+        #[cfg(not(windows))]
+        {
+            let both = SocketAddr::new(IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), address.port());
             if let Ok(listener) = bind_dual_stack(both) {
-                return Ok(listener);
+                return Listeners::of(vec![listener]);
             }
         }
     }
 
-    TcpListener::bind(resolved)
+    Listeners::of(vec![TcpListener::bind(resolved)?])
 }
+
+/// How often port 0 is picked again when its IPv6 twin is taken.
+#[cfg(windows)]
+const PORT_PICKS: usize = 8;
+
+/// `0.0.0.0:port` and `[::]:port` as two plain std sockets (Windows).
+#[cfg(windows)]
+fn bind_side_by_side(port: u16) -> io::Result<Listeners> {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    let taken = |error: &io::Error| {
+        matches!(
+            error.kind(),
+            io::ErrorKind::AddrInUse | io::ErrorKind::PermissionDenied
+        )
+    };
+    let mut picks = 0;
+    loop {
+        let v4 = TcpListener::bind((Ipv4Addr::UNSPECIFIED, port))?;
+        let bound = v4.local_addr()?.port();
+        match TcpListener::bind((Ipv6Addr::UNSPECIFIED, bound)) {
+            Ok(v6) => return Listeners::of(vec![v4, v6]),
+            Err(error) if taken(&error) && port == 0 && picks < PORT_PICKS => picks += 1,
+            Err(error) if taken(&error) => return Err(error),
+            Err(_) => return Listeners::of(vec![v4]),
+        }
+    }
+}
+
+/// The sockets one listen address is served by: one where the system takes
+/// both IP versions on one socket, two on Windows (see [`listen_on`]).
+///
+/// Used like a `TcpListener`. With two, both are non-blocking underneath and
+/// a blocking [`Self::accept`] polls them, so a caller that waits on one
+/// socket's accept cannot leave the other's callers queued for ever.
+#[derive(Debug)]
+pub struct Listeners {
+    sockets: Vec<TcpListener>,
+    blocking: AtomicBool,
+    /// Where the next accept starts, so a flood on one family does not
+    /// starve the other.
+    next: AtomicUsize,
+}
+
+impl Listeners {
+    fn of(sockets: Vec<TcpListener>) -> io::Result<Self> {
+        if sockets.len() > 1 {
+            for socket in &sockets {
+                // Blocking, an accept on one waits there while the other's
+                // callers queue.
+                socket.set_nonblocking(true)?;
+            }
+        }
+        Ok(Self {
+            sockets,
+            blocking: AtomicBool::new(true),
+            next: AtomicUsize::new(0),
+        })
+    }
+
+    /// The address bound: the IPv4 socket's on Windows, which is the port
+    /// both share.
+    ///
+    /// # Errors
+    ///
+    /// What `TcpListener::local_addr` returns.
+    pub fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.sockets[0].local_addr()
+    }
+
+    /// `TcpListener::set_nonblocking`, for every socket.
+    ///
+    /// # Errors
+    ///
+    /// What `TcpListener::set_nonblocking` returns.
+    pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        if let [only] = &self.sockets[..] {
+            only.set_nonblocking(nonblocking)?;
+        }
+        self.blocking.store(!nonblocking, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// The next caller on any of the sockets, as `TcpListener::accept`:
+    /// waiting for one unless [`Self::set_nonblocking`] said not to.
+    ///
+    /// # Errors
+    ///
+    /// What `TcpListener::accept` returns, and `WouldBlock` from a
+    /// non-blocking listener with nobody waiting.
+    pub fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
+        if let [only] = &self.sockets[..] {
+            return only.accept();
+        }
+        loop {
+            let start = self.next.load(Ordering::Relaxed);
+            for turn in 0..self.sockets.len() {
+                let index = (start + turn) % self.sockets.len();
+                match self.sockets[index].accept() {
+                    Ok((stream, from)) => {
+                        self.next.store(index + 1, Ordering::Relaxed);
+                        if self.blocking.load(Ordering::Relaxed) {
+                            // Accepted from a non-blocking socket, it is one
+                            // on Windows; a blocking caller would read
+                            // `WouldBlock` as the peer failing.
+                            stream.set_nonblocking(false)?;
+                        }
+                        return Ok((stream, from));
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            if !self.blocking.load(Ordering::Relaxed) {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            std::thread::sleep(ACCEPT_POLL);
+        }
+    }
+}
+
+/// How long a blocking [`Listeners::accept`] over two sockets sleeps when
+/// neither has a caller: what the servers' own accept loops sleep.
+const ACCEPT_POLL: Duration = Duration::from_millis(20);
 
 /// One socket for both IP versions, or an error if this machine has no IPv6.
 #[cfg(not(windows))]
@@ -176,8 +319,8 @@ fn bind_dual_stack(address: SocketAddr) -> io::Result<TcpListener> {
     // What `TcpListener::bind` sets on this platform: without it a restarted
     // node cannot re-bind its own port while the previous connections drain,
     // and that is every restart of a busy node. It does not mean here what it
-    // means on Windows -- see the note on `listen_on`, which is why this
-    // function does not exist there.
+    // means on Windows -- see the note on `listen_on`, which is why Windows
+    // gets two std sockets instead of this one.
     socket.set_reuse_address(true)?;
     socket.bind(&address.into())?;
     socket.listen(BACKLOG)?;
@@ -332,12 +475,11 @@ mod tests {
             .expect("binding every interface must work");
         let port = listener.local_addr().unwrap().port();
 
-        if cfg!(windows) || !has_ipv6() {
-            // Windows deliberately keeps the plain IPv4 listener (see
-            // `listen_on`), and a machine with IPv6 switched off in the kernel
-            // cannot have anything else. Both must still *start*: a node that
-            // refused to run would be a regression in exchange for a
-            // reachability neither of them can have.
+        if !has_ipv6() {
+            // A machine with IPv6 switched off in the kernel cannot have
+            // anything else, and must still *start*: a node that refused to
+            // run would be a regression in exchange for a reachability it
+            // cannot have.
             assert!(
                 listener.local_addr().unwrap().is_ipv4(),
                 "the listener must fall back to IPv4 rather than refusing to start"
@@ -345,12 +487,9 @@ mod tests {
             return;
         }
 
-        assert!(
-            listener.local_addr().unwrap().is_ipv6(),
-            "a wildcard bind must take the dual-stack socket when IPv6 exists; \
-             an IPv4-only listener cannot be dialled between two houses"
-        );
-
+        // On Windows too, since 2026-10-30: its listener was IPv4 only, so
+        // the laptop at home was dialable from another house through a
+        // relay or nothing.
         TcpStream::connect_timeout(
             &SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port),
             CONNECT_TIMEOUT,
@@ -376,6 +515,43 @@ mod tests {
         assert!(
             listen_on(&[SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port)]).is_err(),
             "a second listener took port {port} from the one already serving it"
+        );
+    }
+
+    /// THE SAME ATTACK, ON THE IPV6 HALF: on Windows the IPv6 side of the
+    /// port is a socket of its own. Built with `SO_REUSEADDR`, or not built
+    /// at all, it let another program on the machine bind `[::]` on the
+    /// node's port and answer every IPv6 caller in its place. The wildcard
+    /// only: on Windows a bind to one specific address of the machine still
+    /// gets in beside it, and nothing safe stops that (see `listen_on`).
+    #[test]
+    fn red_team_a_second_listener_cannot_take_the_ipv6_port_this_one_holds() {
+        let held = listen_on(&[SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)]).unwrap();
+        let port = held.local_addr().unwrap().port();
+        if !has_ipv6() {
+            return;
+        }
+        let v6 = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port);
+
+        assert!(
+            StdListener::bind(v6).is_err(),
+            "another program took [::]:{port} beside this node and answered its IPv6 callers"
+        );
+        let reusing = socket2::Socket::new(
+            socket2::Domain::IPV6,
+            socket2::Type::STREAM,
+            Some(socket2::Protocol::TCP),
+        )
+        .unwrap();
+        reusing.set_only_v6(true).unwrap();
+        reusing.set_reuse_address(true).unwrap();
+        assert!(
+            reusing.bind(&v6.into()).is_err(),
+            "a program asking for SO_REUSEADDR took [::]:{port} from this node"
+        );
+        assert!(
+            listen_on(&[SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port)]).is_err(),
+            "a second node started on port {port} beside the one already serving it"
         );
     }
 
