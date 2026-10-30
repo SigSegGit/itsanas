@@ -46,12 +46,12 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
    change to ROADMAP.md or MVP.md). If it says it cannot clone, open the
    Wiki tab, press "Create the first page", save anything, run it again:
 
-       git switch main; git pull; bash scripts/wiki-publish.sh
+       git switch main; git pull; python scripts/wiki-publish.py
 
 4. Create / refresh the public Projects board (needs the `project` scope once):
 
        gh auth refresh -s project
-       bash scripts/project-sync.sh
+       python scripts/project-sync.py
 
    Then, in the browser, add a Board view grouped by Status and a Roadmap
    view: `gh` cannot create views.
@@ -63,7 +63,7 @@ milestone map, the table, the A-O acceptance grid, Now / Not started / Deferred,
 the test counts -- sits in a `GENERATED` block drawn from ROADMAP.md and MVP.md
 by `scripts/check-wiki.py`, which CI runs: change a status in the source, run
 `python scripts/check-wiki.py --write`, commit. The board is fed by the same
-parse (`--items` -> `scripts/project-sync.sh`), so wiki, board and roadmap
+parse (`items()` -> `scripts/project-sync.py`), so wiki, board and roadmap
 cannot disagree. Neither was run against GitHub: a cloud session has no
 credentials for the wiki repository and GraphQL is blocked there, so the
 publish script was proven against a local bare repository and the board script
