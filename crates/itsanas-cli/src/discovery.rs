@@ -89,8 +89,9 @@ impl Neighbourhood {
         self.listening_since(Instant::now());
     }
 
-    /// [`Self::listening`], from `at`.
-    fn listening_since(&self, at: Instant) {
+    /// [`Self::listening`], from `at`: a test of the daemon's dials needs a
+    /// discovery that has listened long enough for its silence to count.
+    pub(crate) fn listening_since(&self, at: Instant) {
         if let Ok(mut since) = self.listening.lock() {
             since.get_or_insert(at);
         }
