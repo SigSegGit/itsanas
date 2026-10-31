@@ -105,6 +105,57 @@ struct Cli {
     /// exclusively, and this refuses while another process holds it.
     #[arg(long, value_name = "USERNAME")]
     forget_account: Option<String>,
+
+    /// Suspend the account registered under this username, then exit.
+    ///
+    /// For an abuse report or a legal request. Hosts stop storing anything
+    /// new for its machines, it cannot enrol or announce, and nobody is handed
+    /// its address. What hosts already keep for it stays, unreadable to the
+    /// operator as before: lift it with `--unsuspend`. Stop the running
+    /// coordinator first, as for `--forget-account`.
+    #[arg(long, value_name = "USERNAME", conflicts_with_all = ["forget_account", "unsuspend"])]
+    suspend: Option<String>,
+
+    /// Lift a suspension set with `--suspend`, then exit.
+    #[arg(long, value_name = "USERNAME", conflicts_with = "forget_account")]
+    unsuspend: Option<String>,
+}
+
+/// `--suspend` (`lift` false) or `--unsuspend` (`lift` true) `name`, saying
+/// what changed.
+fn suspend_or_lift(directory: &Directory, name: &str, lift: bool) -> Result<(), String> {
+    let account = directory
+        .account(name)
+        .map_err(|error| format!("could not read {name:?}: {error}"))?
+        .ok_or_else(|| format!("no account is registered as {name:?}"))?;
+    let user = account.user.id;
+    if lift {
+        let was = directory
+            .unsuspend(user)
+            .map_err(|error| format!("could not unsuspend {name:?}: {error}"))?;
+        if was {
+            println!("unsuspended {name:?} ({user})");
+            println!("  hosts store for its machines again once they ask the coordinator");
+        } else {
+            println!("{name:?} ({user}) was not suspended; nothing changed");
+        }
+    } else {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        let fresh = directory
+            .suspend(user, now)
+            .map_err(|error| format!("could not suspend {name:?}: {error}"))?;
+        if fresh {
+            println!("suspended {name:?} ({user})");
+        } else {
+            println!("{name:?} ({user}) was already suspended; nothing changed");
+        }
+        println!("  hosts take no new data for its machines; what they keep stays, unread");
+        println!("  it cannot enrol or announce, and nobody is handed its address");
+        println!("  lift it with --unsuspend {name}");
+    }
+    Ok(())
 }
 
 fn main() -> ExitCode {
@@ -151,6 +202,15 @@ fn run() -> Result<(), String> {
         );
         println!("  the name is free; its holder's data on hosts is not touched");
         return Ok(());
+    }
+
+    if let Some((name, lift)) = cli
+        .suspend
+        .as_ref()
+        .map(|name| (name, false))
+        .or_else(|| cli.unsuspend.as_ref().map(|name| (name, true)))
+    {
+        return suspend_or_lift(&directory, name, lift);
     }
 
     let server = CoordServer::bind(&cli.listen)

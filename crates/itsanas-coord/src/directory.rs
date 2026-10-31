@@ -116,6 +116,12 @@ const RETIRED: TableDefinition<'_, &str, u64> = TableDefinition::new("retired_na
 /// about at their rounds, so a host that was offline when it happened still
 /// frees what it kept, and checks the account's signature before it does.
 const DELETED: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new("deleted_accounts");
+/// A suspended account's key -> the unix time the operator suspended it.
+///
+/// Set and lifted by the operator only ([`Directory::suspend`]), never by a
+/// request on the wire. Nothing else about the account changes: the operator
+/// can stop it taking part, and still cannot read a byte it stored.
+const SUSPENDED: TableDefinition<'_, &[u8], u64> = TableDefinition::new("suspended_accounts");
 /// Escrow fetches per username: `count` (u32 LE) then `since` (unix, u64 LE).
 /// On disk because a restart that cleared them handed out a fresh budget to
 /// anyone who could provoke one (HANDOVER §9).
@@ -325,6 +331,7 @@ impl Directory {
             let _ = txn.open_table(DEPARTURES)?;
             let _ = txn.open_table(RETIRED)?;
             let _ = txn.open_table(DELETED)?;
+            let _ = txn.open_table(SUSPENDED)?;
         }
         txn.commit()?;
 
@@ -368,6 +375,9 @@ impl Directory {
 
         let joiner = signed.registration.user.id;
         self.refuse_if_retired(&signed.registration.username, joiner, now)?;
+        if self.is_suspended(joiner)? {
+            return Err(CoordError::Suspended);
+        }
         let held = self.account_of(joiner)?;
         let returning = held.is_some();
 
@@ -708,6 +718,66 @@ impl Directory {
         Ok(out)
     }
 
+    /// Suspend an account, by its operator (an abuse report, a legal
+    /// request). Returns whether it was not suspended already.
+    ///
+    /// Its machines are then answered as unenrolled to a host asking whether
+    /// to store for them, its registrations, enrolments and announcements are
+    /// refused, and it is listed to nobody. Hosts stop taking new data for it;
+    /// they do **not** free what they keep, unlike after a deletion: a
+    /// suspension may be lifted ([`Self::unsuspend`]) and a deletion cannot
+    /// be undone, so freeing here would turn a reversible decision of the
+    /// operator into a permanent loss for the member. Unenrolled rather than
+    /// withdrawn for the same reason: a host keeps a withdrawal for good.
+    ///
+    /// # Errors
+    ///
+    /// No account with this key; the database's.
+    pub fn suspend(&self, user: UserId, now: u64) -> Result<bool> {
+        if self.account_of(user)?.is_none() {
+            return Err(CoordError::NoSuchAccount(user.short()));
+        }
+        let txn = self.db.begin_write()?;
+        let fresh = {
+            let mut table = txn.open_table(SUSPENDED)?;
+            let fresh = table.get(user.as_bytes().as_slice())?.is_none();
+            if fresh {
+                table.insert(user.as_bytes().as_slice(), now)?;
+            }
+            fresh
+        };
+        txn.commit()?;
+        Ok(fresh)
+    }
+
+    /// Lift a suspension. Returns whether the account was suspended.
+    ///
+    /// # Errors
+    ///
+    /// The database's.
+    pub fn unsuspend(&self, user: UserId) -> Result<bool> {
+        let txn = self.db.begin_write()?;
+        let was = txn
+            .open_table(SUSPENDED)?
+            .remove(user.as_bytes().as_slice())?
+            .is_some();
+        txn.commit()?;
+        Ok(was)
+    }
+
+    /// Whether the operator suspended `user`.
+    ///
+    /// # Errors
+    ///
+    /// The database's.
+    pub fn is_suspended(&self, user: UserId) -> Result<bool> {
+        let txn = self.db.begin_read()?;
+        Ok(txn
+            .open_table(SUSPENDED)?
+            .get(user.as_bytes().as_slice())?
+            .is_some())
+    }
+
     /// Turn escrow on or off for a member.
     pub fn set_escrow_enabled(&self, user: UserId, enabled: bool) -> Result<()> {
         let Some(mut account) = self.account_of(user)? else {
@@ -739,6 +809,11 @@ impl Directory {
         // has no member to attribute them to.
         if self.account_of(signed.claim.owner)?.is_none() {
             return Err(CoordError::NoSuchAccount(signed.claim.owner.short()));
+        }
+        // A suspended account enrols nothing new. A withdrawal still goes
+        // through: it only ever takes a machine out.
+        if !signed.claim.revoked && self.is_suspended(signed.claim.owner)? {
+            return Err(CoordError::Suspended);
         }
 
         let key = signed.claim.device.to_bytes();
@@ -895,8 +970,17 @@ impl Directory {
     /// withdrawn machine is not a device of the account any more, and the index
     /// keeps its row so that a withdrawal stays final rather than becoming a
     /// gap somebody can write into.
+    ///
+    /// A suspended account has none: it is handed out to nobody.
     pub fn live_claims_of(&self, user: UserId) -> Result<Vec<SignedClaim>> {
         let txn = self.db.begin_read()?;
+        if txn
+            .open_table(SUSPENDED)?
+            .get(user.as_bytes().as_slice())?
+            .is_some()
+        {
+            return Ok(Vec::new());
+        }
         let index = txn.open_table(CLAIMS_BY_OWNER)?;
         let claims = txn.open_table(CLAIMS)?;
         live_claims_in(&index, &claims, user)
@@ -939,16 +1023,21 @@ impl Directory {
         }
     }
 
-    /// Every live (unrevoked) claim.
+    /// Every live (unrevoked) claim of an account not suspended.
     pub fn live_claims(&self) -> Result<Vec<SignedClaim>> {
         let txn = self.db.begin_read()?;
         let claims = txn.open_table(CLAIMS)?;
+        let suspended = txn.open_table(SUSPENDED)?;
 
         let mut out = Vec::new();
         for row in claims.iter()? {
             let (_, value) = row?;
             let signed: SignedClaim = postcard::from_bytes(value.value())?;
-            if !signed.claim.revoked {
+            if !signed.claim.revoked
+                && suspended
+                    .get(signed.claim.owner.as_bytes().as_slice())?
+                    .is_none()
+            {
                 out.push(signed);
             }
         }
@@ -1003,7 +1092,9 @@ impl Directory {
             .claim_for(signed.presence.device)?
             .filter(|claim| !claim.claim.revoked)
             .ok_or_else(|| CoordError::UnclaimedDevice(signed.presence.device.short()))?;
-        let _ = claim;
+        if self.is_suspended(claim.claim.owner)? {
+            return Err(CoordError::Suspended);
+        }
 
         let key = signed.presence.device.to_bytes();
         let mut txn = self.db.begin_write()?;

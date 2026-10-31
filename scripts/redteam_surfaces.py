@@ -48,6 +48,7 @@ SURFACES = [
         'itsanas-android/src/devices.rs',
         'itsanas-node/tests/five_devices.rs',
         'itsanas-node/tests/withdrawals.rs',
+        'itsanas-node/tests/suspension.rs',
     ]),
     ('coordinator', 'directory, presences, accounting, the coordinator as an adversary', [
         'itsanas-coord/src/directory.rs',
