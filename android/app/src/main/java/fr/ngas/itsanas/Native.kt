@@ -32,6 +32,12 @@ object Native {
 
     external fun status(): String
 
+    /** JSON: whether the signed release offers a newer APK (see [Updater]). */
+    external fun checkUpdate(manifest: String, signature: String): String
+
+    /** "ok" when the file at [path] is the APK the signed release names. */
+    external fun checkApk(manifest: String, signature: String, path: String): String
+
     external fun list(): String
 
     external fun get(path: String, destination: String): String

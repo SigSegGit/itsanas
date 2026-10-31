@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-30 — 1457 test functions across 40 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 474 are red-team tests.**
+**Last updated: 2026-10-30 — 1461 test functions across 40 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 478 are red-team tests.**
 
-**1341 of the 1457 tests have an entry of their own on this page** — an *entry*,
+**1345 of the 1461 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -180,7 +180,7 @@ guarantee and is not one.
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
 | `itsanas-cli` unit | 255 |
-| `itsanas-android` unit | 10 |
+| `itsanas-android` unit | 11 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 167 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -191,7 +191,7 @@ guarantee and is not one.
 | `itsanas-cli` steering (`tests/steering.rs`) | 12 (12 `#[ignore]`d) |
 | `itsanas-cli` route (`tests/route.rs`) | 3 (3 `#[ignore]`d) |
 | `itsanas-cli` setup (`tests/setup.rs`) | 1 (1 `#[ignore]`d) |
-| `itsanas-release` release (`tests/release.rs`) | 14 |
+| `itsanas-release` release (`tests/release.rs`) | 17 |
 | `itsanas-testkit` unit | 7 |
 
 These counts are mechanical — regenerate them with
@@ -219,7 +219,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 52 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 119 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 123 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1914,7 +1914,7 @@ not read, the pledge kept whatever the free space.
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 
-# `itsanas-android` — the JNI boundary (10)
+# `itsanas-android` — the JNI boundary (11)
 
 `src/lib.rs` and `src/devices.rs`. The only crate that relaxes the unsafe
 lint, and the only one whose contract is with another language. The device
@@ -1933,6 +1933,7 @@ from a host over a real socket, and one of them opened.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_the_phone_installs_only_the_apk_the_signed_release_names`** | The application's own update (`checkUpdate`, `checkApk`): a newer signed release's APK is offered with its size, the downloaded file is accepted only when it is that APK, a file changed after the check is refused, the running version is not offered, and another key's release is an error. Sabotaged (`check_file` dropped): red. |
 | **`a_plan_is_reported_with_the_names_kotlin_reads`** | The field names are a contract with another language, and a rename here fails silently over there — the application would show an empty reason and no interval, and nothing would say why. |
 | **`asking_a_closed_node_says_so_rather_than_crashing`** | Every entry point can be called before an account is open, because Android restarts a process whenever it likes. It has to answer with a sentence a person can act on, not with a panic crossing into the JVM. |
 | **`red_team_the_phone_saves_pledge_and_keep_as_a_pair_and_says_so_in_its_words`** | `set_limits`, the body of `setLimits`, which the settings screen now calls: raising pledge and keep together is accepted (saved one after the other, the new keep was checked against the old pledge and refused); a pair that does not fit is refused naming the screen's field, not `itsanas space`; a negative pledge is refused rather than read as its absolute value (found by `itsanas-redteam`). Sabotaged three ways (keep checked against the old pledge; `SplitRefusal`'s own words; `unsigned_abs`): red. |
@@ -2684,7 +2685,7 @@ the `slow-tests` CI job runs it in release.
 
 ---
 
-# `itsanas-release` — signed release manifests (14)
+# `itsanas-release` — signed release manifests (17)
 
 `crates/itsanas-release` (`tests/release.rs`): the manifest (`itsanas-release 1`,
 one `file` line per target with size, BLAKE3 and SHA-256), its Ed25519
@@ -2696,6 +2697,9 @@ holds Nicolas's public key since 2026-10-07.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_phone_installs_only_a_newer_signed_apk`** | The phone's update check (`android_update`): a newer signed release with an APK is offered with the entry its download is checked against; the same version, an older one or a release without an APK is nothing to do; a release signed by another key is an error, never "up to date". Sabotaged (a bad signature read as no update; the version comparison dropped): red. |
+| **`red_team_the_apk_entry_does_not_break_an_older_node_reading_the_manifest`** | A manifest carrying the APK (`android-apk`, `itsanas-android-apk`) still verifies for a desktop node: a `....apk` name would have made every 0.1.13 node reject the manifest and its own update. Sabotaged (the target renamed `android.apk`): red. |
+| **`red_team_a_newer_version_always_has_a_larger_android_code`** | `Version::android_code` rises with every version (Android installs an update only over a smaller `versionCode`, which was 1 for every build), and a version that does not fit has none. Sabotaged (`MAJOR * 1000 + MINOR`): red. |
 | `a_release_signed_by_the_trusted_key_is_accepted_end_to_end` | The honest path holds: manifest from a dir, sealed key signs it, verify_release + check_file accept the real binary (a refusal here would block every tester's update). |
 | **`red_team_a_manifest_signed_by_another_key_is_refused`** | A release signed by anyone but the trusted key is refused (else anyone could push binaries to every node); Sabotaged (signature check accepts any key): red. |
 | **`red_team_one_changed_byte_in_a_signed_manifest_is_refused`** | One byte altered in a signed manifest (e.g. a hash swapped for a trojan's) is refused; Sabotaged (signature check accepts any key): red. |
