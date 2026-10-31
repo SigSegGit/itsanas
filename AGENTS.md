@@ -9,6 +9,35 @@ the test suite, which remains the only thing that proves a property holds.
 | **AI code reviewer** (provider-agnostic) | CI gatekeeper: reviews the diff of every PR and every push to `main` | GitHub Actions | `.github/workflows/ai-code-reviewer.yml` → `scripts/ci_code_reviewer.py` |
 | **Aider + local Qwen** | Local operations and pre-push review, offline, no per-token cost | developer machine, LM Studio | `scripts/local_ai_helper.sh`, hook in `docs/LOCAL_AI_HOOKS.md` |
 
+## Public repository: what no agent writes here
+
+This repository is public, and its owner may publish, license or sell the
+project. Every agent, every commit, pull request, issue comment and release
+note follows these rules. Each one exists because breaking it cannot be undone
+once it is published.
+
+1. **Legal texts carry no caveat.** CLA.md and any terms, privacy or licence
+   text state their terms and nothing about their own status: no draft
+   marker, no pending review, no doubt about validity. Such remarks go to the
+   owner in private.
+2. **No rights are granted.** Nothing enters under a licence the owner could
+   not relicense (no copyleft other than the project's own AGPL, nothing
+   "non-commercial", no code copied without a licence). The licence does not
+   change. Contributors are promised nothing: contributions come in only under
+   [CLA.md](CLA.md).
+3. **No promise to users.** Public text says what a named test proves, as a
+   fact. It gives no warranty, availability, legality or safety guarantee.
+4. **Nothing against the project's interest.** No text says the network
+   knowingly holds unlawful content, that abuse cannot be handled, or that the
+   owner can read members' data.
+5. **No private infrastructure, no secret.** No new hostname, port, account,
+   key path or address of the owner's machines; no token.
+6. **The name is the owner's.** Nothing invites a fork to use "ITSaNAS".
+
+`scripts/check-public-claims.py` enforces 1 and 2 (licences and the CLA) on
+every push. The rest is checked by whoever writes: read the diff, the commit
+message and the pull request body before sending them.
+
 ## Claude Code
 
 Designs and implements. Every behaviour change starts from a test that fails
