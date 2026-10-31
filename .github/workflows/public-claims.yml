@@ -1,0 +1,23 @@
+name: Public claims
+
+# The repository is public and its owner may license or sell the project:
+# legal texts carry no caveat, every licence can be relicensed, and the
+# contributor agreement is enforced (scripts/check-public-claims.py says why).
+# In its own workflow because ci.yml is protected from remote writes.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  public-claims:
+    name: Nothing published here weakens the owner's rights
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 scripts/check-public-claims.py
