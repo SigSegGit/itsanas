@@ -547,14 +547,14 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_sync(
                 .iter()
                 .map(|peer| (peer.clone(), None))
                 .collect();
-            if node.config.coordinator.is_some() {
-                if let Ok(found) = itsanas_node::coordinator::peers(node, node.store.owner()) {
-                    for (device, address) in found {
-                        if !address.starts_with(itsanas_node::contact::RELAY_PREFIX)
-                            && !targets.iter().any(|(known, _)| *known == address)
-                        {
-                            targets.push((address, Some(device)));
-                        }
+            if node.config.coordinator.is_some()
+                && let Ok(found) = itsanas_node::coordinator::peers(node, node.store.owner())
+            {
+                for (device, address) in found {
+                    if !address.starts_with(itsanas_node::contact::RELAY_PREFIX)
+                        && !targets.iter().any(|(known, _)| *known == address)
+                    {
+                        targets.push((address, Some(device)));
                     }
                 }
             }
