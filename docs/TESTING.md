@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-30 — 1465 test functions across 41 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 482 are red-team tests.**
+**Last updated: 2026-10-30 — 1466 test functions across 41 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 483 are red-team tests.**
 
-**1349 of the 1465 tests have an entry of their own on this page** — an *entry*,
+**1350 of the 1466 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -180,7 +180,7 @@ guarantee and is not one.
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
 | `itsanas-cli` unit | 255 |
-| `itsanas-android` unit | 12 |
+| `itsanas-android` unit | 13 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 167 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -220,7 +220,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 52 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 124 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 125 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1915,7 +1915,7 @@ not read, the pledge kept whatever the free space.
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 
-# `itsanas-android` — the JNI boundary (12)
+# `itsanas-android` — the JNI boundary (13)
 
 `src/lib.rs` and `src/devices.rs`. The only crate that relaxes the unsafe
 lint, and the only one whose contract is with another language. The device
@@ -1934,6 +1934,7 @@ from a host over a real socket, and one of them opened.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_unlocking_while_the_sync_service_holds_the_node_opens_nothing_twice`** | The owner's phone stuck on Unlock (2026-10-31): the sync service kept the node open in the process and a second open was refused as "already open", the automatic unlock and the typed one alike. `open_into` answers the node already held for that home, and lets go of another before opening. Sabotaged (opening before letting go, no reuse, as before): red with the phone's own error. |
 | **`red_team_the_phone_installs_only_the_apk_the_signed_release_names`** | The application's own update (`checkUpdate`, `checkApk`): a newer signed release's APK is offered with its size, the downloaded file is accepted only when it is that APK, a file changed after the check is refused, the running version is not offered, and another key's release is an error. Sabotaged (`check_file` dropped): red. |
 | **`a_plan_is_reported_with_the_names_kotlin_reads`** | The field names are a contract with another language, and a rename here fails silently over there — the application would show an empty reason and no interval, and nothing would say why. |
 | **`asking_a_closed_node_says_so_rather_than_crashing`** | Every entry point can be called before an account is open, because Android restarts a process whenever it likes. It has to answer with a sentence a person can act on, not with a panic crossing into the JVM. |
