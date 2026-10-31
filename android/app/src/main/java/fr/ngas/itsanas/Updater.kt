@@ -43,6 +43,20 @@ object Updater {
     }
 
     /**
+     * The offer to show when the application opens, at most once a day: null
+     * when it already asked today, when this is the latest release, or when
+     * the check failed (offline, GitHub not answering). A bad signature is
+     * a failure too here; Settings -> Updates shows it in words.
+     */
+    suspend fun dueOffer(context: Context): Offer? {
+        val prefs = context.getSharedPreferences("updates", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        if (now - prefs.getLong("asked", 0L) < 24 * 60 * 60 * 1000L) return null
+        prefs.edit().putLong("asked", now).apply()
+        return try { check() } catch (e: Exception) { null }
+    }
+
+    /**
      * Download the offered APK, check it, and hand it to Android's installer.
      * Returns false when the person must first allow ITSaNAS to install apps:
      * the settings page for that has then been opened.
