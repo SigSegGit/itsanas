@@ -202,7 +202,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_create(
 
     answer(&mut env, move || {
         let (home, username, passphrase) = (home?, username?, passphrase?);
-        let (node, phrase) = Node::create(&home, &passphrase, &username)?;
+        let (node, phrase) = create_account(&home, &passphrase, &username)?;
 
         let answer = serde_json::json!({
             "phrase": phrase.as_str(),
@@ -231,7 +231,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_login(
     let passphrase = text(&mut env, &passphrase, "the passphrase");
 
     answer(&mut env, move || {
-        let node = Node::restore(&home?, &passphrase?, &username?, &phrase?)?;
+        let node = restore_account(&home?, &passphrase?, &username?, &phrase?)?;
         let answer = describe(&node);
         hold(node)?;
         Ok(answer)
@@ -250,7 +250,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_open(
     let passphrase = text(&mut env, &passphrase, "the passphrase");
 
     answer(&mut env, move || {
-        let node = Node::open(&home?, &passphrase?)?;
+        let node = pin_official(Node::open(&home?, &passphrase?)?)?;
         let answer = describe(&node);
         hold(node)?;
         Ok(answer)
@@ -270,6 +270,43 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_close(
         *guard = None;
         Ok("{}".to_owned())
     })
+}
+
+/// Point `node` at the official coordinator, pinned to its device, and save.
+///
+/// The app offers no way to name another coordinator: a field for one let
+/// anybody who could talk a user into typing an address send that user's
+/// account to a network of their choosing. Done on create, restore and open,
+/// so a node made by an older build that could be pointed elsewhere comes
+/// back to the official network the next time it is unlocked.
+fn pin_official(mut node: Node) -> Result<Node, Failure> {
+    node.config.coordinator = Some(itsanas_node::coordinator::DEFAULT_COORDINATOR.to_owned());
+    node.config.coordinator_device =
+        Some(itsanas_node::coordinator::DEFAULT_COORDINATOR_DEVICE.to_owned());
+    node.save_config()?;
+    Ok(node)
+}
+
+/// [`Java_fr_ngas_itsanas_Native_create`] without the JNI: a new node, on the
+/// official coordinator.
+fn create_account(
+    home: &std::path::Path,
+    passphrase: &str,
+    username: &str,
+) -> Result<(Node, itsanas_node::node::zeroize_phrase::Phrase), Failure> {
+    let (node, phrase) = Node::create(home, passphrase, username)?;
+    Ok((pin_official(node)?, phrase))
+}
+
+/// [`Java_fr_ngas_itsanas_Native_login`] without the JNI: a restored node, on
+/// the official coordinator.
+fn restore_account(
+    home: &std::path::Path,
+    passphrase: &str,
+    username: &str,
+    phrase: &str,
+) -> Result<Node, Failure> {
+    pin_official(Node::restore(home, passphrase, username, phrase)?)
 }
 
 fn hold(node: Node) -> Result<(), Failure> {
@@ -716,58 +753,6 @@ fn phone_split(refusal: &itsanas_node::node::SplitRefusal) -> Failure {
     ))
 }
 
-/// Point this node at a coordinator, so it can be reached from off the network.
-///
-/// # Why the phone needed this
-///
-/// Until 2026-09-16 this crate had no coordinator calls at all, so an Android
-/// device could reach the network only through [`Java_fr_ngas_itsanas_Native_addPeer`]
-/// — an address typed in by hand — and an account created on a phone was
-/// enrolled nowhere. Joining is the one thing a new member has to do, and it
-/// was the one thing the phone could not do.
-///
-/// `device` may be empty, which means "trust whatever answers at that
-/// address". It is parsed here rather than at first use so that a mistyped id
-/// fails while the person who typed it is still looking at it.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_ngas_itsanas_Native_setCoordinator(
-    mut env: JNIEnv,
-    _class: JClass,
-    address: JString,
-    device: JString,
-) -> jstring {
-    let address = text(&mut env, &address, "the coordinator address");
-    let device = text(&mut env, &device, "the coordinator device id");
-
-    answer(&mut env, move || {
-        let address = address?;
-        let device = device?;
-        let device = device.trim().to_owned();
-        if !device.is_empty() {
-            itsanas_node::coordinator::parse_device(&device)?;
-        }
-
-        let mut guard = NODE
-            .lock()
-            .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
-        let node = guard.as_mut().ok_or(Failure::Closed)?;
-
-        node.config.coordinator = Some(address.clone());
-        node.config.coordinator_device = if device.is_empty() {
-            None
-        } else {
-            Some(device)
-        };
-        node.save_config()?;
-
-        Ok(serde_json::json!({
-            "coordinator": node.config.coordinator,
-            "pinnedTo": node.config.coordinator_device,
-        })
-        .to_string())
-    })
-}
-
 /// Enrol this account and device with the configured coordinator.
 ///
 /// `invite` may be empty. A coordinator running `--invite-only` — which is
@@ -1133,5 +1118,40 @@ mod tests {
             Failure::Closed.message(),
             "no account is open on this device"
         );
+    }
+
+    /// A node created or restored on the phone joins the official
+    /// coordinator, pinned to its device, and nothing else: an app that let a
+    /// node be pointed elsewhere would let whoever talked a user into it send
+    /// that user's account to their own network. Covers `create_account` and
+    /// `restore_account`, which the JNI `create` and `login` call. Sabotage:
+    /// return the node from either without `pin_official`.
+    #[test]
+    fn red_team_a_new_or_restored_phone_node_is_on_the_official_coordinator() {
+        use itsanas_node::coordinator::{DEFAULT_COORDINATOR, DEFAULT_COORDINATOR_DEVICE};
+        let dir = tempfile::tempdir().unwrap();
+        let (created, phrase) =
+            create_account(&dir.path().join("new"), "a long passphrase", "nicolas").unwrap();
+        let restored = restore_account(
+            &dir.path().join("restored"),
+            "a long passphrase",
+            "nicolas",
+            phrase.as_str(),
+        )
+        .unwrap();
+        for (what, node) in [("created", &created), ("restored", &restored)] {
+            let saved = itsanas_node::Config::load(&Node::config_path(&node.home)).unwrap();
+            for config in [&node.config, &saved] {
+                assert_eq!(
+                    (
+                        config.coordinator.as_deref(),
+                        config.coordinator_device.as_deref()
+                    ),
+                    (Some(DEFAULT_COORDINATOR), Some(DEFAULT_COORDINATOR_DEVICE)),
+                    "a {what} account is not pinned to the official coordinator: the \
+                     user cannot join, or joins a network nobody chose for them"
+                );
+            }
+        }
     }
 }

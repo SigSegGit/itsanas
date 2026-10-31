@@ -583,8 +583,6 @@ private fun Settings(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var peer by remember { mutableStateOf("") }
-    var coordinatorAddress by remember { mutableStateOf("") }
-    var coordinatorDevice by remember { mutableStateOf("") }
     var inviteCode by remember { mutableStateOf("") }
     var joined by remember { mutableStateOf<String?>(null) }
     // Open with the refusal's words and devices when joining hit the limit,
@@ -628,25 +626,10 @@ private fun Settings(
 
                 Text("Join a network", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "A coordinator is how machines that are not on this wifi find " +
-                        "each other. Whoever invited you gives you its address and a " +
-                        "code. The code is needed once; after that this phone " +
-                        "re-registers on its own.",
+                    "This phone joins the ITSaNAS network with an invitation code " +
+                        "from whoever invited you. The code is needed once; after " +
+                        "that this phone re-registers on its own.",
                     style = MaterialTheme.typography.bodySmall,
-                )
-                OutlinedTextField(
-                    value = coordinatorAddress,
-                    onValueChange = { coordinatorAddress = it },
-                    label = { Text("coordinator host:port") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = coordinatorDevice,
-                    onValueChange = { coordinatorDevice = it },
-                    label = { Text("its device id (optional, 64 hex)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = inviteCode,
@@ -656,17 +639,9 @@ private fun Settings(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 TextButton({
-                    val address = coordinatorAddress
-                    val device = coordinatorDevice
                     val invite = inviteCode
                     scope.launch {
                         try {
-                            // Setting the coordinator and enrolling are one action
-                            // for the person doing it: a coordinator configured but
-                            // never registered with looks like joining and is not.
-                            if (address.isNotBlank()) {
-                                Account.setCoordinator(address, device)
-                            }
                             val answer = JSONObject(Account.register(invite))
                             if (answer.optBoolean("atCap")) {
                                 // Not an error: the account is full, and the
@@ -677,7 +652,7 @@ private fun Settings(
                                 devicesOpen = true
                                 return@launch
                             }
-                            val where = answer.optString("coordinator", address)
+                            val where = answer.optString("coordinator")
                             // `announced` is null when the address could not be
                             // published. The device is still a member, so this
                             // says so rather than reporting a failure -- but it

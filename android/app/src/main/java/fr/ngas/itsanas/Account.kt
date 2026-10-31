@@ -117,12 +117,6 @@ object Account {
         Unit
     }
 
-    suspend fun setCoordinator(address: String, device: String) =
-        withContext(Dispatchers.IO) {
-            Native.setCoordinator(address.trim(), device.trim())
-            Unit
-        }
-
     /**
      * Enrol with the configured coordinator, and hand back what happened.
      *

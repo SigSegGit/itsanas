@@ -20,7 +20,7 @@ a bug. For picking the project up cold, read [HANDOVER.md](HANDOVER.md) first.
 | M7 Daemon, CLI, synced folder | `itsanas-cli`, `itsanas-folder` | 🟨 **a folder that syncs** |
 | M8 Three-device bring-up | — | ⬜ not started |
 | M11 A catalogue of known-but-absent files | `itsanas-store` | ✅ **done** |
-| M12 Android shell | `android/`, `crates/itsanas-android` | 🟨 **the app exists, runs, and can now join** — 1723 lines of Kotlin over **21** JNI calls matching `Native.kt` exactly (a test holds them to it since 2026-10-01). This row said "shell not written" until 2026-09-16, which was wrong and was repeated to Nicolas as fact; the app was committed 2026-09-07. The real gap was narrower: no coordinator, no `register`. Both were added on 2026-09-16 (`setCoordinator`, `register`), which meant lifting the coordinator client out of the CLI **binary** into `itsanas-node` so something other than the CLI could reach it. Still missing: **local discovery**, so a phone on the same wifi does not find peers by itself, and the APK is **debug-signed** — sideload only, never Play |
+| M12 Android shell | `android/`, `crates/itsanas-android` | 🟨 **the app exists, runs, and can now join** — 1723 lines of Kotlin over **20** JNI calls matching `Native.kt` exactly (a test holds them to it since 2026-10-01). This row said "shell not written" until 2026-09-16, which was wrong and was repeated to Nicolas as fact; the app was committed 2026-09-07. The real gap was narrower: no coordinator, no `register`. Both were added on 2026-09-16 (`setCoordinator`, `register`), which meant lifting the coordinator client out of the CLI **binary** into `itsanas-node` so something other than the CLI could reach it. Still missing: **local discovery**, so a phone on the same wifi does not find peers by itself, and the APK is **debug-signed** — sideload only, never Play |
 | M9 Measurement | `itsanas bench` | ✅ **done**, and it corrected its own conclusion |
 | M10 Pack files | `itsanas-store` | 🟨 built 2026-10-13, opt-in for new stores (`ITSANAS_PACKS=1`); never on Windows hardware, no conversion of existing stores |
 | M13 One-click install | `install/` | 🟨 six scripts; run end to end on Windows, Linux x86-64, **Linux aarch64 (the Freebox VM)** and macOS in CI, and on a **Raspberry Pi 4B on an SSD** by hand — `linux.sh`, `coordinator.sh` and the new `provision.sh`, which takes a freshly imaged machine to a running node in one command. No phone |
@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1460 test functions, 20 of them `#[ignore]`d into the slow job, and 477 of
+**1461 test functions, 20 of them `#[ignore]`d into the slow job, and 478 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has

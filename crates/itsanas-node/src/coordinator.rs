@@ -36,6 +36,27 @@ use crate::contact::Due;
 use crate::node::{ESCROW_LABEL, Node};
 use crate::{NodeError, NodeError as CliError, Result};
 
+/// The official coordinator: what a desktop setup page proposes when the
+/// person names none, and the only one the Android app joins. One
+/// name for the whole network, repointable by DNS (HANDOVER §8 0w (6b), 4).
+/// Not a secret -- the code is public and the address shows in `netstat` --
+/// and not a single point of failure: members that know each other keep
+/// syncing without it.
+pub const DEFAULT_COORDINATOR: &str = "itsanas.ngas.fr:9898";
+
+/// The device id of the coordinator at [`DEFAULT_COORDINATOR`], printed by
+/// `install/coordinator.sh` on the Freebox VM on 2026-10-07. Pinned, so a
+/// machine answering at that name that is not this coordinator is refused
+/// rather than trusted (DNS, a hijacked forward, a hostile network).
+pub const DEFAULT_COORDINATOR_DEVICE: &str =
+    "2cfb515fc90749d7248f4af404ecb34b5417e0c1339565c8036a9dde70cf72ce";
+
+/// The device to pin for `address`, when it is the built-in coordinator.
+#[must_use]
+pub fn pinned_for(address: &str) -> Option<&'static str> {
+    (address == DEFAULT_COORDINATOR).then_some(DEFAULT_COORDINATOR_DEVICE)
+}
+
 /// Open a connection to the node's configured coordinator.
 ///
 /// The device id is pinned when the configuration names one, so an address

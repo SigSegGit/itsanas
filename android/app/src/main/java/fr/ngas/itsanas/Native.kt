@@ -62,12 +62,6 @@ object Native {
     external fun withdrawDevice(id: String): String
 
     /**
-     * Point this node at a coordinator. [device] may be empty, meaning "trust
-     * whatever answers at that address".
-     */
-    external fun setCoordinator(address: String, device: String): String
-
-    /**
      * Enrol this account and device with the configured coordinator. [invite]
      * may be empty; an invite-only coordinator needs a code the first time and
      * never again. At the device limit this answers rather than throws:
