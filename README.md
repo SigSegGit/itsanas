@@ -268,3 +268,7 @@ bash scripts/check-installers.sh   # the installers parse, and agree with Cargo.
 AGPL rather than a permissive licence on purpose: ITSaNAS is a networked storage
 system, and the copyleft should follow it when it is run as a service, not only
 when the source is redistributed.
+
+Contributions are accepted only under the [Contributor Agreement](CLA.md),
+which assigns their rights to the maintainer. The maintainer may also license
+ITSaNAS on other terms.

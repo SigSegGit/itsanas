@@ -1,0 +1,29 @@
+name: CLA
+
+# Every pull request from somebody other than the Maintainer must carry the
+# agreement sentence of CLA.md (scripts/cla_check.py says why). The author and
+# the description reach the script through environment variables only: the
+# description is the contributor's text, and pasting it into `run:` would let
+# it run commands here.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  cla:
+    name: Contributor licence agreement
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: The check refuses itself when it would accept anything
+        run: python3 scripts/cla_check.py --self-test
+      - name: This pull request's author agreed to CLA.md
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 scripts/cla_check.py
