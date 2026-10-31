@@ -162,5 +162,12 @@ two hours, after which the rest is predictable. Start there rather than at
 
 ## Licence
 
-Contributions are accepted under [AGPL-3.0-or-later](LICENSE), the project's
-licence.
+ITSaNAS is published under [AGPL-3.0-or-later](LICENSE). **A contribution is
+accepted only under the [Contributor Agreement](CLA.md)**, which assigns the
+rights in it to the maintainer, with nothing owed in return: not its use,
+not credit, not any licence. Read it before contributing. To agree, keep this
+sentence in your pull request's description (the template already has it):
+
+> I have read the ITSaNAS Contributor Agreement (CLA.md, version 1.0) and I agree to it.
+
+The `CLA` check (`scripts/cla_check.py`) refuses a pull request without it.
