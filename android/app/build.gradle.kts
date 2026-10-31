@@ -21,6 +21,19 @@ val releaseKey = Properties().apply {
 }
 val hasReleaseKey = releaseKey.getProperty("storeFile") != null
 
+// The application's version is the workspace's (`Cargo.toml`), and its
+// versionCode is derived from it as `itsanas_release::Version::android_code`
+// derives it: MAJOR * 1_000_000 + MINOR * 1_000 + PATCH. Android installs an
+// update only over a smaller code, and this said `versionCode = 1` for every
+// build until 2026-10-31, so no update could ever have installed over it.
+val workspaceVersion: String = rootProject.file("../Cargo.toml").readLines()
+    .first { it.startsWith("version = ") }
+    .substringAfter('"').substringBefore('"')
+val workspaceCode: Int = workspaceVersion.split('.').map(String::toInt).let { (major, minor, patch) ->
+    require(minor < 1000 && patch < 1000) { "version $workspaceVersion does not fit a versionCode" }
+    major * 1_000_000 + minor * 1_000 + patch
+}
+
 android {
     namespace = "fr.ngas.itsanas"
     compileSdk = 35
@@ -34,8 +47,8 @@ android {
         // sold since 2017.
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = workspaceCode
+        versionName = workspaceVersion
 
         ndk {
             // The three the native library is built for. `arm64-v8a` is every
@@ -91,6 +104,8 @@ android {
 
     buildFeatures {
         compose = true
+        // BuildConfig.VERSION_NAME: the version the update check names.
+        buildConfig = true
     }
 
     packaging {

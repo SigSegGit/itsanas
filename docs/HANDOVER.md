@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0y
 TITLE: The phone's status carries the safety verdict (copies wanted, exposed), from shared code (the Android app shows no copy count today; §8 0y, its NEXT paragraph)
 WRITTEN-AT: 2026-10-31
-BASE: e463afb
+BASE: 22d2fdf
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -39,12 +39,32 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
 
-1. Release v0.1.13 for the laptop, the Mac and testers (about 20 min; it
-   beeps, asks `y`, then the release key's passphrase):
+1. **The Android release key, before any phone that should keep its
+   updates installs the application** (docs/ANDROID-RELEASE.md §1, §1b):
+   Android installs an update only when it is signed with the same key as
+   the installed app, so a phone on a debug-signed build has to be
+   uninstalled -- its node deleted -- to move to the release key. PowerShell:
+
+       D:\Android\jdk\bin\keytool -genkeypair -v -keystore D:\Android\itsanas-release.jks -alias itsanas -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=ITSaNAS, O=ITSomething, C=FR"
+
+   then `android\keystore.properties` (git-ignored), with the password just
+   typed, and both files backed up like the 24 words:
+
+       notepad D:\GitHub\itsanas\android\keystore.properties
+
+   holding these four lines:
+
+       storeFile=D:/Android/itsanas-release.jks
+       storePassword=<the password>
+       keyAlias=itsanas
+       keyPassword=<the password>
+
+   From then on every `release.cmd` builds the APK with it and puts it in
+   the release (`sign-release.ps1`); `-NoApk` leaves it out.
+
+2. The next release (it carries the APK, so phones can update), PowerShell:
 
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
-
-   #256 (`feat/mcp-server`) is his own.
 
 3. Publish the wiki (once after the wiki-and-board PR merges, then after any
    change to ROADMAP.md or MVP.md). If it says it cannot clone, open the
@@ -95,6 +115,21 @@ Settings has words for both. **A routine, reversible choice:** the
 threshold is the larger of 6 h and 12 intervals (`safety::ISOLATED_AFTER`,
 `ISOLATED_INTERVALS`) -- an evening with the laptop shut is not orange.
 Left: see ROADMAP M7, "Alerting on the conditions".
+
+**2026-10-31: v0.1.13 released by Nicolas; the phone updates itself.** #351
+(`itsanas get` reaches the account's machines, 0v). Then, asked by Nicolas
+with his Galaxy S25 in mind: the Android application, installed by hand
+outside Play, updates itself from the signed GitHub release (`Updater.kt`;
+`checkUpdate` and `checkApk` in the native core check the signature with the
+pinned release key and the download against its hashes;
+`itsanas_release::android_update`; `sign-release.ps1` builds the APK where the
+key is and adds it to the manifest after `check`; `versionCode` derived from
+the version -- it was 1 for every build, so no update could ever have
+installed). Four red-team tests, five sabotages, red each. ANDROID-RELEASE.md
+§1b is the S25 install guide (Auto Blocker first). **Not run end to end**:
+no release carries an APK yet, and the Kotlin half ran on the emulator only.
+Traps: a manifest file name must stay `itsanas-<target>` -- `.apk` would
+break every 0.1.13 node's update; AGP 8 makes no `BuildConfig` unless asked.
 
 **2026-10-30: a batch of six, and the fleet rebuilt by the session.**
 Merged: #342 (C's route in cargo, `tests/route.rs`; it found that a host

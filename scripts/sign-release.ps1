@@ -34,7 +34,10 @@
 param(
     [string] $Key = $(if ($env:ITSANAS_RELEASE_KEY) { $env:ITSANAS_RELEASE_KEY } else { "$env:USERPROFILE\itsanas-release-key\release-signing.key" }),
     [string] $Tag = '',
-    [string] $Repo = $(if ($env:ITSANAS_REPO) { $env:ITSANAS_REPO } else { 'SigSegGit/itsanas' })
+    [string] $Repo = $(if ($env:ITSANAS_REPO) { $env:ITSANAS_REPO } else { 'SigSegGit/itsanas' }),
+    # Leave the Android application out of this release (a PC without the
+    # Android SDK). Phones then see no update until the next one carries it.
+    [switch] $NoApk
 )
 
 $ErrorActionPreference = 'Stop'
@@ -134,6 +137,33 @@ try {
     }
     $lines = Get-Content -LiteralPath $manifest
     $version = ($lines | Where-Object { $_ -like 'version *' } | Select-Object -First 1) -replace '^version ', ''
+
+    # The Android application, built here and not by the release workflow:
+    # Android installs an update only when it is signed with the same key as
+    # the installed app, and that key lives on this PC alone
+    # (docs/ANDROID-RELEASE.md). Added to the manifest only after `check`
+    # above found every desktop binary identical to the workflow's manifest,
+    # so rewriting the manifest here measures nothing that was not already
+    # checked; the APK is then signed with everything else.
+    if (-not $NoApk) {
+        $cargoVersion = (Select-String -LiteralPath (Join-Path $checkout 'Cargo.toml') -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+        if ($cargoVersion -ne $version) {
+            Stop-Plain "this checkout is $cargoVersion and the draft is ${version}: switch to the tag's commit (git switch --detach $Tag), or pass -NoApk"
+        }
+        Write-Host "Building the Android application $version (a few minutes)..."
+        & bash (Join-Path $checkout 'scripts/build-apk.sh') release
+        if ($LASTEXITCODE -ne 0) { Stop-Plain 'the Android application did not build (the reason is just above): fix it, or pass -NoApk; nothing was signed' }
+        $apk = Join-Path $checkout 'android/app/build/outputs/apk/release/app-release.apk'
+        Copy-Item -LiteralPath $apk -Destination (Join-Path $work 'itsanas-android-apk')
+        Copy-Item -LiteralPath $apk -Destination (Join-Path $work "ITSaNAS-$version.apk")
+        Invoke-ReleaseTool @('manifest', '--version', $version, '--dir', $work)
+        if ($LASTEXITCODE -ne 0) { Stop-Plain 'the manifest could not take the Android application: nothing was signed' }
+        & gh release upload $Tag -R $Repo (Join-Path $work 'itsanas-android-apk') (Join-Path $work "ITSaNAS-$version.apk") $manifest --clobber
+        if ($LASTEXITCODE -ne 0) { Stop-Plain "the Android application could not be uploaded to ${Tag}: run this again, it is safe" }
+        Invoke-ReleaseTool @('check', '--dir', $work, '--tag', $Tag)
+        if ($LASTEXITCODE -ne 0) { Stop-Plain 'the manifest with the Android application does not match the files: nothing was signed' }
+        $lines = Get-Content -LiteralPath $manifest
+    }
     $targets = @($lines | Where-Object { $_ -like 'file *' } | ForEach-Object { ($_ -split ' ')[1] })
 
     Write-Host ''

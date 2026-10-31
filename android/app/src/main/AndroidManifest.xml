@@ -16,6 +16,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- The application updates itself from its signed GitHub release, since
+         it is installed by hand and not from Play (Updater.kt). Android still
+         asks the person before each install, and installs only an APK signed
+         with the same key as this one. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"

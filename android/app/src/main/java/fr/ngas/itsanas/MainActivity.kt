@@ -599,6 +599,19 @@ private fun Settings(
         mutableStateOf((status?.pledgeBytes?.div(1024 * 1024 * 1024) ?: 0L).toString())
     }
     var onMetered by remember { mutableStateOf(Vault.contentOnMetered(context)) }
+    // Asked once each time Settings opens: an application installed by hand
+    // hears of a release from nothing else (Updater).
+    var update by remember { mutableStateOf<Updater.Offer?>(null) }
+    var updateNote by remember { mutableStateOf("Looking for a newer version...") }
+    LaunchedEffect(Unit) {
+        updateNote = try {
+            update = Updater.check()
+            update?.let { "ITSaNAS ${it.version} is available." }
+                ?: "This is the latest version (${BuildConfig.VERSION_NAME})."
+        } catch (e: Exception) {
+            "Could not check for a newer version: ${e.message}"
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onClose,
@@ -624,6 +637,23 @@ private fun Settings(
                         },
                         style = MaterialTheme.typography.bodySmall,
                     )
+                }
+
+                Text("Updates", style = MaterialTheme.typography.titleSmall)
+                Text(updateNote, style = MaterialTheme.typography.bodySmall)
+                update?.let { offer ->
+                    Button({
+                        scope.launch {
+                            try {
+                                if (!Updater.install(context, offer)) {
+                                    updateNote = "Allow ITSaNAS to install apps, come back, " +
+                                        "and tap Install again."
+                                }
+                            } catch (e: Exception) {
+                                complain("The update was not installed: ${e.message}")
+                            }
+                        }
+                    }) { Text("Install ${offer.version}") }
                 }
 
                 Text("Join a network", style = MaterialTheme.typography.titleSmall)
