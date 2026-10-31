@@ -497,6 +497,16 @@ for a DHT without any of it being a migration.
 
 It does not hold: keys, plaintext, chunks, or the authority to delete anything.
 
+**Its operator can suspend an account, and cannot read it.** For an abuse
+report or a legal request, `itsanas-coordinator --suspend <username>` (on a
+stopped coordinator; `--unsuspend` lifts it): the account's machines are no
+longer confirmed to hosts, so nothing new is stored for them, they cannot
+enrol or announce, and nobody is handed their address. What hosts already keep
+for the account stays where it is, sealed as before: a suspension can be
+lifted and a deletion cannot, so only the account itself can have its data
+freed. Hosts that confirmed a machine shortly before keep storing for it until
+that confirmation lapses.
+
 **A member can run their own.** The coordinator address is configuration. Three
 friends can run one between them; Nicolas can run one on a VPS; someone who
 trusts nobody can run one alone and lose only the ability to find strangers.
