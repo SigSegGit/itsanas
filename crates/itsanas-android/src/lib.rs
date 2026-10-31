@@ -631,7 +631,7 @@ fn update_offer(
 
 /// Whether the APK downloaded to `path` is the one the signed `manifest`
 /// names, size and both hashes: `"ok"`, or an exception saying which. Asked
-/// again here rather than trusted from [`update_offer`], so a file swapped
+/// again here rather than trusted from `update_offer`, so a file swapped
 /// between the download and the install is still refused.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_ngas_itsanas_Native_checkApk(
