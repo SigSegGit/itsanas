@@ -151,7 +151,18 @@ try {
             Stop-Plain "this checkout is $cargoVersion and the draft is ${version}: switch to the tag's commit (git switch --detach $Tag), or pass -NoApk"
         }
         Write-Host "Building the Android application $version (a few minutes)..."
-        & bash (Join-Path $checkout 'scripts/build-apk.sh') release
+        # Git's own bash, found by its path: under PowerShell a bare `bash` is
+        # WSL's (System32\bash.exe), which on 2026-10-31 ate the backslashes of
+        # the script's path and found nothing to run. Forward slashes for the
+        # same reason.
+        $gitRoot = Split-Path (Get-Command git).Source
+        $gitBash = @(
+            (Join-Path $env:ProgramFiles 'Git\bin\bash.exe'),
+            (Join-Path $gitRoot '..\bin\bash.exe'),
+            (Join-Path $gitRoot '..\..\bin\bash.exe')
+        ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if (-not $gitBash) { Stop-Plain 'Git Bash (bash.exe of Git for Windows) was not found: install Git for Windows, or pass -NoApk' }
+        & $gitBash ((Join-Path $checkout 'scripts/build-apk.sh').Replace('\', '/')) release
         if ($LASTEXITCODE -ne 0) { Stop-Plain 'the Android application did not build (the reason is just above): fix it, or pass -NoApk; nothing was signed' }
         $apk = Join-Path $checkout 'android/app/build/outputs/apk/release/app-release.apk'
         Copy-Item -LiteralPath $apk -Destination (Join-Path $work 'itsanas-android-apk')
