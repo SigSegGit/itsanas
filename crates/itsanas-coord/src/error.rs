@@ -50,6 +50,12 @@ pub enum CoordError {
     #[error("this key belonged to a deleted account; a new account needs new keys (itsanas init)")]
     Deleted,
 
+    /// An account its coordinator's operator suspended.
+    #[error(
+        "this account is suspended by the coordinator's operator; its machines take no new storage until it is lifted"
+    )]
+    Suspended,
+
     #[error("no such account: {0}")]
     NoSuchAccount(String),
 

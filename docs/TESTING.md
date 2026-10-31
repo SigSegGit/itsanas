@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-30 — 1457 test functions across 40 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 474 are red-team tests.**
+**Last updated: 2026-10-30 — 1460 test functions across 41 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 477 are red-team tests.**
 
-**1341 of the 1457 tests have an entry of their own on this page** — an *entry*,
+**1344 of the 1460 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -187,6 +187,7 @@ guarantee and is not one.
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
 | `itsanas-node` withdrawals (`tests/withdrawals.rs`) | 4 |
+| `itsanas-node` suspension (`tests/suspension.rs`) | 3 |
 | `itsanas-cli` crash (`tests/crash.rs`) | 1 (1 `#[ignore]`d) |
 | `itsanas-cli` steering (`tests/steering.rs`) | 12 (12 `#[ignore]`d) |
 | `itsanas-cli` route (`tests/route.rs`) | 3 (3 `#[ignore]`d) |
@@ -212,7 +213,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 64 |
+| `identity` | keys, accounts, devices, claims, invitations | 67 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 57 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 71 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
@@ -1681,7 +1682,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (184)
+# `itsanas-node` — a node on disk (187)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -2602,6 +2603,16 @@ a withdrawal it could not otherwise know of. In `service.rs`.
 | **`red_team_a_host_whose_coordinator_does_not_answer_stores_for_no_other_account`** | Nicolas's rule over a real socket: the coordinator is gone, `standing` fails, and the member's device is refused with `UNCONFIRMED`. Sabotaged by `standing` never asking. |
 | `a_host_that_asks_when_a_device_presents_lets_it_store_on_its_first_round` | The inline asker against a real coordinator: a member presenting for the first time stores in the same connection. Red when the asker never asks. |
 | **`red_team_a_host_whose_coordinator_is_not_pinned_stores_for_no_other_account`** | Found by the redteam agent: unpinned, the withdrawn device on the path answers "live" by echoing its own claim. Neither the round (`report.unpinned`, nothing asked) nor the inline ask asks an unpinned coordinator, and the member is refused `UNCONFIRMED`. Sabotaged by dropping `pinned` from each. |
+
+# `itsanas-node` suspension (`tests/suspension.rs`) — the operator suspends an account, against a real coordinator (3)
+
+The operator runs `itsanas-coordinator --suspend <username>` (`--unsuspend` lifts it) on a stopped coordinator. The account's machines are answered as unenrolled to a host asking, so it stores nothing new for them; what hosts already keep stays (a suspension can be lifted, a deletion cannot). It cannot register, enrol or announce, and is handed out to nobody. The operator reads nothing.
+
+| Test | What it proves |
+| --- | --- |
+| **`red_team_a_suspended_accounts_machine_is_not_confirmed_so_a_host_stores_nothing_for_it`** | A confirmed machine stores; once its account is suspended, a host asking the coordinator refuses it with `UNCONFIRMED`, and the machine cannot re-enrol. Sabotaged by `standing` in the service ignoring the suspension: red. |
+| **`red_team_lifting_a_suspension_lets_hosts_store_for_the_account_again`** | Suspended then lifted, the machine is confirmed and stores again. Sabotaged by `unsuspend` leaving the row: red. |
+| **`red_team_suspending_one_account_leaves_every_other_account_storing`** | Bob suspended, Carol still stores and is still in the address book, and Bob is in nobody's. Sabotaged by `is_suspended` answering true for everybody once one account is suspended: red. |
 
 # `itsanas-coord` — claims, directory, accounting (66)
 

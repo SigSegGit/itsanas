@@ -235,6 +235,12 @@ impl<'a> CoordService<'a> {
             .directory
             .claim_for(presented.claim.device)?
             .filter(|held| held.claim.owner == presented.claim.owner);
+        // A suspended account's machines are answered as unenrolled, so hosts
+        // store nothing new for them (`Directory::suspend` says why not more).
+        let held = match held {
+            Some(held) if self.directory.is_suspended(held.claim.owner)? => None,
+            other => other,
+        };
         Ok(Response::Standing(held.map(Box::new)))
     }
 
