@@ -130,5 +130,10 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     // Unlocking with a fingerprint or a face (Biometric.kt).
     implementation("androidx.biometric:biometric:1.1.0")
+    // biometric 1.1.0 pulls androidx.fragment 1.2, whose FragmentActivity refuses
+    // the request codes Compose's file picker uses ("Can only use lower 16 bits
+    // for requestCode"): tapping + crashed v0.1.14 on the owner's phone. 1.3 and
+    // later route them through the activity result registry.
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

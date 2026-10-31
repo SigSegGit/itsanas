@@ -536,9 +536,33 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_sync(
                 itsanas_net::session::Scope::Everything
             };
 
-            if node.config.peers.is_empty() {
+            // The account's machines from the coordinator, pinned, beside any
+            // address typed in: the phone read `peers` alone and said "no
+            // machine is configured" while the owner's Windows node ran on the
+            // same account (2026-10-31). A parked machine (`relay:`) is left to
+            // the desktop's dialler for now.
+            let mut targets: Vec<(String, Option<itsanas_crypto::DeviceId>)> = node
+                .config
+                .peers
+                .iter()
+                .map(|peer| (peer.clone(), None))
+                .collect();
+            if node.config.coordinator.is_some()
+                && let Ok(found) = itsanas_node::coordinator::peers(node, node.store.owner())
+            {
+                for (device, address) in found {
+                    if !address.starts_with(itsanas_node::contact::RELAY_PREFIX)
+                        && !targets.iter().any(|(known, _)| *known == address)
+                    {
+                        targets.push((address, Some(device)));
+                    }
+                }
+            }
+            if targets.is_empty() {
                 return Err(Failure::Usage(
-                    "no machine is configured to sync with".to_owned(),
+                    "no other machine of this account is known yet: is ITSaNAS running on \
+                     another of your machines, and has this phone joined with its invitation?"
+                        .to_owned(),
                 ));
             }
 
@@ -553,12 +577,12 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_sync(
             let mut freed = 0u64;
             let mut unreachable = Vec::new();
 
-            for target in &node.config.peers {
+            for (target, pinned) in &targets {
                 let Ok(mut client) = itsanas_net::PeerClient::connect(
                     itsanas_net::AddressList(target.as_str()),
                     &node.device,
                     node.store.owner(),
-                    None,
+                    *pinned,
                 ) else {
                     unreachable.push(target.clone());
                     continue;
