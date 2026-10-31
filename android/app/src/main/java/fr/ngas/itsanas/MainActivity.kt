@@ -5,7 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -76,7 +76,8 @@ import org.json.JSONObject
  * whatever it is given — so a tall phone, a folded one and a tablet all work
  * without a layout each.
  */
-class MainActivity : ComponentActivity() {
+// A FragmentActivity because the biometric prompt is a fragment.
+class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,6 +118,7 @@ private sealed interface Screen {
     data object Opening : Screen
     data object NoAccount : Screen
     data object Locked : Screen
+    data object Biometric : Screen
     data class Phrase(val words: String) : Screen
     data object Ready : Screen
 }
@@ -143,6 +145,9 @@ private fun App(shared: List<Uri>) {
         screen = try {
             if (!Account.exists(context)) {
                 Screen.NoAccount
+            } else if (Biometric.enabled(context)) {
+                // The fingerprint or face check below decides.
+                Screen.Biometric
             } else {
                 val remembered = Vault.rememberedPassphrase(context)
                 if (remembered == null) {
@@ -162,6 +167,24 @@ private fun App(shared: List<Uri>) {
     Box(Modifier.fillMaxSize()) {
         when (val current = screen) {
             Screen.Opening -> Centred { CircularProgressIndicator() }
+            Screen.Biometric -> {
+                Centred { CircularProgressIndicator() }
+                LaunchedEffect(Unit) {
+                    val activity = context as FragmentActivity
+                    Biometric.unlock(activity, { passphrase ->
+                        scope.launch {
+                            screen = try {
+                                Account.unlock(context, passphrase)
+                                SyncService.start(context)
+                                Screen.Ready
+                            } catch (error: Throwable) {
+                                complaint = error.message
+                                Screen.Locked
+                            }
+                        }
+                    }, { screen = Screen.Locked })
+                }
+            }
             Screen.NoAccount -> FirstRun(
                 onCreated = { screen = Screen.Phrase(it) },
                 onRestored = { SyncService.start(context); screen = Screen.Ready },
@@ -175,7 +198,39 @@ private fun App(shared: List<Uri>) {
                 SyncService.start(context)
                 screen = Screen.Ready
             }
-            Screen.Ready -> Files(shared) { complaint = it }
+            Screen.Ready -> {
+                Files(shared) { complaint = it }
+                // Offered once, after the passphrase was typed and worked.
+                var offer by remember { mutableStateOf(Biometric.shouldOffer(context)) }
+                if (offer) {
+                    AlertDialog(
+                        onDismissRequest = { offer = false; Biometric.answered(context) },
+                        title = { Text("Unlock with your fingerprint or face?") },
+                        text = {
+                            Text(
+                                "ITSaNAS then opens after a fingerprint or face check instead " +
+                                    "of keeping your passphrase ready. Adding a new fingerprint " +
+                                    "to this phone turns it off until you type the passphrase again.",
+                            )
+                        },
+                        confirmButton = {
+                            TextButton({
+                                offer = false
+                                Biometric.answered(context)
+                                val passphrase = Vault.rememberedPassphrase(context)
+                                if (passphrase != null) {
+                                    Biometric.enable(context as FragmentActivity, passphrase) { on ->
+                                        if (!on) complaint = "Fingerprint or face unlock was not turned on."
+                                    }
+                                }
+                            }) { Text("Turn on") }
+                        },
+                        dismissButton = {
+                            TextButton({ offer = false; Biometric.answered(context) }) { Text("Not now") }
+                        },
+                    )
+                }
+            }
         }
     }
 

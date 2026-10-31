@@ -29,7 +29,7 @@ object Account {
         withContext(Dispatchers.IO) {
             val home = Vault.home(context).also { it.mkdirs() }
             val answer = Native.create(home.absolutePath, username, passphrase)
-            Vault.remember(context, passphrase)
+            if (!Biometric.enabled(context)) Vault.remember(context, passphrase)
             open = true
             Answers.phrase(answer)
         }
@@ -43,14 +43,14 @@ object Account {
     ) = withContext(Dispatchers.IO) {
         val home = Vault.home(context).also { it.mkdirs() }
         Native.login(home.absolutePath, username, phrase.trim(), passphrase)
-        Vault.remember(context, passphrase)
+        if (!Biometric.enabled(context)) Vault.remember(context, passphrase)
         open = true
     }
 
     /** Unlock the node already on this phone. */
     suspend fun unlock(context: Context, passphrase: String) = withContext(Dispatchers.IO) {
         Native.open(Vault.home(context).absolutePath, passphrase)
-        Vault.remember(context, passphrase)
+        if (!Biometric.enabled(context)) Vault.remember(context, passphrase)
         open = true
     }
 

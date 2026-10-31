@@ -249,12 +249,31 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_open(
     let home = home_of(&mut env, &home);
     let passphrase = text(&mut env, &passphrase, "the passphrase");
 
-    answer(&mut env, move || {
-        let node = pin_official(Node::open(&home?, &passphrase?)?)?;
-        let answer = describe(&node);
-        hold(node)?;
-        Ok(answer)
-    })
+    answer(&mut env, move || open_into(&NODE, &home?, &passphrase?))
+}
+
+/// [`Java_fr_ngas_itsanas_Native_open`] without the JNI, on the slot given.
+///
+/// A node already open for `home` in this process is answered as it is, not
+/// opened again. The sync service runs in the foreground and keeps the
+/// process -- and the open node -- alive after the screen is closed; opening
+/// the store a second time is refused by the database ("already open"), and
+/// on 2026-10-31 that left the owner's phone stuck on Unlock with nothing
+/// usable. Asking the passphrase again would protect nothing: the node is
+/// unlocked in this process's memory either way.
+fn open_into(slot: &Mutex<Option<Node>>, home: &Path, passphrase: &str) -> Answer {
+    let mut guard = slot
+        .lock()
+        .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
+    if let Some(node) = guard.as_ref().filter(|node| node.home == home) {
+        return Ok(describe(node));
+    }
+    // Another account's node, if any, is closed before this one opens.
+    *guard = None;
+    let node = pin_official(Node::open(home, passphrase)?)?;
+    let answer = describe(&node);
+    *guard = Some(node);
+    Ok(answer)
 }
 
 /// Close the node, releasing the store for another process.
@@ -1239,6 +1258,29 @@ mod tests {
             update_offer(&text, &signature, &stranger, running).is_err(),
             "a release signed by another key read as up to date or as an update"
         );
+    }
+
+    /// The phone stuck on Unlock (2026-10-31): the sync service kept the node
+    /// open in the process, and opening it again was refused by the database
+    /// as "already open". A second open of the same home answers the node
+    /// already held. Sabotage: open before letting go of the held node, as the
+    /// code did, without the reuse -- the second open fails with the phone's
+    /// own words, "index.redb is already open in another process".
+    #[test]
+    fn red_team_unlocking_while_the_sync_service_holds_the_node_opens_nothing_twice() {
+        let dir = tempfile::tempdir().expect("scratch");
+        let home = dir.path().join("phone");
+        drop(Node::create(&home, "a passphrase", "camille").expect("create"));
+        let slot = Mutex::new(None);
+        let first = open_into(&slot, &home, "a passphrase").expect("first open");
+        let again = open_into(&slot, &home, "a passphrase");
+        assert!(
+            again.is_ok(),
+            "unlocking while the node is already open failed ({:?}): the phone stays \
+             on Unlock and nothing can be used",
+            again.err().map(|f| f.message())
+        );
+        assert_eq!(again.unwrap(), first);
     }
 
     /// Every `external fun` in `Native.kt` has an entry point here, and every
