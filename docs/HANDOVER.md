@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0v
-TITLE: `itsanas get` of an absent file reaches the account's machines (coordinator list, else the address book, a parked one through its relay) instead of only `peer add` entries, and `connect_peer` refuses an unpinned `relay:` address; one `peer_targets` for `get` and `sync` (fetch_absent, main.rs; tests and sabotages in §8 0v)
-WRITTEN-AT: 2026-10-30
-BASE: 174b989
+NEXT: 8.0y
+TITLE: The phone's status carries the safety verdict (copies wanted, exposed), from shared code (the Android app shows no copy count today; §8 0y, its NEXT paragraph)
+WRITTEN-AT: 2026-10-31
+BASE: e463afb
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -1728,6 +1728,29 @@ Detail and measurements are in ROADMAP.md; this is the map.
       copy count); and the other ARCHITECTURE §7 rows (no round for N
       minutes is `stale` already; a failed challenge, a full or unwritable
       pledge, low free space have no alert).
+      **NEXT (scouted 2026-10-30, line numbers to re-check): The phone's
+      status carries the safety verdict (copies wanted, exposed), from
+      shared code.** The Android JNI status (crates/itsanas-
+      android/src/lib.rs:543-575) returns `copiesElsewhere` and
+      `onlyHere`, but not the copies wanted or whether the account is
+      exposed. The app shows the count only inside Settings
+      (android/app/src/main/java/fr/ngas/itsanas/MainActivity.kt:612-626).
+      Move `SAFE_COPIES` (crates/itsanas-cli/src/main.rs:74) and
+      `safety::Copies` (crates/itsanas-cli/src/safety.rs) into itsanas-
+      node or itsanas-store, so the CLI and android crates share one
+      rule. Add `copiesWanted` and `safe` to the JSON. Kotlin:
+      Native.kt:122/154 parse them, and MainActivity shows a red or
+      orange line on the main screen ('your files are only on this
+      phone'). No Gradle job exists in CI (.github/workflows has none),
+      so the Kotlin half cannot be verified by a session unless it also
+      adds one. That is an optional extra job: setup-java plus the SDK
+      on ubuntu-latest, then `./gradlew assembleDebug`, which needs no
+      signing key for a debug build. **Tests:** A Rust test in itsanas-
+      android's tests module (lib.rs:950) through a non-JNI helper, as
+      the setKeep helpers do (:608): a node with stored files and no
+      holders gives `safe:false, copiesWanted:2`. Sabotage: hard-code
+      safe true, and it turns red. The CLI's existing exposed tests keep
+      passing after the move, which proves the shared rule.
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
       `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
       Battery is reported (`powercfg /batteryreport`) and not judged; bytes
@@ -2858,51 +2881,22 @@ Detail and measurements are in ROADMAP.md; this is the map.
       reachable, the coordinator at least -- one forward (or one mapping
       opened by UPnP), or a coordinator on a public server.
    v. 🟨 **A relay for two machines that cannot reach each other** (0o's
-      **NEXT (2026-10-30, scouted from the code, line numbers to re-
-      check): `itsanas get` of an absent file reaches the account's
-      machines, a parked one included; `connect_peer` refuses an
-      unpinned `relay:`.** Today `fetch_absent` (crates/itsanas-
-      cli/src/main.rs l.2806-2839, called by `get` at l.2851) dials only
-      `node.config.peers` (l.2813-2820). With no `peer add` entry it
-      answers 'there is no peer to fetch it from', even when the
-      coordinator lists the account's other machines and
-      `<home>/address-book` knows them, including one parked on a relay.
-      That is the case of a laptop away from home with a storage budget.
-      It also calls `connect_peer(.., None)`, which, given a
-      `relay:<id>@<at>` address and no pin, dials the string as a socket
-      and fails (the open point in HANDOVER §0, 2026-10-13 0.1.8).
-      Build: (1) pull `sync`'s target list (main.rs l.4662-4684:
-      configured peers unpinned plus `coordinator::peers` pinned) into
-      `fn peer_targets(node, address) -> Vec<(String,
-      Option<DeviceId>)>`. When the coordinator cannot be reached, it
-      falls back to `Contact::load(&Contact::path(&node.home), owner)`
-      and the book's dialable devices, pinned, with their `relay:`
-      addresses resolved through `Contact::through` into the
-      `relay:<id>@<at>` form. (2) `fetch_absent` and `sync` both use it.
-      (3) `connect_peer` (l.5185-5205): a `relay:` address with `expect
-      == None` returns `NetError::Refused("a relayed address needs the
-      device it reaches")` without dialling, as the daemon's `dial` does
-      (daemon.rs l.2216-2218). (4) Have `peer add` refuse a `relay:`
-      address with the same message. **Tests:** (1) `red_team_an_unpinne
-      d_relay_address_is_refused_not_dialled_as_a_socket` (main.rs
-      tests, l.5207+): `connect_peer("relay:<id>@127.0.0.1:1", ..,
-      None)` returns NetError::Refused. Sabotage: delete the new arm;
-      the error becomes Io or name-resolution and the test turns red.
-      (2) Pure-function tests on the target builder, taking the config
-      peers, the coordinator list (or an error) and a book: with no
-      configured peer and a listed device, it yields `(address,
-      Some(device))`; with the coordinator down, it yields the book's
-      devices pinned; a `relay:` entry whose relay is not in the book is
-      never yielded. Sabotage A: `fetch_absent` keeps reading only
-      `config.peers`; red. Sabotage B: unpinned entries from the book;
-      red on the pin assertion. (3) Optional integration test in
-      crates/itsanas-node/tests or itsanas-cli/tests if a two-node
-      harness already exists: B holds the file, A has only a
-      coordinator, and `get` returns the content.
       phase 3): through a reachable member, data still sealed end to end.
       Asked for by Nicolas on 2026-10-13 without waiting for the fleet: own
       account's machines first, else a reachable host with a low cap, the
       coordinator last and only if measured necessary ("no gas factory").
+      **Built 2026-10-31: `itsanas get` reaches the account's
+      machines.** `fetch_absent` and `sync` dial one list,
+      `account_targets`/`peer_targets` (main.rs): `peer add` entries
+      unpinned, the coordinator's list pinned, then the address book's
+      devices the coordinator did not list, pinned, a parked one as
+      `relay:<relay>@<where>` through `Contact::through` (dropped when
+      the relay cannot be placed). `connect_peer` refuses a `relay:`
+      address with no device to pin (`UNPINNED_RELAY`), and `peer add`
+      refuses one. Three red-team tests, each sabotaged red
+      (TESTING.md). **Not tested:** `peer add`'s refusal, and a `get`
+      over real sockets through a relay (the parts are; the whole is
+      not).
       **First step built 2026-10-13, the net layer** (`itsanas-net/src/relay.rs`,
       protocol 9): an unreachable B parks on R (`Request::Park`, keepalive
       every 20 s), A asks R to `Splice { to: B }`, R pumps raw bytes, and A
