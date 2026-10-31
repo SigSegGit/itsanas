@@ -52,6 +52,54 @@ rule as the recovery phrase, same reason.
 
 ---
 
+## 1b. On a phone by hand, and how it updates itself
+
+Until Play, the application is installed by hand from a GitHub release, and it
+updates itself from there (built 2026-10-31, `Updater.kt`):
+
+- **Settings → Updates** reads the latest release's `manifest.txt` and
+  `manifest.txt.sig`. The native core checks the signature with the release key
+  compiled into the build (`itsanas_release::android_update`, the check a
+  desktop node makes before it replaces its binary), then whether the release
+  is newer and carries an APK.
+- **Install** downloads `itsanas-android-apk`, has the core check it against
+  the size and both hashes the signature covers (`checkApk`), and hands it to
+  Android's installer. Android asks the person, and installs only an APK
+  signed with **the same key as the installed one**.
+- The release carries the APK because `sign-release.ps1` builds it on
+  Nicolas's PC, where the key is, after checking the draft and before signing
+  (`-NoApk` leaves it out). It is in the manifest as target `android-apk`, file
+  `itsanas-android-apk` -- a `....apk` name would make every 0.1.13 node reject
+  the manifest -- and beside it as `ITSaNAS-<version>.apk` for a person.
+- `versionCode` is `MAJOR * 1_000_000 + MINOR * 1_000 + PATCH`, read from the
+  workspace version: it was 1 for every build before, and Android refuses an
+  update that does not raise it.
+
+**The key decides everything above.** A phone that installed a debug-signed
+build refuses every update signed with the release key, and the reverse: the
+only way across is uninstalling, which deletes the phone's node (the account
+comes back from its 24 words). So make the release key (§1) **before** the
+first phone that should keep its updates installs anything.
+
+**On a Samsung Galaxy (S25, One UI 7)**, once:
+
+1. **Auto Blocker** refuses every app not from a store: Settings → Security and
+   privacy → Auto Blocker → off (it can go back on after the install; updates
+   from the application itself then still ask).
+2. Get the APK onto the phone: open the release page on the phone and download
+   `ITSaNAS-<version>.apk`, or copy it over USB into `Download`.
+3. Open it from **My Files** (or the browser's downloads). Android asks to
+   allow that app to install apps: allow it, go back, **Install**. Play
+   Protect may say it does not know the developer: **More details → Install
+   anyway**.
+4. Open ITSaNAS, create an account (or restore one with its 24 words), then
+   **Settings → Updates** says "This is the latest version (x.y.z)".
+5. At the next release it says "ITSaNAS x.y.z is available": **Install**, and
+   the first time, allow ITSaNAS itself to install apps.
+
+What to report from a test: whether each step above did what it says, the
+Settings → Updates line, and anything on screen that needed a guess.
+
 ## 2. Build what Play accepts
 
 ```
@@ -175,6 +223,11 @@ Somebody would tap it again. The screen now reports what happened.
 
 ## 6. What is not ready, said plainly
 
+- **The self-update has not run end to end**: the native checks are tested
+  (`red_team_the_phone_installs_only_the_apk_the_signed_release_names`), the
+  Kotlin download and the hand-off to the installer only on the emulator, and
+  no release carries an APK yet -- the first one built by `sign-release.ps1`
+  will.
 - **Nobody has installed the current application on a real phone.** It has run
   on the emulator, where it installs, starts, loads the native library, opens a
   node and joins a coordinator (§5b) — so the Kotlin glue and the JNI

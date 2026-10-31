@@ -17,6 +17,10 @@ itsanas-discover = { version = "0.1.0", path = "../itsanas-discover" }
 itsanas-net = { version = "0.1.0", path = "../itsanas-net" }
 itsanas-node = { version = "0.1.0", path = "../itsanas-node" }
 itsanas-policy = { version = "0.1.0", path = "../itsanas-policy" }
+# The signed release manifest, for the application's own updates: the same
+# check, with the same pinned key, a desktop node makes before it replaces
+# its binary.
+itsanas-release = { version = "0.1.0", path = "../itsanas-release" }
 itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
 jni = "0.21.1"
 serde_json = "1.0.145"

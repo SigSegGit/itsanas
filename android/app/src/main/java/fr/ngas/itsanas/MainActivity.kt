@@ -126,6 +126,16 @@ private fun App(shared: List<Uri>) {
     val context = LocalContext.current
     var screen by remember { mutableStateOf<Screen>(Screen.Opening) }
     var complaint by remember { mutableStateOf<String?>(null) }
+    var offered by remember { mutableStateOf<Updater.Offer?>(null) }
+    val scope = rememberCoroutineScope()
+
+    // A newer release, asked at most once a day when the application opens:
+    // installed by hand, it hears of one from nothing else (Updater). Quiet
+    // when offline or when GitHub does not answer: a failure here is not news
+    // worth a dialog at every launch; Settings -> Updates says it.
+    LaunchedEffect(Unit) {
+        offered = Updater.dueOffer(context)
+    }
 
     // Unlock without asking, when the passphrase was remembered. An application
     // that demands a long passphrase on every launch gets a short one.
@@ -167,6 +177,30 @@ private fun App(shared: List<Uri>) {
             }
             Screen.Ready -> Files(shared) { complaint = it }
         }
+    }
+
+    offered?.let { offer ->
+        AlertDialog(
+            onDismissRequest = { offered = null },
+            title = { Text("ITSaNAS ${offer.version} is available") },
+            text = { Text("This phone runs ${BuildConfig.VERSION_NAME}. Android asks before installing it.") },
+            confirmButton = {
+                TextButton({
+                    offered = null
+                    scope.launch {
+                        try {
+                            if (!Updater.install(context, offer)) {
+                                complaint = "Allow ITSaNAS to install apps, then open " +
+                                    "Settings -> Updates and tap Install."
+                            }
+                        } catch (e: Exception) {
+                            complaint = "The update was not installed: ${e.message}"
+                        }
+                    }
+                }) { Text("Install") }
+            },
+            dismissButton = { TextButton({ offered = null }) { Text("Later") } },
+        )
     }
 
     complaint?.let { message ->
@@ -597,6 +631,19 @@ private fun Settings(
         mutableStateOf((status?.pledgeBytes?.div(1024 * 1024 * 1024) ?: 0L).toString())
     }
     var onMetered by remember { mutableStateOf(Vault.contentOnMetered(context)) }
+    // Asked once each time Settings opens: an application installed by hand
+    // hears of a release from nothing else (Updater).
+    var update by remember { mutableStateOf<Updater.Offer?>(null) }
+    var updateNote by remember { mutableStateOf("Looking for a newer version...") }
+    LaunchedEffect(Unit) {
+        updateNote = try {
+            update = Updater.check()
+            update?.let { "ITSaNAS ${it.version} is available." }
+                ?: "This is the latest version (${BuildConfig.VERSION_NAME})."
+        } catch (e: Exception) {
+            "Could not check for a newer version: ${e.message}"
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onClose,
@@ -622,6 +669,23 @@ private fun Settings(
                         },
                         style = MaterialTheme.typography.bodySmall,
                     )
+                }
+
+                Text("Updates", style = MaterialTheme.typography.titleSmall)
+                Text(updateNote, style = MaterialTheme.typography.bodySmall)
+                update?.let { offer ->
+                    Button({
+                        scope.launch {
+                            try {
+                                if (!Updater.install(context, offer)) {
+                                    updateNote = "Allow ITSaNAS to install apps, come back, " +
+                                        "and tap Install again."
+                                }
+                            } catch (e: Exception) {
+                                complain("The update was not installed: ${e.message}")
+                            }
+                        }
+                    }) { Text("Install ${offer.version}") }
                 }
 
                 Text("Join a network", style = MaterialTheme.typography.titleSmall)

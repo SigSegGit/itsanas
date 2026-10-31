@@ -64,6 +64,17 @@ pub const TARGETS: [&str; 5] = [
     "x86_64-apple-darwin",
 ];
 
+/// The Android application's entry in a release: target `android-apk`, file
+/// `itsanas-android-apk`.
+///
+/// Not `....apk`: a manifest file name must be `itsanas-<target>` or
+/// `itsanas-<target>.exe`, and a 0.1.13 node rejects the whole manifest over a
+/// name it does not expect -- every desktop update would have stopped the
+/// release the phone joined. Android installs from a stream, so the name does
+/// not matter to it; the release also carries a copy named `ITSaNAS-<v>.apk`
+/// for a person downloading it by hand.
+pub const ANDROID_TARGET: &str = "android-apk";
+
 /// First line of every manifest. A format change bumps the number, so an old
 /// node refuses a manifest it would misread instead of guessing.
 const HEADER: &str = "itsanas-release 1";
@@ -143,6 +154,25 @@ impl Version {
             return Err(bad());
         }
         Ok(version)
+    }
+
+    /// Android's `versionCode` for this version: `MAJOR * 1_000_000 + MINOR *
+    /// 1_000 + PATCH`, so a newer version always has a larger code. Android
+    /// refuses an update whose code is not larger than the installed one, and
+    /// the application sat at 1 for every build until 2026-10-31: no update
+    /// could ever have installed over it. `None` past what fits (a minor or
+    /// patch of 1000 or more, or a code above Android's `2_100_000_000`).
+    #[must_use]
+    pub fn android_code(self) -> Option<u32> {
+        if self.minor >= 1_000 || self.patch >= 1_000 {
+            return None;
+        }
+        let code = self
+            .major
+            .checked_mul(1_000_000)?
+            .checked_add(self.minor * 1_000)?
+            .checked_add(self.patch)?;
+        (code <= 2_100_000_000).then_some(code)
     }
 
     /// The version of the binary that is running, which is the workspace's.
@@ -248,7 +278,7 @@ impl Manifest {
     /// `itsanas-<target>[.exe]` as the release workflow names them.
     pub fn from_dir(version: Version, dir: &Path) -> Result<Self> {
         let mut files = Vec::new();
-        for target in TARGETS {
+        for target in TARGETS.iter().copied().chain([ANDROID_TARGET]) {
             for name in [format!("itsanas-{target}"), format!("itsanas-{target}.exe")] {
                 let path = dir.join(&name);
                 if path.is_file() {
@@ -484,6 +514,24 @@ pub fn verify_signed(manifest: &[u8], signature: &str, trust: &Trust) -> Result<
     let text =
         core::str::from_utf8(manifest).map_err(|_| ReleaseError::Damaged("not text".into()))?;
     Manifest::parse(text)
+}
+
+/// What a phone running `running` should install: the signed release's
+/// [`ANDROID_TARGET`] entry when the release is newer and has one, `None` when
+/// there is nothing to do (the same version or older, or a release without an
+/// APK). A bad signature or a damaged manifest is an error, never `None`: a
+/// forged release must not read as "up to date".
+pub fn android_update(
+    manifest: &[u8],
+    signature: &str,
+    trust: &Trust,
+    running: Version,
+) -> Result<Option<FileEntry>> {
+    let parsed = verify_signed(manifest, signature, trust)?;
+    if parsed.version <= running {
+        return Ok(None);
+    }
+    Ok(parsed.file_for(ANDROID_TARGET).cloned())
 }
 
 /// Steps 1 to 3: signed, well formed, and newer than `running`.

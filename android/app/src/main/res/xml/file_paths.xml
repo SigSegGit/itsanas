@@ -3,4 +3,6 @@
     <!-- Only the copies made for a viewer. The node's own directory is never
          shared: a store another application can open is one it can corrupt. -->
     <cache-path name="opened" path="opened/" />
+    <!-- The downloaded update, handed to Android's installer (Updater.kt). -->
+    <cache-path name="update" path="update/" />
 </paths>

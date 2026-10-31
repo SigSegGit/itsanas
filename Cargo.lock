@@ -723,6 +723,7 @@ dependencies = [
  "itsanas-net",
  "itsanas-node",
  "itsanas-policy",
+ "itsanas-release",
  "itsanas-store",
  "jni",
  "serde_json",

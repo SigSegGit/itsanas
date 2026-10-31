@@ -5,8 +5,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use itsanas_release::{
-    FileEntry, Manifest, RELEASE_KEY, ReleaseError, ReleaseKey, Trust, Version, check_draft,
-    verify_release, verify_signed,
+    ANDROID_TARGET, FileEntry, Manifest, RELEASE_KEY, ReleaseError, ReleaseKey, Trust, Version,
+    android_update, check_draft, verify_release, verify_signed,
 };
 
 /// A temporary directory removed on drop, so no test leaves files behind.
@@ -425,4 +425,112 @@ fn versions_compare_as_numbers_not_as_text() {
         );
     }
     assert_eq!(Version::running().to_string(), env!("CARGO_PKG_VERSION"));
+}
+
+/// A release with the APK beside the desktop binaries, signed by `key`.
+fn android_release(version: &str, key: &ReleaseKey) -> (Scratch, Vec<u8>, String) {
+    let dir = Scratch::new("android");
+    fs::write(
+        dir.0.join("itsanas-x86_64-unknown-linux-gnu"),
+        b"linux".repeat(100),
+    )
+    .unwrap();
+    fs::write(
+        dir.0.join("itsanas-android-apk"),
+        b"PK apk bytes".repeat(300),
+    )
+    .unwrap();
+    let manifest = Manifest::from_dir(v(version), &dir.0).expect("manifest");
+    let text = manifest.to_text().into_bytes();
+    let (_, signature) = key.sign_manifest(&text).expect("signing");
+    (dir, text, signature)
+}
+
+/// The phone's update check (OTA, 2026-10-31): a newer signed release with
+/// an APK is offered, with the entry the download is checked against; the
+/// same version, an older one or a release without an APK is "nothing to
+/// do"; a forged signature is an error and never "up to date". Sabotage:
+/// return `Ok(None)` for every signature failure -- a forged release then
+/// reads as no update and the phone never says it was offered one; or drop
+/// the version comparison -- red on the same-version case.
+#[test]
+fn red_team_a_phone_installs_only_a_newer_signed_apk() {
+    let key = ReleaseKey::generate().unwrap();
+    let (_dir, text, signature) = android_release("0.1.14", &key);
+    let offered = android_update(&text, &signature, &trust(&key), v("0.1.13"))
+        .expect("a good release")
+        .expect("a newer release with an APK is offered");
+    assert_eq!(offered.target, ANDROID_TARGET);
+    assert_eq!(offered.name, "itsanas-android-apk");
+
+    assert_eq!(
+        android_update(&text, &signature, &trust(&key), v("0.1.14")).unwrap(),
+        None,
+        "a phone already on the release was told to install it again"
+    );
+    assert_eq!(
+        android_update(&text, &signature, &trust(&key), v("0.2.0")).unwrap(),
+        None
+    );
+
+    let stranger = ReleaseKey::generate().unwrap();
+    assert!(
+        android_update(&text, &signature, &trust(&stranger), v("0.1.13")).is_err(),
+        "a release signed by another key was not refused: anyone could push an APK to every phone"
+    );
+    let (_d, desktop_only, sig) = {
+        let dir = Scratch::new("desktop");
+        fs::write(
+            dir.0.join("itsanas-x86_64-unknown-linux-gnu"),
+            b"linux".repeat(100),
+        )
+        .unwrap();
+        let m = Manifest::from_dir(v("0.1.14"), &dir.0).unwrap();
+        let t = m.to_text().into_bytes();
+        let (_, s) = key.sign_manifest(&t).unwrap();
+        (dir, t, s)
+    };
+    assert_eq!(
+        android_update(&desktop_only, &sig, &trust(&key), v("0.1.13")).unwrap(),
+        None
+    );
+}
+
+/// The APK's manifest entry parses on a node that predates it: a name
+/// `....apk` would have made every 0.1.13 node reject the manifest, and
+/// with it its own desktop update. Sabotage: name the file
+/// `itsanas-android.apk` in `from_dir` -- the manifest no longer parses.
+#[test]
+fn red_team_the_apk_entry_does_not_break_an_older_node_reading_the_manifest() {
+    let key = ReleaseKey::generate().unwrap();
+    let (_dir, text, signature) = android_release("0.1.14", &key);
+    let parsed = verify_release(&text, &signature, &trust(&key), v("0.1.13"))
+        .expect("a desktop node reads a manifest that carries the APK");
+    assert!(parsed.file_for("x86_64-unknown-linux-gnu").is_some());
+    assert!(parsed.file_for(ANDROID_TARGET).is_some());
+}
+
+/// Android installs an update only over a smaller `versionCode`: each newer
+/// version must give a larger code. Sabotage: `MAJOR * 1000 + MINOR` -- 0.1.13
+/// and 0.1.14 then share a code, and the phone refuses the update.
+#[test]
+fn red_team_a_newer_version_always_has_a_larger_android_code() {
+    let order = [
+        "0.1.0", "0.1.13", "0.1.14", "0.2.0", "0.10.0", "1.0.0", "1.0.999",
+    ];
+    for pair in order.windows(2) {
+        let (a, b) = (v(pair[0]).android_code(), v(pair[1]).android_code());
+        assert!(
+            a < b,
+            "{} -> {a:?} is not below {} -> {b:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+    assert_eq!(v("0.1.14").android_code(), Some(1_014));
+    assert_eq!(
+        v("0.1000.0").android_code(),
+        None,
+        "a minor that would collide was given a code"
+    );
 }
