@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-10-30 — 1454 test functions across 40 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 471 are red-team tests.**
+**Last updated: 2026-10-30 — 1457 test functions across 40 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 474 are red-team tests.**
 
-**1338 of the 1454 tests have an entry of their own on this page** — an *entry*,
+**1341 of the 1457 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 252 |
+| `itsanas-cli` unit | 255 |
 | `itsanas-android` unit | 10 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 167 |
@@ -219,7 +219,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 52 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 116 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 119 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1200,7 +1200,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (252)
+# `itsanas-cli` — unit tests (255)
 
 ## `bench` — measuring this machine (4)
 
@@ -1555,7 +1555,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised (54)
+## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised (57)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`
@@ -1604,6 +1604,9 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `the_phrase_as_init_prints_it_reads_back_as_the_words` | `init` prints the words as a numbered grid; a person pastes that into `--phrase-file`. The numbers are dropped, words are never guessed at, and one word a line works too. |
 | **`red_team_an_empty_mount_point_is_not_a_reachable_folder`** | An unmounted disk leaves an empty mount point; `instances` must say UNREACHABLE unless 0l's `.itsanas-folder` marker is there, never trust `is_dir` alone. |
 | `a_refused_chain_is_said_on_the_sync_line` | `itsanas sync`'s summary names a device chain the peer served and this node refused (§8 2c), with the short id of each device named in the report and `and N more` for the rest, and adds nothing when there is none; without it the round reads as a finished sync with one device's changes left out, and without the ids the owner cannot tell a forgery from a stale sibling of their own. Worded "from this peer": a refusal at the drain says "pushed into this vault" and a restore "on the backup" (`ChainSource`). Sabotaged (the line dropped from `deferred_note`; the ids left off; the sync line worded as the backup): red. |
+| **`red_team_a_file_this_machine_lacks_is_fetched_from_the_account_with_no_peer_configured`** | `itsanas get` of a file this machine knows and has not downloaded dials what `sync` dials (`peer_targets`): `peer add` entries unpinned, the coordinator's list pinned, and, when the coordinator did not list them, the address book's machines pinned. It read only `config.peers` and said "there is no peer to fetch it from" on a laptop away from home whose machines were listed and in its book (§8 0v). Sabotaged (configured peers alone): red. |
+| **`red_team_a_parked_machine_is_dialled_through_its_relay_and_pinned_or_not_at_all`** | A `relay:` address from the book is yielded only as `relay:<relay>@<where>` with the parked machine's key pinned, and dropped when the book cannot place the relay -- never dialled as a socket, never unpinned. Sabotaged (the address yielded as it is): red. |
+| **`red_team_an_unpinned_relay_address_is_refused_not_dialled_as_a_socket`** | `connect_peer` given a relayed address and no device to pin refuses it before any socket (`UNPINNED_RELAY`), as the daemon does; it dialled `relay:...` as a host name (the open point of 0.1.8). Sabotaged (the arm deleted): red. `peer add` refuses a `relay:` address with the same words; **not tested** (it needs a node on disk, an Argon2id derivation). |
 | `a_restore_says_the_chains_it_refused_on_the_backup` | `backup::restore_summary`, the one line both the foreground `backup restore` and the daemon's restore job print: the counts alone when nothing was refused, and the refused line, naming the device and worded "on the backup", when a chain was. With a daemon running, a restore is a disk job, and the job's line said only the counts, so a restore from a disk carrying a forged chain read as done; and "from this peer" sent the owner hunting for a misbehaving machine when the segment was on their own backup disk. Sabotaged (the refused line dropped; worded as a peer): red both times. |
 | `a_listing_that_left_a_chain_out_says_so` | `itsanas ls` prints `describe_left_out` before the list and before `(no files)`: the count of device chains the catalogue left out and their short ids, nothing when none was. Without it a sibling's damaged segment made its files and deletes vanish from a list that said nothing. Sabotaged (the line inverted; the ids left off): red both times. The print in `list` itself is not under test. |
 | **`red_team_pledge_under_what_keep_needs_is_refused_and_saves_nothing`** | `itsanas pledge 1M` on a node keeping 20 GiB is refused with the `space --pledge .. --keep .. --apply` command, and neither the node file nor the node in memory changes; with no keep the same pledge goes through, so the setter is not one that refuses everything (HANDOVER §8 3a). Sabotaged (the `check_split` call in `set_pledge` dropped, or moved below the assignment; `check_split` always `Ok`): red. |

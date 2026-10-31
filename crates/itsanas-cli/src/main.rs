@@ -2841,14 +2841,20 @@ fn fetch_absent(node: &Node, path: &str) -> Result<Vec<u8>> {
 
     let wanted: std::collections::BTreeSet<_> = chunks.into_iter().collect();
 
-    if node.config.peers.is_empty() {
+    // The account's machines, not only `peer add` entries: a laptop away from
+    // home with a storage budget answered "there is no peer to fetch it from"
+    // while the coordinator listed its other machines and the address book
+    // knew them, a parked one included (§8 0v).
+    let targets = account_targets(node, None);
+    if targets.is_empty() {
         return Err(CliError::Usage(format!(
-            "{path} is in this account and not on this device, and there is no peer to fetch it from. Try `itsanas peer add <host:port>` or `itsanas peer find <username>`."
+            "{path} is in this account and not on this device, and no machine of this account is known to fetch it from. Try `itsanas peer add <host:port>` or `itsanas peer find <username>`."
         )));
     }
 
-    for target in &node.config.peers {
-        let Ok(mut client) = connect_peer(target.as_str(), &node.device, node.store.owner(), None)
+    for (target, pinned) in &targets {
+        let Ok(mut client) =
+            connect_peer(target.as_str(), &node.device, node.store.owner(), *pinned)
         else {
             continue;
         };
@@ -4774,29 +4780,7 @@ fn sync(home: &Path, address: Option<&str>, scope: session::Scope) -> Result<()>
     // a person runs after recovering asked them to type an address -- which is
     // what acceptance test A says must never be needed. Only the daemon asked
     // the coordinator.
-    let mut targets: Vec<(String, Option<DeviceId>)> = match address {
-        Some(address) => vec![(address.to_owned(), None)],
-        None => node
-            .config
-            .peers
-            .iter()
-            .map(|peer| (peer.clone(), None))
-            .collect(),
-    };
-    if address.is_none() && node.config.coordinator.is_some() {
-        match coordinator::peers(&node, node.store.owner()) {
-            Ok(found) => {
-                for (device, found_at) in found {
-                    if !targets.iter().any(|(known, _)| *known == found_at) {
-                        targets.push((found_at, Some(device)));
-                    }
-                }
-            }
-            // Not fatal: configured peers may still answer, and the error
-            // below names the whole situation if nothing does.
-            Err(error) => println!("coordinator: unreachable ({error})"),
-        }
-    }
+    let targets = account_targets(&node, address);
 
     if targets.is_empty() {
         return Err(CliError::Usage(
@@ -4932,6 +4916,12 @@ fn peer(home: &Path, action: PeerAction) -> Result<()> {
 
     match action {
         PeerAction::Add { address } => {
+            if address.starts_with(itsanas_node::contact::RELAY_PREFIX) {
+                return Err(CliError::Usage(format!(
+                    "{address}: {UNPINNED_RELAY}, and `peer add` has none to give it; \
+                     the machine's own `host:port`, or the coordinator, which knows it"
+                )));
+            }
             if node.config.peers.contains(&address) {
                 println!("{address} is already configured");
                 return Ok(());
@@ -5294,6 +5284,81 @@ fn gc(home: &Path, grace: u64) -> Result<()> {
     Ok(())
 }
 
+/// Where a one-shot command (`sync`, `get`) dials when not given an address:
+/// `peer add` entries unpinned, as the daemon dials them; the account's other
+/// devices from the coordinator, pinned, because it supplies addresses and is
+/// not trusted to say who lives at one; then any device of the address book
+/// the coordinator did not list (it was unreachable, or none is configured),
+/// pinned, a parked one through its relay.
+///
+/// Without the coordinator half a machine just restored with `login --from`
+/// had nothing to sync with (acceptance test A); without the book half `get`
+/// on a laptop away from home could reach nobody the coordinator did not
+/// answer for (§8 0v).
+fn account_targets(node: &Node, address: Option<&str>) -> Vec<(String, Option<DeviceId>)> {
+    if let Some(address) = address {
+        return vec![(address.to_owned(), None)];
+    }
+    let listed =
+        node.config.coordinator.as_ref().map(|_| {
+            coordinator::peers(node, node.store.owner()).map_err(|error| error.to_string())
+        });
+    if let Some(Err(error)) = &listed {
+        // Not fatal: configured peers and the book may still answer.
+        println!("coordinator: unreachable ({error})");
+    }
+    let (book, _) = itsanas_node::contact::Contact::load(
+        &itsanas_node::contact::Contact::path(&node.home),
+        node.store.owner(),
+    );
+    peer_targets(
+        &node.config.peers,
+        &listed.and_then(std::result::Result::ok).unwrap_or_default(),
+        &book.candidates(),
+        |address| book.through(address),
+    )
+}
+
+/// [`account_targets`]'s decision, given what it read: the configured peers,
+/// what the coordinator listed, the address book's candidates in dialling
+/// order and how the book resolves a `relay:` address.
+///
+/// A `relay:` address is only ever yielded pinned and in the form
+/// [`connect_peer`] dials (`relay:<relay>@<where>`); one whose relay the book
+/// cannot place is dropped, never dialled as a socket.
+fn peer_targets(
+    configured: &[String],
+    listed: &[(DeviceId, String)],
+    book: &[(DeviceId, String)],
+    through: impl Fn(&str) -> Option<(DeviceId, String)>,
+) -> Vec<(String, Option<DeviceId>)> {
+    let relay = itsanas_node::contact::RELAY_PREFIX;
+    let mut targets: Vec<(String, Option<DeviceId>)> =
+        configured.iter().map(|peer| (peer.clone(), None)).collect();
+    let add = |device: DeviceId, address: &str, targets: &mut Vec<(String, Option<DeviceId>)>| {
+        let address = if address.starts_with(relay) {
+            match through(address) {
+                Some((relay_device, at)) => format!("{relay}{}@{at}", relay_device.to_hex()),
+                None => return,
+            }
+        } else {
+            address.to_owned()
+        };
+        if !targets.iter().any(|(known, _)| *known == address) {
+            targets.push((address, Some(device)));
+        }
+    };
+    for (device, address) in listed {
+        add(*device, address, &mut targets);
+    }
+    for (device, address) in book {
+        if !listed.iter().any(|(known, _)| known == device) {
+            add(*device, address, &mut targets);
+        }
+    }
+    targets
+}
+
 /// Dial `address`, or, for a machine parked on a relay (`relay:<id>@<at>`,
 /// §8 0v), dial it through that relay with `expect` pinned: what the
 /// one-shot commands share with the daemon's dialler.
@@ -5316,9 +5381,17 @@ fn connect_peer(
             owner,
             None,
         ),
+        // A relayed address names a relay, not the machine behind it: dialled
+        // as a socket it fails as a name lookup (the open point of 0.1.8),
+        // and dialled unpinned through the relay it reaches whoever the relay
+        // splices to. The daemon refuses it the same way.
+        (Some(_), None) => Err(itsanas_net::NetError::Refused(UNPINNED_RELAY.to_owned())),
         _ => PeerClient::connect(itsanas_net::AddressList(address), device, owner, expect),
     }
 }
+
+/// Why a `relay:` address is not dialled without the device it reaches.
+const UNPINNED_RELAY: &str = "a relayed address needs the device it reaches";
 
 #[cfg(test)]
 mod tests {
@@ -5688,6 +5761,104 @@ mod tests {
         prompt_text, record_departure, refuse_if_departed, register, rejoin, resolve_device,
         set_pledge, sibling_ports, snapshot_status, space_on, steer, sync_folder,
     };
+
+    fn device(byte: u8) -> DeviceId {
+        DeviceId::from_bytes([byte; 32])
+    }
+
+    /// A laptop away from home with a storage budget, no `peer add` entry,
+    /// and the coordinator either answering or not: `get` used to read only
+    /// `config.peers` and said "there is no peer to fetch it from" while the
+    /// account's machines were listed and in the address book (§8 0v).
+    /// Sabotage: `peer_targets` returns the configured peers alone -- red on
+    /// the first two assertions.
+    #[test]
+    fn red_team_a_file_this_machine_lacks_is_fetched_from_the_account_with_no_peer_configured() {
+        let (pi, vm) = (device(1), device(2));
+        let listed = vec![(pi, "203.0.113.10:9797".to_owned())];
+        let targets = super::peer_targets(&[], &listed, &[], |_| None);
+        assert_eq!(
+            targets,
+            vec![("203.0.113.10:9797".to_owned(), Some(pi))],
+            "a machine the coordinator listed is not dialled, or dialled unpinned: \
+             `get` reaches nobody, or whoever lives at that address"
+        );
+
+        // The coordinator unreachable: the book's machines, pinned, a machine
+        // it also listed (here none) not twice.
+        let book = vec![(vm, "198.51.100.7:9797".to_owned())];
+        let targets = super::peer_targets(&[], &[], &book, |_| None);
+        assert_eq!(
+            targets,
+            vec![("198.51.100.7:9797".to_owned(), Some(vm))],
+            "with the coordinator down, `get` ignores the address book and reaches nobody"
+        );
+
+        // `peer add` entries still come first and stay unpinned, as the daemon
+        // dials them; a book device the coordinator listed is not added again.
+        let listed = vec![(vm, "198.51.100.7:9797".to_owned())];
+        let targets = super::peer_targets(&["192.0.2.5:9797".to_owned()], &listed, &book, |_| None);
+        assert_eq!(
+            targets,
+            vec![
+                ("192.0.2.5:9797".to_owned(), None),
+                ("198.51.100.7:9797".to_owned(), Some(vm)),
+            ]
+        );
+    }
+
+    /// A parked machine's address is `relay:<relay>`: dialled as a socket it
+    /// fails, and dialled unpinned it reaches whoever the relay splices to.
+    /// It is yielded only pinned, in the form `connect_peer` dials through
+    /// the relay, and dropped when the book cannot place the relay.
+    /// Sabotage: yield the `relay:` address as it is -- red.
+    #[test]
+    fn red_team_a_parked_machine_is_dialled_through_its_relay_and_pinned_or_not_at_all() {
+        let (laptop, relay) = (device(3), device(4));
+        let parked = format!("{}{}", itsanas_node::contact::RELAY_PREFIX, relay.to_hex());
+        let book = vec![(laptop, parked.clone())];
+        let placed =
+            |address: &str| (address == parked).then(|| (relay, "203.0.113.20:9797".to_owned()));
+        let targets = super::peer_targets(&[], &[], &book, placed);
+        assert_eq!(
+            targets,
+            vec![(
+                format!(
+                    "{}{}@203.0.113.20:9797",
+                    itsanas_node::contact::RELAY_PREFIX,
+                    relay.to_hex()
+                ),
+                Some(laptop)
+            )],
+            "a parked machine is not dialled through its relay with its key pinned"
+        );
+        let targets = super::peer_targets(&[], &[], &book, |_| None);
+        assert!(
+            targets.is_empty(),
+            "a relayed address whose relay nobody can place was yielded: {targets:?}"
+        );
+    }
+
+    /// The one-shot commands' dialler, given a relayed address and no device
+    /// to pin: it dialled `relay:...` as a host name (the open point of
+    /// 0.1.8). Now refused before any socket, as the daemon refuses it.
+    /// Sabotage: delete the `(Some(_), None)` arm in `connect_peer` -- the
+    /// error becomes a name lookup or a refused connection, red.
+    #[test]
+    fn red_team_an_unpinned_relay_address_is_refused_not_dialled_as_a_socket() {
+        let keys = itsanas_crypto::DeviceKeys::generate().expect("keys");
+        let owner = itsanas_crypto::UserId::from_bytes([9; 32]);
+        let address = format!(
+            "{}{}@127.0.0.1:1",
+            itsanas_node::contact::RELAY_PREFIX,
+            device(5).to_hex()
+        );
+        match super::connect_peer(&address, &keys, owner, None) {
+            Err(itsanas_net::NetError::Refused(why)) => assert_eq!(why, super::UNPINNED_RELAY),
+            Err(other) => panic!("a relayed address with nothing to pin was dialled: {other}"),
+            Ok(_) => panic!("a relayed address with nothing to pin connected"),
+        }
+    }
 
     /// `itsanas sync` names a refused chain on its summary line, and the
     /// device it came from, and says nothing extra when there is none.
