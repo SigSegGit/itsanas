@@ -11,11 +11,12 @@ use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use itsanas_coord::Directory;
 use itsanas_coord::claim::{NodeClaim, Presence};
 use itsanas_coord::directory::Registration;
 use itsanas_coord::protocol::{Request, Response};
 use itsanas_coord::server::CoordClient;
+use itsanas_coord::service::PRESENCE_KEPT_FOR;
+use itsanas_coord::{COORD_VERSION, Directory};
 use itsanas_crypto::{DeviceKeys, MasterSecret, SecretBytes, UserKeys};
 
 /// The coordinator on loopback, and the address it printed.
@@ -107,5 +108,89 @@ fn red_team_a_coordinator_killed_mid_round_keeps_every_account_it_confirmed() {
         (1, 1),
         "a machine the coordinator had enrolled was gone after a crash, or its \
          claim and the per-account index disagree"
+    );
+}
+
+/// The binary, not the library: a directory left by an earlier run holds an
+/// address past the keep, and the first thing the real process does about it
+/// must still be true after the process is killed.
+#[test]
+fn red_team_the_real_coordinator_erases_a_silent_address_as_it_starts() {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs();
+    let long_ago = now - PRESENCE_KEPT_FOR - 3600;
+    let state = tempfile::tempdir().expect("temp dir");
+    let path = state.path().join("directory.redb");
+    let owner = UserKeys::derive(&MasterSecret::from_bytes([8; 32]));
+    let laptop = DeviceKeys::from_seed(&SecretBytes::new([8; 32]));
+    {
+        let directory = Directory::open(&path).expect("directory");
+        directory
+            .register(
+                &Registration {
+                    username: "camille".to_owned(),
+                    user: owner.public(),
+                    issued_unix: long_ago,
+                }
+                .sign(&owner),
+                long_ago,
+            )
+            .expect("register");
+        directory
+            .claim(
+                &NodeClaim {
+                    owner: owner.user_id(),
+                    device: laptop.device_id(),
+                    pledged_bytes: 1 << 30,
+                    issued_unix: long_ago,
+                    revoked: false,
+                }
+                .sign(&owner),
+                long_ago,
+            )
+            .expect("claim");
+        directory
+            .announce(
+                &Presence {
+                    device: laptop.device_id(),
+                    address: "203.0.113.9:9797".to_owned(),
+                    at_unix: long_ago,
+                }
+                .sign(&laptop),
+                long_ago,
+            )
+            .expect("announce");
+    }
+
+    let (mut coordinator, address) = start(state.path());
+    // Answered, so the process got past whatever it does before accepting.
+    let mut client = CoordClient::connect(address, &laptop, None).expect("dial");
+    assert!(
+        matches!(
+            client
+                .ask(&Request::Hello {
+                    version: COORD_VERSION
+                })
+                .unwrap(),
+            Response::Welcome { .. }
+        ),
+        "a coordinator that erased what had expired stopped answering members"
+    );
+    coordinator.kill().expect("kill the coordinator");
+    coordinator.wait().expect("reap it");
+
+    let directory = Directory::open(&path).expect("reopen");
+    assert_eq!(
+        directory.presence_of(laptop.device_id()).expect("read"),
+        None,
+        "the real coordinator still holds, after a kill, an address silent past the keep: \
+         nothing that runs in production erases it, or the erasure was not written down"
+    );
+    assert_eq!(
+        directory.enrolled_counts().expect("counts"),
+        (1, 1),
+        "starting up took an enrolment with the address"
     );
 }

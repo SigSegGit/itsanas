@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use itsanas_crypto::{DeviceId, UserId};
 
 use crate::claim::{ClaimedPresence, Presence, SignedClaim, SignedPresence};
-use crate::directory::{Admission, Directory};
+use crate::directory::{Account, Admission, Directory};
 use crate::error::Result;
 use crate::protocol::{
     COORD_VERSION, EnrolledDevice, MAX_PEERS_RETURNED, MAX_WIRE_USERNAME, Request, Response,
@@ -45,6 +45,18 @@ pub const ESCROW_WINDOW: Duration = Duration::from_secs(15 * 60);
 /// generous — but not unbounded, because every stale address is a dial that
 /// every peer pays for on every round, forever.
 pub const PRESENCE_TTL: u64 = 7 * 24 * 3600;
+
+/// How long an address and the date of its last announcement stay on file.
+///
+/// Past [`PRESENCE_TTL`] nobody is handed the address, and the only reader left
+/// is the owner's own device list, where "heard from 12 days ago" is what lets
+/// them recognise a machine they have lost. Past this, the file keeps the
+/// enrolment and forgets where the machine was and when.
+pub const PRESENCE_KEPT_FOR: u64 = 30 * 24 * 3600;
+
+// Shorter than the time-to-live, and a pass would erase what `peers_of` is still
+// handing out.
+const _: () = assert!(PRESENCE_KEPT_FOR > PRESENCE_TTL);
 
 /// How many usernames the limiter remembers at once.
 ///
@@ -176,6 +188,17 @@ impl Default for EscrowLimiter {
     }
 }
 
+/// What one [`CoordService::expire`] pass erased.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Expired {
+    /// Devices silent past [`PRESENCE_KEPT_FOR`], whose address went.
+    pub addresses: usize,
+    /// Deleted accounts' names whose retirement is over.
+    pub names: usize,
+    /// Per-name counts of escrow fetches whose window is over.
+    pub escrow_counts: usize,
+}
+
 /// A coordinator's answering half.
 #[derive(Debug)]
 pub struct CoordService<'a> {
@@ -210,6 +233,21 @@ impl<'a> CoordService<'a> {
             directory,
             admission,
         }
+    }
+
+    /// Erase what has outlived its use: the addresses of devices silent past
+    /// [`PRESENCE_KEPT_FOR`], the names of deleted accounts that are free again,
+    /// and the counts of escrow fetches whose [`ESCROW_WINDOW`] is over.
+    pub fn expire(&self, now_unix: u64) -> Result<Expired> {
+        Ok(Expired {
+            addresses: self
+                .directory
+                .expire_presence(now_unix, PRESENCE_KEPT_FOR)?,
+            names: self.directory.expire_retired_names(now_unix)?,
+            escrow_counts: self
+                .directory
+                .expire_escrow_tries(now_unix, ESCROW_WINDOW.as_secs())?,
+        })
     }
 
     /// Answer one request from `caller`, at wall-clock `now_unix`.
@@ -342,8 +380,16 @@ impl<'a> CoordService<'a> {
                 if username.len() > MAX_WIRE_USERNAME {
                     return Ok(Response::Refused("username too long".to_owned()));
                 }
+                // Anybody with a free keypair may ask, as often as they like, and
+                // a name and its key are what they came for. The date would tell
+                // them when somebody joined, and the flag which names hold an
+                // escrow blob, with none of the counting `GetEscrow` does.
                 Ok(match self.directory.account(username)? {
-                    Some(account) => Response::Account(Box::new(account)),
+                    Some(account) => Response::Account(Box::new(Account {
+                        registered_unix: 0,
+                        escrow_enabled: false,
+                        ..account
+                    })),
                     None => Response::Missing,
                 })
             }
@@ -464,8 +510,8 @@ impl<'a> CoordService<'a> {
             });
         }
 
-        // Most recently heard from first, never-heard-from last, then by id so
-        // two askers see one order.
+        // Most recently heard from first, those with no record last, then by id
+        // so two askers see one order.
         out.sort_by(|a, b| {
             a.silent_for
                 .unwrap_or(u64::MAX)
@@ -936,10 +982,256 @@ mod tests {
     }
 
     fn ask(service: &CoordService<'_>, request: &Request, caller: DeviceId) -> Response {
+        ask_at(service, request, caller, NOW)
+    }
+
+    fn ask_at(
+        service: &CoordService<'_>,
+        request: &Request,
+        caller: DeviceId,
+        now: u64,
+    ) -> Response {
         let mut limiter = EscrowLimiter::new();
         service
-            .handle(request, caller, NOW, &mut limiter, Instant::now())
+            .handle(request, caller, now, &mut limiter, Instant::now())
             .unwrap()
+    }
+
+    /// A `Lookup` is open to anybody with a free keypair, has no budget, and
+    /// exists to turn a name into a key. What else an account row holds is not
+    /// the asker's business: when somebody joined, and whether they hold an
+    /// escrow blob, which `GetEscrow` also tells but counts.
+    #[test]
+    fn red_team_a_stranger_learns_nothing_from_a_lookup_but_the_key() {
+        let directory = directory();
+        let (joined_long_ago, joined_today) = (user(31), user(32));
+        let register = |name: &str, who: &itsanas_crypto::UserKeys, at: u64| {
+            directory
+                .register(
+                    &crate::directory::Registration {
+                        username: name.to_owned(),
+                        user: who.public(),
+                        issued_unix: at,
+                    }
+                    .sign(who),
+                    at,
+                )
+                .expect("register");
+        };
+        register("ancienne", &joined_long_ago, NOW - PRESENCE_KEPT_FOR);
+        register("nouvelle", &joined_today, NOW);
+        directory
+            .put_escrow(joined_long_ago.user_id(), b"sealed")
+            .expect("escrow");
+        directory
+            .set_escrow_enabled(joined_long_ago.user_id(), true)
+            .expect("escrow on");
+
+        let service = CoordService::new(&directory);
+        let stranger = device(99).device_id();
+        let lookup = |name: &str| {
+            let request = Request::Lookup {
+                username: name.to_owned(),
+            };
+            match ask(&service, &request, stranger) {
+                Response::Account(account) => *account,
+                other => panic!("expected the account of {name}, got {other:?}"),
+            }
+        };
+
+        let found = lookup("ancienne");
+        assert_eq!(
+            (found.username.as_str(), found.user),
+            ("ancienne", joined_long_ago.public()),
+            "the key is what a lookup is for, and without it nobody can be reached by name"
+        );
+        assert_eq!(
+            found.registered_unix, 0,
+            "a stranger learnt the day an account joined, from its name alone"
+        );
+        assert!(
+            !found.escrow_enabled,
+            "a stranger can list which accounts hold an escrow blob without spending any of \
+             the budget GetEscrow counts, so which names are worth a guessing attack"
+        );
+        let other = lookup("nouvelle");
+        assert_eq!(
+            (other.registered_unix, other.escrow_enabled),
+            (found.registered_unix, found.escrow_enabled),
+            "two accounts answer differently, and the difference is what a stranger reads"
+        );
+
+        let held = directory.account("ancienne").unwrap().unwrap();
+        assert_eq!(
+            (held.registered_unix, held.escrow_enabled),
+            (NOW - PRESENCE_KEPT_FOR, true),
+            "answering zero wrote zero: the joining allowance reads this date"
+        );
+        assert_eq!(
+            ask(
+                &service,
+                &Request::GetEscrow {
+                    username: "ancienne".to_owned()
+                },
+                stranger
+            ),
+            Response::Escrow(b"sealed".to_vec()),
+            "hiding the flag stopped the blob being handed out: recovery from nothing is gone"
+        );
+    }
+
+    /// What `peers_of` hands out and what `device list` shows must not move
+    /// before the keep, and past it a machine has lost a line in a file, not its
+    /// place in the account: switching it back on is all it takes.
+    #[test]
+    fn a_device_silent_past_the_keep_stays_enrolled_and_comes_back_by_announcing() {
+        let directory = directory();
+        let owner = user(33);
+        let (laptop, phone) = (device(33), device(34));
+        enrol(&directory, &owner, &laptop);
+        directory
+            .claim(&claim_of(&owner, &phone, false, NOW), NOW)
+            .expect("claim");
+        announce_address(&directory, &owner, &laptop, "203.0.113.7:9797");
+        let service = CoordService::new(&directory);
+        let user_id = owner.user_id();
+
+        let peers = |now| match ask_at(
+            &service,
+            &Request::Peers { user: user_id },
+            phone.device_id(),
+            now,
+        ) {
+            Response::Peers(peers) => peers.len(),
+            other => panic!("expected peers, got {other:?}"),
+        };
+        let listed = |now| match ask_at(
+            &service,
+            &Request::Devices { user: user_id },
+            phone.device_id(),
+            now,
+        ) {
+            Response::Devices(devices) => devices
+                .into_iter()
+                .find(|row| row.device == laptop.device_id())
+                .map(|row| (row.silent_for, row.address.is_some()))
+                .expect("the laptop is enrolled and must be listed"),
+            other => panic!("expected devices, got {other:?}"),
+        };
+
+        assert_eq!(
+            peers(NOW + PRESENCE_TTL),
+            1,
+            "an address inside its week stopped being handed out: its machine cannot be found"
+        );
+        assert_eq!(
+            peers(NOW + PRESENCE_TTL + 1),
+            0,
+            "an address past its week is still handed out: every peer pays a dial for it"
+        );
+        assert_eq!(
+            listed(NOW + PRESENCE_TTL + 1),
+            (Some(PRESENCE_TTL + 1), true),
+            "past the week its owner must still see how long it has been silent"
+        );
+
+        let at_the_keep = NOW + PRESENCE_KEPT_FOR;
+        assert_eq!(
+            service.expire(at_the_keep).unwrap().addresses,
+            0,
+            "a pass erased an address inside the keep"
+        );
+        assert_eq!(
+            listed(at_the_keep),
+            (Some(PRESENCE_KEPT_FOR), true),
+            "a pass inside the keep changed what the owner's device list says"
+        );
+
+        let past_it = at_the_keep + 1;
+        assert_eq!(
+            service.expire(past_it).unwrap().addresses,
+            1,
+            "a pass past the keep erased nothing: the address stays on file for good"
+        );
+        assert_eq!(
+            listed(past_it),
+            (None, false),
+            "the address of a machine silent past the keep is still on file"
+        );
+        assert_eq!(peers(past_it), 0, "an erased address is still handed out");
+
+        directory
+            .announce(
+                &Presence {
+                    device: laptop.device_id(),
+                    address: "203.0.113.7:9797".to_owned(),
+                    at_unix: past_it,
+                }
+                .sign(&laptop),
+                past_it,
+            )
+            .expect("a machine whose address was erased must be able to announce again");
+        assert_eq!(peers(past_it), 1, "it came back on, and nobody can find it");
+        assert_eq!(
+            listed(past_it),
+            (Some(0), true),
+            "a machine that came back reads as silent in its owner's device list"
+        );
+    }
+
+    /// The server calls one thing; a table that pass forgets is a table whose
+    /// retention exists only in a test.
+    #[test]
+    fn one_pass_erases_the_silent_addresses_the_free_names_and_the_spent_counts() {
+        let directory = directory();
+        let owner = user(35);
+        let laptop = device(35);
+        enrol(&directory, &owner, &laptop);
+        announce_address(&directory, &owner, &laptop, "203.0.113.7:9797");
+        let leaving = user(36);
+        directory
+            .register(
+                &crate::directory::Registration {
+                    username: "leaving".to_owned(),
+                    user: leaving.public(),
+                    issued_unix: NOW,
+                }
+                .sign(&leaving),
+                NOW,
+            )
+            .expect("register");
+        directory
+            .delete_account(
+                &crate::claim::Deletion {
+                    user: leaving.user_id(),
+                    username: "leaving".to_owned(),
+                    at_unix: NOW,
+                }
+                .sign(&leaving),
+                NOW,
+            )
+            .expect("delete");
+        let mut limiter = EscrowLimiter::new();
+        let service = CoordService::new(&directory);
+        service
+            .escrow_allowed(&mut limiter, "invented", Instant::now(), NOW)
+            .expect("count");
+
+        let later = NOW + crate::directory::NAME_RETIRED_FOR;
+        assert_eq!(
+            service.expire(later).unwrap(),
+            Expired {
+                addresses: 1,
+                names: 1,
+                escrow_counts: 1
+            },
+            "one pass must erase one row of each of the three"
+        );
+        assert_eq!(
+            service.expire(later).unwrap(),
+            Expired::default(),
+            "a second pass found rows the first said it had erased"
+        );
     }
 
     fn claim_of(

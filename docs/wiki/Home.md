@@ -12,7 +12,7 @@ open anybody else's.
 > Keep another copy of anything you store with it.
 
 <!-- GENERATED:stats -->
-**1466 tests, 483 of them red-team** (a red-team test passes when the attack fails) · **10/16 milestones done**
+**1478 tests, 491 of them red-team** (a red-team test passes when the attack fails) · **10/16 milestones done**
 <!-- /GENERATED:stats -->
 
 ## The picture
