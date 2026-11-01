@@ -34,10 +34,11 @@ struct Asked {
 }
 
 /// A person who types back the right words, or the wrong ones, and
-/// `PASSPHRASE` whenever asked.
+/// `PASSPHRASE` whenever asked, unless a test gave them another.
 struct Scripted {
     asked: Rc<RefCell<Asked>>,
     wrong_words: bool,
+    passphrase: &'static str,
 }
 
 impl Scripted {
@@ -47,6 +48,7 @@ impl Scripted {
             Self {
                 asked: Rc::clone(&asked),
                 wrong_words,
+                passphrase: PASSPHRASE,
             },
             asked,
         )
@@ -80,7 +82,7 @@ impl SecretPrompt for Scripted {
 
     fn new_passphrase(&mut self) -> Result<Secret> {
         self.asked.borrow_mut().questions += 1;
-        Ok(Zeroizing::new(PASSPHRASE.to_owned()))
+        Ok(Zeroizing::new(self.passphrase.to_owned()))
     }
 
     fn passphrase(&mut self, _: &str) -> Result<Secret> {
@@ -558,6 +560,63 @@ fn red_team_a_username_already_taken_is_refused_before_any_key_is_written() {
     assert!(
         said(&home, &events).contains("already taken"),
         "the refusal does not say the name is taken: {events:#?}"
+    );
+}
+
+/// A name the page's check had no time to catch: refused by the engine before a
+/// word is shown, with the rule. Sabotage: drop the check in `apply_account`.
+#[test]
+fn red_team_a_username_no_coordinator_would_take_is_refused_before_any_key_is_written() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let mut wanted = answers(dir.path());
+    wanted.account = Some(Account::New {
+        username: "marie_1".to_owned(),
+    });
+    wanted.coordinator = Some("coordinator.test:9898".to_owned());
+    let (mut person, asked) = Scripted::new(false);
+    let service = NoService {
+        file: home.with_extension("passphrase"),
+    };
+    let mut events = Vec::new();
+    let mut record = |event: &Event| events.push(event.clone());
+    let outcome = Setup::new(&home, wanted, &mut person, &service, &mut record)
+        .with_name_check(|_, _| Ok(false))
+        .run();
+    assert_eq!(outcome.failed, Some(Step::Account), "{events:#?}");
+    assert!(
+        !keystore(&home).exists() && asked.borrow().questions == 0,
+        "words shown for a name registration will refuse with a remedy about something else"
+    );
+    assert!(
+        said(&home, &events).contains("lowercase"),
+        "the refusal does not say what a name may be: {events:#?}"
+    );
+}
+
+/// A passphrase outside the rule is refused as soon as it is typed, with the
+/// numbers, ahead of anything else that could be said of it, and nothing is
+/// written. A short one with a line break is the case that tells the two checks
+/// apart: both refuse it, and only one says how long a passphrase may be.
+/// Sabotage: drop `check_new_passphrase` from `new_passphrase`.
+#[test]
+fn red_team_setup_refuses_a_new_passphrase_outside_the_rule_before_anything_is_written() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let (mut person, _) = Scripted::new(false);
+    person.passphrase = "ab\ncd";
+    let mut wanted = answers(dir.path());
+    wanted.service = true;
+    let (events, failed) = run(&home, wanted, &mut person);
+    assert_eq!(failed, Some(Step::Account), "{events:#?}");
+    assert!(
+        !keystore(&home).exists(),
+        "a refused passphrase sealed keys"
+    );
+    let text = said(&home, &events);
+    assert!(
+        text.contains('6') && text.contains("128"),
+        "the person is not told the rule: {text}"
     );
 }
 

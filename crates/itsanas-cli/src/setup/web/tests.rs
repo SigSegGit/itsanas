@@ -21,8 +21,7 @@ use std::{
 use zeroize::Zeroizing;
 
 use super::{
-    Backends, Context, LANGUAGE_FILE, Mode, Server, browser_command, has_desktop, http,
-    language_of, suggest_pledge,
+    Backends, Context, LANGUAGE_FILE, Mode, Server, browser_command, has_desktop, http, language_of,
 };
 use crate::{
     error::{CliError, Result},
@@ -951,31 +950,6 @@ fn the_browser_is_opened_by_the_systems_own_program_with_the_url_as_one_argument
 }
 
 #[test]
-fn the_suggested_pledge_is_a_fifth_in_whole_gib_and_capped() {
-    const GIB: u64 = 1 << 30;
-    assert_eq!(
-        suggest_pledge(100 * GIB),
-        20 * GIB,
-        "a fifth of the free space"
-    );
-    assert_eq!(
-        suggest_pledge(GIB * 7 + 123),
-        GIB,
-        "rounded down to whole GiB"
-    );
-    assert_eq!(
-        suggest_pledge(GIB),
-        0,
-        "a nearly full disk is offered nothing"
-    );
-    assert_eq!(
-        suggest_pledge(100_000 * GIB),
-        500 * GIB,
-        "a huge disk would be suggested more than anybody means to give"
-    );
-}
-
-#[test]
 fn the_page_learns_a_taken_username_before_anything_is_made() {
     let dir = tempfile::tempdir().expect("tempdir");
     let page = Page::start(
@@ -1007,6 +981,95 @@ fn the_page_learns_a_taken_username_before_anything_is_made() {
     assert!(
         !dir.path().join("node").join("keystore.bin").exists(),
         "asking about a name wrote a key"
+    );
+}
+
+/// A name no coordinator would register reads as free on a lookup: the page
+/// said so, keys were made, and registration refused it with an unrelated remedy.
+/// `invalid` comes with the reason, the coordinator is not asked, and the page
+/// blocks Next on it for a new account. Sabotage: drop the check in `check_name`
+/// (`marie_1` is "free"); drop the branch in `validate`.
+#[test]
+fn red_team_the_page_says_when_no_coordinator_would_take_a_username() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let page = Page::start(
+        &dir.path().join("node"),
+        dir.path(),
+        Mode::Setup,
+        &Seen::default(),
+    );
+    for (name, because) in [("marie_1", "lowercase"), ("-nope", "start or end")] {
+        let reply = page.api(
+            "POST",
+            "/api/name",
+            &format!("username={name}&coordinator=c.test%3A9898"),
+        );
+        assert!(
+            reply.status == 200 && reply.body.contains("\"taken\":\"invalid\""),
+            "{name} reads as a name the coordinator could give: {}",
+            reply.all()
+        );
+        assert!(
+            reply.body.contains(because),
+            "{name} is refused with no reason a person can act on: {}",
+            reply.all()
+        );
+    }
+    let js = super::APP_JS;
+    assert!(
+        js.contains("accountKind() === 'new' && nameTaken === 'invalid'"),
+        "Next no longer stops a new account on a name no coordinator would take"
+    );
+}
+
+/// What `/api/name` says of a name is shown in the page's language.
+#[test]
+fn every_reason_a_username_is_refused_has_a_french_translation() {
+    let french = french_keys();
+    for bad in ["", "marie_1", "-nope"] {
+        let why = crate::coordinator::username_refusal(bad).expect("a refused name");
+        assert!(
+            french.contains(&why),
+            "the page shows this in English whatever the language chosen: {why}"
+        );
+    }
+}
+
+/// The question has no answer until the person gives one, and the one they are
+/// likelier to need comes first: a preselected "new account" made a second
+/// account for a person who meant to join their own (Nicolas, 2026-10-14).
+/// Sabotage: `checked` on either radio; "new" first; `accountKind` falling back
+/// on 'new' (Next goes on with an answer nobody gave).
+#[test]
+fn red_team_the_page_answers_nothing_for_the_person_and_offers_the_existing_account_first() {
+    let html = include_str!("index.html");
+    let join = html
+        .find(r#"name="account" value="join""#)
+        .expect("the existing-account answer");
+    let new = html
+        .find(r#"name="account" value="new""#)
+        .expect("the new-account answer");
+    assert!(
+        join < new,
+        "a new account is offered before the existing one"
+    );
+    for line in html
+        .lines()
+        .filter(|line| line.contains(r#"name="account""#))
+    {
+        assert!(
+            !line.contains("checked"),
+            "an answer is chosen before the person is asked: {line}"
+        );
+    }
+    let js = super::APP_JS;
+    assert!(
+        js.contains("return chosen ? chosen.value : null;"),
+        "no answer reads as an answer"
+    );
+    assert!(
+        js.contains("page === 'account' && !done.account && !accountKind()"),
+        "Next goes on with neither answer chosen"
     );
 }
 

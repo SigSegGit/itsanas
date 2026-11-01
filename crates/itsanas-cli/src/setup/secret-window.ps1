@@ -159,23 +159,49 @@ function Ask-Back([int[]]$Positions) {
     return @($boxes | ForEach-Object { $_.Text })
 }
 
+# The rule for a new passphrase: MIN_PASSPHRASE_CHARS and MAX_PASSPHRASE_CHARS in
+# crates/itsanas-node/src/node.rs, which a test holds these two to.
+$MinPassphraseChars = 6
+$MaxPassphraseChars = 128
+
 function Ask-Secret([string]$Title, [string]$Prompt, [bool]$Twice) {
-    $form = New-Window $Title 600 260
+    # Copied here because a closure takes this function's variables and no
+    # others: at the script's level these would read as nothing in the click.
+    $min = $MinPassphraseChars
+    $max = $MaxPassphraseChars
+    $form = New-Window $Title 600 $(if ($Twice) { 300 } else { 260 })
     [void](Add-Label $form $Prompt 20 16 560 56 $null)
     $first = Add-Box $form 20 80 560
     $second = $null
     if ($Twice) {
         [void](Add-Label $form 'The same again:' 20 122 300 26 $null)
         $second = Add-Box $form 20 150 560
+        # A passphrase nobody can check as it is typed is the one written down
+        # wrong; hidden stays the default, for whoever is looking over a shoulder.
+        $show = New-Object System.Windows.Forms.CheckBox
+        $show.Text = 'Show'
+        $show.Location = New-Object System.Drawing.Point(20, 184)
+        $show.Size = New-Object System.Drawing.Size(120, 26)
+        $show.Add_CheckedChanged({
+            $first.UseSystemPasswordChar = -not $show.Checked
+            $second.UseSystemPasswordChar = -not $show.Checked
+        }.GetNewClosure())
+        $form.Controls.Add($show)
     }
-    $problem = Add-Label $form '' 20 186 560 26 $null
+    $problem = Add-Label $form '' 20 $(if ($Twice) { 212 } else { 186 }) 560 26 $null
     $problem.ForeColor = [System.Drawing.Color]::Firebrick
-    $ok = Add-Buttons $form 'OK' 210
+    $ok = Add-Buttons $form 'OK' $(if ($Twice) { 250 } else { 210 })
     # Checked here, with the window still open, so a mistyped second copy
     # costs a retype rather than a whole new run of setup.
     $ok.Add_Click({
+        # Characters as the core counts them: one outside the basic plane is
+        # two units of .NET's Length, and three of them are not six.
+        $characters = @($first.Text.ToCharArray() | Where-Object { -not [char]::IsLowSurrogate($_) }).Count
         if ($first.Text.Length -eq 0) {
             $problem.Text = 'It cannot be empty.'
+            $form.DialogResult = [System.Windows.Forms.DialogResult]::None
+        } elseif ($Twice -and ($characters -lt $min -or $characters -gt $max)) {
+            $problem.Text = ('{0} to {1} characters; this one has {2}.' -f $min, $max, $characters)
             $form.DialogResult = [System.Windows.Forms.DialogResult]::None
         } elseif ($Twice -and -not [string]::Equals($first.Text, $second.Text, [StringComparison]::Ordinal)) {
             $problem.Text = 'The two did not match. Type them again.'
@@ -197,7 +223,7 @@ switch ($mode) {
     }
     'new-passphrase' {
         $value = Ask-Secret 'ITSaNAS - choose a passphrase' ('A passphrase for this machine''s keys. ' +
-            'Choose a long one, and write it down: it is asked when this machine starts ITSaNAS.') $true
+            ('{0} to {1} characters. Choose a long one, and write it down: it is asked when this machine starts ITSaNAS.' -f $MinPassphraseChars, $MaxPassphraseChars)) $true
         if ($null -eq $value) { exit 2 }
         Write-Answer $value
     }

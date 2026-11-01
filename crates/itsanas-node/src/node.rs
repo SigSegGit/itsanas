@@ -60,6 +60,37 @@ pub const KEYSTORE_LABEL: &str = "itsanas/keystore/local";
 /// mean a copy of either could be dropped in as the other.
 pub const ESCROW_LABEL: &str = "itsanas/keystore/escrow";
 
+/// The fewest characters a new passphrase may have, on every front-end.
+///
+/// Counted as characters, not bytes or UTF-16 units: six accented letters are
+/// six on a phone, in a window and on a command line alike.
+pub const MIN_PASSPHRASE_CHARS: usize = 6;
+
+/// The most characters a new passphrase may have, on every front-end.
+pub const MAX_PASSPHRASE_CHARS: usize = 128;
+
+/// Refuse a passphrase being chosen that is outside the rule.
+///
+/// Asked of a passphrase being chosen, and nothing else: [`Node::open`],
+/// [`Identity`], [`Node::restore_from_secrets`] and the keystore itself take
+/// any length, because a member who chose a shorter one before the rule must
+/// not be locked out of their own account, and a recovery container is sealed
+/// under whatever the machine that lodged it had.
+///
+/// # Errors
+///
+/// A sentence with both limits and how many characters this one has.
+pub fn check_new_passphrase(passphrase: &str) -> Result<()> {
+    let count = passphrase.chars().count();
+    if (MIN_PASSPHRASE_CHARS..=MAX_PASSPHRASE_CHARS).contains(&count) {
+        return Ok(());
+    }
+    Err(NodeError::Usage(format!(
+        "a passphrase is {MIN_PASSPHRASE_CHARS} to {MAX_PASSPHRASE_CHARS} characters; this one \
+         has {count}. Nothing was changed."
+    )))
+}
+
 /// A `keep` the pledge does not earn, from [`Node::check_split`].
 ///
 /// A value rather than a sentence so each caller can phrase it; its `Display`
@@ -439,11 +470,32 @@ impl Node {
     /// is the whole of what a bound on the honest client can promise.
     #[must_use]
     pub fn account_pledge(home: &Path, config: &Config) -> u64 {
-        let others = std::fs::read_to_string(Self::others_pledged_path(home))
+        config
+            .pledge_bytes
+            .saturating_add(Self::others_pledged(home))
+    }
+
+    /// What this account's other machines pledge, as the coordinator last
+    /// listed them; nothing, if it never did.
+    #[must_use]
+    pub fn others_pledged(home: &Path) -> u64 {
+        std::fs::read_to_string(Self::others_pledged_path(home))
             .ok()
             .and_then(|text| text.trim().parse::<u64>().ok())
-            .unwrap_or(0);
-        config.pledge_bytes.saturating_add(others)
+            .unwrap_or(0)
+    }
+
+    /// How long ago [`Self::remember_others_pledged`] last wrote, at `now`;
+    /// `None` when it never did. A clock set back reads as just written.
+    #[must_use]
+    pub fn others_pledged_age(
+        home: &Path,
+        now: std::time::SystemTime,
+    ) -> Option<std::time::Duration> {
+        let written = std::fs::metadata(Self::others_pledged_path(home))
+            .and_then(|meta| meta.modified())
+            .ok()?;
+        Some(now.duration_since(written).unwrap_or_default())
     }
 
     fn others_pledged_path(home: &Path) -> PathBuf {
@@ -573,6 +625,40 @@ impl Node {
         free.map(|free| free.saturating_sub(pledge.saturating_sub(held)))
     }
 
+    /// [`crate::pledges::disk_refusal`] for this node: `bytes` promised on its
+    /// vault's disk, against what it has free and what the other nodes on that
+    /// disk promised. A disk that reads 0 free is one whose filesystem would
+    /// not say; `pledge` and `space --apply` both ask here, so neither is the
+    /// way around the other.
+    #[must_use]
+    pub fn disk_refusal(&self, bytes: u64, held: u64) -> Option<crate::pledges::DiskRefusal> {
+        let free = fs4::available_space(self.vault_dir())
+            .ok()
+            .filter(|free| *free > 0);
+        self.disk_refusal_given(free, bytes, held)
+    }
+
+    /// [`Self::disk_refusal`] with what is free given, not read: the phone's
+    /// setters pass what they read themselves, and a test what it pretends.
+    #[must_use]
+    pub fn disk_refusal_given(
+        &self,
+        free: Option<u64>,
+        bytes: u64,
+        held: u64,
+    ) -> Option<crate::pledges::DiskRefusal> {
+        let shared = crate::pledges::shared_dir();
+        let (others, stale) = crate::pledges::others(
+            &self.home,
+            shared.as_deref(),
+            &self.store.device_id().to_hex(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs()),
+        );
+        crate::pledges::disk_refusal(bytes, free, held, others, stale)
+    }
+
     /// Whether a node already exists at `home`: a keystore, or a link where
     /// it goes -- dangling or not, nothing is ever created through one.
     #[must_use]
@@ -594,6 +680,7 @@ impl Node {
         if Self::exists(home) {
             return Err(NodeError::NodeExists(home.to_owned()));
         }
+        check_new_passphrase(passphrase)?;
 
         let master = MasterSecret::generate()?;
         let phrase = master.to_recovery_phrase()?;
@@ -607,6 +694,7 @@ impl Node {
         if Self::exists(home) {
             return Err(NodeError::NodeExists(home.to_owned()));
         }
+        check_new_passphrase(passphrase)?;
 
         let master = MasterSecret::from_recovery_phrase(phrase)?;
         Self::write_new(home, passphrase, username, &master)
@@ -990,6 +1078,7 @@ impl Node {
     /// half-written file that opens with neither passphrase. The secrets are not
     /// regenerated: same account, same device id.
     pub fn change_passphrase(home: &Path, current: &str, new: &str) -> Result<()> {
+        check_new_passphrase(new)?;
         let keystore_path = Self::keystore_path(home);
         let bytes = match std::fs::read(&keystore_path) {
             Ok(bytes) => bytes,
@@ -1029,6 +1118,22 @@ impl Node {
         std::fs::rename(&pending, &keystore_path).map_err(io(&keystore_path))?;
         Ok(())
     }
+}
+
+/// The 24 words out of whatever a person saved: one line, one word a line, or
+/// the numbered grid `init` printed, copied off the screen. The numbers are
+/// dropped; words are never guessed at, so a wrong word still fails the
+/// checksum rather than restoring some other account.
+#[must_use]
+pub fn phrase_words(text: &str) -> String {
+    text.split_whitespace()
+        .filter(|token| {
+            !token.strip_suffix('.').is_some_and(|number| {
+                !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// A recovery phrase that wipes itself when dropped.
@@ -1213,6 +1318,125 @@ mod tests {
     use super::*;
 
     const PASSPHRASE: &str = "a genuinely long passphrase for the tests";
+
+    /// A passphrase the rule refuses leaves nothing a retry would trip on.
+    fn assert_nothing_written(home: &Path, what: &str) {
+        assert!(
+            !Node::exists(home) && !home.exists(),
+            "{what} refused and yet wrote into {}: the next attempt reads a node that was \
+             never made",
+            home.display()
+        );
+    }
+
+    /// THE RULE FOR A NEW PASSPHRASE. 5 and 129 characters are refused by
+    /// `create`, `restore` and `change_passphrase`, naming both numbers, and
+    /// write nothing; 6 and 128 are accepted, and six accented letters are six
+    /// characters, not twelve bytes. Sabotage: drop `check_new_passphrase` from
+    /// each of the three in turn; count bytes instead of characters.
+    #[test]
+    fn red_team_a_new_passphrase_obeys_the_rule_on_every_path_and_writes_nothing_when_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let (seed, phrase) = Node::create(&dir.path().join("seed"), PASSPHRASE, "camille").unwrap();
+
+        for bad in ["x".repeat(5), "x".repeat(129)] {
+            let home = dir.path().join(format!("create-{}", bad.len()));
+            let said = Node::create(&home, &bad, "camille")
+                .expect_err("a passphrase outside the rule made an account")
+                .to_string();
+            assert!(
+                said.contains('6') && said.contains("128"),
+                "the refusal does not say the rule, so the person guesses again: {said}"
+            );
+            assert_nothing_written(&home, "create");
+
+            let home = dir.path().join(format!("restore-{}", bad.len()));
+            assert!(
+                Node::restore(&home, &bad, "camille", phrase.as_str()).is_err(),
+                "a passphrase outside the rule restored an account"
+            );
+            assert_nothing_written(&home, "restore");
+
+            let before = std::fs::read(Node::keystore_path(&seed.home)).unwrap();
+            assert!(
+                Node::change_passphrase(&seed.home, PASSPHRASE, &bad).is_err(),
+                "a passphrase outside the rule re-sealed the keystore"
+            );
+            assert_eq!(
+                std::fs::read(Node::keystore_path(&seed.home)).unwrap(),
+                before,
+                "a refused new passphrase changed the keystore"
+            );
+        }
+
+        for (name, good) in [
+            ("six", "x".repeat(6)),
+            ("max", "x".repeat(128)),
+            ("accents", "\u{e9}".repeat(6)),
+        ] {
+            let home = dir.path().join(name);
+            Node::create(&home, &good, "camille")
+                .unwrap_or_else(|error| panic!("{name} was refused: {error}"));
+        }
+        assert!(
+            check_new_passphrase(&"\u{e9}".repeat(5)).is_err(),
+            "five accented letters passed as ten bytes"
+        );
+    }
+
+    /// AN EXISTING MEMBER IS NEVER LOCKED OUT. A node sealed under a passphrase
+    /// outside today's rule (one made before the rule, or recovered through a
+    /// container sealed under whatever the first machine had) keeps opening,
+    /// and keeps giving its words. Sabotage: call `check_new_passphrase` from
+    /// `write_new`, or from `open_as`.
+    #[test]
+    fn red_team_a_passphrase_from_before_the_rule_still_opens_its_node() {
+        let dir = tempfile::tempdir().unwrap();
+        let (seed, _) = Node::create(&dir.path().join("seed"), PASSPHRASE, "camille").unwrap();
+        let secrets = Identity::secrets(&seed.home, PASSPHRASE).unwrap();
+
+        for (name, legacy) in [("short", "abc".to_owned()), ("long", "y".repeat(200))] {
+            let home = dir.path().join(name);
+            let restored =
+                Node::restore_from_secrets(&home, &legacy, "camille", secrets.as_bytes())
+                    .unwrap_or_else(|error| {
+                        panic!("a {name} escrow passphrase was refused: {error}")
+                    });
+            let owner = restored.store.owner();
+            drop(restored);
+            let reopened = Node::open(&home, &legacy).unwrap_or_else(|error| {
+                panic!("a member with a {name} passphrase is locked out: {error}")
+            });
+            assert_eq!(reopened.store.owner(), owner);
+            assert!(
+                Identity::recovery_phrase(&home, &legacy).is_ok(),
+                "a member with a {name} passphrase cannot get their words back"
+            );
+        }
+    }
+
+    /// Words that do not parse leave no keystore behind: the app decides between
+    /// Unlock and the first screen on that file alone, so one left by a refused
+    /// login would ask for ever for a passphrase nobody finished choosing.
+    #[test]
+    fn a_refused_phrase_writes_no_keystore() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("phone");
+        for bad in [
+            "not twenty four words".to_owned(),
+            "abandon ".repeat(24),
+            "zzzz ".repeat(24),
+        ] {
+            assert!(
+                Node::restore(&home, PASSPHRASE, "camille", &bad).is_err(),
+                "{bad:?} restored an account"
+            );
+            assert!(
+                !Node::exists(&home),
+                "a refused phrase left a keystore: the app is stuck on Unlock"
+            );
+        }
+    }
 
     #[test]
     fn red_team_an_open_node_admits_to_its_roster_only_what_its_account_signed() {

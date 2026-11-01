@@ -852,6 +852,73 @@ mod tests {
         }
     }
 
+    /// The Windows window refuses a new passphrase with itself still open, so its
+    /// numbers have to be the core's: said to differ, it would either pass what the
+    /// engine refuses, losing the words just shown, or refuse what the rule allows.
+    /// Sabotage: change either number in the script; count `.Length` instead of
+    /// characters; drop the `$Twice` guard (an existing short passphrase is locked
+    /// out of a window asking for it).
+    #[test]
+    fn red_team_the_passphrase_window_states_the_rule_the_core_enforces() {
+        use crate::node::{MAX_PASSPHRASE_CHARS, MIN_PASSPHRASE_CHARS};
+        let min = format!("$MinPassphraseChars = {MIN_PASSPHRASE_CHARS}\n");
+        let max = format!("$MaxPassphraseChars = {MAX_PASSPHRASE_CHARS}\n");
+        for line in [&min, &max] {
+            assert!(
+                WINFORMS_SCRIPT.contains(line.as_str()),
+                "secret-window.ps1 does not say {line:?}: the window and the core disagree on \
+                 what a passphrase may be"
+            );
+        }
+        let refusal = WINFORMS_SCRIPT
+            .lines()
+            .find(|line| line.contains("-lt $min"))
+            .expect("the window does not check the rule");
+        assert!(
+            refusal.contains("$Twice"),
+            "the rule reaches a window asking for an existing passphrase: {refusal}"
+        );
+        assert!(
+            refusal.contains("$characters") && WINFORMS_SCRIPT.contains("IsLowSurrogate"),
+            "the window counts UTF-16 units where the core counts characters: {refusal}"
+        );
+        assert!(
+            WINFORMS_SCRIPT.contains("UseSystemPasswordChar = -not $show.Checked"),
+            "no way to see the passphrase being chosen"
+        );
+    }
+
+    /// The installers say the rule before their build rather than after it, in
+    /// the core's numbers, and only for an account about to be made: a machine
+    /// re-provisioned keeps the passphrase it has. Sabotage: change a number in a
+    /// script; drop the keystore condition (a short passphrase from before the
+    /// rule stops a re-run on the machine it opens).
+    #[test]
+    fn the_installers_state_the_rule_the_core_enforces() {
+        use crate::node::{MAX_PASSPHRASE_CHARS, MIN_PASSPHRASE_CHARS};
+        let rule = format!("{MIN_PASSPHRASE_CHARS} to {MAX_PASSPHRASE_CHARS} characters");
+        for (name, script, check) in [
+            (
+                "provision.sh",
+                include_str!("../../../../install/provision.sh"),
+                format!(
+                    "keystore.bin\" ] && [ \"${{#ITSANAS_PASSPHRASE}}\" -lt {MIN_PASSPHRASE_CHARS} ]"
+                ),
+            ),
+            (
+                "provision.ps1",
+                include_str!("../../../../install/provision.ps1"),
+                format!("'keystore.bin'))) -and $passphrase.Length -lt {MIN_PASSPHRASE_CHARS}"),
+            ),
+        ] {
+            assert!(script.contains(&rule), "{name} does not say {rule:?}");
+            assert!(
+                script.contains(&check),
+                "{name} refuses by another number, or refuses a node that already exists"
+            );
+        }
+    }
+
     #[test]
     fn red_team_typed_back_words_are_checked_not_waved_through() {
         // The account is written only after this says yes: a "yes" to a wrong

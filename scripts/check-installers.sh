@@ -683,7 +683,7 @@ for script in install/clean.sh install/provision.sh; do
         *) args="--username u --no-install" ;;
     esac
     # shellcheck disable=SC2086
-    out=$(env HOME="$reserved_home" PATH=/usr/bin:/bin ITSANAS_PASSPHRASE=x \
+    out=$(env HOME="$reserved_home" PATH=/usr/bin:/bin ITSANAS_PASSPHRASE=a-test-passphrase \
         timeout 30 sh "$script" $args --instance passphrase 2>&1 </dev/null)
     status=$?
     if [ "$status" -eq 0 ] || ! printf '%s' "$out" | grep -q 'reserved'; then
@@ -731,7 +731,7 @@ chmod +x "$twin/home/.local/bin/itsanas" "$twin/fake/systemctl"
 : > "$twin/home/.config/systemd/user/itsanas@.service"
 twin_run() {
     env HOME="$twin/home" PATH="$twin/fake:/usr/bin:/bin" TWIN_LOG="$twin/systemctl.log" \
-        ITSANAS_PASSPHRASE=x XDG_RUNTIME_DIR="$twin" DISPLAY=:0 ITSANAS_TRAY_OS=Linux \
+        ITSANAS_PASSPHRASE=a-test-passphrase XDG_RUNTIME_DIR="$twin" DISPLAY=:0 ITSANAS_TRAY_OS=Linux \
         timeout 60 sh "$@" </dev/null >"$twin/out" 2>&1
 }
 twin_ok=1
@@ -804,7 +804,7 @@ cp install/testbed.sh install/provision.sh "$bed/scripts/"
 echo 'ITSANAS_PASSPHRASE=real' > "$h/.config/itsanas/nicolas.environment"
 echo 'old bed' > "$h/.itsanas-essai/only-copy.txt"
 : > "$h/.itsanas-essai/keystore.bin"
-echo 'ITSANAS_PASSPHRASE=old' > "$h/.config/itsanas/essai.environment"
+echo 'ITSANAS_PASSPHRASE=an-earlier-bed' > "$h/.config/itsanas/essai.environment"
 cat > "$h/.local/bin/itsanas" <<'STUB'
 #!/bin/sh
 case "$1" in

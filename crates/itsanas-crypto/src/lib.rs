@@ -61,8 +61,8 @@ pub mod wellknown;
 
 pub use error::{CryptoError, Result};
 pub use identity::{
-    DeviceKeys, MasterSecret, RECOVERY_PHRASE_WORDS, Signature, UserKeys, UserPublic,
-    message_digest, verify,
+    DeviceKeys, MasterSecret, PhraseProblem, RECOVERY_PHRASE_WORDS, Signature, UserKeys,
+    UserPublic, message_digest, verify,
 };
 pub use ids::{ChunkId, DeviceId, ID_LEN, ObjectId, UserId};
 pub use keystore::{KdfParams, Keystore};

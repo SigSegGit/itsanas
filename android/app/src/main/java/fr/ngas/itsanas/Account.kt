@@ -28,10 +28,11 @@ object Account {
     suspend fun create(context: Context, username: String, passphrase: String): String =
         withContext(Dispatchers.IO) {
             val home = Vault.home(context).also { it.mkdirs() }
-            val answer = Native.create(home.absolutePath, username, passphrase)
+            val phrase = Answers.phrase(Native.newPhrase())
+            Native.login(home.absolutePath, username, phrase, passphrase)
             if (!Biometric.enabled(context)) Vault.remember(context, passphrase)
             open = true
-            Answers.phrase(answer)
+            phrase
         }
 
     /** Restore an account from its twenty-four words. */

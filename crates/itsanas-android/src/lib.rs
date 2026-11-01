@@ -39,6 +39,7 @@
 //! calling the same code the command line calls.
 #![allow(unsafe_code)]
 
+mod account;
 mod devices;
 
 use std::path::{Path, PathBuf};
@@ -92,10 +93,41 @@ impl From<itsanas_net::NetError> for Failure {
     }
 }
 
+/// The Settings section where this phone says how much it offers, and the one
+/// where it says how much it keeps. A refusal names the place to act, since the
+/// commands the core's own sentences name do not exist here.
+const PLEDGE_SECTION: &str = "Space you offer other people";
+const KEEP_SECTION: &str = "How much of your data to keep here";
+
 impl Failure {
     fn message(&self) -> String {
+        use itsanas_node::config::format_size;
+        use itsanas_store::StoreError;
         match self {
             Self::Closed => "no account is open on this device".to_owned(),
+            Self::Node(NodeError::Store(StoreError::DiskFull {
+                path,
+                incoming,
+                room,
+            })) => format!(
+                "{path} needs at least {} on this phone, and only {} are free once the space it \
+                 offers other people is set aside. Nothing was stored. Free some room, or lower \
+                 \"{PLEDGE_SECTION}\" in Settings.",
+                format_size(*incoming),
+                format_size(*room),
+            ),
+            Self::Node(NodeError::Store(StoreError::OverBudget {
+                path,
+                total,
+                allowed,
+                ..
+            })) => format!(
+                "{path} would bring this account to at least {}, over the {} it may hold. \
+                 Nothing was stored. Raising \"{PLEDGE_SECTION}\" in Settings, here or on \
+                 another of your machines, earns it more.",
+                format_size(*total),
+                format_size(*allowed),
+            ),
             Self::Node(error) => error.to_string(),
             Self::Usage(what) => what.clone(),
         }
@@ -184,38 +216,189 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_exists(
     u8::from(Node::exists(Path::new(&path)))
 }
 
-/// Create an account and answer with its recovery phrase.
-///
-/// The phrase is returned exactly once and stored nowhere. A shell that does
-/// not put it in front of the person, on paper, has failed them.
+/// The rule for a new passphrase, for the screens to state and check as it is
+/// typed: `{"min":6,"max":128}`. The core refuses outside it whatever they do.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_fr_ngas_itsanas_Native_create(
+pub extern "system" fn Java_fr_ngas_itsanas_Native_passphraseRule(
     mut env: JNIEnv,
     _class: JClass,
-    home: JString,
-    username: JString,
-    passphrase: JString,
 ) -> jstring {
-    let home = home_of(&mut env, &home);
+    answer(&mut env, || Ok(passphrase_rule()))
+}
+
+fn passphrase_rule() -> String {
+    serde_json::json!({
+        "min": itsanas_node::node::MIN_PASSPHRASE_CHARS,
+        "max": itsanas_node::node::MAX_PASSPHRASE_CHARS,
+    })
+    .to_string()
+}
+
+/// Whether a username can be taken, asked before anything is written. See
+/// `account::check_name`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_checkName(
+    mut env: JNIEnv,
+    _class: JClass,
+    username: JString,
+) -> jstring {
     let username = text(&mut env, &username, "the username");
-    let passphrase = text(&mut env, &passphrase, "the passphrase");
-
     answer(&mut env, move || {
-        let (home, username, passphrase) = (home?, username?, passphrase?);
-        let (node, phrase) = create_account(&home, &passphrase, &username)?;
-
-        let answer = serde_json::json!({
-            "phrase": phrase.as_str(),
-            "userId": node.store.owner().to_string(),
-            "deviceId": node.store.device_id().to_string(),
-        });
-
-        hold(node)?;
-        Ok(answer.to_string())
+        Ok(account::check_name(&network()?.address, &username?))
     })
 }
 
-/// Restore an account on this device from its twenty-four words.
+/// The words and the name of an existing account, before anything is written.
+/// See `account::check_restore`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_checkRestore(
+    mut env: JNIEnv,
+    _class: JClass,
+    username: JString,
+    phrase: JString,
+) -> jstring {
+    let username = text(&mut env, &username, "the username");
+    let phrase = text(&mut env, &phrase, "the recovery phrase");
+    answer(&mut env, move || {
+        Ok(account::check_restore(
+            &network()?.address,
+            &username?,
+            &phrase?,
+        ))
+    })
+}
+
+/// A fresh identity's words, written nowhere.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_newPhrase(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    answer(&mut env, account::new_phrase)
+}
+
+/// This node's words again, from its keystore. A wrong passphrase throws.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_words(
+    mut env: JNIEnv,
+    _class: JClass,
+    home: JString,
+    passphrase: JString,
+) -> jstring {
+    let home = home_of(&mut env, &home);
+    let passphrase = text(&mut env, &passphrase, "the passphrase");
+    answer(&mut env, move || account::words(&home?, &passphrase?))
+}
+
+/// Re-seal the keystore. The new passphrase obeys the rule; a wrong current one
+/// throws.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_changePassphrase(
+    mut env: JNIEnv,
+    _class: JClass,
+    home: JString,
+    current: JString,
+    new: JString,
+) -> jstring {
+    let home = home_of(&mut env, &home);
+    let current = text(&mut env, &current, "the current passphrase");
+    let new = text(&mut env, &new, "the new passphrase");
+    answer(&mut env, move || {
+        account::change_passphrase(&home?, &current?, &new?)
+    })
+}
+
+/// One best-effort round, then what logging out would lose. Closes nothing.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_logoutCheck(
+    mut env: JNIEnv,
+    _class: JClass,
+    metered: jboolean,
+) -> jstring {
+    answer(&mut env, move || {
+        with_node(|node| account::logout_check(node, metered != 0))
+    })
+}
+
+/// Tell the machines, withdraw this device, close and erase the node.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_logout(
+    mut env: JNIEnv,
+    _class: JClass,
+    home: JString,
+) -> jstring {
+    let home = home_of(&mut env, &home);
+    answer(&mut env, move || {
+        account::logout_into(&NODE, &home?, itsanas_discover::now_unix())
+    })
+}
+
+/// "I forgot my passphrase": the words replace the node on this phone. See
+/// `account::restore_over`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_restoreOver(
+    mut env: JNIEnv,
+    _class: JClass,
+    home: JString,
+    phrase: JString,
+    passphrase: JString,
+) -> jstring {
+    let home = home_of(&mut env, &home);
+    let phrase = text(&mut env, &phrase, "the recovery phrase");
+    let passphrase = text(&mut env, &passphrase, "the passphrase");
+    answer(&mut env, move || {
+        let (home, phrase, passphrase) = (home?, phrase?, passphrase?);
+        let login = account::Login {
+            home: &home,
+            username: "",
+            phrase: &phrase,
+            passphrase: &passphrase,
+        };
+        account::restore_over(
+            &NODE,
+            login,
+            itsanas_node::pledges::disk_space(&home),
+            &network()?,
+            itsanas_discover::now_unix(),
+        )
+    })
+}
+
+/// Delete the whole account at the coordinator, then log out. `confirm` must be
+/// the account's username: refused otherwise, nothing sent.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_deleteAccount(
+    mut env: JNIEnv,
+    _class: JClass,
+    home: JString,
+    confirm: JString,
+) -> jstring {
+    let home = home_of(&mut env, &home);
+    let confirm = text(&mut env, &confirm, "the account's name");
+    answer(&mut env, move || {
+        account::delete_account(&NODE, &home?, &confirm?, itsanas_discover::now_unix())
+    })
+}
+
+/// Debug builds and instrumented tests only: every node this process creates,
+/// restores or opens is pinned to this coordinator instead of the official one.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_useCoordinatorForTests(
+    mut env: JNIEnv,
+    _class: JClass,
+    address: JString,
+    device: JString,
+) -> jstring {
+    let address = text(&mut env, &address, "the coordinator's address");
+    let device = text(&mut env, &device, "the coordinator's device");
+    answer(&mut env, move || {
+        use_coordinator(&TEST_NETWORK, &address?, &device?, cfg!(debug_assertions))
+    })
+}
+
+/// Restore an account on this device from its twenty-four words, in any form a
+/// person saved them. A new account comes this way too, once its words were
+/// shown and checked. See `account::login_into`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_ngas_itsanas_Native_login(
     mut env: JNIEnv,
@@ -231,10 +414,20 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_login(
     let passphrase = text(&mut env, &passphrase, "the passphrase");
 
     answer(&mut env, move || {
-        let node = restore_account(&home?, &passphrase?, &username?, &phrase?)?;
-        let answer = describe(&node);
-        hold(node)?;
-        Ok(answer)
+        let (home, username, phrase, passphrase) = (home?, username?, phrase?, passphrase?);
+        let login = account::Login {
+            home: &home,
+            username: &username,
+            phrase: &phrase,
+            passphrase: &passphrase,
+        };
+        account::login_into(
+            &NODE,
+            login,
+            itsanas_node::pledges::disk_space(&home),
+            &network()?,
+            itsanas_discover::now_unix(),
+        )
     })
 }
 
@@ -249,7 +442,9 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_open(
     let home = home_of(&mut env, &home);
     let passphrase = text(&mut env, &passphrase, "the passphrase");
 
-    answer(&mut env, move || open_into(&NODE, &home?, &passphrase?))
+    answer(&mut env, move || {
+        open_into(&NODE, &home?, &passphrase?, &network()?)
+    })
 }
 
 /// [`Java_fr_ngas_itsanas_Native_open`] without the JNI, on the slot given.
@@ -259,18 +454,24 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_open(
 /// process -- and the open node -- alive after the screen is closed; opening
 /// the store a second time is refused by the database ("already open"), and
 /// on 2026-10-31 that left the owner's phone stuck on Unlock with nothing
-/// usable. Asking the passphrase again would protect nothing: the node is
-/// unlocked in this process's memory either way.
-fn open_into(slot: &Mutex<Option<Node>>, home: &Path, passphrase: &str) -> Answer {
+/// usable. The passphrase is still checked against the keystore: the screen
+/// asking for it is what stands between a person and the account.
+fn open_into(
+    slot: &Mutex<Option<Node>>,
+    home: &Path,
+    passphrase: &str,
+    network: &Network,
+) -> Answer {
     let mut guard = slot
         .lock()
         .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
     if let Some(node) = guard.as_ref().filter(|node| node.home == home) {
+        itsanas_node::node::Identity::secrets(home, passphrase)?;
         return Ok(describe(node));
     }
     // Another account's node, if any, is closed before this one opens.
     *guard = None;
-    let node = pin_official(Node::open(home, passphrase)?)?;
+    let node = network.pin(Node::open(home, passphrase)?)?;
     let answer = describe(&node);
     *guard = Some(node);
     Ok(answer)
@@ -291,49 +492,89 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_close(
     })
 }
 
-/// Point `node` at the official coordinator, pinned to its device, and save.
+/// The coordinator a node on this phone belongs to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Network {
+    address: String,
+    /// The device to pin it to; `None` only for a test's coordinator.
+    device: Option<String>,
+}
+
+impl Network {
+    fn official() -> Self {
+        Self {
+            address: itsanas_node::coordinator::DEFAULT_COORDINATOR.to_owned(),
+            device: Some(itsanas_node::coordinator::DEFAULT_COORDINATOR_DEVICE.to_owned()),
+        }
+    }
+
+    /// Point `node` at this coordinator, pinned to its device, and save.
+    ///
+    /// The app offers no way to name another coordinator: a field for one let
+    /// anybody who could talk a user into typing an address send that user's
+    /// account to a network of their choosing. Done on restore and open, so a
+    /// node made by an older build that could be pointed elsewhere comes back
+    /// to the official network the next time it is unlocked.
+    fn pin(&self, mut node: Node) -> Result<Node, Failure> {
+        node.config.coordinator = Some(self.address.clone());
+        node.config.coordinator_device.clone_from(&self.device);
+        node.save_config()?;
+        Ok(node)
+    }
+}
+
+/// Set by an instrumented test, and nothing else: see [`use_coordinator`].
+static TEST_NETWORK: Mutex<Option<Network>> = Mutex::new(None);
+
+/// The coordinator this process's nodes belong to: the official one, unless an
+/// instrumented test said otherwise.
+fn network() -> Result<Network, Failure> {
+    let test = TEST_NETWORK
+        .lock()
+        .map_err(|_| Failure::Usage("the network lock was poisoned by a panic".to_owned()))?;
+    Ok(test.clone().unwrap_or_else(Network::official))
+}
+
+/// [`Java_fr_ngas_itsanas_Native_useCoordinatorForTests`] without the JNI, with
+/// the slot and the kind of build given.
 ///
-/// The app offers no way to name another coordinator: a field for one let
-/// anybody who could talk a user into typing an address send that user's
-/// account to a network of their choosing. Done on create, restore and open,
-/// so a node made by an older build that could be pointed elsewhere comes
-/// back to the official network the next time it is unlocked.
-fn pin_official(mut node: Node) -> Result<Node, Failure> {
-    node.config.coordinator = Some(itsanas_node::coordinator::DEFAULT_COORDINATOR.to_owned());
-    node.config.coordinator_device =
-        Some(itsanas_node::coordinator::DEFAULT_COORDINATOR_DEVICE.to_owned());
-    node.save_config()?;
-    Ok(node)
+/// Only a debug build takes it: the reason a phone cannot name its coordinator
+/// (see [`Network::pin`]) is exactly what a call that could reach a release
+/// build would undo, whoever made it.
+fn use_coordinator(
+    slot: &Mutex<Option<Network>>,
+    address: &str,
+    device: &str,
+    debug_build: bool,
+) -> Answer {
+    if !debug_build {
+        return Err(Failure::Usage(
+            "this build joins the official coordinator and no other".to_owned(),
+        ));
+    }
+    let device = (!device.is_empty()).then(|| device.to_owned());
+    if let Some(device) = &device {
+        itsanas_node::coordinator::parse_device(device)?;
+    }
+    let mut slot = slot
+        .lock()
+        .map_err(|_| Failure::Usage("the network lock was poisoned by a panic".to_owned()))?;
+    *slot = Some(Network {
+        address: address.to_owned(),
+        device,
+    });
+    Ok(serde_json::json!({ "address": address }).to_string())
 }
 
-/// [`Java_fr_ngas_itsanas_Native_create`] without the JNI: a new node, on the
-/// official coordinator.
-fn create_account(
-    home: &std::path::Path,
-    passphrase: &str,
-    username: &str,
-) -> Result<(Node, itsanas_node::node::zeroize_phrase::Phrase), Failure> {
-    let (node, phrase) = Node::create(home, passphrase, username)?;
-    Ok((pin_official(node)?, phrase))
-}
-
-/// [`Java_fr_ngas_itsanas_Native_login`] without the JNI: a restored node, on
-/// the official coordinator.
+/// A restored node, on `network`'s coordinator.
 fn restore_account(
     home: &std::path::Path,
     passphrase: &str,
     username: &str,
     phrase: &str,
+    network: &Network,
 ) -> Result<Node, Failure> {
-    pin_official(Node::restore(home, passphrase, username, phrase)?)
-}
-
-fn hold(node: Node) -> Result<(), Failure> {
-    let mut guard = NODE
-        .lock()
-        .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
-    *guard = Some(node);
-    Ok(())
+    network.pin(Node::restore(home, passphrase, username, phrase)?)
 }
 
 fn describe(node: &Node) -> String {
@@ -399,44 +640,78 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_get(
 
     answer(&mut env, move || {
         let (path, destination) = (path?, destination?);
-        with_node(|node| {
-            let content = match node.store.read_file(&path)? {
-                Some(content) => content,
-                None => fetch(node, &path)?,
-            };
-
-            std::fs::write(&destination, &content).map_err(|error| {
-                Failure::Usage(format!("could not write {destination}: {error}"))
-            })?;
-
-            Ok(serde_json::json!({ "bytes": content.len() }).to_string())
-        })
+        with_node(|node| get_file(node, &path, &destination))
     })
 }
+
+/// [`Java_fr_ngas_itsanas_Native_get`] without the JNI.
+fn get_file(node: &Node, path: &str, destination: &str) -> Answer {
+    let content = match node.store.read_file(path)? {
+        Some(content) => content,
+        None => fetch(node, path)?,
+    };
+
+    std::fs::write(destination, &content)
+        .map_err(|error| Failure::Usage(format!("could not write {destination}: {error}")))?;
+
+    Ok(serde_json::json!({ "bytes": content.len() }).to_string())
+}
+
+/// The machines to talk to: the account's own from the coordinator, pinned,
+/// beside any address typed in.
+///
+/// One list for every path that dials. The phone read `peers` alone and said
+/// "no machine is configured" while the owner's Windows node ran on the same
+/// account (2026-10-31), first for a round and then for a fetch. A parked
+/// machine (`relay:`) is left to the desktop's dialler for now.
+fn targets(node: &Node) -> Vec<(String, Option<itsanas_crypto::DeviceId>)> {
+    let mut targets: Vec<(String, Option<itsanas_crypto::DeviceId>)> = node
+        .config
+        .peers
+        .iter()
+        .map(|peer| (peer.clone(), None))
+        .collect();
+    if node.config.coordinator.is_some()
+        && let Ok(found) = itsanas_node::coordinator::peers(node, node.store.owner())
+    {
+        for (device, address) in found {
+            if !address.starts_with(itsanas_node::contact::RELAY_PREFIX)
+                && !targets.iter().any(|(known, _)| *known == address)
+            {
+                targets.push((address, Some(device)));
+            }
+        }
+    }
+    targets
+}
+
+/// What a phone says when there is nobody to talk to.
+const NO_MACHINE_YET: &str = "no other machine of this account is known yet: is ITSaNAS \
+                              running on another of your machines?";
 
 /// Fetch a file this device knows about and has not downloaded.
 ///
 /// The same walk `itsanas get` does: resolve the chunks from the log, ask each
-/// configured peer in turn, stop at the first that serves them.
+/// of the account's machines in turn, stop at the first that serves them.
 fn fetch(node: &Node, path: &str) -> Result<Vec<u8>, Failure> {
     let Some(chunks) = itsanas_store::chunks_for(&node.store, &node.vault, path)? else {
         return Err(Failure::Usage(format!("no such file: {path}")));
     };
     let wanted: std::collections::BTreeSet<_> = chunks.into_iter().collect();
 
-    if node.config.peers.is_empty() {
+    let targets = targets(node);
+    if targets.is_empty() {
         return Err(Failure::Usage(format!(
-            "{path} is in this account and not on this device, and there is no \
-             machine configured to fetch it from"
+            "{path} is in this account and not on this device, and {NO_MACHINE_YET}"
         )));
     }
 
-    for target in &node.config.peers {
+    for (target, pinned) in &targets {
         let Ok(mut client) = itsanas_net::PeerClient::connect(
             itsanas_net::AddressList(target.as_str()),
             &node.device,
             node.store.owner(),
-            None,
+            *pinned,
         ) else {
             continue;
         };
@@ -470,25 +745,49 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_put(
 
     answer(&mut env, move || {
         let (path, source) = (path?, source?);
-        with_node(|node| {
-            let file = std::fs::File::open(&source)
-                .map_err(|error| Failure::Usage(format!("could not read {source}: {error}")))?;
-            let incoming = file
-                .metadata()
-                .map_err(|error| Failure::Usage(format!("could not read {source}: {error}")))?
-                .len();
-            node.bound_writes()?;
-            node.store.check_room(&path, incoming)?;
-            let entry = node.store.write_stream(&path, file)?;
-            node.store.flush_segment()?;
-
-            Ok(serde_json::json!({
-                "bytes": entry.size,
-                "chunks": entry.chunks.len(),
-            })
-            .to_string())
-        })
+        with_node(|node| put_file(node, &path, &source))
     })
+}
+
+/// How old the account's other pledges may be before a write asks again. So a
+/// file added offline waits on a connect timeout once an hour, not every time.
+const PLEDGES_FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Bring what the account's other machines pledge up to date, if it is old:
+/// without it a phone is held to the joining allowance for the whole account,
+/// however much the owner's other machines lend. Written back unchanged when the
+/// coordinator could not say, so the file's age is when this last asked.
+fn refresh_old_pledges(node: &Node, now: std::time::SystemTime) {
+    if Node::others_pledged_age(&node.home, now).is_some_and(|age| age < PLEDGES_FRESH_FOR) {
+        return;
+    }
+    if !matches!(
+        itsanas_node::coordinator::refresh_others_pledged(node),
+        Ok(Some(_))
+    ) {
+        let _ = node.remember_others_pledged(Node::others_pledged(&node.home));
+    }
+}
+
+/// [`Java_fr_ngas_itsanas_Native_put`] without the JNI.
+fn put_file(node: &Node, path: &str, source: &str) -> Answer {
+    let file = std::fs::File::open(source)
+        .map_err(|error| Failure::Usage(format!("could not read {source}: {error}")))?;
+    let incoming = file
+        .metadata()
+        .map_err(|error| Failure::Usage(format!("could not read {source}: {error}")))?
+        .len();
+    refresh_old_pledges(node, std::time::SystemTime::now());
+    node.bound_writes()?;
+    node.store.check_room(path, incoming)?;
+    let entry = node.store.write_stream(path, file)?;
+    node.store.flush_segment()?;
+
+    Ok(serde_json::json!({
+        "bytes": entry.size,
+        "chunks": entry.chunks.len(),
+    })
+    .to_string())
 }
 
 /// Delete a file from the account, everywhere.
@@ -529,95 +828,95 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_sync(
     let metadata_only = metadata_only != 0;
 
     answer(&mut env, move || {
-        with_node(|node| {
-            let scope = if metadata_only {
-                itsanas_net::session::Scope::Metadata
-            } else {
-                itsanas_net::session::Scope::Everything
-            };
-
-            // The account's machines from the coordinator, pinned, beside any
-            // address typed in: the phone read `peers` alone and said "no
-            // machine is configured" while the owner's Windows node ran on the
-            // same account (2026-10-31). A parked machine (`relay:`) is left to
-            // the desktop's dialler for now.
-            let mut targets: Vec<(String, Option<itsanas_crypto::DeviceId>)> = node
-                .config
-                .peers
-                .iter()
-                .map(|peer| (peer.clone(), None))
-                .collect();
-            if node.config.coordinator.is_some()
-                && let Ok(found) = itsanas_node::coordinator::peers(node, node.store.owner())
-            {
-                for (device, address) in found {
-                    if !address.starts_with(itsanas_node::contact::RELAY_PREFIX)
-                        && !targets.iter().any(|(known, _)| *known == address)
-                    {
-                        targets.push((address, Some(device)));
-                    }
-                }
-            }
-            if targets.is_empty() {
-                return Err(Failure::Usage(
-                    "no other machine of this account is known yet: is ITSaNAS running on \
-                     another of your machines, and has this phone joined with its invitation?"
-                        .to_owned(),
-                ));
-            }
-
-            // What comes in is held to the disk bound (8.1b); without this the
-            // ceiling is the one opening the node set, which is none.
-            node.bound_writes()?;
-
-            let mut reached = 0usize;
-            let mut adopted = 0usize;
-            let mut sent = 0u64;
-            let mut released = 0usize;
-            let mut freed = 0u64;
-            let mut unreachable = Vec::new();
-
-            for (target, pinned) in &targets {
-                let Ok(mut client) = itsanas_net::PeerClient::connect(
-                    itsanas_net::AddressList(target.as_str()),
-                    &node.device,
-                    node.store.owner(),
-                    *pinned,
-                ) else {
-                    unreachable.push(target.clone());
-                    continue;
-                };
-                let _ = node.introduce(&mut client, itsanas_discover::now_unix());
-
-                match itsanas_node::round(
-                    &node.store,
-                    &node.vault,
-                    &node.config.keeping(),
-                    &mut client,
-                    scope,
-                ) {
-                    Ok((report, keeping)) => {
-                        reached += 1;
-                        adopted += report.pull.adopted;
-                        sent = sent.saturating_add(report.push.bytes_sent);
-                        released += keeping.released;
-                        freed = freed.saturating_add(keeping.freed);
-                    }
-                    Err(_) => unreachable.push(target.clone()),
-                }
-            }
-
-            Ok(serde_json::json!({
-                "reached": reached,
-                "adopted": adopted,
-                "sent": sent,
-                "released": released,
-                "freed": freed,
-                "unreachable": unreachable,
-            })
-            .to_string())
-        })
+        with_node(|node| sync_node(node, metadata_only, itsanas_discover::now_unix()))
     })
+}
+
+/// What one round against a list of machines did.
+#[derive(Debug, Default)]
+struct RoundTotals {
+    reached: usize,
+    adopted: usize,
+    sent: u64,
+    released: usize,
+    freed: u64,
+    unreachable: Vec<String>,
+}
+
+/// Run one round against each of `targets`; one that fails is counted, not
+/// fatal.
+fn run_round(
+    node: &Node,
+    targets: &[(String, Option<itsanas_crypto::DeviceId>)],
+    scope: itsanas_net::session::Scope,
+) -> RoundTotals {
+    let mut totals = RoundTotals::default();
+    for (target, pinned) in targets {
+        let Ok(mut client) = itsanas_net::PeerClient::connect(
+            itsanas_net::AddressList(target.as_str()),
+            &node.device,
+            node.store.owner(),
+            *pinned,
+        ) else {
+            totals.unreachable.push(target.clone());
+            continue;
+        };
+        let _ = node.introduce(&mut client, itsanas_discover::now_unix());
+
+        match itsanas_node::round(
+            &node.store,
+            &node.vault,
+            &node.config.keeping(),
+            &mut client,
+            scope,
+        ) {
+            Ok((report, keeping)) => {
+                totals.reached += 1;
+                totals.adopted += report.pull.adopted;
+                totals.sent = totals.sent.saturating_add(report.push.bytes_sent);
+                totals.released += keeping.released;
+                totals.freed = totals.freed.saturating_add(keeping.freed);
+            }
+            Err(_) => totals.unreachable.push(target.clone()),
+        }
+    }
+    totals
+}
+
+/// [`Java_fr_ngas_itsanas_Native_sync`] without the JNI.
+///
+/// Enrols first, best effort: a person has no step for it, and a phone that
+/// never enrolled holds no slot, no name, and cannot read what its machines
+/// pledge. Then what they pledge, which is the bound `bound_writes` sets.
+fn sync_node(node: &Node, metadata_only: bool, now: u64) -> Answer {
+    let scope = if metadata_only {
+        itsanas_net::session::Scope::Metadata
+    } else {
+        itsanas_net::session::Scope::Everything
+    };
+
+    let _ = itsanas_node::coordinator::ensure_enrolled(node, now);
+    let _ = itsanas_node::coordinator::refresh_others_pledged(node);
+
+    let targets = targets(node);
+    if targets.is_empty() {
+        return Err(Failure::Usage(NO_MACHINE_YET.to_owned()));
+    }
+
+    // What comes in is held to the disk bound (8.1b); without this the
+    // ceiling is the one opening the node set, which is none.
+    node.bound_writes()?;
+
+    let totals = run_round(node, &targets, scope);
+    Ok(serde_json::json!({
+        "reached": totals.reached,
+        "adopted": totals.adopted,
+        "sent": totals.sent,
+        "released": totals.released,
+        "freed": totals.freed,
+        "unreachable": totals.unreachable,
+    })
+    .to_string())
 }
 
 /// What this node is and what it holds.
@@ -626,32 +925,98 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_status(
     mut env: JNIEnv,
     _class: JClass,
 ) -> jstring {
-    answer(&mut env, || {
-        with_node(|node| {
-            let stats = node.store.stats()?;
-            let vault = node.vault.stats()?;
-            let coverage = node.store.coverage(itsanas_discover::now_unix())?;
-            let absent = itsanas_store::absent_count(&node.store, &node.vault)?;
+    answer(&mut env, || with_node(status_of))
+}
 
-            Ok(serde_json::json!({
-                "username": node.config.username,
-                "userId": node.store.owner().to_string(),
-                "deviceId": node.store.device_id().to_string(),
-                "files": stats.files,
-                "here": stats.files,
-                "notHere": absent,
-                "bytesOnDisk": stats.bytes_on_disk,
-                "vaultBytes": vault.bytes,
-                "keepBytes": node.config.keep_bytes,
-                "pledgeBytes": node.config.pledge_bytes,
-                "peers": node.config.peers,
-                "copiesElsewhere": coverage.complete_elsewhere,
-                "onlyHere": coverage.only_here,
-                "liveChunks": coverage.live_chunks,
-            })
-            .to_string())
-        })
+/// [`Java_fr_ngas_itsanas_Native_status`] without the JNI.
+fn status_of(node: &Node) -> Answer {
+    let stats = node.store.stats()?;
+    let vault = node.vault.stats()?;
+    let coverage = node.store.coverage(itsanas_discover::now_unix())?;
+    let absent = itsanas_store::absent_count(&node.store, &node.vault)?;
+
+    Ok(serde_json::json!({
+        "username": node.config.username,
+        "userId": node.store.owner().to_string(),
+        "deviceId": node.store.device_id().to_string(),
+        "files": stats.files,
+        "here": stats.files,
+        "notHere": absent,
+        "bytesOnDisk": stats.bytes_on_disk,
+        "vaultBytes": vault.bytes,
+        // Not `vaultBytes`: this account's own chains relayed here are in that.
+        "heldForOthers": node.held_for_others()?,
+        "enrolled": itsanas_node::coordinator::registered_with(&node.home).is_some(),
+        "keepBytes": node.config.keep_bytes,
+        "pledgeBytes": node.config.pledge_bytes,
+        "peers": node.config.peers,
+        "copiesElsewhere": coverage.complete_elsewhere,
+        "onlyHere": coverage.only_here,
+        "liveChunks": coverage.live_chunks,
     })
+    .to_string())
+}
+
+/// What the Space step and Settings show, in bytes.
+///
+/// Asks the coordinator what the account's other machines pledge, and falls back
+/// on what it last said: offline the step still works, without "the same as your
+/// other machines".
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_space(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    answer(&mut env, || {
+        with_node(|node| space_of(node, itsanas_node::pledges::disk_space(&node.home)))
+    })
+}
+
+/// [`Java_fr_ngas_itsanas_Native_space`] without the JNI, the disk given.
+fn space_of(node: &Node, disk: itsanas_node::pledges::DiskSpace) -> Answer {
+    use itsanas_node::pledges;
+    let asked = itsanas_node::coordinator::other_pledges(node)
+        .ok()
+        .flatten();
+    let others = asked.map_or_else(|| Node::others_pledged(&node.home), |told| told.total);
+    let largest = asked.map_or(0, |told| told.largest);
+
+    let (free, total) = (disk.free.unwrap_or(0), disk.total.unwrap_or(0));
+    let local = node.store.local_bytes()?;
+    let held = node.held_for_others()?;
+    let account: u64 = itsanas_store::catalogue(&node.store, &node.vault)?
+        .files
+        .iter()
+        .fold(0, |sum, file| sum.saturating_add(file.size));
+    let pledged = others.saturating_add(node.config.pledge_bytes);
+    let split = node.config.split;
+    let usable = pledges::phone_usable(total, free, local);
+    let suggested = pledges::suggest_phone(&node.config, total, free, local, others, largest);
+
+    Ok(serde_json::json!({
+        "freeBytes": free,
+        "totalBytes": total,
+        "localBytes": local,
+        "heldForOthers": held,
+        "pledgeBytes": node.config.pledge_bytes,
+        "keepBytes": node.config.keep_bytes,
+        "othersPledgedBytes": others,
+        "largestOtherPledgeBytes": largest,
+        "accountBytes": account,
+        "earnedBytes": split.room_earned(pledged),
+        "allowedBytes": Node::allowed_for(&node.config, pledged),
+        // What leaves the phone its headroom, and what the disk can promise at
+        // all. Sliders end here; `setLimits` is what refuses.
+        "maxPledgeBytes": usable.min(free.saturating_add(held)),
+        "maxKeepBytes": usable,
+        "suggested": {
+            "pledgeBytes": suggested.pledge,
+            "keepBytes": suggested.keep,
+            "sameAsOtherMachines": suggested.same_as_other_machines,
+        },
+        "split": { "own": split.own, "network": split.network },
+    })
+    .to_string())
 }
 
 // ------------------------------------------------------------------ updates
@@ -797,8 +1162,7 @@ fn set_keep(
     order: itsanas_policy::keeping::Order,
     only: &str,
 ) -> Result<String, Failure> {
-    Node::check_split(&node.config, node.config.pledge_bytes, keep)
-        .map_err(|refusal| phone_split(&refusal))?;
+    check_phone_split(node, node.config.pledge_bytes, keep)?;
 
     node.config.keep_bytes = keep;
     node.config.keep_order = order;
@@ -833,8 +1197,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_setPledge(
 /// reaches it. A pledge under what the phone's `keep` needs is refused, as
 /// the CLI's `pledge` refuses it.
 fn set_pledge(node: &mut Node, bytes: u64) -> Result<String, Failure> {
-    Node::check_split(&node.config, bytes, node.config.keep_bytes)
-        .map_err(|refusal| phone_split(&refusal))?;
+    check_phone_split(node, bytes, node.config.keep_bytes)?;
 
     node.config.pledge_bytes = bytes;
     node.save_config()?;
@@ -845,8 +1208,8 @@ fn set_pledge(node: &mut Node, bytes: u64) -> Result<String, Failure> {
 ///
 /// The settings screen saves both at once. Saved one after the other, raising
 /// both was refused: the new keep was checked against the old pledge, and the
-/// person was told to raise a pledge they had just raised. `bytes` of zero or
-/// less for `keep` means no limit.
+/// person was told to raise a pledge they had just raised. A negative `keep`
+/// means no limit; 0 is a budget of nothing, the listing and no contents.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_ngas_itsanas_Native_setLimits(
     mut env: JNIEnv,
@@ -863,15 +1226,30 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_setLimits(
     })
 }
 
-/// [`Java_fr_ngas_itsanas_Native_setLimits`] without the JNI. Takes the
-/// JVM's signed longs so the sign is checked where a test reaches it: a
-/// negative pledge read as its absolute value would offer space nobody asked
-/// to give (found by `itsanas-redteam`).
+/// [`Java_fr_ngas_itsanas_Native_setLimits`] without the JNI, against this
+/// phone's own disk.
 fn set_limits(node: &mut Node, pledge: i64, keep: i64) -> Result<String, Failure> {
+    let free = itsanas_node::pledges::disk_space(&node.home).free;
+    set_limits_on(node, pledge, keep, free)
+}
+
+/// [`set_limits`] with what the disk has free given, so a test can ask about a
+/// disk the size of its choosing. `None` skips the disk: nothing is known of it.
+///
+/// Takes the JVM's signed longs so the sign is checked where a test reaches it:
+/// a negative pledge read as its absolute value would offer space nobody asked
+/// to give (found by `itsanas-redteam`).
+fn set_limits_on(
+    node: &mut Node,
+    pledge: i64,
+    keep: i64,
+    free: Option<u64>,
+) -> Result<String, Failure> {
     let pledge = u64::try_from(pledge)
         .map_err(|_| Failure::Usage(format!("a pledge cannot be negative ({pledge} bytes)")))?;
-    let keep = (keep > 0).then(|| keep.unsigned_abs());
-    Node::check_split(&node.config, pledge, keep).map_err(|refusal| phone_split(&refusal))?;
+    let keep = u64::try_from(keep).ok();
+    check_phone_split(node, pledge, keep)?;
+    check_phone_disk(node, pledge, keep, free)?;
 
     node.config.pledge_bytes = pledge;
     node.config.keep_bytes = keep;
@@ -883,27 +1261,73 @@ fn set_limits(node: &mut Node, pledge: i64, keep: i64) -> Result<String, Failure
     .to_string())
 }
 
+/// Refuse a keep the account's pledges do not earn.
+///
+/// The account's, where a desktop's `keep` asks of its own machine's alone: a
+/// phone that lends little is the ordinary case, and it may keep what the owner's
+/// other machines earn. Phone setters only; `check_split` is unchanged.
+fn check_phone_split(node: &Node, pledge: u64, keep: Option<u64>) -> Result<(), Failure> {
+    let others = Node::others_pledged(&node.home);
+    Node::check_split(&node.config, pledge.saturating_add(others), keep)
+        .map_err(|refusal| phone_split(&refusal, others))
+}
+
 /// A split refusal in the phone's words.
 ///
 /// `SplitRefusal`'s own `Display` ends with `itsanas space --pledge ... --apply`,
 /// a command the phone does not have; this names the field on the settings
-/// screen instead, with the same figures.
-fn phone_split(refusal: &itsanas_node::node::SplitRefusal) -> Failure {
+/// screen instead, with the same figures: this phone's share of them, since
+/// the refusal counts what the account's other machines lend.
+fn phone_split(refusal: &itsanas_node::node::SplitRefusal, others: u64) -> Failure {
     use itsanas_node::config::format_size;
     Failure::Usage(format!(
-        "keeping {} on this phone needs at least {} in \"Space you offer other people\", \
-         and this phone offers {}. Raise that, or keep less here.",
+        "keeping {} on this phone needs at least {} in \"{PLEDGE_SECTION}\", and this phone \
+         offers {}. Raise that, or keep less here.",
         format_size(refusal.keep),
-        format_size(refusal.needed),
-        format_size(refusal.pledge),
+        format_size(refusal.needed.saturating_sub(others)),
+        format_size(refusal.pledge.saturating_sub(others)),
     ))
+}
+
+/// Refuse a pledge and a keep this phone's disk cannot hold, in its words: a
+/// phone pledging more than its disk has is refused every later write and every
+/// pull, with nothing that says why.
+fn check_phone_disk(
+    node: &Node,
+    pledge: u64,
+    keep: Option<u64>,
+    free: Option<u64>,
+) -> Result<(), Failure> {
+    use itsanas_node::config::format_size;
+    let held = node.held_for_others()?;
+    if let Some(refused) = node.disk_refusal_given(free, pledge, held) {
+        return Err(Failure::Usage(format!(
+            "this phone has {} free, so at most {} can go in \"{PLEDGE_SECTION}\"; {} is more \
+             than it could keep. Lower it.",
+            format_size(refused.free),
+            format_size(refused.room),
+            format_size(refused.bytes),
+        )));
+    }
+    let own = node.store.local_bytes()?;
+    if let Some(committed) = itsanas_node::pledges::overcommitted(pledge, keep, free, own, held) {
+        return Err(Failure::Usage(format!(
+            "offering {} and keeping {} needs {}, and this phone has room for {}. Lower \
+             \"{PLEDGE_SECTION}\" or \"{KEEP_SECTION}\".",
+            format_size(pledge),
+            format_size(keep.unwrap_or(0)),
+            format_size(committed),
+            format_size(free.unwrap_or(0).saturating_add(own).saturating_add(held)),
+        )));
+    }
+    Ok(())
 }
 
 /// Enrol this account and device with the configured coordinator.
 ///
-/// `invite` may be empty. A coordinator running `--invite-only` — which is
-/// what this project's own does — refuses an account with no code the first
-/// time, and accepts a member re-registering without one for ever after, which
+/// `invite` may be empty. A coordinator running `--invite-only` refuses an
+/// account with no code the first time, which answers `needsInvite` rather than
+/// throws, and accepts a member re-registering without one for ever after, which
 /// is how a device refreshes its keys without costing an invitation.
 ///
 /// Publishing an address is part of registering rather than a separate step: a
@@ -1081,6 +1505,8 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_plan(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::account::tests::{serving, serving_on};
+    use crate::devices::tests::{NOW, live, phone, with_directory};
 
     /// The JSON this shell answers with is the shape Kotlin parses.
     ///
@@ -1192,7 +1618,7 @@ mod tests {
         node.save_config().unwrap();
 
         let gib = |n: i64| n * 1024 * 1024 * 1024;
-        set_limits(&mut node, gib(500), gib(200))
+        set_limits_on(&mut node, gib(500), gib(200), None)
             .expect("raising pledge and keep together was refused");
         assert_eq!(
             (node.config.pledge_bytes, node.config.keep_bytes),
@@ -1200,10 +1626,10 @@ mod tests {
         );
 
         assert!(
-            set_limits(&mut node, -gib(5), 0).is_err(),
+            set_limits_on(&mut node, -gib(5), 0, None).is_err(),
             "a negative pledge was taken as a positive one"
         );
-        let Err(refused) = set_limits(&mut node, gib(1), gib(200)) else {
+        let Err(refused) = set_limits_on(&mut node, gib(1), gib(200), None) else {
             panic!("1 GiB offered earned a 200 GiB keep");
         };
         let said = refused.message();
@@ -1284,6 +1710,15 @@ mod tests {
         );
     }
 
+    /// A coordinator nobody listens at, for the tests that must not reach the
+    /// official one.
+    fn nowhere() -> Network {
+        Network {
+            address: "127.0.0.1:1".to_owned(),
+            device: None,
+        }
+    }
+
     /// The phone stuck on Unlock (2026-10-31): the sync service kept the node
     /// open in the process, and opening it again was refused by the database
     /// as "already open". A second open of the same home answers the node
@@ -1296,8 +1731,8 @@ mod tests {
         let home = dir.path().join("phone");
         drop(Node::create(&home, "a passphrase", "camille").expect("create"));
         let slot = Mutex::new(None);
-        let first = open_into(&slot, &home, "a passphrase").expect("first open");
-        let again = open_into(&slot, &home, "a passphrase");
+        let first = open_into(&slot, &home, "a passphrase", &nowhere()).expect("first open");
+        let again = open_into(&slot, &home, "a passphrase", &nowhere());
         assert!(
             again.is_ok(),
             "unlocking while the node is already open failed ({:?}): the phone stays \
@@ -1305,6 +1740,451 @@ mod tests {
             again.err().map(|f| f.message())
         );
         assert_eq!(again.unwrap(), first);
+    }
+
+    /// The Unlock screen checks the passphrase when the node is already open:
+    /// what is typed there is judged by the keystore, whoever holds the node, and
+    /// the right one is answered as before. Sabotage: answer the held node before
+    /// the check.
+    #[test]
+    fn red_team_the_unlock_screen_checks_the_passphrase_when_the_node_is_already_open() {
+        let dir = tempfile::tempdir().expect("scratch");
+        let home = dir.path().join("phone");
+        drop(Node::create(&home, "a passphrase", "camille").expect("create"));
+        let slot = Mutex::new(None);
+        let first = open_into(&slot, &home, "a passphrase", &nowhere()).expect("first open");
+
+        let wrong = open_into(&slot, &home, "not the passphrase", &nowhere());
+        assert!(
+            matches!(wrong, Err(Failure::Node(NodeError::Unlock))),
+            "the Unlock screen opened the account for a wrong passphrase: {:?}",
+            wrong.map_err(|failure| failure.message())
+        );
+        assert!(
+            slot.lock().unwrap().is_some(),
+            "a wrong passphrase closed the node the sync service holds"
+        );
+        assert_eq!(
+            open_into(&slot, &home, "a passphrase", &nowhere()).expect("right passphrase"),
+            first
+        );
+    }
+
+    const GIB: u64 = 1 << 30;
+    fn gib(n: i64) -> i64 {
+        n * (1 << 30)
+    }
+
+    /// A negative `keep` is no limit and 0 is the listing alone: Kotlin always
+    /// sends bytes, so "nothing" and "everything" must not read the same. 0
+    /// survives the file, and a round then lists a file without fetching it.
+    /// Sabotage: `(keep > 0).then(..)`, as it was (0 reads as no limit, and a
+    /// person who asked for nothing here downloads everything).
+    #[test]
+    fn red_team_a_negative_keep_is_no_limit_and_zero_is_the_listing_alone() {
+        with_directory(|address, _| {
+            let dir = tempfile::tempdir().unwrap();
+            let (nas, phrase) = phone(&dir.path().join("nas"), address, "camille", None);
+            let source = dir.path().join("source");
+            std::fs::write(&source, b"kept on the NAS").unwrap();
+            put_file(&nas, "one.txt", source.to_str().unwrap()).unwrap();
+
+            let (mut me, _) = phone(&dir.path().join("me"), address, "camille", Some(&phrase));
+            set_limits_on(&mut me, 0, -1, None).unwrap();
+            assert_eq!(
+                me.config.keep_bytes, None,
+                "a negative keep is not no limit"
+            );
+
+            set_limits_on(&mut me, 0, 0, None).unwrap();
+            assert_eq!(me.config.keep_bytes, Some(0), "keep 0 read as no limit");
+            let saved = itsanas_node::Config::load(&Node::config_path(&me.home)).unwrap();
+            assert_eq!(saved.keep_bytes, Some(0), "keep 0 did not survive the file");
+            assert!(!saved.keeping().is_everything());
+
+            serving(&nas, |at| {
+                me.config.peers.push(at.to_string());
+                let said: serde_json::Value =
+                    serde_json::from_str(&sync_node(&me, false, NOW).unwrap()).unwrap();
+                assert_eq!(said["reached"], 1, "{said}");
+            });
+            let status: serde_json::Value = serde_json::from_str(&status_of(&me).unwrap()).unwrap();
+            assert_eq!(status["notHere"], 1, "{status}");
+            assert_eq!(
+                me.store.read_file("one.txt").unwrap(),
+                None,
+                "a budget of nothing downloaded the file"
+            );
+        });
+    }
+
+    /// A phone's keep is judged against what the account pledges, not this
+    /// phone alone; a desktop's rule is unchanged. Sabotage: pass the phone's
+    /// pledge alone to `check_split` (a phone beside a 100 GiB NAS may keep 10);
+    /// add the others to the desktop's rule.
+    #[test]
+    fn red_team_a_phone_keeps_what_the_account_earns_not_what_it_lends_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut node, _) =
+            Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        node.remember_others_pledged(100 * GIB).unwrap();
+
+        set_limits_on(&mut node, 0, gib(42), None)
+            .expect("the account's 100 GiB earn 42 GiB, and the phone was refused it");
+        let refused = set_limits_on(&mut node, 0, gib(43), None)
+            .expect_err("100 GiB earned more than 42 GiB")
+            .message();
+        assert!(
+            refused.contains("Space you offer") && !refused.contains("itsanas "),
+            "{refused}"
+        );
+        let order = node.config.keep_order;
+        assert!(set_keep(&mut node, Some(43 * GIB), order, "").is_err());
+        assert!(set_keep(&mut node, Some(42 * GIB), order, "").is_ok());
+        assert!(set_pledge(&mut node, 0).is_ok());
+
+        assert!(
+            Node::check_split(&node.config, 0, Some(42 * GIB)).is_err(),
+            "the desktop's rule, per machine, changed with the phone's"
+        );
+        assert!(
+            set_limits_on(&mut node, gib(10), gib(43), None).is_ok(),
+            "this phone's pledge no longer counts"
+        );
+    }
+
+    /// A phone cannot promise a disk it has not got: pledging more than is free
+    /// made every later write and pull refuse, with no sentence that said why.
+    /// Sabotage: drop either check in `check_phone_disk`.
+    #[test]
+    fn red_team_the_phone_refuses_limits_its_disk_cannot_hold() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut node, _) =
+            Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        let path = Node::config_path(&node.home);
+        let before = std::fs::read(&path).unwrap();
+        let free = Some(30 * GIB);
+
+        let said = set_limits_on(&mut node, gib(31), -1, free)
+            .expect_err("31 GiB promised on 30 free")
+            .message();
+        assert!(
+            said.contains("Space you offer") && !said.contains("itsanas "),
+            "{said}"
+        );
+        let said = set_limits_on(&mut node, gib(25), gib(10), free)
+            .expect_err("35 GiB promised on 30 free")
+            .message();
+        assert!(
+            said.contains("Space you offer")
+                && said.contains("How much of your data")
+                && !said.contains("itsanas "),
+            "the phone was told something it cannot act on: {said}"
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            before,
+            "a refused pair rewrote the node file"
+        );
+        assert_eq!(
+            node.config.pledge_bytes, 0,
+            "a refused pair changed the pledge"
+        );
+
+        // Promised beyond what is free, though the pair would fit: the files here
+        // can be released to make room for a keep, not for somebody else's data.
+        let source = dir.path().join("source");
+        std::fs::write(&source, vec![7u8; 4096]).unwrap();
+        put_file(&node, "one.bin", source.to_str().unwrap()).unwrap();
+        let said = set_limits_on(&mut node, gib(30) + 1, -1, free)
+            .expect_err("a byte more than is free was promised")
+            .message();
+        assert!(said.contains("at most"), "{said}");
+
+        set_limits_on(&mut node, gib(20), gib(10), free).expect("exactly what the disk holds");
+        set_limits_on(&mut node, gib(31), gib(10), None).expect("a disk that will not say");
+    }
+
+    /// A refusal from the store on a phone names the Settings section, in sizes a
+    /// person reads, never a command it has not got. Sabotage: fall through to the
+    /// store's own `Display`.
+    #[test]
+    fn red_team_a_full_disk_and_a_full_account_are_said_in_the_phone_s_words() {
+        use itsanas_store::StoreError;
+        let full = Failure::from(StoreError::DiskFull {
+            path: "one.jpg".to_owned(),
+            incoming: 3 * GIB,
+            room: GIB,
+        })
+        .message();
+        let over = Failure::from(StoreError::OverBudget {
+            path: "one.jpg".to_owned(),
+            account: 9 * GIB,
+            total: 12 * GIB,
+            allowed: 10 * GIB,
+        })
+        .message();
+        for said in [&full, &over] {
+            assert!(
+                said.contains("Space you offer") && said.contains("Settings"),
+                "the phone was not told where to act: {said}"
+            );
+            assert!(
+                !said.contains("itsanas ") && !said.contains(" bytes"),
+                "the phone was told a command it lacks, or a count of bytes: {said}"
+            );
+            assert!(said.contains("one.jpg"), "which file: {said}");
+        }
+        assert!(
+            full.contains("3.0 GiB") && full.contains("1.0 GiB"),
+            "{full}"
+        );
+        assert!(
+            over.contains("12.0 GiB") && over.contains("10.0 GiB"),
+            "{over}"
+        );
+    }
+
+    /// `get` dials who `sync` dials: a file reached through a machine known only
+    /// from the coordinator, with nothing typed in. The same bug the round had, on
+    /// the path that opens a file. Sabotage: `fetch` reads `config.peers` alone
+    /// (it says "no machine configured" beside a running machine).
+    #[test]
+    fn red_team_a_file_is_fetched_from_a_machine_known_only_from_the_coordinator() {
+        with_directory(|address, _| {
+            let dir = tempfile::tempdir().unwrap();
+            let (mut nas, phrase) = phone(&dir.path().join("nas"), address, "camille", None);
+            let source = dir.path().join("source");
+            std::fs::write(&source, b"kept on the NAS").unwrap();
+            put_file(&nas, "Photos/two.jpg", source.to_str().unwrap()).unwrap();
+            let (me, _) = phone(&dir.path().join("me"), address, "camille", Some(&phrase));
+
+            itsanas_node::coordinator::register_with(&nas, None, NOW).unwrap();
+            let server = itsanas_net::PeerServer::bind("127.0.0.1:0").unwrap();
+            let at = server.local_addr().unwrap().to_string();
+            nas.config.announce = Some(at.clone());
+            itsanas_node::coordinator::announce(&nas, &at, itsanas_discover::now_unix()).unwrap();
+
+            serving_on(&server, &nas, |_| {
+                assert!(
+                    me.config.peers.is_empty(),
+                    "the fixture typed an address in"
+                );
+                let round: serde_json::Value = serde_json::from_str(
+                    &sync_node(&me, true, itsanas_discover::now_unix()).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(round["reached"], 1, "{round}");
+                assert_eq!(
+                    me.store.read_file("Photos/two.jpg").unwrap(),
+                    None,
+                    "a metadata round fetched the content, so the fetch proves nothing"
+                );
+
+                let out = dir.path().join("out");
+                get_file(&me, "Photos/two.jpg", out.to_str().unwrap())
+                    .unwrap_or_else(|failure| panic!("not fetched: {}", failure.message()));
+                assert_eq!(std::fs::read(&out).unwrap(), b"kept on the NAS");
+            });
+        });
+    }
+
+    /// A phone with no machine yet says so, and says nothing of an invitation it
+    /// was never asked for; a round still enrols it first, since a person has no
+    /// step for that, and reads what the account's machines pledge. Sabotage: drop
+    /// `ensure_enrolled` from `sync_node` (no slot, no name, nothing to read
+    /// pledges with); drop `refresh_others_pledged`.
+    #[test]
+    fn red_team_a_round_enrols_the_phone_and_reads_what_its_machines_pledge() {
+        with_directory(|address, directory| {
+            let dir = tempfile::tempdir().unwrap();
+            let (mut nas, phrase) = phone(&dir.path().join("nas"), address, "camille", None);
+            nas.config.pledge_bytes = 100 * GIB;
+            itsanas_node::coordinator::register_with(&nas, None, NOW).unwrap();
+            let (me, _) = phone(&dir.path().join("me"), address, "camille", Some(&phrase));
+
+            let said = sync_node(&me, true, NOW + 1)
+                .expect_err("no machine has announced itself")
+                .message();
+            assert!(said.contains("no other machine"), "{said}");
+            assert!(!said.contains("invitation"), "{said}");
+
+            assert!(
+                live(directory, me.store.device_id()),
+                "a phone that ran a round never enrolled: its name is unclaimed"
+            );
+            assert_eq!(
+                itsanas_node::coordinator::registered_with(&me.home),
+                Some(address.to_string())
+            );
+            assert_eq!(
+                Node::others_pledged(&me.home),
+                100 * GIB,
+                "the phone holds the account to 10 GiB however much the NAS lends"
+            );
+            let status: serde_json::Value = serde_json::from_str(&status_of(&me).unwrap()).unwrap();
+            assert_eq!(status["enrolled"], true, "{status}");
+            assert_eq!(status["heldForOthers"], 0, "{status}");
+        });
+    }
+
+    /// A write counts what the account's machines lend, asked when it is missing
+    /// or an hour old and not otherwise, so a file added offline does not wait on a
+    /// connect timeout every time. Sabotage: drop the call from `put_file` (a phone
+    /// on an account above 10 GiB is refused every write); drop the age check; leave
+    /// the file alone when the coordinator cannot say.
+    #[test]
+    fn red_team_a_write_asks_what_the_machines_lend_at_most_once_an_hour() {
+        with_directory(|address, _| {
+            let dir = tempfile::tempdir().unwrap();
+            let (mut nas, phrase) = phone(&dir.path().join("nas"), address, "camille", None);
+            nas.config.pledge_bytes = 100 * GIB;
+            itsanas_node::coordinator::register_with(&nas, None, NOW).unwrap();
+            let (me, _) = phone(&dir.path().join("me"), address, "camille", Some(&phrase));
+            itsanas_node::coordinator::register_with(&me, None, NOW).unwrap();
+
+            let source = dir.path().join("source");
+            std::fs::write(&source, b"a photo").unwrap();
+            put_file(&me, "one.jpg", source.to_str().unwrap()).unwrap();
+            assert_eq!(
+                Node::account_pledge(&me.home, &me.config),
+                100 * GIB,
+                "a write did not ask what the account's machines lend"
+            );
+
+            nas.config.pledge_bytes = 200 * GIB;
+            itsanas_node::coordinator::register_with(&nas, None, NOW + 1).unwrap();
+            put_file(&me, "two.jpg", source.to_str().unwrap()).unwrap();
+            assert_eq!(
+                Node::others_pledged(&me.home),
+                100 * GIB,
+                "every write asked, so every file added offline waits on a timeout"
+            );
+
+            let two_hours_ago =
+                std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600);
+            std::fs::File::options()
+                .write(true)
+                .open(me.home.join("others-pledged"))
+                .unwrap()
+                .set_modified(two_hours_ago)
+                .unwrap();
+            put_file(&me, "three.jpg", source.to_str().unwrap()).unwrap();
+            assert_eq!(
+                Node::others_pledged(&me.home),
+                200 * GIB,
+                "an hour on, the phone still believes the old figure"
+            );
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let (mut me, _) = Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        me.config.coordinator = Some("127.0.0.1:1".to_owned());
+        refresh_old_pledges(&me, std::time::SystemTime::now());
+        assert!(
+            Node::others_pledged_age(&me.home, std::time::SystemTime::now()).is_some(),
+            "nothing remembers that the coordinator was asked, so the next write waits too"
+        );
+        assert_eq!(Node::others_pledged(&me.home), 0);
+    }
+
+    /// The Space step's answer, in the names Kotlin reads, with a sibling's pledge
+    /// suggested when the phone has the room. Sabotage: pass 0 for the largest
+    /// (the same value is never offered); leave a field out.
+    #[test]
+    fn red_team_the_space_step_is_told_the_figures_it_shows() {
+        with_directory(|address, _| {
+            let dir = tempfile::tempdir().unwrap();
+            let (mut nas, phrase) = phone(&dir.path().join("nas"), address, "camille", None);
+            nas.config.pledge_bytes = 100 * GIB;
+            itsanas_node::coordinator::register_with(&nas, None, NOW).unwrap();
+            let (mut me, _) = phone(&dir.path().join("me"), address, "camille", Some(&phrase));
+            itsanas_node::coordinator::register_with(&me, None, NOW).unwrap();
+
+            let disk = itsanas_node::pledges::DiskSpace {
+                free: Some(400 * GIB),
+                total: Some(512 * GIB),
+            };
+            let said: serde_json::Value =
+                serde_json::from_str(&space_of(&me, disk).unwrap()).unwrap();
+            for key in [
+                "freeBytes",
+                "totalBytes",
+                "localBytes",
+                "heldForOthers",
+                "pledgeBytes",
+                "keepBytes",
+                "othersPledgedBytes",
+                "largestOtherPledgeBytes",
+                "accountBytes",
+                "earnedBytes",
+                "allowedBytes",
+                "maxPledgeBytes",
+                "maxKeepBytes",
+                "suggested",
+                "split",
+            ] {
+                assert!(said.get(key).is_some(), "Kotlin reads {key}: {said}");
+            }
+            assert_eq!(said["freeBytes"], 400 * GIB);
+            assert_eq!(said["othersPledgedBytes"], 100 * GIB);
+            assert_eq!(said["largestOtherPledgeBytes"], 100 * GIB);
+            assert_eq!(said["pledgeBytes"], 0);
+            assert_eq!(said["suggested"]["pledgeBytes"], 100 * GIB);
+            assert_eq!(said["suggested"]["keepBytes"], 85 * GIB);
+            assert_eq!(said["suggested"]["sameAsOtherMachines"], true);
+            assert_eq!(said["split"]["own"], 30);
+            assert_eq!(said["split"]["network"], 70);
+            assert_eq!(said["allowedBytes"], 100 * GIB * 30 / 70);
+
+            // Coordinator gone: what it last said, and no "the same".
+            me.config.coordinator = Some("127.0.0.1:1".to_owned());
+            let said: serde_json::Value =
+                serde_json::from_str(&space_of(&me, disk).unwrap()).unwrap();
+            assert_eq!(said["othersPledgedBytes"], 100 * GIB, "{said}");
+            assert_eq!(said["largestOtherPledgeBytes"], 0, "{said}");
+            assert_eq!(said["suggested"]["sameAsOtherMachines"], false, "{said}");
+        });
+    }
+
+    /// The rule the screens state is the core's.
+    #[test]
+    fn the_passphrase_rule_is_the_core_s() {
+        let rule: serde_json::Value = serde_json::from_str(&passphrase_rule()).unwrap();
+        assert_eq!(rule["min"], itsanas_node::node::MIN_PASSPHRASE_CHARS);
+        assert_eq!(rule["max"], itsanas_node::node::MAX_PASSPHRASE_CHARS);
+    }
+
+    /// A RELEASE BUILD JOINS THE OFFICIAL COORDINATOR AND NO OTHER: the test hook
+    /// exists on both sides so Kotlin and Rust agree on the native calls, and it
+    /// refuses unless compiled for debugging. Sabotage: pass `true` in the shim
+    /// (the source check); drop the `debug_build` test.
+    #[test]
+    fn red_team_a_release_build_cannot_be_pointed_at_another_coordinator() {
+        let slot = Mutex::new(None);
+        assert!(
+            use_coordinator(&slot, "evil.test:1", "", false).is_err(),
+            "a release build took another coordinator"
+        );
+        assert_eq!(*slot.lock().unwrap(), None);
+        let source = include_str!("lib.rs");
+        assert!(
+            source.contains(concat!("&device?, cfg!", "(debug_assertions))")),
+            "the shim no longer tells this function what kind of build it is"
+        );
+
+        use_coordinator(&slot, "127.0.0.1:9", "", true).expect("a debug build");
+        assert_eq!(
+            *slot.lock().unwrap(),
+            Some(Network {
+                address: "127.0.0.1:9".to_owned(),
+                device: None,
+            })
+        );
+        assert!(
+            use_coordinator(&slot, "127.0.0.1:9", "not hex", true).is_err(),
+            "a device that is no device was taken for a pin"
+        );
     }
 
     /// Every `external fun` in `Native.kt` has an entry point here, and every
@@ -1355,26 +2235,42 @@ mod tests {
         );
     }
 
-    /// A node created or restored on the phone joins the official
-    /// coordinator, pinned to its device, and nothing else: an app that let a
-    /// node be pointed elsewhere would let whoever talked a user into it send
-    /// that user's account to their own network. Covers `create_account` and
-    /// `restore_account`, which the JNI `create` and `login` call. Sabotage:
-    /// return the node from either without `pin_official`.
+    /// A node restored or unlocked on the phone joins the official coordinator,
+    /// pinned to its device, and nothing else: an app that let a node be pointed
+    /// elsewhere would let whoever talked a user into it send that user's account
+    /// to their own network. A new account comes through `login` too, so this
+    /// covers every way a node gets onto a phone. Covers `restore_account` and
+    /// `open_into`, which the JNI `login` and `open` call, with the network the
+    /// shims pass. Sabotage: return the node from either without `pin`; have
+    /// `network()` answer anything else when no test set it.
     #[test]
     fn red_team_a_new_or_restored_phone_node_is_on_the_official_coordinator() {
         use itsanas_node::coordinator::{DEFAULT_COORDINATOR, DEFAULT_COORDINATOR_DEVICE};
         let dir = tempfile::tempdir().unwrap();
-        let (created, phrase) =
-            create_account(&dir.path().join("new"), "a long passphrase", "nicolas").unwrap();
+        let official = network().unwrap();
+        assert_eq!(official, Network::official());
+        let (older, phrase) =
+            Node::create(&dir.path().join("older"), "a long passphrase", "nicolas").unwrap();
+        drop(older);
+        let slot = Mutex::new(None);
+        open_into(
+            &slot,
+            &dir.path().join("older"),
+            "a long passphrase",
+            &official,
+        )
+        .unwrap();
+        let guard = slot.lock().unwrap();
+        let opened = guard.as_ref().unwrap();
         let restored = restore_account(
             &dir.path().join("restored"),
             "a long passphrase",
             "nicolas",
             phrase.as_str(),
+            &official,
         )
         .unwrap();
-        for (what, node) in [("created", &created), ("restored", &restored)] {
+        for (what, node) in [("unlocked", opened), ("restored", &restored)] {
             let saved = itsanas_node::Config::load(&Node::config_path(&node.home)).unwrap();
             for config in [&node.config, &saved] {
                 assert_eq!(

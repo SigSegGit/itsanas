@@ -111,13 +111,20 @@ impl Setup<'_> {
         // registration step instead, it left a whole account on this disk
         // under a name the network would never give it. An unreachable
         // coordinator does not stop the step -- registration says so later.
-        if let (Account::New { username }, Some(address)) = (&account, self.wanted_coordinator())
-            && let Ok(true) = (self.name_check)(&address, username)
-        {
-            return Err(CliError::Usage(format!(
-                "the username {username:?} is already taken at {address}: choose another \
-                 (nothing was written)"
-            )));
+        if let (Account::New { username }, Some(address)) = (&account, self.wanted_coordinator()) {
+            // The page stops this too, but only once its check has answered.
+            if let Some(why) = crate::coordinator::username_refusal(username) {
+                return Err(CliError::Usage(format!(
+                    "no coordinator would take the username {username:?}: {why} (nothing was \
+                     written)"
+                )));
+            }
+            if let Ok(true) = (self.name_check)(&address, username) {
+                return Err(CliError::Usage(format!(
+                    "the username {username:?} is already taken at {address}: choose another \
+                     (nothing was written)"
+                )));
+            }
         }
         let node = match &account {
             Account::New { username } => self.create_account(username)?,
@@ -220,6 +227,9 @@ impl Setup<'_> {
             asked_in,
         });
         let passphrase = self.prompt.new_passphrase()?;
+        // Said now, with the numbers: the account would refuse it anyway, after
+        // the service's file was judged and with less to say about it.
+        crate::node::check_new_passphrase(&passphrase)?;
         if self.answers.service {
             // Said now, before the account is written under a passphrase the
             // service's file could not hold.

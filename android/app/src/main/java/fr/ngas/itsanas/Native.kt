@@ -22,15 +22,95 @@ object Native {
 
     external fun exists(home: String): Boolean
 
-    external fun create(home: String, username: String, passphrase: String): String
+    /** {"min":6,"max":128}: the rule the screens state and check as you type. */
+    external fun passphraseRule(): String
 
+    /**
+     * Whether a username can be taken, asked of the coordinator before anything is
+     * written. Never throws for a network failure.
+     * {"valid":true|false,"why":"..."|null,"taken":"yes"|"no"|"unknown"}
+     * `valid:false` carries taken:"unknown" and is not sent to the network.
+     */
+    external fun checkName(username: String): String
+
+    /**
+     * The words and the name of an existing account, before anything is written.
+     * {"words":"ok"|"bad","wordIndex":<1-based>|null,"count":<n>,
+     *  "name":"yours"|"other"|"none"|"unknown"|"invalid","why":"..."|null}
+     * `words:"bad"` means the name was not asked. A numbered grid is accepted.
+     */
+    external fun checkRestore(username: String, phrase: String): String
+
+    /** A fresh identity's words, written nowhere: {"phrase":"w1 w2 ..."}. */
+    external fun newPhrase(): String
+
+    /** This node's words again, from its keystore: {"phrase":"..."}. Wrong passphrase throws. */
+    external fun words(home: String, passphrase: String): String
+
+    /** Re-seal the keystore. The new one obeys the rule; wrong current throws. {"changed":true} */
+    external fun changePassphrase(home: String, current: String, new: String): String
+
+    /**
+     * Restore an account from its words, as a person saved them; a numbered grid
+     * is accepted. A new account comes this way too: [newPhrase], show and check
+     * the words, then this, so a rotation or a kill before it loses nothing. Sets
+     * a budget for this disk, and offers nobody anything.
+     */
     external fun login(home: String, username: String, phrase: String, passphrase: String): String
 
     external fun open(home: String, passphrase: String): String
 
+    /**
+     * "I forgot my passphrase": the words replace the node on this phone.
+     * Refused (nothing touched) when the words are bad or belong to another account
+     * as the coordinator lists it. Answers like login.
+     */
+    external fun restoreOver(home: String, phrase: String, passphrase: String): String
+
+    /**
+     * One best-effort round, then what logging out would lose. Closes nothing.
+     * {"reached":n,"onlyHere":n,"liveChunks":n,"copiesElsewhere":n,
+     *  "heldForOthers":bytes,"username":"..."}
+     */
+    external fun logoutCheck(metered: Boolean): String
+
+    /**
+     * Tell the machines, withdraw this device, close and erase the node. Never fails
+     * for the network; an unreachable coordinator leaves a marker so the next login
+     * withdraws the old id. {"told":n,"departed":bool,"withdrawn":bool}
+     */
+    external fun logout(home: String): String
+
+    /**
+     * Delete the whole account at the coordinator, then log out. [confirm] must be
+     * the account's username: refused otherwise, nothing sent.
+     * {"deleted":true} or throws with the coordinator's refusal.
+     */
+    external fun deleteAccount(home: String, confirm: String): String
+
+    /**
+     * Debug builds and instrumented tests only: every node this process creates,
+     * restores or opens is pinned to this coordinator instead of the official one.
+     * Kotlin never calls it outside androidTest. [device] may be empty (no pin). A
+     * release build throws.
+     */
+    external fun useCoordinatorForTests(address: String, device: String): String
+
     external fun close(): String
 
     external fun status(): String
+
+    /**
+     * What the Space step and Settings show. All bytes.
+     * {"freeBytes","totalBytes","localBytes","heldForOthers","pledgeBytes",
+     *  "keepBytes"|null,"othersPledgedBytes","largestOtherPledgeBytes","accountBytes",
+     *  "earnedBytes","allowedBytes","maxPledgeBytes","maxKeepBytes",
+     *  "suggested":{"pledgeBytes","keepBytes","sameAsOtherMachines":bool},
+     *  "split":{"own":30,"network":70}}
+     * `maxPledgeBytes` and `maxKeepBytes` are what leaves the phone its headroom, each
+     * taken alone: a slider ends there, and [setLimits] judges the pair.
+     */
+    external fun space(): String
 
     /** JSON: whether the signed release offers a newer APK (see [Updater]). */
     external fun checkUpdate(manifest: String, signature: String): String
@@ -53,8 +133,8 @@ object Native {
     external fun setPledge(bytes: Long): String
 
     /**
-     * Pledge and keep together, checked as a pair. [keep] of zero or less
-     * means no limit.
+     * Pledge and keep together, checked as a pair and against the disk. A negative
+     * [keep] means no limit; 0 is a budget of nothing, the listing and no contents.
      */
     external fun setLimits(pledge: Long, keep: Long): String
 
@@ -71,7 +151,10 @@ object Native {
      * Enrol this account and device with the configured coordinator. [invite]
      * may be empty; an invite-only coordinator needs a code the first time and
      * never again. At the device limit this answers rather than throws:
-     * `atCap` true, the devices to choose from, and what to say.
+     * `atCap` true, the devices to choose from, and what to say. So does an
+     * invitation refused: `{"enrolled":false,"atCap":false,"needsInvite":true,
+     * "codeRefused":bool}`, `codeRefused` when [invite] was given and would not do.
+     * A network failure still throws.
      */
     external fun register(invite: String): String
 

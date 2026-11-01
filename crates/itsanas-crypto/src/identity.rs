@@ -93,6 +93,40 @@ impl MasterSecret {
         entropy.zeroize();
         result
     }
+
+    /// What is wrong with `phrase`, for a screen that has to say where; `None`
+    /// when [`Self::from_recovery_phrase`] takes it. Normalised the same way.
+    ///
+    /// A value with a position, not a sentence: `bip39` counts words from 0,
+    /// which read in its own message sends a person to the word before the
+    /// wrong one.
+    #[must_use]
+    pub fn phrase_problem(phrase: &str) -> Option<PhraseProblem> {
+        let words: Vec<String> = phrase.split_whitespace().map(str::to_lowercase).collect();
+        if let Some(index) = words
+            .iter()
+            .position(|word| bip39::Language::English.find_word(word).is_none())
+        {
+            return Some(PhraseProblem::UnknownWord(index + 1));
+        }
+        if words.len() != RECOVERY_PHRASE_WORDS {
+            return Some(PhraseProblem::WordCount(words.len()));
+        }
+        Self::from_recovery_phrase(phrase)
+            .is_err()
+            .then_some(PhraseProblem::Checksum)
+    }
+}
+
+/// What [`MasterSecret::phrase_problem`] found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhraseProblem {
+    /// This word, counting from 1, is in no recovery phrase.
+    UnknownWord(usize),
+    /// Every word is a real one, and there are this many of them.
+    WordCount(usize),
+    /// 24 real words whose checksum fails: one is misread, or two swapped.
+    Checksum,
 }
 
 impl fmt::Debug for MasterSecret {
@@ -569,6 +603,42 @@ mod tests {
 
         assert!(MasterSecret::from_recovery_phrase("not even words").is_err());
         assert!(MasterSecret::from_recovery_phrase("").is_err());
+    }
+
+    /// A screen says which word to look at, counted from 1 as the sheet is
+    /// numbered: the word after the one `bip39` calls by the same number.
+    /// Sabotage: return `bip39`'s own index.
+    #[test]
+    fn red_team_a_wrong_word_is_named_by_the_number_on_the_sheet() {
+        let phrase = master(7).to_recovery_phrase().unwrap();
+        assert_eq!(MasterSecret::phrase_problem(&phrase), None);
+        assert_eq!(
+            MasterSecret::phrase_problem(&phrase.to_uppercase()),
+            None,
+            "the case from_recovery_phrase accepts reads as a wrong word"
+        );
+
+        let mut words: Vec<&str> = phrase.split_whitespace().collect();
+        words[4] = "zzzz";
+        assert_eq!(
+            MasterSecret::phrase_problem(&words.join(" ")),
+            Some(PhraseProblem::UnknownWord(5)),
+            "the screen sends the person to the wrong line of their sheet"
+        );
+
+        let mut words: Vec<&str> = phrase.split_whitespace().collect();
+        words.pop();
+        assert_eq!(
+            MasterSecret::phrase_problem(&words.join(" ")),
+            Some(PhraseProblem::WordCount(23))
+        );
+
+        let mut words: Vec<&str> = phrase.split_whitespace().collect();
+        words.swap(0, 1);
+        assert_eq!(
+            MasterSecret::phrase_problem(&words.join(" ")),
+            Some(PhraseProblem::Checksum)
+        );
     }
 
     #[test]

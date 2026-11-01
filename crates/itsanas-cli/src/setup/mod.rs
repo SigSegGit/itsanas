@@ -177,35 +177,13 @@ enum State {
 /// line: the record a person sends when it went wrong. Holds no secret.
 pub(crate) const SETUP_LOG: &str = "setup.log";
 
-// The official coordinator, its pinned device and `pinned_for` live in
-// `itsanas-node`, so the CLI and the Android app share one copy.
-pub(crate) use itsanas_node::coordinator::{DEFAULT_COORDINATOR, pinned_for};
+// The official coordinator, its pinned device, `pinned_for` and the name check
+// live in `itsanas-node`, so the CLI and the Android app share one copy.
+pub(crate) use itsanas_node::coordinator::{DEFAULT_COORDINATOR, name_taken, pinned_for};
 
 /// Whether a coordinator already holds `username`. A function, not a call,
 /// so the tests answer without a network.
 pub(crate) type NameCheck = fn(&str, &str) -> Result<bool>;
-
-/// Ask the coordinator at `address` whether `username` is taken. A lookup is
-/// unauthenticated, so a throwaway device key serves: this machine has no
-/// key of its own yet, which is the point of asking first.
-pub(crate) fn name_taken(address: &str, username: &str) -> Result<bool> {
-    use itsanas_coord::protocol::{Request, Response};
-    let keys = itsanas_crypto::DeviceKeys::generate()
-        .map_err(|error| CliError::Usage(error.to_string()))?;
-    let expect = pinned_for(address)
-        .map(crate::coordinator::parse_device)
-        .transpose()?;
-    let mut client = itsanas_coord::server::CoordClient::connect(address, &keys, expect)
-        .map_err(|error| CliError::Usage(format!("{address}: {error}")))?;
-    match client.ask(&Request::Lookup {
-        username: username.to_owned(),
-    }) {
-        Ok(Response::Account(_)) => Ok(true),
-        Ok(Response::Missing) => Ok(false),
-        Ok(other) => Err(CliError::Usage(format!("{address} answered {other:?}"))),
-        Err(error) => Err(CliError::Usage(format!("{address}: {error}"))),
-    }
-}
 
 /// One run of setup on one home.
 pub(crate) struct Setup<'a> {

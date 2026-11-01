@@ -30,7 +30,8 @@ window.I18N = {
     'Yes, create a new account': 'Oui, créer un nouveau compte',
     'No, I already have an account': 'Non, j’ai déjà un compte',
     'Your username': 'Votre nom d’utilisateur',
-    'Letters and digits. Use the same one on all your machines.': 'Lettres et chiffres. Le même sur toutes vos machines.',
+    "Lowercase letters, digits, '-' and '.'. Use the same one on all your machines.":
+      'Lettres minuscules, chiffres, « - » et « . ». Le même sur toutes vos machines.',
     "My account's recovery copy is kept by the network (I chose it on my first machine)":
       'La copie de secours de mon compte est gardée par le réseau (je l’ai choisi sur ma première machine)',
     'Otherwise a separate window asks for your 24 recovery words.': 'Sinon, une fenêtre séparée demande vos 24 mots de récupération.',
@@ -167,6 +168,12 @@ window.I18N = {
     'Every step is done. The checks below could not run here; each says why.':
       'Toutes les étapes sont faites. Les vérifications ci-dessous n’ont pas pu tourner ici ; chacune dit pourquoi.',
     'Choose a username.': 'Choisissez un nom d’utilisateur.',
+    'Say whether you already have an account: choose one of the two answers.':
+      'Dites si vous avez déjà un compte : choisissez l’une des deux réponses.',
+    'username must be between 1 and 64 characters': 'le nom d’utilisateur doit compter de 1 à 64 caractères',
+    "username may contain only lowercase ASCII letters, digits, '-' and '.'":
+      'le nom d’utilisateur ne peut contenir que des lettres minuscules sans accent, des chiffres, « - » et « . »',
+    "username may not start or end with '-' or '.'": 'le nom d’utilisateur ne peut pas commencer ni finir par « - » ou « . »',
     'Type a whole number of GB, at least 1.': 'Tapez un nombre entier de Go, au moins 1.',
     'Three questions, then ITSaNAS sets itself up. If something stops, run setup again and it picks up where it left off.':
       'Trois questions, puis ITSaNAS s’installe tout seul. Si quelque chose s’arrête, relancez l’installation : elle reprend là où elle en était.',

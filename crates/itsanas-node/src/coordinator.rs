@@ -22,6 +22,9 @@ use itsanas_coord::claim::{
 // Android app) and has to say the limit and carry an invitation code.
 pub use itsanas_coord::claim::MAX_DEVICES_PER_ACCOUNT;
 use itsanas_coord::directory::Registration;
+// The same reason: the setup page and the phone say what a name may be before
+// asking whether it is free, since a name refused later reads as free now.
+pub use itsanas_coord::directory::{MAX_USERNAME_LEN, validate_username};
 pub use itsanas_coord::invitation::Secret;
 use itsanas_coord::invitation::{Invitation, SECRET_LEN};
 use itsanas_coord::protocol::{EnrolledDevice, Request, Response};
@@ -55,6 +58,76 @@ pub const DEFAULT_COORDINATOR_DEVICE: &str =
 #[must_use]
 pub fn pinned_for(address: &str) -> Option<&'static str> {
     (address == DEFAULT_COORDINATOR).then_some(DEFAULT_COORDINATOR_DEVICE)
+}
+
+/// The file that says which coordinator this node last registered with: the
+/// only way `setup` can tell "registered" from "configured" without asking
+/// the coordinator, and asking again is what a re-run must not need.
+pub const REGISTERED: &str = "registered";
+
+/// The coordinator this node last registered with, if any.
+#[must_use]
+pub fn registered_with(home: &std::path::Path) -> Option<String> {
+    std::fs::read_to_string(home.join(REGISTERED))
+        .ok()
+        .map(|text| text.trim().to_owned())
+        .filter(|text| !text.is_empty())
+}
+
+/// Write the [`REGISTERED`] marker for `node`'s coordinator. Best effort:
+/// without it the next start registers again, which the coordinator takes as a
+/// refresh. The coordinator's address, so that a node pointed at another one
+/// enrols there.
+pub fn mark_registered(node: &Node) {
+    if let Some(address) = &node.config.coordinator {
+        let _ = std::fs::write(node.home.join(REGISTERED), address);
+    }
+}
+
+/// Who holds `username` at the coordinator at `address`, asked before anything
+/// of this machine exists. A lookup is unauthenticated, so a throwaway device
+/// key serves: this machine has no key of its own yet, which is the point of
+/// asking first.
+///
+/// # Errors
+///
+/// If the coordinator cannot be reached, or answers with something else.
+pub fn name_owner(address: &str, username: &str) -> Result<Option<UserId>> {
+    let keys = DeviceKeys::generate().map_err(|error| CliError::Usage(error.to_string()))?;
+    let expect = pinned_for(address).map(parse_device).transpose()?;
+    let mut client = CoordClient::connect(address, &keys, expect)
+        .map_err(|error| CliError::Usage(format!("{address}: {error}")))?;
+    match client.ask(&Request::Lookup {
+        username: username.to_owned(),
+    }) {
+        Ok(Response::Account(account)) => Ok(Some(account.user.id)),
+        Ok(Response::Missing) => Ok(None),
+        Ok(other) => Err(CliError::Usage(format!("{address} answered {other:?}"))),
+        Err(error) => Err(CliError::Usage(format!("{address}: {error}"))),
+    }
+}
+
+/// Why no coordinator would ever register `username`, in a sentence for the
+/// person typing it; `None` when one could. Asked first: a name the coordinator
+/// would refuse reads as free on a lookup, so a person is told so and goes on,
+/// and only learns otherwise at registration.
+#[must_use]
+pub fn username_refusal(username: &str) -> Option<String> {
+    validate_username(username)
+        .err()
+        .map(|refused| match refused {
+            itsanas_coord::CoordError::Rejected(why) => why.to_owned(),
+            other => other.to_string(),
+        })
+}
+
+/// Whether the coordinator at `address` already gives `username` to a key.
+///
+/// # Errors
+///
+/// As [`name_owner`].
+pub fn name_taken(address: &str, username: &str) -> Result<bool> {
+    Ok(name_owner(address, username)?.is_some())
 }
 
 /// Open a connection to the node's configured coordinator.
@@ -243,6 +316,39 @@ pub fn register_with(node: &Node, invite: Option<&Secret>, now: u64) -> Result<(
         Response::Refused(why) => Err(CliError::Usage(why)),
         other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
     }
+}
+
+/// Enrol this device unless its [`REGISTERED`] marker says it already is, with
+/// no invitation: what a shell with no step for it (the phone, at each round)
+/// calls so a person never has to find a Join button. `Ok(true)` when it
+/// enrolled now, `Ok(false)` when there was nothing to do. The marker is how a
+/// later call stays off the network; it names the coordinator, so a node
+/// pointed at another one enrols there.
+///
+/// # Errors
+///
+/// As [`register_with`]: the caller decides whether that matters, and on a
+/// phone at each round it does not, because the next round asks again.
+pub fn ensure_enrolled(node: &Node, now: u64) -> Result<bool> {
+    let Some(address) = node.config.coordinator.as_deref() else {
+        return Ok(false);
+    };
+    if registered_with(&node.home).as_deref() == Some(address) {
+        return Ok(false);
+    }
+    register_with(node, None, now)?;
+    mark_registered(node);
+    Ok(true)
+}
+
+/// Whether `error` is a coordinator refusing a newcomer for want of a good
+/// invitation: no code, or one it will not take. Read from the sentence, as
+/// [`cap_named`] reads its own, because it reaches a client as text; a shell
+/// with a code field then shows the field instead of a failure.
+#[must_use]
+pub fn invitation_needed(error: &NodeError) -> bool {
+    let text = error.to_string();
+    text.contains("by invitation only") || text.contains("that invitation cannot be used")
 }
 
 /// Refuse to enrol `this` on an account whose live devices are `live`, when
@@ -946,10 +1052,37 @@ pub fn enrolled(node: &Node) -> Result<Option<Vec<EnrolledDevice>>> {
 ///
 /// As [`enrolled`], or if the figure cannot be written.
 pub fn refresh_others_pledged(node: &Node) -> Result<Option<u64>> {
+    Ok(other_pledges(node)?.map(|pledges| pledges.total))
+}
+
+/// What the account's other machines pledge, as [`other_pledges`] reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OtherPledges {
+    /// All of them together, which is what earns the account its room.
+    pub total: u64,
+    /// The largest one machine offers: what a new machine can be told "the
+    /// same as your others" about.
+    pub largest: u64,
+}
+
+/// [`refresh_others_pledged`], with the largest pledge beside the sum.
+///
+/// # Errors
+///
+/// As [`refresh_others_pledged`].
+pub fn other_pledges(node: &Node) -> Result<Option<OtherPledges>> {
     let Some(devices) = enrolled(node)? else {
         return Ok(None);
     };
-    remember_pledges(node, &devices).map(Some)
+    let total = remember_pledges(node, &devices)?;
+    let mine = node.device.device_id();
+    let largest = devices
+        .iter()
+        .filter(|enrolled| enrolled.device != mine)
+        .map(|enrolled| enrolled.pledged_bytes)
+        .max()
+        .unwrap_or(0);
+    Ok(Some(OtherPledges { total, largest }))
 }
 
 fn remember_pledges(node: &Node, devices: &[EnrolledDevice]) -> Result<u64> {
@@ -1493,6 +1626,17 @@ pub fn find_member(node: &Node, username: &str) -> Result<(UserId, Vec<(DeviceId
 ///
 /// If the coordinator cannot be reached, or refuses the claim.
 pub fn forget_device(node: &Node, device: DeviceId, now: u64) -> Result<()> {
+    match ask_to_forget(node, device, now)? {
+        Response::Done => Ok(()),
+        Response::Refused(why) => Err(CliError::Usage(why)),
+        other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
+    }
+}
+
+/// Send the withdrawal of `device` and hand back the coordinator's answer: an
+/// error here means nobody answered, which is the difference a marker left for
+/// a later login needs and a refusal in words cannot show.
+fn ask_to_forget(node: &Node, device: DeviceId, now: u64) -> Result<Response> {
     let claim = NodeClaim {
         owner: node.store.owner(),
         device,
@@ -1506,11 +1650,36 @@ pub fn forget_device(node: &Node, device: DeviceId, now: u64) -> Result<()> {
     .sign(&node.user);
 
     let mut client = dial(node)?;
-    match client.ask(&Request::Claim(Box::new(claim)))? {
-        Response::Done => Ok(()),
-        Response::Refused(why) => Err(CliError::Usage(why)),
-        other => Err(CliError::Usage(format!("unexpected answer: {other:?}"))),
-    }
+    Ok(client.ask(&Request::Claim(Box::new(claim)))?)
+}
+
+/// Withdraw `device`, an id this node's shell kept from an earlier logout, and
+/// say whether the coordinator answered at all: `Ok(true)` for yes, whichever
+/// way it answered. An id of another account is refused there, harmlessly, and
+/// asking again would be refused the same way.
+///
+/// # Errors
+///
+/// When the coordinator could not be reached: the id is worth keeping.
+pub fn withdraw_old_device(node: &Node, device: DeviceId, now: u64) -> Result<bool> {
+    Ok(matches!(
+        ask_to_forget(node, device, now)?,
+        Response::Done | Response::Refused(_)
+    ))
+}
+
+/// Withdraw this device from its own account, for a logout and nothing else.
+///
+/// [`withdraw_device`] refuses this because the machine would go on running,
+/// unlisted. A logout removes that premise: the node is erased straight after,
+/// and a later login on this device mints a new id. Without it every logout
+/// and login would keep one of the account's device slots for ever.
+///
+/// # Errors
+///
+/// As [`forget_device`].
+pub fn withdraw_self(node: &Node, now: u64) -> Result<()> {
+    forget_device(node, node.store.device_id(), now)
 }
 
 /// Withdraw `wanted` from this account, from this machine, refusing this

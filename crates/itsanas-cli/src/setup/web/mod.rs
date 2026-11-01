@@ -645,16 +645,9 @@ const fn step_id(step: Step) -> &'static str {
     }
 }
 
-/// Space to suggest offering: a fifth of what is free, in whole GiB, at most
-/// 500 GiB. A suggestion the person can lower; integers, never a float.
-pub(crate) fn suggest_pledge(free: u64) -> u64 {
-    const GIB: u64 = 1 << 30;
-    (free / 5 / GIB * GIB).min(500 * GIB)
-}
-
 fn state_json(ctx: &Context) -> String {
     let free = fs4::available_space(&ctx.base).ok();
-    let suggested_gib = free.map_or(0, suggest_pledge) >> 30;
+    let suggested_gib = free.map_or(0, itsanas_node::pledges::suggest_pledge) >> 30;
     let defaults = object(&[
         (
             "folder",
@@ -1383,7 +1376,10 @@ pub(crate) fn browser_command(os: &str, url: &str) -> Command {
 
 /// Is the username typed taken at the coordinator typed? Answers "unknown"
 /// rather than failing when the coordinator cannot be asked: the person may
-/// be offline, and the engine asks again before any key is written.
+/// be offline, and the engine asks again before any key is written. Answers
+/// "invalid", with the reason, for a name no coordinator would register: on a
+/// lookup it reads as free, and `marie_1` was told so, made her keys, and was
+/// refused at registration with a remedy about something else.
 fn check_name(ctx: &Context, request: &Request) -> Response {
     let form = match json::parse_form(&request.body) {
         Ok(form) => form,
@@ -1394,6 +1390,9 @@ fn check_name(ctx: &Context, request: &Request) -> Response {
     else {
         return ok_json(object(&[("taken", quote("unknown"))]));
     };
+    if let Some(why) = crate::coordinator::username_refusal(username) {
+        return ok_json(object(&[("taken", quote("invalid")), ("why", quote(&why))]));
+    }
     let answer = match (ctx.backends.name)(coordinator, username) {
         Ok(true) => "yes",
         Ok(false) => "no",

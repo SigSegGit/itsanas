@@ -215,6 +215,15 @@ if ([string]::IsNullOrWhiteSpace($passphrase)) {
 }
 Write-Ok 'passphrase supplied'
 
+# Said before the build rather than after it. Only for an account about to be
+# made: a node already here keeps the passphrase it has, whatever its length.
+# The binary holds the whole rule (6 to 128 characters); this is the early word
+# on the usual mistake.
+$homeNow = if ($env:ITSANAS_HOME) { $env:ITSANAS_HOME } else { Join-Path $env:USERPROFILE '.itsanas' }
+if ((-not (Test-Path -LiteralPath (Join-Path $homeNow 'keystore.bin'))) -and $passphrase.Length -lt 6) {
+    Die 'ITSANAS_PASSPHRASE is too short for a new account' @('A new passphrase is 6 to 128 characters.')
+}
+
 if ($PhraseFile) {
     if (-not (Test-Path -LiteralPath $PhraseFile)) { Die "cannot read $PhraseFile" }
     Write-Ok "restoring an existing account from $PhraseFile"

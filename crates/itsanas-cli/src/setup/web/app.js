@@ -195,12 +195,19 @@
     if (next) { go(next); }
   }
 
+  // Null until one is chosen: a preselected answer made a new account for a
+  // person who meant to join their own (Nicolas, 2026-10-14).
   function accountKind() {
     const chosen = document.querySelector('input[name="account"]:checked');
-    return chosen ? chosen.value : 'new';
+    return chosen ? chosen.value : null;
   }
 
   function validate(page) {
+    if (page === 'account' && !done.account && !accountKind()) {
+      say('Say whether you already have an account: choose one of the two answers.');
+      document.querySelector('input[name="account"]').focus();
+      return false;
+    }
     if (page === 'account' && !done.account && !$('username').value.trim()) {
       say('Choose a username.');
       $('username').focus();
@@ -208,6 +215,11 @@
     }
     if (page === 'account' && !done.account && accountKind() === 'new' && nameTaken === 'yes') {
       say('This username is already taken. Choose another.');
+      $('username').focus();
+      return false;
+    }
+    if (page === 'account' && !done.account && accountKind() === 'new' && nameTaken === 'invalid') {
+      say(nameWhy);
       $('username').focus();
       return false;
     }
@@ -222,6 +234,7 @@
   // ------------------------------------------------- username, while typed
 
   let nameTaken = 'unknown';
+  let nameWhy = '';
   let nameTimer = null;
 
   async function checkName() {
@@ -235,8 +248,11 @@
       const reply = await api('POST', '/api/name', { username: username, coordinator: coordinator });
       if (username !== $('username').value.trim()) { return; }
       nameTaken = reply.taken;
+      nameWhy = reply.why || '';
       const isNew = accountKind() === 'new';
-      if (reply.taken === 'yes') {
+      if (reply.taken === 'invalid') {
+        line.textContent = t(nameWhy);
+      } else if (reply.taken === 'yes') {
         line.textContent = isNew ? t('This username is already taken. Choose another.') : t('Account found.');
       } else if (reply.taken === 'no') {
         line.textContent = isNew ? t('This username is free.') : t('No account has this name on the network.');

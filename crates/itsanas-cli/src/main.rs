@@ -75,8 +75,9 @@ const SAFE_COPIES: usize = 2;
 
 use crate::{
     config::{format_size, parse_size},
+    coordinator::{REGISTERED, mark_registered, registered_with},
     error::{CliError, Result},
-    node::{Node, SNAPSHOT},
+    node::{Node, SNAPSHOT, phrase_words},
 };
 
 /// Environment variable that supplies the passphrase non-interactively.
@@ -1022,7 +1023,9 @@ fn passphrase_explanation(confirm: bool, label: Option<&str>, command: Option<&s
             "Choose a passphrase for the account {account} on this machine. It protects \
              this machine's copy of the account's keys: you will type it here to start \
              ITSaNAS and for some commands. It is not the 24 recovery words, and each \
-             machine of the account may have its own. It is asked twice."
+             machine of the account may have its own. {} to {} characters, asked twice.",
+            node::MIN_PASSPHRASE_CHARS,
+            node::MAX_PASSPHRASE_CHARS,
         )
     } else {
         format!(
@@ -1214,11 +1217,9 @@ fn change_passphrase(home: &Path, recovery: bool) -> Result<()> {
             "no terminal to prompt on. Set {NEW_PASSPHRASE_ENV} for non-interactive use."
         )));
     };
-    if new.is_empty() {
-        return Err(CliError::Usage(
-            "an empty passphrase protects nothing".to_owned(),
-        ));
-    }
+    // Before the recovery container: it would go under a passphrase the
+    // keystore then refuses, which is the split the comment below is about.
+    node::check_new_passphrase(&new)?;
 
     // The recovery container first, the keystore second. The container is the
     // step that fails -- a device not enrolled, a coordinator not answering --
@@ -2568,11 +2569,6 @@ fn register(home: &Path, recovery: bool, withdraw: bool, invite: Option<&str>) -
     Ok(())
 }
 
-/// The file that says which coordinator this node last registered with: the
-/// only way `setup` can tell "registered" from "configured" without asking
-/// the coordinator, and asking again is what a re-run must not need.
-const REGISTERED: &str = "registered";
-
 /// Enrol this account and device with the configured coordinator and publish
 /// this device's address. The outer error is the registration; the inner
 /// result is the address published, or why none could be -- a device that
@@ -2618,13 +2614,8 @@ pub(crate) fn register_only(node: &Node) -> Result<()> {
 fn enrol(node: &Node, invite: Option<&str>, now: u64) -> Result<()> {
     let secret = invite.map(coordinator::decode_secret).transpose()?;
     coordinator::register_with(node, secret.as_ref(), now)?;
-    if let Some(address) = &node.config.coordinator {
-        // Best effort: without it a re-run of setup registers again, which
-        // the coordinator takes as a refresh. The coordinator's address, so
-        // that a daemon pointed at another one enrols there (`daemon.rs`,
-        // `enrol_at_daemon_start`).
-        let _ = std::fs::write(node.home.join(REGISTERED), address);
-    }
+    // `daemon.rs`, `enrol_at_daemon_start`, reads the address it holds.
+    mark_registered(node);
     Ok(())
 }
 
@@ -2668,14 +2659,6 @@ fn daemon_listening(home: &Path) -> Option<String> {
         .find_map(|line| line.trim_start().strip_prefix("listen "))
         .and_then(|rest| rest.split_whitespace().next())
         .map(str::to_owned)
-}
-
-/// The coordinator this node last registered with, if any.
-fn registered_with(home: &Path) -> Option<String> {
-    std::fs::read_to_string(home.join(REGISTERED))
-        .ok()
-        .map(|text| text.trim().to_owned())
-        .filter(|text| !text.is_empty())
 }
 
 fn check_passphrase(home: &Path) -> Result<()> {
@@ -4146,21 +4129,6 @@ fn phrase_grid(phrase: &str) -> String {
     out
 }
 
-/// The 24 words out of whatever a person saved: one line, one word a line, or
-/// the numbered grid `init` printed, copied off the screen. The numbers are
-/// dropped; words are never guessed at, so a wrong word still fails the
-/// checksum rather than restoring some other account.
-fn phrase_words(text: &str) -> String {
-    text.split_whitespace()
-        .filter(|token| {
-            !token.strip_suffix('.').is_some_and(|number| {
-                !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit())
-            })
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 /// The file in a node home that says `itsanas leave` ran, and when.
 ///
 /// Why a file and not a stop hook: the service stops at every reboot and
@@ -4558,10 +4526,15 @@ fn space_on(node: &mut Node, pledge: Option<&str>, keep: Option<&str>, apply: bo
     // Everything this machine would be committing to, together. The pledge is
     // room for other people's data and `keep` is room for yours; a disk has to
     // hold both, and neither setting knows about the other.
-    let committed = wanted_pledge.saturating_add(wanted_keep.unwrap_or(0));
     let mut refusals: Vec<String> = Vec::new();
 
-    if free > 0 && committed > free.saturating_add(held).saturating_add(hosted) {
+    if let Some(committed) = itsanas_node::pledges::overcommitted(
+        wanted_pledge,
+        wanted_keep,
+        Some(free).filter(|free| *free > 0),
+        held,
+        hosted,
+    ) {
         refusals.push(format!(
             "offering {} and keeping {} needs {} on a disk with {} free",
             format_size(wanted_pledge),
@@ -4672,42 +4645,22 @@ fn set_pledge(node: &mut Node, bytes: u64) -> Result<Option<String>> {
     Ok(warning)
 }
 
-/// Why `node`'s disk cannot take a promise of `bytes`, `held` being what it
-/// already stores for other accounts; `None` when it fits, or when the
-/// filesystem will not say what is free.
-///
-/// Refusing to promise a disk this machine has not got: a host that accepts
-/// data and then runs out has failed the person who trusted it, and "I
-/// offered more than I had" is not a failure anybody discovers until it
-/// matters. And not the space another node on this disk already promised:
-/// each one compared with the free space alone, and two accounts on the
-/// Freebox VM promised the same 30 GB twice (ROADMAP, "Pledges are not
-/// reserved"). `pledge` and `space --apply` both ask here, so neither is the
-/// way around the other.
+/// [`Node::disk_refusal`] in the command line's words.
 fn disk_refusal(node: &Node, bytes: u64, held: u64) -> Option<String> {
-    let free = fs4::available_space(node.vault_dir()).unwrap_or(0);
-    let shared = itsanas_node::pledges::shared_dir();
-    let (others, stale) = itsanas_node::pledges::others(
-        &node.home,
-        shared.as_deref(),
-        &node.store.device_id().to_hex(),
-        itsanas_discover::now_unix(),
-    );
-    let room = itsanas_node::pledges::room(free, held, &others);
-    (free > 0 && bytes > room).then(|| {
+    node.disk_refusal(bytes, held).map(|refused| {
         format!(
             "offering {} on a disk with {} free, already holding {} for others; \
              at most {} can be offered here{}",
-            format_size(bytes),
-            format_size(free),
-            format_size(held),
-            format_size(room),
-            if others.is_empty() && stale.is_empty() {
+            format_size(refused.bytes),
+            format_size(refused.free),
+            format_size(refused.held),
+            format_size(refused.room),
+            if refused.others.is_empty() && refused.stale.is_empty() {
                 String::new()
             } else {
                 format!(
                     ", because other nodes on this disk promised space too:{}",
-                    itsanas_node::pledges::describe(&others, &stale, format_size)
+                    itsanas_node::pledges::describe(&refused.others, &refused.stale, format_size)
                 )
             }
         )

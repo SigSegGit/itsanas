@@ -58,12 +58,12 @@
         <p class="lead">Is this your first machine with ITSaNAS?</p>
         <fieldset>
           <legend>Account</legend>
-          <label class="choice"><input type="radio" name="account" value="new" checked> Yes, create a new account</label>
           <label class="choice"><input type="radio" name="account" value="join"> No, I already have an account</label>
+          <label class="choice"><input type="radio" name="account" value="new"> Yes, create a new account</label>
         </fieldset>
         <label for="username">Your username</label>
         <input id="username" name="username" autocomplete="username" spellcheck="false" autocapitalize="none" aria-describedby="username-help">
-        <p id="username-help" class="help">Letters and digits. Use the same one on all your machines.</p>
+        <p id="username-help" class="help">Lowercase letters, digits, '-' and '.'. Use the same one on all your machines.</p>
         <p id="username-check" class="help" role="status" aria-live="polite"></p>
         <div id="join-only" hidden>
           <label class="choice"><input type="checkbox" id="recover-escrow"> My account's recovery copy is kept by the network (I chose it on my first machine)</label>
