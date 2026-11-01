@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-01 — 1510 test functions across 41 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 513 are red-team tests.**
+**Last updated: 2026-11-01 — 1522 test functions across 41 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 521 are red-team tests.**
 
-**1394 of the 1510 tests have an entry of their own on this page** — an *entry*,
+**1406 of the 1522 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -170,9 +170,9 @@ guarantee and is not one.
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
-| `itsanas-coord` unit | 123 (1 `#[ignore]`d) |
-| `itsanas-coord` integration (`tests/coordinator.rs`) | 17 |
-| `itsanas-coordinator` crash (`tests/crash.rs`) | 1 |
+| `itsanas-coord` unit | 133 (1 `#[ignore]`d) |
+| `itsanas-coord` integration (`tests/coordinator.rs`) | 18 |
+| `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 51 |
 | `itsanas-policy` unit | 23 |
 | `itsanas-folder` unit | 32 |
@@ -214,7 +214,7 @@ is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 79 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 57 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 65 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 72 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
@@ -2591,6 +2591,30 @@ good and nothing could free it. `Directory::forget_account`, run by
 | **`a_forgotten_account_frees_its_name_and_its_live_devices`** | The name can be registered again under another key, and the old account's live claim, escrow and id lookup are gone, so the coordinator hands out nothing of it. Forgetting a name nobody holds answers "none" rather than failing. |
 | **`red_team_forgetting_an_account_keeps_its_withdrawals_final`** | A withdrawal is final for its device id (HANDOVER §6). If forgetting erased it, the same keys registering again would bring a stolen, withdrawn machine back with a fresh live claim. Sabotaged by dropping withdrawals with the rest: red. |
 
+# `itsanas-coord` — what stops being kept (11)
+
+A device's address and the date it was last heard from are erased once it has
+been silent for `PRESENCE_KEPT_FOR` (thirty days; nobody is handed the address
+after `PRESENCE_TTL`, seven), a deleted account's name once it is free again, and
+a count of escrow fetches once its window is over or its account has gone.
+`CoordService::expire` does all three, as the serving process starts and every
+`EXPIRE_EVERY` (a day) after that. A `Lookup` answers a name and its key and
+nothing else about the account.
+
+| Test | What it proves |
+|---|---|
+| **`red_team_an_address_silent_past_the_keep_is_erased_with_its_availability`** | One second past the keep, the address and the date go together; at exactly the keep, and for a machine just heard, neither does. The enrolment stays, a withdrawn device's address goes too, and a second pass finds nothing. Sabotaged (no erase of either row; `>=`): red. |
+| **`red_team_a_clock_set_back_erases_no_address`** | Clocks of 0, 1, and earlier than the row: nothing is erased, because a date this clock cannot make sense of is no evidence of silence. Sabotaged (`abs_diff`): red. |
+| **`red_team_a_machine_with_no_real_time_clock_keeps_its_address`** | A Pi that says 1970 and was heard just now keeps its address. Judging by the date inside the presence would erase the one machine that is always on. Sabotaged (`at_unix` alone): red. |
+| `a_presence_with_no_availability_record_is_judged_by_its_own_date` | Rows from a damaged file: old with no record is erased, dated after this clock is kept, unreadable is erased rather than stopping the pass. Sabotaged (each of the three): red. |
+| **`red_team_a_retired_name_is_purged_when_its_year_is_over_and_not_before`** | Before `until` the row stays and the name is refused; at `until` it goes, a name retired ten seconds later does not, the deleted key stays refused, and the name can be registered. Sabotaged (purge all, purge none, one second early): red. |
+| **`red_team_purging_escrow_counts_gives_a_guesser_no_fresh_budget`** | A pass leaves a spent budget spent inside its window and when the clock was set back; it drops what is past its window, and what cannot be read. Sabotaged (purge all, purge none, `abs_diff`, keep the unreadable): red. |
+| `an_account_that_goes_leaves_no_escrow_count_behind` | `forget_account` and `delete_account` take the name out of `escrow_tries`; an invented name stays until its window is over. Sabotaged (no removal): red. |
+| **`red_team_a_stranger_learns_nothing_from_a_lookup_but_the_key`** | An account with a date and an escrow blob, and one without, answer alike but for name and key: a date of 0 and an escrow flag of false. The directory keeps the real values and `GetEscrow` still hands out the blob. Sabotaged (either field as held): red. |
+| `a_device_silent_past_the_keep_stays_enrolled_and_comes_back_by_announcing` | Peers until `PRESENCE_TTL` and not a second after; `Devices` shows address and silence up to the keep, nothing past it, and still lists the device; one announcement brings it all back. Sabotaged (no erase of the availability row; `>=`): red. |
+| `one_pass_erases_the_silent_addresses_the_free_names_and_the_spent_counts` | The pass the server calls covers all three tables. Sabotaged (each of the three skipped): red. |
+| **`red_team_a_serving_coordinator_erases_silent_addresses_at_start_and_again_later`** | Two runs over a real socket. Default period: the old row is gone by the first answer, a row planted afterwards stays, and the one log line holds no address. Short period: a row planted while it runs goes without a restart, and a machine just heard stays. Sabotaged (no pass at start; none after; a pass every time round the loop; an address in the log): red. |
+
 # `itsanas-coord` — deleting an account at its own request (2)
 
 HANDOVER §8 0w (8), option A (Nicolas, 2026-10-12), with his red-team brief:
@@ -2636,10 +2660,11 @@ a withdrawal it could not otherwise know of. In `service.rs`.
 | **`red_team_standing_tells_nothing_about_a_device_the_caller_was_not_shown`** | A claim that does not verify is refused, and one signed under another account than the device's own is answered `None`: the question cannot be asked about a device the caller was never shown. Sabotaged by dropping either check. |
 | `standing_answers_a_live_device_with_its_claim_and_an_unknown_one_with_nothing` | The ordinary answers: a live device's claim, and nothing for a device never enrolled. |
 
-# `itsanas-coordinator` crash (`tests/crash.rs`) -- the real binary, killed (1)
+# `itsanas-coordinator` crash (`tests/crash.rs`) -- the real binary, killed (2)
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_the_real_coordinator_erases_a_silent_address_as_it_starts`** | A directory left by an earlier run holds an address past `PRESENCE_KEPT_FOR`. The real `itsanas-coordinator` starts on it, answers once, and is killed; the file then holds no such address and still holds the enrolment. So the pass is wired into what is deployed, and is written down rather than left to the next flush. Sabotaged (no pass at start; the pass skips addresses): red. |
 | **`red_team_a_coordinator_killed_mid_round_keeps_every_account_it_confirmed`** | Spawns the real `itsanas-coordinator`, registers an account, claims a device, announces (the one `Durability::None` write), kills the process outright (SIGKILL, `TerminateProcess` on Windows) and reopens `directory.redb` from the test: the account is present and `enrolled_counts` is (1, 1). Sabotaged by making every directory write non-durable: red. An in-process reopen could not tell them apart, because redb flushes on drop. |
 
 # `itsanas-node` withdrawals (`tests/withdrawals.rs`) — the host's half, against a real coordinator (4)

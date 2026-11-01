@@ -20,4 +20,4 @@ pub use error::{CoordError, Result};
 pub use invitation::{DEFAULT_VALIDITY, Invitation, SECRET_LEN, Secret, SignedInvitation, code_id};
 pub use protocol::{COORD_VERSION, Request, Response};
 pub use server::{CoordClient, CoordServer, DEFAULT_COORD_PORT};
-pub use service::{CoordService, EscrowLimiter};
+pub use service::{CoordService, EscrowLimiter, Expired};

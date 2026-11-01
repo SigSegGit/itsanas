@@ -2210,7 +2210,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
       What the backstop is actually for is much smaller: `PRESENCE_TTL` is seven
       days, so an hourly announce leaves 168 chances to refresh before an
       address expires, and `device list` keeps saying how long a machine has
-      been silent to within an hour. One unwritten dependency to keep in mind:
+      been silent to within an hour, for as long as the coordinator keeps that
+      date (`PRESENCE_KEPT_FOR`, thirty days). One unwritten dependency to keep
+      in mind:
       `Response::Peers` orders by `last_seen`, so once everybody announces on
       the same hour that order flattens into the device-id tie-break, and the
       client's own `reachable_first` is what puts usable addresses first. Two

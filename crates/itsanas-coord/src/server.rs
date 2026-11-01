@@ -40,7 +40,7 @@ use rustls::{ClientConfig, ServerConfig};
 use crate::directory::{Admission, Directory};
 use crate::error::{CoordError, Result};
 use crate::protocol::{COORD_VERSION, MAX_REQUESTS_PER_CONNECTION, Request, Response};
-use crate::service::{CoordService, EscrowLimiter, PROBE_TRACKED, PROBE_WINDOW, Probe};
+use crate::service::{CoordService, EscrowLimiter, Expired, PROBE_TRACKED, PROBE_WINDOW, Probe};
 
 /// Default port for a coordinator.
 pub const DEFAULT_COORD_PORT: u16 = 9898;
@@ -66,6 +66,13 @@ pub const MAX_CONNECTIONS_PER_ADDRESS: usize = 16;
 /// How long a caller has, in total, to finish TLS and prove its device key.
 pub const HANDSHAKE_DEADLINE: Duration = Duration::from_secs(15);
 
+/// How often a serving coordinator erases what has expired, after doing so as
+/// it starts.
+///
+/// A day because nothing it erases is urgent: a row a few hours past its date
+/// is read by nobody, and each pass holds the directory's one write lock.
+pub const EXPIRE_EVERY: Duration = Duration::from_secs(24 * 3600);
+
 /// Seconds since the Unix epoch.
 fn now_unix() -> u64 {
     SystemTime::now()
@@ -79,6 +86,7 @@ pub struct CoordServer {
     listener: itsanas_tls::reach::Listeners,
     config: Arc<ServerConfig>,
     handshake_deadline: Duration,
+    expire_every: Duration,
 }
 
 impl CoordServer {
@@ -109,6 +117,7 @@ impl CoordServer {
             listener,
             config,
             handshake_deadline: HANDSHAKE_DEADLINE,
+            expire_every: EXPIRE_EVERY,
         })
     }
 
@@ -118,6 +127,15 @@ impl CoordServer {
     #[must_use]
     pub const fn with_handshake_deadline(mut self, limit: Duration) -> Self {
         self.handshake_deadline = limit;
+        self
+    }
+
+    /// Erase what has expired every `period` instead of every [`EXPIRE_EVERY`].
+    ///
+    /// For tests, which cannot wait a day to watch a second pass.
+    #[must_use]
+    pub const fn with_expiry_every(mut self, period: Duration) -> Self {
+        self.expire_every = period;
         self
     }
 
@@ -148,6 +166,11 @@ impl CoordServer {
     /// defences describe a real adversary: audits, the reliability pause and
     /// the probation ladder are all aimed at a hostile *host*, and a hostile
     /// host is somebody who joined.
+    ///
+    /// Erases what has expired ([`CoordService::expire`]) before it accepts
+    /// anything, and every [`EXPIRE_EVERY`] after that. In this loop rather than
+    /// on a thread of its own: it is a few short write transactions once a day,
+    /// and here it needs no stopping and can use `on_event`.
     pub fn serve_admitting(
         &self,
         directory: &Directory,
@@ -180,8 +203,16 @@ impl CoordServer {
         let probes = Mutex::new(EscrowLimiter::with(1, PROBE_WINDOW, PROBE_TRACKED));
         let in_flight = AtomicUsize::new(0);
 
+        expire_once(&service, &mut on_event);
+        let mut last_expired = Instant::now();
+
         std::thread::scope(|scope| {
             while !shutdown.load(Ordering::Relaxed) {
+                if last_expired.elapsed() >= self.expire_every {
+                    expire_once(&service, &mut on_event);
+                    last_expired = Instant::now();
+                }
+
                 match self.listener.accept() {
                     Ok((stream, from)) => {
                         // Windows hands back a socket that inherited the
@@ -230,6 +261,22 @@ impl CoordServer {
         });
 
         Ok(())
+    }
+}
+
+/// One pass of [`CoordService::expire`], logged when it found something.
+///
+/// A failure is logged and the next pass tries again: a coordinator that stopped
+/// answering members because it could not tidy up would be a worse one. The log
+/// gets counts and nothing else, so what was erased is not kept there instead.
+fn expire_once(service: &CoordService<'_>, on_event: &mut impl FnMut(&str)) {
+    match service.expire(now_unix()) {
+        Ok(expired) if expired == Expired::default() => {}
+        Ok(expired) => on_event(&format!(
+            "erased {} silent address(es), {} retired name(s), {} escrow count(s)",
+            expired.addresses, expired.names, expired.escrow_counts
+        )),
+        Err(error) => on_event(&format!("could not erase what has expired: {error}")),
     }
 }
 

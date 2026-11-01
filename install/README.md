@@ -272,8 +272,9 @@ sudo sh install/coordinator.sh
 
 A coordinator is a notice board. It holds usernames, device addresses and
 sealed escrow blobs it cannot open — no file data, no user keys, nothing it can
-read. If it disappears, members keep syncing with the peers they already know;
-they simply cannot find new ones.
+read. It erases a device's address after thirty days of silence, as it starts and
+once a day. If it disappears, members keep syncing with the peers they already
+know; they simply cannot find new ones.
 
 That is why its setup differs from a member node's in three ways, and the script
 does all three:

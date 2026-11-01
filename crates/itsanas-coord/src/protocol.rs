@@ -97,6 +97,9 @@ pub enum Request {
     ///
     /// Answers with a user id, which is a public key. A coordinator that lies
     /// here produces a name mapping to a key nobody can use.
+    ///
+    /// The rest of [`Response::Account`] is blank in this answer: `registered_unix`
+    /// is zero and `escrow_enabled` false, whatever the account's are.
     Lookup {
         /// The name, lowercase ASCII.
         username: String,
@@ -283,10 +286,11 @@ pub struct EnrolledDevice {
     /// How long ago **this coordinator** last heard from it, by its own clock.
     ///
     /// Elapsed seconds rather than a date, so the reader's clock is never
-    /// compared with the coordinator's. `None` means never: enrolled and not
-    /// once announced.
+    /// compared with the coordinator's. `None` means no record of it: it never
+    /// announced, or it has been silent past `PRESENCE_KEPT_FOR`, when that
+    /// record is erased.
     pub silent_for: Option<u64>,
-    /// The address it last published, if it ever did.
+    /// The address it last published, if it did within `PRESENCE_KEPT_FOR`.
     pub address: Option<String>,
 }
 
