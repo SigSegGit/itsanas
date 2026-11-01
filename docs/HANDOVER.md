@@ -1423,7 +1423,7 @@ placement  rendezvous hashing (integer, no floats), repair planning
 coord      device certificates, accounting, directory, protocol, server, client
 coordinator  the `itsanas-coordinator` binary: address book and escrow locker
 folder     a real directory mirrored into the store and back, with a watcher
-cli        `itsanas` binary: commands + daemon
+cli        `itsanas`: the commands, the daemon and the setup page as a library (`src/lib.rs`), with a thin binary (`src/main.rs`)
 ```
 
 Dependency direction is strict: `crypto → store → sync → net → cli`, with

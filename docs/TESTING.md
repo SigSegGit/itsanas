@@ -207,7 +207,7 @@ a file with red-team tests is on no surface, or on two, or when a count below
 is wrong. Run one surface, ignored tests included, with
 `python3 scripts/redteam_surfaces.py run <surface>`. A file that mixes surfaces
 counts for the one most of its tests attack: `itsanas-net/tests/two_nodes.rs`
-is `peers-sync`, `itsanas-cli/src/main.rs` is `local-control`.
+is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 
 | Surface | What it attacks | Red-team tests |
 | --- | --- | --- |
@@ -1563,7 +1563,7 @@ twenty lines around `session::round`, which the two-node suite covers
 thoroughly; a test with a fake clock around it would assert that the loop calls
 the function, which is not a property worth having a test for.
 
-## `main` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised (57)
+## `lib` — leaving quietly, saying how old an answer is and without a passphrase, naming a device, choosing a port, listing, migrating and requiring the instances, staying departed, what a sync brings, the phrase as printed, the tray's one word and a pause that never hides a hung daemon, a pledge that keeps the split and a refused chain said, a departed node not registering, a node under the other home variable, a timed pause shown only while it holds, a passphrase prompt that names its account , a vault moved between disks, a cold copy in a drawer, a vault too big for the key it is moved to, a passphrase prompt that says what to type, a vault moved back to its default place, the explanation shown before its prompt, the words on one line, a recovery that says where the words are, files on this machine alone never green, a `space --apply` that counts what the other nodes on the disk promised (57)
 
 `itsanas status | head -20` printed twenty lines and then a Rust panic and a
 note about `RUST_BACKTRACE`. Rust disables SIGPIPE at startup, so `println!`

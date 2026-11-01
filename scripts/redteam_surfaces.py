@@ -107,7 +107,7 @@ SURFACES = [
         'itsanas-node/tests/says_what_is_wrong.rs',
     ]),
     ('local-control', 'setup, secrets, the control socket, the daemon, updates', [
-        'itsanas-cli/src/main.rs',
+        'itsanas-cli/src/lib.rs',
         'itsanas-cli/src/control.rs',
         'itsanas-cli/src/jobs.rs',
         'itsanas-cli/src/daemon.rs',

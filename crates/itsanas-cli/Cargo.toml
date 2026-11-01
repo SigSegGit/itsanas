@@ -8,6 +8,10 @@ repository.workspace = true
 authors.workspace = true
 description = "Command-line interface for ITSaNAS"
 
+[lib]
+name = "itsanas_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "itsanas"
 path = "src/main.rs"
