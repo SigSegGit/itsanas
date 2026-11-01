@@ -14,7 +14,8 @@
 //! remember to check a return code will eventually forget, and the failure it
 //! forgets is "the passphrase was wrong". Every entry point either returns its
 //! answer or throws, and the message is the same sentence the command line
-//! prints for the same fault.
+//! prints for the same fault, unless that sentence names a command the phone
+//! does not have ([`Failure::message`]).
 //!
 //! **One node, behind a lock.** The store permits a single writer, which is a
 //! property of the storage engine rather than a decision made here. The
@@ -80,7 +81,7 @@ impl From<NodeError> for Failure {
 // them already reads as a sentence. Converting through `NodeError` keeps the
 // words a person sees identical to the ones the command line prints for the
 // same fault, which is what makes it possible to help somebody over a phone
-// call.
+// call. The exceptions are in `Failure::message`.
 impl From<itsanas_store::StoreError> for Failure {
     fn from(error: itsanas_store::StoreError) -> Self {
         Self::Node(NodeError::Store(error))

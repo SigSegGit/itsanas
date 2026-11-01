@@ -882,10 +882,14 @@ mod tests {
             refusal.contains("$characters") && WINFORMS_SCRIPT.contains("IsLowSurrogate"),
             "the window counts UTF-16 units where the core counts characters: {refusal}"
         );
-        assert!(
-            WINFORMS_SCRIPT.contains("UseSystemPasswordChar = -not $show.Checked"),
-            "no way to see the passphrase being chosen"
-        );
+        for box_name in ["$first", "$second"] {
+            assert!(
+                WINFORMS_SCRIPT.contains(&format!(
+                    "{box_name}.UseSystemPasswordChar = -not $show.Checked"
+                )),
+                "Show does not reach {box_name}: half of what is being typed stays hidden"
+            );
+        }
     }
 
     /// The installers say the rule before their build rather than after it, in

@@ -1653,19 +1653,15 @@ fn ask_to_forget(node: &Node, device: DeviceId, now: u64) -> Result<Response> {
     Ok(client.ask(&Request::Claim(Box::new(claim)))?)
 }
 
-/// Withdraw `device`, an id this node's shell kept from an earlier logout, and
-/// say whether the coordinator answered at all: `Ok(true)` for yes, whichever
-/// way it answered. An id of another account is refused there, harmlessly, and
-/// asking again would be refused the same way.
+/// Withdraw `device`, an id this node's shell kept from an earlier logout. `Ok`
+/// when the coordinator answered, whichever way: an id of another account is
+/// refused there, harmlessly, and asking again would be refused the same way.
 ///
 /// # Errors
 ///
 /// When the coordinator could not be reached: the id is worth keeping.
-pub fn withdraw_old_device(node: &Node, device: DeviceId, now: u64) -> Result<bool> {
-    Ok(matches!(
-        ask_to_forget(node, device, now)?,
-        Response::Done | Response::Refused(_)
-    ))
+pub fn withdraw_old_device(node: &Node, device: DeviceId, now: u64) -> Result<()> {
+    ask_to_forget(node, device, now).map(|_| ())
 }
 
 /// Withdraw this device from its own account, for a logout and nothing else.

@@ -876,9 +876,9 @@ pub(crate) mod tests {
 
     /// The reason a withdrawal is safe: what the phone wrote outlives it. Written
     /// here, pushed to a sibling that serves, logged out; a new login dialling that
-    /// sibling lists the file and reads it. Sabotage: skip the claim in
-    /// `Node::introduce` (the sibling has no claim for the old phone, and the new
-    /// login's roster refuses the chain).
+    /// sibling lists the file and reads it. Sabotage: ask the host for no claims
+    /// in `Node::introduce` (the new login's roster refuses the old phone's chain:
+    /// the file is listed and cannot be read).
     #[test]
     fn red_team_files_written_by_a_phone_that_logged_out_reach_the_next_login() {
         with_directory(|address, _| {

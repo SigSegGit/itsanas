@@ -252,6 +252,10 @@
       const isNew = accountKind() === 'new';
       if (reply.taken === 'invalid') {
         line.textContent = t(nameWhy);
+      } else if (!accountKind()) {
+        // What the answer means depends on the question not answered yet, and
+        // answering it asks again.
+        line.textContent = '';
       } else if (reply.taken === 'yes') {
         line.textContent = isNew ? t('This username is already taken. Choose another.') : t('Account found.');
       } else if (reply.taken === 'no') {

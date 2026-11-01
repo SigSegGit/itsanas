@@ -136,6 +136,9 @@ test account) is a second *instance*: `itsanas setup --instance NAME`. It has
 its own folder, its own port, its own background service and its own icon
 near the clock, so the two never mix; `itsanas instances` lists them.
 
+A passphrase you choose is 6 to 128 characters; one chosen before that rule keeps
+working.
+
 **Your 24 recovery words and your passphrase are never typed into the page:** a
 separate ITSaNAS window asks for them (look in your taskbar / Dock if you
 cannot see it). **Never type your recovery words into a web page.** A new
