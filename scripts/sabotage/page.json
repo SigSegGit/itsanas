@@ -1,0 +1,97 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "setup::"
+  ],
+  "defences": {
+    "name: an unreachable coordinator passes": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "                Ok(false) => {}\n",
+      "dead": "                Ok(false) | Err(_) => {}\n"
+    },
+    "words: of another account": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "            && owner != itsanas_crypto::UserKeys::derive(master).user_id()",
+      "dead": "            && false"
+    },
+    "pledge: a phone counts only itself": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "        let others = if self.answers.phone {\n            Node::others_pledged(&node.home)\n        } else {\n            0\n        };",
+      "dead": "        let others = 0;"
+    },
+    "page: Next does not ask again": {
+      "file": "crates/itsanas-cli/src/setup/web/app.js",
+      "live": "await checkName();\n      const asked",
+      "dead": "checkName();\n      const asked"
+    },
+    "page: unknown passes on a new account": {
+      "file": "crates/itsanas-cli/src/setup/web/app.js",
+      "live": "accountKind() === 'new' && asked && nameTaken !== 'no'",
+      "dead": "accountKind() === 'new' && asked && nameTaken === 'yes'"
+    },
+    "page: no tick to join under an unknown name": {
+      "file": "crates/itsanas-cli/src/setup/web/app.js",
+      "live": "accountKind() === 'join' && asked && nameTaken === 'no' && !$('continue-name').checked",
+      "dead": "false"
+    },
+    "page: the tick carries over": {
+      "file": "crates/itsanas-cli/src/setup/web/app.js",
+      "live": "    $('continue-name').checked = false;\n",
+      "dead": ""
+    },
+    "name: a figure for a new account": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "field(&form, \"account\") == Some(\"join\")",
+      "dead": "true"
+    },
+    "name: invalid is asked of the network": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "    if let Some(why) = crate::coordinator::username_refusal(username) {\n        return ok_json(name_json(\"unknown\", Some(&why), None));\n    }\n",
+      "dead": ""
+    },
+    "suggest: ignores the other machines": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "    let found = suggestion(ctx, other);",
+      "dead": "    let found = suggestion(ctx, 0);"
+    },
+    "suggest: the first suggestion is not the rule's": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "(\"pledge_gb\", (suggested.pledge >> 30).to_string()),",
+      "dead": "(\"pledge_gb\", ((suggested.pledge >> 30) + 1).to_string()),"
+    },
+    "theme: not in the first byte": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "        page = page.replacen(\"<html \", &format!(\"<html data-theme=\\\"{theme}\\\" \"), 1);",
+      "dead": "        let _ = &mut page;"
+    },
+    "theme: not kept": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "    let kept = save_theme(&ctx.home, theme);",
+      "dead": "    let kept = false;"
+    },
+    "theme: the shell is not told": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "    ctx.backends.host.event(\"theme\", theme);\n",
+      "dead": ""
+    },
+    "theme: dark follows only the system": {
+      "file": "crates/itsanas-cli/src/setup/web/app.css",
+      "live": ":root[data-theme=\"dark\"] {",
+      "dead": ":root[data-theme=\"dim\"] {"
+    },
+    "theme: light does not win": {
+      "file": "crates/itsanas-cli/src/setup/web/app.css",
+      "live": ":root:not([data-theme=\"light\"]) {",
+      "dead": ":root {"
+    },
+    "legal: a link without its rel": {
+      "file": "crates/itsanas-cli/src/setup/web/index.html",
+      "live": "SECURITY.md\" target=\"_blank\" rel=\"noopener noreferrer\"",
+      "dead": "SECURITY.md\" target=\"_blank\""
+    }
+  }
+}

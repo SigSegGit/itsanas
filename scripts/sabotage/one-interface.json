@@ -5,7 +5,11 @@
     "-p",
     "itsanas-cli",
     "--lib",
-    "setup::web::"
+    "--all-features",
+    "--",
+    "setup::web::",
+    "account::",
+    "devices::"
   ],
   "defences": {
     "words: the job answers with the words": {

@@ -1,0 +1,60 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-coord"
+  ],
+  "defences": {
+    "presence: a clock set back erases": {
+      "file": "crates/itsanas-coord/src/directory.rs",
+      "live": "if now.saturating_sub(heard.max(said)) > older_than {",
+      "dead": "if now.wrapping_sub(heard.max(said)) > older_than {"
+    },
+    "presence: the announced date is ignored": {
+      "file": "crates/itsanas-coord/src/directory.rs",
+      "live": "if now.saturating_sub(heard.max(said)) > older_than {",
+      "dead": "if now.saturating_sub(heard) > older_than {"
+    },
+    "presence: availability kept": {
+      "file": "crates/itsanas-coord/src/directory.rs",
+      "live": "                availability.remove(device.as_slice())?;\n",
+      "dead": ""
+    },
+    "presence: address kept": {
+      "file": "crates/itsanas-coord/src/directory.rs",
+      "live": "                presence.remove(device.as_slice())?;\n",
+      "dead": ""
+    },
+    "retired: never purged": {
+      "file": "crates/itsanas-coord/src/directory.rs",
+      "live": "let free = until <= now;",
+      "dead": "let free = false;"
+    },
+    "retired: purged early": {
+      "file": "crates/itsanas-coord/src/directory.rs",
+      "live": "let free = until <= now;",
+      "dead": "let free = true;"
+    },
+    "escrow tries: live counts purged": {
+      "file": "crates/itsanas-coord/src/directory.rs",
+      "live": "escrow_try(value).is_none_or(|(_, since)| window_over(since, now, window));",
+      "dead": "escrow_try(value).is_none_or(|(_, since)| true);"
+    },
+    "lookup: the date and the escrow flag are told": {
+      "file": "crates/itsanas-coord/src/service.rs",
+      "live": "                        registered_unix: 0,\n                        escrow_enabled: false,\n                        ..account",
+      "dead": "                        ..account"
+    },
+    "serving: no erase at start": {
+      "file": "crates/itsanas-coord/src/server.rs",
+      "live": "        expire_once(&service, &mut on_event);\n        let mut last_expired",
+      "dead": "        let mut last_expired"
+    },
+    "serving: no erase later": {
+      "file": "crates/itsanas-coord/src/server.rs",
+      "live": "if last_expired.elapsed() >= self.expire_every {",
+      "dead": "if false {"
+    }
+  }
+}
