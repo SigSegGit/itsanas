@@ -186,14 +186,21 @@ private fun App(shared: List<Uri>) {
     LaunchedEffect(Unit) {
         Host.events.collect { (name, value) ->
             val current = screen
-            android.util.Log.i("itsanas", "router event $name=$value on ${current::class.simpleName}")
             try {
                 when (name) {
                     "closed" -> if (current is Screen.Page) {
                         screen = if (value == "done") {
-                            Account.markOpen()
-                            SyncService.start(context)
-                            Screen.Ready
+                            // The engine leaves the node closed: open it here, or
+                            // Ready would stand on an empty slot.
+                            val remembered =
+                                if (Account.open) null else Vault.rememberedPassphrase(context)
+                            if (remembered != null) Account.unlock(context, remembered)
+                            if (Account.open) {
+                                SyncService.start(context)
+                                Screen.Ready
+                            } else {
+                                Screen.Locked
+                            }
                         } else {
                             // Nobody touched it for a while: a fresh page, a fresh key.
                             page(current.mode)

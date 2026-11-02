@@ -631,6 +631,11 @@ impl Setup<'_> {
         self.service.set_autostart(true)?;
         self.service.start()?;
         self.started_service = true;
+        // A phone has no daemon: the app opens the node itself once setup is
+        // over, so nothing can hold the store yet and waiting only fails.
+        if self.answers.phone {
+            return Ok(said);
+        }
         if !wait_until(Duration::from_secs(30), || {
             itsanas_store::Store::is_locked(&store)
         }) {

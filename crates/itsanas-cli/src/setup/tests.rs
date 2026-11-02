@@ -669,6 +669,30 @@ fn red_team_a_phone_is_never_given_a_synced_folder_an_updater_or_a_listener_to_d
     );
 }
 
+#[test]
+fn red_team_a_phone_finishes_setup_with_no_daemon_to_wait_for() {
+    // The app is the phone's service and opens the node once setup is over, so
+    // nothing holds the store during the service step. Waiting for a daemon
+    // there failed every first run on every phone, after thirty seconds.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let mut wanted = answers(dir.path());
+    wanted.phone = true;
+    wanted.service = true;
+    let (mut person, _) = Scripted::new(false);
+    let service = Remembering {
+        file: home.with_extension("passphrase"),
+        kept: RefCell::new(None),
+    };
+    let mut events = Vec::new();
+    let mut record = |event: &Event| events.push(event.clone());
+    let outcome = Setup::new(&home, wanted, &mut person, &service, &mut record).run();
+    assert_eq!(
+        outcome.failed, None,
+        "setup stopped on a phone, so nobody can make an account there: {events:#?}"
+    );
+}
+
 /// A service that remembers the passphrase its own way, as a phone does behind
 /// its keystore: it must never be handed a file.
 struct Remembering {
@@ -978,7 +1002,9 @@ impl SecretPrompt for Answers3 {
 fn red_team_a_refused_passphrase_is_asked_again_with_the_reason_and_three_refusals_stop_the_run() {
     let dir = tempfile::tempdir().expect("tempdir");
     let home = dir.path().join("node");
-    let mut person = Answers3(RefCell::new(vec!["abc", "five5", PASSPHRASE]));
+    // Not hex and not a temporary path: the transcript prints a device id, and
+    // a typed "abc" was found in one about one run in seventy.
+    let mut person = Answers3(RefCell::new(vec!["x!z", "five5", PASSPHRASE]));
     let (events, failed) = run(&home, answers(dir.path()), &mut person);
     assert_eq!(failed, None, "a slip lost the setup: {events:#?}");
     assert!(
@@ -996,7 +1022,7 @@ fn red_team_a_refused_passphrase_is_asked_again_with_the_reason_and_three_refusa
     );
     let text = said(&home, &events);
     assert!(
-        text.contains("asking again") && !text.contains("abc") && !text.contains("five5"),
+        text.contains("asking again") && !text.contains("x!z") && !text.contains("five5"),
         "the reason is missing, or what was typed was written down with it: {text}"
     );
 

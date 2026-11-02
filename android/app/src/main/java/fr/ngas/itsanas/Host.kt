@@ -98,7 +98,6 @@ object Host {
     @JvmStatic
     fun serviceStart() {
         val c = context ?: return
-        Account.markOpen()
         SyncService.start(c)
     }
 
@@ -116,7 +115,6 @@ object Host {
 
     @JvmStatic
     fun event(name: String, value: String) {
-        android.util.Log.i("itsanas", "host event $name")
         val c = context
         if (c != null) {
             when (name) {

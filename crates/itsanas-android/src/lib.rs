@@ -364,7 +364,6 @@ fn start_page(home: &Path, mode: &str, biometric: bool) -> Answer {
         .name("page".to_owned())
         .spawn(move || {
             let done = server.serve(PAGE_IDLE);
-            itsanas_cli::shell::Host::event(&host::PhoneHost, "page-ended", "");
             if GENERATION.load(Ordering::SeqCst) == mine {
                 itsanas_cli::shell::Host::event(
                     &host::PhoneHost,

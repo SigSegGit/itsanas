@@ -63,6 +63,11 @@
       "live": "    drop(node);\n    if !said.withdrawn {",
       "dead": "    std::mem::forget(node);\n    if !said.withdrawn {"
     },
+    "setup: a phone waits for a daemon": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "        if self.answers.phone {\n            return Ok(said);\n        }\n",
+      "dead": "\n"
+    },
     "logout: stops when not withdrawn": {
       "file": "crates/itsanas-cli/src/account.rs",
       "live": "    if !said.withdrawn {\n        remember_to_withdraw(home, device);\n    }\n",

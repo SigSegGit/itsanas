@@ -20,11 +20,6 @@ object Account {
     var open: Boolean = false
         private set
 
-    /** The engine opened the node itself (setup or recovery): the account is open. */
-    fun markOpen() {
-        open = true
-    }
-
     /** The engine stopped the service; the node is closed by the router. */
     fun markClosed() {
         open = false

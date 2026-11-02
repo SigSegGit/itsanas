@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-01 — 1554 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 540 are red-team tests.**
+**Last updated: 2026-11-01 — 1555 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 541 are red-team tests.**
 
-**1438 of the 1554 tests have an entry of their own on this page** — an *entry*,
+**1439 of the 1555 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 316 |
+| `itsanas-cli` unit | 317 |
 | `itsanas-android` unit | 17 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 174 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 54 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 155 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 156 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1203,7 +1203,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (316)
+# `itsanas-cli` — unit tests (317)
 
 ## `bench` — measuring this machine (4)
 
@@ -1258,7 +1258,7 @@ refused, `1m` taken.
 | **`red_team_a_timed_pause_holds_until_its_end`** | A paused node whose until is in the future does not sync; until = u64::MAX, typed or from a corrupted file, survives the file round-trip and is a pause that lasts rather than an overflow or panic; Sabotaged (until ignored; comparison inverted; now+1 arithmetic): red. |
 | `a_pause_is_asked_for_in_words_and_said_back_in_dates` | `pause --for` accepts 1m..30d in the parse_every style and refuses anything else with the bounds and the open-ended alternative; the end is said back as a UTC date plus "in N min", and u64::MAX gives no date and no overflow. |
 
-## `setup` — the setup engine: run again, secrets, the service's home, a phone's machine kind, no step without a positive check, a refused passphrase asked again, I forgot my passphrase (19)
+## `setup` — the setup engine: run again, secrets, the service's home, a phone's machine kind, no step without a positive check, a refused passphrase asked again, I forgot my passphrase (20)
 
 `crates/itsanas-cli/src/setup/` (`mod.rs`, `steps.rs`, `sign.rs`; tests in
 `setup/tests.rs`). `itsanas setup` walks Machine, Account, Secret,
@@ -1280,6 +1280,7 @@ person and a fake service manager; no real window or service is ever opened.
 | **`red_team_a_username_no_coordinator_would_take_is_refused_before_any_key_is_written`** | `marie_1` reads as free on a lookup; the page's check may not have answered yet when Next is pressed. The account step refuses it before a word is shown or a key written, saying what a name may be. Sabotaged (no check in `apply_account`): red. |
 | **`red_team_setup_refuses_a_new_passphrase_outside_the_rule_before_anything_is_written`** | The rule is asked first in `new_passphrase`, so the person is told the numbers, and no keys are sealed. A short answer with a line break tells the checks apart: the service file's would refuse it too, without saying how long a passphrase may be. Sabotaged (the call dropped): red. |
 | **`red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not`** | The built-in coordinator's device id is pinned (and parses), so a machine answering at its name that is not it is refused; another coordinator gets no pin. Sabotaged (pin never applied): red. |
+| **`red_team_a_phone_finishes_setup_with_no_daemon_to_wait_for`** | `apply_service` returns before the wait for a daemon when `Answers.phone` is set: the app opens the node itself once setup is over, so waiting failed every first run on every phone. |
 | **`red_team_a_phone_is_never_given_a_synced_folder_an_updater_or_a_listener_to_dial`** | `Answers.phone` skips the Machine, Folder and Updates steps and creates no folder: a phone's files are in the app, and a folder made for it would hold them twice on a small disk. Sabotaged (each skip removed in turn): red. |
 | **`red_team_a_service_that_remembers_the_passphrase_its_own_way_is_never_given_a_file`** | Sign out and sign in go through `ServiceControl::forget_passphrase` and `store_passphrase`, so a service that keeps the passphrase behind a keystore (the phone) is never handed a file: a copy of the secret outside the keystore, readable by whatever runs as the app. Sabotaged (either call made direct): red. |
 | `the_default_passphrase_methods_read_write_and_forget_today_s_file` | A desktop's `stored_passphrase`, `store_passphrase` and `forget_passphrase` read, write and delete the file the service reads, and say so in the words signout always used. |
