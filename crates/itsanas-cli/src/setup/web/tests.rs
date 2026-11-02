@@ -2704,8 +2704,8 @@ fn machines_typed_on_the_page_are_kept_listed_and_forgotten() {
         "action=forget&address=10.0.0.5%3A7777",
     );
     assert!(
-        !forgotten.body.contains("10.0.0.5:7777\""),
-        "{}",
+        forgotten.body.contains("\"peers\":[]"),
+        "the machine was forgotten and is still listed: the daemon would keep dialling it: {}",
         forgotten.body
     );
     assert!(

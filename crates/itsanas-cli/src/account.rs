@@ -35,6 +35,7 @@ pub struct Network {
 }
 
 impl Network {
+    #[must_use]
     pub fn official() -> Self {
         Self {
             address: itsanas_node::coordinator::DEFAULT_COORDINATOR.to_owned(),

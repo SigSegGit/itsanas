@@ -1216,7 +1216,7 @@ mod tests {
     /// entry point here is declared there. A name on one side only compiles
     /// on both and fails on the phone, at the first tap, with
     /// `UnsatisfiedLinkError` -- and no CI job runs the app. Sabotage: rename
-    /// `Java_fr_ngas_itsanas_Native_withdrawDevice`.
+    /// `Java_fr_ngas_itsanas_Native_passphraseRule`.
     #[test]
     fn every_kotlin_native_call_has_its_rust_entry_point_and_back() {
         let kotlin = include_str!("../../../android/app/src/main/java/fr/ngas/itsanas/Native.kt");
@@ -1237,7 +1237,7 @@ mod tests {
         declared.sort_unstable();
         exported.sort_unstable();
         assert!(
-            declared.contains(&"withdrawDevice"),
+            declared.contains(&"passphraseRule"),
             "Native.kt was not read: {declared:?}"
         );
         assert_eq!(

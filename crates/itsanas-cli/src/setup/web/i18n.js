@@ -390,7 +390,6 @@ window.I18N = {
     'A window asks for your 24 words, then a new passphrase.':
       'Une fenêtre demande vos 24 mots, puis une nouvelle phrase de passe.',
     'Not changed:': 'Pas modifié :',
-    'Account': 'Compte',
     'Remove this account from this machine': 'Retirer ce compte de cette machine',
     'This removes the account and every downloaded file from this machine and frees its place among your devices. Nothing is deleted from your other machines. To come back you need your account name and your 24 words.':
       'Cela retire le compte et tous les fichiers téléchargés de cette machine, et libère sa place parmi vos appareils. Rien n’est supprimé de vos autres machines. Pour revenir, il faut le nom du compte et vos 24 mots.',

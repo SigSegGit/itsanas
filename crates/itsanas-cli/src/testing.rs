@@ -60,6 +60,7 @@ pub fn admitting<T>(admission: Admission, body: impl FnOnce(SocketAddr, &Directo
 
 /// A phone of the account `phrase` names (a new account `username` when
 /// `None`), pointed at `coordinator`, not yet enrolled.
+#[must_use]
 pub fn phone(
     home: &Path,
     coordinator: SocketAddr,

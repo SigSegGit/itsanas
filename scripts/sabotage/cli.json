@@ -4,7 +4,7 @@
     "test",
     "-p",
     "itsanas-cli",
-    "--bins"
+    "--lib"
   ],
   "defences": {
     "page: invalid not checked": {

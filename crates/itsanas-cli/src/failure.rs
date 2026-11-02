@@ -44,6 +44,7 @@ pub const PLEDGE_SECTION: &str = "Space you offer other people";
 pub const KEEP_SECTION: &str = "How much of your data to keep here";
 
 impl Failure {
+    #[must_use]
     pub fn message(&self) -> String {
         use itsanas_node::config::format_size;
         use itsanas_store::StoreError;
