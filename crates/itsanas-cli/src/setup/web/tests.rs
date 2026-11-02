@@ -120,6 +120,8 @@ fn backends(seen: &Seen, home: &Path) -> Backends {
             service
         }),
         name: |_, name| Ok(name == "taken"),
+        owner: |_, _| Ok(None),
+        pledge: |_, name| (name == "taken").then_some(40 << 30),
         another: |_| Ok(()),
         drives: Box::new(Vec::new),
         programs: || Some(1024),
@@ -822,6 +824,8 @@ fn while_a_window_is_open_the_page_is_told_so_and_a_closed_window_says_what_to_d
             service
         }),
         name: |_, _| Ok(false),
+        owner: |_, _| Ok(None),
+        pledge: |_, _| None,
         another: |_| Ok(()),
         drives: Box::new(Vec::new),
         programs: || None,
@@ -894,6 +898,9 @@ fn the_page_asks_no_secret_loads_nothing_from_elsewhere_and_sends_its_key_in_a_h
         ("app.js", js),
         ("app.css", super::APP_CSS),
     ] {
+        // The three links of the legal block are followed by the person, in a tab of
+        // their own; `red_team_the_page_links_only_...` holds them to that.
+        let text = text.replace("href=\"https://github.com/SigSegGit/itsanas", "href=\"");
         assert!(
             !text.contains("http://") && !text.contains("https://") && !text.contains("//cdn"),
             "{name} names another address: the page would load code from elsewhere, which the \
@@ -1014,7 +1021,7 @@ fn red_team_the_page_says_when_no_coordinator_would_take_a_username() {
             &format!("username={name}&coordinator=c.test%3A9898"),
         );
         assert!(
-            reply.status == 200 && reply.body.contains("\"taken\":\"invalid\""),
+            reply.status == 200 && reply.body.contains("\"invalid\":\""),
             "{name} reads as a name the coordinator could give: {}",
             reply.all()
         );
@@ -1026,8 +1033,8 @@ fn red_team_the_page_says_when_no_coordinator_would_take_a_username() {
     }
     let js = super::APP_JS;
     assert!(
-        js.contains("accountKind() === 'new' && nameTaken === 'invalid'"),
-        "Next no longer stops a new account on a name no coordinator would take"
+        js.contains("if (nameInvalid) {\n        say(nameInvalid);"),
+        "Next no longer stops an account on a name no coordinator would take"
     );
 }
 
@@ -2172,4 +2179,228 @@ fn red_team_a_fixed_coordinator_is_the_one_the_name_check_asks_whatever_the_form
         "the page was offered a coordinator that is not the fixed one: {}",
         state.body
     );
+}
+
+#[test]
+fn the_name_check_tells_a_person_joining_what_the_account_s_machines_offer() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let page = Page::start(
+        &dir.path().join("node"),
+        dir.path(),
+        Mode::Setup,
+        &Seen::default(),
+    );
+    let asked = |name: &str, account: &str| {
+        page.api(
+            "POST",
+            "/api/name",
+            &format!("username={name}&coordinator=c.test%3A9898&account={account}"),
+        )
+        .body
+    };
+    let joining = asked("taken", "join");
+    assert!(
+        joining.contains("\"taken\":\"yes\"")
+            && joining.contains(&format!("\"other_pledge_bytes\":{}", 40_u64 << 30)),
+        "a person joining an account is not told what its machines offer: {joining}"
+    );
+    assert!(
+        asked("taken", "new").contains("\"other_pledge_bytes\":null"),
+        "a person making a new account was told what somebody else's machines offer"
+    );
+    assert!(
+        asked("camille", "join").contains("\"other_pledge_bytes\":null"),
+        "a figure was offered for a name no account holds"
+    );
+    let invalid = asked("marie_1", "new");
+    assert!(
+        invalid.contains("\"taken\":\"unknown\"")
+            && invalid.contains("\"invalid\":\"")
+            && invalid.contains("lowercase"),
+        "a name no coordinator would take is not said to be invalid, with its reason: {invalid}"
+    );
+}
+
+/// The owner's rule for every platform: no next step without a positive check.
+/// The page asks again when Next is pressed, blocks a new account on anything but
+/// a free name, and asks a person joining under an unknown name to say it is theirs.
+/// Sabotage: `nameTaken !== 'no'` into `nameTaken === 'yes'`; drop `await checkName()`;
+/// drop the tick's condition.
+#[test]
+fn red_team_a_new_account_goes_on_only_after_the_network_says_the_name_is_free() {
+    let js = super::APP_JS;
+    for (needle, consequence) in [
+        (
+            "await checkName();\n      const asked",
+            "Next goes on with the answer to a name since changed: a quick Next passes the check",
+        ),
+        (
+            "accountKind() === 'new' && asked && nameTaken !== 'no'",
+            "a new account goes on under a name the network could not be asked about",
+        ),
+        (
+            "accountKind() === 'join' && asked && nameTaken === 'no' && !$('continue-name').checked",
+            "a person joins under a name no account has without ever saying it is theirs",
+        ),
+        (
+            "$('continue-name').checked = false;",
+            "the tick given to one name carries over to the next one typed",
+        ),
+    ] {
+        assert!(js.contains(needle), "{consequence}");
+    }
+    let html = super::INDEX_HTML;
+    assert!(
+        html.contains("id=\"username-retry\"") && html.contains("id=\"continue-name\""),
+        "the page has nowhere to retry a check or to tick the name"
+    );
+}
+
+#[test]
+fn the_space_question_is_answered_by_the_one_rule_every_platform_shares() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let page = Page::start(
+        &dir.path().join("node"),
+        dir.path(),
+        Mode::Setup,
+        &Seen::default(),
+    );
+    let disk = itsanas_node::pledges::disk_space(dir.path());
+    let (total, free) = (disk.total.unwrap_or(0), disk.free.unwrap_or(0));
+    for other in [0_u64, 1 << 30, 10 << 40] {
+        let reply = page
+            .api("POST", "/api/suggest", &format!("other={other}"))
+            .body;
+        let expected = itsanas_node::pledges::suggest(
+            &crate::config::Config::default(),
+            total,
+            free,
+            0,
+            other,
+            other,
+        );
+        assert!(
+            reply.contains(&format!("\"pledge_gb\":{}", expected.pledge >> 30))
+                && reply.contains(&format!("\"keep_gb\":{}", expected.keep >> 30))
+                && reply.contains(&format!(
+                    "\"same_as_other_machines\":{}",
+                    expected.same_as_other_machines
+                )),
+            "the page was suggested something the rule does not (other = {other}): {reply}"
+        );
+    }
+    let state = page.api("GET", "/api/state", "").body;
+    let none =
+        itsanas_node::pledges::suggest(&crate::config::Config::default(), total, free, 0, 0, 0);
+    assert!(
+        state.contains(&format!("\"pledge_gb\":{}", none.pledge >> 30)),
+        "the first suggestion is not the rule's: {state}"
+    );
+}
+
+/// Records what the page told the shell.
+#[derive(Default)]
+struct Told(Mutex<Vec<(String, String)>>);
+
+impl super::Host for Told {
+    fn event(&self, name: &str, value: &str) {
+        self.0
+            .lock()
+            .expect("lock")
+            .push((name.to_owned(), value.to_owned()));
+    }
+}
+
+/// The theme is in the first byte of the page, kept in the node's home for the
+/// next page and the phone's own screens, and told to the shell: a theme set
+/// only by a script would flash the other one first, and be lost at the next page.
+/// Sabotage: drop the `data-theme` insertion in `index_html`; drop `save_theme`;
+/// drop the `host.event`.
+#[test]
+fn red_team_a_chosen_theme_is_in_the_first_byte_and_survives_the_next_page() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let told = Arc::new(Told::default());
+    let page = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.host = told.clone();
+    });
+    let first = |page: &Page| {
+        let host = page.host();
+        page.send("GET", "/", &[("Host", &host)], "").body
+    };
+    assert!(
+        !first(&page).contains("data-theme"),
+        "a theme nobody chose is in the page"
+    );
+    let refused = page.api("POST", "/api/theme", "theme=purple");
+    assert_eq!(refused.status, 400, "{}", refused.body);
+
+    let dark = page.api("POST", "/api/theme", "theme=dark");
+    assert_eq!(dark.status, 200, "{}", dark.body);
+    assert!(
+        first(&page).contains("<html data-theme=\"dark\" "),
+        "the theme is not in the first byte of the page: the other one shows first"
+    );
+    assert_eq!(
+        std::fs::read_to_string(home.join(super::THEME_FILE)).expect("kept"),
+        "dark\n",
+        "the theme was not kept beside the node: the next page forgets it"
+    );
+    assert_eq!(
+        *told.0.lock().expect("lock"),
+        [("theme".to_owned(), "dark".to_owned())],
+        "the shell was not told: a phone's own screens stay in the other theme"
+    );
+    drop(page);
+    let next = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    assert!(
+        first(&next).contains("<html data-theme=\"dark\" "),
+        "the next page started from the system's theme"
+    );
+    next.api("POST", "/api/theme", "theme=system");
+    assert!(!first(&next).contains("data-theme"));
+
+    let css = super::APP_CSS;
+    assert!(
+        css.contains(":root:not([data-theme=\"light\"])")
+            && css.contains(":root[data-theme=\"dark\"]"),
+        "the dark colours do not follow the system unless light is chosen, or apply when dark is"
+    );
+}
+
+/// Nothing leaves the page but the three links of the legal block, each safe to
+/// follow and each to a place that exists: no placeholder, no "coming soon".
+/// Sabotage: drop a `rel`; add a link elsewhere.
+#[test]
+fn red_team_the_page_links_only_the_licence_the_source_and_the_security_policy() {
+    let html = super::INDEX_HTML;
+    let links: Vec<&str> = html.split("<a ").skip(1).collect();
+    let external: Vec<&str> = links
+        .iter()
+        .copied()
+        .filter(|link| link.contains("href=\"http"))
+        .collect();
+    assert_eq!(
+        external.len(),
+        3,
+        "the legal block is not the licence, the source and the policy"
+    );
+    for link in external {
+        let link = &link[..link.find('>').expect("a tag")];
+        assert!(
+            link.contains("rel=\"noopener noreferrer\"") && link.contains("target=\"_blank\""),
+            "a link out of the page can read it back or is followed in the same tab: {link}"
+        );
+        assert!(
+            link.contains("href=\"https://github.com/SigSegGit/itsanas"),
+            "a link out of the page goes somewhere that is not the project: {link}"
+        );
+    }
+    for placeholder in ["coming soon", "TODO", "lorem"] {
+        assert!(
+            !html.contains(placeholder),
+            "the page carries a placeholder ({placeholder}) where a text should be"
+        );
+    }
 }

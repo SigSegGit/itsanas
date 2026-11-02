@@ -16,7 +16,8 @@ use std::{
 use zeroize::Zeroizing;
 
 use super::{
-    Account, Answers, Event, SETUP_LOG, Secret, SecretPrompt, ServiceControl, Setup, Step, sign,
+    Account, Answers, Event, Keep, SETUP_LOG, Secret, SecretPrompt, ServiceControl, Setup, Step,
+    sign,
 };
 use crate::{
     error::{CliError, Result},
@@ -769,4 +770,182 @@ fn the_default_passphrase_methods_read_write_and_forget_today_s_file() {
         service.forget_passphrase().expect("forget again"),
         "there was no passphrase file to delete"
     );
+}
+
+/// No next step without a positive check: a coordinator that cannot be asked
+/// does not make a name free. Sabotage: `Err(_)` passes in `apply_account`.
+#[test]
+fn red_team_an_unreachable_coordinator_writes_no_key_on_a_new_account() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let mut wanted = answers(dir.path());
+    wanted.coordinator = Some("coordinator.test:9898".to_owned());
+    let (mut person, asked) = Scripted::new(false);
+    let service = NoService {
+        file: home.with_extension("passphrase"),
+    };
+    let mut events = Vec::new();
+    let mut record = |event: &Event| events.push(event.clone());
+    let outcome = Setup::new(&home, wanted, &mut person, &service, &mut record)
+        .with_name_check(|_, _| Err(CliError::Usage("no route to host".to_owned())))
+        .run();
+    assert_eq!(outcome.failed, Some(Step::Account), "{events:#?}");
+    assert!(
+        !keystore(&home).exists() && asked.borrow().questions == 0,
+        "an account was started under a name nobody could say was free: the person writes \
+         24 words for a name the network may already give to somebody else"
+    );
+    assert!(
+        said(&home, &events).contains("could not be asked"),
+        "the refusal does not say that the network could not be asked: {events:#?}"
+    );
+}
+
+/// What a joining person types as their words.
+struct Joiner {
+    phrase: String,
+    passphrases: Rc<RefCell<usize>>,
+}
+
+impl SecretPrompt for Joiner {
+    fn show_and_confirm(&mut self, _: &str, _: [usize; 3]) -> Result<Option<Vec<Secret>>> {
+        Ok(None)
+    }
+    fn new_passphrase(&mut self) -> Result<Secret> {
+        *self.passphrases.borrow_mut() += 1;
+        Ok(Zeroizing::new(PASSPHRASE.to_owned()))
+    }
+    fn passphrase(&mut self, _: &str) -> Result<Secret> {
+        self.new_passphrase()
+    }
+    fn recovery_phrase(&mut self) -> Result<Secret> {
+        Ok(Zeroizing::new(self.phrase.clone()))
+    }
+    fn where_asked(&self) -> &'static str {
+        "a test"
+    }
+}
+
+thread_local! {
+    static OWNER: RefCell<Option<itsanas_crypto::UserId>> = const { RefCell::new(None) };
+}
+
+fn user_of(phrase: &str) -> itsanas_crypto::UserId {
+    let master = itsanas_crypto::MasterSecret::from_recovery_phrase(phrase).expect("words");
+    itsanas_crypto::UserKeys::derive(&master).user_id()
+}
+
+/// Joining with the words of another account would bind this key to a name that
+/// is not its own. Refused before a passphrase is asked; the account's own words,
+/// and a coordinator that does not know the name, go on.
+/// Sabotage: drop the owner comparison in `refuse_words_of_another_account`.
+#[test]
+fn red_team_the_words_of_another_account_are_refused_before_a_passphrase_is_asked() {
+    let phrase = itsanas_crypto::MasterSecret::generate()
+        .and_then(|master| master.to_recovery_phrase())
+        .expect("words")
+        .to_string();
+    for (owner, joins) in [
+        (
+            Some(itsanas_crypto::UserId::from_bytes(
+                [0xde; itsanas_crypto::ID_LEN],
+            )),
+            false,
+        ),
+        (Some(user_of(&phrase)), true),
+        (None, true),
+    ] {
+        OWNER.with(|slot| *slot.borrow_mut() = owner);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("node");
+        let mut wanted = answers(dir.path());
+        wanted.account = Some(Account::Join {
+            username: "camille".to_owned(),
+            from: None,
+        });
+        wanted.coordinator = Some("coordinator.test:9898".to_owned());
+        let passphrases = Rc::new(RefCell::new(0));
+        let mut person = Joiner {
+            phrase: phrase.clone(),
+            passphrases: Rc::clone(&passphrases),
+        };
+        let service = NoService {
+            file: home.with_extension("passphrase"),
+        };
+        let mut events = Vec::new();
+        let mut record = |event: &Event| events.push(event.clone());
+        let outcome = Setup::new(&home, wanted, &mut person, &service, &mut record)
+            .with_owner_check(|_, _| Ok(OWNER.with(|owner| *owner.borrow())))
+            .run();
+        if joins {
+            assert!(
+                keystore(&home).exists(),
+                "a person joining with their own words was refused ({owner:?}): {events:#?}"
+            );
+        } else {
+            assert_eq!(outcome.failed, Some(Step::Account), "{events:#?}");
+            assert!(
+                !keystore(&home).exists() && *passphrases.borrow() == 0,
+                "words of another account were taken: a passphrase was asked, or keys were \
+                 written, under a name that belongs to somebody else"
+            );
+            assert!(
+                said(&home, &events).contains("not the words of the account"),
+                "the refusal does not say whose words these are not: {events:#?}"
+            );
+        }
+    }
+}
+
+/// A keep is judged against what the machine earns: a computer on its own pledge,
+/// a phone on the account's whole (the owner's other machines lend too).
+/// Sabotage: drop the `others` in `apply_pledge`; drop the keep from the pair.
+#[test]
+fn red_team_a_keep_above_what_is_earned_is_refused_and_a_phone_earns_on_the_whole_account() {
+    const GIB: u64 = 1 << 30;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let (mut person, _) = Scripted::new(false);
+    let (events, failed) = run(&home, answers(dir.path()), &mut person);
+    assert_eq!(failed, None, "{events:#?}");
+    Node::open(&home, PASSPHRASE)
+        .expect("open")
+        .remember_others_pledged(100 * GIB)
+        .expect("remember");
+
+    let attempt = |phone: bool, keep: Keep| {
+        let mut wanted = answers(dir.path());
+        wanted.account = None;
+        wanted.phone = phone;
+        wanted.pledge = Some(0);
+        wanted.keep = keep;
+        let (mut person, _) = Scripted::new(false);
+        run(&home, wanted, &mut person).1
+    };
+    let kept = || {
+        crate::config::Config::load(&Node::config_path(&home))
+            .expect("config")
+            .keep_bytes
+    };
+
+    // 30 / 70 of 100 GiB is 42 and some: 43 is more than the account earns.
+    assert_eq!(attempt(true, Keep::Budget(43 * GIB)), Some(Step::Pledge));
+    assert_eq!(kept(), None, "a refused keep was written all the same");
+    assert_eq!(attempt(true, Keep::Budget(42 * GIB)), None);
+    assert_eq!(
+        kept(),
+        Some(42 * GIB),
+        "the keep a phone earns was not written"
+    );
+    // A computer earns on its own pledge, which is 0 here: the joining allowance
+    // (10 GiB) and nothing of what the account's other machines lend.
+    assert_eq!(
+        attempt(false, Keep::Budget(11 * GIB)),
+        Some(Step::Pledge),
+        "a computer kept what only the account's other machines earn"
+    );
+    assert_eq!(kept(), Some(42 * GIB));
+    // No limit, and nothing asked: both leave the machine as it can be.
+    assert_eq!(attempt(true, Keep::Everything), None);
+    assert_eq!(kept(), None, "no limit was not written");
 }

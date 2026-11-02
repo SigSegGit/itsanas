@@ -33,7 +33,7 @@ use zeroize::Zeroizing;
 use crate::error::{CliError, Result};
 
 /// A secret in memory, wiped when dropped.
-pub(crate) type Secret = Zeroizing<String>;
+pub type Secret = Zeroizing<String>;
 
 /// How many words a person types back before the account is written.
 ///
@@ -59,7 +59,7 @@ pub(crate) enum Ask<'a> {
 }
 
 /// Where the questions are put. The engine knows nothing else about it.
-pub(crate) trait SecretPrompt {
+pub trait SecretPrompt {
     /// Show the words and return what was typed at `positions`, or `None`
     /// when nobody can be asked (an unattended run).
     fn show_and_confirm(

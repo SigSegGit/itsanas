@@ -39,7 +39,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(crate) use answers::{Account, Answers};
+pub(crate) use answers::{Account, Answers, Keep};
 pub(crate) use secrets::{Secret, SecretPrompt};
 pub(crate) use service::ServiceControl;
 
@@ -185,6 +185,10 @@ pub(crate) use itsanas_node::coordinator::{DEFAULT_COORDINATOR, name_taken, pinn
 /// so the tests answer without a network.
 pub(crate) type NameCheck = fn(&str, &str) -> Result<bool>;
 
+/// Who holds a name at a coordinator ([`itsanas_node::coordinator::name_owner`]),
+/// as a function so the tests answer without a network.
+pub(crate) type OwnerCheck = fn(&str, &str) -> Result<Option<itsanas_crypto::UserId>>;
+
 /// One run of setup on one home.
 pub(crate) struct Setup<'a> {
     home: PathBuf,
@@ -199,6 +203,7 @@ pub(crate) struct Setup<'a> {
     started_service: bool,
     report: Option<verify::Report>,
     name_check: NameCheck,
+    owner_check: OwnerCheck,
 }
 
 impl std::fmt::Debug for Setup<'_> {
@@ -229,7 +234,15 @@ impl<'a> Setup<'a> {
             started_service: false,
             report: None,
             name_check: name_taken,
+            owner_check: itsanas_node::coordinator::name_owner,
         }
+    }
+
+    /// Answer "whose account is this name?" with `check` instead of the
+    /// network, as [`Setup::with_name_check`] does for "is it taken?".
+    pub(crate) fn with_owner_check(mut self, check: OwnerCheck) -> Self {
+        self.owner_check = check;
+        self
     }
 
     /// Answer "is this name taken?" with `check` (the page's backend, or a

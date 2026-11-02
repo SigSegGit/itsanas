@@ -10,34 +10,37 @@ use super::http::Response;
 
 /// What this shell can do. Every field has a `data-feature` of its name in
 /// `index.html`; `every_feature_is_named_in_the_page` fails otherwise.
+// Ten independent switches, one per thing a shell may lack: not a state machine
+// in disguise, so the lint's advice (an enum) would only hide the table.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Features {
+pub struct Features {
     /// The folder question, Open, the file manager's favourites.
-    pub(crate) folder: bool,
+    pub folder: bool,
     /// "Start when I log in".
-    pub(crate) background_choice: bool,
+    pub background_choice: bool,
     /// The coordinator's address and the updates choice (the invitation stays).
-    pub(crate) advanced: bool,
+    pub advanced: bool,
     /// Pause and the interval: a phone runs on the policy's schedule.
-    pub(crate) sync_controls: bool,
+    pub sync_controls: bool,
     /// Move the vault, back up, a portable copy.
-    pub(crate) disks: bool,
+    pub disks: bool,
     /// Copy this account to a USB key.
-    pub(crate) usb_key: bool,
+    pub usb_key: bool,
     /// Another account beside this one (instances).
-    pub(crate) another_account: bool,
+    pub another_account: bool,
     /// How much of the account's files stay here, on the space question of the
     /// first run.
-    pub(crate) keep_question: bool,
+    pub keep_question: bool,
     /// Unlock with a fingerprint or a face.
-    pub(crate) biometric: bool,
+    pub biometric: bool,
     /// Download over mobile data, or only on Wi-Fi.
-    pub(crate) metered: bool,
+    pub metered: bool,
 }
 
 impl Features {
     /// A computer: everything except what only a phone has.
-    pub(crate) const DESKTOP: Self = Self {
+    pub const DESKTOP: Self = Self {
         folder: true,
         background_choice: true,
         advanced: true,
@@ -52,7 +55,7 @@ impl Features {
 
     /// A phone: its files are in the app, it dials out only, and it has the one
     /// network the app was built for.
-    pub(crate) const PHONE: Self = Self {
+    pub const PHONE: Self = Self {
         folder: false,
         background_choice: false,
         advanced: false,
@@ -66,7 +69,8 @@ impl Features {
     };
 
     /// Every feature, by the name the page uses.
-    pub(crate) const fn all(self) -> [(&'static str, bool); 10] {
+    #[must_use]
+    pub const fn all(self) -> [(&'static str, bool); 10] {
         [
             ("folder", self.folder),
             ("background_choice", self.background_choice),
@@ -97,7 +101,7 @@ impl Features {
 /// What a shell is told when the page changes something it also draws or
 /// remembers: `theme`, `removed`, `signedOut`, `closed`, `biometric`, `metered`.
 /// A desktop has nothing to draw, so it is told nothing.
-pub(crate) trait Host: Send + Sync {
+pub trait Host: Send + Sync {
     fn event(&self, name: &str, value: &str);
     /// What the shell holds for a setting it owns (`biometric`, `metered`):
     /// `on` or `off`, or `None` when it does not say.
@@ -108,7 +112,7 @@ pub(crate) trait Host: Send + Sync {
 
 /// A shell with nothing of its own to tell.
 #[derive(Debug)]
-pub(crate) struct NoHost;
+pub struct NoHost;
 
 impl Host for NoHost {
     fn event(&self, _: &str, _: &str) {}

@@ -65,6 +65,29 @@ impl Account {
     }
 }
 
+/// How much of the account's files stay on this machine, as asked.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Keep {
+    /// Not asked: this machine keeps what it has.
+    #[default]
+    Unchanged,
+    /// No limit.
+    Everything,
+    /// At most this many bytes; 0 lists the account and holds none of it.
+    Budget(u64),
+}
+
+impl Keep {
+    /// The budget in force once this is applied to `current`.
+    pub(crate) const fn apply(self, current: Option<u64>) -> Option<u64> {
+        match self {
+            Self::Unchanged => current,
+            Self::Everything => None,
+            Self::Budget(bytes) => Some(bytes),
+        }
+    }
+}
+
 /// Every non-secret answer. `None` means "keep what this machine has, or do
 /// without": re-running setup with fewer answers never undoes a setting.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,6 +99,9 @@ pub(crate) struct Answers {
     pub(crate) coordinator_device: Option<String>,
     pub(crate) invite: Option<String>,
     pub(crate) pledge: Option<u64>,
+    /// Set with the pledge, as a pair, because what a machine may keep is what
+    /// it earns.
+    pub(crate) keep: Keep,
     pub(crate) announce: Option<String>,
     pub(crate) service: bool,
     pub(crate) tray: bool,
@@ -101,6 +127,7 @@ impl Default for Answers {
             coordinator_device: None,
             invite: None,
             pledge: None,
+            keep: Keep::Unchanged,
             announce: None,
             service: true,
             tray: true,

@@ -30,6 +30,7 @@ mod placing;
 mod portable;
 mod safety;
 mod setup;
+pub mod shell;
 mod update;
 mod upnp;
 
@@ -741,6 +742,7 @@ fn leave_quietly_when_the_pipe_closes() {
 }
 
 /// The whole program: what `itsanas` does when it is started, as an exit code.
+#[must_use]
 pub fn run() -> ExitCode {
     leave_quietly_when_the_pipe_closes();
 
@@ -4619,10 +4621,21 @@ fn pledge(home: &Path, size: &str) -> Result<()> {
 /// Set this node's pledge to `bytes`, or refuse and leave the file as it was.
 /// The warning, when there is one, is for the caller to say.
 fn set_pledge(node: &mut Node, bytes: u64) -> Result<Option<String>> {
+    set_pledge_counting(node, bytes, 0)
+}
+
+/// [`set_pledge`], judging what this machine may keep against `bytes` plus
+/// `others`, the pledges of the account's other machines: a phone earns on the
+/// whole account, a computer on its own pledge (`others` is 0).
+fn set_pledge_counting(node: &mut Node, bytes: u64, others: u64) -> Result<Option<String>> {
     // The split first: lowering the pledge under what `keep` holds would leave
     // this machine keeping more than it earns, which `keep` itself refuses.
-    Node::check_split(&node.config, bytes, node.config.keep_bytes)
-        .map_err(|refusal| CliError::Usage(refusal.to_string()))?;
+    Node::check_split(
+        &node.config,
+        bytes.saturating_add(others),
+        node.config.keep_bytes,
+    )
+    .map_err(|refusal| CliError::Usage(refusal.to_string()))?;
 
     // Only other accounts' bytes: our own devices push here too, and counting
     // those as hosted said the pledge was already paid by our own backlog.

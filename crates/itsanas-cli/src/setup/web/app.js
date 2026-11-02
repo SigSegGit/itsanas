@@ -188,9 +188,9 @@
     markProgress(page);
   }
 
-  function step(delta) {
+  async function step(delta) {
     const index = QUESTION_PAGES.indexOf(current);
-    if (delta > 0 && !validate(current)) { return; }
+    if (delta > 0 && !(await validate(current))) { return; }
     const next = QUESTION_PAGES[index + delta];
     if (next) { go(next); }
   }
@@ -202,7 +202,7 @@
     return chosen ? chosen.value : null;
   }
 
-  function validate(page) {
+  async function validate(page) {
     if (page === 'account' && !done.account && !accountKind()) {
       say('Say whether you already have an account: choose one of the two answers.');
       document.querySelector('input[name="account"]').focus();
@@ -213,15 +213,33 @@
       $('username').focus();
       return false;
     }
-    if (page === 'account' && !done.account && accountKind() === 'new' && nameTaken === 'yes') {
-      say('This username is already taken. Choose another.');
-      $('username').focus();
-      return false;
-    }
-    if (page === 'account' && !done.account && accountKind() === 'new' && nameTaken === 'invalid') {
-      say(nameWhy);
-      $('username').focus();
-      return false;
+    if (page === 'account' && !done.account) {
+      // A fresh answer, never the last one the timer fetched: a quick Next
+      // would otherwise go on with the answer to a name since changed.
+      await checkName();
+      const asked = Boolean($('coordinator').value.trim());
+      if (nameInvalid) {
+        say(nameInvalid);
+        $('username').focus();
+        return false;
+      }
+      if (accountKind() === 'new' && nameTaken === 'yes') {
+        say('This username is already taken. Choose another.');
+        $('username').focus();
+        return false;
+      }
+      // No next step without a positive check: a network that cannot be asked
+      // has not said the name is free. With no coordinator there is nobody to ask.
+      if (accountKind() === 'new' && asked && nameTaken !== 'no') {
+        say('The network cannot be asked right now. A new account is made only once the network says this username is free.');
+        $('username-retry').hidden = false;
+        return false;
+      }
+      if (accountKind() === 'join' && asked && nameTaken === 'no' && !$('continue-name').checked) {
+        say('No account has this name on the network. Tick "Continue with this name" if you are sure it is the name of your account, or correct it.');
+        $('continue-name').focus();
+        return false;
+      }
     }
     if ((page === 'folder') && $('pledge').value !== '' && !/^[1-9]\d*$/.test($('pledge').value)) {
       say('Type a whole number of GB, at least 1.');
@@ -234,7 +252,7 @@
   // ------------------------------------------------- username, while typed
 
   let nameTaken = 'unknown';
-  let nameWhy = '';
+  let nameInvalid = '';
   let nameTimer = null;
 
   async function checkName() {
@@ -242,28 +260,38 @@
     const coordinator = $('coordinator').value.trim();
     const line = $('username-check');
     nameTaken = 'unknown';
+    nameInvalid = '';
     line.textContent = '';
-    if (!username || !coordinator || done.account) { return; }
+    $('username-retry').hidden = true;
+    $('continue-name-row').hidden = true;
+    if (!username || done.account) { return; }
     try {
-      const reply = await api('POST', '/api/name', { username: username, coordinator: coordinator });
+      const reply = await api('POST', '/api/name', { username: username, coordinator: coordinator, account: accountKind() || '' });
       if (username !== $('username').value.trim()) { return; }
       nameTaken = reply.taken;
-      nameWhy = reply.why || '';
+      nameInvalid = reply.invalid || '';
       const isNew = accountKind() === 'new';
-      if (reply.taken === 'invalid') {
-        line.textContent = t(nameWhy);
-      } else if (!accountKind()) {
+      if (nameInvalid) {
+        line.textContent = t(nameInvalid);
+      } else if (!accountKind() || !coordinator) {
         // What the answer means depends on the question not answered yet, and
         // answering it asks again.
         line.textContent = '';
       } else if (reply.taken === 'yes') {
         line.textContent = isNew ? t('This username is already taken. Choose another.') : t('Account found.');
+        if (!isNew) { suggestSpace(reply.other_pledge_bytes); }
       } else if (reply.taken === 'no') {
-        line.textContent = isNew ? t('This username is free.') : t('No account has this name on the network.');
+        line.textContent = isNew
+          ? t('This username is free.')
+          : t('No account has this name on the network. A name is bound to an account when it first joins: be sure it is the one you used on your other machines.');
+        $('continue-name-row').hidden = isNew;
       } else {
-        line.textContent = t('The network cannot be asked right now; it is checked again before anything is made.');
+        line.textContent = t(isNew
+          ? 'The network cannot be asked right now. A new account is made only once the network says this username is free.'
+          : 'The network cannot be asked right now; it is checked again before anything is made.');
+        $('username-retry').hidden = !isNew;
       }
-    } catch (e) { /* the engine asks again before any key is written */ }
+    } catch (e) { /* the page asks again before it goes on */ }
   }
 
   function nameChanged() {
@@ -271,6 +299,7 @@
     const box = $('username');
     const low = box.value.toLowerCase();
     if (low !== box.value) { box.value = low; }
+    $('continue-name').checked = false;
     if (nameTimer) { clearTimeout(nameTimer); }
     nameTimer = setTimeout(checkName, 500);
   }
@@ -297,12 +326,36 @@
     const start = Math.min(max, Math.max(1, defaults.pledge_gb));
     slider.value = String(start);
     $('pledge').value = String(start);
+    $('keep').value = String(defaults.keep_gb);
     slider.addEventListener('input', function () { $('pledge').value = slider.value; showEarns(); });
     $('pledge').addEventListener('input', function () {
       if (/^\d+$/.test($('pledge').value)) { slider.value = $('pledge').value; }
       showEarns();
     });
     showEarns();
+  }
+
+  // What to offer and keep, from the one rule every platform shares (the
+  // server's): asked again once the person says which account they join, since
+  // "the same as your other machines" is only known then.
+  async function suggestSpace(other) {
+    try {
+      const reply = await api('POST', '/api/suggest', { other: String(other || 0) });
+      const max = parseInt($('pledge-slider').max, 10);
+      const gb = Math.min(max, Math.max(1, Number(reply.pledge_gb)));
+      $('pledge-slider').value = String(gb);
+      $('pledge').value = String(gb);
+      $('keep').value = String(reply.keep_gb);
+      const line = $('space-same');
+      if (reply.same_as_other_machines) {
+        line.textContent = t('The same as your other machines.');
+      } else if (other > 0) {
+        line.textContent = t('Your other machines offer') + ' ' + Math.round(other / GIB) + ' GB. ' + t('This one has room for less.');
+      } else {
+        line.textContent = '';
+      }
+      showEarns();
+    } catch (e) { /* the suggestion made at load stays */ }
   }
 
   async function browse(input) {
@@ -369,6 +422,9 @@
       if (value) { form[id] = value; }
     });
     if ($('pledge').value !== '') { form.pledge = $('pledge').value + 'G'; }
+    if (!$('keep-questions').hasAttribute('data-off')) {
+      form.keep = $('keep').value === '' ? '' : $('keep').value + 'G';
+    }
     const updates = document.querySelector('input[name="updates"]:checked');
     if (updates) { form.updates = updates.value; }
     form.background = $('background').checked ? 'yes' : 'no';
@@ -376,7 +432,7 @@
   }
 
   async function startSetup() {
-    if (current === 'folder' && !validate('folder')) { return; }
+    if (current === 'folder' && !(await validate('folder'))) { return; }
     go('connection');
     $('start').disabled = true;
     try {
@@ -511,6 +567,7 @@
     $('coordinator').value = state.defaults.coordinator;
     setupSpace(state.defaults);
     $('username').addEventListener('input', nameChanged);
+    $('username-retry').addEventListener('click', checkName);
     $('coordinator').addEventListener('change', nameChanged);
     $('folder-browse').addEventListener('click', function () { browse($('folder')); });
     $('open-folder').addEventListener('click', function () { folderAction('', false, $('folder-said')); });
@@ -966,6 +1023,14 @@
         N('Write a portable ITSaNAS there? Whoever has the drive can try to guess your passphrase: use a long one.'));
     });
     initUsb();
+    $('st-version').textContent = state.version;
+    $('st-theme').value = state.theme;
+    $('st-theme').addEventListener('change', function () {
+      api('POST', '/api/theme', { theme: $('st-theme').value }).then(function () {
+        if ($('st-theme').value === 'system') { document.documentElement.removeAttribute('data-theme'); }
+        else { document.documentElement.setAttribute('data-theme', $('st-theme').value); }
+      }).catch(function (e) { say(e.message); });
+    });
     [['st-biometric', 'biometric'], ['st-metered', 'metered']].forEach(function (pair) {
       const box = $(pair[0]);
       box.checked = state.host[pair[1]] === 'on';

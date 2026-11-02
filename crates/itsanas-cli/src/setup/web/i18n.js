@@ -361,6 +361,26 @@ window.I18N = {
       'La clé est prête. Éjectez-la proprement avant de la retirer.',
     'The copy stopped:':
       'La copie s’est arrêtée :',
+    'The network cannot be asked right now. A new account is made only once the network says this username is free.':
+      'Le réseau ne peut pas être interrogé pour le moment. Un nouveau compte n’est créé que lorsque le réseau dit que ce nom d’utilisateur est libre.',
+    'Continue with this name': 'Continuer avec ce nom',
+    'No account has this name on the network. A name is bound to an account when it first joins: be sure it is the one you used on your other machines.':
+      'Aucun compte n’a ce nom sur le réseau. Un nom est lié à un compte lors de sa première arrivée : vérifiez que c’est celui de vos autres machines.',
+    'No account has this name on the network. Tick "Continue with this name" if you are sure it is the name of your account, or correct it.':
+      'Aucun compte n’a ce nom sur le réseau. Cochez « Continuer avec ce nom » si vous êtes sûr que c’est le nom de votre compte, ou corrigez-le.',
+    'The same as your other machines.': 'La même chose que vos autres machines.',
+    'Your other machines offer': 'Vos autres machines offrent',
+    'This one has room for less.': 'Celle-ci a de la place pour moins.',
+    'Appearance': 'Apparence',
+    'Colours': 'Couleurs',
+    'Same as the system': 'Comme le système',
+    'Light': 'Clair',
+    'Dark': 'Sombre',
+    'About and legal': 'À propos et mentions légales',
+    'Licence (AGPL-3.0)': 'Licence (AGPL-3.0)',
+    'Source code': 'Code source',
+    'ITSaNAS asks github.com for the signed release, at most once a day.':
+      'ITSaNAS interroge github.com pour la version signée, au plus une fois par jour.',
     'Files kept here': 'Fichiers gardés ici',
     "How much of your account's files stay on this machine, to open without the network. The rest is fetched when you open it. Empty: everything.":
       'La part des fichiers de votre compte qui reste sur cette machine, pour les ouvrir sans réseau. Le reste est récupéré à l’ouverture. Vide : tout.',

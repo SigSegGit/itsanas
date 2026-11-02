@@ -992,7 +992,7 @@ fn space_of(node: &Node, disk: itsanas_node::pledges::DiskSpace) -> Answer {
     let pledged = others.saturating_add(node.config.pledge_bytes);
     let split = node.config.split;
     let usable = pledges::phone_usable(total, free, local);
-    let suggested = pledges::suggest_phone(&node.config, total, free, local, others, largest);
+    let suggested = pledges::suggest(&node.config, total, free, local, others, largest);
 
     Ok(serde_json::json!({
         "freeBytes": free,

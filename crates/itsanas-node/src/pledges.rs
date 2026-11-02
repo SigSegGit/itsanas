@@ -364,9 +364,9 @@ pub fn phone_keep(config: &crate::config::Config, usable: u64, others: u64, pled
     usable.saturating_sub(pledge).min(allowed) / GIB * GIB
 }
 
-/// What the phone's Space step offers.
+/// What the Space question offers, on every platform.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PhoneSuggestion {
+pub struct Suggestion {
     /// The pledge to suggest; never set without the person seeing it.
     pub pledge: u64,
     /// The keep that goes with it.
@@ -383,14 +383,14 @@ pub struct PhoneSuggestion {
 /// device a l'espace libre pour)" (Nicolas): a literal copy of a NAS's pledge
 /// would otherwise take a phone's whole disk.
 #[must_use]
-pub fn suggest_phone(
+pub fn suggest(
     config: &crate::config::Config,
     total: u64,
     free: u64,
     local: u64,
     others: u64,
     largest_other: u64,
-) -> PhoneSuggestion {
+) -> Suggestion {
     let usable = phone_usable(total, free, local);
     let half = usable / 2 / GIB * GIB;
     let same_as_other_machines = largest_other > 0 && largest_other <= half;
@@ -399,7 +399,7 @@ pub fn suggest_phone(
     } else {
         suggest_pledge(free).min(half)
     };
-    PhoneSuggestion {
+    Suggestion {
         pledge,
         keep: phone_keep(config, usable, others, pledge),
         same_as_other_machines,
@@ -546,7 +546,7 @@ mod tests {
             // "the same" means.
             ((512, 400, 100, 50), (50, 64, true)),
         ] {
-            let got = suggest_phone(
+            let got = suggest(
                 &config,
                 total * GIB,
                 free * GIB,

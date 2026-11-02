@@ -42,7 +42,7 @@ const TRAY_PY: &str = include_str!("../../../../scripts/itsanas-tray.py");
 /// What a background service can be asked to do. A trait so that `signout`
 /// and `signin` are tested against a stand-in, never against this machine's
 /// real scheduler.
-pub(crate) trait ServiceControl {
+pub trait ServiceControl {
     /// The file the service reads the passphrase from.
     fn passphrase_file(&self) -> PathBuf;
     /// The passphrase this machine remembers for the service, if there is a

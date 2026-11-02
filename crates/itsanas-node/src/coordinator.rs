@@ -107,6 +107,34 @@ pub fn name_owner(address: &str, username: &str) -> Result<Option<UserId>> {
     }
 }
 
+/// The largest pledge among the machines of the account that holds `username`,
+/// as their signed claims say, asked before anything of this machine exists: what
+/// a person joining that account is told their other machines offer. `None` when
+/// no account has the name or none of its machines has announced itself -- a
+/// figure nobody could check is not offered.
+///
+/// # Errors
+///
+/// As [`name_owner`].
+pub fn account_pledge(address: &str, username: &str) -> Result<Option<u64>> {
+    let Some(user) = name_owner(address, username)? else {
+        return Ok(None);
+    };
+    let keys = DeviceKeys::generate().map_err(|error| CliError::Usage(error.to_string()))?;
+    let expect = pinned_for(address).map(parse_device).transpose()?;
+    let mut client = CoordClient::connect(address, &keys, expect)
+        .map_err(|error| CliError::Usage(format!("{address}: {error}")))?;
+    match client.ask(&Request::ClaimedPeers { user }) {
+        Ok(Response::ClaimedPeers(list)) => {
+            let (claimed, _) = verified_claimed(list, user);
+            Ok(claimed.iter().map(|row| row.claim.claim.pledged_bytes).max())
+        }
+        Ok(Response::Refused(_)) => Ok(None),
+        Ok(other) => Err(CliError::Usage(format!("{address} answered {other:?}"))),
+        Err(error) => Err(CliError::Usage(format!("{address}: {error}"))),
+    }
+}
+
 /// Why no coordinator would ever register `username`, in a sentence for the
 /// person typing it; `None` when one could. Asked first: a name the coordinator
 /// would refuse reads as free on a lookup, so a person is told so and goes on,

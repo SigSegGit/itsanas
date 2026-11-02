@@ -119,8 +119,7 @@ impl Setup<'_> {
         }
         // A taken name is refused here, before a key is written: learnt at the
         // registration step instead, it left a whole account on this disk
-        // under a name the network would never give it. An unreachable
-        // coordinator does not stop the step -- registration says so later.
+        // under a name the network would never give it.
         if let (Account::New { username }, Some(address)) = (&account, self.wanted_coordinator()) {
             // The page stops this too, but only once its check has answered.
             if let Some(why) = crate::coordinator::username_refusal(username) {
@@ -129,11 +128,23 @@ impl Setup<'_> {
                      written)"
                 )));
             }
-            if let Ok(true) = (self.name_check)(&address, username) {
-                return Err(CliError::Usage(format!(
-                    "the username {username:?} is already taken at {address}: choose another \
-                     (nothing was written)"
-                )));
+            // No next step without a positive check: a name nobody could be asked
+            // about is not a free name, and a key made under it is made for good.
+            match (self.name_check)(&address, username) {
+                Ok(false) => {}
+                Ok(true) => {
+                    return Err(CliError::Usage(format!(
+                        "the username {username:?} is already taken at {address}: choose \
+                         another (nothing was written)"
+                    )));
+                }
+                Err(error) => {
+                    return Err(CliError::Usage(format!(
+                        "the network could not be asked whether {username:?} is free at \
+                         {address} ({error}): a new account is made only after that answer \
+                         (nothing was written)"
+                    )));
+                }
             }
         }
         let node = match &account {
@@ -259,12 +270,31 @@ impl Setup<'_> {
         let words = Zeroizing::new(crate::phrase_words(&typed));
         // Checked before a passphrase is chosen: a typo found after that is a
         // second round of typing for nothing.
-        MasterSecret::from_recovery_phrase(&words)?;
+        let master = MasterSecret::from_recovery_phrase(&words)?;
+        self.refuse_words_of_another_account(username, &master)?;
         let passphrase = self.new_passphrase()?;
         let mut node = Node::restore(&self.home, &passphrase, username, &words)?;
         crate::settle_listen_port(&mut node)?;
         self.passphrase = Some(passphrase);
         Ok(node)
+    }
+
+    /// The name is bound to the key it first registers with: words that belong
+    /// to another account would be joined under a name that is not theirs. Asked
+    /// before a passphrase is, and only when the network answers -- a coordinator
+    /// that cannot be asked does not stop a person joining their own account.
+    fn refuse_words_of_another_account(&self, username: &str, master: &MasterSecret) -> Result<()> {
+        let Some(address) = self.wanted_coordinator() else {
+            return Ok(());
+        };
+        if let Ok(Some(owner)) = (self.owner_check)(&address, username)
+            && owner != itsanas_crypto::UserKeys::derive(master).user_id()
+        {
+            return Err(CliError::Usage(format!(
+                "these words are not the words of the account {username:?}; nothing was written"
+            )));
+        }
+        Ok(())
     }
 
     // -- Secret ---------------------------------------------------------------
@@ -375,7 +405,9 @@ impl Setup<'_> {
 
     pub(super) fn pledge_state(&self) -> Result<State> {
         let config = Config::load(&Node::config_path(&self.home))?;
+        let keep_differs = self.answers.keep.apply(config.keep_bytes) != config.keep_bytes;
         Ok(match self.answers.pledge {
+            None if keep_differs => State::Todo,
             None if config.pledge_bytes > 0 => {
                 State::Done(Self::bargain(&config, config.pledge_bytes))
             }
@@ -384,7 +416,7 @@ impl Setup<'_> {
                  `itsanas pledge 10G` offers some later"
                     .to_owned(),
             ),
-            Some(bytes) if bytes == config.pledge_bytes => {
+            Some(bytes) if bytes == config.pledge_bytes && !keep_differs => {
                 State::Done(Self::bargain(&config, bytes))
             }
             Some(_) => State::Todo,
@@ -392,9 +424,18 @@ impl Setup<'_> {
     }
 
     pub(super) fn apply_pledge(&mut self) -> Result<String> {
-        let bytes = self.answers.pledge.unwrap_or_default();
         let mut node = self.open_node(Step::Pledge)?;
-        let warning = crate::set_pledge(&mut node, bytes)?;
+        let bytes = self.answers.pledge.unwrap_or(node.config.pledge_bytes);
+        // The pair goes through one check: a keep the pledge cannot earn is
+        // refused and neither is written (the node is dropped unsaved). A phone
+        // earns on the whole account's pledge, not on its own.
+        node.config.keep_bytes = self.answers.keep.apply(node.config.keep_bytes);
+        let others = if self.answers.phone {
+            Node::others_pledged(&node.home)
+        } else {
+            0
+        };
+        let warning = crate::set_pledge_counting(&mut node, bytes, others)?;
         let free = fs4::available_space(&self.home).map_or_else(
             |_| String::new(),
             |free| format!("; {} still free on this disk", format_size(free)),

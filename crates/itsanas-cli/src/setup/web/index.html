@@ -65,6 +65,8 @@
         <input id="username" name="username" autocomplete="username" spellcheck="false" autocapitalize="none" aria-describedby="username-help">
         <p id="username-help" class="help">Lowercase letters, digits, '-' and '.'. Use the same one on all your machines.</p>
         <p id="username-check" class="help" role="status" aria-live="polite"></p>
+        <p><button type="button" id="username-retry" hidden>Try again</button></p>
+        <label class="choice" id="continue-name-row" hidden><input type="checkbox" id="continue-name"> Continue with this name</label>
         <div id="join-only" hidden>
           <label class="choice"><input type="checkbox" id="recover-escrow"> My account's recovery copy is kept by the network (I chose it on my first machine)</label>
           <p class="help">Otherwise a separate window asks for your 24 recovery words.</p>
@@ -91,6 +93,7 @@
       <h2>Space you offer</h2>
       <p class="help">How much of this disk other members may use for their copies: it is what earns room for your own files on theirs.</p>
       <p id="space-free" class="help"></p>
+      <p id="space-same" class="help" role="status" aria-live="polite"></p>
       <label for="pledge">Space to offer, in GB</label>
       <div class="row slider"><input id="pledge-slider" type="range" min="1" step="1" aria-label="Space to offer, in GB"><input id="pledge" name="pledge" type="number" min="1" step="1" inputmode="numeric" aria-describedby="pledge-help"></div>
       <p id="pledge-earns" class="earns" aria-live="polite"></p>
@@ -305,11 +308,36 @@
         <p id="st-usb-detail" class="help said"></p>
       </section>
 
+      <section class="card" aria-labelledby="st-h-appearance">
+        <h2 id="st-h-appearance">Appearance</h2>
+        <div class="field">
+          <label for="st-theme">Colours</label>
+          <div class="controls">
+            <select id="st-theme">
+              <option value="system">Same as the system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
       <section class="card" aria-labelledby="st-h-security">
         <h2 id="st-h-security">Security</h2>
         <div class="field" data-feature="biometric">
           <label class="choice"><input type="checkbox" id="st-biometric"> Unlock with my fingerprint or face</label>
         </div>
+      </section>
+
+      <section class="card" aria-labelledby="st-h-about">
+        <h2 id="st-h-about">About and legal</h2>
+        <p class="help">ITSaNAS <span id="st-version"></span></p>
+        <ul class="links">
+          <li><a href="https://github.com/SigSegGit/itsanas/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Licence (AGPL-3.0)</a></li>
+          <li><a href="https://github.com/SigSegGit/itsanas" target="_blank" rel="noopener noreferrer">Source code</a></li>
+          <li><a href="https://github.com/SigSegGit/itsanas/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a></li>
+        </ul>
+        <p class="help">ITSaNAS asks github.com for the signed release, at most once a day.</p>
       </section>
 
       <section class="card" aria-labelledby="st-h-signout">
