@@ -15,7 +15,7 @@
 //! forgets is "the passphrase was wrong". Every entry point either returns its
 //! answer or throws, and the message is the same sentence the command line
 //! prints for the same fault, unless that sentence names a command the phone
-//! does not have ([`Failure::message`]).
+//! does not have (`Failure::message`).
 //!
 //! **One node, behind a lock.** The store permits a single writer, which is a
 //! property of the storage engine rather than a decision made here. The

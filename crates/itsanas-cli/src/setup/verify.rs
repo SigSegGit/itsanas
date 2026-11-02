@@ -509,10 +509,14 @@ mod tests {
         while !stop.load(std::sync::atomic::Ordering::SeqCst) {
             stamp += 1;
             let files = std::fs::read_dir(folder).map_or(0, Iterator::count);
+            // A rename, as a reader must never see a half-written snapshot: a
+            // plain write truncates first, and a macOS runner read it empty.
+            let partial = home.join("snapshot.partial");
             let _ = std::fs::write(
-                home.join(crate::node::SNAPSHOT),
+                &partial,
                 format!("snapshot {stamp} every 300\n  files {files}\n"),
             );
+            let _ = std::fs::rename(&partial, home.join(crate::node::SNAPSHOT));
             std::thread::sleep(Duration::from_millis(100));
         }
     }
