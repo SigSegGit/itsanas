@@ -133,6 +133,22 @@ fn user_of(words: &str) -> Result<UserId, Failure> {
     Ok(UserKeys::derive(&master).user_id())
 }
 
+/// The words alone, as they are typed, for a native screen's live check:
+/// `{"ok":bool,"wordIndex":n|null,"count":n}`. `wordIndex` counts from 1 and
+/// names the first word that is in no recovery phrase; a phrase still being
+/// typed is not `ok` but names no word either.
+#[must_use]
+pub fn check_words(phrase: &str) -> String {
+    let words = phrase_words(phrase);
+    let count = words.split_whitespace().count();
+    let problem = MasterSecret::phrase_problem(&words);
+    let position = match problem {
+        Some(PhraseProblem::UnknownWord(position)) => Some(position),
+        _ => None,
+    };
+    json!({ "ok": problem.is_none(), "wordIndex": position, "count": count }).to_string()
+}
+
 /// The words and the name of an existing account, before anything is written.
 ///
 /// The name decides nothing about which account this is (the words alone do),
@@ -544,6 +560,22 @@ fn withdraw_pending(node: &Node, now: u64) {
 
 #[cfg(test)]
 mod tests {
+    /// The native screen must flag a misspelt word by its number and accept
+    /// only a whole phrase, or a person types 24 words to be told "no".
+    /// Sabotage: make `check_words` answer ok whatever it is given.
+    #[test]
+    fn checking_words_names_the_misspelt_one_and_accepts_only_a_whole_phrase() {
+        let said: serde_json::Value =
+            serde_json::from_str(&super::check_words("abandon zzzz")).unwrap();
+        assert_eq!(
+            said["wordIndex"], 2,
+            "the wrong word was not pointed at: {said}"
+        );
+        assert_eq!(said["ok"], false, "two words passed as a phrase: {said}");
+        let few: serde_json::Value = serde_json::from_str(&super::check_words("abandon")).unwrap();
+        assert!(few["wordIndex"].is_null() && few["ok"] == false, "{few}");
+    }
+
     use std::fmt::Write as _;
 
     use itsanas_crypto::UserKeys;

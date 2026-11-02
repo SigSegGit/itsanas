@@ -2892,3 +2892,32 @@ fn a_computer_is_offered_no_way_to_remove_or_delete_the_account_from_the_page() 
         );
     }
 }
+
+/// A phone person leaves with Back: the server must end then, not at the idle
+/// exit, or the account stays reachable by a page nobody is looking at.
+/// Sabotage: make `Stop::stop` do nothing.
+#[test]
+fn the_stop_handle_ends_a_server_that_would_otherwise_wait_for_the_idle_exit() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let home = directory.path().join("home");
+    let server = Server::bind(
+        &home,
+        None,
+        Mode::Setup,
+        directory.path(),
+        backends(&Seen::default(), &home),
+    )
+    .expect("bind");
+    let stop = server.stopper();
+    let handle = std::thread::spawn(move || server.serve(Duration::from_secs(3600)));
+    stop.stop();
+    let started = std::time::Instant::now();
+    while !handle.is_finished() && started.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        handle.is_finished(),
+        "the person left and the page kept answering for an hour"
+    );
+    let _ = handle.join();
+}

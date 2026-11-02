@@ -50,10 +50,16 @@
 //! calling the same code the command line calls.
 #![allow(unsafe_code)]
 
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+mod host;
 
-use itsanas_cli::shell::{Answer, Failure, NO_MACHINE_YET, Network, describe, run_round, targets};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use itsanas_cli::shell::{
+    Answer, Backends, Failure, Held, Mode, NO_MACHINE_YET, Network, SecretPrompt, Server, Stop,
+    check_words, describe, run_round, targets,
+};
 use itsanas_node::Node;
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
@@ -289,6 +295,126 @@ fn use_coordinator(
         device,
     });
     Ok(serde_json::json!({ "address": address }).to_string())
+}
+
+// -------------------------------------------------------------------- page
+
+/// Nobody touched the page for this long: it stops, as a computer's does, and
+/// the app starts it again when the person comes back. Half an hour, because a
+/// phone is picked up and put down all day.
+const PAGE_IDLE: Duration = Duration::from_secs(30 * 60);
+
+/// How to stop the page that is being served, if one is.
+static PAGE: Mutex<Option<Stop>> = Mutex::new(None);
+
+/// Serve the setup engine's page on 127.0.0.1 and answer its address, the key
+/// in the fragment. `mode` is `setup` (first run) or `settings`; `biometric` is
+/// whether the phone has a fingerprint or a face to offer. The page's secrets
+/// are asked through the app's `Host` object ([`host`]).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_pageStart(
+    mut env: JNIEnv,
+    _class: JClass,
+    home: JString,
+    mode: JString,
+    biometric: jboolean,
+) -> jstring {
+    let home = home_of(&mut env, &home);
+    let mode = text(&mut env, &mode, "the mode");
+    let remembered = host::remember(&mut env);
+    answer(&mut env, move || {
+        remembered.map_err(Failure::Usage)?;
+        start_page(&home?, &mode?, biometric != 0)
+    })
+}
+
+fn start_page(home: &Path, mode: &str, biometric: bool) -> Answer {
+    let mode = match mode {
+        "setup" => Mode::Setup,
+        "settings" => Mode::Settings,
+        other => return Err(Failure::Usage(format!("no page is called {other}"))),
+    };
+    stop_page();
+    let network = network()?;
+    let backends = Backends::of_a_phone(
+        Box::new(|| {
+            let prompt: Box<dyn SecretPrompt> = Box::new(host::PhonePrompt);
+            Ok(prompt)
+        }),
+        Box::new(|| Box::new(host::PhoneService)),
+        Arc::new(host::PhoneHost),
+        Arc::new(Held(&NODE)),
+        (network.address, network.device),
+    )
+    .with_biometric(biometric);
+    let server = Server::bind(home, None, mode, home, backends)?;
+    let url = server.url();
+    *PAGE
+        .lock()
+        .map_err(|_| Failure::Usage("the page lock was poisoned by a panic".to_owned()))? =
+        Some(server.stopper());
+    std::thread::Builder::new()
+        .name("page".to_owned())
+        .spawn(move || {
+            let done = server.serve(PAGE_IDLE);
+            itsanas_cli::shell::Host::event(
+                &host::PhoneHost,
+                "closed",
+                if done { "done" } else { "left" },
+            );
+        })
+        .map_err(|error| Failure::Usage(format!("the page could not start: {error}")))?;
+    Ok(url)
+}
+
+fn stop_page() {
+    let stop = PAGE.lock().ok().and_then(|mut page| page.take());
+    if let Some(stop) = stop {
+        stop.stop();
+    }
+}
+
+/// The person left the page (Back on its first step, or the app went away):
+/// the engine stops and nothing answers on that port any more.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_pageStop(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    answer(&mut env, || {
+        stop_page();
+        Ok("{}".to_owned())
+    })
+}
+
+/// Recover the passphrase from the 24 words of the account at `home`, asked on
+/// the app's own screens: the locked phone has no node open, so no page.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_forgot(
+    mut env: JNIEnv,
+    _class: JClass,
+    home: JString,
+) -> jstring {
+    let home = home_of(&mut env, &home);
+    let remembered = host::remember(&mut env);
+    answer(&mut env, move || {
+        remembered.map_err(Failure::Usage)?;
+        let message =
+            itsanas_cli::shell::forgot(&home?, &mut host::PhonePrompt, &host::PhoneService)?;
+        Ok(serde_json::json!({ "message": message }).to_string())
+    })
+}
+
+/// The words as typed, for the native screen's live check:
+/// `{"ok":bool,"wordIndex":n|null,"count":n}`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_checkWords(
+    mut env: JNIEnv,
+    _class: JClass,
+    phrase: JString,
+) -> jstring {
+    let phrase = text(&mut env, &phrase, "the words");
+    answer(&mut env, move || Ok(check_words(&phrase?)))
 }
 
 // ------------------------------------------------------------------- files

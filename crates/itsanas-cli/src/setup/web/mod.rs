@@ -195,8 +195,10 @@ const MAX_CONNECTIONS: usize = 16;
 /// Lines of progress kept for the page; a run says about twenty.
 const MAX_LINES: usize = 400;
 
-type MakePrompt = Box<dyn Fn() -> Result<Box<dyn SecretPrompt>> + Send + Sync>;
-type MakeService = Box<dyn Fn() -> Box<dyn ServiceControl> + Send + Sync>;
+/// Makes the prompt of a run ([`Backends::prompt`]).
+pub type MakePrompt = Box<dyn Fn() -> Result<Box<dyn SecretPrompt>> + Send + Sync>;
+/// Makes the service control of a run ([`Backends::service`]).
+pub type MakeService = Box<dyn Fn() -> Box<dyn ServiceControl> + Send + Sync>;
 
 /// Where the engine asks for secrets and which service it drives, made fresh
 /// for each run (the engine runs on a thread of its own, and neither needs to
@@ -294,6 +296,14 @@ impl Backends {
             host,
             nodes,
         }
+    }
+
+    /// Whether this phone can unlock with a fingerprint or a face: the feature
+    /// is the phone's to say, not the library's.
+    #[must_use]
+    pub fn with_biometric(mut self, available: bool) -> Self {
+        self.features.biometric = available;
+        self
     }
 
     fn of_this_machine(home: &Path, instance: Option<&str>) -> Self {
@@ -488,6 +498,14 @@ impl Server {
         format!("http://127.0.0.1:{}/#t={}", self.ctx.port, self.ctx.token)
     }
 
+    /// A handle that ends [`Server::serve`] from another thread: the phone's
+    /// shell, whose person leaves with Back, has no page to say it is done and
+    /// no wish to wait for the idle exit with the account still open.
+    #[must_use]
+    pub fn stopper(&self) -> Stop {
+        Stop(Arc::clone(&self.ctx))
+    }
+
     /// Answer requests until the page says it is done, the setup finished,
     /// or nobody did anything for `idle`. True when a setup run finished well.
     #[must_use]
@@ -521,6 +539,22 @@ impl Server {
         if spawned.is_err() {
             self.ctx.live.fetch_sub(1, Ordering::SeqCst);
         }
+    }
+}
+
+/// See [`Server::stopper`].
+pub struct Stop(Arc<Context>);
+
+impl std::fmt::Debug for Stop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Stop").finish_non_exhaustive()
+    }
+}
+
+impl Stop {
+    /// Make `serve` return within a poll.
+    pub fn stop(&self) {
+        self.0.quit.store(true, Ordering::SeqCst);
     }
 }
 

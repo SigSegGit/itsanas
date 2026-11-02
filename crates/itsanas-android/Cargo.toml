@@ -26,6 +26,7 @@ itsanas-release = { version = "0.1.0", path = "../itsanas-release" }
 itsanas-store = { version = "0.1.0", path = "../itsanas-store" }
 jni = "0.21.1"
 serde_json = "1.0.145"
+zeroize = "1.9.0"
 
 [dev-dependencies]
 # A real coordinator, in-process, for the device screen's tests: what a phone

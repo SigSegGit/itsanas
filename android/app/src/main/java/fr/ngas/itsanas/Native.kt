@@ -37,6 +37,23 @@ object Native {
 
     external fun close(): String
 
+    /**
+     * Serve the setup engine's page on 127.0.0.1 and answer its address (the
+     * key is in the fragment). [mode] is "setup" or "settings". Secrets are
+     * asked through [Host]; the first call finds that class, so it must come
+     * from a Java thread.
+     */
+    external fun pageStart(home: String, mode: String, biometric: Boolean): String
+
+    /** The person left the page: the engine stops. */
+    external fun pageStop(): String
+
+    /** Recover the passphrase from the 24 words, on the app's own screens. */
+    external fun forgot(home: String): String
+
+    /** {"ok":bool,"wordIndex":n|null,"count":n}: the words as they are typed. */
+    external fun checkWords(phrase: String): String
+
     external fun status(): String
 
     /** JSON: whether the signed release offers a newer APK (see [Updater]). */

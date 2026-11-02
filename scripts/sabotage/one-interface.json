@@ -36,6 +36,16 @@
       "file": "crates/itsanas-cli/src/account.rs",
       "live": "    if confirm.is_empty() || confirm != node.config.username {",
       "dead": "    if false {"
+    },
+    "stop handle: Back leaves the page serving": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "        self.0.quit.store(true, Ordering::SeqCst);",
+      "dead": "        let _ = &self.0;"
+    },
+    "check words: any words pass": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    json!({ \"ok\": problem.is_none(), \"wordIndex\": position, \"count\": count }).to_string()",
+      "dead": "    json!({ \"ok\": true, \"wordIndex\": position, \"count\": count }).to_string()"
     }
   }
 }
