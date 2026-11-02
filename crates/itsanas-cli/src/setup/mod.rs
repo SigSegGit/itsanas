@@ -26,6 +26,7 @@
 //! page shows before the person presses a button.
 
 pub(crate) mod answers;
+pub(crate) mod forgot;
 pub(crate) mod secrets;
 pub(crate) mod service;
 pub(crate) mod sign;
@@ -125,6 +126,12 @@ pub(crate) enum Event {
         step: Step,
         why: String,
     },
+    /// What was typed was refused, and why; the same question is asked again.
+    /// Holds the reason, never what was typed.
+    AskingAgain {
+        step: Step,
+        why: String,
+    },
     /// A secret is about to be asked, and where (a window, the terminal).
     NeedsSecret {
         step: Step,
@@ -146,6 +153,7 @@ impl Event {
             Self::AlreadyDone { detail, .. } => format!("      already done: {detail}"),
             Self::Done { detail, .. } => format!("      done: {detail}"),
             Self::Skipped { why, .. } => format!("      skipped: {why}"),
+            Self::AskingAgain { why, .. } => format!("      asking again: {why}"),
             Self::NeedsSecret { what, asked_in, .. } => {
                 format!("      asking for {what} in {asked_in}")
             }

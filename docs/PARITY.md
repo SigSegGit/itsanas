@@ -34,7 +34,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | Disks · `/api/disk` | ✅ | ✅ | ✅ | ⬜ a phone has one app-private store: no vault to move, no backup drive, no portable copy |
 | Copy this account to a USB key · `/api/keys` · `/api/copy-to-key` | ✅ | ✅ | ✅ | ⬜ a phone cannot write a program for another system onto a key |
 | Appearance · `/api/theme` | ✅ | ✅ | ✅ | ✅ |
-| Security · `/api/host` | ✅ | ✅ | ✅ | ✅ |
+| Security · `/api/host` · `/api/forgot` | ✅ | ✅ | ✅ | ✅ |
 | About and legal | ✅ | ✅ | ✅ | ✅ |
 | Sign out · `/api/signout` | ✅ | ✅ | ✅ | ✅ |
 | Language · `/api/language` | ✅ | ✅ | ✅ | ✅ |

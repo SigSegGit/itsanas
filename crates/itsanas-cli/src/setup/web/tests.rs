@@ -2404,3 +2404,31 @@ fn red_team_the_page_links_only_the_licence_the_source_and_the_security_policy()
         );
     }
 }
+
+#[test]
+fn forgetting_on_a_page_with_no_node_changes_nothing_and_says_so() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let started = page.api("POST", "/api/forgot", "");
+    assert_eq!(started.status, 202, "{}", started.body);
+    let mut state = String::new();
+    for _ in 0..200 {
+        state = page.api("GET", "/api/state", "").body;
+        if !state.contains("\"phase\":\"running\"") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        state.contains("\"phase\":\"failed\"") && state.contains("no node"),
+        "forgetting with nothing to replace did not fail, or did not say why: {state}"
+    );
+    let setup = Page::start(&home, dir.path(), Mode::Setup, &Seen::default());
+    assert_eq!(
+        setup.api("POST", "/api/forgot", "").status,
+        404,
+        "the setup page offers to replace the keys of an account that is not there yet"
+    );
+}

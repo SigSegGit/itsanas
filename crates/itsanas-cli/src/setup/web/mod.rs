@@ -751,6 +751,7 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/theme") => choose_theme(ctx, request),
         ("POST", "/api/host") => host_setting(ctx, request),
         ("POST", "/api/suggest") => suggest(ctx, request),
+        ("POST", "/api/forgot") if ctx.mode == Mode::Settings => start_forgot(ctx),
         ("POST", "/api/free") => free_space(ctx, request),
         ("POST", "/api/pick") => pick(request),
         ("POST", "/api/open") => open_folder(ctx, request, false),
@@ -1271,6 +1272,65 @@ fn run_engine(ctx: &Context, answers: Answers) {
         save_theme(&ctx.home, theme);
     }
     ctx.finish(outcome);
+}
+
+/// "I forgot my passphrase": the 24 words replace the keys on this machine
+/// ([`super::forgot::forgot`]). Run on a thread of its own as a setup run is, the
+/// words and the new passphrase asked in the native windows; the page follows it
+/// through `/api/state` and never sees either.
+fn start_forgot(ctx: &Arc<Context>) -> Response {
+    {
+        let mut run = lock(&ctx.run);
+        if run.phase == Phase::Running {
+            return Response::refuse(409, "it is already running; this page follows it");
+        }
+        *run = Run {
+            phase: Phase::Running,
+            step: Some(Step::Account),
+            waiting: Some("the 24 recovery words, then a new passphrase"),
+            ..Run::default()
+        };
+    }
+    let worker = Arc::clone(ctx);
+    let spawned = std::thread::Builder::new()
+        .name("forgot".to_owned())
+        .spawn(move || {
+            let service = (worker.backends.service)();
+            let result = (worker.backends.prompt)().and_then(|mut prompt| {
+                super::forgot::forgot(
+                    &worker.home,
+                    prompt.as_mut(),
+                    service.as_ref(),
+                    worker.backends.owner,
+                )
+            });
+            let mut run = lock(&worker.run);
+            match result {
+                Ok(said) => {
+                    run.lines.push(said);
+                    run.phase = Phase::Done;
+                }
+                Err(error) => {
+                    run.failed = Some((
+                        Step::Account,
+                        error.to_string(),
+                        "nothing was changed on this machine unless it says otherwise; try again"
+                            .to_owned(),
+                    ));
+                    run.phase = Phase::Failed;
+                }
+            }
+            run.waiting = None;
+            run.finished_at = Some(Instant::now());
+        });
+    if spawned.is_err() {
+        ctx.finish(Err("could not start".to_owned()));
+    }
+    Response::new(
+        202,
+        "application/json",
+        object(&[("started", "true".to_owned())]),
+    )
 }
 
 /// Pause, resume, sync now, interval: the control file, through the same

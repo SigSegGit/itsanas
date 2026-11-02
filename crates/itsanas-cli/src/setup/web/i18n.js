@@ -381,6 +381,15 @@ window.I18N = {
     'Source code': 'Code source',
     'ITSaNAS asks github.com for the signed release, at most once a day.':
       'ITSaNAS interroge github.com pour la version signée, au plus une fois par jour.',
+    'I forgot my passphrase': 'J’ai oublié ma phrase de passe',
+    'Replaces the keys on this machine from your 24 recovery words, under a new passphrase. Your account and your files stay.':
+      'Remplace les clés de cette machine à partir de vos 24 mots de récupération, sous une nouvelle phrase de passe. Votre compte et vos fichiers restent.',
+    'Replace my keys with my 24 words': 'Remplacer mes clés par mes 24 mots',
+    'Replace the keys on this machine with your 24 recovery words? A window asks for them, then for a new passphrase.':
+      'Remplacer les clés de cette machine par vos 24 mots de récupération ? Une fenêtre les demande, puis une nouvelle phrase de passe.',
+    'A window asks for your 24 words, then a new passphrase.':
+      'Une fenêtre demande vos 24 mots, puis une nouvelle phrase de passe.',
+    'Not changed:': 'Pas modifié :',
     'Files kept here': 'Fichiers gardés ici',
     "How much of your account's files stay on this machine, to open without the network. The rest is fetched when you open it. Empty: everything.":
       'La part des fichiers de votre compte qui reste sur cette machine, pour les ouvrir sans réseau. Le reste est récupéré à l’ouverture. Vide : tout.',

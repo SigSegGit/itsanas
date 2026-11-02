@@ -19,6 +19,9 @@ use crate::{
 /// How many times the words may be typed back wrong before setup stops.
 pub(super) const CONFIRM_ATTEMPTS: usize = 3;
 
+/// How many times a new passphrase is asked for before setup stops.
+const PASSPHRASE_ATTEMPTS: usize = 3;
+
 /// Why a phone skips the machine and folder steps.
 const NO_FOLDER_ON_A_PHONE: &str = "a phone has no synced folder: its files are in the app";
 
@@ -240,23 +243,48 @@ impl Setup<'_> {
         Ok(node)
     }
 
+    /// A passphrase for the keys, asked again when it is refused rather than
+    /// stopping the run at the end of a long setup: a short one is a slip, not a
+    /// reason to type the 24 words again.
     fn new_passphrase(&mut self) -> Result<secrets::Secret> {
-        let asked_in = self.prompt.where_asked();
-        self.emit(&Event::NeedsSecret {
-            step: Step::Account,
-            what: "a passphrase for this machine's keys, twice",
-            asked_in,
-        });
-        let passphrase = self.prompt.new_passphrase()?;
+        let mut last = None;
+        for _ in 0..PASSPHRASE_ATTEMPTS {
+            let asked_in = self.prompt.where_asked();
+            self.emit(&Event::NeedsSecret {
+                step: Step::Account,
+                what: "a passphrase for this machine's keys, twice",
+                asked_in,
+            });
+            let passphrase = self.prompt.new_passphrase()?;
+            match self.refusal_of(&passphrase) {
+                None => return Ok(passphrase),
+                Some(error) => {
+                    self.emit(&Event::AskingAgain {
+                        step: Step::Account,
+                        why: error.to_string(),
+                    });
+                    last = Some(error);
+                }
+            }
+        }
+        Err(last.unwrap_or_else(|| CliError::Usage("no passphrase was given".to_owned())))
+    }
+
+    /// Why this passphrase cannot be used, if it cannot.
+    fn refusal_of(&self, passphrase: &secrets::Secret) -> Option<CliError> {
         // Said now, with the numbers: the account would refuse it anyway, after
         // the service's file was judged and with less to say about it.
-        crate::node::check_new_passphrase(&passphrase)?;
-        if self.answers.service {
-            // Said now, before the account is written under a passphrase the
-            // service's file could not hold.
-            service::fits_service_file(std::env::consts::OS, &passphrase)?;
+        if let Err(error) = crate::node::check_new_passphrase(passphrase) {
+            return Some(error);
         }
-        Ok(passphrase)
+        // And before the account is written under a passphrase the service's
+        // file could not hold.
+        if self.answers.service
+            && let Err(error) = service::fits_service_file(std::env::consts::OS, passphrase)
+        {
+            return Some(error);
+        }
+        None
     }
 
     fn join_from_words(&mut self, username: &str) -> Result<Node> {
