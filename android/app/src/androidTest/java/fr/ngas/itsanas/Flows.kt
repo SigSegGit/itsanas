@@ -2,6 +2,7 @@ package fr.ngas.itsanas
 
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -28,6 +29,9 @@ object Flows {
 
     fun has(compose: ComposeTestRule, tag: String): Boolean =
         compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+
+    fun enabled(compose: ComposeTestRule, tag: String): Boolean =
+        runCatching { compose.onNodeWithTag(tag).assertIsEnabled(); true }.getOrDefault(false)
 
     fun waitTag(compose: ComposeTestRule, tag: String, why: String, seconds: Long = 30) {
         E2e.waitFor(why, seconds) { has(compose, tag) }
@@ -158,7 +162,7 @@ object Flows {
     fun lock(compose: ComposeTestRule) {
         if (!E2e.onSection("settings")) openSettings(compose)
         E2e.waitFor("Sign out is not available") { E2e.enabled("#signout") }
-        E2e.tapId("signout")
+        E2e.tapBehindConfirm("signout")
         okInDialog()
         waitTag(compose, "unlock-pass", "signing out did not lock the app, so the account stays open")
     }

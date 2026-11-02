@@ -203,6 +203,14 @@ object E2e {
         onWebView().withElement(findElement(Locator.CSS_SELECTOR, css)).perform(webClick())
     }
 
+    /**
+     * For a click the page answers with window.confirm: a webClick looks for the
+     * web view again while the dialog holds the window, and does not find it.
+     */
+    fun tapBehindConfirm(id: String) {
+        js("(function(){setTimeout(function(){document.getElementById('$id').click()},0);return true})()")
+    }
+
     fun tapId(id: String) {
         onWebView().withElement(findElement(Locator.ID, id)).perform(webClick())
     }
