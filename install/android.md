@@ -39,6 +39,10 @@ rather than a test harness:
 
 `docs/PORTING.md` §4 has the measurements.
 
+### What is run on every change
+
+A debug build on an API 35 emulator is driven through Welcome and the account question by `scripts/android-e2e.sh` in CI (`docs/ANDROID-RELEASE.md`, "The end-to-end protocol"). It is an emulator: the list below still stands.
+
 ### What it has never done
 
 - **Run on physical hardware.** An emulator is not a phone: it has no doze, no

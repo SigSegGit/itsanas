@@ -388,6 +388,10 @@ machines.
 
 ## 4. Android — built, and it runs
 
+Since 2026-11-02 the app is also driven on an emulator in CI, through the page
+and the native screens, against a local coordinator
+(`scripts/android-e2e.sh`; `docs/ANDROID-RELEASE.md`, "The end-to-end protocol").
+
 ### What was measured, on 2026-09-07
 
 The open question was `ring`, which assembles its own primitives for every
