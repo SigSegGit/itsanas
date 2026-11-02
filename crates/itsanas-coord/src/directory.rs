@@ -1,16 +1,32 @@
-//! What the coordinator remembers.
+//! What the coordinator remembers, and for how long.
 //!
-//! Five tables and nothing else: who is called what, which devices they own,
-//! where those devices are, their sealed escrow blobs, and how much each member
-//! is storing. No keys, no plaintext, no chunks.
+//! No keys, no plaintext, no chunks. What it does hold, table by table:
+//!
+//! | Table | Holds | Until |
+//! | --- | --- | --- |
+//! | `accounts`, `accounts_by_id` | a username, its key, its date, whether escrow is on | the account is deleted or forgotten |
+//! | `claims`, `claims_by_owner` | signed device enrolments | the account goes; a withdrawal stays for good, so that it stays final |
+//! | `presence`, `availability` | where a device says it is, when this coordinator last heard it | silent for `PRESENCE_KEPT_FOR`, or the account goes |
+//! | `escrow` | a blob sealed under a passphrase | withdrawn, or the account goes |
+//! | `escrow_tries` | how many fetches of a name, since when | its window is over, or the account goes |
+//! | `usage` | what a member says it stores (no message writes it yet) | the account goes |
+//! | `invitations` | the hash of a code, who signed it, who came in on it | for good: attribution is what it is for |
+//! | `departures` | a device's last signed notice that it is leaving | for good |
+//! | `retired_names` | a deleted account's name | it is free again |
+//! | `deleted_accounts` | an account's own signed deletion | for good: hosts ask, and free what they keep for it |
+//! | `suspended_accounts` | when the operator suspended an account | the suspension is lifted |
+//!
+//! [`crate::service::CoordService::expire`] is what ends the ones with a date,
+//! as the serving process starts and once a day after that.
 //!
 //! # Availability is measured, not asserted
 //!
 //! A device claims an address; it does not get to claim how reliable it is.
-//! The coordinator ticks on a fixed period and asks, for each device, "did I
-//! hear from you since the last tick?" — then folds the answer into an
-//! exponentially weighted average. A node cannot inflate its own uptime by
-//! saying so, only by actually being there.
+//! [`Directory::tick`], which nothing on the live path calls (it says why),
+//! asks for each device on a fixed period "did I hear from you since the last
+//! tick?" -- then folds the answer into an exponentially weighted average. A
+//! node cannot inflate its own uptime by saying so, only by actually being
+//! there.
 //!
 //! The average is integer per mille throughout. A member must be able to check
 //! their own standing and get the same number the coordinator got, and two
@@ -579,11 +595,11 @@ impl Directory {
     /// its name for ever, and the only other way out was editing this file
     /// by hand.
     ///
-    /// Removes the account, its escrow, its usage, and its devices' live
-    /// claims, presences and availability. **Keeps every withdrawal**, with
-    /// its index row: a withdrawal is final for its device id (HANDOVER §6),
-    /// and the same keys registering again must not bring a withdrawn
-    /// machine back. Departures are kept for the same reason.
+    /// Removes the account, its escrow, its count of escrow fetches, its usage,
+    /// and its devices' live claims, presences and availability. **Keeps every
+    /// withdrawal**, with its index row: a withdrawal is final for its device
+    /// id (HANDOVER §6), and the same keys registering again must not bring a
+    /// withdrawn machine back. Departures are kept for the same reason.
     ///
     /// `None` when no account has that name.
     ///
@@ -637,6 +653,7 @@ impl Directory {
             }
             txn.open_table(ESCROW)?
                 .remove(owner.as_bytes().as_slice())?;
+            txn.open_table(ESCROW_TRIES)?.remove(username)?;
             txn.open_table(USAGE)?.remove(owner.as_bytes().as_slice())?;
             txn.open_table(BY_ID)?.remove(owner.as_bytes().as_slice())?;
             accounts.remove(username)?;
@@ -1198,6 +1215,9 @@ impl Directory {
     /// device's opinion of the time and therefore not evidence: a Raspberry Pi
     /// with no real-time clock says 1970, and anybody who wants to sort first
     /// can say whatever they like. Ordering and expiry use this instead.
+    ///
+    /// `None` for a device never heard from, and for one silent past what
+    /// [`Self::expire_presence`] was asked to keep.
     pub fn last_seen(&self, device: DeviceId) -> Result<Option<u64>> {
         let txn = self.db.begin_read()?;
         let availability = txn.open_table(AVAILABILITY)?;
@@ -1218,6 +1238,90 @@ impl Directory {
             Some(value) => Ok(Some(postcard::from_bytes(value.value())?)),
             None => Ok(None),
         }
+    }
+
+    /// Erase the address and the availability record of every device silent
+    /// for longer than `older_than`. Returns how many devices that was.
+    ///
+    /// Silence is this coordinator's own record, as in [`Self::last_seen`]: a
+    /// Raspberry Pi with no real-time clock says 1970 in every announcement.
+    /// The date inside a presence can only keep a row, and only for
+    /// [`crate::claim::MAX_CLOCK_SKEW`] past when it was heard. A date after
+    /// `now`, in either place, means this clock was set back, and that is no
+    /// evidence of silence.
+    ///
+    /// The enrolment stays: a machine switched off for two months is still the
+    /// account's, and its next announcement brings back all of this. A row
+    /// that cannot be read has no date, so nothing keeps it but a record of
+    /// having heard the device.
+    ///
+    /// One write transaction for the pass: read first and erased in a second,
+    /// an address announced between the two would be the one erased.
+    pub fn expire_presence(&self, now: u64, older_than: u64) -> Result<usize> {
+        let txn = self.db.begin_write()?;
+        let erased = {
+            let mut presence = txn.open_table(PRESENCE)?;
+            let mut availability = txn.open_table(AVAILABILITY)?;
+
+            let mut silent = Vec::new();
+            for row in presence.iter()? {
+                let (device, value) = row?;
+                let said = postcard::from_bytes::<SignedPresence>(value.value())
+                    .map_or(0, |signed| signed.presence.at_unix);
+                let heard = availability
+                    .get(device.value())?
+                    .and_then(|record| {
+                        postcard::from_bytes::<AvailabilityRecord>(record.value()).ok()
+                    })
+                    .map_or(0, |record| record.last_seen_unix);
+                if now.saturating_sub(heard.max(said)) > older_than {
+                    silent.push(device.value().to_vec());
+                }
+            }
+
+            for device in &silent {
+                presence.remove(device.as_slice())?;
+                availability.remove(device.as_slice())?;
+            }
+            silent.len()
+        };
+        txn.commit()?;
+        Ok(erased)
+    }
+
+    /// Drop every retired name whose `until` has passed. Returns how many.
+    ///
+    /// The same line `refuse_if_retired` draws, so this changes nothing anybody
+    /// is told: only that the name of somebody who deleted their account stops
+    /// being in this file once it no longer has a use here.
+    pub fn expire_retired_names(&self, now: u64) -> Result<usize> {
+        let txn = self.db.begin_write()?;
+        let mut purged = 0;
+        txn.open_table(RETIRED)?.retain(|_, until| {
+            let free = until <= now;
+            purged += usize::from(free);
+            !free
+        })?;
+        txn.commit()?;
+        Ok(purged)
+    }
+
+    /// Drop every count of escrow fetches whose `window` is over, and any that
+    /// cannot be read. Returns how many.
+    ///
+    /// A count whose window is over is restarted by the next fetch of that name
+    /// anyway, so this gives nobody a budget they did not have. What it removes
+    /// is the name: any stranger can write one here, real or invented.
+    pub fn expire_escrow_tries(&self, now: u64, window: u64) -> Result<usize> {
+        let txn = self.db.begin_write()?;
+        let mut purged = 0;
+        txn.open_table(ESCROW_TRIES)?.retain(|_, value| {
+            let over = escrow_try(value).is_none_or(|(_, since)| window_over(since, now, window));
+            purged += usize::from(over);
+            !over
+        })?;
+        txn.commit()?;
+        Ok(purged)
     }
 
     /// Fold one period's observation into every device's availability.
@@ -1407,8 +1511,7 @@ impl Directory {
     ///
     /// The same rule as the in-memory `EscrowLimiter`, kept across restarts.
     /// Full means refuse, never evict (evicting is how a caller would clear
-    /// their own count). A clock that went backwards keeps the window open:
-    /// the cautious side.
+    /// their own count).
     pub fn count_escrow_attempt(
         &self,
         username: &str,
@@ -1417,16 +1520,11 @@ impl Directory {
         window: u64,
         capacity: usize,
     ) -> Result<bool> {
-        let decode = |bytes: &[u8]| -> Option<(u32, u64)> {
-            let count = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?);
-            let since = u64::from_le_bytes(bytes.get(4..12)?.try_into().ok()?);
-            Some((count, since))
-        };
-        let expired = |since: u64| now >= since && now - since >= window;
+        let expired = |since: u64| window_over(since, now, window);
         let txn = self.db.begin_write()?;
         let allowed_now = {
             let mut table = txn.open_table(ESCROW_TRIES)?;
-            let current = table.get(username)?.and_then(|v| decode(v.value()));
+            let current = table.get(username)?.and_then(|v| escrow_try(v.value()));
             let next = match current {
                 Some((_, since)) if expired(since) => Some((1, now)),
                 Some((count, _)) if count >= allowed => None,
@@ -1436,7 +1534,7 @@ impl Directory {
                         let stale: Vec<String> = table
                             .iter()?
                             .filter_map(std::result::Result::ok)
-                            .filter(|(_, v)| decode(v.value()).is_none_or(|(_, s)| expired(s)))
+                            .filter(|(_, v)| escrow_try(v.value()).is_none_or(|(_, s)| expired(s)))
                             .map(|(k, _)| k.value().to_owned())
                             .collect();
                         for name in &stale {
@@ -1489,6 +1587,19 @@ impl Directory {
 /// A keystore holding a master secret and a device seed is a few hundred bytes.
 /// 4 KiB is generous and stops the directory being used as free storage.
 pub const MAX_ESCROW_LEN: usize = 4096;
+
+/// A row of [`ESCROW_TRIES`]: how many fetches, and since when.
+fn escrow_try(bytes: &[u8]) -> Option<(u32, u64)> {
+    let count = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?);
+    let since = u64::from_le_bytes(bytes.get(4..12)?.try_into().ok()?);
+    Some((count, since))
+}
+
+/// Whether a window opened at `since` is over at `now`. A clock that went
+/// backwards keeps it open: the cautious side.
+const fn window_over(since: u64, now: u64, window: u64) -> bool {
+    now >= since && now - since >= window
+}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 struct UsageRecord {
@@ -3301,6 +3412,368 @@ mod tests {
             told.iter().map(|d| d.deletion.user).collect::<Vec<_>>(),
             vec![owner.user_id()],
             "a host asking which of its owners were deleted was not told, so it kept their chunks"
+        );
+    }
+
+    // ------------------------------------------------- what stops being kept
+
+    const KEPT: u64 = crate::service::PRESENCE_KEPT_FOR;
+
+    /// `dev` announcing itself, saying the time is `said`, heard by a
+    /// coordinator whose clock reads `heard`.
+    fn announce_at(directory: &Directory, dev: &DeviceKeys, said: u64, heard: u64) {
+        directory
+            .announce(
+                &Presence {
+                    device: dev.device_id(),
+                    address: "203.0.113.7:9797".to_owned(),
+                    at_unix: said,
+                }
+                .sign(dev),
+                heard,
+            )
+            .expect("announce");
+    }
+
+    /// The directory's rows are held for as long as the file exists, so a row
+    /// nothing erases is an address that outlives its machine in every copy of
+    /// that file. The rule is the coordinator's own record of the silence, on
+    /// the same `>` as `PRESENCE_TTL`.
+    #[test]
+    fn red_team_an_address_silent_past_the_keep_is_erased_with_its_availability() {
+        let (_dir, directory) = directory();
+        let owner = user(70);
+        register(&directory, "camille", &owner);
+        let (gone, edge, here, withdrawn) = (device(71), device(72), device(73), device(74));
+        for dev in [&gone, &edge, &here, &withdrawn] {
+            enrol(&directory, &owner, dev, 1 << 30);
+        }
+        let later = NOW + KEPT + 1;
+        announce_at(&directory, &gone, NOW, NOW);
+        announce_at(&directory, &withdrawn, NOW, NOW);
+        announce_at(&directory, &edge, NOW + 1, NOW + 1);
+        announce_at(&directory, &here, later, later);
+        let withdrawal = NodeClaim {
+            owner: owner.user_id(),
+            device: withdrawn.device_id(),
+            pledged_bytes: 0,
+            issued_unix: NOW + 1,
+            revoked: true,
+        }
+        .sign(&owner);
+        directory.claim(&withdrawal, NOW + 1).expect("withdraw");
+
+        assert_eq!(
+            directory.expire_presence(later, KEPT).unwrap(),
+            2,
+            "a pass must erase exactly the two devices silent past the keep"
+        );
+        for dev in [&gone, &withdrawn] {
+            assert_eq!(
+                directory.presence_of(dev.device_id()).unwrap(),
+                None,
+                "the address of a machine silent past the keep is still held, so every copy \
+                 of this file still says where its owner was"
+            );
+            assert_eq!(
+                directory.last_seen(dev.device_id()).unwrap(),
+                None,
+                "the address went and the date it was last heard from stayed: the file still \
+                 says when the machine was last on"
+            );
+        }
+        assert!(
+            directory.presence_of(edge.device_id()).unwrap().is_some(),
+            "a machine silent for exactly the keep lost its address a second too soon"
+        );
+        assert_eq!(
+            directory.last_seen(edge.device_id()).unwrap(),
+            Some(NOW + 1),
+            "a machine inside the keep lost the date its owner's device list reads"
+        );
+        assert!(
+            directory.presence_of(here.device_id()).unwrap().is_some(),
+            "a machine heard from just now lost its address: its owner cannot be found"
+        );
+        assert_eq!(
+            directory.live_claims_of(owner.user_id()).unwrap().len(),
+            3,
+            "erasing an address took a machine out of its account; a member would have to \
+             enrol it again because it was switched off for a month"
+        );
+        assert_eq!(
+            directory.expire_presence(later, KEPT).unwrap(),
+            0,
+            "a second pass found rows the first said it had erased"
+        );
+    }
+
+    /// A VM can start with its clock far behind, and every row then looks dated
+    /// in the future. That says something about the clock and nothing about the
+    /// machines, and each of them would become unfindable until it next announced.
+    #[test]
+    fn red_team_a_clock_set_back_erases_no_address() {
+        let (_dir, directory) = directory();
+        let owner = user(75);
+        register(&directory, "camille", &owner);
+        let laptop = device(75);
+        enrol(&directory, &owner, &laptop, 1 << 30);
+        announce_at(&directory, &laptop, NOW, NOW);
+
+        for clock in [0, 1, NOW - KEPT - 1, NOW - 1] {
+            assert_eq!(
+                directory.expire_presence(clock, KEPT).unwrap(),
+                0,
+                "a coordinator whose clock read {clock} erased a machine heard from at {NOW}; \
+                 every member becomes unfindable the day its clock is wrong"
+            );
+        }
+        assert_eq!(
+            directory.last_seen(laptop.device_id()).unwrap(),
+            Some(NOW),
+            "a clock set back erased the date its owner's device list reads"
+        );
+    }
+
+    /// The date inside a presence is the announcing machine's opinion. A Pi
+    /// with no real-time clock says 1970 every hour, and judging by that erases
+    /// the address of the one machine that is always on.
+    #[test]
+    fn red_team_a_machine_with_no_real_time_clock_keeps_its_address() {
+        let (_dir, directory) = directory();
+        let owner = user(76);
+        register(&directory, "camille", &owner);
+        let pi = device(76);
+        enrol(&directory, &owner, &pi, 1 << 30);
+        announce_at(&directory, &pi, 0, NOW);
+
+        assert_eq!(
+            directory.expire_presence(NOW, KEPT).unwrap(),
+            0,
+            "a Pi that says 1970 and was heard just now lost its address at the first pass"
+        );
+        assert!(
+            directory.presence_of(pi.device_id()).unwrap().is_some(),
+            "the pass said it erased nothing and the Pi's address is gone"
+        );
+    }
+
+    /// Every write keeps the two tables together, so these rows come only from a
+    /// damaged or hand-edited file. None may become the one address nothing
+    /// erases, and a presence's own date is the only one left to judge it by.
+    #[test]
+    fn a_presence_with_no_availability_record_is_judged_by_its_own_date() {
+        let (_dir, directory) = directory();
+        let owner = user(77);
+        register(&directory, "camille", &owner);
+        let (old, ahead) = (device(77), device(78));
+        enrol(&directory, &owner, &old, 1 << 30);
+        enrol(&directory, &owner, &ahead, 1 << 30);
+        let later = NOW + KEPT + 1;
+        announce_at(&directory, &old, NOW, NOW);
+        announce_at(&directory, &ahead, later + 3600, later + 3600);
+        let txn = directory.db.begin_write().unwrap();
+        {
+            let mut availability = txn.open_table(AVAILABILITY).unwrap();
+            for dev in [&old, &ahead] {
+                availability
+                    .remove(dev.device_id().to_bytes().as_slice())
+                    .unwrap();
+            }
+            txn.open_table(PRESENCE)
+                .unwrap()
+                .insert(
+                    device(99).device_id().to_bytes().as_slice(),
+                    b"x".as_slice(),
+                )
+                .unwrap();
+        }
+        txn.commit().unwrap();
+
+        assert_eq!(
+            directory.expire_presence(later, KEPT).unwrap(),
+            2,
+            "one row with no date of its own stopped the pass, or stayed for good"
+        );
+        assert_eq!(
+            directory.presence_of(old.device_id()).unwrap(),
+            None,
+            "a presence with no availability row is never erased"
+        );
+        assert!(
+            directory.presence_of(ahead.device_id()).unwrap().is_some(),
+            "a row dated after this clock was erased: the clock is what is wrong"
+        );
+    }
+
+    fn retired_names(directory: &Directory) -> Vec<String> {
+        let txn = directory.db.begin_read().unwrap();
+        let table = txn.open_table(RETIRED).unwrap();
+        table
+            .iter()
+            .unwrap()
+            .map(|row| row.unwrap().0.value().to_owned())
+            .collect()
+    }
+
+    /// A retired name is what stops somebody appearing under a name a friend's
+    /// list knows. Purging one early hands that name out; never purging keeps
+    /// every deleted member's name in the file for good.
+    #[test]
+    fn red_team_a_retired_name_is_purged_when_its_year_is_over_and_not_before() {
+        let (_dir, directory) = directory();
+        let (early, late, stranger) = (user(79), user(80), user(81));
+        register(&directory, "early", &early);
+        register(&directory, "late", &late);
+        directory
+            .delete_account(&deletion(&early, "early", NOW), NOW)
+            .expect("delete");
+        directory
+            .delete_account(&deletion(&late, "late", NOW + 10), NOW + 10)
+            .expect("delete");
+        let free_at = NOW + NAME_RETIRED_FOR;
+
+        for clock in [0, NOW, free_at - 1] {
+            assert_eq!(
+                directory.expire_retired_names(clock).unwrap(),
+                0,
+                "a name was purged at {clock}, before its year was over"
+            );
+        }
+        assert!(
+            matches!(
+                try_register(&directory, "early", &stranger, free_at - 1),
+                Err(CoordError::Retired { .. })
+            ),
+            "a name came free before its year was over: a stranger appears under it in the \
+             lists of people who knew its owner"
+        );
+
+        assert_eq!(
+            directory.expire_retired_names(free_at).unwrap(),
+            1,
+            "the name of somebody who deleted their account stays in the file for good"
+        );
+        assert_eq!(
+            retired_names(&directory),
+            vec!["late".to_owned()],
+            "a deleted member's name stayed in the file after its year, or a name still \
+             retired went with it"
+        );
+        assert!(
+            matches!(
+                try_register(&directory, "late", &stranger, free_at),
+                Err(CoordError::Retired { .. })
+            ),
+            "the name retired ten seconds later came free with the first"
+        );
+        assert!(
+            matches!(
+                try_register(&directory, "another", &early, free_at),
+                Err(CoordError::Deleted)
+            ),
+            "the pass took a tombstone with the name: a deleted account's key can come back"
+        );
+        assert!(
+            try_register(&directory, "early", &stranger, free_at).is_ok(),
+            "a name purged at the end of its year could not be registered"
+        );
+    }
+
+    fn escrow_counts(directory: &Directory) -> Vec<String> {
+        let txn = directory.db.begin_read().unwrap();
+        let table = txn.open_table(ESCROW_TRIES).unwrap();
+        table
+            .iter()
+            .unwrap()
+            .map(|row| row.unwrap().0.value().to_owned())
+            .collect()
+    }
+
+    /// The count is the whole defence of the sealed blob, so a pass that cleared
+    /// a live one would be a fresh budget for a guesser, every day, on schedule.
+    #[test]
+    fn red_team_purging_escrow_counts_gives_a_guesser_no_fresh_budget() {
+        const WINDOW: u64 = 60;
+        let (_dir, directory) = directory();
+        for _ in 0..3 {
+            assert!(
+                directory
+                    .count_escrow_attempt("victim", NOW, 3, WINDOW, 8)
+                    .unwrap()
+            );
+        }
+        assert!(
+            directory
+                .count_escrow_attempt("invented", NOW - WINDOW, 3, WINDOW, 8)
+                .unwrap()
+        );
+        let txn = directory.db.begin_write().unwrap();
+        txn.open_table(ESCROW_TRIES)
+            .unwrap()
+            .insert("unreadable", b"x".as_slice())
+            .unwrap();
+        txn.commit().unwrap();
+
+        assert_eq!(
+            directory.expire_escrow_tries(NOW, WINDOW).unwrap(),
+            2,
+            "a name a stranger invented stays in the file for good once its window is over"
+        );
+        assert_eq!(
+            escrow_counts(&directory),
+            vec!["victim".to_owned()],
+            "the pass kept the wrong names: a live count must stay and an old one go"
+        );
+        assert!(
+            !directory
+                .count_escrow_attempt("victim", NOW + 1, 3, WINDOW, 8)
+                .unwrap(),
+            "the pass cleared the count of a name being ground: a fresh budget of guesses"
+        );
+
+        assert_eq!(
+            directory.expire_escrow_tries(NOW - 1000, WINDOW).unwrap(),
+            0,
+            "a clock set back reopened a window, which is a fresh budget of guesses"
+        );
+        assert_eq!(
+            directory.expire_escrow_tries(NOW + WINDOW, WINDOW).unwrap(),
+            1,
+            "a count whose window is over stays in the file, with the name it counts"
+        );
+        assert_eq!(
+            escrow_counts(&directory),
+            Vec::<String>::new(),
+            "the pass said it dropped the last count and the name is still there"
+        );
+        assert!(
+            directory
+                .count_escrow_attempt("victim", NOW + WINDOW, 3, WINDOW, 8)
+                .unwrap(),
+            "a name whose window was over and whose row was purged stayed refused"
+        );
+    }
+
+    #[test]
+    fn an_account_that_goes_leaves_no_escrow_count_behind() {
+        let (_dir, directory) = directory();
+        let (forgotten, deleted) = (user(82), user(83));
+        register(&directory, "forgotten", &forgotten);
+        register(&directory, "deleted", &deleted);
+        for name in ["forgotten", "deleted", "invented"] {
+            assert!(directory.count_escrow_attempt(name, NOW, 3, 60, 8).unwrap());
+        }
+
+        directory.forget_account("forgotten").unwrap().unwrap();
+        directory
+            .delete_account(&deletion(&deleted, "deleted", NOW), NOW)
+            .expect("delete");
+
+        assert_eq!(
+            escrow_counts(&directory),
+            vec!["invented".to_owned()],
+            "a name that left the directory stayed in its table of escrow counts"
         );
     }
 }

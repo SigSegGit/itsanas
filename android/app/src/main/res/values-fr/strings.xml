@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ITSaNAS</string>
+
+    <string name="back">Retour</string>
+    <string name="cancel">Annuler</string>
+    <string name="ok">OK</string>
+    <string name="close">Fermer</string>
+    <string name="continue_">Continuer</string>
+    <string name="did_not_work">Cela n\'a pas marché</string>
+    <string name="show_passphrase">Afficher la phrase secrète</string>
+    <string name="hide_passphrase">Masquer la phrase secrète</string>
+
+    <string name="unlock_title">Déverrouiller</string>
+    <string name="passphrase_label">Phrase secrète</string>
+    <string name="unlock_open">Ouvrir</string>
+    <string name="unlock_forgot">J\'ai oublié ma phrase secrète</string>
+
+    <string name="new_passphrase_title">Choisir une phrase secrète</string>
+    <string name="new_passphrase_help">Elle protège ce compte sur ce téléphone. Entre %1$d et %2$d caractères.</string>
+    <string name="new_passphrase_again">Saisissez-la encore</string>
+    <string name="new_passphrase_differ">Les deux ne correspondent pas.</string>
+
+    <string name="ask_passphrase_title">Votre phrase secrète</string>
+    <string name="ask_passphrase_help">Nécessaire pour : %1$s</string>
+
+    <string name="recovery_title">Vos 24 mots</string>
+    <string name="recovery_help">Saisissez ou collez les 24 mots du compte, séparés par des espaces.</string>
+    <string name="recovery_label">Les 24 mots</string>
+    <string name="recovery_count">%1$d mots sur 24</string>
+    <string name="recovery_unknown">Le mot %1$d ne figure dans aucune phrase de récupération.</string>
+    <string name="recovery_ok">Ces 24 mots vont ensemble.</string>
+
+    <string name="words_title">Vos 24 mots</string>
+    <string name="words_text">Ces 24 mots sont votre compte. Avec eux, vous pouvez l\'ouvrir sur n\'importe quelle machine. Quiconque les a peut lire tout ce que vous stockez. Si vous les perdez avec toutes les machines du compte, personne ne pourra le rendre.</string>
+    <string name="words_advice">Notez-les en lieu sûr, ou gardez-les dans un gestionnaire de mots de passe.</string>
+    <string name="words_copy">Copier</string>
+    <string name="words_copy_title">Copier les mots ?</string>
+    <string name="words_copy_body">D\'autres applications peuvent lire ce que vous copiez. ITSaNAS l\'efface au bout de 60 secondes.</string>
+    <string name="words_have_them">Je les ai</string>
+
+    <string name="check_title">Vérification</string>
+    <string name="check_help">Saisissez ces mots d\'après la liste que vous avez notée.</string>
+    <string name="check_word">Mot %1$d</string>
+    <string name="check_wrong">Ce n\'est pas cela. Regardez les mots et réessayez (%1$d essais restants).</string>
+    <string name="check_again">Trois erreurs : les mots sont montrés de nouveau, et d\'autres positions seront demandées.</string>
+    <string name="check_show_again">Montrer les mots de nouveau</string>
+    <string name="check_confirm">Confirmer</string>
+
+    <string name="files_empty">Rien ici pour l\'instant. Ajoutez un fichier, ou synchronisez avec l\'une de vos machines.</string>
+    <string name="files_summary">%1$d ici · %2$d absents · %3$s</string>
+    <string name="files_added">%1$d fichier(s) ajouté(s)</string>
+    <string name="files_sync">Synchroniser</string>
+    <string name="files_settings">Réglages</string>
+    <string name="files_add">Ajouter un fichier</string>
+    <string name="file_open">Ouvrir</string>
+    <string name="file_fetch">Récupérer et ouvrir</string>
+    <string name="file_delete">Supprimer</string>
+    <string name="file_not_here">pas sur ce téléphone</string>
+    <string name="delete_title">Supprimer %1$s ?</string>
+    <string name="delete_body">Il disparaît de toutes les machines du compte, pas seulement de ce téléphone. Il n\'y a pas d\'annulation.</string>
+    <string name="delete_everywhere">Supprimer partout</string>
+    <string name="delete_keep">Le garder</string>
+
+    <string name="update_title">ITSaNAS %1$s est disponible</string>
+    <string name="update_body">Ce téléphone utilise %1$s. Android demande confirmation avant l\'installation.</string>
+    <string name="update_install">Installer</string>
+    <string name="update_later">Plus tard</string>
+    <string name="update_allow">Autorisez ITSaNAS à installer des applications dans les réglages d\'Android. La proposition reviendra à la prochaine ouverture de l\'application.</string>
+    <string name="update_failed">La mise à jour n\'a pas été installée : %1$s</string>
+
+    <string name="biometric_title">Déverrouiller par empreinte ou visage ?</string>
+    <string name="biometric_body">ITSaNAS s\'ouvre alors après une empreinte ou un visage, au lieu de garder votre phrase secrète prête. Ajouter une empreinte à ce téléphone désactive cette option jusqu\'à ce que vous saisissiez de nouveau la phrase secrète.</string>
+    <string name="biometric_on">Activer</string>
+    <string name="biometric_not_now">Pas maintenant</string>
+    <string name="biometric_failed">Le déverrouillage par empreinte ou visage n\'a pas été activé.</string>
+
+    <string name="notification_channel">Synchronisation</string>
+</resources>

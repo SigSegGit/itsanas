@@ -1,11 +1,11 @@
 package fr.ngas.itsanas
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
-import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,16 +13,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -39,12 +36,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -58,32 +54,45 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.fragment.app.FragmentActivity
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.json.JSONObject
+import kotlinx.coroutines.withContext
 
 /**
- * The whole application.
- *
- * Four states and no navigation library: this has one screen with a settings
- * sheet, and a router would be scaffolding around a decision nobody has to
- * make. Everything sizes itself — no fixed widths, one column that fills
- * whatever it is given — so a tall phone, a folded one and a tablet all work
- * without a layout each.
+ * The phone's thin host. Everything an account is or does -- first run,
+ * recovery, settings, devices, space -- is the page the engine serves, the same
+ * as on a PC; this draws only what a page cannot: the screens that ask for a
+ * secret, Unlock, the files, the update offer.
  */
 // A FragmentActivity because the biometric prompt is a fragment.
 class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        Appearance.load(this)
+        Appearance.phoneDark = isNight(resources.configuration)
         super.onCreate(savedInstanceState)
+        Host.attach(applicationContext)
+        // The Recents card would show a file list, or the words.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            setRecentsScreenshotEnabled(false)
+        }
         val shared = incoming(intent)
-        setContent { MaterialTheme { App(shared) } }
+        setContent { ITSaNASTheme { App(shared) } }
     }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        Appearance.phoneDark = isNight(newConfig)
+    }
+
+    private fun isNight(config: Configuration) =
+        config.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
 
     /**
      * Files another application shared into this one, if any.
@@ -116,10 +125,11 @@ class MainActivity : FragmentActivity() {
 
 private sealed interface Screen {
     data object Opening : Screen
-    data object NoAccount : Screen
     data object Locked : Screen
     data object Biometric : Screen
-    data class Phrase(val words: String) : Screen
+
+    /** The engine's page: `setup` (first run) or `settings`. */
+    data class Page(val url: String, val mode: String) : Screen
     data object Ready : Screen
 }
 
@@ -131,10 +141,25 @@ private fun App(shared: List<Uri>) {
     var offered by remember { mutableStateOf<Updater.Offer?>(null) }
     val scope = rememberCoroutineScope()
 
+    suspend fun page(mode: String): Screen = withContext(Dispatchers.IO) {
+        val home = Vault.home(context).also { it.mkdirs() }
+        Screen.Page(Native.pageStart(home.absolutePath, mode, Biometric.available(context)), mode)
+    }
+
+    // Leaving the page: the screen changes first, so the engine's late
+    // "closed" is not read as a page that ended by itself.
+    fun leave(next: Screen) {
+        screen = next
+        // Not on another thread: it does not wait for the engine, and a queued stop
+        // could land after the next page opened, and stop that one.
+        runCatching { Native.pageStop() }
+        Host.cancelAll()
+    }
+
     // A newer release, asked at most once a day when the application opens:
     // installed by hand, it hears of one from nothing else (Updater). Quiet
     // when offline or when GitHub does not answer: a failure here is not news
-    // worth a dialog at every launch; Settings -> Updates says it.
+    // worth a dialog at every launch.
     LaunchedEffect(Unit) {
         offered = Updater.dueOffer(context)
     }
@@ -144,7 +169,10 @@ private fun App(shared: List<Uri>) {
     LaunchedEffect(Unit) {
         screen = try {
             if (!Account.exists(context)) {
-                Screen.NoAccount
+                page("setup")
+            } else if (Account.open) {
+                // The service kept the process, and the node, alive.
+                Screen.Ready
             } else if (Biometric.enabled(context)) {
                 // The fingerprint or face check below decides.
                 Screen.Biometric
@@ -164,6 +192,65 @@ private fun App(shared: List<Uri>) {
         }
     }
 
+    // What the page changed that this app also draws or keeps.
+    LaunchedEffect(Unit) {
+        Host.events.collect { (name, value) ->
+            val current = screen
+            try {
+                when (name) {
+                    "closed" -> if (current is Screen.Page) {
+                        screen = if (value == "done") {
+                            // The engine leaves the node closed: open it here, or
+                            // Ready would stand on an empty slot.
+                            val remembered =
+                                if (Account.open) null else Vault.rememberedPassphrase(context)
+                            if (remembered != null) Account.unlock(context, remembered)
+                            if (Account.open) {
+                                SyncService.start(context)
+                                Screen.Ready
+                            } else {
+                                Screen.Locked
+                            }
+                        } else {
+                            // Nobody touched it for a while: a fresh page, a fresh key.
+                            page(current.mode)
+                        }
+                    }
+
+                    "signedOut" -> {
+                        // Or a fingerprint would still open what was signed out of.
+                        Biometric.disable(context)
+                        Account.close(context)
+                        leave(Screen.Locked)
+                    }
+
+                    "removed", "account_removed" -> {
+                        Account.close(context)
+                        Vault.forget(context)
+                        Biometric.disable(context)
+                        screen = page("setup")
+                    }
+
+                    "biometric" -> {
+                        if (value == "on") {
+                            val passphrase = Vault.rememberedPassphrase(context)
+                            if (passphrase != null) {
+                                Biometric.enable(context as FragmentActivity, passphrase) { on ->
+                                    if (!on) complaint = context.getString(R.string.biometric_failed)
+                                }
+                            }
+                        } else {
+                            Biometric.disable(context)
+                        }
+                    }
+                }
+            } catch (error: Throwable) {
+                complaint = error.message
+                screen = Screen.Locked
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         when (val current = screen) {
             Screen.Opening -> Centred { CircularProgressIndicator() }
@@ -178,6 +265,9 @@ private fun App(shared: List<Uri>) {
                                 SyncService.start(context)
                                 Screen.Ready
                             } catch (error: Throwable) {
+                                // What the fingerprint holds opened nothing: the passphrase
+                                // was changed since. Typing it works; asking again never would.
+                                Biometric.disable(context)
                                 complaint = error.message
                                 Screen.Locked
                             }
@@ -185,34 +275,43 @@ private fun App(shared: List<Uri>) {
                     }, { screen = Screen.Locked })
                 }
             }
-            Screen.NoAccount -> FirstRun(
-                onCreated = { screen = Screen.Phrase(it) },
-                onRestored = { SyncService.start(context); screen = Screen.Ready },
-                complain = { complaint = it },
+            is Screen.Page -> Page(
+                url = current.url,
+                onLeave = {
+                    if (current.mode == "setup") {
+                        // Back from the first step: out of the app, nothing was made.
+                        leave(Screen.Opening)
+                        (context as FragmentActivity).finish()
+                    } else {
+                        leave(Screen.Ready)
+                    }
+                },
+                modifier = Modifier.fillMaxSize().safeDrawingPadding(),
             )
             Screen.Locked -> Unlock(
                 onOpen = { SyncService.start(context); screen = Screen.Ready },
                 complain = { complaint = it },
             )
-            is Screen.Phrase -> RecoveryPhrase(current.words) {
-                SyncService.start(context)
-                screen = Screen.Ready
-            }
             Screen.Ready -> {
-                Files(shared) { complaint = it }
+                Files(
+                    shared,
+                    onSettings = {
+                        scope.launch {
+                            try {
+                                screen = page("settings")
+                            } catch (error: Throwable) {
+                                complaint = error.message
+                            }
+                        }
+                    },
+                ) { complaint = it }
                 // Offered once, after the passphrase was typed and worked.
                 var offer by remember { mutableStateOf(Biometric.shouldOffer(context)) }
                 if (offer) {
                     AlertDialog(
                         onDismissRequest = { offer = false; Biometric.answered(context) },
-                        title = { Text("Unlock with your fingerprint or face?") },
-                        text = {
-                            Text(
-                                "ITSaNAS then opens after a fingerprint or face check instead " +
-                                    "of keeping your passphrase ready. Adding a new fingerprint " +
-                                    "to this phone turns it off until you type the passphrase again.",
-                            )
-                        },
+                        title = { Text(stringResource(R.string.biometric_title)) },
+                        text = { Text(stringResource(R.string.biometric_body)) },
                         confirmButton = {
                             TextButton({
                                 offer = false
@@ -220,50 +319,60 @@ private fun App(shared: List<Uri>) {
                                 val passphrase = Vault.rememberedPassphrase(context)
                                 if (passphrase != null) {
                                     Biometric.enable(context as FragmentActivity, passphrase) { on ->
-                                        if (!on) complaint = "Fingerprint or face unlock was not turned on."
+                                        if (!on) complaint = context.getString(R.string.biometric_failed)
                                     }
                                 }
-                            }) { Text("Turn on") }
+                            }) { Text(stringResource(R.string.biometric_on)) }
                         },
                         dismissButton = {
-                            TextButton({ offer = false; Biometric.answered(context) }) { Text("Not now") }
+                            TextButton({ offer = false; Biometric.answered(context) }) {
+                                Text(stringResource(R.string.biometric_not_now))
+                            }
                         },
                     )
                 }
             }
         }
+
+        // A secret the engine is waiting for, over whatever is showing.
+        Host.current?.let { AskOverlay(it) }
     }
 
     offered?.let { offer ->
         AlertDialog(
             onDismissRequest = { offered = null },
-            title = { Text("ITSaNAS ${offer.version} is available") },
-            text = { Text("This phone runs ${BuildConfig.VERSION_NAME}. Android asks before installing it.") },
+            title = { Text(stringResource(R.string.update_title, offer.version)) },
+            text = { Text(stringResource(R.string.update_body, BuildConfig.VERSION_NAME)) },
             confirmButton = {
                 TextButton({
                     offered = null
                     scope.launch {
                         try {
                             if (!Updater.install(context, offer)) {
-                                complaint = "Allow ITSaNAS to install apps, then open " +
-                                    "Settings -> Updates and tap Install."
+                                complaint = context.getString(R.string.update_allow)
                             }
                         } catch (e: Exception) {
-                            complaint = "The update was not installed: ${e.message}"
+                            complaint = context.getString(R.string.update_failed, e.message ?: "")
                         }
                     }
-                }) { Text("Install") }
+                }) { Text(stringResource(R.string.update_install)) }
             },
-            dismissButton = { TextButton({ offered = null }) { Text("Later") } },
+            dismissButton = {
+                TextButton({ offered = null }) { Text(stringResource(R.string.update_later)) }
+            },
         )
     }
 
     complaint?.let { message ->
         AlertDialog(
             onDismissRequest = { complaint = null },
-            confirmButton = { TextButton({ complaint = null }) { Text("Close") } },
-            title = { Text("That did not work") },
-            text = { Text(message) },
+            confirmButton = {
+                TextButton({ complaint = null }, Modifier.testTag("complaint-close")) {
+                    Text(stringResource(R.string.close))
+                }
+            },
+            title = { Text(stringResource(R.string.did_not_work)) },
+            text = { Text(message, Modifier.testTag("complaint")) },
         )
     }
 }
@@ -274,160 +383,23 @@ private fun Centred(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun FirstRun(
-    onCreated: (String) -> Unit,
-    onRestored: () -> Unit,
-    complain: (String) -> Unit,
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var username by remember { mutableStateOf("") }
-    var passphrase by remember { mutableStateOf("") }
-    var phrase by remember { mutableStateOf("") }
-    var restoring by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf(false) }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text("ITSaNAS", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            if (restoring) {
-                "Restore an account on this phone from its twenty-four words."
-            } else {
-                "Create an account. You will be shown twenty-four words once: " +
-                    "they are your data, and nobody can give them back to you."
-            },
-            style = MaterialTheme.typography.bodyMedium,
-        )
-
-        OutlinedTextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Account name") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        if (restoring) {
-            OutlinedTextField(
-                value = phrase,
-                onValueChange = { phrase = it },
-                label = { Text("The twenty-four words") },
-                minLines = 3,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-
-        OutlinedTextField(
-            value = passphrase,
-            onValueChange = { passphrase = it },
-            label = { Text("Passphrase for this phone") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Button(
-            onClick = {
-                busy = true
-                scope.launch {
-                    try {
-                        if (restoring) {
-                            Account.login(context, username.trim(), phrase, passphrase)
-                            onRestored()
-                        } else {
-                            onCreated(Account.create(context, username.trim(), passphrase))
-                        }
-                    } catch (error: Throwable) {
-                        complain(error.message ?: "unknown failure")
-                    } finally {
-                        busy = false
-                    }
-                }
-            },
-            enabled = !busy && username.isNotBlank() && passphrase.length >= 8 &&
-                (!restoring || phrase.trim().split(Regex("\\s+")).size == 24),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text(if (restoring) "Restore" else "Create the account")
-        }
-
-        TextButton({ restoring = !restoring }, Modifier.fillMaxWidth()) {
-            Text(if (restoring) "Create a new account instead" else "I already have an account")
-        }
-
-        if (busy) Centred { CircularProgressIndicator() }
-    }
-}
-
-@Composable
-private fun RecoveryPhrase(words: String, onAcknowledged: () -> Unit) {
-    var written by remember { mutableStateOf(false) }
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text("Write these down", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "On paper, somewhere your house burning down would not reach. They " +
-                "are shown once and stored nowhere. Anyone who has them can read " +
-                "everything you store; without them, and without your passphrase, " +
-                "every byte is gone.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
-
-        Card(Modifier.fillMaxWidth()) {
-            Text(
-                words,
-                fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(16.dp),
-            )
-        }
-
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = written, onCheckedChange = { written = it })
-            Spacer(Modifier.widthIn(min = 12.dp))
-            Text("I have written them down")
-        }
-
-        Button(onAcknowledged, enabled = written, modifier = Modifier.fillMaxWidth()) {
-            Text("Continue")
-        }
-    }
-}
-
-@Composable
 private fun Unlock(onOpen: () -> Unit, complain: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var passphrase by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
 
+    SecureScreen()
     Column(
         Modifier
             .fillMaxSize()
+            .safeDrawingPadding()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Unlock", style = MaterialTheme.typography.headlineMedium)
-        OutlinedTextField(
-            value = passphrase,
-            onValueChange = { passphrase = it },
-            label = { Text("Passphrase") },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Text(stringResource(R.string.unlock_title), style = MaterialTheme.typography.headlineMedium)
+        PassphraseField(passphrase, { passphrase = it }, stringResource(R.string.passphrase_label), tag = "unlock-pass")
         Button(
             onClick = {
                 busy = true
@@ -443,14 +415,40 @@ private fun Unlock(onOpen: () -> Unit, complain: (String) -> Unit) {
                 }
             },
             enabled = !busy && passphrase.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Open") }
+            modifier = Modifier.fillMaxWidth().testTag("unlock-open"),
+        ) { Text(stringResource(R.string.unlock_open)) }
+        TextButton(
+            onClick = {
+                busy = true
+                scope.launch {
+                    try {
+                        // The 24 words and a new passphrase, asked on the app's own screens.
+                        withContext(Dispatchers.IO) {
+                            Native.forgot(Vault.home(context).absolutePath)
+                        }
+                        // The old passphrase behind a fingerprint is stale now.
+                        Biometric.disable(context)
+                        val remembered = Vault.rememberedPassphrase(context)
+                        if (remembered != null) {
+                            Account.unlock(context, remembered)
+                            onOpen()
+                        }
+                    } catch (error: Throwable) {
+                        complain(error.message ?: "unknown failure")
+                    } finally {
+                        busy = false
+                    }
+                }
+            },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth().testTag("unlock-forgot"),
+        ) { Text(stringResource(R.string.unlock_forgot)) }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun Files(shared: List<Uri>, complain: (String) -> Unit) {
+private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -458,7 +456,6 @@ private fun Files(shared: List<Uri>, complain: (String) -> Unit) {
     var files by remember { mutableStateOf<List<Known>>(emptyList()) }
     var status by remember { mutableStateOf<Status?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var settings by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<Known?>(null) }
 
     suspend fun refresh() {
@@ -478,7 +475,7 @@ private fun Files(shared: List<Uri>, complain: (String) -> Unit) {
             }
             if (shared.isNotEmpty()) {
                 refresh()
-                snackbar.showSnackbar("${shared.size} file(s) added")
+                snackbar.showSnackbar(context.getString(R.string.files_added, shared.size))
             }
         } catch (error: Throwable) {
             complain(error.message ?: "could not read the account")
@@ -511,8 +508,7 @@ private fun Files(shared: List<Uri>, complain: (String) -> Unit) {
                         Text(status?.username ?: "ITSaNAS")
                         status?.let {
                             Text(
-                                "${it.here} here · ${it.notHere} not here · " +
-                                    humanSize(it.bytesOnDisk),
+                                stringResource(R.string.files_summary, it.here, it.notHere, humanSize(it.bytesOnDisk)),
                                 style = MaterialTheme.typography.labelSmall,
                             )
                         }
@@ -533,28 +529,28 @@ private fun Files(shared: List<Uri>, complain: (String) -> Unit) {
                                 busy = false
                             }
                         }
-                    }) { Icon(Icons.Default.Refresh, "Sync now") }
-                    IconButton({ settings = true }) {
-                        Icon(Icons.Default.Settings, "Settings")
+                    }) { Icon(Icons.Default.Refresh, stringResource(R.string.files_sync)) }
+                    IconButton(onSettings, Modifier.testTag("files-settings")) {
+                        Icon(Icons.Default.Settings, stringResource(R.string.files_settings))
                     }
                 },
             )
         },
         floatingActionButton = {
-            FloatingActionButton({ picker.launch(arrayOf("*/*")) }) {
-                Icon(Icons.Default.Add, "Add a file")
+            FloatingActionButton({ picker.launch(arrayOf("*/*")) }, Modifier.testTag("files-add")) {
+                Icon(Icons.Default.Add, stringResource(R.string.files_add))
             }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             if (busy) {
-                CircularProgressIndicator(Modifier.fillMaxWidth().padding(8.dp))
+                LinearProgressIndicator(Modifier.fillMaxWidth().padding(8.dp))
             }
 
             if (files.isEmpty()) {
                 Centred {
                     Text(
-                        "Nothing here yet. Add a file, or sync with one of your machines.",
+                        stringResource(R.string.files_empty),
                         Modifier.padding(32.dp),
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -589,12 +585,9 @@ private fun Files(shared: List<Uri>, complain: (String) -> Unit) {
     confirmDelete?.let { file ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("Delete ${file.name}?") },
+            title = { Text(stringResource(R.string.delete_title, file.name)) },
             text = {
-                Text(
-                    "It goes from every machine in this account, not just this " +
-                        "phone. There is no undo."
-                )
+                Text(stringResource(R.string.delete_body))
             },
             confirmButton = {
                 TextButton({
@@ -608,20 +601,12 @@ private fun Files(shared: List<Uri>, complain: (String) -> Unit) {
                             complain(error.message ?: "could not delete it")
                         }
                     }
-                }) { Text("Delete everywhere") }
+                }) { Text(stringResource(R.string.delete_everywhere)) }
             },
-            dismissButton = { TextButton({ confirmDelete = null }) { Text("Keep it") } },
+            dismissButton = { TextButton({ confirmDelete = null }) { Text(stringResource(R.string.delete_keep)) } },
         )
     }
 
-    if (settings) {
-        Settings(
-            status = status,
-            onClose = { settings = false },
-            onChanged = { scope.launch { refresh() } },
-            complain = complain,
-        )
-    }
 }
 
 @Composable
@@ -630,6 +615,7 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
+            .testTag("file-row")
     ) {
         Row(
             Modifier.padding(12.dp).fillMaxWidth(),
@@ -646,7 +632,7 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
                     buildString {
                         append(humanSize(file.size))
                         if (file.folder.isNotEmpty()) append(" · ${file.folder}")
-                        if (!file.here) append(" · not on this phone")
+                        if (!file.here) append(" · ${stringResource(R.string.file_not_here)}")
                     },
                     style = MaterialTheme.typography.labelSmall,
                 )
@@ -654,280 +640,11 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
             IconButton(onOpen) {
                 Icon(
                     if (file.here) Icons.Default.OpenInNew else Icons.Default.CloudDownload,
-                    if (file.here) "Open" else "Fetch and open",
+                    stringResource(if (file.here) R.string.file_open else R.string.file_fetch),
                 )
             }
-            IconButton(onDelete) { Icon(Icons.Default.Delete, "Delete") }
+            IconButton(onDelete) { Icon(Icons.Default.Delete, stringResource(R.string.file_delete)) }
         }
-    }
-}
-
-@Composable
-private fun Settings(
-    status: Status?,
-    onClose: () -> Unit,
-    onChanged: () -> Unit,
-    complain: (String) -> Unit,
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var peer by remember { mutableStateOf("") }
-    var inviteCode by remember { mutableStateOf("") }
-    var joined by remember { mutableStateOf<String?>(null) }
-    // Open with the refusal's words and devices when joining hit the limit,
-    // with nothing when opened from the button.
-    var devicesOpen by remember { mutableStateOf(false) }
-    var refusedAtCap by remember { mutableStateOf<String?>(null) }
-    var namedAtCap by remember { mutableStateOf<List<Device>>(emptyList()) }
-    var keepGiB by remember {
-        mutableStateOf(status?.keepBytes?.let { (it / (1024 * 1024 * 1024)).toString() } ?: "")
-    }
-    var pledgeGiB by remember {
-        mutableStateOf((status?.pledgeBytes?.div(1024 * 1024 * 1024) ?: 0L).toString())
-    }
-    var onMetered by remember { mutableStateOf(Vault.contentOnMetered(context)) }
-    // Asked once each time Settings opens: an application installed by hand
-    // hears of a release from nothing else (Updater).
-    var update by remember { mutableStateOf<Updater.Offer?>(null) }
-    var updateNote by remember { mutableStateOf("Looking for a newer version...") }
-    LaunchedEffect(Unit) {
-        updateNote = try {
-            update = Updater.check()
-            update?.let { "ITSaNAS ${it.version} is available." }
-                ?: "This is the latest version (${BuildConfig.VERSION_NAME})."
-        } catch (e: Exception) {
-            "Could not check for a newer version: ${e.message}"
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onClose,
-        confirmButton = { TextButton(onClose) { Text("Done") } },
-        title = { Text("Settings") },
-        text = {
-            Column(
-                Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                status?.let {
-                    Text(
-                        "This phone holds ${humanSize(it.bytesOnDisk)} of your own data " +
-                            "and ${humanSize(it.vaultBytes)} for other people.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        if (it.onlyHere > 0) {
-                            "${it.onlyHere} chunk(s) exist only on this phone."
-                        } else {
-                            "Every chunk this phone holds is on ${it.copiesElsewhere} " +
-                                "other machine(s)."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-
-                Text("Updates", style = MaterialTheme.typography.titleSmall)
-                Text(updateNote, style = MaterialTheme.typography.bodySmall)
-                update?.let { offer ->
-                    Button({
-                        scope.launch {
-                            try {
-                                if (!Updater.install(context, offer)) {
-                                    updateNote = "Allow ITSaNAS to install apps, come back, " +
-                                        "and tap Install again."
-                                }
-                            } catch (e: Exception) {
-                                complain("The update was not installed: ${e.message}")
-                            }
-                        }
-                    }) { Text("Install ${offer.version}") }
-                }
-
-                Text("Join a network", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "This phone joins the ITSaNAS network with an invitation code " +
-                        "from whoever invited you. The code is needed once; after " +
-                        "that this phone re-registers on its own.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                OutlinedTextField(
-                    value = inviteCode,
-                    onValueChange = { inviteCode = it },
-                    label = { Text("invitation code (first time only)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                TextButton({
-                    val invite = inviteCode
-                    scope.launch {
-                        try {
-                            val answer = JSONObject(Account.register(invite))
-                            if (answer.optBoolean("atCap")) {
-                                // Not an error: the account is full, and the
-                                // way out is on the screen this opens.
-                                joined = null
-                                refusedAtCap = answer.getString("said")
-                                namedAtCap = DeviceAnswers.devices(answer.getJSONArray("devices"))
-                                devicesOpen = true
-                                return@launch
-                            }
-                            val where = answer.optString("coordinator")
-                            // `announced` is null when the address could not be
-                            // published. The device is still a member, so this
-                            // says so rather than reporting a failure -- but it
-                            // does not claim to be reachable either.
-                            joined = if (answer.isNull("announced")) {
-                                "Joined $where. No address could be published yet, " +
-                                    "so other machines cannot dial this phone."
-                            } else {
-                                "Joined $where, announced as " +
-                                    answer.optString("announced") + "."
-                            }
-                            inviteCode = ""
-                            onChanged()
-                        } catch (error: Throwable) {
-                            joined = null
-                            complain(error.message ?: "could not join")
-                        }
-                    }
-                }) { Text("Join") }
-                joined?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall)
-                }
-                TextButton({
-                    refusedAtCap = null
-                    namedAtCap = emptyList()
-                    devicesOpen = true
-                }) { Text("This account's devices") }
-
-                Text("Machines to sync with", style = MaterialTheme.typography.titleSmall)
-                status?.peers?.forEach { address ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(address, Modifier.weight(1f))
-                        TextButton({
-                            scope.launch {
-                                try {
-                                    Account.removePeer(address)
-                                    onChanged()
-                                } catch (error: Throwable) {
-                                    complain(error.message ?: "could not remove it")
-                                }
-                            }
-                        }) { Text("Forget") }
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = peer,
-                        onValueChange = { peer = it },
-                        label = { Text("host:port") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton({
-                        val address = peer
-                        peer = ""
-                        scope.launch {
-                            try {
-                                Account.addPeer(address)
-                                onChanged()
-                            } catch (error: Throwable) {
-                                complain(error.message ?: "could not add it")
-                            }
-                        }
-                    }) { Text("Add") }
-                }
-
-                Text("How much of your data to keep here", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "In gigabytes. Empty means all of it. What does not fit stays " +
-                        "listed and downloads when you open it — most recently " +
-                        "changed first.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                OutlinedTextField(
-                    value = keepGiB,
-                    onValueChange = { keepGiB = it.filter(Char::isDigit) },
-                    label = { Text("GiB") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Text("Space you offer other people", style = MaterialTheme.typography.titleSmall)
-                OutlinedTextField(
-                    value = pledgeGiB,
-                    onValueChange = { pledgeGiB = it.filter(Char::isDigit) },
-                    label = { Text("GiB") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(
-                        checked = onMetered,
-                        onCheckedChange = {
-                            onMetered = it
-                            Vault.setContentOnMetered(context, it)
-                        },
-                    )
-                    Spacer(Modifier.widthIn(min = 12.dp))
-                    Column {
-                        Text("Download over mobile data")
-                        Text(
-                            "Off by default. The file list still arrives — it costs " +
-                                "kilobytes — and tapping a file always downloads it.",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-
-                Button(
-                    onClick = {
-                        scope.launch {
-                            try {
-                                val keep = keepGiB.toLongOrNull()
-                                    ?.times(1024L * 1024 * 1024)
-                                // Together: one after the other, raising both
-                                // was refused against the old pledge.
-                                Account.setLimits(
-                                    (pledgeGiB.toLongOrNull() ?: 0L) * 1024 * 1024 * 1024,
-                                    keep,
-                                )
-                                onChanged()
-                            } catch (error: Throwable) {
-                                complain(error.message ?: "could not save that")
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Save limits") }
-
-                Spacer(Modifier.height(8.dp))
-                TextButton(
-                    {
-                        SyncService.stop(context)
-                        Vault.forget(context)
-                        scope.launch { Account.close() }
-                        onClose()
-                    },
-                    Modifier.fillMaxWidth(),
-                ) { Text("Lock this phone and stop syncing") }
-            }
-        },
-    )
-
-    if (devicesOpen) {
-        DevicesDialog(
-            refused = refusedAtCap,
-            named = namedAtCap,
-            onClose = {
-                devicesOpen = false
-                onChanged()
-            },
-            complain = complain,
-        )
     }
 }
 

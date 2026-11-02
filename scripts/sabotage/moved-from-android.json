@@ -1,0 +1,96 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-android",
+    "--lib"
+  ],
+  "defences": {
+    "unlock: no passphrase check on a held node": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "        itsanas_node::node::Identity::secrets(home, passphrase)?;\n",
+      "dead": ""
+    },
+    "fetch: config.peers alone": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "    let targets = targets(node);\n    if targets.is_empty() {\n        return Err(Failure::Usage(format!(\n            \"{path} is in this",
+      "dead": "    let targets: Vec<(String, Option<itsanas_crypto::DeviceId>)> = node.config.peers.iter().map(|peer| (peer.clone(), None)).collect();\n    if targets.is_empty() {\n        return Err(Failure::Usage(format!(\n            \"{path} is in this"
+    },
+    "sync: no ensure_enrolled": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "    let _ = itsanas_node::coordinator::ensure_enrolled(node, now);\n",
+      "dead": ""
+    },
+    "sync: no refresh_others_pledged": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "    let _ = itsanas_node::coordinator::refresh_others_pledged(node);\n",
+      "dead": ""
+    },
+    "put: no refresh": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "    refresh_old_pledges(node, std::time::SystemTime::now());\n",
+      "dead": ""
+    },
+    "put: no age check": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "if Node::others_pledged_age(&node.home, now).is_some_and(|age| age < PLEDGES_FRESH_FOR) {",
+      "dead": "if false && Node::others_pledged_age(&node.home, now).is_some_and(|age| age < PLEDGES_FRESH_FOR) {"
+    },
+    "put: nothing remembers the attempt": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "        let _ = node.remember_others_pledged(Node::others_pledged(&node.home));\n",
+      "dead": ""
+    },
+    "release: no debug_build test": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "    if !debug_build {\n",
+      "dead": "    if false && !debug_build {\n"
+    },
+    "release: the shim says debug": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "use_coordinator(&TEST_NETWORK, &address?, &device?, cfg!(debug_assertions))",
+      "dead": "use_coordinator(&TEST_NETWORK, &address?, &device?, true)"
+    },
+    "pin: open does not pin": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "let node = network.pin(Node::open(home, passphrase)?)?;",
+      "dead": "let node = Node::open(home, passphrase)?;"
+    },
+    "pin: another network by default": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "Ok(test.clone().unwrap_or_else(Network::official))",
+      "dead": "Ok(test.clone().unwrap_or(Network { address: \"evil.test:1\".to_owned(), device: None }))"
+    },
+    "logout: no claim presented to the host": {
+      "file": "crates/itsanas-node/src/node.rs",
+      "live": "        if let Ok(Some(theirs)) = client.present_claim(self.claim_bytes(now)) {\n            siblings.push(theirs);\n        }\n",
+      "dead": "        let _ = now;\n"
+    },
+    "limits: keep 0 reads as no limit": {
+      "file": "crates/itsanas-cli/src/limits.rs",
+      "live": "    let keep = u64::try_from(keep).ok();\n",
+      "dead": "    let keep = (keep > 0).then(|| keep.unsigned_abs());\n"
+    },
+    "limits: no pledge disk check": {
+      "file": "crates/itsanas-cli/src/limits.rs",
+      "live": "if let Some(refused) = node.disk_refusal_given(free, pledge, held) {",
+      "dead": "if let Some(refused) = node.disk_refusal_given(None, pledge, held) {"
+    },
+    "limits: no pair disk check": {
+      "file": "crates/itsanas-cli/src/limits.rs",
+      "live": "itsanas_node::pledges::overcommitted(pledge, keep, free, own, held)",
+      "dead": "itsanas_node::pledges::overcommitted(pledge, keep, None, own, held)"
+    },
+    "logout check: coverage before the round": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    let round = run_round(node, &targets(node), scope);\n    let coverage = node.store.coverage(itsanas_discover::now_unix())?;\n",
+      "dead": "    let coverage = node.store.coverage(itsanas_discover::now_unix())?;\n    let round = run_round(node, &targets(node), scope);\n"
+    },
+    "page: a left page's engine still asks": {
+      "file": "crates/itsanas-android/src/host.rs",
+      "live": "            .is_some_and(|page| crate::GENERATION.load(Ordering::SeqCst) != page)",
+      "dead": "            .is_some_and(|page| crate::GENERATION.load(Ordering::SeqCst) == page.wrapping_sub(1))"
+    }
+  }
+}

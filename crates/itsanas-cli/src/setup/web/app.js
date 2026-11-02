@@ -67,7 +67,29 @@
   let dict = {};
   const original = new WeakMap();
 
-  function t(text) { return dict[text] || text; }
+  // The page says "machine" and "window", which a person holding a phone does
+  // not recognise: one set of sentences, with these words changed where it is
+  // read on a phone (applyFeatures).
+  const PHONE_WORDS = [
+    [/\bSet up this machine\b/g, 'Set up this phone'],
+    [/\bthis machine\b/g, 'this phone'],
+    [/\bfirst machine\b/g, 'first device'],
+    [/\ba separate ITSaNAS window\b/g, 'a separate ITSaNAS screen'],
+    [/\bA separate ITSaNAS window\b/g, 'A separate ITSaNAS screen'],
+    [/\bcette machine\b/g, 'ce téléphone'],
+    [/\bCette machine\b/g, 'Ce téléphone'],
+    [/\bvotre première machine\b/g, 'votre premier appareil'],
+    [/\bma première machine\b/g, 'mon premier appareil'],
+    [/\bune fenêtre ITSaNAS séparée\b/g, 'un écran ITSaNAS séparé'],
+    [/\bUne fenêtre ITSaNAS séparée s’est ouverte\b/g, 'Un écran ITSaNAS séparé s’est ouvert'],
+  ];
+  let onPhone = false;
+
+  function phoneWords(text) {
+    return onPhone ? PHONE_WORDS.reduce(function (said, pair) { return said.replace(pair[0], pair[1]); }, text) : text;
+  }
+
+  function t(text) { return phoneWords(dict[text] || text); }
   // A text of a table, translated where it is shown: marks it for the test
   // that every text of the page has a French entry.
   function N(text) { return text; }
@@ -163,9 +185,10 @@
   function buildProgress() {
     const list = $('progress');
     list.textContent = '';
-    STEPS.forEach(function (step) {
+    STEPS.forEach(function (step, index) {
       const item = document.createElement('li');
       item.textContent = t(step.label);
+      item.dataset.n = String(index + 1);
       item.dataset.page = step.page;
       list.appendChild(item);
     });
@@ -188,28 +211,58 @@
     markProgress(page);
   }
 
-  function step(delta) {
+  async function step(delta) {
     const index = QUESTION_PAGES.indexOf(current);
-    if (delta > 0 && !validate(current)) { return; }
+    if (delta > 0 && !(await validate(current))) { return; }
     const next = QUESTION_PAGES[index + delta];
     if (next) { go(next); }
   }
 
+  // Null until one is chosen: a preselected answer made a new account for a
+  // person who meant to join their own (Nicolas, 2026-10-14).
   function accountKind() {
     const chosen = document.querySelector('input[name="account"]:checked');
-    return chosen ? chosen.value : 'new';
+    return chosen ? chosen.value : null;
   }
 
-  function validate(page) {
+  async function validate(page) {
+    if (page === 'account' && !done.account && !accountKind()) {
+      say('Say whether you already have an account: choose one of the two answers.');
+      document.querySelector('input[name="account"]').focus();
+      return false;
+    }
     if (page === 'account' && !done.account && !$('username').value.trim()) {
       say('Choose a username.');
       $('username').focus();
       return false;
     }
-    if (page === 'account' && !done.account && accountKind() === 'new' && nameTaken === 'yes') {
-      say('This username is already taken. Choose another.');
-      $('username').focus();
-      return false;
+    if (page === 'account' && !done.account) {
+      // A fresh answer, never the last one the timer fetched: a quick Next
+      // would otherwise go on with the answer to a name since changed.
+      await checkName();
+      const asked = Boolean($('coordinator').value.trim());
+      if (nameInvalid) {
+        say(nameInvalid);
+        $('username').focus();
+        return false;
+      }
+      if (accountKind() === 'new' && nameTaken === 'yes') {
+        say('This username is already taken. Choose another.');
+        $('username').focus();
+        return false;
+      }
+      // No next step without a positive check: a network that cannot be asked
+      // has not said the name is free. With no coordinator there is nobody to ask.
+      if (accountKind() === 'new' && asked && nameTaken !== 'no') {
+        say('The network cannot be asked right now. A new account is made only once the network says this username is free.');
+        $('username-retry').hidden = false;
+        return false;
+      }
+      if (accountKind() === 'join' && asked && nameTaken === 'no' && !$('continue-name').checked) {
+        say('No account has this name on the network. Tick "Continue with this name" if you are sure it is the name of your account, or correct it.');
+        $('continue-name').focus();
+        return false;
+      }
     }
     if ((page === 'folder') && $('pledge').value !== '' && !/^[1-9]\d*$/.test($('pledge').value)) {
       say('Type a whole number of GB, at least 1.');
@@ -222,6 +275,7 @@
   // ------------------------------------------------- username, while typed
 
   let nameTaken = 'unknown';
+  let nameInvalid = '';
   let nameTimer = null;
 
   async function checkName() {
@@ -229,21 +283,38 @@
     const coordinator = $('coordinator').value.trim();
     const line = $('username-check');
     nameTaken = 'unknown';
+    nameInvalid = '';
     line.textContent = '';
-    if (!username || !coordinator || done.account) { return; }
+    $('username-retry').hidden = true;
+    $('continue-name-row').hidden = true;
+    if (!username || done.account) { return; }
     try {
-      const reply = await api('POST', '/api/name', { username: username, coordinator: coordinator });
+      const reply = await api('POST', '/api/name', { username: username, coordinator: coordinator, account: accountKind() || '' });
       if (username !== $('username').value.trim()) { return; }
       nameTaken = reply.taken;
+      nameInvalid = reply.invalid || '';
       const isNew = accountKind() === 'new';
-      if (reply.taken === 'yes') {
+      if (nameInvalid) {
+        line.textContent = t(nameInvalid);
+      } else if (!accountKind() || !coordinator) {
+        // What the answer means depends on the question not answered yet, and
+        // answering it asks again.
+        line.textContent = '';
+      } else if (reply.taken === 'yes') {
         line.textContent = isNew ? t('This username is already taken. Choose another.') : t('Account found.');
+        if (!isNew) { suggestSpace(reply.other_pledge_bytes); }
       } else if (reply.taken === 'no') {
-        line.textContent = isNew ? t('This username is free.') : t('No account has this name on the network.');
+        line.textContent = isNew
+          ? t('This username is free.')
+          : t('No account has this name on the network. A name is bound to an account when it first joins: be sure it is the one you used on your other machines.');
+        $('continue-name-row').hidden = isNew;
       } else {
-        line.textContent = t('The network cannot be asked right now; it is checked again before anything is made.');
+        line.textContent = t(isNew
+          ? 'The network cannot be asked right now. A new account is made only once the network says this username is free.'
+          : 'The network cannot be asked right now; it is checked again before anything is made.');
+        $('username-retry').hidden = !isNew;
       }
-    } catch (e) { /* the engine asks again before any key is written */ }
+    } catch (e) { /* the page asks again before it goes on */ }
   }
 
   function nameChanged() {
@@ -251,6 +322,7 @@
     const box = $('username');
     const low = box.value.toLowerCase();
     if (low !== box.value) { box.value = low; }
+    $('continue-name').checked = false;
     if (nameTimer) { clearTimeout(nameTimer); }
     nameTimer = setTimeout(checkName, 500);
   }
@@ -277,12 +349,36 @@
     const start = Math.min(max, Math.max(1, defaults.pledge_gb));
     slider.value = String(start);
     $('pledge').value = String(start);
+    $('keep').value = String(defaults.keep_gb);
     slider.addEventListener('input', function () { $('pledge').value = slider.value; showEarns(); });
     $('pledge').addEventListener('input', function () {
       if (/^\d+$/.test($('pledge').value)) { slider.value = $('pledge').value; }
       showEarns();
     });
     showEarns();
+  }
+
+  // What to offer and keep, from the one rule every platform shares (the
+  // server's): asked again once the person says which account they join, since
+  // "the same as your other machines" is only known then.
+  async function suggestSpace(other) {
+    try {
+      const reply = await api('POST', '/api/suggest', { other: String(other || 0) });
+      const max = parseInt($('pledge-slider').max, 10);
+      const gb = Math.min(max, Math.max(1, Number(reply.pledge_gb)));
+      $('pledge-slider').value = String(gb);
+      $('pledge').value = String(gb);
+      $('keep').value = String(reply.keep_gb);
+      const line = $('space-same');
+      if (reply.same_as_other_machines) {
+        line.textContent = t('The same as your other machines.');
+      } else if (other > 0) {
+        line.textContent = t('Your other machines offer') + ' ' + Math.round(other / GIB) + ' GB. ' + t('This one has room for less.');
+      } else {
+        line.textContent = '';
+      }
+      showEarns();
+    } catch (e) { /* the suggestion made at load stays */ }
   }
 
   async function browse(input) {
@@ -349,6 +445,9 @@
       if (value) { form[id] = value; }
     });
     if ($('pledge').value !== '') { form.pledge = $('pledge').value + 'G'; }
+    if (!$('keep-questions').hasAttribute('data-off')) {
+      form.keep = $('keep').value === '' ? '' : $('keep').value + 'G';
+    }
     const updates = document.querySelector('input[name="updates"]:checked');
     if (updates) { form.updates = updates.value; }
     form.background = $('background').checked ? 'yes' : 'no';
@@ -356,7 +455,7 @@
   }
 
   async function startSetup() {
-    if (current === 'folder' && !validate('folder')) { return; }
+    if (current === 'folder' && !(await validate('folder'))) { return; }
     go('connection');
     $('start').disabled = true;
     try {
@@ -457,7 +556,9 @@
       const proved = run.report.some(function (f) { return f.verdict === 'passed'; });
       $('final-title').textContent = t(proved ? 'All set' : 'Setup finished');
       $('final-lead').textContent = t(proved
-        ? 'ITSaNAS runs on this machine, and its icon is near the clock. A welcome.txt file is in your folder: open it on your other machines to see that they sync.'
+        ? (onPhone
+          ? 'ITSaNAS runs on this phone. Your files are in the app, which keeps them in sync with your other machines.'
+          : 'ITSaNAS runs on this machine, and its icon is near the clock. A welcome.txt file is in your folder: open it on your other machines to see that they sync.')
         : 'Every step is done. The checks below could not run here; each says why.');
       $('final-fix').hidden = true;
       $('retry').hidden = true;
@@ -471,6 +572,9 @@
       $('final-error').textContent = failed.error;
       $('final-fix').hidden = false;
       $('retry').hidden = false;
+      // The account is at its device limit: the way out is a device to withdraw.
+      $('final-devices').hidden = !failed.atCap;
+      if (failed.atCap) { showDevices($('final-devices-list'), $('final-devices-said')); }
     }
   }
 
@@ -491,6 +595,7 @@
     $('coordinator').value = state.defaults.coordinator;
     setupSpace(state.defaults);
     $('username').addEventListener('input', nameChanged);
+    $('username-retry').addEventListener('click', checkName);
     $('coordinator').addEventListener('change', nameChanged);
     $('folder-browse').addEventListener('click', function () { browse($('folder')); });
     $('open-folder').addEventListener('click', function () { folderAction('', false, $('folder-said')); });
@@ -685,6 +790,163 @@
       const failed = run.failed || { error: '', remedy: '' };
       $('st-said').textContent = t('Not saved:') + ' ' + failed.error + '\n' + t('What to do:') + ' ' + failed.remedy;
     }
+  }
+
+  // A job that asks in a native window (/api/forgot, /api/words, /api/passphrase):
+  // started here, followed through /api/state, and never given a secret.
+  async function forgot() {
+    if (!window.confirm(N('Replace the keys on this machine with your 24 recovery words? A window asks for them, then for a new passphrase.'))) { return; }
+    await windowJob('/api/forgot', 'st-forgot', 'A window asks for your 24 words, then a new passphrase.');
+  }
+
+  async function windowJob(route, buttonId, startedText) {
+    const line = $(buttonId + '-said');
+    $(buttonId).disabled = true;
+    try {
+      await api('POST', route);
+    } catch (e) {
+      $(buttonId).disabled = false;
+      line.textContent = said(e.message);
+      return;
+    }
+    line.textContent = t(startedText);
+    for (;;) {
+      await new Promise(function (resolve) { setTimeout(resolve, 1000); });
+      const state = await refreshSettings();
+      if (!state || state.run.phase === 'running') { continue; }
+      $(buttonId).disabled = false;
+      if (state.run.phase === 'done') {
+        line.textContent = said(state.run.lines[state.run.lines.length - 1] || '');
+      } else {
+        const failed = state.run.failed || { error: '', remedy: '' };
+        line.textContent = t('Not changed:') + ' ' + said(failed.error) + '\n' + t('What to do:') + ' ' + said(failed.remedy);
+      }
+      return;
+    }
+  }
+
+  // ------------------------------------------------ devices of the account
+  //
+  // The list is the coordinator's (/api/devices); Withdraw sends the full id the
+  // list gave (/api/withdraw), never this machine's own. The same list opens
+  // under a setup that stopped at the device limit.
+  async function showDevices(list, line, keepSaid) {
+    if (!keepSaid) { line.textContent = ''; }
+    let reply;
+    try { reply = await api('GET', '/api/devices'); } catch (e) { line.textContent = e.message; return; }
+    list.textContent = '';
+    reply.devices.forEach(function (device) {
+      const item = document.createElement('li');
+      const label = document.createElement('span');
+      label.textContent = device.short + (device.address ? ' \u00b7 ' + device.address : '') +
+        (device.thisPhone ? ' \u00b7 ' + t('this machine') : '');
+      item.appendChild(label);
+      if (!device.thisPhone) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = t('Withdraw');
+        button.addEventListener('click', function () { withdrawDevice(device, list, line); });
+        item.appendChild(button);
+      }
+      list.appendChild(item);
+    });
+    if (!reply.complete && !keepSaid) {
+      line.textContent = t('Only some of the devices could be listed: those heard from lately.');
+    }
+  }
+
+  async function withdrawDevice(device, list, line) {
+    if (!window.confirm(t('Withdraw this device? Nothing will dial it again. To use it again it must be set up afresh.') + '\n' + device.short)) { return; }
+    let reply;
+    try { reply = await api('POST', '/api/withdraw', { id: device.id }); } catch (e) { line.textContent = e.message; return; }
+    await showDevices(list, line, true);
+    line.textContent = said(reply.said);
+  }
+
+  // ------------------------------------------ machines to sync with (Advanced)
+  async function peers(action, address) {
+    const line = $('st-peers-said');
+    let reply;
+    try {
+      reply = action ? await api('POST', '/api/peers', { action: action, address: address }) : await api('GET', '/api/peers');
+    } catch (e) { line.textContent = e.message; return; }
+    const list = $('st-peers');
+    list.textContent = '';
+    reply.peers.forEach(function (peer) {
+      const item = document.createElement('li');
+      const label = document.createElement('span');
+      label.textContent = peer;
+      item.appendChild(label);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = t('Forget');
+      button.addEventListener('click', function () { peers('forget', peer); });
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+    line.textContent = said(reply.said);
+    if (action === 'add') { $('st-peer-address').value = ''; }
+  }
+
+  // ------------------------------------------------------ the account itself
+  //
+  // Remove: a check first (one best-effort round, then what would be lost), the
+  // account's name typed where pieces of the files exist only here. Delete: the
+  // name typed. The server enforces both; the page only asks.
+  let removeName = '';
+
+  async function removeCheck() {
+    const line = $('st-remove-said');
+    line.textContent = t('Checking what is safe to remove...');
+    $('st-remove-check').disabled = true;
+    let reply;
+    try { reply = await api('GET', '/api/remove'); } catch (e) {
+      line.textContent = e.message;
+      $('st-remove-check').disabled = false;
+      return;
+    }
+    $('st-remove-check').disabled = false;
+    line.textContent = '';
+    removeName = reply.username;
+    const only = reply.onlyHere > 0;
+    $('st-remove-only').hidden = !only;
+    $('st-remove-only').textContent = t('{n} of {total} pieces of your files exist only on this machine. Removing the account now destroys them for good. Sync with one of your other machines first.')
+      .replace('{n}', reply.onlyHere).replace('{total}', reply.liveChunks);
+    $('st-remove-reached').hidden = reply.reached > 0;
+    $('st-remove-held').hidden = !(reply.heldForOthers > 0);
+    $('st-remove-held').textContent = t('This machine keeps {size} for other members. They re-place it from their own copies.')
+      .replace('{size}', (reply.heldForOthers / 1e9).toFixed(1) + ' GB');
+    $('st-remove-name-box').hidden = !only;
+    $('st-remove-name-label').textContent = t('Type {name} to remove it anyway').replace('{name}', reply.username);
+    $('st-remove-name').value = '';
+    $('st-remove-go').disabled = only;
+    $('st-remove-sure').hidden = false;
+  }
+
+  async function removeGo() {
+    const line = $('st-remove-said');
+    $('st-remove-go').disabled = true;
+    let reply;
+    try { reply = await api('POST', '/api/remove', { confirm: $('st-remove-name').value }); } catch (e) {
+      line.textContent = e.message;
+      $('st-remove-go').disabled = false;
+      return;
+    }
+    $('st-remove-sure').hidden = true;
+    line.textContent = t('This account is removed from this machine.') +
+      (reply.withdrawn ? '' : ' ' + t('This machine could not tell the network. It will be done at your next login.'));
+  }
+
+  async function deleteGo() {
+    const line = $('st-delete-said');
+    if (!window.confirm(t('Delete this account for good? This cannot be undone.'))) { return; }
+    $('st-delete-go').disabled = true;
+    try { await api('POST', '/api/delete', { confirm: $('st-delete-name').value.trim() }); } catch (e) {
+      line.textContent = e.message;
+      $('st-delete-go').disabled = false;
+      return;
+    }
+    line.textContent = t('This account is deleted.');
   }
 
   async function signOut() {
@@ -926,6 +1188,21 @@
     });
     $('apply').addEventListener('click', apply);
     $('signout').addEventListener('click', signOut);
+    $('st-forgot').addEventListener('click', forgot);
+    $('st-words').addEventListener('click', function () { windowJob('/api/words', 'st-words', 'A window asks for your passphrase, then shows your 24 words.'); });
+    $('st-remove-check').addEventListener('click', removeCheck);
+    $('st-remove-go').addEventListener('click', removeGo);
+    $('st-remove-name').addEventListener('input', function () {
+      $('st-remove-go').disabled = $('st-remove-name').value !== removeName;
+    });
+    $('st-delete-go').addEventListener('click', deleteGo);
+    $('st-devices-show').addEventListener('click', function () { showDevices($('st-devices'), $('st-devices-said')); });
+    $('st-peers-show').addEventListener('click', function () { peers(null, ''); });
+    $('st-peer-add').addEventListener('click', function () {
+      const address = $('st-peer-address').value.trim();
+      if (address) { peers('add', address); }
+    });
+    $('st-passphrase').addEventListener('click', function () { windowJob('/api/passphrase', 'st-passphrase', 'A window asks for the current passphrase, then a new one.'); });
     $('close').addEventListener('click', closePage);
     $('st-folder-browse').addEventListener('click', function () { browse($('st-folder')); });
     $('st-open-folder').addEventListener('click', function () { folderAction($('st-folder').value.trim(), false, $('st-said')); });
@@ -946,8 +1223,34 @@
         N('Write a portable ITSaNAS there? Whoever has the drive can try to guess your passphrase: use a long one.'));
     });
     initUsb();
+    $('st-version').textContent = state.version;
+    $('st-theme').value = state.theme;
+    $('st-theme').addEventListener('change', function () {
+      api('POST', '/api/theme', { theme: $('st-theme').value }).then(function () {
+        if ($('st-theme').value === 'system') { document.documentElement.removeAttribute('data-theme'); }
+        else { document.documentElement.setAttribute('data-theme', $('st-theme').value); }
+      }).catch(function (e) { say(e.message); });
+    });
+    [['st-biometric', 'biometric'], ['st-metered', 'metered']].forEach(function (pair) {
+      const box = $(pair[0]);
+      box.checked = state.host[pair[1]] === 'on';
+      box.addEventListener('change', function () {
+        api('POST', '/api/host', { name: pair[1], value: box.checked ? 'on' : 'off' }).catch(function (e) { say(e.message); });
+      });
+    });
     settingsTimer = setInterval(refreshSettings, 2000);
     if (state.run.phase === 'running') { $('st-run').hidden = false; settingsRun(); }
+  }
+
+  // The page is the same everywhere; what a shell lacks is not drawn, and the
+  // routes behind it refuse (setup/web/features.rs).
+  function applyFeatures(features) {
+    document.querySelectorAll('[data-feature]').forEach(function (el) {
+      if (!features[el.dataset.feature]) { el.setAttribute('data-off', ''); }
+    });
+    // Only a phone goes without the advanced settings (features.rs).
+    onPhone = !features.advanced;
+    translatePage($('lang').value);
   }
 
   async function init() {
@@ -959,6 +1262,7 @@
     }
     let state;
     try { state = await api('GET', '/api/state'); } catch (e) { say(e.message); return; }
+    applyFeatures(state.features);
     if (state.mode === 'settings') { initSettings(state); } else { await initSetup(state); }
   }
 

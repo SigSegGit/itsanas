@@ -1,0 +1,56 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-node",
+    "--lib"
+  ],
+  "defences": {
+    "rule: not in create": {
+      "file": "crates/itsanas-node/src/node.rs",
+      "live": "        check_new_passphrase(passphrase)?;\n\n        let master = MasterSecret::generate()?;",
+      "dead": "        let master = MasterSecret::generate()?;"
+    },
+    "rule: not in restore": {
+      "file": "crates/itsanas-node/src/node.rs",
+      "live": "        check_new_passphrase(passphrase)?;\n\n        let master = MasterSecret::from_recovery_phrase(phrase)?;",
+      "dead": "        let master = MasterSecret::from_recovery_phrase(phrase)?;"
+    },
+    "rule: not in change_passphrase": {
+      "file": "crates/itsanas-node/src/node.rs",
+      "live": "        check_new_passphrase(new)?;\n",
+      "dead": ""
+    },
+    "rule: bytes, not characters": {
+      "file": "crates/itsanas-node/src/node.rs",
+      "live": "let count = passphrase.chars().count();",
+      "dead": "let count = passphrase.len();"
+    },
+    "legacy: rule in write_new": {
+      "file": "crates/itsanas-node/src/node.rs",
+      "live": "        let device = DeviceKeys::generate()?;\n\n        let secrets = NodeSecrets {",
+      "dead": "        check_new_passphrase(passphrase)?;\n        let device = DeviceKeys::generate()?;\n\n        let secrets = NodeSecrets {"
+    },
+    "legacy: rule in open_as": {
+      "file": "crates/itsanas-node/src/node.rs",
+      "live": "    fn open_as(home: &Path, passphrase: &str, away: bool) -> Result<Self> {\n",
+      "dead": "    fn open_as(home: &Path, passphrase: &str, away: bool) -> Result<Self> {\n        check_new_passphrase(passphrase)?;\n"
+    },
+    "suggest: no half bound": {
+      "file": "crates/itsanas-node/src/pledges.rs",
+      "live": "let same_as_other_machines = largest_other > 0 && largest_other <= half;",
+      "dead": "let same_as_other_machines = largest_other > 0;"
+    },
+    "suggest: the formula alone": {
+      "file": "crates/itsanas-node/src/pledges.rs",
+      "live": "let same_as_other_machines = largest_other > 0 && largest_other <= half;",
+      "dead": "let same_as_other_machines = false;"
+    },
+    "suggest: keep does not take the pledge out": {
+      "file": "crates/itsanas-node/src/pledges.rs",
+      "live": "usable.saturating_sub(pledge).min(allowed) / GIB * GIB",
+      "dead": "usable.min(allowed) / GIB * GIB"
+    }
+  }
+}

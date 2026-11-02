@@ -34,6 +34,30 @@ needs its own because it has none of those three.
 the platform that forces it. A laptop tethered to a phone should not upload
 forty gigabytes either.
 
+## 1b. What a shell is for
+
+A feature lives in the library, and a shell draws only what it alone can.
+
+- `itsanas-cli` is a library (`src/lib.rs`, `pub fn run`) with a thin binary
+  (`src/main.rs`); another shell links the library and takes what
+  `itsanas_cli::shell` names.
+- The setup engine and the page it serves on 127.0.0.1 are the only first run and
+  settings there are. A shell supplies the two things the engine asks of it: where
+  a secret is asked (`SecretPrompt`) and how the node runs in the background
+  (`ServiceControl`: the OS service on a computer, the app's own on a phone).
+- What a shell lacks is data, not a second page: `Features` names it, the page
+  hides every element carrying that `data-feature`, and the routes behind it
+  answer 403. What a phone has that a computer lacks (the fingerprint, the keep
+  question, mobile data) is in the same table.
+- A phone differs where it is a phone: `Answers.phone` skips the synced folder and
+  the updater, asks the coordinator for no dial-back, and judges what it may keep
+  against what the whole account pledges.
+- The words and the passphrase never cross the page: they stay in the shell's own
+  screens, which is why those stay native.
+- Fixing something on the page or in the engine fixes it on every platform, and the
+  French and the theme come with it. `docs/PARITY.md` lists, for every capability,
+  which platform has it; `scripts/check-parity.py` reads it against the source.
+
 ## 2. macOS on Apple Silicon — ready
 
 **This is where ITSaNAS meets real ARM silicon.** CI runs the full test suite on
@@ -364,6 +388,10 @@ machines.
 
 ## 4. Android — built, and it runs
 
+Since 2026-11-02 the app is also driven on an emulator in CI, through the page
+and the native screens, against a local coordinator
+(`scripts/android-e2e.sh`; `docs/ANDROID-RELEASE.md`, "The end-to-end protocol").
+
 ### What was measured, on 2026-09-07
 
 The open question was `ring`, which assembles its own primitives for every
@@ -402,6 +430,7 @@ produces it in one command.
 | --- | --- |
 | The core | unchanged, cross-compiled |
 | Keystore, configuration, one sync round | `crates/itsanas-node`, shared with the command line |
+| The setup engine and Settings, as a page | `crates/itsanas-cli` (a library plus the thin binary): the account, devices, space and removal logic every shell shares, served on 127.0.0.1 for the app's web view |
 | The JNI boundary | `crates/itsanas-android`, the only crate that relaxes the unsafe lint |
 | The application | `android/`, Kotlin and Compose, about 900 lines |
 
@@ -413,7 +442,10 @@ identities, the "a node already exists here" guard — drifting apart from the d
 the second one was written. So the binary became a shell over a library, and the
 application is a second shell over the same library.
 
-**The JNI boundary is coarse on purpose.** Every crossing allocates and can
+**The JNI boundary is coarse on purpose, and small.** What a page can do (creating, restoring and
+leaving an account, the words, the passphrase, the devices, the limits) is the library's, not a
+crossing; what is left is the open node and its files, the sync policy and the app's own update
+check. Every crossing allocates and can
 throw, so the calls are whole operations — list the account, run a round, fetch
 this file — each answering with one JSON string. Errors are Java exceptions
 carrying the same sentence the command line prints for the same fault, which is

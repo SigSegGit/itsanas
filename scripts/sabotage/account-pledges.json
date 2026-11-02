@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-node",
+    "--test",
+    "account_pledges"
+  ],
+  "defences": {
+    "account pledge: the smallest": {
+      "file": "crates/itsanas-node/src/coordinator.rs",
+      "live": ".map(|row| row.claim.claim.pledged_bytes)\n                .max())",
+      "dead": ".map(|row| row.claim.claim.pledged_bytes)\n                .min())"
+    }
+  }
+}

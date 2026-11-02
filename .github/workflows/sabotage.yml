@@ -1,0 +1,50 @@
+name: Sabotage
+
+# Every red-team test must go red when its defence is cancelled. Each plan in
+# scripts/sabotage/ names defences; scripts/sabotage.py breaks them one at a
+# time and fails on any that no test notices. It rebuilds per defence, so it
+# runs when a plan changes or on request, not on every push.
+# In its own workflow because ci.yml is protected from remote writes.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/sabotage/**
+      - scripts/sabotage.py
+      - .github/workflows/sabotage.yml
+
+concurrency:
+  group: sabotage-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  plans:
+    name: Which plans
+    runs-on: ubuntu-latest
+    outputs:
+      plans: ${{ steps.list.outputs.plans }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: list
+        run: |
+          echo "plans=$(python3 -c "import glob,json,os; print(json.dumps(sorted(os.path.basename(p)[:-5] for p in glob.glob('scripts/sabotage/*.json'))))")" >> "$GITHUB_OUTPUT"
+
+  sabotage:
+    name: Sabotage (${{ matrix.plan }})
+    needs: plans
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        plan: ${{ fromJson(needs.plans.outputs.plans) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Every defence turns a test red
+        run: python3 -u scripts/sabotage.py "scripts/sabotage/${{ matrix.plan }}.json"

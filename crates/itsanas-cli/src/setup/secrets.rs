@@ -33,7 +33,7 @@ use zeroize::Zeroizing;
 use crate::error::{CliError, Result};
 
 /// A secret in memory, wiped when dropped.
-pub(crate) type Secret = Zeroizing<String>;
+pub type Secret = Zeroizing<String>;
 
 /// How many words a person types back before the account is written.
 ///
@@ -59,7 +59,7 @@ pub(crate) enum Ask<'a> {
 }
 
 /// Where the questions are put. The engine knows nothing else about it.
-pub(crate) trait SecretPrompt {
+pub trait SecretPrompt {
     /// Show the words and return what was typed at `positions`, or `None`
     /// when nobody can be asked (an unattended run).
     fn show_and_confirm(
@@ -71,6 +71,18 @@ pub(crate) trait SecretPrompt {
     fn new_passphrase(&mut self) -> Result<Secret>;
     /// An existing passphrase.
     fn passphrase(&mut self, purpose: &str) -> Result<Secret>;
+    /// Show the 24 words of an account that already exists, for someone who
+    /// wants to read them again. Nothing is asked back that matters: a window
+    /// that wants three words typed is satisfied by whatever is typed, because
+    /// the person is reading, not proving.
+    ///
+    /// The default goes through [`SecretPrompt::show_and_confirm`], which every
+    /// prompt has; a prompt with a plainer way overrides it.
+    fn show_words(&mut self, phrase: &str) -> Result<()> {
+        self.show_and_confirm(phrase, random_positions()?)?
+            .map(|_| ())
+            .ok_or_else(|| CliError::Usage("nobody can be asked to read the words here".to_owned()))
+    }
     /// The 24 words of an existing account.
     fn recovery_phrase(&mut self) -> Result<Secret>;
     /// What the person will see, for the progress line ("a window", "this
@@ -691,6 +703,16 @@ impl SecretPrompt for Native {
         self.one(Ask::RecoveryPhrase)
     }
 
+    fn show_words(&mut self, phrase: &str) -> Result<()> {
+        if self.backend == Backend::Terminal {
+            return terminal_show_words(phrase);
+        }
+        // The window that shows the words is the one that asks three back; what
+        // is typed is not looked at.
+        self.show_and_confirm(phrase, random_positions()?)?;
+        Ok(())
+    }
+
     fn where_asked(&self) -> &'static str {
         if self.backend == Backend::Terminal {
             "this terminal"
@@ -725,6 +747,22 @@ fn terminal_show_and_confirm(
         .iter()
         .map(|position| terminal_line(&format!("Word number {position}: ")))
         .collect()
+}
+
+/// The words in the terminal, until Enter; then the screen is cleared so the
+/// scrollback of a terminal left open does not keep them.
+fn terminal_show_words(phrase: &str) -> Result<()> {
+    println!();
+    println!("{WORDS_INSTRUCTION}");
+    println!();
+    print!("{}", grid(phrase));
+    println!();
+    let _ = terminal_line("Press Enter once you have kept them. ")?;
+    if std::io::stdout().is_terminal() {
+        print!("[2J[3J[H");
+        let _ = std::io::stdout().flush();
+    }
+    Ok(())
 }
 
 /// For `--answers`: nothing can be asked, so everything comes from where the
@@ -849,6 +887,77 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// The Windows window refuses a new passphrase with itself still open, so its
+    /// numbers have to be the core's: said to differ, it would either pass what the
+    /// engine refuses, losing the words just shown, or refuse what the rule allows.
+    /// Sabotage: change either number in the script; count `.Length` instead of
+    /// characters; drop the `$Twice` guard (an existing short passphrase is locked
+    /// out of a window asking for it).
+    #[test]
+    fn red_team_the_passphrase_window_states_the_rule_the_core_enforces() {
+        use crate::node::{MAX_PASSPHRASE_CHARS, MIN_PASSPHRASE_CHARS};
+        let min = format!("$MinPassphraseChars = {MIN_PASSPHRASE_CHARS}\n");
+        let max = format!("$MaxPassphraseChars = {MAX_PASSPHRASE_CHARS}\n");
+        for line in [&min, &max] {
+            assert!(
+                WINFORMS_SCRIPT.contains(line.as_str()),
+                "secret-window.ps1 does not say {line:?}: the window and the core disagree on \
+                 what a passphrase may be"
+            );
+        }
+        let refusal = WINFORMS_SCRIPT
+            .lines()
+            .find(|line| line.contains("-lt $min"))
+            .expect("the window does not check the rule");
+        assert!(
+            refusal.contains("$Twice"),
+            "the rule reaches a window asking for an existing passphrase: {refusal}"
+        );
+        assert!(
+            refusal.contains("$characters") && WINFORMS_SCRIPT.contains("IsLowSurrogate"),
+            "the window counts UTF-16 units where the core counts characters: {refusal}"
+        );
+        for box_name in ["$first", "$second"] {
+            assert!(
+                WINFORMS_SCRIPT.contains(&format!(
+                    "{box_name}.UseSystemPasswordChar = -not $show.Checked"
+                )),
+                "Show does not reach {box_name}: half of what is being typed stays hidden"
+            );
+        }
+    }
+
+    /// The installers say the rule before their build rather than after it, in
+    /// the core's numbers, and only for an account about to be made: a machine
+    /// re-provisioned keeps the passphrase it has. Sabotage: change a number in a
+    /// script; drop the keystore condition (a short passphrase from before the
+    /// rule stops a re-run on the machine it opens).
+    #[test]
+    fn the_installers_state_the_rule_the_core_enforces() {
+        use crate::node::{MAX_PASSPHRASE_CHARS, MIN_PASSPHRASE_CHARS};
+        let rule = format!("{MIN_PASSPHRASE_CHARS} to {MAX_PASSPHRASE_CHARS} characters");
+        for (name, script, check) in [
+            (
+                "provision.sh",
+                include_str!("../../../../install/provision.sh"),
+                format!(
+                    "keystore.bin\" ] && [ \"${{#ITSANAS_PASSPHRASE}}\" -lt {MIN_PASSPHRASE_CHARS} ]"
+                ),
+            ),
+            (
+                "provision.ps1",
+                include_str!("../../../../install/provision.ps1"),
+                format!("'keystore.bin'))) -and $passphrase.Length -lt {MIN_PASSPHRASE_CHARS}"),
+            ),
+        ] {
+            assert!(script.contains(&rule), "{name} does not say {rule:?}");
+            assert!(
+                script.contains(&check),
+                "{name} refuses by another number, or refuses a node that already exists"
+            );
         }
     }
 

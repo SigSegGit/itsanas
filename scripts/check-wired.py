@@ -75,6 +75,10 @@ import re
 import sys
 
 ALLOWED = {
+    # The phone's app links this crate and builds the page's backends with it;
+    # its call site is in that app, outside this workspace's Rust.
+    'of_a_phone': 'called by the phone app, on the other side of the web view',
+
     # Kept for file sharing, which ECONOMICS.md §9 defers explicitly. Removing
     # and re-adding cryptographic code is how mistakes enter.
     'agree': 'key agreement, kept for the sharing ECONOMICS.md defers',

@@ -239,6 +239,173 @@ pub fn room(free: u64, my_held: u64, others: &[Promise]) -> u64 {
     free.saturating_add(my_held).saturating_sub(owed)
 }
 
+/// A promise of `bytes` this disk cannot keep, as a value each shell words
+/// itself: from [`disk_refusal`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiskRefusal {
+    /// The promise asked for.
+    pub bytes: u64,
+    /// What the disk has free.
+    pub free: u64,
+    /// What this node already stores for other accounts.
+    pub held: u64,
+    /// The most it could promise.
+    pub room: u64,
+    /// The other nodes on this disk whose promises are counted.
+    pub others: Vec<Promise>,
+    /// The ones skipped as stale.
+    pub stale: Vec<String>,
+}
+
+/// Why this disk cannot take a promise of `bytes`, `held` being what the node
+/// already stores for other accounts; `None` when it fits, or when `free` is
+/// not known.
+///
+/// Refusing to promise a disk this machine has not got: a host that accepts
+/// data and then runs out has failed the person who trusted it, and "I
+/// offered more than I had" is not a failure anybody discovers until it
+/// matters. And not the space another node on this disk already promised:
+/// each one compared with the free space alone, and two accounts on the
+/// Freebox VM promised the same 30 GB twice (ROADMAP, "Pledges are not
+/// reserved").
+#[must_use]
+pub fn disk_refusal(
+    bytes: u64,
+    free: Option<u64>,
+    held: u64,
+    others: Vec<Promise>,
+    stale: Vec<String>,
+) -> Option<DiskRefusal> {
+    let free = free?;
+    let room = room(free, held, &others);
+    (bytes > room).then_some(DiskRefusal {
+        bytes,
+        free,
+        held,
+        room,
+        others,
+        stale,
+    })
+}
+
+/// What a pledge and a keep need together, when a disk cannot hold both: the
+/// pledge is room for other people's data and the keep room for yours, and
+/// neither setting knows about the other. `own` and `hosted` are what this
+/// machine already holds of each, which is off the free space already. `None`
+/// when they fit, or when `free` is not known.
+#[must_use]
+pub fn overcommitted(
+    pledge: u64,
+    keep: Option<u64>,
+    free: Option<u64>,
+    own: u64,
+    hosted: u64,
+) -> Option<u64> {
+    let committed = pledge.saturating_add(keep.unwrap_or(0));
+    (committed > free?.saturating_add(own).saturating_add(hosted)).then_some(committed)
+}
+
+/// What the disk under a path has, as far as its filesystem says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DiskSpace {
+    /// Bytes this process could still write. Not 0 for unknown: a disk that
+    /// is really full reads 0, and that is when the question matters most.
+    pub free: Option<u64>,
+    /// The size of the disk.
+    pub total: Option<u64>,
+}
+
+/// [`DiskSpace`] under `path`, or under the nearest ancestor that exists: a
+/// home not created yet still has a disk.
+#[must_use]
+pub fn disk_space(path: &Path) -> DiskSpace {
+    let path = crate::node::existing_ancestor(path);
+    DiskSpace {
+        free: fs4::available_space(path).ok(),
+        total: fs4::total_space(path).ok(),
+    }
+}
+
+const GIB: u64 = 1 << 30;
+
+/// Space to suggest offering: a fifth of what is free, in whole GiB, at most
+/// 500 GiB. A suggestion the person can lower; integers, never a float.
+#[must_use]
+pub fn suggest_pledge(free: u64) -> u64 {
+    (free / 5 / GIB * GIB).min(500 * GIB)
+}
+
+/// What a phone keeps free whatever else is asked of it, at least: below this
+/// its own system starts failing, and a share of the disk alone is too little
+/// on a small one.
+pub const PHONE_HEADROOM_MIN: u64 = 2 * GIB;
+
+/// What a phone keeps free whatever else is asked of it, as one part in this
+/// many of the disk.
+pub const PHONE_HEADROOM_SHARE: u64 = 10;
+
+/// What a phone can give this account and the network, out of `free` and the
+/// `local` bytes of its own files it already holds (they are off `free`, and a
+/// budget can release them), less the headroom.
+#[must_use]
+pub fn phone_usable(total: u64, free: u64, local: u64) -> u64 {
+    let headroom = (total / PHONE_HEADROOM_SHARE).max(PHONE_HEADROOM_MIN);
+    free.saturating_add(local).saturating_sub(headroom)
+}
+
+/// How much of the account to keep on a phone with `usable` bytes
+/// ([`phone_usable`]) at this `pledge`, `others` being what the account's other
+/// machines pledge: what the disk holds, up to what the account earns, in whole
+/// GiB. Set silently at login, with a pledge of 0, because without a budget a
+/// restore of a large account downloads until the disk is full.
+#[must_use]
+pub fn phone_keep(config: &crate::config::Config, usable: u64, others: u64, pledge: u64) -> u64 {
+    let allowed = crate::Node::allowed_for(config, others.saturating_add(pledge));
+    usable.saturating_sub(pledge).min(allowed) / GIB * GIB
+}
+
+/// What the Space question offers, on every platform.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Suggestion {
+    /// The pledge to suggest; never set without the person seeing it.
+    pub pledge: u64,
+    /// The keep that goes with it.
+    pub keep: u64,
+    /// The pledge is the one the account's other machines already make.
+    pub same_as_other_machines: bool,
+}
+
+/// The Space step's suggestion: the largest pledge of the account's other
+/// machines when this phone has room for it (at most half of what it can use),
+/// otherwise a fifth of what is free, bounded by that same half.
+///
+/// "Suggérer la même valeur que sur les autres machines si possible (si le
+/// device a l'espace libre pour)" (Nicolas): a literal copy of a NAS's pledge
+/// would otherwise take a phone's whole disk.
+#[must_use]
+pub fn suggest(
+    config: &crate::config::Config,
+    total: u64,
+    free: u64,
+    local: u64,
+    others: u64,
+    largest_other: u64,
+) -> Suggestion {
+    let usable = phone_usable(total, free, local);
+    let half = usable / 2 / GIB * GIB;
+    let same_as_other_machines = largest_other > 0 && largest_other <= half;
+    let pledge = if same_as_other_machines {
+        largest_other
+    } else {
+        suggest_pledge(free).min(half)
+    };
+    Suggestion {
+        pledge,
+        keep: phone_keep(config, usable, others, pledge),
+        same_as_other_machines,
+    }
+}
+
 /// Kept free on the disk whatever the pledge says: a disk filled to the last
 /// byte breaks the node's own index writes, and everything else on the machine.
 pub const RESERVE: u64 = 256 * 1024 * 1024;
@@ -320,6 +487,127 @@ mod tests {
         // What `Node::exists` looks for.
         std::fs::write(home.join("keystore.bin"), b"x").unwrap();
         home
+    }
+
+    #[test]
+    fn the_suggested_pledge_is_a_fifth_in_whole_gib_and_capped() {
+        assert_eq!(
+            suggest_pledge(100 * GIB),
+            20 * GIB,
+            "a fifth of the free space"
+        );
+        assert_eq!(
+            suggest_pledge(GIB * 7 + 123),
+            GIB,
+            "rounded down to whole GiB"
+        );
+        assert_eq!(
+            suggest_pledge(GIB),
+            0,
+            "a nearly full disk is offered nothing"
+        );
+        assert_eq!(
+            suggest_pledge(100_000 * GIB),
+            500 * GIB,
+            "a huge disk would be suggested more than anybody means to give"
+        );
+    }
+
+    /// The Space step's table, in GiB, nothing stored yet. `(capacity, free,
+    /// others, largest other)` to `(pledge, keep, same)`. A phone with room
+    /// takes its siblings' pledge; one without gets the formula, never more
+    /// than half of what it can use, and what it keeps never eats the headroom.
+    /// Sabotage: drop the `<= half` bound (a 100 GiB copy on a 12 GiB-free
+    /// phone); take the formula alone (the same value is never suggested);
+    /// keep without the pledge taken out (the suggestion overfills the disk).
+    #[test]
+    fn red_team_a_phone_is_suggested_its_machines_pledge_only_when_it_has_the_room() {
+        let config = crate::config::Config::default();
+        for ((total, free, others, largest), (pledge, keep, same)) in [
+            ((32, 5, 0, 0), (0, 1, false)),
+            ((32, 12, 0, 0), (2, 6, false)),
+            ((32, 12, 100, 100), (2, 6, false)),
+            ((64, 10, 0, 0), (1, 2, false)),
+            ((64, 30, 0, 0), (6, 10, false)),
+            ((64, 30, 100, 100), (6, 17, false)),
+            ((128, 20, 0, 0), (3, 4, false)),
+            ((128, 80, 0, 0), (16, 10, false)),
+            ((128, 80, 100, 100), (16, 49, false)),
+            ((128, 80, 20, 20), (20, 17, true)),
+            ((256, 50, 0, 0), (10, 10, false)),
+            ((256, 180, 0, 0), (36, 15, false)),
+            ((256, 180, 500, 500), (36, 118, false)),
+            ((256, 180, 77, 77), (77, 66, true)),
+            ((512, 100, 0, 0), (20, 10, false)),
+            ((512, 400, 0, 0), (80, 34, false)),
+            ((512, 400, 100, 100), (100, 85, true)),
+            ((512, 400, 500, 500), (80, 248, false)),
+            // Two NAS at 50 each: the sum earns the room, the largest is what
+            // "the same" means.
+            ((512, 400, 100, 50), (50, 64, true)),
+        ] {
+            let got = suggest(
+                &config,
+                total * GIB,
+                free * GIB,
+                0,
+                others * GIB,
+                largest * GIB,
+            );
+            assert_eq!(
+                (got.pledge / GIB, got.keep / GIB, got.same_as_other_machines),
+                (pledge, keep, same),
+                "{total} GiB phone, {free} free, others {others} (largest {largest})"
+            );
+            let usable = phone_usable(total * GIB, free * GIB, 0);
+            assert!(
+                got.pledge + got.keep <= usable,
+                "the suggestion takes more than the phone can spare: {got:?} of {usable}"
+            );
+        }
+    }
+
+    /// Files already here count: a budget can release them, and leaving them out
+    /// reads a phone full of its own account as a phone with no room.
+    #[test]
+    fn what_a_phone_already_holds_counts_towards_what_it_can_use() {
+        assert_eq!(phone_usable(100 * GIB, 15 * GIB, 0), 5 * GIB);
+        assert_eq!(phone_usable(100 * GIB, 15 * GIB, 7 * GIB), 12 * GIB);
+        assert_eq!(
+            phone_usable(16 * GIB, 5 * GIB, 0),
+            3 * GIB,
+            "a small disk keeps the fixed headroom, not its tenth"
+        );
+        assert_eq!(
+            phone_usable(32 * GIB, GIB, 0),
+            0,
+            "less free than the headroom is nothing, not a wrapped number"
+        );
+    }
+
+    /// The disk's refusal as a value: fits, does not fit, and not known.
+    #[test]
+    fn a_promise_the_disk_cannot_keep_is_refused_with_its_figures() {
+        assert_eq!(
+            disk_refusal(10 * GIB, Some(20 * GIB), 0, vec![], vec![]),
+            None
+        );
+        assert_eq!(disk_refusal(99 * GIB, None, 0, vec![], vec![]), None);
+        let refused = disk_refusal(10 * GIB, Some(4 * GIB), GIB, vec![], vec![])
+            .expect("10 GiB on 4 free and 1 held fits");
+        assert_eq!(
+            (refused.room, refused.free, refused.held),
+            (5 * GIB, 4 * GIB, GIB)
+        );
+        assert_eq!(overcommitted(5, Some(5), Some(10), 0, 0), None);
+        assert_eq!(overcommitted(6, Some(5), Some(10), 0, 0), Some(11));
+        assert_eq!(overcommitted(6, Some(5), Some(9), 1, 1), None);
+        assert_eq!(overcommitted(6, Some(5), None, 0, 0), None);
+        assert_eq!(
+            overcommitted(11, None, Some(10), 0, 0),
+            Some(11),
+            "no limit on keep still owes the pledge"
+        );
     }
 
     /// The daemon publishes its promise several times a round; the same

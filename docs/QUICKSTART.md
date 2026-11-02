@@ -47,8 +47,9 @@ project is trying not to have — see [TEST-USERS.md](TEST-USERS.md) for the onl
 keys that are ever published deliberately, and the ban list that keeps them out
 of production.)
 
-**Write them down now.** They are shown once and are not stored anywhere on the
-machine — a phrase kept on the disk it protects is not a backup. There is a test
+**Write them down now.** They are never written in clear on the machine — a
+phrase readable on the disk it protects is not a backup — and `itsanas words`
+shows them again, from the keystore, for the passphrase. There is a test
 (`the_phrase_is_not_written_anywhere_under_the_node_directory`) that fails if
 that ever stops being true.
 

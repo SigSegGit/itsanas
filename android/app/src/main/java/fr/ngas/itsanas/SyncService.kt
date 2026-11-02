@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -43,6 +44,9 @@ class SyncService : Service() {
     private val scope = CoroutineScope(SupervisorJob())
     private var loop: Job? = null
 
+    @Volatile
+    private var destroyed = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -52,6 +56,13 @@ class SyncService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Restarted by the system after the account was removed: nothing to
+        // sync, and a sticky service with nothing to do is a notification that
+        // never goes away.
+        if (!Native.exists(Vault.home(this).absolutePath)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (loop == null) {
             loop = scope.launch { run() }
         }
@@ -65,6 +76,8 @@ class SyncService : Service() {
             val plan = try {
                 Vault.plan(this, foreground = false)
             } catch (error: Throwable) {
+                // A cancelled coroutine is the service ending, not a failure to report.
+                if (error is CancellationException) throw error
                 update("Not syncing", error.message ?: "the core would not answer")
                 delay(RETRY_MS)
                 continue
@@ -87,6 +100,7 @@ class SyncService : Service() {
                 val report = Account.syncNow(metadataOnly = !plan.movesContent)
                 summarise(report, plan.because)
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 error.message ?: "the round failed"
             }
             update(if (plan.movesContent) "Synced" else "Checked", line)
@@ -113,6 +127,8 @@ class SyncService : Service() {
     }
 
     private fun update(title: String, text: String) {
+        // A notification posted after onDestroy would outlive the service.
+        if (destroyed) return
         val manager = getSystemService(NotificationManager::class.java)
         manager?.notify(NOTIFICATION, notification(title, text))
     }
@@ -128,7 +144,7 @@ class SyncService : Service() {
         return NotificationCompat.Builder(this, CHANNEL)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            .setSmallIcon(R.drawable.ic_stat_itsanas)
             .setContentIntent(open)
             .setOngoing(true)
             .setSilent(true)
@@ -146,6 +162,7 @@ class SyncService : Service() {
     }
 
     override fun onDestroy() {
+        destroyed = true
         scope.cancel()
         super.onDestroy()
     }

@@ -1,4 +1,79 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Only what the native screens say. The page is the library's, in its own
+     i18n; each string here has its French in values-fr/strings.xml. -->
 <resources>
     <string name="app_name">ITSaNAS</string>
+
+    <string name="back">Back</string>
+    <string name="cancel">Cancel</string>
+    <string name="ok">OK</string>
+    <string name="close">Close</string>
+    <string name="continue_">Continue</string>
+    <string name="did_not_work">That did not work</string>
+    <string name="show_passphrase">Show the passphrase</string>
+    <string name="hide_passphrase">Hide the passphrase</string>
+
+    <string name="unlock_title">Unlock</string>
+    <string name="passphrase_label">Passphrase</string>
+    <string name="unlock_open">Open</string>
+    <string name="unlock_forgot">I forgot my passphrase</string>
+
+    <string name="new_passphrase_title">Choose a passphrase</string>
+    <string name="new_passphrase_help">It protects this account on this phone. Between %1$d and %2$d characters.</string>
+    <string name="new_passphrase_again">Type it again</string>
+    <string name="new_passphrase_differ">The two do not match.</string>
+
+    <string name="ask_passphrase_title">Your passphrase</string>
+    <string name="ask_passphrase_help">Needed for: %1$s</string>
+
+    <string name="recovery_title">Your 24 words</string>
+    <string name="recovery_help">Type or paste the 24 words of the account, separated by spaces.</string>
+    <string name="recovery_label">The 24 words</string>
+    <string name="recovery_count">%1$d of 24 words</string>
+    <string name="recovery_unknown">Word %1$d is in no recovery phrase.</string>
+    <string name="recovery_ok">These 24 words fit together.</string>
+
+    <string name="words_title">Your 24 words</string>
+    <string name="words_text">These 24 words are your account. With them you can open it on any machine. Anyone who has them can read everything you store. If you lose them and every machine of this account, nobody can give it back.</string>
+    <string name="words_advice">Write them down somewhere safe, or keep them in a password manager.</string>
+    <string name="words_copy">Copy</string>
+    <string name="words_copy_title">Copy the words?</string>
+    <string name="words_copy_body">Other apps can read what you copy. ITSaNAS clears it after 60 seconds.</string>
+    <string name="words_have_them">I have them</string>
+
+    <string name="check_title">Check</string>
+    <string name="check_help">Type these words from the list you wrote down.</string>
+    <string name="check_word">Word %1$d</string>
+    <string name="check_wrong">That is not it. Look at the words again and retry (%1$d tries left).</string>
+    <string name="check_again">Three misses: the words are shown again.</string>
+    <string name="check_show_again">Show the words again</string>
+    <string name="check_confirm">Confirm</string>
+
+    <string name="files_empty">Nothing here yet. Add a file, or sync with one of your machines.</string>
+    <string name="files_summary">%1$d here · %2$d not here · %3$s</string>
+    <string name="files_added">%1$d file(s) added</string>
+    <string name="files_sync">Sync now</string>
+    <string name="files_settings">Settings</string>
+    <string name="files_add">Add a file</string>
+    <string name="file_open">Open</string>
+    <string name="file_fetch">Fetch and open</string>
+    <string name="file_delete">Delete</string>
+    <string name="file_not_here">not on this phone</string>
+    <string name="delete_title">Delete %1$s?</string>
+    <string name="delete_body">It goes from every machine in this account, not just this phone. There is no undo.</string>
+    <string name="delete_everywhere">Delete everywhere</string>
+    <string name="delete_keep">Keep it</string>
+
+    <string name="update_title">ITSaNAS %1$s is available</string>
+    <string name="update_body">This phone runs %1$s. Android asks before installing it.</string>
+    <string name="update_install">Install</string>
+    <string name="update_later">Later</string>
+    <string name="update_allow">Allow ITSaNAS to install apps in Android\'s settings. The offer comes back the next time the app opens.</string>
+    <string name="update_failed">The update was not installed: %1$s</string>
+
+    <string name="biometric_title">Unlock with your fingerprint or face?</string>
+    <string name="biometric_body">ITSaNAS then opens after a fingerprint or face check instead of keeping your passphrase ready. Adding a new fingerprint to this phone turns it off until you type the passphrase again.</string>
+    <string name="biometric_on">Turn on</string>
+    <string name="biometric_not_now">Not now</string>
+    <string name="biometric_failed">Fingerprint or face unlock was not turned on.</string>
 </resources>

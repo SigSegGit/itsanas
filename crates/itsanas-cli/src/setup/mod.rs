@@ -26,6 +26,8 @@
 //! page shows before the person presses a button.
 
 pub(crate) mod answers;
+pub(crate) mod forgot;
+pub(crate) mod keys;
 pub(crate) mod secrets;
 pub(crate) mod service;
 pub(crate) mod sign;
@@ -39,7 +41,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub(crate) use answers::{Account, Answers};
+pub(crate) use answers::{Account, Answers, Keep};
 pub(crate) use secrets::{Secret, SecretPrompt};
 pub(crate) use service::ServiceControl;
 
@@ -125,6 +127,12 @@ pub(crate) enum Event {
         step: Step,
         why: String,
     },
+    /// What was typed was refused, and why; the same question is asked again.
+    /// Holds the reason, never what was typed.
+    AskingAgain {
+        step: Step,
+        why: String,
+    },
     /// A secret is about to be asked, and where (a window, the terminal).
     NeedsSecret {
         step: Step,
@@ -146,6 +154,7 @@ impl Event {
             Self::AlreadyDone { detail, .. } => format!("      already done: {detail}"),
             Self::Done { detail, .. } => format!("      done: {detail}"),
             Self::Skipped { why, .. } => format!("      skipped: {why}"),
+            Self::AskingAgain { why, .. } => format!("      asking again: {why}"),
             Self::NeedsSecret { what, asked_in, .. } => {
                 format!("      asking for {what} in {asked_in}")
             }
@@ -177,35 +186,17 @@ enum State {
 /// line: the record a person sends when it went wrong. Holds no secret.
 pub(crate) const SETUP_LOG: &str = "setup.log";
 
-// The official coordinator, its pinned device and `pinned_for` live in
-// `itsanas-node`, so the CLI and the Android app share one copy.
-pub(crate) use itsanas_node::coordinator::{DEFAULT_COORDINATOR, pinned_for};
+// The official coordinator, its pinned device, `pinned_for` and the name check
+// live in `itsanas-node`, so the CLI and the Android app share one copy.
+pub(crate) use itsanas_node::coordinator::{DEFAULT_COORDINATOR, name_taken, pinned_for};
 
 /// Whether a coordinator already holds `username`. A function, not a call,
 /// so the tests answer without a network.
 pub(crate) type NameCheck = fn(&str, &str) -> Result<bool>;
 
-/// Ask the coordinator at `address` whether `username` is taken. A lookup is
-/// unauthenticated, so a throwaway device key serves: this machine has no
-/// key of its own yet, which is the point of asking first.
-pub(crate) fn name_taken(address: &str, username: &str) -> Result<bool> {
-    use itsanas_coord::protocol::{Request, Response};
-    let keys = itsanas_crypto::DeviceKeys::generate()
-        .map_err(|error| CliError::Usage(error.to_string()))?;
-    let expect = pinned_for(address)
-        .map(crate::coordinator::parse_device)
-        .transpose()?;
-    let mut client = itsanas_coord::server::CoordClient::connect(address, &keys, expect)
-        .map_err(|error| CliError::Usage(format!("{address}: {error}")))?;
-    match client.ask(&Request::Lookup {
-        username: username.to_owned(),
-    }) {
-        Ok(Response::Account(_)) => Ok(true),
-        Ok(Response::Missing) => Ok(false),
-        Ok(other) => Err(CliError::Usage(format!("{address} answered {other:?}"))),
-        Err(error) => Err(CliError::Usage(format!("{address}: {error}"))),
-    }
-}
+/// Who holds a name at a coordinator ([`itsanas_node::coordinator::name_owner`]),
+/// as a function so the tests answer without a network.
+pub(crate) type OwnerCheck = fn(&str, &str) -> Result<Option<itsanas_crypto::UserId>>;
 
 /// One run of setup on one home.
 pub(crate) struct Setup<'a> {
@@ -221,6 +212,7 @@ pub(crate) struct Setup<'a> {
     started_service: bool,
     report: Option<verify::Report>,
     name_check: NameCheck,
+    owner_check: OwnerCheck,
 }
 
 impl std::fmt::Debug for Setup<'_> {
@@ -251,7 +243,15 @@ impl<'a> Setup<'a> {
             started_service: false,
             report: None,
             name_check: name_taken,
+            owner_check: itsanas_node::coordinator::name_owner,
         }
+    }
+
+    /// Answer "whose account is this name?" with `check` instead of the
+    /// network, as [`Setup::with_name_check`] does for "is it taken?".
+    pub(crate) fn with_owner_check(mut self, check: OwnerCheck) -> Self {
+        self.owner_check = check;
+        self
     }
 
     /// Answer "is this name taken?" with `check` (the page's backend, or a
@@ -431,7 +431,7 @@ impl<'a> Setup<'a> {
         if let Some(held) = &self.passphrase {
             return Ok(held.clone());
         }
-        if let Some(stored) = service::read_passphrase_file(&self.service.passphrase_file())
+        if let Some(stored) = self.service.stored_passphrase()
             && itsanas_node::node::Identity::open(&self.home, &stored).is_ok()
         {
             self.passphrase = Some(stored.clone());

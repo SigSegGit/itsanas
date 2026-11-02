@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1466 test functions, 20 of them `#[ignore]`d into the slow job, and 483 of
+**1556 test functions, 20 of them `#[ignore]`d into the slow job, and 542 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1061,7 +1061,7 @@ serve | sync | doctor | gc`
 
 - Identity created or restored from a 24-word phrase, sealed under a passphrase
   at production Argon2id cost, with the device seed sealed alongside it.
-- The recovery phrase is shown once and never written to disk — enforced by a
+- The recovery phrase is never written to disk in clear — enforced by a
   test that scans the whole node directory for it.
 - Published test identities are refused as real accounts, with an explanation.
 - `serve` refuses a non-loopback address unless explicitly overridden.
@@ -1503,9 +1503,10 @@ Decided by Nicolas, in this order:
    **`space --apply` skipped the check until 2026-10-29**, and it is the
    installers' path (`provision.sh` pledges through it), so two instances set
    up one after the other could still promise one disk twice. It now asks the
-   same question as `pledge` (`disk_refusal` in `main.rs`) and publishes the
+   same question as `pledge` (`Node::disk_refusal`) and publishes the
    promise at once (`red_team_space_apply_cannot_promise_what_another_node_on_the_disk_promised`).
-   The phone's setters check the split only: one node per phone.
+   On the phone, `setLimits`, which its settings screen calls, asks the same
+   question in its own words; `setKeep` and `setPledge` check the split only.
 2. **Later — reservation.** An optional reserved file of "pledged − stored",
    shrunk as chunks arrive (`fallocate` / `SetFileValidData`), for a real
    guarantee against other programs. Costs the space on day one and is

@@ -136,6 +136,9 @@ test account) is a second *instance*: `itsanas setup --instance NAME`. It has
 its own folder, its own port, its own background service and its own icon
 near the clock, so the two never mix; `itsanas instances` lists them.
 
+A passphrase you choose is 6 to 128 characters; one chosen before that rule keeps
+working.
+
 **Your 24 recovery words and your passphrase are never typed into the page:** a
 separate ITSaNAS window asks for them (look in your taskbar / Dock if you
 cannot see it). **Never type your recovery words into a web page.** A new
@@ -189,9 +192,10 @@ The numbered steps below are the same thing done by hand, the alternative.
 itsanas init --username you
 ```
 
-It prints **twenty-four words, once**. They are the only way to recover this
-account on another machine, they are stored nowhere, and they cannot be
-reissued. Write them down on paper now.
+It prints **twenty-four words**. They are the only way to recover this account
+once no machine has its passphrase, and no server keeps them; they are sealed in
+the keystore, and `itsanas words` shows them again for the passphrase. Write them
+down on paper now.
 
 ### 2. Decide how much space, and for whom
 

@@ -19,6 +19,12 @@ use crate::{
 /// How many times the words may be typed back wrong before setup stops.
 pub(super) const CONFIRM_ATTEMPTS: usize = 3;
 
+/// How many times a new passphrase is asked for before setup stops.
+const PASSPHRASE_ATTEMPTS: usize = 3;
+
+/// Why a phone skips the machine and folder steps.
+const NO_FOLDER_ON_A_PHONE: &str = "a phone has no synced folder: its files are in the app";
+
 impl Setup<'_> {
     fn config(&self) -> Option<Config> {
         Config::load(&Node::config_path(&self.home)).ok()
@@ -42,6 +48,9 @@ impl Setup<'_> {
     // -- Machine --------------------------------------------------------------
 
     pub(super) fn machine_state(&self) -> State {
+        if self.answers.phone {
+            return State::Skip(NO_FOLDER_ON_A_PHONE.to_owned());
+        }
         let folder = self.wanted_folder();
         if folder.is_dir() {
             State::Done(format!(
@@ -102,22 +111,44 @@ impl Setup<'_> {
                     .to_owned(),
             ));
         };
-        crate::refuse_stranded(
-            self.home.clone(),
-            &crate::config::user_home(),
-            crate::config::other_user_home().as_deref(),
-        )?;
+        // A phone's home is the app's own directory, which is not where a
+        // desktop's `--home` would be mistaken for the default.
+        if !self.answers.phone {
+            crate::refuse_stranded(
+                self.home.clone(),
+                &crate::config::user_home(),
+                crate::config::other_user_home().as_deref(),
+            )?;
+        }
         // A taken name is refused here, before a key is written: learnt at the
         // registration step instead, it left a whole account on this disk
-        // under a name the network would never give it. An unreachable
-        // coordinator does not stop the step -- registration says so later.
-        if let (Account::New { username }, Some(address)) = (&account, self.wanted_coordinator())
-            && let Ok(true) = (self.name_check)(&address, username)
-        {
-            return Err(CliError::Usage(format!(
-                "the username {username:?} is already taken at {address}: choose another \
-                 (nothing was written)"
-            )));
+        // under a name the network would never give it.
+        if let (Account::New { username }, Some(address)) = (&account, self.wanted_coordinator()) {
+            // The page stops this too, but only once its check has answered.
+            if let Some(why) = crate::coordinator::username_refusal(username) {
+                return Err(CliError::Usage(format!(
+                    "no coordinator would take the username {username:?}: {why} (nothing was \
+                     written)"
+                )));
+            }
+            // No next step without a positive check: a name nobody could be asked
+            // about is not a free name, and a key made under it is made for good.
+            match (self.name_check)(&address, username) {
+                Ok(false) => {}
+                Ok(true) => {
+                    return Err(CliError::Usage(format!(
+                        "the username {username:?} is already taken at {address}: choose \
+                         another (nothing was written)"
+                    )));
+                }
+                Err(error) => {
+                    return Err(CliError::Usage(format!(
+                        "the network could not be asked whether {username:?} is free at \
+                         {address} ({error}): a new account is made only after that answer \
+                         (nothing was written)"
+                    )));
+                }
+            }
         }
         let node = match &account {
             Account::New { username } => self.create_account(username)?,
@@ -212,20 +243,48 @@ impl Setup<'_> {
         Ok(node)
     }
 
+    /// A passphrase for the keys, asked again when it is refused rather than
+    /// stopping the run at the end of a long setup: a short one is a slip, not a
+    /// reason to type the 24 words again.
     fn new_passphrase(&mut self) -> Result<secrets::Secret> {
-        let asked_in = self.prompt.where_asked();
-        self.emit(&Event::NeedsSecret {
-            step: Step::Account,
-            what: "a passphrase for this machine's keys, twice",
-            asked_in,
-        });
-        let passphrase = self.prompt.new_passphrase()?;
-        if self.answers.service {
-            // Said now, before the account is written under a passphrase the
-            // service's file could not hold.
-            service::fits_service_file(std::env::consts::OS, &passphrase)?;
+        let mut last = None;
+        for _ in 0..PASSPHRASE_ATTEMPTS {
+            let asked_in = self.prompt.where_asked();
+            self.emit(&Event::NeedsSecret {
+                step: Step::Account,
+                what: "a passphrase for this machine's keys, twice",
+                asked_in,
+            });
+            let passphrase = self.prompt.new_passphrase()?;
+            match self.refusal_of(&passphrase) {
+                None => return Ok(passphrase),
+                Some(error) => {
+                    self.emit(&Event::AskingAgain {
+                        step: Step::Account,
+                        why: error.to_string(),
+                    });
+                    last = Some(error);
+                }
+            }
         }
-        Ok(passphrase)
+        Err(last.unwrap_or_else(|| CliError::Usage("no passphrase was given".to_owned())))
+    }
+
+    /// Why this passphrase cannot be used, if it cannot.
+    fn refusal_of(&self, passphrase: &secrets::Secret) -> Option<CliError> {
+        // Said now, with the numbers: the account would refuse it anyway, after
+        // the service's file was judged and with less to say about it.
+        if let Err(error) = crate::node::check_new_passphrase(passphrase) {
+            return Some(error);
+        }
+        // And before the account is written under a passphrase the service's
+        // file could not hold.
+        if self.answers.service
+            && let Err(error) = service::fits_service_file(std::env::consts::OS, passphrase)
+        {
+            return Some(error);
+        }
+        None
     }
 
     fn join_from_words(&mut self, username: &str) -> Result<Node> {
@@ -239,12 +298,31 @@ impl Setup<'_> {
         let words = Zeroizing::new(crate::phrase_words(&typed));
         // Checked before a passphrase is chosen: a typo found after that is a
         // second round of typing for nothing.
-        MasterSecret::from_recovery_phrase(&words)?;
+        let master = MasterSecret::from_recovery_phrase(&words)?;
+        self.refuse_words_of_another_account(username, &master)?;
         let passphrase = self.new_passphrase()?;
         let mut node = Node::restore(&self.home, &passphrase, username, &words)?;
         crate::settle_listen_port(&mut node)?;
         self.passphrase = Some(passphrase);
         Ok(node)
+    }
+
+    /// The name is bound to the key it first registers with: words that belong
+    /// to another account would be joined under a name that is not theirs. Asked
+    /// before a passphrase is, and only when the network answers -- a coordinator
+    /// that cannot be asked does not stop a person joining their own account.
+    fn refuse_words_of_another_account(&self, username: &str, master: &MasterSecret) -> Result<()> {
+        let Some(address) = self.wanted_coordinator() else {
+            return Ok(());
+        };
+        if let Ok(Some(owner)) = (self.owner_check)(&address, username)
+            && owner != itsanas_crypto::UserKeys::derive(master).user_id()
+        {
+            return Err(CliError::Usage(format!(
+                "these words are not the words of the account {username:?}; nothing was written"
+            )));
+        }
+        Ok(())
     }
 
     // -- Secret ---------------------------------------------------------------
@@ -255,27 +333,20 @@ impl Setup<'_> {
                 "no background service asked for, so no file needs the passphrase".to_owned(),
             );
         }
-        let path = self.service.passphrase_file();
-        match service::read_passphrase_file(&path) {
+        match self.service.stored_passphrase() {
             // Opened, not merely present: a file left from before
             // `itsanas passphrase` changed it starts a daemon that cannot
             // unlock, which is a setup that is not done.
-            Some(stored) if Identity::open(&self.home, &stored).is_ok() => {
-                State::Done(format!("{} opens this machine's keys", path.display()))
-            }
+            Some(stored) if Identity::open(&self.home, &stored).is_ok() => State::Done(
+                "the passphrase kept for the service opens this machine's keys".to_owned(),
+            ),
             _ => State::Todo,
         }
     }
 
     pub(super) fn apply_secret(&mut self) -> Result<String> {
         let passphrase = self.passphrase(Step::Secret)?;
-        let path = self.service.passphrase_file();
-        service::write_passphrase_file(&path, &passphrase)?;
-        Ok(format!(
-            "{} holds it, readable by this account alone (anything running as you can read it: \
-             the trade every background service makes)",
-            path.display()
-        ))
+        self.service.store_passphrase(&passphrase)
     }
 
     // -- Registration ---------------------------------------------------------
@@ -336,7 +407,14 @@ impl Setup<'_> {
             node.config.announce = Some(crate::config::parse_announce(announce)?);
         }
         node.save_config()?;
-        let published = crate::register_and_announce(&node, self.answers.invite.as_deref())?;
+        let published = crate::register_and_announce(&node, self.answers.invite.as_deref())
+            .inspect_err(|refused| {
+                // The devices the refusal names are what Settings offers to
+                // withdraw, as a phone's screen did.
+                if let Some(named) = crate::coordinator::cap_named(refused) {
+                    crate::devices::remember(node.store.device_id(), named);
+                }
+            })?;
         Ok(match published {
             Ok(address) => {
                 format!("registered with {wanted}; this machine is published at {address}")
@@ -362,7 +440,9 @@ impl Setup<'_> {
 
     pub(super) fn pledge_state(&self) -> Result<State> {
         let config = Config::load(&Node::config_path(&self.home))?;
+        let keep_differs = self.answers.keep.apply(config.keep_bytes) != config.keep_bytes;
         Ok(match self.answers.pledge {
+            None if keep_differs => State::Todo,
             None if config.pledge_bytes > 0 => {
                 State::Done(Self::bargain(&config, config.pledge_bytes))
             }
@@ -371,7 +451,7 @@ impl Setup<'_> {
                  `itsanas pledge 10G` offers some later"
                     .to_owned(),
             ),
-            Some(bytes) if bytes == config.pledge_bytes => {
+            Some(bytes) if bytes == config.pledge_bytes && !keep_differs => {
                 State::Done(Self::bargain(&config, bytes))
             }
             Some(_) => State::Todo,
@@ -379,9 +459,18 @@ impl Setup<'_> {
     }
 
     pub(super) fn apply_pledge(&mut self) -> Result<String> {
-        let bytes = self.answers.pledge.unwrap_or_default();
         let mut node = self.open_node(Step::Pledge)?;
-        let warning = crate::set_pledge(&mut node, bytes)?;
+        let bytes = self.answers.pledge.unwrap_or(node.config.pledge_bytes);
+        // The pair goes through one check: a keep the pledge cannot earn is
+        // refused and neither is written (the node is dropped unsaved). A phone
+        // earns on the whole account's pledge, not on its own.
+        node.config.keep_bytes = self.answers.keep.apply(node.config.keep_bytes);
+        let others = if self.answers.phone {
+            Node::others_pledged(&node.home)
+        } else {
+            0
+        };
+        let warning = crate::set_pledge_counting(&mut node, bytes, others)?;
         let free = fs4::available_space(&self.home).map_or_else(
             |_| String::new(),
             |free| format!("; {} still free on this disk", format_size(free)),
@@ -396,6 +485,9 @@ impl Setup<'_> {
     // -- Folder ---------------------------------------------------------------
 
     pub(super) fn folder_state(&self) -> Result<State> {
+        if self.answers.phone {
+            return Ok(State::Skip(NO_FOLDER_ON_A_PHONE.to_owned()));
+        }
         let config = Config::load(&Node::config_path(&self.home))?;
         let wanted = std::path::absolute(self.wanted_folder()).map_err(|source| CliError::Io {
             path: self.wanted_folder(),
@@ -435,6 +527,11 @@ impl Setup<'_> {
     }
 
     pub(super) fn updates_state(&self) -> Result<State> {
+        if self.answers.phone {
+            return Ok(State::Skip(
+                "the app is updated by the app itself, not by the node".to_owned(),
+            ));
+        }
         let config = Config::load(&Node::config_path(&self.home))?;
         Ok(match self.answers.updates {
             Some(wanted) if wanted != config.updates => State::Todo,
@@ -467,7 +564,7 @@ impl Setup<'_> {
     pub(super) fn apply_connectivity(&mut self) -> Result<String> {
         let passphrase = self.passphrase(Step::Connectivity)?;
         let identity = Identity::open(&self.home, &passphrase)?;
-        let check = crate::network_check(&identity);
+        let check = crate::network_check(&identity, !self.answers.phone);
         let address = check.coordinator.clone().unwrap_or_default();
         let peers = check.outbound.map_err(|why| {
             CliError::Usage(format!(
@@ -480,7 +577,10 @@ impl Setup<'_> {
         );
         // The dial-back proves something only while a daemon listens: before
         // the service runs, it is the final check's to ask.
-        let listening = itsanas_store::Store::is_locked(Node::store_path(&self.home));
+        // And a phone has no listener at all: it dials out, so a dial-back
+        // would fail by design and say nothing about the phone.
+        let listening =
+            itsanas_store::Store::is_locked(Node::store_path(&self.home)) && !self.answers.phone;
         let Some(inbound) = check.inbound.filter(|_| listening) else {
             return Ok(format!(
                 "{reached}; the dial-back is checked once the service listens"
@@ -515,7 +615,10 @@ impl Setup<'_> {
     }
 
     pub(super) fn apply_service(&mut self) -> Result<String> {
-        self.refuse_a_home_the_service_would_not_run()?;
+        // The phone's service is the app's own, which runs the one node it has.
+        if !self.answers.phone {
+            self.refuse_a_home_the_service_would_not_run()?;
+        }
         let store = Node::store_path(&self.home);
         if itsanas_store::Store::is_locked(&store) && !self.service.installed() {
             return Err(CliError::Usage(
@@ -528,6 +631,11 @@ impl Setup<'_> {
         self.service.set_autostart(true)?;
         self.service.start()?;
         self.started_service = true;
+        // A phone has no daemon: the app opens the node itself once setup is
+        // over, so nothing can hold the store yet and waiting only fails.
+        if self.answers.phone {
+            return Ok(said);
+        }
         if !wait_until(Duration::from_secs(30), || {
             itsanas_store::Store::is_locked(&store)
         }) {
@@ -582,7 +690,8 @@ impl Setup<'_> {
         let report = verify::run(&verify::Inputs {
             home: &self.home,
             identity: identity.as_ref(),
-            daemon_expected: self.answers.service,
+            daemon_expected: self.answers.service && !self.answers.phone,
+            phone: self.answers.phone,
             folder: config.folder.as_deref(),
             deadline: self.answers.verify_for,
             log_hint: self.service.log_hint(),

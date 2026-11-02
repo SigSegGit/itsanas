@@ -478,7 +478,7 @@ It is a **notice board**. It holds:
 | It holds | Why it is safe |
 | --- | --- |
 | `username → user id` | User ids *are* public keys. A coordinator that lies produces a name that maps to a key nobody can use. |
-| Presence and addresses | Metadata peers exchange anyway. |
+| Presence and addresses | Metadata peers exchange anyway. A device's address and the date it was last heard from are erased once it has been silent for thirty days; its enrolment stays. |
 | Escrow blobs | Argon2id-sealed under a passphrase it never sees. This is the one job where centralisation is genuinely better than the alternative, because it is somewhere a rate limit can exist — see [DESIGN.md](DESIGN.md) §8. |
 
 **Removed from this list, deliberately.** Earlier versions of this document also

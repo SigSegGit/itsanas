@@ -5,7 +5,9 @@
 //! Nothing, and that is the design rather than a boast. It holds usernames
 //! mapped to public keys, signed device enrolments, addresses, and escrow blobs
 //! sealed under passphrases it never sees. Every one of those is signed by a key
-//! it does not have or opaque to it.
+//! it does not have or opaque to it. An address goes once its device has been
+//! silent for `PRESENCE_KEPT_FOR`; this process erases those as it starts and
+//! once a day (`itsanas_coord::server::EXPIRE_EVERY`).
 //!
 //! Someone who takes this machine can refuse to answer and lie about who is
 //! online. They cannot read a file, forge a log entry, delete anything, or

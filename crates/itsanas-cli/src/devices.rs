@@ -3,7 +3,7 @@
 //!
 //! # Why the phone needed this
 //!
-//! At [`MAX_DEVICES_PER_ACCOUNT`] live devices a new machine is refused, and
+//! At [`LIMIT`] live devices a new machine is refused, and
 //! until 2026-10-01 the refusal told the person to run
 //! `itsanas device forget <id>`. An account whose machines are all phones has
 //! no such command, so a lost phone held its slot for ever and the account
@@ -14,7 +14,7 @@
 //! shown, never one typed or abbreviated.
 //!
 //! The bodies take a `&Node` and are tested against a real coordinator
-//! (`tests` below); the JNI shims in `lib.rs` only lock the node and call them.
+//! (`tests` below); a shell locks or opens its node and calls them.
 
 use std::sync::Mutex;
 
@@ -23,7 +23,7 @@ use itsanas_node::Node;
 use itsanas_node::coordinator::{self, MAX_DEVICES_PER_ACCOUNT as LIMIT, Secret};
 use serde_json::{Value, json};
 
-use crate::Failure;
+use crate::failure::Failure;
 
 /// The full ids each phone was last refused a slot over, keyed by that
 /// phone's own device id.
@@ -50,7 +50,7 @@ fn remembered(mine: DeviceId) -> Vec<DeviceId> {
         .unwrap_or_default()
 }
 
-fn remember(mine: DeviceId, ids: Vec<DeviceId>) {
+pub(crate) fn remember(mine: DeviceId, ids: Vec<DeviceId>) {
     if let Ok(mut named) = CAP_NAMED.lock() {
         named.retain(|(phone, _)| *phone != mine);
         if !ids.is_empty() {
@@ -76,7 +76,7 @@ fn no_coordinator(node: &Node) -> Result<(), Failure> {
 /// device (this phone is not enrolled, or the coordinator is older than
 /// `Devices`): then the list holds the devices seen this week plus any the
 /// last refusal named, and the screen says so rather than pretending.
-pub(crate) fn list(node: &Node) -> Result<Value, Failure> {
+pub fn list(node: &Node) -> Result<Value, Failure> {
     no_coordinator(node)?;
     let mine = node.store.device_id();
     let entry = |device: DeviceId, address: Option<String>| {
@@ -149,7 +149,7 @@ pub(crate) fn list(node: &Node) -> Result<Value, Failure> {
 /// that holds. This phone itself is refused by
 /// `coordinator::withdraw_device`, the command line's rule. The screen offers
 /// only listed ids, so a refusal here is a bug in the shell, said out loud.
-pub(crate) fn withdraw(node: &Node, id: &str, now: u64) -> Result<Value, Failure> {
+pub fn withdraw(node: &Node, id: &str, now: u64) -> Result<Value, Failure> {
     let id = id.trim();
     if id.len() != 2 * ID_LEN {
         return Err(Failure::Usage(format!(
@@ -186,8 +186,8 @@ pub(crate) fn withdraw(node: &Node, id: &str, now: u64) -> Result<Value, Failure
         "withdrew": wanted.to_string(),
         "said": "Withdrawn. Nothing will dial it again and its slot is free. \
                  The withdrawal is final for that device: to use it again, \
-                 remove the app's data on it and log in afresh. Someone who \
-                 has that device and its passphrase can still read the account.",
+                 log out on it and log in afresh. Someone who has that device \
+                 and its passphrase can still read the account.",
     }))
 }
 
@@ -196,15 +196,25 @@ pub(crate) fn withdraw(node: &Node, id: &str, now: u64) -> Result<Value, Failure
 ///
 /// The limit is not an error to the app: it is a screen. An `Ok` with
 /// `atCap: true` carries the named devices and a sentence that names the
-/// button below it, not a command the phone does not have. Every other
+/// button below it, not a command the phone does not have. An invitation
+/// refused is a screen too, the one with a field for a code: `needsInvite`,
+/// and `codeRefused` when a code was given and it would not do. Every other
 /// failure is the same `Err` the command line prints.
-pub(crate) fn register(node: &Node, invite: Option<&Secret>, now: u64) -> Result<Value, Failure> {
+pub fn register(node: &Node, invite: Option<&Secret>, now: u64) -> Result<Value, Failure> {
     no_coordinator(node)?;
     let mine = node.store.device_id();
 
     match coordinator::register_with(node, invite, now) {
         Ok(()) => {}
         Err(refused) => {
+            if coordinator::invitation_needed(&refused) {
+                return Ok(json!({
+                    "enrolled": false,
+                    "atCap": false,
+                    "needsInvite": true,
+                    "codeRefused": invite.is_some(),
+                }));
+            }
             let Some(named) = coordinator::cap_named(&refused) else {
                 return Err(refused.into());
             };
@@ -242,6 +252,7 @@ pub(crate) fn register(node: &Node, invite: Option<&Secret>, now: u64) -> Result
         }
     }
     remember(mine, Vec::new());
+    coordinator::mark_registered(node);
 
     let listen = node.config.listen.clone();
     // An address that could not be published does not undo the enrolment,
@@ -259,76 +270,12 @@ pub(crate) fn register(node: &Node, invite: Option<&Secret>, now: u64) -> Result
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
-    use std::path::Path;
-    use std::sync::atomic::{AtomicBool, Ordering};
 
-    use itsanas_coord::Directory;
-    use itsanas_coord::server::CoordServer;
+    use itsanas_coord::directory::Admission;
     use itsanas_crypto::{DeviceKeys, SecretBytes};
 
     use super::*;
-
-    const PASSPHRASE: &str = "a passphrase for a test and nowhere else";
-    const NOW: u64 = 1_700_000_000;
-
-    /// Stops the server even when the body panics, so a failed assertion is
-    /// reported as one and not as a hang.
-    struct StopOnDrop<'a>(&'a AtomicBool, SocketAddr);
-
-    impl Drop for StopOnDrop<'_> {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::Relaxed);
-            let _ = std::net::TcpStream::connect(self.1);
-        }
-    }
-
-    fn with_directory<T>(body: impl FnOnce(SocketAddr, &Directory) -> T) -> T {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let directory = Directory::open(dir.path().join("directory.redb")).expect("directory");
-        let server = CoordServer::bind("127.0.0.1:0").expect("bind");
-        let address = server.local_addr().expect("address");
-        let shutdown = AtomicBool::new(false);
-        let coordinator_device = DeviceKeys::from_seed(&SecretBytes::new([0xC0; 32]));
-
-        std::thread::scope(|scope| {
-            scope.spawn(|| {
-                let _ = server.serve_until(&directory, &coordinator_device, &shutdown, |_| {});
-            });
-            let _stop = StopOnDrop(&shutdown, address);
-            body(address, &directory)
-        })
-    }
-
-    /// A phone of the account `phrase` names (a new account `username` when
-    /// `None`), pointed at `coordinator`, not yet enrolled.
-    fn phone(
-        home: &Path,
-        coordinator: SocketAddr,
-        username: &str,
-        phrase: Option<&str>,
-    ) -> (Node, String) {
-        let (mut node, phrase) = match phrase {
-            None => {
-                let (node, phrase) = Node::create(home, PASSPHRASE, username).expect("create");
-                (node, phrase.0.to_string())
-            }
-            Some(phrase) => (
-                Node::restore(home, PASSPHRASE, username, phrase).expect("restore"),
-                phrase.to_owned(),
-            ),
-        };
-        node.config.coordinator = Some(coordinator.to_string());
-        node.save_config().expect("save config");
-        (node, phrase)
-    }
-
-    fn live(directory: &Directory, device: DeviceId) -> bool {
-        directory
-            .claim_for(device)
-            .expect("read")
-            .is_some_and(|signed| !signed.claim.revoked)
-    }
+    use crate::testing::{NOW, PASSPHRASE, admitting, live, phone, with_directory};
 
     /// What a refusal said; an acceptance fails the test.
     fn usage(outcome: Result<Value, Failure>) -> String {
@@ -560,6 +507,72 @@ mod tests {
                 "a partial list is presented as the whole: {said}"
             );
         });
+    }
+
+    /// Joining succeeds, and says so where a later round can read it, in the
+    /// same file the command line writes. Sabotage: drop `mark_registered`
+    /// (every round then registers again, and `status` says not enrolled).
+    #[test]
+    fn red_team_a_phone_that_joined_says_so_for_good() {
+        with_directory(|address, directory| {
+            let dir = tempfile::tempdir().expect("temp dir");
+            let (me, _) = phone(&dir.path().join("me"), address, "nicolas", None);
+            assert_eq!(coordinator::registered_with(&me.home), None);
+
+            let joined = register(&me, None, NOW).expect("register");
+            assert_eq!(joined["enrolled"], true, "{joined}");
+            assert_eq!(
+                coordinator::registered_with(&me.home),
+                Some(address.to_string()),
+                "the phone joined and nothing remembers it"
+            );
+            assert!(live(directory, me.store.device_id()));
+
+            assert!(
+                !coordinator::ensure_enrolled(&me, NOW + 1).expect("nothing to do"),
+                "a phone that joined enrolled again"
+            );
+        });
+    }
+
+    /// A coordinator that admits by invitation is a screen with a code field, not
+    /// a failure: named fields, nothing enrolled. A network failure is not that
+    /// and still throws. Sabotage: let the refusal through as an error (the phone
+    /// shows "That did not work" with no way to give a code); read an unreachable
+    /// coordinator as one wanting a code.
+    #[test]
+    fn red_team_a_coordinator_wanting_an_invitation_asks_for_the_code() {
+        admitting(Admission::ByInvitation, |address, directory| {
+            let dir = tempfile::tempdir().expect("temp dir");
+            let (me, _) = phone(&dir.path().join("me"), address, "nicolas", None);
+
+            let asked = register(&me, None, NOW).expect("the code field is a screen");
+            assert_eq!(
+                (&asked["enrolled"], &asked["atCap"], &asked["needsInvite"]),
+                (&json!(false), &json!(false), &json!(true)),
+                "{asked}"
+            );
+            assert_eq!(asked["codeRefused"], false, "{asked}");
+            assert_eq!(coordinator::registered_with(&me.home), None);
+
+            let refused = register(&me, Some(&[7u8; 32]), NOW + 1).expect("a wrong code");
+            assert_eq!(refused["needsInvite"], true, "{refused}");
+            assert_eq!(refused["codeRefused"], true, "{refused}");
+            assert!(
+                !live(directory, me.store.device_id()),
+                "enrolled with no code"
+            );
+        });
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (mut me, _) = Node::create(&dir.path().join("me"), PASSPHRASE, "nicolas")
+            .map(|(node, phrase)| (node, phrase.0.to_string()))
+            .expect("create");
+        me.config.coordinator = Some("127.0.0.1:1".to_owned());
+        assert!(
+            register(&me, None, NOW).is_err(),
+            "a coordinator that cannot be reached reads as one that answered"
+        );
     }
 
     /// The devices screen: every device of the account, this phone marked

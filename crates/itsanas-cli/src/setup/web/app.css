@@ -20,7 +20,8 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #121417;
     --panel: #1b1e23;
     --text: #eceff3;
@@ -36,6 +37,24 @@
   }
 }
 
+:root[data-theme="light"] { color-scheme: light; }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121417;
+  --panel: #1b1e23;
+  --text: #eceff3;
+  --muted: #b4bcc6;
+  --line: #353b44;
+  --accent: #6cb2ff;
+  --accent-text: #0b1320;
+  --ok: #5fd08a;
+  --bad: #ff8a80;
+  --warn-bg: #3a2f10;
+  --warn-text: #ffe2a0;
+  --focus: #ffc94d;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -46,6 +65,8 @@ html, body {
 }
 
 [hidden] { display: none !important; }
+/* What this shell lacks (data-feature, from /api/state): not drawn, whatever else shows it. */
+[data-off] { display: none !important; }
 
 .skip {
   position: absolute;
@@ -84,16 +105,15 @@ html, body {
   list-style: none;
   margin: 0;
   padding: 0;
-  counter-reset: step;
 }
 #progress li {
-  counter-increment: step;
   padding: 8px 10px;
   border-radius: 8px;
   color: var(--muted);
 }
 #progress li::before {
-  content: counter(step) ". ";
+  /* Not a CSS counter: a narrow screen hides the other steps, and a hidden step counts for nothing. */
+  content: attr(data-n) ". ";
 }
 #progress li.done { color: var(--ok); }
 #progress li.done::before { content: "\2713  "; }
@@ -227,6 +247,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 code { font-family: ui-monospace, Consolas, monospace; }
 
 @media (max-width: 720px) {
+  .top { flex-wrap: wrap; padding: 10px 12px; align-items: center; }
+  #mode-title { order: 1; flex-basis: 100%; }
   .layout { grid-template-columns: 1fr; padding: 12px; gap: 12px; }
   main { padding: 18px; }
   #progress { display: flex; flex-wrap: wrap; gap: 4px; }

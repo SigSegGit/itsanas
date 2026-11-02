@@ -1,0 +1,91 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib"
+  ],
+  "defences": {
+    "page: invalid not checked": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "    if let Some(why) = crate::coordinator::username_refusal(username) {\n        return ok_json(",
+      "dead": "    if let Some(why) = None::<String> {\n        return ok_json("
+    },
+    "page: join preselected": {
+      "file": "crates/itsanas-cli/src/setup/web/index.html",
+      "live": "name=\"account\" value=\"join\">",
+      "dead": "name=\"account\" value=\"join\" checked>"
+    },
+    "page: new preselected": {
+      "file": "crates/itsanas-cli/src/setup/web/index.html",
+      "live": "name=\"account\" value=\"new\">",
+      "dead": "name=\"account\" value=\"new\" checked>"
+    },
+    "page: new first": {
+      "file": "crates/itsanas-cli/src/setup/web/index.html",
+      "live": "          <label class=\"choice\"><input type=\"radio\" name=\"account\" value=\"join\"> No, I already have an account</label>\n          <label class=\"choice\"><input type=\"radio\" name=\"account\" value=\"new\"> Yes, create a new account</label>\n",
+      "dead": "          <label class=\"choice\"><input type=\"radio\" name=\"account\" value=\"new\"> Yes, create a new account</label>\n          <label class=\"choice\"><input type=\"radio\" name=\"account\" value=\"join\"> No, I already have an account</label>\n"
+    },
+    "page: no answer reads as new": {
+      "file": "crates/itsanas-cli/src/setup/web/app.js",
+      "live": "return chosen ? chosen.value : null;",
+      "dead": "return chosen ? chosen.value : 'new';"
+    },
+    "page: Next without an answer": {
+      "file": "crates/itsanas-cli/src/setup/web/app.js",
+      "live": "page === 'account' && !done.account && !accountKind()",
+      "dead": "page === 'account' && !done.account && false"
+    },
+    "engine: invalid name": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "            if let Some(why) = crate::coordinator::username_refusal(username) {\n",
+      "dead": "            if let Some(why) = None::<String> {\n"
+    },
+    "window: another minimum": {
+      "file": "crates/itsanas-cli/src/setup/secret-window.ps1",
+      "live": "$MinPassphraseChars = 6\n",
+      "dead": "$MinPassphraseChars = 5\n"
+    },
+    "window: another maximum": {
+      "file": "crates/itsanas-cli/src/setup/secret-window.ps1",
+      "live": "$MaxPassphraseChars = 128\n",
+      "dead": "$MaxPassphraseChars = 129\n"
+    },
+    "window: rule on an existing passphrase": {
+      "file": "crates/itsanas-cli/src/setup/secret-window.ps1",
+      "live": "} elseif ($Twice -and ($characters -lt $min -or $characters -gt $max)) {",
+      "dead": "} elseif ($characters -lt $min -or $characters -gt $max) {"
+    },
+    "window: UTF-16 units": {
+      "file": "crates/itsanas-cli/src/setup/secret-window.ps1",
+      "live": "$characters = @($first.Text.ToCharArray() | Where-Object { -not [char]::IsLowSurrogate($_) }).Count",
+      "dead": "$characters = $first.Text.Length"
+    },
+    "window: no Show": {
+      "file": "crates/itsanas-cli/src/setup/secret-window.ps1",
+      "live": "            $first.UseSystemPasswordChar = -not $show.Checked\n",
+      "dead": ""
+    },
+    "gate: pause and interval": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "features.sync_controls || !timed,",
+      "dead": "true || !timed,"
+    },
+    "host: biometric on a computer": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "            features.biometric,\n            \"fingerprint or face unlock\",",
+      "dead": "            true,\n            \"fingerprint or face unlock\","
+    },
+    "engine: passphrase not checked first": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "if let Err(error) = crate::node::check_new_passphrase(passphrase) {",
+      "dead": "if let Err(error) = crate::node::check_new_passphrase(\"a long enough passphrase for the sabotage\") {"
+    },
+    "pledge: the keep is not set with it": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "        node.config.keep_bytes = self.answers.keep.apply(node.config.keep_bytes);\n",
+      "dead": ""
+    }
+  }
+}

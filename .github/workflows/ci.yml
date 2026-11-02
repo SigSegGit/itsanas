@@ -113,6 +113,12 @@ jobs:
       # them searched for `25/75` while the files said "costs three pledged".
       - name: Every document states the split the code ships
         run: python scripts/check-bargain.py
+      # One interface on every platform: a feature lives in the library and a
+      # shell draws only what it alone can. The list of what each platform has is
+      # read against the commands, the page's headings and routes, and Features,
+      # so a thing added without saying where it works fails here.
+      - name: Every capability has a row in PARITY.md, true to the source
+        run: python scripts/check-parity.py
       # The wiki and the Projects board restate which milestone is done and which
       # acceptance test has passed. A second copy of a status is what drifted
       # every other time, so the copy is drawn from ROADMAP.md and MVP.md and
@@ -551,6 +557,12 @@ jobs:
           -p itsanas-crypto -p itsanas-store -p itsanas-sync
           -p itsanas-policy -p itsanas-discover -p itsanas-placement
           -p itsanas-wire
+      # The phone's app links the library `itsanas-cli` -- the setup engine and the
+      # page -- so one interface serves every platform. It builds for Android
+      # without a cfg of its own; this keeps it that way. Run locally with
+      # cargo-ndk, for the x86_64 emulator target.
+      - name: The library the app links builds for Android
+        run: cargo check --target aarch64-linux-android -p itsanas-cli
 
   minimum-rust-version:
     name: Minimum supported Rust version

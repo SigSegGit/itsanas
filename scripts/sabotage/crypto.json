@@ -1,0 +1,16 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-crypto",
+    "--lib"
+  ],
+  "defences": {
+    "word position: bip39's own": {
+      "file": "crates/itsanas-crypto/src/identity.rs",
+      "live": "return Some(PhraseProblem::UnknownWord(index + 1));",
+      "dead": "return Some(PhraseProblem::UnknownWord(index));"
+    }
+  }
+}

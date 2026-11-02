@@ -221,6 +221,31 @@ It also found a defect no review had: the join succeeded and **nothing on the
 phone changed**, which is indistinguishable from a button that does not work.
 Somebody would tap it again. The screen now reports what happened.
 
+### The end-to-end protocol
+
+`scripts/android-e2e.sh` runs it: the core built for an x86_64 emulator (a
+debug build, the only kind that takes `Native.useCoordinatorForTests`), the
+host's `itsanas-coordinator` started on a scratch directory and reached from the
+emulator at `10.0.2.2`, then `:app:connectedDebugAndroidTest`. It kills what it
+started, and fails on a `FATAL EXCEPTION` from the app in the log. In CI it is
+the second job of `.github/workflows/android.yml`, on an API 35 emulator, and
+uploads `itsanas-e2e`: the log, the test reports and a screenshot of each step in
+light and dark. A screen of secrets (passphrase, words) is black in them on
+purpose: `FLAG_SECURE`.
+
+The tests (`android/app/src/androidTest`) drive the page the app shows with
+Espresso-Web and the native screens (secrets, Unlock, Files) with Compose
+test tags. A test run without the `coordinator` argument fails saying so; it
+never reaches the official coordinator.
+
+What it proves: that a user's taps through Welcome, the account question, the
+username check against a real coordinator (refused, free, taken, unreachable),
+and, once the other classes run green, the words, the passphrase, Files, Lock
+and Unlock, Settings and removal do what the screens say. What it does not
+prove: a real radio, Doze, a manufacturer's background policy, a fingerprint or
+face, an install from a release, an update, or anything on the official
+network. The classes not yet seen green are named in `docs/TESTING.md`.
+
 ## 6. What is not ready, said plainly
 
 - **The self-update has not run end to end**: the native checks are tested
@@ -228,6 +253,7 @@ Somebody would tap it again. The screen now reports what happened.
   Kotlin download and the hand-off to the installer only on the emulator, and
   no release carries an APK yet -- the first one built by `sign-release.ps1`
   will.
+- **The end-to-end protocol (§5b) is not yet green for every scenario.** Welcome, the account question and the username check have run on a CI emulator; the rest ran into test-side problems that are fixed or listed in `docs/TESTING.md`.
 - **Nobody has installed the current application on a real phone.** It has run
   on the emulator, where it installs, starts, loads the native library, opens a
   node and joins a coordinator (§5b) — so the Kotlin glue and the JNI

@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-coordinator",
+    "--test",
+    "crash"
+  ],
+  "defences": {
+    "real coordinator: no erase at start": {
+      "file": "crates/itsanas-coord/src/server.rs",
+      "live": "        expire_once(&service, &mut on_event);\n        let mut last_expired",
+      "dead": "        let mut last_expired"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "setup::"
+  ],
+  "defences": {
+    "reask: one attempt": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "for _ in 0..PASSPHRASE_ATTEMPTS {",
+      "dead": "for _ in 0..1 {"
+    },
+    "reask: the person is not told why": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "                    self.emit(&Event::AskingAgain {\n                        step: Step::Account,\n                        why: error.to_string(),\n                    });\n",
+      "dead": ""
+    },
+    "forgot: words of another account": {
+      "file": "crates/itsanas-cli/src/setup/forgot.rs",
+      "live": "        && owner != UserKeys::derive(master).user_id()",
+      "dead": "        && false"
+    },
+    "forgot: the service keeps the old passphrase": {
+      "file": "crates/itsanas-cli/src/setup/forgot.rs",
+      "live": "            let _ = service.store_passphrase(&passphrase);",
+      "dead": ""
+    },
+    "forgot: the service is not stopped": {
+      "file": "crates/itsanas-cli/src/setup/forgot.rs",
+      "live": "        service.stop()?;\n",
+      "dead": ""
+    },
+    "forgot: one attempt at the new passphrase": {
+      "file": "crates/itsanas-cli/src/setup/forgot.rs",
+      "live": "    for _ in 0..ATTEMPTS {",
+      "dead": "    for _ in 0..1 {"
+    },
+    "forgot: the page route is on every page": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "(\"POST\", \"/api/forgot\") if ctx.mode == Mode::Settings => start_forgot(ctx),",
+      "dead": "(\"POST\", \"/api/forgot\") => start_forgot(ctx),"
+    }
+  }
+}

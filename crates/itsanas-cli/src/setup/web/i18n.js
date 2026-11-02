@@ -26,11 +26,14 @@ window.I18N = {
     'Next': 'Suivant',
     'Your account': 'Votre compte',
     'Is this your first machine with ITSaNAS?': 'Est-ce votre première machine avec ITSaNAS ?',
+    'ITSaNAS runs on this phone. Your files are in the app, which keeps them in sync with your other machines.':
+      'ITSaNAS fonctionne sur ce téléphone. Vos fichiers sont dans l’application, qui les garde synchronisés avec vos autres machines.',
     'Account': 'Compte',
     'Yes, create a new account': 'Oui, créer un nouveau compte',
     'No, I already have an account': 'Non, j’ai déjà un compte',
     'Your username': 'Votre nom d’utilisateur',
-    'Letters and digits. Use the same one on all your machines.': 'Lettres et chiffres. Le même sur toutes vos machines.',
+    "Lowercase letters, digits, '-' and '.'. Use the same one on all your machines.":
+      'Lettres minuscules, chiffres, « - » et « . ». Le même sur toutes vos machines.',
     "My account's recovery copy is kept by the network (I chose it on my first machine)":
       'La copie de secours de mon compte est gardée par le réseau (je l’ai choisi sur ma première machine)',
     'Otherwise a separate window asks for your 24 recovery words.': 'Sinon, une fenêtre séparée demande vos 24 mots de récupération.',
@@ -167,9 +170,15 @@ window.I18N = {
     'Every step is done. The checks below could not run here; each says why.':
       'Toutes les étapes sont faites. Les vérifications ci-dessous n’ont pas pu tourner ici ; chacune dit pourquoi.',
     'Choose a username.': 'Choisissez un nom d’utilisateur.',
+    'Say whether you already have an account: choose one of the two answers.':
+      'Dites si vous avez déjà un compte : choisissez l’une des deux réponses.',
+    'username must be between 1 and 64 characters': 'le nom d’utilisateur doit compter de 1 à 64 caractères',
+    "username may contain only lowercase ASCII letters, digits, '-' and '.'":
+      'le nom d’utilisateur ne peut contenir que des lettres minuscules sans accent, des chiffres, « - » et « . »',
+    "username may not start or end with '-' or '.'": 'le nom d’utilisateur ne peut pas commencer ni finir par « - » ou « . »',
     'Type a whole number of GB, at least 1.': 'Tapez un nombre entier de Go, au moins 1.',
-    'Three questions, then ITSaNAS sets itself up. If something stops, run setup again and it picks up where it left off.':
-      'Trois questions, puis ITSaNAS s’installe tout seul. Si quelque chose s’arrête, relancez l’installation : elle reprend là où elle en était.',
+    'Three questions, then ITSaNAS sets itself up. If something stops, start again and it picks up where it left off.':
+      'Trois questions, puis ITSaNAS s’installe tout seul. Si quelque chose s’arrête, recommencez : l’installation reprend là où elle en était.',
     'Your recovery words and your passphrase are asked later in a separate ITSaNAS window, never in this page.':
       'Vos mots de récupération et votre phrase de passe seront demandés plus tard dans une fenêtre ITSaNAS séparée, jamais dans cette page.',
     'Your folder and your space': 'Votre dossier et votre espace',
@@ -354,6 +363,102 @@ window.I18N = {
       'La clé est prête. Éjectez-la proprement avant de la retirer.',
     'The copy stopped:':
       'La copie s’est arrêtée :',
+    'The network cannot be asked right now. A new account is made only once the network says this username is free.':
+      'Le réseau ne peut pas être interrogé pour le moment. Un nouveau compte n’est créé que lorsque le réseau dit que ce nom d’utilisateur est libre.',
+    'Continue with this name': 'Continuer avec ce nom',
+    'No account has this name on the network. A name is bound to an account when it first joins: be sure it is the one you used on your other machines.':
+      'Aucun compte n’a ce nom sur le réseau. Un nom est lié à un compte lors de sa première arrivée : vérifiez que c’est celui de vos autres machines.',
+    'No account has this name on the network. Tick "Continue with this name" if you are sure it is the name of your account, or correct it.':
+      'Aucun compte n’a ce nom sur le réseau. Cochez « Continuer avec ce nom » si vous êtes sûr que c’est le nom de votre compte, ou corrigez-le.',
+    'The same as your other machines.': 'La même chose que vos autres machines.',
+    'Your other machines offer': 'Vos autres machines offrent',
+    'This one has room for less.': 'Celle-ci a de la place pour moins.',
+    'Appearance': 'Apparence',
+    'Colours': 'Couleurs',
+    'Same as the system': 'Comme le système',
+    'Light': 'Clair',
+    'Dark': 'Sombre',
+    'About and legal': 'À propos et mentions légales',
+    'Licence (AGPL-3.0)': 'Licence (AGPL-3.0)',
+    'Source code': 'Code source',
+    'ITSaNAS asks github.com for the signed release, at most once a day.':
+      'ITSaNAS interroge github.com pour la version signée, au plus une fois par jour.',
+    'I forgot my passphrase': 'J’ai oublié ma phrase de passe',
+    'Replaces the keys on this machine from your 24 recovery words, under a new passphrase. Your account and your files stay.':
+      'Remplace les clés de cette machine à partir de vos 24 mots de récupération, sous une nouvelle phrase de passe. Votre compte et vos fichiers restent.',
+    'Replace my keys with my 24 words': 'Remplacer mes clés par mes 24 mots',
+    'Replace the keys on this machine with your 24 recovery words? A window asks for them, then for a new passphrase.':
+      'Remplacer les clés de cette machine par vos 24 mots de récupération ? Une fenêtre les demande, puis une nouvelle phrase de passe.',
+    'A window asks for your 24 words, then a new passphrase.':
+      'Une fenêtre demande vos 24 mots, puis une nouvelle phrase de passe.',
+    'Not changed:': 'Pas modifié :',
+    'Remove this account from this machine': 'Retirer ce compte de cette machine',
+    'This removes the account and every downloaded file from this machine and frees its place among your devices. Nothing is deleted from your other machines. To come back you need your account name and your 24 words.':
+      'Cela retire le compte et tous les fichiers téléchargés de cette machine, et libère sa place parmi vos appareils. Rien n’est supprimé de vos autres machines. Pour revenir, il faut le nom du compte et vos 24 mots.',
+    'Check what is safe to remove': 'Vérifier ce qui peut être retiré sans risque',
+    'Checking what is safe to remove...': 'Vérification de ce qui peut être retiré sans risque…',
+    'No other machine answered just now, so the last changes made here may not have reached them.':
+      'Aucune autre machine n’a répondu à l’instant : les derniers changements faits ici n’ont peut-être pas pu les atteindre.',
+    '{n} of {total} pieces of your files exist only on this machine. Removing the account now destroys them for good. Sync with one of your other machines first.':
+      '{n} morceaux de vos fichiers sur {total} n’existent que sur cette machine. Retirer le compte maintenant les détruit pour toujours. Synchronisez d’abord avec une de vos autres machines.',
+    'This machine keeps {size} for other members. They re-place it from their own copies.':
+      'Cette machine garde {size} pour d’autres membres. Ils le replacent à partir de leurs propres copies.',
+    'Type {name} to remove it anyway': 'Tapez {name} pour la retirer quand même',
+    'This account is removed from this machine.': 'Ce compte est retiré de cette machine.',
+    'This machine could not tell the network. It will be done at your next login.':
+      'Cette machine n’a pas pu prévenir le réseau. Ce sera fait à votre prochaine connexion.',
+    'Delete this account': 'Supprimer ce compte',
+    'This removes the account for good: your hosts free its data, your other machines stop, and the name stays retired for a year. Type the account\'s name to confirm.':
+      'Cela supprime le compte pour toujours : vos hôtes libèrent ses données, vos autres machines s’arrêtent, et le nom reste retiré un an. Tapez le nom du compte pour confirmer.',
+    'The account\'s name': 'Le nom du compte',
+    'Delete this account for good? This cannot be undone.': 'Supprimer ce compte pour toujours ? Cela ne peut pas être annulé.',
+    'This account is deleted.': 'Ce compte est supprimé.',
+    'Devices of this account': 'Appareils de ce compte',
+    'Devices of this account:': 'Appareils de ce compte :',
+    'withdraw one you no longer use, then try again.': 'retirez-en un que vous n’utilisez plus, puis réessayez.',
+    'The machines that belong to this account. Withdrawing one frees its place for another. Opening this list pauses ITSaNAS on this machine for a moment.':
+      'Les machines de ce compte. En retirer une libère sa place pour une autre. Ouvrir cette liste met ITSaNAS en pause un instant sur cette machine.',
+    'Show the devices': 'Afficher les appareils',
+    'Withdraw': 'Retirer',
+    'this machine': 'cette machine',
+    'Only some of the devices could be listed: those heard from lately.':
+      'Seuls certains appareils ont pu être listés : ceux entendus récemment.',
+    'Withdraw this device? Nothing will dial it again. To use it again it must be set up afresh.':
+      'Retirer cet appareil ? Plus rien ne le contactera. Pour le réutiliser, il faudra le configurer de nouveau.',
+    'Withdrawn. Nothing will dial it again and its slot is free. The withdrawal is final for that device: to use it again, log out on it and log in afresh. Someone who has that device and its passphrase can still read the account.':
+      'Retiré. Plus rien ne le contactera et sa place est libre. Le retrait est définitif pour cet appareil : pour le réutiliser, déconnectez-le et reconnectez-le à neuf. Qui possède cet appareil et sa phrase de passe peut encore lire le compte.',
+    'Machines to sync with': 'Machines avec lesquelles synchroniser',
+    'Machines you name by address, besides the ones the coordinator knows. Write each as host:port.':
+      'Machines que vous nommez par leur adresse, en plus de celles que connaît le coordinateur. Écrivez chacune sous la forme hôte:port.',
+    'Address of a machine': 'Adresse d’une machine',
+    'Add': 'Ajouter',
+    'Forget': 'Oublier',
+    'Show the machines I named': 'Afficher les machines nommées',
+    'My 24 recovery words': 'Mes 24 mots de récupération',
+    'A window asks for your passphrase, then shows your 24 words. They never appear in this page.':
+      'Une fenêtre demande votre phrase de passe, puis affiche vos 24 mots. Ils n’apparaissent jamais dans cette page.',
+    'Show my 24 words': 'Afficher mes 24 mots',
+    'A window asks for your passphrase, then shows your 24 words.':
+      'Une fenêtre demande votre phrase de passe, puis affiche vos 24 mots.',
+    'The 24 words were shown in the window. Nothing was kept anywhere new.':
+      'Les 24 mots ont été affichés dans la fenêtre. Rien n’a été conservé ailleurs.',
+    'My passphrase': 'Ma phrase de passe',
+    'A window asks for the current passphrase, then for a new one. Your keys and your files stay.':
+      'Une fenêtre demande la phrase de passe actuelle, puis une nouvelle. Vos clés et vos fichiers restent.',
+    'Change my passphrase': 'Changer ma phrase de passe',
+    'A window asks for the current passphrase, then a new one.':
+      'Une fenêtre demande la phrase de passe actuelle, puis une nouvelle.',
+    'The passphrase is changed, and the background service has the new one.':
+      'La phrase de passe est changée, et le service en arrière-plan a la nouvelle.',
+    'The passphrase is changed.': 'La phrase de passe est changée.',
+    'Files kept here': 'Fichiers gardés ici',
+    "How much of your account's files stay on this machine, to open without the network. The rest is fetched when you open it. Empty: everything.":
+      'La part des fichiers de votre compte qui reste sur cette machine, pour les ouvrir sans réseau. Le reste est récupéré à l’ouverture. Vide : tout.',
+    'Files to keep here, in GB': 'Fichiers à garder ici, en Go',
+    'Files kept on this machine, in GB (empty: everything)': 'Fichiers gardés sur cette machine, en Go (vide : tout)',
+    'Download files over mobile data too': 'Télécharger aussi les fichiers en données mobiles',
+    'Security': 'Sécurité',
+    'Unlock with my fingerprint or face': 'Déverrouiller avec mon empreinte ou mon visage',
     'The copy stopped without saying why. Try again; a key it left half written is refused and must be emptied first.':
       'La copie s’est arrêtée sans dire pourquoi. Réessayez ; une clé qu’elle a laissée à moitié écrite est refusée et doit d’abord être vidée.',
   },

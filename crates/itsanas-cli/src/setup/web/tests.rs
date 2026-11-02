@@ -21,8 +21,8 @@ use std::{
 use zeroize::Zeroizing;
 
 use super::{
-    Backends, Context, LANGUAGE_FILE, Mode, Server, browser_command, has_desktop, http,
-    language_of, suggest_pledge,
+    Backends, Context, Features, LANGUAGE_FILE, Mode, NoHost, Server, browser_command, has_desktop,
+    http, language_of,
 };
 use crate::{
     error::{CliError, Result},
@@ -107,6 +107,24 @@ impl ServiceControl for NoService {
     }
 }
 
+/// The node behind the account calls, opened as a computer does: the passphrase
+/// from the scripted person, no service to stop.
+fn test_nodes(seen: &Seen, home: &Path) -> Arc<dyn super::Nodes> {
+    let seen = seen.clone();
+    let file = home.with_extension("passphrase");
+    Arc::new(super::nodes::Opened::new(
+        home.to_owned(),
+        Box::new(move || {
+            let service: Box<dyn ServiceControl> = Box::new(NoService { file: file.clone() });
+            service
+        }),
+        Box::new(move || {
+            let person: Box<dyn SecretPrompt> = Box::new(Person { seen: seen.clone() });
+            Ok(person)
+        }),
+    ))
+}
+
 fn backends(seen: &Seen, home: &Path) -> Backends {
     let seen = seen.clone();
     let file = home.with_extension("passphrase");
@@ -120,10 +138,17 @@ fn backends(seen: &Seen, home: &Path) -> Backends {
             service
         }),
         name: |_, name| Ok(name == "taken"),
+        owner: |_, _| Ok(None),
+        pledge: |_, name| (name == "taken").then_some(40 << 30),
         another: |_| Ok(()),
         drives: Box::new(Vec::new),
         programs: || Some(1024),
         copy: Box::new(|_, _| Err("no copy is started in these tests".to_owned())),
+        features: Features::DESKTOP,
+        phone: false,
+        fixed_coordinator: None,
+        host: Arc::new(NoHost),
+        nodes: test_nodes(&Seen::default(), home),
     }
 }
 
@@ -642,6 +667,49 @@ fn set_up_through_the_page(home: &Path, folder: &Path) -> (String, String) {
         std::thread::sleep(Duration::from_millis(200));
     }
     heard.push_str(&page.api("GET", "/api/plan", "").all());
+    drop(page);
+    // Settings, on the account just made: the words shown again and the
+    // passphrase changed. Both are asked and shown in the "window"; what comes
+    // back to the page must be a sentence.
+    let settings = Page::start(
+        home,
+        folder.parent().expect("parent"),
+        Mode::Settings,
+        &seen,
+    );
+    for route in ["/api/words", "/api/passphrase"] {
+        let started = settings.api("POST", route, "");
+        assert_eq!(
+            started.status, 202,
+            "{route} was not started: {}",
+            started.body
+        );
+        heard.push_str(&started.all());
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let state = settings.api("GET", "/api/state", "");
+            heard.push_str(&state.all());
+            if !state.body.contains("\"phase\":\"running\"") {
+                assert!(
+                    state.body.contains("\"phase\":\"done\""),
+                    "{route} did not finish: {}",
+                    state.body
+                );
+                break;
+            }
+            assert!(Instant::now() < deadline, "{route} never ended");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    {
+        let shown = seen.0.lock().expect("seen");
+        assert_eq!(
+            shown.get(1),
+            shown.first(),
+            "Show my 24 words did not show this account's words in the window"
+        );
+    }
+    drop(settings);
     let phrase = seen
         .0
         .lock()
@@ -688,6 +756,105 @@ fn red_team_no_response_ever_carries_a_recovery_word_or_the_passphrase() {
             );
         }
     }
+}
+
+/// A person who mistypes the current passphrase, and notes whether a new one
+/// was ever asked of them.
+struct Mistaken {
+    seen: Seen,
+    asked_new: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl SecretPrompt for Mistaken {
+    fn show_and_confirm(&mut self, phrase: &str, _: [usize; 3]) -> Result<Option<Vec<Secret>>> {
+        self.seen.0.lock().expect("seen").push(phrase.to_owned());
+        Ok(None)
+    }
+    fn new_passphrase(&mut self) -> Result<Secret> {
+        self.asked_new
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(Zeroizing::new("another-passphrase-entirely".to_owned()))
+    }
+    fn passphrase(&mut self, _: &str) -> Result<Secret> {
+        Ok(Zeroizing::new("not-the-passphrase".to_owned()))
+    }
+    fn recovery_phrase(&mut self) -> Result<Secret> {
+        Err(CliError::Usage("not asked here".to_owned()))
+    }
+    fn where_asked(&self) -> &'static str {
+        "a test window"
+    }
+}
+
+/// Run `route` on a Settings page whose person mistypes the passphrase; the
+/// state it ended in.
+fn mistaken_job(home: &Path, base: &Path, route: &str, seen: &Seen) -> (String, bool) {
+    let asked_new = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = Arc::clone(&asked_new);
+    let page = Page::start_with(home, base, Mode::Settings, seen, move |backends| {
+        let seen = seen.clone();
+        backends.prompt = Box::new(move || {
+            let person: Box<dyn SecretPrompt> = Box::new(Mistaken {
+                seen: seen.clone(),
+                asked_new: Arc::clone(&flag),
+            });
+            Ok(person)
+        });
+    });
+    assert_eq!(page.api("POST", route, "").status, 202);
+    let mut state = String::new();
+    for _ in 0..200 {
+        state = page.api("GET", "/api/state", "").body;
+        if !state.contains("\"phase\":\"running\"") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    (state, asked_new.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+#[test]
+fn red_team_a_mistyped_passphrase_shows_no_words_asks_no_new_one_and_stores_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let base = dir.path().join("base");
+    let _ = set_up_through_the_page(&home, &base.join("folder"));
+    // The copy the service reads, as an installed service would have left it.
+    let stored = home.with_extension("passphrase");
+    std::fs::write(&stored, PASSPHRASE).expect("stored copy");
+    let seen = Seen::default();
+
+    let (state, _) = mistaken_job(&home, &base, "/api/words", &seen);
+    assert!(
+        state.contains("\"phase\":\"failed\""),
+        "a mistyped passphrase did not stop Show my 24 words: {state}"
+    );
+    assert!(
+        seen.0.lock().expect("seen").is_empty(),
+        "the 24 words were shown to somebody who did not know the passphrase"
+    );
+
+    let (state, asked_new) = mistaken_job(&home, &base, "/api/passphrase", &seen);
+    assert!(
+        state.contains("\"phase\":\"failed\""),
+        "a mistyped current passphrase did not stop the change: {state}"
+    );
+    assert!(
+        !asked_new,
+        "a new passphrase was asked of somebody who had not proved the current one"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&stored).expect("stored"),
+        PASSPHRASE,
+        concat!(
+            "the service's copy was replaced by a change that was refused: it would start ",
+            "with a passphrase that opens nothing"
+        )
+    );
+    assert!(
+        itsanas_node::node::Identity::secrets(&home, PASSPHRASE).is_ok(),
+        "a refused change re-sealed the keystore"
+    );
 }
 
 #[test]
@@ -818,10 +985,17 @@ fn while_a_window_is_open_the_page_is_told_so_and_a_closed_window_says_what_to_d
             service
         }),
         name: |_, _| Ok(false),
+        owner: |_, _| Ok(None),
+        pledge: |_, _| None,
         another: |_| Ok(()),
         drives: Box::new(Vec::new),
         programs: || None,
         copy: Box::new(|_, _| Err("no copy is started in this test".to_owned())),
+        features: Features::DESKTOP,
+        phone: false,
+        fixed_coordinator: None,
+        host: Arc::new(NoHost),
+        nodes: test_nodes(&Seen::default(), &home),
     };
     let server = Server::bind(&home, None, Mode::Setup, dir.path(), backends).expect("bind");
     let ctx = Arc::clone(&server.ctx);
@@ -886,6 +1060,9 @@ fn the_page_asks_no_secret_loads_nothing_from_elsewhere_and_sends_its_key_in_a_h
         ("app.js", js),
         ("app.css", super::APP_CSS),
     ] {
+        // The three links of the legal block are followed by the person, in a tab of
+        // their own; `red_team_the_page_links_only_...` holds them to that.
+        let text = text.replace("href=\"https://github.com/SigSegGit/itsanas", "href=\"");
         assert!(
             !text.contains("http://") && !text.contains("https://") && !text.contains("//cdn"),
             "{name} names another address: the page would load code from elsewhere, which the \
@@ -951,31 +1128,6 @@ fn the_browser_is_opened_by_the_systems_own_program_with_the_url_as_one_argument
 }
 
 #[test]
-fn the_suggested_pledge_is_a_fifth_in_whole_gib_and_capped() {
-    const GIB: u64 = 1 << 30;
-    assert_eq!(
-        suggest_pledge(100 * GIB),
-        20 * GIB,
-        "a fifth of the free space"
-    );
-    assert_eq!(
-        suggest_pledge(GIB * 7 + 123),
-        GIB,
-        "rounded down to whole GiB"
-    );
-    assert_eq!(
-        suggest_pledge(GIB),
-        0,
-        "a nearly full disk is offered nothing"
-    );
-    assert_eq!(
-        suggest_pledge(100_000 * GIB),
-        500 * GIB,
-        "a huge disk would be suggested more than anybody means to give"
-    );
-}
-
-#[test]
 fn the_page_learns_a_taken_username_before_anything_is_made() {
     let dir = tempfile::tempdir().expect("tempdir");
     let page = Page::start(
@@ -1007,6 +1159,95 @@ fn the_page_learns_a_taken_username_before_anything_is_made() {
     assert!(
         !dir.path().join("node").join("keystore.bin").exists(),
         "asking about a name wrote a key"
+    );
+}
+
+/// A name no coordinator would register reads as free on a lookup: the page
+/// said so, keys were made, and registration refused it with an unrelated remedy.
+/// `invalid` comes with the reason, the coordinator is not asked, and the page
+/// blocks Next on it for a new account. Sabotage: drop the check in `check_name`
+/// (`marie_1` is "free"); drop the branch in `validate`.
+#[test]
+fn red_team_the_page_says_when_no_coordinator_would_take_a_username() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let page = Page::start(
+        &dir.path().join("node"),
+        dir.path(),
+        Mode::Setup,
+        &Seen::default(),
+    );
+    for (name, because) in [("marie_1", "lowercase"), ("-nope", "start or end")] {
+        let reply = page.api(
+            "POST",
+            "/api/name",
+            &format!("username={name}&coordinator=c.test%3A9898"),
+        );
+        assert!(
+            reply.status == 200 && reply.body.contains("\"invalid\":\""),
+            "{name} reads as a name the coordinator could give: {}",
+            reply.all()
+        );
+        assert!(
+            reply.body.contains(because),
+            "{name} is refused with no reason a person can act on: {}",
+            reply.all()
+        );
+    }
+    let js = super::APP_JS;
+    assert!(
+        js.contains("if (nameInvalid) {\n        say(nameInvalid);"),
+        "Next no longer stops an account on a name no coordinator would take"
+    );
+}
+
+/// What `/api/name` says of a name is shown in the page's language.
+#[test]
+fn every_reason_a_username_is_refused_has_a_french_translation() {
+    let french = french_keys();
+    for bad in ["", "marie_1", "-nope"] {
+        let why = crate::coordinator::username_refusal(bad).expect("a refused name");
+        assert!(
+            french.contains(&why),
+            "the page shows this in English whatever the language chosen: {why}"
+        );
+    }
+}
+
+/// The question has no answer until the person gives one, and the one they are
+/// likelier to need comes first: a preselected "new account" made a second
+/// account for a person who meant to join their own (Nicolas, 2026-10-14).
+/// Sabotage: `checked` on either radio; "new" first; `accountKind` falling back
+/// on 'new' (Next goes on with an answer nobody gave).
+#[test]
+fn red_team_the_page_answers_nothing_for_the_person_and_offers_the_existing_account_first() {
+    let html = include_str!("index.html");
+    let join = html
+        .find(r#"name="account" value="join""#)
+        .expect("the existing-account answer");
+    let new = html
+        .find(r#"name="account" value="new""#)
+        .expect("the new-account answer");
+    assert!(
+        join < new,
+        "a new account is offered before the existing one"
+    );
+    for line in html
+        .lines()
+        .filter(|line| line.contains(r#"name="account""#))
+    {
+        assert!(
+            !line.contains("checked"),
+            "an answer is chosen before the person is asked: {line}"
+        );
+    }
+    let js = super::APP_JS;
+    assert!(
+        js.contains("return chosen ? chosen.value : null;"),
+        "no answer reads as an answer"
+    );
+    assert!(
+        js.contains("page === 'account' && !done.account && !accountKind()"),
+        "Next goes on with neither answer chosen"
     );
 }
 
@@ -1428,7 +1669,7 @@ fn settings_is_one_column_of_cards_with_the_usb_copy_shown() {
     let slot = &slot[..slot.find("</section>").expect("end of the section")];
     assert!(slot.contains("Copy this account to a USB key"));
     assert!(
-        slot.starts_with("id=\"st-usb\" aria-labelledby=\"st-h-usb\">"),
+        slot.starts_with("id=\"st-usb\" data-feature=\"usb_key\" aria-labelledby=\"st-h-usb\">"),
         "the USB copy section is hidden: the tray's \"Copy this account to a USB key\" opens \
          a page without it"
     );
@@ -1992,4 +2233,796 @@ fn the_disks_section_hands_work_to_the_daemon_and_writes_a_portable_copy_itself(
             .body
             .contains("\"job\":null")
     );
+}
+
+#[test]
+fn red_team_every_feature_of_a_shell_is_named_in_the_page() {
+    // The page hides what a shell lacks by `data-feature`. A feature no element
+    // names is a feature the page cannot hide: a phone would be shown it.
+    let html = super::INDEX_HTML;
+    for (name, _) in Features::DESKTOP.all() {
+        assert!(
+            html.contains(&format!("data-feature=\"{name}\"")),
+            "`{name}` is a feature of the shell and no element of index.html carries \
+             data-feature=\"{name}\": a shell without it would still be shown it"
+        );
+    }
+    let named: BTreeSet<&str> = html
+        .split("data-feature=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .collect();
+    let known: BTreeSet<&str> = Features::DESKTOP
+        .all()
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+    assert_eq!(
+        named, known,
+        "the page names a feature the shell does not have: it would never be shown"
+    );
+}
+
+#[test]
+fn red_team_a_route_behind_a_missing_feature_refuses_whatever_the_page_hides() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.features = Features::PHONE;
+        b.phone = true;
+    });
+    for (method, path, body) in [
+        ("POST", "/api/pick", ""),
+        ("POST", "/api/open", ""),
+        ("POST", "/api/pin", ""),
+        ("POST", "/api/disk", "action=export&path=x"),
+        ("GET", "/api/keys", ""),
+        ("POST", "/api/copy-to-key", "path=x"),
+        ("POST", "/api/another", "name=other"),
+        ("POST", "/api/control", "action=pause"),
+        ("POST", "/api/control", "action=interval&every=1h"),
+    ] {
+        let reply = page.api(method, path, body);
+        assert_eq!(
+            reply.status, 403,
+            "{method} {path} was answered on a shell that has no such thing: hiding it in the \
+             page is not the control ({})",
+            reply.body
+        );
+        assert!(
+            reply.body.contains("not offered here"),
+            "{path} refused without saying why: {}",
+            reply.body
+        );
+    }
+    let sync = page.api("POST", "/api/control", "action=sync-now");
+    assert_ne!(
+        sync.status, 403,
+        "syncing now is a phone's own button: {}",
+        sync.body
+    );
+
+    // A computer has no fingerprint to set; a phone does, and is told.
+    let phone = page.api("POST", "/api/host", "name=biometric&value=on");
+    assert_eq!(phone.status, 200, "{}", phone.body);
+    let other = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let desktop = other.api("POST", "/api/host", "name=biometric&value=on");
+    assert_eq!(
+        desktop.status, 403,
+        "a computer was told to set a fingerprint it does not have: {}",
+        desktop.body
+    );
+}
+
+#[test]
+fn red_team_a_fixed_coordinator_is_the_one_the_name_check_asks_whatever_the_form_says() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start_with(&home, dir.path(), Mode::Setup, &Seen::default(), |b| {
+        b.name = |address, name| Ok(address == "official.example:1" && name == "taken");
+        b.fixed_coordinator = Some(("official.example:1".to_owned(), Some("pin".to_owned())));
+    });
+    let reply = page.api(
+        "POST",
+        "/api/name",
+        "username=taken&coordinator=my-own-network.example:9",
+    );
+    assert!(
+        reply.body.contains("\"yes\""),
+        "the name was asked of the address in the form, not of the shell's fixed coordinator: a \
+         phone could be pointed at a network of somebody else's naming ({})",
+        reply.body
+    );
+    let state = page.api("GET", "/api/state", "");
+    assert!(
+        state.body.contains("official.example:1") && !state.body.contains("my-own-network"),
+        "the page was offered a coordinator that is not the fixed one: {}",
+        state.body
+    );
+}
+
+#[test]
+fn the_name_check_tells_a_person_joining_what_the_account_s_machines_offer() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let page = Page::start(
+        &dir.path().join("node"),
+        dir.path(),
+        Mode::Setup,
+        &Seen::default(),
+    );
+    let asked = |name: &str, account: &str| {
+        page.api(
+            "POST",
+            "/api/name",
+            &format!("username={name}&coordinator=c.test%3A9898&account={account}"),
+        )
+        .body
+    };
+    let joining = asked("taken", "join");
+    assert!(
+        joining.contains("\"taken\":\"yes\"")
+            && joining.contains(&format!("\"other_pledge_bytes\":{}", 40_u64 << 30)),
+        "a person joining an account is not told what its machines offer: {joining}"
+    );
+    assert!(
+        asked("taken", "new").contains("\"other_pledge_bytes\":null"),
+        "a person making a new account was told what somebody else's machines offer"
+    );
+    assert!(
+        asked("camille", "join").contains("\"other_pledge_bytes\":null"),
+        "a figure was offered for a name no account holds"
+    );
+    let invalid = asked("marie_1", "new");
+    assert!(
+        invalid.contains("\"taken\":\"unknown\"")
+            && invalid.contains("\"invalid\":\"")
+            && invalid.contains("lowercase"),
+        "a name no coordinator would take is not said to be invalid, with its reason: {invalid}"
+    );
+}
+
+/// The owner's rule for every platform: no next step without a positive check.
+/// The page asks again when Next is pressed, blocks a new account on anything but
+/// a free name, and asks a person joining under an unknown name to say it is theirs.
+/// Sabotage: `nameTaken !== 'no'` into `nameTaken === 'yes'`; drop `await checkName()`;
+/// drop the tick's condition.
+#[test]
+fn red_team_a_new_account_goes_on_only_after_the_network_says_the_name_is_free() {
+    let js = super::APP_JS;
+    for (needle, consequence) in [
+        (
+            "await checkName();\n      const asked",
+            "Next goes on with the answer to a name since changed: a quick Next passes the check",
+        ),
+        (
+            "accountKind() === 'new' && asked && nameTaken !== 'no'",
+            "a new account goes on under a name the network could not be asked about",
+        ),
+        (
+            "accountKind() === 'join' && asked && nameTaken === 'no' && !$('continue-name').checked",
+            "a person joins under a name no account has without ever saying it is theirs",
+        ),
+        (
+            "$('continue-name').checked = false;",
+            "the tick given to one name carries over to the next one typed",
+        ),
+    ] {
+        assert!(js.contains(needle), "{consequence}");
+    }
+    let html = super::INDEX_HTML;
+    assert!(
+        html.contains("id=\"username-retry\"") && html.contains("id=\"continue-name\""),
+        "the page has nowhere to retry a check or to tick the name"
+    );
+}
+
+#[test]
+fn the_space_question_is_answered_by_the_one_rule_every_platform_shares() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let page = Page::start(
+        &dir.path().join("node"),
+        dir.path(),
+        Mode::Setup,
+        &Seen::default(),
+    );
+    let disk = itsanas_node::pledges::disk_space(dir.path());
+    let (total, free) = (disk.total.unwrap_or(0), disk.free.unwrap_or(0));
+    for other in [0_u64, 1 << 30, 10 << 40] {
+        let reply = page
+            .api("POST", "/api/suggest", &format!("other={other}"))
+            .body;
+        let expected = itsanas_node::pledges::suggest(
+            &crate::config::Config::default(),
+            total,
+            free,
+            0,
+            other,
+            other,
+        );
+        assert!(
+            reply.contains(&format!("\"pledge_gb\":{}", expected.pledge >> 30))
+                && reply.contains(&format!("\"keep_gb\":{}", expected.keep >> 30))
+                && reply.contains(&format!(
+                    "\"same_as_other_machines\":{}",
+                    expected.same_as_other_machines
+                )),
+            "the page was suggested something the rule does not (other = {other}): {reply}"
+        );
+    }
+    let state = page.api("GET", "/api/state", "").body;
+    let none =
+        itsanas_node::pledges::suggest(&crate::config::Config::default(), total, free, 0, 0, 0);
+    assert!(
+        state.contains(&format!("\"pledge_gb\":{}", none.pledge >> 30)),
+        "the first suggestion is not the rule's: {state}"
+    );
+}
+
+/// Records what the page told the shell.
+#[derive(Default)]
+struct Told(Mutex<Vec<(String, String)>>);
+
+impl super::Host for Told {
+    fn event(&self, name: &str, value: &str) {
+        self.0
+            .lock()
+            .expect("lock")
+            .push((name.to_owned(), value.to_owned()));
+    }
+}
+
+/// The theme is in the first byte of the page, kept in the node's home for the
+/// next page and the phone's own screens, and told to the shell: a theme set
+/// only by a script would flash the other one first, and be lost at the next page.
+/// Sabotage: drop the `data-theme` insertion in `index_html`; drop `save_theme`;
+/// drop the `host.event`.
+#[test]
+fn red_team_a_chosen_theme_is_in_the_first_byte_and_survives_the_next_page() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let told = Arc::new(Told::default());
+    let page = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.host = told.clone();
+    });
+    let first = |page: &Page| {
+        let host = page.host();
+        page.send("GET", "/", &[("Host", &host)], "").body
+    };
+    assert!(
+        !first(&page).contains("data-theme"),
+        "a theme nobody chose is in the page"
+    );
+    let refused = page.api("POST", "/api/theme", "theme=purple");
+    assert_eq!(refused.status, 400, "{}", refused.body);
+
+    let dark = page.api("POST", "/api/theme", "theme=dark");
+    assert_eq!(dark.status, 200, "{}", dark.body);
+    assert!(
+        first(&page).contains("<html data-theme=\"dark\" "),
+        "the theme is not in the first byte of the page: the other one shows first"
+    );
+    assert_eq!(
+        std::fs::read_to_string(home.join(super::THEME_FILE)).expect("kept"),
+        "dark\n",
+        "the theme was not kept beside the node: the next page forgets it"
+    );
+    assert_eq!(
+        *told.0.lock().expect("lock"),
+        [("theme".to_owned(), "dark".to_owned())],
+        "the shell was not told: a phone's own screens stay in the other theme"
+    );
+    drop(page);
+    let next = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    assert!(
+        first(&next).contains("<html data-theme=\"dark\" "),
+        "the next page started from the system's theme"
+    );
+    next.api("POST", "/api/theme", "theme=system");
+    assert!(!first(&next).contains("data-theme"));
+
+    let css = super::APP_CSS;
+    assert!(
+        css.contains(":root:not([data-theme=\"light\"])")
+            && css.contains(":root[data-theme=\"dark\"]"),
+        "the dark colours do not follow the system unless light is chosen, or apply when dark is"
+    );
+}
+
+/// Nothing leaves the page but the three links of the legal block, each safe to
+/// follow and each to a place that exists: no placeholder, no "coming soon".
+/// Sabotage: drop a `rel`; add a link elsewhere.
+#[test]
+fn red_team_the_page_links_only_the_licence_the_source_and_the_security_policy() {
+    let html = super::INDEX_HTML;
+    let links: Vec<&str> = html.split("<a ").skip(1).collect();
+    let external: Vec<&str> = links
+        .iter()
+        .copied()
+        .filter(|link| link.contains("href=\"http"))
+        .collect();
+    assert_eq!(
+        external.len(),
+        3,
+        "the legal block is not the licence, the source and the policy"
+    );
+    for link in external {
+        let link = &link[..link.find('>').expect("a tag")];
+        assert!(
+            link.contains("rel=\"noopener noreferrer\"") && link.contains("target=\"_blank\""),
+            "a link out of the page can read it back or is followed in the same tab: {link}"
+        );
+        assert!(
+            link.contains("href=\"https://github.com/SigSegGit/itsanas"),
+            "a link out of the page goes somewhere that is not the project: {link}"
+        );
+    }
+    for placeholder in ["coming soon", "TODO", "lorem"] {
+        assert!(
+            !html.contains(placeholder),
+            "the page carries a placeholder ({placeholder}) where a text should be"
+        );
+    }
+}
+
+#[test]
+fn forgetting_on_a_page_with_no_node_changes_nothing_and_says_so() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let started = page.api("POST", "/api/forgot", "");
+    assert_eq!(started.status, 202, "{}", started.body);
+    let mut state = String::new();
+    for _ in 0..200 {
+        state = page.api("GET", "/api/state", "").body;
+        if !state.contains("\"phase\":\"running\"") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        state.contains("\"phase\":\"failed\"") && state.contains("no node"),
+        "forgetting with nothing to replace did not fail, or did not say why: {state}"
+    );
+    let setup = Page::start(&home, dir.path(), Mode::Setup, &Seen::default());
+    assert_eq!(
+        setup.api("POST", "/api/forgot", "").status,
+        404,
+        "the setup page offers to replace the keys of an account that is not there yet"
+    );
+}
+
+/// A node of account `username` at `home`, pointed at the coordinator and
+/// enrolled; its phrase when it was made new, and its device.
+fn enrolled(
+    home: &Path,
+    coordinator: std::net::SocketAddr,
+    username: &str,
+    phrase: Option<&str>,
+) -> (String, itsanas_crypto::DeviceId) {
+    let (mut node, phrase) = match phrase {
+        None => {
+            let (node, phrase) =
+                itsanas_node::Node::create(home, PASSPHRASE, username).expect("create");
+            (node, phrase.0.to_string())
+        }
+        Some(phrase) => (
+            itsanas_node::Node::restore(home, PASSPHRASE, username, phrase).expect("restore"),
+            phrase.to_owned(),
+        ),
+    };
+    node.config.coordinator = Some(coordinator.to_string());
+    node.save_config().expect("config");
+    crate::coordinator::register_with(&node, None, crate::testing::NOW).expect("enrol");
+    (phrase, node.store.device_id())
+}
+
+#[test]
+fn red_team_the_page_withdraws_a_listed_full_id_and_never_this_machine_nor_a_stray_one() {
+    use crate::testing::{live, with_directory};
+    with_directory(|address, directory| {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("node");
+        let (phrase, mine) = enrolled(&home, address, "camille", None);
+        let (_, other) = enrolled(&dir.path().join("other"), address, "camille", Some(&phrase));
+        let (_, stranger) = enrolled(&dir.path().join("voisin"), address, "voisin", None);
+
+        let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+        let listed = page.api("GET", "/api/devices", "");
+        assert_eq!(listed.status, 200, "{}", listed.body);
+        assert!(
+            listed.body.contains(&other.to_string()),
+            "the account's other machine is not offered: {}",
+            listed.body
+        );
+        assert!(
+            !listed.body.contains(&stranger.to_string()),
+            "another account's machine is listed"
+        );
+
+        for (what, id) in [
+            ("an abbreviated id", other.short()),
+            ("this machine", mine.to_string()),
+            ("a device of another account", stranger.to_string()),
+        ] {
+            let refused = page.api("POST", "/api/withdraw", &format!("id={id}"));
+            assert_eq!(
+                refused.status, 409,
+                "{what} was withdrawn: {}",
+                refused.body
+            );
+        }
+        assert!(
+            live(directory, mine),
+            "the page withdrew the machine it runs on"
+        );
+        assert!(
+            live(directory, stranger),
+            "the page withdrew another account's device"
+        );
+        assert!(
+            live(directory, other),
+            "an abbreviated id withdrew a device"
+        );
+
+        let done = page.api("POST", "/api/withdraw", &format!("id={other}"));
+        assert_eq!(done.status, 200, "{}", done.body);
+        assert!(
+            !live(directory, other),
+            "the listed full id was refused its withdrawal: the slot is never freed"
+        );
+    });
+}
+
+#[test]
+fn machines_typed_on_the_page_are_kept_listed_and_forgotten() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let _ = set_up_through_the_page(&home, &dir.path().join("base").join("folder"));
+    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let added = page.api("POST", "/api/peers", "action=add&address=10.0.0.5%3A7777");
+    assert_eq!(added.status, 200, "{}", added.body);
+    assert!(added.body.contains("10.0.0.5:7777"), "{}", added.body);
+    let config =
+        crate::config::Config::load(&itsanas_node::Node::config_path(&home)).expect("config");
+    assert!(
+        config.peers.iter().any(|peer| peer == "10.0.0.5:7777"),
+        "the address was listed and not kept: the daemon would never dial it"
+    );
+    let parked = page.api("POST", "/api/peers", "action=add&address=relay%3Aabc");
+    assert_eq!(
+        parked.status, 409,
+        "a parked machine was typed in: {}",
+        parked.body
+    );
+    let forgotten = page.api(
+        "POST",
+        "/api/peers",
+        "action=forget&address=10.0.0.5%3A7777",
+    );
+    assert!(
+        forgotten.body.contains("\"peers\":[]"),
+        "the machine was forgotten and is still listed: the daemon would keep dialling it: {}",
+        forgotten.body
+    );
+    assert!(
+        crate::config::Config::load(&itsanas_node::Node::config_path(&home))
+            .expect("config")
+            .peers
+            .is_empty(),
+        "a forgotten address stayed in the file"
+    );
+    let phone = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.features = Features::PHONE;
+    });
+    assert_eq!(
+        phone.api("GET", "/api/peers", "").status,
+        403,
+        "a shell without Advanced was offered the machines typed by address"
+    );
+}
+
+#[test]
+fn a_setup_that_stopped_at_the_device_limit_says_so_to_the_page() {
+    use super::{Phase, Run, run_json};
+    use crate::setup::Step;
+    let run = Run {
+        phase: Phase::Failed,
+        failed: Some((
+            Step::Registration,
+            "this account has 10 live devices and the limit is 10".to_owned(),
+            "withdraw one".to_owned(),
+        )),
+        ..Run::default()
+    };
+    assert!(
+        run_json(&run).contains("\"atCap\":true"),
+        "the page is not told to open the devices: the person is left with a refusal and no way out"
+    );
+    let other = Run {
+        failed: Some((Step::Registration, "no route".to_owned(), "wait".to_owned())),
+        ..Run::default()
+    };
+    assert!(run_json(&other).contains("\"atCap\":false"));
+}
+
+/// The app locks when the page tells it, and the node stays open until then.
+/// Sabotage: tell it nothing, or wait for the store as a computer does.
+#[test]
+fn red_team_a_phone_that_signs_out_locks_at_once() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let (node, _) = itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
+    let file = home.with_extension("passphrase");
+    std::fs::write(&file, "stand-in\n").expect("stand-in passphrase");
+    let slot: &'static super::Slot = Box::leak(Box::new(Mutex::new(Some(node))));
+    let heard = Heard::default();
+    let told = heard.clone();
+    let kept = file.clone();
+    let page = Page::start_with(
+        &home,
+        dir.path(),
+        Mode::Settings,
+        &Seen::default(),
+        move |b| {
+            b.features = Features::PHONE;
+            b.nodes = Arc::new(super::Held(slot));
+            b.host = Arc::new(told);
+            b.service = Box::new(move || {
+                let service: Box<dyn ServiceControl> = Box::new(TheApp { file: kept.clone() });
+                service
+            });
+        },
+    );
+
+    let asked = std::time::Instant::now();
+    let out = page.api("POST", "/api/signout", "");
+    assert_eq!(out.status, 200, "sign out was refused: {}", out.body);
+    assert!(
+        asked.elapsed() < std::time::Duration::from_secs(15),
+        "signing out took {:?}: the phone waited for itself to let go of its own store, and \
+         the person looks at an account that seems to stay open",
+        asked.elapsed()
+    );
+    assert!(
+        !file.exists(),
+        "signed out, and the phone still remembers the passphrase: it opens again for anybody"
+    );
+    assert_eq!(
+        heard.0.lock().expect("heard").as_slice(),
+        [("signedOut".to_owned(), String::new())],
+        "the app was not told: the account stays open on screen after the person signed out"
+    );
+}
+
+/// What the shell was told, in order.
+#[derive(Clone, Default)]
+struct Heard(Arc<Mutex<Vec<(String, String)>>>);
+
+impl super::Host for Heard {
+    fn event(&self, name: &str, value: &str) {
+        self.0
+            .lock()
+            .expect("heard")
+            .push((name.to_owned(), value.to_owned()));
+    }
+}
+
+/// The app as its own service: it holds the node, so nothing else can let go of it.
+struct TheApp {
+    file: PathBuf,
+}
+
+impl ServiceControl for TheApp {
+    fn passphrase_file(&self) -> PathBuf {
+        self.file.clone()
+    }
+    fn installed(&self) -> bool {
+        true
+    }
+    fn install(&self, _: bool) -> Result<String> {
+        Ok("the app is its own service".to_owned())
+    }
+    fn start(&self) -> Result<()> {
+        Ok(())
+    }
+    fn stop(&self) -> Result<()> {
+        Ok(())
+    }
+    fn set_autostart(&self, _: bool) -> Result<()> {
+        Ok(())
+    }
+    fn log_hint(&self) -> String {
+        "the test".to_owned()
+    }
+    fn holds_the_store_itself(&self) -> bool {
+        true
+    }
+}
+
+/// A phone's page over a node it holds open: the Settings of `home`, with the
+/// node in a slot of its own and the shell's events recorded.
+fn phone_page(home: &Path, base: &Path, node: itsanas_node::Node, heard: &Heard) -> Page {
+    let slot: &'static super::Slot = Box::leak(Box::new(Mutex::new(Some(node))));
+    let heard = heard.clone();
+    Page::start_with(home, base, Mode::Settings, &Seen::default(), move |b| {
+        b.features = Features::PHONE;
+        b.nodes = Arc::new(super::Held(slot));
+        b.host = Arc::new(heard);
+    })
+}
+
+/// On a phone the node is open in this process, so a replacement of the keys
+/// would wait twenty seconds for a store that never lets go, then fail: the
+/// person who forgot is sent on to the Unlock screen instead. Sabotage: drop the
+/// arm of `gate`.
+#[test]
+fn red_team_a_phone_refuses_to_replace_the_keys_under_an_open_node() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let (node, _) = itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
+    let heard = Heard::default();
+    let page = phone_page(&home, dir.path(), node, &heard);
+    let said = page.api("POST", "/api/forgot", "");
+    assert_eq!(
+        said.status, 403,
+        "a phone started replacing the keys under its own open node: {}",
+        said.body
+    );
+    assert!(
+        said.body.contains("choose I forgot"),
+        "the person was not told where to go: {}",
+        said.body
+    );
+}
+
+#[test]
+fn red_team_removing_the_account_through_the_page_needs_its_name_where_pieces_are_only_here() {
+    use crate::testing::{live, with_directory};
+    with_directory(|address, directory| {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("node");
+        let (mut node, _) =
+            itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
+        node.config.coordinator = Some(address.to_string());
+        node.save_config().expect("config");
+        crate::coordinator::register_with(&node, None, crate::testing::NOW).expect("enrol");
+        let device = node.store.device_id();
+        // A file no other machine has: its pieces exist only here.
+        let source = dir.path().join("source");
+        std::fs::write(&source, b"kept on this machine alone").expect("source");
+        node.store
+            .write_stream("one.txt", std::fs::File::open(&source).expect("open"))
+            .expect("write");
+        node.store.flush_segment().expect("flush");
+
+        let heard = Heard::default();
+        let page = phone_page(&home, dir.path(), node, &heard);
+        let check = page.api("GET", "/api/remove", "");
+        assert_eq!(check.status, 200, "{}", check.body);
+        assert!(
+            !check.body.contains("\"onlyHere\":0")
+                && check.body.contains("\"username\":\"camille\""),
+            "the check did not say the pieces exist only here: {}",
+            check.body
+        );
+
+        for typed in ["", "confirm=camil", "confirm=someone-else"] {
+            let refused = page.api("POST", "/api/remove", typed);
+            assert_eq!(
+                refused.status, 409,
+                "the account was removed without its name ({typed:?}): its only copy is gone"
+            );
+        }
+        assert!(home.exists(), "a refused removal still erased the home");
+        assert!(
+            live(directory, device),
+            "a refused removal still freed the slot"
+        );
+        assert!(
+            heard.0.lock().expect("heard").is_empty(),
+            "the shell was told the account was gone when it was not"
+        );
+
+        let done = page.api("POST", "/api/remove", "confirm=camille");
+        assert_eq!(done.status, 200, "{}", done.body);
+        assert!(!home.exists(), "the home survived the removal");
+        assert!(
+            !live(directory, device),
+            "the removal kept this device's place among the account's"
+        );
+        assert_eq!(
+            heard.0.lock().expect("heard").as_slice(),
+            [("account_removed".to_owned(), "removed".to_owned())],
+            "the shell was not told: its screens would show an account that is gone"
+        );
+    });
+}
+
+#[test]
+fn red_team_deleting_the_account_through_the_page_takes_its_own_name_typed() {
+    use crate::testing::with_directory;
+    with_directory(|address, _| {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("node");
+        let (mut node, _) =
+            itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
+        node.config.coordinator = Some(address.to_string());
+        node.save_config().expect("config");
+        crate::coordinator::register_with(&node, None, crate::testing::NOW).expect("enrol");
+        let heard = Heard::default();
+        let page = phone_page(&home, dir.path(), node, &heard);
+
+        for typed in ["", "confirm=camil", "confirm=voisin"] {
+            let refused = page.api("POST", "/api/delete", typed);
+            assert_eq!(
+                refused.status, 409,
+                "the account was deleted on a name that is not its own ({typed:?})"
+            );
+        }
+        assert!(home.exists(), "a refused deletion erased the home");
+        assert!(
+            heard.0.lock().expect("heard").is_empty(),
+            "the shell was told of a deletion that was refused"
+        );
+
+        let done = page.api("POST", "/api/delete", "confirm=camille");
+        assert_eq!(done.status, 200, "{}", done.body);
+        assert!(!home.exists(), "the home survived the deletion");
+        assert_eq!(
+            heard.0.lock().expect("heard").as_slice(),
+            [("account_removed".to_owned(), "deleted".to_owned())]
+        );
+    });
+}
+
+#[test]
+fn a_computer_is_offered_no_way_to_remove_or_delete_the_account_from_the_page() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    for (method, path) in [
+        ("GET", "/api/remove"),
+        ("POST", "/api/remove"),
+        ("POST", "/api/delete"),
+    ] {
+        assert_eq!(
+            page.api(method, path, "confirm=x").status,
+            403,
+            "{path} answers on a computer, where the service would be left behind"
+        );
+    }
+}
+
+/// A phone person leaves with Back: the server must end then, not at the idle
+/// exit, or the account stays reachable by a page nobody is looking at.
+/// Sabotage: make `Stop::stop` do nothing.
+#[test]
+fn the_stop_handle_ends_a_server_that_would_otherwise_wait_for_the_idle_exit() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let home = directory.path().join("home");
+    let server = Server::bind(
+        &home,
+        None,
+        Mode::Setup,
+        directory.path(),
+        backends(&Seen::default(), &home),
+    )
+    .expect("bind");
+    let stop = server.stopper();
+    let handle = std::thread::spawn(move || server.serve(Duration::from_secs(3600)));
+    stop.stop();
+    let started = std::time::Instant::now();
+    while !handle.is_finished() && started.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        handle.is_finished(),
+        "the person left and the page kept answering for an hour"
+    );
+    let _ = handle.join();
 }

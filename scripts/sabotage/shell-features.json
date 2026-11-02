@@ -1,0 +1,72 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "setup::"
+  ],
+  "defences": {
+    "phone: machine step skipped": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "        if self.answers.phone {\n            return State::Skip(NO_FOLDER_ON_A_PHONE.to_owned());\n        }\n        let folder = self.wanted_folder();",
+      "dead": "        let folder = self.wanted_folder();"
+    },
+    "phone: folder step skipped": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "        if self.answers.phone {\n            return Ok(State::Skip(NO_FOLDER_ON_A_PHONE.to_owned()));\n        }\n",
+      "dead": ""
+    },
+    "phone: updates step skipped": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "        if self.answers.phone {\n            return Ok(State::Skip(\n                \"the app is updated by the app itself, not by the node\".to_owned(),\n            ));\n        }\n",
+      "dead": ""
+    },
+    "sign out: through the service": {
+      "file": "crates/itsanas-cli/src/setup/sign.rs",
+      "live": "    done.push(service.forget_passphrase()?);",
+      "dead": "    let _ = std::fs::remove_file(service.passphrase_file());\n    done.push(\"x\");"
+    },
+    "sign in: through the service": {
+      "file": "crates/itsanas-cli/src/setup/sign.rs",
+      "live": "    let kept = service.store_passphrase(&passphrase)?;",
+      "dead": "    service::write_passphrase_file(&service.passphrase_file(), &passphrase)?;\n    let kept = String::new();"
+    },
+    "page: a feature unnamed": {
+      "file": "crates/itsanas-cli/src/setup/web/index.html",
+      "live": "data-feature=\"biometric\"",
+      "dead": "data-nothing=\"biometric\""
+    },
+    "gate: open and pin (not pick: it opens a real dialog)": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "(features.folder, \"synced folder\")",
+      "dead": "(true, \"synced folder\")"
+    },
+    "gate: disks": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "(features.disks, \"disk to move or back up to\")",
+      "dead": "(true, \"disk to move or back up to\")"
+    },
+    "gate: usb": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "(features.usb_key, \"USB key to copy to\")",
+      "dead": "(true, \"USB key to copy to\")"
+    },
+    "gate: another account": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "(features.another_account, \"second account beside this one\")",
+      "dead": "(true, \"second account beside this one\")"
+    },
+    "fixed coordinator: name check": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "fixed.or(field(&form, \"coordinator\"))",
+      "dead": "field(&form, \"coordinator\").or(fixed)"
+    },
+    "fixed coordinator: offered": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "quote(&ctx.backends.fixed_coordinator.as_ref().map_or_else(",
+      "dead": "quote(&None::<&(String, Option<String>)>.map_or_else("
+    }
+  }
+}

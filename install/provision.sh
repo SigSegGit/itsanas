@@ -276,6 +276,15 @@ if [ -n "$COORDINATOR" ] && [ -z "$COORDINATOR_DEVICE" ]; then
     info "answers at that address. Get it from the coordinator's operator."
 fi
 
+# The same reason as the check above, for a passphrase `itsanas init` would
+# refuse after the build. Only for an account about to be made: a node already
+# here keeps the passphrase it has, whatever its length. The binary holds the
+# whole rule (6 to 128 characters); this is the early word on the usual mistake.
+if [ ! -f "${ITSANAS_HOME:-$HOME/.itsanas}/keystore.bin" ] && [ "${#ITSANAS_PASSPHRASE}" -lt 6 ]; then
+    die "ITSANAS_PASSPHRASE is too short for a new account" \
+        "A new passphrase is 6 to 128 characters."
+fi
+
 # ------------------------------------------------------------------- install
 
 BIN="$HOME/.local/bin/itsanas"

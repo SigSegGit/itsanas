@@ -142,6 +142,9 @@ It ends by registering a scheduled task that starts the daemon at logon, which
 needs the passphrase in a file only your account can read. `-NoTask` skips that
 and leaves you to run `itsanas daemon` yourself.
 
+For a new account the passphrase is 6 to 128 characters, and a shorter one is
+refused before anything is built; a node already there keeps the one it has.
+
 It installs, creates or restores the account, sets the pledge and the folder,
 pins and registers with the coordinator, writes the passphrase where systemd can
 read it, enables the service, and finishes by storing a file and reading it back.
@@ -269,8 +272,9 @@ sudo sh install/coordinator.sh
 
 A coordinator is a notice board. It holds usernames, device addresses and
 sealed escrow blobs it cannot open — no file data, no user keys, nothing it can
-read. If it disappears, members keep syncing with the peers they already know;
-they simply cannot find new ones.
+read. It erases a device's address after thirty days of silence, as it starts and
+once a day. If it disappears, members keep syncing with the peers they already
+know; they simply cannot find new ones.
 
 That is why its setup differs from a member node's in three ways, and the script
 does all three:

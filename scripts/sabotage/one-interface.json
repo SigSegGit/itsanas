@@ -1,0 +1,56 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "--all-features",
+    "--",
+    "setup::web::",
+    "account::",
+    "devices::"
+  ],
+  "defences": {
+    "words: the job answers with the words": {
+      "file": "crates/itsanas-cli/src/setup/keys.rs",
+      "live": "    Ok(\"The 24 words were shown in the window. Nothing was kept anywhere new.\".to_owned())",
+      "dead": "    Ok(format!(\"The 24 words: {}\", phrase.as_str()))"
+    },
+    "passphrase: no proof of the current one before the new one is asked": {
+      "file": "crates/itsanas-cli/src/setup/keys.rs",
+      "live": "    Identity::secrets(home, &current)?;\n",
+      "dead": ""
+    },
+    "devices page: a stray full id is withdrawn": {
+      "file": "crates/itsanas-cli/src/devices.rs",
+      "live": "    if !known {",
+      "dead": "    if false {"
+    },
+    "remove page: the name is not required where pieces are only here": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "            if only_here > 0 && confirm != username {",
+      "dead": "            if false {"
+    },
+    "delete: a wrong name still deletes": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    if confirm.is_empty() || confirm != node.config.username {",
+      "dead": "    if false {"
+    },
+    "stop handle: Back leaves the page serving": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "        self.0.quit.store(true, Ordering::SeqCst);",
+      "dead": "        let _ = &self.0;"
+    },
+    "check words: any words pass": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    json!({ \"ok\": problem.is_none(), \"wordIndex\": position, \"count\": count }).to_string()",
+      "dead": "    json!({ \"ok\": true, \"wordIndex\": position, \"count\": count }).to_string()"
+    },
+    "page: a phone replaces its keys under an open node": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "        \"/api/forgot\" => (\n            features.forgot_in_settings,",
+      "dead": "        \"/api/forgot\" => (\n            true || features.forgot_in_settings,"
+    }
+  }
+}

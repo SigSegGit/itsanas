@@ -11,8 +11,8 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0y
 TITLE: The phone's status carries the safety verdict (copies wanted, exposed), from shared code (the Android app shows no copy count today; §8 0y, its NEXT paragraph)
-WRITTEN-AT: 2026-10-31
-BASE: 82bbba5
+WRITTEN-AT: 2026-11-02
+BASE: 23c00a4
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -28,6 +28,38 @@ Read this section, then §8. Nothing else is needed to continue. The block
 above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
+
+**2026-11-02: one interface on every platform (#361).** Decided by Nicolas after a
+novice test on Android. `itsanas-cli` is a library, the app embeds the desktop page and
+engine, and a shell draws only what it alone can (`docs/PARITY.md`,
+`scripts/check-parity.py`). `android.yml` and `scripts/android-e2e.sh` run ten scenarios on
+an emulator against a local coordinator; `sabotage.yml` runs `scripts/sabotage/*.json`.
+Rule from this batch: CI verifies, sessions push every step and run only `cargo check`
+locally. The specifications are in the owner's private notes.
+
+Traps that cost time here, one line each. `Host` outlives a test: a question left waiting
+reads as the next test's. An engine outlives its page: `PhonePrompt` knows its page and ends
+instead of asking. `sabotage.yml` cancels on push and `moved-to-library` needs 17 minutes
+with no push. `fixcounts.py`-style global replaces rewrite unrelated numbers: edit counts
+by hand. A plan's command must run the crate holding its test, or NOTHING WENT RED means
+nothing.
+
+The end-to-end protocol found real bugs once its tests got that far: Sign out on a phone
+left the account open, a phone's steps all said 1, the header ran off a narrow screen, and
+the app's own screens ignored night mode. Read the screenshots too: the last three passed
+every test. A Compose dialog is invisible to Espresso's view matchers: tag its buttons.
+`FilesTest` once stayed on the typed-back words after Confirm, cause unknown: if it comes
+back, read that screen first.
+
+Next batch, all at once (Nicolas, 2026-11-02: macOS runners make each CI round costly, so
+group the coming features in one PR instead of one per step): §8 0y, the debts below, and
+the final check's lines, which a French page still shows in English.
+
+Debts left on purpose: on a desktop `show_words` goes through the window that asks three
+words back, and ignores them (a plain window needs one on each platform);
+`account.rs` keeps `login_into`, `restore_over`, `check_restore` and `new_phrase`, whose
+tests prove logic no route calls since the page's engine took over: delete them with their
+rows and plan entries in a change of their own.
 
 **Waiting on Nicolas, in this order, as commands to paste** (2026-10-29; a
 session cannot do any of them, and gives him these commands first, every
@@ -1423,7 +1455,7 @@ placement  rendezvous hashing (integer, no floats), repair planning
 coord      device certificates, accounting, directory, protocol, server, client
 coordinator  the `itsanas-coordinator` binary: address book and escrow locker
 folder     a real directory mirrored into the store and back, with a watcher
-cli        `itsanas` binary: commands + daemon
+cli        `itsanas`: the commands, the daemon and the setup page as a library (`src/lib.rs`), with a thin binary (`src/main.rs`)
 ```
 
 Dependency direction is strict: `crypto → store → sync → net → cli`, with
@@ -1514,6 +1546,7 @@ Each of these has a test that fails if it is:
 
 | Decision | Why | Guarded by |
 | --- | --- | --- |
+| A feature lives in the library, and a shell draws only what it alone can | A feature written twice is two features: the novice test of 2026-11-01 found the phone short of what the PC page does, and Nicolas chose one interface over three. What a shell lacks is `Features`, hidden in the page and refused by the routes | `scripts/check-parity.py` reads `docs/PARITY.md` against the commands, the page's headings and routes and `Features`; `red_team_every_feature_of_a_shell_is_named_in_the_page` and `red_team_a_route_behind_a_missing_feature_refuses_whatever_the_page_hides` |
 | No floating point in placement or accounting | `f64::ln` is libm-dependent; two machines disagreeing in the last ulp about where a chunk lives is a silent, permanent split | `no_floating_point_is_involved` greps the module's own source |
 | The FastCDC gear table is derived and pinned | If two devices disagree about boundaries, dedup silently stops network-wide | `the_gear_table_is_pinned_forever` |
 | A delete is only acted on for a path the ledger says this device had | Otherwise a fresh device announces the deletion of everything its owner has | `a_brand_new_device_downloads_everything_and_deletes_nothing`, and an exhaustive 27-case matrix in `decision.rs` |
@@ -2210,7 +2243,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
       What the backstop is actually for is much smaller: `PRESENCE_TTL` is seven
       days, so an hourly announce leaves 168 chances to refresh before an
       address expires, and `device list` keeps saying how long a machine has
-      been silent to within an hour. One unwritten dependency to keep in mind:
+      been silent to within an hour, for as long as the coordinator keeps that
+      date (`PRESENCE_KEPT_FOR`, thirty days). One unwritten dependency to keep
+      in mind:
       `Response::Peers` orders by `last_seen`, so once everybody announces on
       the same hour that order flattens into the device-id tie-break, and the
       client's own `reachable_first` is what puts usable addresses first. Two

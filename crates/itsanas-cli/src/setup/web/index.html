@@ -33,13 +33,13 @@
     <section data-page="welcome" hidden>
       <h1 tabindex="-1">Welcome</h1>
       <p class="lead">ITSaNAS keeps a folder in sync between your machines. Your files are locked with a key only you have, and copies are kept on other members' computers in case yours breaks.</p>
-      <p>Three questions, then ITSaNAS sets itself up. If something stops, run setup again and it picks up where it left off.</p>
-      <dl class="facts">
+      <p>Three questions, then ITSaNAS sets itself up. If something stops, start again and it picks up where it left off.</p>
+      <dl class="facts" data-feature="advanced">
         <dt>Its ITSaNAS data goes in</dt><dd id="machine-home"></dd>
         <dt>Name of this setup</dt><dd id="machine-instance"></dd>
       </dl>
       <p class="done-note" data-done-for="machine" hidden></p>
-      <div id="another" hidden>
+      <div id="another" data-feature="another_account" hidden>
         <p><span>This computer already has the ITSaNAS account</span> <strong id="account-here"></strong></p>
         <p>Start continues with it. To set up a different account beside it, give it a name:</p>
         <label for="another-name">Name of the other setup (lowercase letters and digits)</label>
@@ -58,13 +58,15 @@
         <p class="lead">Is this your first machine with ITSaNAS?</p>
         <fieldset>
           <legend>Account</legend>
-          <label class="choice"><input type="radio" name="account" value="new" checked> Yes, create a new account</label>
           <label class="choice"><input type="radio" name="account" value="join"> No, I already have an account</label>
+          <label class="choice"><input type="radio" name="account" value="new"> Yes, create a new account</label>
         </fieldset>
         <label for="username">Your username</label>
         <input id="username" name="username" autocomplete="username" spellcheck="false" autocapitalize="none" aria-describedby="username-help">
-        <p id="username-help" class="help">Letters and digits. Use the same one on all your machines.</p>
+        <p id="username-help" class="help">Lowercase letters, digits, '-' and '.'. Use the same one on all your machines.</p>
         <p id="username-check" class="help" role="status" aria-live="polite"></p>
+        <p><button type="button" id="username-retry" hidden>Try again</button></p>
+        <label class="choice" id="continue-name-row" hidden><input type="checkbox" id="continue-name"> Continue with this name</label>
         <div id="join-only" hidden>
           <label class="choice"><input type="checkbox" id="recover-escrow"> My account's recovery copy is kept by the network (I chose it on my first machine)</label>
           <p class="help">Otherwise a separate window asks for your 24 recovery words.</p>
@@ -80,21 +82,28 @@
       <h1 tabindex="-1">Your folder and your space</h1>
       <p class="done-note" data-done-for="folder" hidden></p>
       <p class="lead">Choose the folder to sync on this machine. On your other machines it can be somewhere else: what is synced is what it holds.</p>
-      <div id="folder-questions">
+      <div id="folder-questions" data-feature="folder">
       <label for="folder">Folder</label>
       <div class="row"><input id="folder" name="folder" spellcheck="false" autocapitalize="none" aria-describedby="folder-help"><button type="button" id="folder-browse">Browse&hellip;</button></div>
       <p id="folder-help" class="help">It is created if it does not exist. Files you put in it are synced.</p>
       </div>
-      <label class="choice"><input type="checkbox" id="background" checked> Start ITSaNAS when I log in, with an icon near the clock (recommended)</label>
+      <label class="choice" data-feature="background_choice"><input type="checkbox" id="background" checked> Start ITSaNAS when I log in, with an icon near the clock (recommended)</label>
       <p class="done-note" data-done-for="pledge" hidden></p>
       <div id="pledge-questions">
       <h2>Space you offer</h2>
       <p class="help">How much of this disk other members may use for their copies: it is what earns room for your own files on theirs.</p>
       <p id="space-free" class="help"></p>
+      <p id="space-same" class="help" role="status" aria-live="polite"></p>
       <label for="pledge">Space to offer, in GB</label>
       <div class="row slider"><input id="pledge-slider" type="range" min="1" step="1" aria-label="Space to offer, in GB"><input id="pledge" name="pledge" type="number" min="1" step="1" inputmode="numeric" aria-describedby="pledge-help"></div>
       <p id="pledge-earns" class="earns" aria-live="polite"></p>
       <p id="pledge-help" class="help">You can change it later. The disk is the one that holds this machine's ITSaNAS data.</p>
+      </div>
+      <div id="keep-questions" data-feature="keep_question">
+      <h2>Files kept here</h2>
+      <p class="help">How much of your account's files stay on this machine, to open without the network. The rest is fetched when you open it. Empty: everything.</p>
+      <label for="keep">Files to keep here, in GB</label>
+      <input id="keep" name="keep" type="number" min="0" step="1" inputmode="numeric">
       </div>
       <p class="done-note" data-done-for="updates" hidden></p>
       <p class="done-note" data-done-for="registration" hidden></p>
@@ -102,11 +111,13 @@
         <summary>Advanced</summary>
         <label for="invite">Invitation code (only for a private network that asks for one)</label>
         <input id="invite" name="invite" spellcheck="false" autocapitalize="none" autocomplete="off">
+        <div data-feature="advanced">
         <label for="coordinator">Coordinator address</label>
         <input id="coordinator" name="coordinator" spellcheck="false" autocapitalize="none" aria-describedby="coordinator-help">
         <p id="coordinator-help" class="help">Leave it as it is unless you run your own network. Empty: only machines on this home network find each other.</p>
+        </div>
 
-      <fieldset>
+      <fieldset data-feature="advanced">
         <legend>When a new version is out</legend>
         <label class="choice"><input type="radio" name="updates" value="auto"> Install it by itself (once a day, it restarts in a few seconds)</label>
         <label class="choice"><input type="radio" name="updates" value="notify" checked> Tell me, and I install it (<code>itsanas update</code>)</label>
@@ -143,8 +154,13 @@
         <p><strong>What to do:</strong> <span id="final-remedy"></span></p>
         <p class="help" id="final-error"></p>
       </div>
+      <div id="final-devices" class="notice" hidden>
+        <p><strong>Devices of this account:</strong> withdraw one you no longer use, then try again.</p>
+        <ul id="final-devices-list" class="devices"></ul>
+        <p id="final-devices-said" class="said" role="status" aria-live="polite"></p>
+      </div>
       <ul id="report" class="report"></ul>
-      <div class="actions" id="folder-actions" hidden>
+      <div class="actions" id="folder-actions" data-feature="folder" hidden>
         <button type="button" id="open-folder">Open my folder</button>
         <button type="button" id="pin-folder">Add it to the file manager's favourites</button>
       </div>
@@ -167,7 +183,7 @@
 
       <section class="card" aria-labelledby="st-h-sync">
         <h2 id="st-h-sync">Syncing</h2>
-        <div class="field">
+        <div class="field" data-feature="sync_controls">
           <label for="pause-for">Pause</label>
           <div class="controls">
             <!-- 0w (5): "for 1 hour" and "for 8 hours" join once the control file has an end time. -->
@@ -179,7 +195,7 @@
         <div class="field">
           <div class="controls"><button type="button" id="sync-now">Sync now</button></div>
         </div>
-        <div class="field">
+        <div class="field" data-feature="sync_controls">
           <label for="interval">Check for changes</label>
           <div class="controls">
             <select id="interval">
@@ -203,15 +219,33 @@
           <div class="controls"><input id="st-pledge" class="short" type="number" min="0" step="1" inputmode="numeric" aria-describedby="st-pledge-now"></div>
           <p id="st-pledge-now" class="help"></p>
         </div>
-        <div class="field">
+        <div class="field" data-feature="folder">
           <label for="st-folder">Folder</label>
           <div class="controls"><input id="st-folder" spellcheck="false" autocapitalize="none"><button type="button" id="st-folder-browse">Browse&hellip;</button><button type="button" id="st-open-folder">Open</button></div>
         </div>
         <div class="field">
+          <label for="st-keep">Files kept on this machine, in GB (empty: everything)</label>
+          <div class="controls"><input id="st-keep" class="short" type="number" min="0" step="1" inputmode="numeric"></div>
+        </div>
+        <div class="field" data-feature="metered">
+          <label class="choice"><input type="checkbox" id="st-metered"> Download files over mobile data too</label>
+        </div>
+        <div class="field" data-feature="advanced">
           <label for="st-coordinator">Coordinator address</label>
           <div class="controls"><input id="st-coordinator" spellcheck="false" autocapitalize="none"></div>
         </div>
-        <div class="field">
+        <div class="field" data-feature="advanced">
+          <span class="label">Machines to sync with</span>
+          <p class="help">Machines you name by address, besides the ones the coordinator knows. Write each as host:port.</p>
+          <ul id="st-peers" class="devices"></ul>
+          <div class="controls">
+            <input id="st-peer-address" spellcheck="false" autocapitalize="none" autocomplete="off" aria-label="Address of a machine">
+            <button type="button" id="st-peer-add">Add</button>
+            <button type="button" id="st-peers-show">Show the machines I named</button>
+          </div>
+          <p id="st-peers-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+        <div class="field" data-feature="advanced">
           <label for="st-updates">When a new version is out</label>
           <div class="controls">
             <select id="st-updates">
@@ -237,7 +271,7 @@
         </div>
       </section>
 
-      <section class="card" aria-labelledby="st-h-disks">
+      <section class="card" data-feature="disks" aria-labelledby="st-h-disks">
         <h2 id="st-h-disks">Disks</h2>
         <p class="help">These are done by ITSaNAS running in the background, so it must be running. Nothing here asks for your passphrase.</p>
         <div class="field">
@@ -266,7 +300,7 @@
       <!-- "Copy this account to a USB key": the trays open Settings here
            (section=key). The two passphrases are asked by the copy itself,
            in windows of the system's own, never in this page. -->
-      <section class="card" id="st-usb" aria-labelledby="st-h-usb">
+      <section class="card" id="st-usb" data-feature="usb_key" aria-labelledby="st-h-usb">
         <h2 id="st-h-usb" tabindex="-1">Copy this account to a USB key</h2>
         <p class="help">The key gets ITSaNAS for Windows, Mac and Linux, with this account in it: plug it into any computer, open it, and your files are there.</p>
         <p class="never">Whoever opens the key with its passphrase IS this account: they can read and change all your files. Choose a long passphrase that you use nowhere else, and keep the key as safe as a house key.</p>
@@ -290,6 +324,93 @@
         <p id="st-usb-detail" class="help said"></p>
       </section>
 
+      <section class="card" aria-labelledby="st-h-appearance">
+        <h2 id="st-h-appearance">Appearance</h2>
+        <div class="field">
+          <label for="st-theme">Colours</label>
+          <div class="controls">
+            <select id="st-theme">
+              <option value="system">Same as the system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="st-h-security">
+        <h2 id="st-h-security">Security</h2>
+        <div class="field" data-feature="biometric">
+          <label class="choice"><input type="checkbox" id="st-biometric"> Unlock with my fingerprint or face</label>
+        </div>
+        <div class="field">
+          <span class="label">My 24 recovery words</span>
+          <p class="help">A window asks for your passphrase, then shows your 24 words. They never appear in this page.</p>
+          <div class="controls"><button type="button" id="st-words">Show my 24 words</button></div>
+          <p id="st-words-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+        <div class="field">
+          <span class="label">My passphrase</span>
+          <p class="help">A window asks for the current passphrase, then for a new one. Your keys and your files stay.</p>
+          <div class="controls"><button type="button" id="st-passphrase">Change my passphrase</button></div>
+          <p id="st-passphrase-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+        <div class="field" data-feature="forgot_in_settings">
+          <span class="label">I forgot my passphrase</span>
+          <p class="help">Replaces the keys on this machine from your 24 recovery words, under a new passphrase. Your account and your files stay.</p>
+          <div class="controls"><button type="button" id="st-forgot">Replace my keys with my 24 words</button></div>
+          <p id="st-forgot-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="st-h-devices">
+        <h2 id="st-h-devices">Devices of this account</h2>
+        <p class="help">The machines that belong to this account. Withdrawing one frees its place for another. Opening this list pauses ITSaNAS on this machine for a moment.</p>
+        <div class="controls"><button type="button" id="st-devices-show">Show the devices</button></div>
+        <ul id="st-devices" class="devices"></ul>
+        <p id="st-devices-said" class="said" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card" data-feature="remove_account" aria-labelledby="st-h-account">
+        <h2 id="st-h-account">Account</h2>
+        <div class="field">
+          <span class="label">Remove this account from this machine</span>
+          <p class="help">This removes the account and every downloaded file from this machine and frees its place among your devices. Nothing is deleted from your other machines. To come back you need your account name and your 24 words.</p>
+          <div class="controls"><button type="button" id="st-remove-check">Check what is safe to remove</button></div>
+          <div id="st-remove-sure" hidden>
+            <p id="st-remove-only" class="notice" hidden></p>
+            <p id="st-remove-reached" class="help" hidden>No other machine answered just now, so the last changes made here may not have reached them.</p>
+            <p id="st-remove-held" class="help" hidden></p>
+            <div id="st-remove-name-box" hidden>
+              <label for="st-remove-name" id="st-remove-name-label"></label>
+              <div class="controls"><input id="st-remove-name" spellcheck="false" autocapitalize="none" autocomplete="off"></div>
+            </div>
+            <div class="controls"><button type="button" id="st-remove-go">Remove this account from this machine</button></div>
+          </div>
+          <p id="st-remove-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+        <div class="field">
+          <span class="label">Delete this account</span>
+          <p class="help">This removes the account for good: your hosts free its data, your other machines stop, and the name stays retired for a year. Type the account's name to confirm.</p>
+          <div class="controls">
+            <input id="st-delete-name" spellcheck="false" autocapitalize="none" autocomplete="off" aria-label="The account's name">
+            <button type="button" id="st-delete-go">Delete this account</button>
+          </div>
+          <p id="st-delete-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="st-h-about">
+        <h2 id="st-h-about">About and legal</h2>
+        <p class="help">ITSaNAS <span id="st-version"></span></p>
+        <ul class="links">
+          <li><a href="https://github.com/SigSegGit/itsanas/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Licence (AGPL-3.0)</a></li>
+          <li><a href="https://github.com/SigSegGit/itsanas" target="_blank" rel="noopener noreferrer">Source code</a></li>
+          <li><a href="https://github.com/SigSegGit/itsanas/blob/main/SECURITY.md" target="_blank" rel="noopener noreferrer">Security</a></li>
+        </ul>
+        <p class="help">ITSaNAS asks github.com for the signed release, at most once a day.</p>
+      </section>
+
       <section class="card" aria-labelledby="st-h-signout">
         <h2 id="st-h-signout">Sign out</h2>
         <p class="help">Stops ITSaNAS on this machine and forgets its passphrase. Your files and keys stay on this disk.</p>
@@ -299,7 +420,7 @@
 
     <section data-page="closed" hidden>
       <h1 tabindex="-1">This page is closed</h1>
-      <p class="lead">You can close this tab. The icon near the clock opens Settings again (or run <code>itsanas settings</code>).</p>
+      <p class="lead" data-feature="advanced">You can close this tab. The icon near the clock opens Settings again (or run <code>itsanas settings</code>).</p>
     </section>
   </main>
 </div>

@@ -39,6 +39,10 @@ rather than a test harness:
 
 `docs/PORTING.md` §4 has the measurements.
 
+### What is run on every change
+
+A debug build on an API 35 emulator is driven through Welcome and the account question by `scripts/android-e2e.sh` in CI (`docs/ANDROID-RELEASE.md`, "The end-to-end protocol"). It is an emulator: the list below still stands.
+
 ### What it has never done
 
 - **Run on physical hardware.** An emulator is not a phone: it has no doze, no
@@ -109,6 +113,17 @@ Two things to know before you spend the time:
   The app's foreground service is the answer to this; Termux has no such thing.
 - **This is a shell, not a client.** No notification, no file picker, no
   integration with the gallery or Documents. Use the app for that.
+
+## What the app shares with the computers
+
+The setup and Settings page, the rules it applies (a username is checked at the
+coordinator before an account is made, a new passphrase has six to 128
+characters, space is suggested by one rule from the disk and from what the
+account's other machines offer), its French and its dark theme are those of the
+library `itsanas-cli`, the same on every platform. `docs/PARITY.md` lists, for
+each capability, where it exists and why not where it does not. What must never
+be a web page stays in the app's own screens: the 24 words, the passphrase and
+Unlock.
 
 ## Removing either of them
 

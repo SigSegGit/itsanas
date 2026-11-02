@@ -45,7 +45,9 @@ SURFACES = [
         'itsanas-node/src/contact.rs',
         'itsanas-cli/src/copy_to_key/',
         'itsanas-cli/src/drives.rs',
-        'itsanas-android/src/devices.rs',
+        'itsanas-cli/src/devices.rs',
+        'itsanas-cli/src/account.rs',
+        'itsanas-cli/src/limits.rs',
         'itsanas-node/tests/five_devices.rs',
         'itsanas-node/tests/withdrawals.rs',
         'itsanas-node/tests/suspension.rs',
@@ -106,7 +108,7 @@ SURFACES = [
         'itsanas-node/tests/says_what_is_wrong.rs',
     ]),
     ('local-control', 'setup, secrets, the control socket, the daemon, updates', [
-        'itsanas-cli/src/main.rs',
+        'itsanas-cli/src/lib.rs',
         'itsanas-cli/src/control.rs',
         'itsanas-cli/src/jobs.rs',
         'itsanas-cli/src/daemon.rs',
@@ -118,6 +120,7 @@ SURFACES = [
         'itsanas-cli/tests/steering.rs',
         'itsanas-release/tests/release.rs',
         'itsanas-android/src/lib.rs',
+        'itsanas-android/src/host.rs',
     ]),
 ]
 

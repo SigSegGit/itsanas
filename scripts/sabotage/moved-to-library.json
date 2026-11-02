@@ -1,0 +1,147 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "--all-features"
+  ],
+  "defences": {
+    "limits: this phone's pledge alone": {
+      "file": "crates/itsanas-cli/src/limits.rs",
+      "live": "Node::check_split(&node.config, pledge.saturating_add(others), keep)",
+      "dead": "Node::check_split(&node.config, pledge, keep)"
+    },
+    "words: DiskFull in the store's words": {
+      "file": "crates/itsanas-cli/src/failure.rs",
+      "live": "                room,\n            })) => format!(",
+      "dead": "                room,\n            })) if false => format!("
+    },
+    "words: OverBudget in the store's words": {
+      "file": "crates/itsanas-cli/src/failure.rs",
+      "live": "                allowed,\n                ..\n            })) => format!(",
+      "dead": "                allowed,\n                ..\n            })) if false => format!("
+    },
+    "space: no largest": {
+      "file": "crates/itsanas-cli/src/limits.rs",
+      "live": "let largest = asked.map_or(0, |told| told.largest);",
+      "dead": "let largest = 0u64;"
+    },
+    "pin: restore does not pin": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    network.pin(Node::restore(home, passphrase, username, phrase)?)\n",
+      "dead": "    let _ = network;\n    Ok(Node::restore(home, passphrase, username, phrase)?)\n"
+    },
+    "name: unreachable reads free": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "        Err(_) => \"unknown\",\n",
+      "dead": "        Err(_) => \"no\",\n"
+    },
+    "restore check: no grid": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "username: &str, phrase: &str) -> String {\n    let words = phrase_words(phrase);\n",
+      "dead": "username: &str, phrase: &str) -> String {\n    let words = phrase.to_owned();\n"
+    },
+    "restore check: anybody's name is yours": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "(Ok(Some(owner)), Ok(mine)) if owner == mine => (\"yours\", None),",
+      "dead": "(Ok(Some(_)), Ok(_)) => (\"yours\", None),"
+    },
+    "words: a wrong passphrase answers": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    let phrase = Identity::recovery_phrase(home, passphrase)?;\n",
+      "dead": "    let Ok(phrase) = Identity::recovery_phrase(home, passphrase) else {\n        return Ok(\"{}\".to_owned());\n    };\n"
+    },
+    "logout: no withdraw_self": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "let withdrawn = coordinator::withdraw_self(node, now).is_ok();",
+      "dead": "let withdrawn = true;"
+    },
+    "logout: node not dropped": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    drop(node);\n    if !said.withdrawn {",
+      "dead": "    std::mem::forget(node);\n    if !said.withdrawn {"
+    },
+    "setup: a phone waits for a daemon": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "        if self.answers.phone {\n            return Ok(said);\n        }\n",
+      "dead": "\n"
+    },
+    "logout: stops when not withdrawn": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    if !said.withdrawn {\n        remember_to_withdraw(home, device);\n    }\n",
+      "dead": "    if !said.withdrawn {\n        let _ = device;\n        return Ok(\"{}\".to_owned());\n    }\n"
+    },
+    "logout: marker dropped on any outcome": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "is_ok_and(|device| coordinator::withdraw_old_device(node, device, now).is_err())",
+      "dead": "is_ok_and(|device| { let _ = coordinator::withdraw_old_device(node, device, now); false })"
+    },
+    "restore over: no owner check": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "        && owner != user_of(&words)?\n",
+      "dead": "        && false && owner != user_of(&words)?\n"
+    },
+    "restore over: passphrase judged after the erase": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    check_new_passphrase(login.passphrase)?;\n\n    let config",
+      "dead": "    let config"
+    },
+    "login: no budget": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    set_keep_budget(node, disk);\n",
+      "dead": "    let _ = disk;\n"
+    },
+    "login: a pledge set silently": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    // Best effort, as the next setter saves it: the node in memory has it.\n",
+      "dead": "    node.config.pledge_bytes = 6 << 30;\n"
+    },
+    "login: no grid": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "        &phrase_words(login.phrase),\n",
+      "dead": "        login.phrase,\n"
+    },
+    "delete: no comparison": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    if confirm.is_empty() || confirm != node.config.username {\n",
+      "dead": "    if false && confirm != node.config.username {\n"
+    },
+    "delete: erases on a refusal": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    coordinator::delete_account(node, now)?;\n",
+      "dead": "    let _ = coordinator::delete_account(node, now);\n"
+    },
+    "register: no marker": {
+      "file": "crates/itsanas-cli/src/devices.rs",
+      "live": "    coordinator::mark_registered(node);\n\n    let listen",
+      "dead": "    let listen"
+    },
+    "register: invitation refusal thrown": {
+      "file": "crates/itsanas-cli/src/devices.rs",
+      "live": "            if coordinator::invitation_needed(&refused) {\n",
+      "dead": "            if false && coordinator::invitation_needed(&refused) {\n"
+    },
+    "register: everything reads as an invitation": {
+      "file": "crates/itsanas-node/src/coordinator.rs",
+      "live": "text.contains(\"by invitation only\") || text.contains(\"that invitation cannot be used\")",
+      "dead": "!text.is_empty()"
+    },
+    "login: no sweep": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    sweep_removed(login.home);\n    let mut node = restore_account(\n        login.home,\n        login.passphrase,\n",
+      "dead": "    let mut node = restore_account(\n        login.home,\n        login.passphrase,\n"
+    },
+    "sign out: the app is not told": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "            ctx.backends.host.event(\"signedOut\", \"\");\n",
+      "dead": ""
+    },
+    "sign out: a phone waits for itself": {
+      "file": "crates/itsanas-cli/src/setup/sign.rs",
+      "live": "    if !service.holds_the_store_itself()\n        && !wait_until",
+      "dead": "    if !wait_until"
+    }
+  }
+}

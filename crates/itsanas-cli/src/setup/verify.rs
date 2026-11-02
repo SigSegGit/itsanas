@@ -132,6 +132,8 @@ pub(crate) struct Inputs<'a> {
     pub(crate) identity: Option<&'a Identity>,
     /// Whether a background service was meant to be running.
     pub(crate) daemon_expected: bool,
+    /// A phone: the app is the node, it has no listener, and nobody dials it.
+    pub(crate) phone: bool,
     pub(crate) folder: Option<&'a Path>,
     /// How long the daemon and the folder have to show themselves.
     pub(crate) deadline: Duration,
@@ -155,9 +157,11 @@ pub(crate) fn run(inputs: &Inputs<'_>) -> Report {
                 "no coordinator is set to dial back",
             ));
         }
-        Some(identity) => findings.extend(network_findings(identity, healthy)),
+        Some(identity) => findings.extend(network_findings(identity, healthy, inputs.phone)),
     }
-    findings.push(if healthy {
+    findings.push(if inputs.phone {
+        Finding::skipped("the folder syncs", "a phone has no synced folder")
+    } else if healthy {
         canary(inputs, started)
     } else {
         Finding::skipped(
@@ -170,6 +174,9 @@ pub(crate) fn run(inputs: &Inputs<'_>) -> Report {
 
 fn daemon_health(inputs: &Inputs<'_>, started: Instant) -> Finding {
     const WHAT: &str = "the daemon is healthy";
+    if inputs.phone {
+        return Finding::skipped("the background service", "the app does this itself");
+    }
     if !inputs.daemon_expected {
         return Finding::skipped(WHAT, "no background service was asked for");
     }
@@ -236,9 +243,9 @@ pub(crate) fn reach_finding(inbound: &crate::Inbound, announced: Option<&str>) -
     }
 }
 
-fn network_findings(identity: &Identity, healthy: bool) -> Vec<Finding> {
+fn network_findings(identity: &Identity, healthy: bool, phone: bool) -> Vec<Finding> {
     const LISTED: &str = "listed by the coordinator";
-    let check = crate::network_check(identity);
+    let check = crate::network_check(identity, !phone);
     let address = check.coordinator.clone().unwrap_or_default();
     match &check.outbound {
         Err(why) => vec![
@@ -266,6 +273,11 @@ fn network_findings(identity: &Identity, healthy: bool) -> Vec<Finding> {
                 )
             };
             let reach = match (&check.inbound, healthy) {
+                // Outbound is all a phone has: a dial-back would fail by design.
+                _ if phone => Finding::skipped(
+                    "reachable from outside",
+                    "a phone dials out and is never dialled back",
+                ),
                 (_, false) => Finding::skipped(
                     "reachable from outside",
                     "nothing is listening yet, so a dial-back would prove nothing",
@@ -481,6 +493,7 @@ mod tests {
             home: &home,
             identity: None,
             daemon_expected: true,
+            phone: false,
             folder: None,
             deadline: Duration::from_millis(200),
             log_hint: "the test".to_owned(),
@@ -496,10 +509,14 @@ mod tests {
         while !stop.load(std::sync::atomic::Ordering::SeqCst) {
             stamp += 1;
             let files = std::fs::read_dir(folder).map_or(0, Iterator::count);
+            // A rename, as a reader must never see a half-written snapshot: a
+            // plain write truncates first, and a macOS runner read it empty.
+            let partial = home.join("snapshot.partial");
             let _ = std::fs::write(
-                home.join(crate::node::SNAPSHOT),
+                &partial,
                 format!("snapshot {stamp} every 300\n  files {files}\n"),
             );
+            let _ = std::fs::rename(&partial, home.join(crate::node::SNAPSHOT));
             std::thread::sleep(Duration::from_millis(100));
         }
     }
@@ -524,6 +541,7 @@ mod tests {
                 home: &home,
                 identity: None,
                 daemon_expected: true,
+                phone: false,
                 folder: Some(&folder),
                 deadline: Duration::from_secs(5),
                 log_hint: "the test".to_owned(),

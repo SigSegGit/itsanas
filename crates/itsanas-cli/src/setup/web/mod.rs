@@ -40,8 +40,13 @@
 //! again; pause, resume, sync now and the interval go through the control
 //! file (`control.rs`) as the tray's do.
 
+mod features;
 mod http;
 mod json;
+mod nodes;
+
+pub use features::{Features, Host, NoHost};
+pub use nodes::{Held, Nodes, Slot};
 
 use std::{
     fmt::Write as _,
@@ -61,12 +66,13 @@ use self::{
     json::{array, field, object, optional, quote},
 };
 use super::{
-    Account, Answers, Event, SecretPrompt, ServiceControl, Setup, Step, answers, secrets, service,
-    sign, verify,
+    Account, Answers, Event, Keep, SecretPrompt, ServiceControl, Setup, Step, answers, secrets,
+    service, sign, verify,
 };
 use crate::{
     config::{Config, format_size, parse_size},
     error::{CliError, Result},
+    failure::Failure,
     node::Node,
 };
 
@@ -100,6 +106,25 @@ pub(crate) fn saved_language(home: &Path) -> Option<&'static str> {
 /// run ends.
 fn save_language(home: &Path, language: &str) -> bool {
     home.is_dir() && std::fs::write(home.join(LANGUAGE_FILE), format!("{language}\n")).is_ok()
+}
+
+/// The themes the page has: the system's own, or one of its two.
+const THEMES: [&str; 3] = ["system", "light", "dark"];
+/// In a node's home, the theme chosen in Settings, beside [`LANGUAGE_FILE`] for the
+/// same reason: each page is a new origin, and a phone's native screens read the
+/// same word.
+pub(crate) const THEME_FILE: &str = "theme";
+
+/// The theme chosen in a page of this node, when one was.
+pub(crate) fn saved_theme(home: &Path) -> Option<&'static str> {
+    let text = std::fs::read_to_string(home.join(THEME_FILE)).ok()?;
+    let word = text.trim();
+    THEMES.into_iter().find(|theme| *theme == word)
+}
+
+/// Keep `theme`, once the home exists; before it does the choice waits in memory.
+fn save_theme(home: &Path, theme: &str) -> bool {
+    home.is_dir() && std::fs::write(home.join(THEME_FILE), format!("{theme}\n")).is_ok()
 }
 
 /// The language of the page a browser asks for in `Accept-Language`: the one
@@ -144,7 +169,7 @@ fn quality_of(text: &str) -> Option<u16> {
 
 /// What the page is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Mode {
+pub enum Mode {
     /// `itsanas setup`: the steps, one at a time.
     Setup,
     /// `itsanas settings`: a node that is set up, changed.
@@ -170,17 +195,23 @@ const MAX_CONNECTIONS: usize = 16;
 /// Lines of progress kept for the page; a run says about twenty.
 const MAX_LINES: usize = 400;
 
-type MakePrompt = Box<dyn Fn() -> Result<Box<dyn SecretPrompt>> + Send + Sync>;
-type MakeService = Box<dyn Fn() -> Box<dyn ServiceControl> + Send + Sync>;
+/// Makes the prompt of a run (`Backends::prompt`).
+pub type MakePrompt = Box<dyn Fn() -> Result<Box<dyn SecretPrompt>> + Send + Sync>;
+/// Makes the service control of a run (`Backends::service`).
+pub type MakeService = Box<dyn Fn() -> Box<dyn ServiceControl> + Send + Sync>;
 
 /// Where the engine asks for secrets and which service it drives, made fresh
 /// for each run (the engine runs on a thread of its own, and neither needs to
 /// cross threads that way). Tests pass stand-ins.
-pub(crate) struct Backends {
+pub struct Backends {
     pub(crate) prompt: MakePrompt,
     pub(crate) service: MakeService,
     /// Is a username taken at a coordinator ([`super::name_taken`]).
     pub(crate) name: super::NameCheck,
+    /// Whose account a username is, at a coordinator ([`super::OwnerCheck`]).
+    pub(crate) owner: super::OwnerCheck,
+    /// The largest pledge of the machines of the account that holds a username.
+    pub(crate) pledge: fn(&str, &str) -> Option<u64>,
     /// Start the setup of another account, as instance `name`, in a page of
     /// its own ([`start_another`]).
     pub(crate) another: fn(&str) -> std::result::Result<(), String>,
@@ -192,6 +223,20 @@ pub(crate) struct Backends {
     /// Start `copy-to-key DIR --detach` for the home; what tells whether it
     /// still runs ([`crate::copy_to_key::start_detached`]).
     pub(crate) copy: StartCopy,
+    /// What this shell has; the page hides the rest and the routes refuse it.
+    pub(crate) features: Features,
+    /// Whether this machine is a phone (see [`Answers::phone`]).
+    pub(crate) phone: bool,
+    /// A coordinator the person cannot change: its address and the device it
+    /// is pinned to. The form's `coordinator` is then ignored, and the name
+    /// check and the pin use this one -- a phone offers no way to name another
+    /// network, which is what keeps the official one's pin in force.
+    pub(crate) fixed_coordinator: Option<(String, Option<String>)>,
+    /// Told what the page changed that the shell also draws.
+    pub(crate) host: Arc<dyn Host>,
+    /// The node behind the account calls: devices, machines to sync with,
+    /// removing the account ([`Nodes`]).
+    pub(crate) nodes: Arc<dyn Nodes>,
 }
 
 type ListDrives = Box<dyn Fn() -> Vec<crate::drives::Candidate> + Send + Sync>;
@@ -207,23 +252,96 @@ const COPY_STALE: Duration = Duration::from_secs(30 * 60);
 /// ended without a status written since ([`start_copy`]).
 const SILENT_CHILD: Duration = Duration::from_secs(2 * 60);
 
+impl std::fmt::Debug for Backends {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Backends")
+            .field("features", &self.features)
+            .field("phone", &self.phone)
+            .field("fixed_coordinator", &self.fixed_coordinator)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Backends {
-    fn of_this_machine(home: &Path, instance: Option<&str>) -> Self {
-        let home = home.to_owned();
-        let instance = instance.map(str::to_owned);
+    /// The backends of a phone. The shell supplies what only it has: where a
+    /// secret is asked, the app's own service, and what it is told of the page's
+    /// changes. The rest is what a phone offers: the one network it was built
+    /// for (`coordinator`, its address and the device it is pinned to), no second
+    /// account, no disk to move to, no key to copy to.
+    #[must_use]
+    pub fn of_a_phone(
+        prompt: MakePrompt,
+        service: MakeService,
+        host: Arc<dyn Host>,
+        nodes: Arc<dyn Nodes>,
+        coordinator: (String, Option<String>),
+    ) -> Self {
         Self {
-            prompt: Box::new(|| {
+            prompt,
+            service,
+            name: super::name_taken,
+            owner: itsanas_node::coordinator::name_owner,
+            pledge: |address, username| {
+                itsanas_node::coordinator::account_pledge(address, username)
+                    .ok()
+                    .flatten()
+            },
+            another: |_| Err("a phone keeps one account".to_owned()),
+            drives: Box::new(Vec::new),
+            programs: || None,
+            copy: Box::new(|_, _| Err("a phone has no USB key to copy to".to_owned())),
+            features: Features::PHONE,
+            phone: true,
+            fixed_coordinator: Some(coordinator),
+            host,
+            nodes,
+        }
+    }
+
+    /// Whether this phone can unlock with a fingerprint or a face: the feature
+    /// is the phone's to say, not the library's.
+    #[must_use]
+    pub fn with_biometric(mut self, available: bool) -> Self {
+        self.features.biometric = available;
+        self
+    }
+
+    fn of_this_machine(home: &Path, instance: Option<&str>) -> Self {
+        let native_prompt = || -> MakePrompt {
+            Box::new(|| {
                 let prompt: Box<dyn SecretPrompt> =
                     Box::new(secrets::Native::new(secrets::choose()?));
                 Ok(prompt)
-            }),
-            service: Box::new(move || {
-                let platform: Box<dyn ServiceControl> = Box::new(
-                    service::Platform::of_this_machine(&home, instance.as_deref()),
-                );
-                platform
-            }),
+            })
+        };
+        let platform_service = {
+            let home = home.to_owned();
+            let instance = instance.map(str::to_owned);
+            move || -> MakeService {
+                let (home, instance) = (home.clone(), instance.clone());
+                Box::new(move || {
+                    let platform: Box<dyn ServiceControl> = Box::new(
+                        service::Platform::of_this_machine(&home, instance.as_deref()),
+                    );
+                    platform
+                })
+            }
+        };
+        Self {
+            nodes: Arc::new(nodes::Opened::new(
+                home.to_owned(),
+                platform_service(),
+                native_prompt(),
+            )),
+            prompt: native_prompt(),
+            service: platform_service(),
             name: super::name_taken,
+            owner: itsanas_node::coordinator::name_owner,
+            pledge: |address, username| {
+                itsanas_node::coordinator::account_pledge(address, username)
+                    .ok()
+                    .flatten()
+            },
             another: start_another,
             drives: Box::new(crate::drives::candidates),
             programs: || {
@@ -238,6 +356,10 @@ impl Backends {
                 let running: Running = Box::new(move || matches!(child.try_wait(), Ok(None)));
                 Ok(running)
             }),
+            features: Features::DESKTOP,
+            phone: false,
+            fixed_coordinator: None,
+            host: Arc::new(NoHost),
         }
     }
 }
@@ -293,6 +415,8 @@ struct Context {
     /// The language chosen in the page's list: read from the node's home,
     /// set by POST /api/language.
     language: Mutex<Option<&'static str>>,
+    /// The theme chosen in Settings, as [`Context::language`] is.
+    theme: Mutex<Option<&'static str>>,
     /// What the programs take on a key, once the background ask answered
     /// ([`Backends::programs`]); `None` before, or when it could not say.
     programs: Mutex<Option<u64>>,
@@ -308,14 +432,23 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// The page's server: bound, not yet serving.
-pub(crate) struct Server {
+pub struct Server {
     listener: TcpListener,
     ctx: Arc<Context>,
 }
 
+impl std::fmt::Debug for Server {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The port, never the key: a debug print is what ends up in a log.
+        f.debug_struct("Server")
+            .field("port", &self.ctx.port)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Server {
     /// Bind 127.0.0.1 on a port the system chooses, with a fresh token.
-    pub(crate) fn bind(
+    pub fn bind(
         home: &Path,
         instance: Option<&str>,
         mode: Mode,
@@ -351,6 +484,7 @@ impl Server {
                 quit: AtomicBool::new(false),
                 live: AtomicUsize::new(0),
                 language: Mutex::new(saved_language(home)),
+                theme: Mutex::new(saved_theme(home)),
                 programs: Mutex::new(None),
                 programs_asked: AtomicBool::new(false),
                 copying: Mutex::new(None),
@@ -359,13 +493,23 @@ impl Server {
     }
 
     /// The address to open, the token in its fragment.
-    pub(crate) fn url(&self) -> String {
+    #[must_use]
+    pub fn url(&self) -> String {
         format!("http://127.0.0.1:{}/#t={}", self.ctx.port, self.ctx.token)
+    }
+
+    /// A handle that ends [`Server::serve`] from another thread: the phone's
+    /// shell, whose person leaves with Back, has no page to say it is done and
+    /// no wish to wait for the idle exit with the account still open.
+    #[must_use]
+    pub fn stopper(&self) -> Stop {
+        Stop(Arc::clone(&self.ctx))
     }
 
     /// Answer requests until the page says it is done, the setup finished,
     /// or nobody did anything for `idle`. True when a setup run finished well.
-    pub(crate) fn serve(&self, idle: Duration) -> bool {
+    #[must_use]
+    pub fn serve(&self, idle: Duration) -> bool {
         if self.listener.set_nonblocking(true).is_err() {
             return false;
         }
@@ -395,6 +539,22 @@ impl Server {
         if spawned.is_err() {
             self.ctx.live.fetch_sub(1, Ordering::SeqCst);
         }
+    }
+}
+
+/// See [`Server::stopper`].
+pub struct Stop(Arc<Context>);
+
+impl std::fmt::Debug for Stop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Stop").finish_non_exhaustive()
+    }
+}
+
+impl Stop {
+    /// Make `serve` return within a poll.
+    pub fn stop(&self) {
+        self.0.quit.store(true, Ordering::SeqCst);
     }
 }
 
@@ -551,14 +711,41 @@ fn route(ctx: &Arc<Context>, request: &Request) -> Response {
 /// the page needs no request to know it.
 fn index_html(ctx: &Context, request: &Request) -> String {
     let chosen = *lock(&ctx.language);
-    match chosen.or_else(|| request.header("accept-language").and_then(language_of)) {
+    let mut page = match chosen.or_else(|| request.header("accept-language").and_then(language_of))
+    {
         Some(language) => INDEX_HTML.replacen(
             "<html lang=\"en\">",
             &format!("<html lang=\"{language}\" data-lang=\"{language}\">"),
             1,
         ),
         None => INDEX_HTML.to_owned(),
+    };
+    // In the first byte, so nothing flashes in the other theme first.
+    if let Some(theme) = (*lock(&ctx.theme)).filter(|theme| *theme != "system") {
+        page = page.replacen("<html ", &format!("<html data-theme=\"{theme}\" "), 1);
     }
+    page
+}
+
+/// The theme chosen in Settings, kept for the next page, and told to the shell
+/// (a phone draws its own screens by the same word).
+fn choose_theme(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let Some(theme) =
+        field(&form, "theme").and_then(|asked| THEMES.into_iter().find(|theme| *theme == asked))
+    else {
+        return Response::refuse(400, "the theme is system, light or dark");
+    };
+    *lock(&ctx.theme) = Some(theme);
+    let kept = save_theme(&ctx.home, theme);
+    ctx.backends.host.event("theme", theme);
+    ok_json(object(&[
+        ("theme", quote(theme)),
+        ("kept", kept.to_string()),
+    ]))
 }
 
 /// The language chosen in the page's list, kept for the next page.
@@ -600,6 +787,9 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
     if !matches!((method, path), ("GET", "/api/state" | "/api/copy-to-key")) {
         *lock(&ctx.last_action) = Instant::now();
     }
+    if let Some(refusal) = gate(ctx.backends.features, path, request) {
+        return refusal;
+    }
     match (method, path) {
         ("GET", "/api/state") => ok_json(state_json(ctx)),
         ("GET", "/api/keys") if ctx.mode == Mode::Settings => keys(ctx),
@@ -614,6 +804,19 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/name") if ctx.mode == Mode::Setup => check_name(ctx, request),
         ("POST", "/api/another") if ctx.mode == Mode::Setup => another_account(ctx, request),
         ("POST", "/api/language") => choose_language(ctx, request),
+        ("POST", "/api/theme") => choose_theme(ctx, request),
+        ("POST", "/api/host") => host_setting(ctx, request),
+        ("POST", "/api/suggest") => suggest(ctx, request),
+        ("POST", "/api/forgot") if ctx.mode == Mode::Settings => start_forgot(ctx),
+        ("POST", "/api/words") if ctx.mode == Mode::Settings => start_words(ctx),
+        ("POST", "/api/passphrase") if ctx.mode == Mode::Settings => start_passphrase(ctx),
+        ("GET", "/api/devices") => devices_list(ctx),
+        ("POST", "/api/withdraw") => withdraw_device(ctx, request),
+        ("GET", "/api/remove") if ctx.mode == Mode::Settings => remove_check(ctx),
+        ("POST", "/api/remove") if ctx.mode == Mode::Settings => remove_account(ctx, request),
+        ("POST", "/api/delete") if ctx.mode == Mode::Settings => delete_account(ctx, request),
+        ("GET", "/api/peers") if ctx.mode == Mode::Settings => peers_list(ctx),
+        ("POST", "/api/peers") if ctx.mode == Mode::Settings => peers_change(ctx, request),
         ("POST", "/api/free") => free_space(ctx, request),
         ("POST", "/api/pick") => pick(request),
         ("POST", "/api/open") => open_folder(ctx, request, false),
@@ -624,6 +827,71 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         }
         _ => Response::refuse(404, "no such action"),
     }
+}
+
+/// The refusal for a route whose feature this shell lacks, before the route
+/// runs. The page hides what is missing; this is what makes that more than looks.
+fn gate(features: Features, path: &str, request: &Request) -> Option<Response> {
+    let (enabled, what) = match path {
+        "/api/pick" => (features.folder, "folder to browse for"),
+        "/api/open" | "/api/pin" => (features.folder, "synced folder"),
+        "/api/disk" => (features.disks, "disk to move or back up to"),
+        "/api/keys" | "/api/copy-to-key" => (features.usb_key, "USB key to copy to"),
+        "/api/another" => (features.another_account, "second account beside this one"),
+        "/api/forgot" => (
+            features.forgot_in_settings,
+            "way to replace the keys while the account is open: lock it, then choose I forgot",
+        ),
+        "/api/peers" => (
+            features.advanced,
+            "machine to sync with, named by its address",
+        ),
+        "/api/remove" | "/api/delete" => (
+            features.remove_account,
+            "way to remove or delete the account from here",
+        ),
+        // Sync now stays: it is what a phone's own button does.
+        "/api/control" => {
+            let form = json::parse_form(&request.body).unwrap_or_default();
+            let timed = matches!(
+                field(&form, "action"),
+                Some("pause" | "resume" | "interval")
+            );
+            (
+                features.sync_controls || !timed,
+                "pause or schedule for syncing",
+            )
+        }
+        _ => return None,
+    };
+    Features::refuse(enabled, what)
+}
+
+/// A setting only the shell can keep (the fingerprint, mobile data): the page
+/// says it, the shell is told. Refused where the shell has no such thing.
+fn host_setting(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let features = ctx.backends.features;
+    let (name, enabled, what) = match field(&form, "name") {
+        Some("biometric") => (
+            "biometric",
+            features.biometric,
+            "fingerprint or face unlock",
+        ),
+        Some("metered") => ("metered", features.metered, "choice about mobile data"),
+        _ => return Response::refuse(400, "no such setting"),
+    };
+    if let Some(refusal) = Features::refuse(enabled, what) {
+        return refusal;
+    }
+    let Some(value @ ("on" | "off")) = field(&form, "value") else {
+        return Response::refuse(400, "the value is on or off");
+    };
+    ctx.backends.host.event(name, value);
+    ok_json(object(&[("name", quote(name)), ("value", quote(value))]))
 }
 
 fn ok_json(body: String) -> Response {
@@ -645,17 +913,47 @@ const fn step_id(step: Step) -> &'static str {
     }
 }
 
-/// Space to suggest offering: a fifth of what is free, in whole GiB, at most
-/// 500 GiB. A suggestion the person can lower; integers, never a float.
-pub(crate) fn suggest_pledge(free: u64) -> u64 {
-    const GIB: u64 = 1 << 30;
-    (free / 5 / GIB * GIB).min(500 * GIB)
+/// What to offer and keep here, from the one rule every platform shares
+/// ([`itsanas_node::pledges::suggest`]). `largest_other` is the largest pledge of
+/// the account's other machines when the person is joining one, else 0. Their sum
+/// is not known before an account is joined; the largest stands in for it, which
+/// can only suggest a smaller keep, never one the account could not earn.
+fn suggestion(ctx: &Context, largest_other: u64) -> itsanas_node::pledges::Suggestion {
+    let disk = itsanas_node::pledges::disk_space(&ctx.base);
+    let config = Config::load(&Node::config_path(&ctx.home)).unwrap_or_default();
+    itsanas_node::pledges::suggest(
+        &config,
+        disk.total.unwrap_or(0),
+        disk.free.unwrap_or(0),
+        0,
+        largest_other,
+        largest_other,
+    )
 }
 
-fn state_json(ctx: &Context) -> String {
+/// `POST /api/suggest`: the suggestion once the person says what their other
+/// machines offer.
+fn suggest(ctx: &Context, request: &Request) -> Response {
+    let form = json::parse_form(&request.body).unwrap_or_default();
+    let other = field(&form, "other")
+        .and_then(|text| text.parse::<u64>().ok())
+        .unwrap_or(0);
+    let found = suggestion(ctx, other);
+    ok_json(object(&[
+        ("pledge_gb", (found.pledge >> 30).to_string()),
+        ("keep_gb", (found.keep >> 30).to_string()),
+        (
+            "same_as_other_machines",
+            found.same_as_other_machines.to_string(),
+        ),
+    ]))
+}
+
+/// What the pages start from: the folder, the suggestion, the coordinator.
+fn defaults_json(ctx: &Context) -> String {
     let free = fs4::available_space(&ctx.base).ok();
-    let suggested_gib = free.map_or(0, suggest_pledge) >> 30;
-    let defaults = object(&[
+    let suggested = suggestion(ctx, 0);
+    object(&[
         (
             "folder",
             quote(
@@ -664,7 +962,8 @@ fn state_json(ctx: &Context) -> String {
                     .to_string(),
             ),
         ),
-        ("pledge_gb", suggested_gib.to_string()),
+        ("pledge_gb", (suggested.pledge >> 30).to_string()),
+        ("keep_gb", (suggested.keep >> 30).to_string()),
         // What this node has, so running setup again never resets a choice.
         (
             "updates",
@@ -679,12 +978,15 @@ fn state_json(ctx: &Context) -> String {
         ("free_bytes", free.unwrap_or(0).to_string()),
         (
             "coordinator",
-            quote(
-                &Config::load(&Node::config_path(&ctx.home))
-                    .ok()
-                    .and_then(|config| config.coordinator)
-                    .unwrap_or_else(|| super::DEFAULT_COORDINATOR.to_owned()),
-            ),
+            quote(&ctx.backends.fixed_coordinator.as_ref().map_or_else(
+                || {
+                    Config::load(&Node::config_path(&ctx.home))
+                        .ok()
+                        .and_then(|config| config.coordinator)
+                        .unwrap_or_else(|| super::DEFAULT_COORDINATOR.to_owned())
+                },
+                |(address, _)| address.clone(),
+            )),
         ),
         // The bargain the space page shows live, from the code's own split.
         (
@@ -707,7 +1009,11 @@ fn state_json(ctx: &Context) -> String {
                     .as_deref(),
             ),
         ),
-    ]);
+    ])
+}
+
+fn state_json(ctx: &Context) -> String {
+    let defaults = defaults_json(ctx);
     let mut fields = vec![
         (
             "mode",
@@ -730,6 +1036,31 @@ fn state_json(ctx: &Context) -> String {
             ),
         ),
         ("defaults", defaults),
+        ("phone", ctx.backends.phone.to_string()),
+        ("version", quote(env!("CARGO_PKG_VERSION"))),
+        ("theme", quote((*lock(&ctx.theme)).unwrap_or("system"))),
+        (
+            "host",
+            object(&[
+                (
+                    "biometric",
+                    optional(ctx.backends.host.value("biometric").as_deref()),
+                ),
+                (
+                    "metered",
+                    optional(ctx.backends.host.value("metered").as_deref()),
+                ),
+            ]),
+        ),
+        (
+            "features",
+            object(
+                &ctx.backends
+                    .features
+                    .all()
+                    .map(|(name, on)| (name, on.to_string())),
+            ),
+        ),
         ("run", run_json(&lock(&ctx.run))),
     ];
     if ctx.mode == Mode::Settings {
@@ -747,6 +1078,12 @@ fn run_json(run: &Run) -> String {
                 ("title", quote(step.title())),
                 ("error", quote(error)),
                 ("remedy", quote(remedy)),
+                // The account is at its device limit: the page opens the
+                // devices to withdraw one ([`crate::coordinator::cap_named`]).
+                (
+                    "atCap",
+                    error.contains("live devices and the limit is").to_string(),
+                ),
             ])
         },
     );
@@ -860,6 +1197,7 @@ fn settings_json(home: &Path) -> String {
 fn plan_json(ctx: &Context) -> String {
     let found = Answers {
         instance: ctx.instance.clone(),
+        phone: ctx.backends.phone,
         ..Answers::default()
     };
     let service = (ctx.backends.service)();
@@ -885,9 +1223,11 @@ fn answers_from_form(
     instance: Option<&str>,
     base: &Path,
     service_installed: bool,
+    shell: &Backends,
 ) -> std::result::Result<Answers, String> {
     let mut answers = Answers {
         instance: instance.map(str::to_owned),
+        phone: shell.phone,
         ..Answers::default()
     };
     if mode == Mode::Setup {
@@ -904,20 +1244,44 @@ fn answers_from_form(
             (Some("new" | "join"), None) => return Err("choose a username".to_owned()),
             (Some(_), _) => return Err("the account is either new or joined".to_owned()),
         };
-        answers.service = field(form, "background") != Some("no");
+        // A shell that offers no choice runs in the background, always.
+        answers.service =
+            !shell.features.background_choice || field(form, "background") != Some("no");
     } else {
         // A node run by a daemon started by hand has no service to restart;
         // the engine then says to stop it, rather than install one unasked.
         answers.service = service_installed;
     }
     answers.tray = answers.service;
-    answers.folder = field(form, "folder").map(|folder| answers::expand(folder, base));
-    answers.coordinator = field(form, "coordinator").map(str::to_owned);
+    answers.folder = field(form, "folder")
+        .filter(|_| shell.features.folder)
+        .map(|folder| answers::expand(folder, base));
+    match &shell.fixed_coordinator {
+        // What the form says is not read: the address and the pin are the shell's.
+        Some((address, device)) => {
+            answers.coordinator = Some(address.clone());
+            answers.coordinator_device.clone_from(device);
+        }
+        None => answers.coordinator = field(form, "coordinator").map(str::to_owned),
+    }
     answers.invite = field(form, "invite").map(str::to_owned);
     answers.pledge = field(form, "pledge")
         .map(|text| parse_size(text).map_err(|error| error.to_string()))
         .transpose()?;
+    // Present and empty is "everything"; absent is "not asked".
+    answers.keep = match form
+        .iter()
+        .find(|(name, _)| name == "keep")
+        .filter(|_| shell.features.keep_question)
+    {
+        None => Keep::Unchanged,
+        Some((_, text)) if text.trim().is_empty() => Keep::Everything,
+        Some((_, text)) => {
+            Keep::Budget(parse_size(text.trim()).map_err(|error| error.to_string())?)
+        }
+    };
     answers.updates = field(form, "updates")
+        .filter(|_| shell.features.advanced)
         .map(|text| {
             crate::config::Updates::parse(text)
                 .ok_or_else(|| "updates is auto, notify or off".to_owned())
@@ -935,6 +1299,7 @@ fn start_run(ctx: &Arc<Context>, request: &Request) -> Response {
             ctx.instance.as_deref(),
             &ctx.base,
             installed,
+            &ctx.backends,
         )
     }) {
         Ok(answers) => answers,
@@ -977,15 +1342,308 @@ fn run_engine(ctx: &Context, answers: Answers) {
                 &mut record,
             )
             .with_name_check(ctx.backends.name)
+            .with_owner_check(ctx.backends.owner)
             .run())
         }
         Err(error) => Err(error.to_string()),
     };
-    // A language chosen before the home existed is kept now that it does.
+    // A language or a theme chosen before the home existed is kept now that it does.
     if let Some(language) = *lock(&ctx.language) {
         save_language(&ctx.home, language);
     }
+    if let Some(theme) = *lock(&ctx.theme) {
+        save_theme(&ctx.home, theme);
+    }
     ctx.finish(outcome);
+}
+
+/// "I forgot my passphrase": the 24 words replace the keys on this machine
+/// ([`super::forgot::forgot`]). Run on a thread of its own as a setup run is, the
+/// words and the new passphrase asked in the native windows; the page follows it
+/// through `/api/state` and never sees either.
+fn start_forgot(ctx: &Arc<Context>) -> Response {
+    start_job(
+        ctx,
+        "forgot",
+        "the 24 recovery words, then a new passphrase",
+        |worker, prompt, service| {
+            super::forgot::forgot(&worker.home, prompt, service, worker.backends.owner)
+        },
+    )
+}
+
+/// "Show my 24 words": the passphrase is asked in a native window, and so are the
+/// words shown ([`super::keys::show_words`]). The page is told only that it was done.
+fn start_words(ctx: &Arc<Context>) -> Response {
+    start_job(
+        ctx,
+        "words",
+        "your passphrase, to show the 24 words",
+        |worker, prompt, _| super::keys::show_words(&worker.home, prompt),
+    )
+}
+
+/// "Change my passphrase": the current and the new one are asked in native windows
+/// ([`super::keys::change_passphrase`]).
+fn start_passphrase(ctx: &Arc<Context>) -> Response {
+    start_job(
+        ctx,
+        "passphrase",
+        "your passphrase, then a new one",
+        |worker, prompt, service| super::keys::change_passphrase(&worker.home, prompt, service),
+    )
+}
+
+/// Run `body` with the node behind the page ([`Nodes`]) and answer with the JSON
+/// it makes, or with the sentence it was refused in. The node is given back
+/// afterwards, whatever came of it.
+fn node_call(
+    ctx: &Context,
+    body: impl FnOnce(&mut Node) -> std::result::Result<String, Failure>,
+) -> Response {
+    let nodes = &ctx.backends.nodes;
+    if let Err(failure) = nodes.open() {
+        return Response::refuse(409, &failure.message());
+    }
+    let outcome = {
+        let mut held = nodes.slot().lock().unwrap_or_else(PoisonError::into_inner);
+        match held.as_mut() {
+            Some(node) => body(node),
+            None => Err(Failure::Closed),
+        }
+    };
+    nodes.release();
+    match outcome {
+        Ok(json) => ok_json(json),
+        Err(failure) => Response::refuse(409, &failure.message()),
+    }
+}
+
+/// The account's devices, this machine marked, as the coordinator lists them.
+fn devices_list(ctx: &Context) -> Response {
+    node_call(ctx, |node| {
+        crate::devices::list(node).map(|listed| listed.to_string())
+    })
+}
+
+/// Withdraw one of the account's devices by its full id: never this machine,
+/// never an id the coordinator's list does not show ([`crate::devices::withdraw`]).
+fn withdraw_device(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let Some(id) = field(&form, "id") else {
+        return Response::refuse(400, "which device? the full id is needed");
+    };
+    node_call(ctx, |node| {
+        crate::devices::withdraw(node, id, itsanas_discover::now_unix())
+            .map(|answer| answer.to_string())
+    })
+}
+
+/// One best-effort round, then what removing the account from this machine
+/// would lose ([`crate::account::logout_check`]). Closes nothing.
+fn remove_check(ctx: &Context) -> Response {
+    // Only the person's own choice against mobile data is known here; asking
+    // for less is the safe side: more is reported as only here.
+    let metered = ctx.backends.host.value("metered").as_deref() == Some("off");
+    node_call(ctx, |node| crate::account::logout_check(node, metered))
+}
+
+/// The service is not a thing to leave running over an account that is gone,
+/// and the shell is told it is: its screens go back to the beginning.
+fn account_gone(ctx: &Context, how: &str) {
+    let service = (ctx.backends.service)();
+    if service.installed() {
+        let _ = service.set_autostart(false);
+        let _ = service.stop();
+    }
+    let _ = service.forget_passphrase();
+    ctx.backends.nodes.keep_stopped();
+    ctx.backends.nodes.release();
+    ctx.backends.host.event("account_removed", how);
+}
+
+/// Remove the account from this machine: the machines are told, this device is
+/// withdrawn, the home erased ([`crate::account::logout_into`]). Where pieces of
+/// the account's files exist only here, the account's name must be typed.
+fn remove_account(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let confirm = field(&form, "confirm").unwrap_or_default();
+    let nodes = &ctx.backends.nodes;
+    if let Err(failure) = nodes.open() {
+        return Response::refuse(409, &failure.message());
+    }
+    let now = itsanas_discover::now_unix();
+    let refusal = {
+        let held = nodes.slot().lock().unwrap_or_else(PoisonError::into_inner);
+        held.as_ref().map(|node| {
+            let only_here = node.store.coverage(now).map_or(usize::MAX, |c| c.only_here);
+            let username = node.config.username.as_str();
+            if only_here > 0 && confirm != username {
+                Some(format!(
+                    "{only_here} pieces of your files exist only on this machine, so the \
+                     account's name must be typed to remove it. Nothing was removed."
+                ))
+            } else {
+                None
+            }
+        })
+    };
+    match refusal {
+        None => {
+            nodes.release();
+            return Response::refuse(409, &Failure::Closed.message());
+        }
+        Some(Some(why)) => {
+            nodes.release();
+            return Response::refuse(409, &why);
+        }
+        Some(None) => {}
+    }
+    match crate::account::logout_into(nodes.slot(), &ctx.home, now) {
+        Ok(said) => {
+            account_gone(ctx, "removed");
+            let said: serde_json::Value = serde_json::from_str(&said).unwrap_or_default();
+            ok_json(object(&[
+                ("told", said["told"].to_string()),
+                ("departed", said["departed"].to_string()),
+                ("withdrawn", said["withdrawn"].to_string()),
+            ]))
+        }
+        Err(failure) => {
+            nodes.release();
+            Response::refuse(409, &failure.message())
+        }
+    }
+}
+
+/// Delete the whole account at the coordinator, then remove it from this machine.
+/// Only the account's own name, typed, gets this far
+/// ([`crate::account::delete_account`]).
+fn delete_account(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let confirm = field(&form, "confirm").unwrap_or_default();
+    let nodes = &ctx.backends.nodes;
+    if let Err(failure) = nodes.open() {
+        return Response::refuse(409, &failure.message());
+    }
+    match crate::account::delete_account(
+        nodes.slot(),
+        &ctx.home,
+        confirm,
+        itsanas_discover::now_unix(),
+    ) {
+        Ok(_) => {
+            account_gone(ctx, "deleted");
+            ok_json(object(&[("deleted", "true".to_owned())]))
+        }
+        Err(failure) => {
+            nodes.release();
+            Response::refuse(409, &failure.message())
+        }
+    }
+}
+
+/// The machines typed in by address, which this one also syncs with.
+fn peers_list(ctx: &Context) -> Response {
+    node_call(ctx, |node| Ok(peers_json(node, "")))
+}
+
+/// Add or forget a typed address: what `itsanas peer add` and `peer remove` do.
+fn peers_change(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let (Some(action), Some(address)) = (field(&form, "action"), field(&form, "address")) else {
+        return Response::refuse(400, "an action (add or forget) and an address are needed");
+    };
+    node_call(ctx, |node| {
+        let said = match action {
+            "add" => crate::add_peer(node, address)?,
+            "forget" => crate::forget_peer(node, address)?,
+            _ => return Err(Failure::Usage("the action is add or forget".to_owned())),
+        };
+        Ok(peers_json(node, &said))
+    })
+}
+
+fn peers_json(node: &Node, said: &str) -> String {
+    object(&[
+        (
+            "peers",
+            array(node.config.peers.iter().map(|peer| quote(peer))),
+        ),
+        ("said", quote(said)),
+    ])
+}
+
+/// What a secret job does with the prompt and the service it is given.
+type JobBody = fn(&Context, &mut dyn SecretPrompt, &dyn ServiceControl) -> Result<String>;
+
+/// Start `body` on a thread of its own, as a setup run is: the page follows it
+/// through `/api/state` (`waiting` says what the window wants) and never sees a
+/// secret. One at a time with every run.
+fn start_job(
+    ctx: &Arc<Context>,
+    name: &'static str,
+    waiting: &'static str,
+    body: JobBody,
+) -> Response {
+    {
+        let mut run = lock(&ctx.run);
+        if run.phase == Phase::Running {
+            return Response::refuse(409, "it is already running; this page follows it");
+        }
+        *run = Run {
+            phase: Phase::Running,
+            step: Some(Step::Account),
+            waiting: Some(waiting),
+            ..Run::default()
+        };
+    }
+    let worker = Arc::clone(ctx);
+    let spawned = std::thread::Builder::new()
+        .name(name.to_owned())
+        .spawn(move || {
+            let service = (worker.backends.service)();
+            let result = (worker.backends.prompt)()
+                .and_then(|mut prompt| body(&worker, prompt.as_mut(), service.as_ref()));
+            let mut run = lock(&worker.run);
+            match result {
+                Ok(said) => {
+                    run.lines.push(said);
+                    run.phase = Phase::Done;
+                }
+                Err(error) => {
+                    run.failed = Some((
+                        Step::Account,
+                        error.to_string(),
+                        "nothing was changed on this machine unless it says otherwise; try again"
+                            .to_owned(),
+                    ));
+                    run.phase = Phase::Failed;
+                }
+            }
+            run.waiting = None;
+            run.finished_at = Some(Instant::now());
+        });
+    if spawned.is_err() {
+        ctx.finish(Err("could not start".to_owned()));
+    }
+    Response::new(
+        202,
+        "application/json",
+        object(&[("started", "true".to_owned())]),
+    )
 }
 
 /// Pause, resume, sync now, interval: the control file, through the same
@@ -1060,10 +1718,13 @@ fn disk_job(ctx: &Context, request: &Request) -> Response {
 fn sign_out(ctx: &Context) -> Response {
     let service = (ctx.backends.service)();
     match sign::sign_out(&ctx.home, service.as_ref()) {
-        Ok(done) => ok_json(object(&[(
-            "said",
-            quote(&format!("{done}.\n{}", sign::SIGNED_OUT)),
-        )])),
+        Ok(done) => {
+            ctx.backends.host.event("signedOut", "");
+            ok_json(object(&[(
+                "said",
+                quote(&format!("{done}.\n{}", sign::SIGNED_OUT)),
+            )]))
+        }
         Err(error) => Response::refuse(409, &error.to_string()),
     }
 }
@@ -1383,23 +2044,54 @@ pub(crate) fn browser_command(os: &str, url: &str) -> Command {
 
 /// Is the username typed taken at the coordinator typed? Answers "unknown"
 /// rather than failing when the coordinator cannot be asked: the person may
-/// be offline, and the engine asks again before any key is written.
+/// be offline, and the engine asks again before any key is written. Answers
+/// "invalid", with the reason, for a name no coordinator would register: on a
+/// lookup it reads as free, and `marie_1` was told so, made her keys, and was
+/// refused at registration with a remedy about something else.
 fn check_name(ctx: &Context, request: &Request) -> Response {
     let form = match json::parse_form(&request.body) {
         Ok(form) => form,
         Err(why) => return Response::refuse(400, &why),
     };
-    let (Some(username), Some(coordinator)) =
-        (field(&form, "username"), field(&form, "coordinator"))
-    else {
-        return ok_json(object(&[("taken", quote("unknown"))]));
+    let fixed = ctx
+        .backends
+        .fixed_coordinator
+        .as_ref()
+        .map(|(address, _)| address.as_str());
+    let (Some(username), Some(coordinator)) = (
+        field(&form, "username"),
+        fixed.or(field(&form, "coordinator")),
+    ) else {
+        return ok_json(name_json("unknown", None, None));
     };
+    if let Some(why) = crate::coordinator::username_refusal(username) {
+        return ok_json(name_json("unknown", Some(&why), None));
+    }
     let answer = match (ctx.backends.name)(coordinator, username) {
         Ok(true) => "yes",
         Ok(false) => "no",
         Err(_) => "unknown",
     };
-    ok_json(object(&[("taken", quote(answer))]))
+    // What the account's machines offer is only worth a request to someone who
+    // is joining that account.
+    let other = (answer == "yes" && field(&form, "account") == Some("join"))
+        .then(|| (ctx.backends.pledge)(coordinator, username))
+        .flatten();
+    ok_json(name_json(answer, None, other))
+}
+
+/// `taken` is `yes`, `no` or `unknown`; `invalid` says why no coordinator would
+/// take the name (and then `taken` is `unknown`: the network was not asked);
+/// `other_pledge_bytes` is the largest pledge of the account's machines.
+fn name_json(taken: &str, invalid: Option<&str>, other_pledge_bytes: Option<u64>) -> String {
+    object(&[
+        ("taken", quote(taken)),
+        ("invalid", optional(invalid)),
+        (
+            "other_pledge_bytes",
+            other_pledge_bytes.map_or_else(|| "null".to_owned(), |bytes| bytes.to_string()),
+        ),
+    ])
 }
 
 /// The nearest directory that exists at or above `path`: free space is a

@@ -22,13 +22,37 @@ object Native {
 
     external fun exists(home: String): Boolean
 
-    external fun create(home: String, username: String, passphrase: String): String
-
-    external fun login(home: String, username: String, phrase: String, passphrase: String): String
+    /** {"min":6,"max":128}: the rule the screens state and check as you type. */
+    external fun passphraseRule(): String
 
     external fun open(home: String, passphrase: String): String
 
+    /**
+     * Debug builds and instrumented tests only: every node this process creates,
+     * restores or opens is pinned to this coordinator instead of the official one.
+     * Kotlin never calls it outside androidTest. [device] may be empty (no pin). A
+     * release build throws.
+     */
+    external fun useCoordinatorForTests(address: String, device: String): String
+
     external fun close(): String
+
+    /**
+     * Serve the setup engine's page on 127.0.0.1 and answer its address (the
+     * key is in the fragment). [mode] is "setup" or "settings". Secrets are
+     * asked through [Host]; the first call finds that class, so it must come
+     * from a Java thread.
+     */
+    external fun pageStart(home: String, mode: String, biometric: Boolean): String
+
+    /** The person left the page: the engine stops. */
+    external fun pageStop(): String
+
+    /** Recover the passphrase from the 24 words, on the app's own screens. */
+    external fun forgot(home: String): String
+
+    /** {"ok":bool,"wordIndex":n|null,"count":n}: the words as they are typed. */
+    external fun checkWords(phrase: String): String
 
     external fun status(): String
 
@@ -47,37 +71,6 @@ object Native {
     external fun remove(path: String): String
 
     external fun sync(metadataOnly: Boolean): String
-
-    external fun setKeep(bytes: Long, order: String, only: String): String
-
-    external fun setPledge(bytes: Long): String
-
-    /**
-     * Pledge and keep together, checked as a pair. [keep] of zero or less
-     * means no limit.
-     */
-    external fun setLimits(pledge: Long, keep: Long): String
-
-    /** The account's devices, this phone marked. */
-    external fun devices(): String
-
-    /**
-     * Withdraw one of the account's devices by its full id. Refused for this
-     * phone, and for an id the account's listing does not show.
-     */
-    external fun withdrawDevice(id: String): String
-
-    /**
-     * Enrol this account and device with the configured coordinator. [invite]
-     * may be empty; an invite-only coordinator needs a code the first time and
-     * never again. At the device limit this answers rather than throws:
-     * `atCap` true, the devices to choose from, and what to say.
-     */
-    external fun register(invite: String): String
-
-    external fun addPeer(address: String): String
-
-    external fun removePeer(address: String): String
 
     external fun plan(
         metered: Boolean,
