@@ -3,7 +3,7 @@
 //!
 //! # Why the phone needed this
 //!
-//! At [`MAX_DEVICES_PER_ACCOUNT`] live devices a new machine is refused, and
+//! At [`LIMIT`] live devices a new machine is refused, and
 //! until 2026-10-01 the refusal told the person to run
 //! `itsanas device forget <id>`. An account whose machines are all phones has
 //! no such command, so a lost phone held its slot for ever and the account

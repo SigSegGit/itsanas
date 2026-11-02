@@ -66,6 +66,26 @@
       "file": "crates/itsanas-cli/src/setup/secret-window.ps1",
       "live": "            $first.UseSystemPasswordChar = -not $show.Checked\n",
       "dead": ""
+    },
+    "gate: pause and interval": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "features.sync_controls || !timed,",
+      "dead": "true || !timed,"
+    },
+    "host: biometric on a computer": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "            features.biometric,\n            \"fingerprint or face unlock\",",
+      "dead": "            true,\n            \"fingerprint or face unlock\","
+    },
+    "engine: passphrase not checked first": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "if let Err(error) = crate::node::check_new_passphrase(passphrase) {",
+      "dead": "if let Err(error) = crate::node::check_new_passphrase(\"a long enough passphrase for the sabotage\") {"
+    },
+    "pledge: the keep is not set with it": {
+      "file": "crates/itsanas-cli/src/setup/steps.rs",
+      "live": "        node.config.keep_bytes = self.answers.keep.apply(node.config.keep_bytes);\n",
+      "dead": ""
     }
   }
 }

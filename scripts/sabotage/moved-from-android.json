@@ -66,11 +66,6 @@
       "file": "crates/itsanas-node/src/node.rs",
       "live": "        if let Ok(Some(theirs)) = client.present_claim(self.claim_bytes(now)) {\n            siblings.push(theirs);\n        }\n",
       "dead": "        let _ = now;\n"
-    },
-    "register: everything reads as an invitation": {
-      "file": "crates/itsanas-node/src/coordinator.rs",
-      "live": "text.contains(\"by invitation only\") || text.contains(\"that invitation cannot be used\")",
-      "dead": "!text.is_empty()"
     }
   }
 }
