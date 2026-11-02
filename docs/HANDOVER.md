@@ -10,7 +10,7 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0y
-TITLE: The phone's status carries the safety verdict (copies wanted, exposed), from shared code (the Android app shows no copy count today; §8 0y, its NEXT paragraph)
+TITLE: The other safety alerts: a failed challenge, a full or unwritable pledge, low free space (§8 0y, its Left)
 WRITTEN-AT: 2026-11-02
 BASE: 23c00a4
 -->
@@ -1837,29 +1837,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       copy count); and the other ARCHITECTURE §7 rows (no round for N
       minutes is `stale` already; a failed challenge, a full or unwritable
       pledge, low free space have no alert).
-      **NEXT (scouted 2026-10-30, line numbers to re-check): The phone's
-      status carries the safety verdict (copies wanted, exposed), from
-      shared code.** The Android JNI status (crates/itsanas-
-      android/src/lib.rs:543-575) returns `copiesElsewhere` and
-      `onlyHere`, but not the copies wanted or whether the account is
-      exposed. The app shows the count only inside Settings
-      (android/app/src/main/java/fr/ngas/itsanas/MainActivity.kt:612-626).
-      Move `SAFE_COPIES` (crates/itsanas-cli/src/main.rs:74) and
-      `safety::Copies` (crates/itsanas-cli/src/safety.rs) into itsanas-
-      node or itsanas-store, so the CLI and android crates share one
-      rule. Add `copiesWanted` and `safe` to the JSON. Kotlin:
-      Native.kt:122/154 parse them, and MainActivity shows a red or
-      orange line on the main screen ('your files are only on this
-      phone'). No Gradle job exists in CI (.github/workflows has none),
-      so the Kotlin half cannot be verified by a session unless it also
-      adds one. That is an optional extra job: setup-java plus the SDK
-      on ubuntu-latest, then `./gradlew assembleDebug`, which needs no
-      signing key for a debug build. **Tests:** A Rust test in itsanas-
-      android's tests module (lib.rs:950) through a non-JNI helper, as
-      the setKeep helpers do (:608): a node with stored files and no
-      holders gives `safe:false, copiesWanted:2`. Sabotage: hard-code
-      safe true, and it turns red. The CLI's existing exposed tests keep
-      passing after the move, which proves the shared rule.
+      Done 2026-11-02: the phone says it, from the CLI's rule (`account_is_safe`,
+      `red_team_a_phone_says_its_files_are_not_safe_yet`). **NEXT: the other
+      ARCHITECTURE §7 rows.** Each is a line in the snapshot header that
+      `brief_status` reads (`safety.rs` is the model), a colour in the trays, a
+      line on the phone, and a red-team test with its sabotage.
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
       `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
       Battery is reported (`powercfg /batteryreport`) and not judged; bytes
