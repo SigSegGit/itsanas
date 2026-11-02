@@ -39,7 +39,7 @@
         <dt>Name of this setup</dt><dd id="machine-instance"></dd>
       </dl>
       <p class="done-note" data-done-for="machine" hidden></p>
-      <div id="another" hidden>
+      <div id="another" data-feature="another_account" hidden>
         <p><span>This computer already has the ITSaNAS account</span> <strong id="account-here"></strong></p>
         <p>Start continues with it. To set up a different account beside it, give it a name:</p>
         <label for="another-name">Name of the other setup (lowercase letters and digits)</label>
@@ -80,12 +80,12 @@
       <h1 tabindex="-1">Your folder and your space</h1>
       <p class="done-note" data-done-for="folder" hidden></p>
       <p class="lead">Choose the folder to sync on this machine. On your other machines it can be somewhere else: what is synced is what it holds.</p>
-      <div id="folder-questions">
+      <div id="folder-questions" data-feature="folder">
       <label for="folder">Folder</label>
       <div class="row"><input id="folder" name="folder" spellcheck="false" autocapitalize="none" aria-describedby="folder-help"><button type="button" id="folder-browse">Browse&hellip;</button></div>
       <p id="folder-help" class="help">It is created if it does not exist. Files you put in it are synced.</p>
       </div>
-      <label class="choice"><input type="checkbox" id="background" checked> Start ITSaNAS when I log in, with an icon near the clock (recommended)</label>
+      <label class="choice" data-feature="background_choice"><input type="checkbox" id="background" checked> Start ITSaNAS when I log in, with an icon near the clock (recommended)</label>
       <p class="done-note" data-done-for="pledge" hidden></p>
       <div id="pledge-questions">
       <h2>Space you offer</h2>
@@ -96,17 +96,25 @@
       <p id="pledge-earns" class="earns" aria-live="polite"></p>
       <p id="pledge-help" class="help">You can change it later. The disk is the one that holds this machine's ITSaNAS data.</p>
       </div>
+      <div id="keep-questions" data-feature="keep_question">
+      <h2>Files kept here</h2>
+      <p class="help">How much of your account's files stay on this machine, to open without the network. The rest is fetched when you open it. Empty: everything.</p>
+      <label for="keep">Files to keep here, in GB</label>
+      <input id="keep" name="keep" type="number" min="0" step="1" inputmode="numeric">
+      </div>
       <p class="done-note" data-done-for="updates" hidden></p>
       <p class="done-note" data-done-for="registration" hidden></p>
       <details>
         <summary>Advanced</summary>
         <label for="invite">Invitation code (only for a private network that asks for one)</label>
         <input id="invite" name="invite" spellcheck="false" autocapitalize="none" autocomplete="off">
+        <div data-feature="advanced">
         <label for="coordinator">Coordinator address</label>
         <input id="coordinator" name="coordinator" spellcheck="false" autocapitalize="none" aria-describedby="coordinator-help">
         <p id="coordinator-help" class="help">Leave it as it is unless you run your own network. Empty: only machines on this home network find each other.</p>
+        </div>
 
-      <fieldset>
+      <fieldset data-feature="advanced">
         <legend>When a new version is out</legend>
         <label class="choice"><input type="radio" name="updates" value="auto"> Install it by itself (once a day, it restarts in a few seconds)</label>
         <label class="choice"><input type="radio" name="updates" value="notify" checked> Tell me, and I install it (<code>itsanas update</code>)</label>
@@ -144,7 +152,7 @@
         <p class="help" id="final-error"></p>
       </div>
       <ul id="report" class="report"></ul>
-      <div class="actions" id="folder-actions" hidden>
+      <div class="actions" id="folder-actions" data-feature="folder" hidden>
         <button type="button" id="open-folder">Open my folder</button>
         <button type="button" id="pin-folder">Add it to the file manager's favourites</button>
       </div>
@@ -167,7 +175,7 @@
 
       <section class="card" aria-labelledby="st-h-sync">
         <h2 id="st-h-sync">Syncing</h2>
-        <div class="field">
+        <div class="field" data-feature="sync_controls">
           <label for="pause-for">Pause</label>
           <div class="controls">
             <!-- 0w (5): "for 1 hour" and "for 8 hours" join once the control file has an end time. -->
@@ -179,7 +187,7 @@
         <div class="field">
           <div class="controls"><button type="button" id="sync-now">Sync now</button></div>
         </div>
-        <div class="field">
+        <div class="field" data-feature="sync_controls">
           <label for="interval">Check for changes</label>
           <div class="controls">
             <select id="interval">
@@ -203,15 +211,22 @@
           <div class="controls"><input id="st-pledge" class="short" type="number" min="0" step="1" inputmode="numeric" aria-describedby="st-pledge-now"></div>
           <p id="st-pledge-now" class="help"></p>
         </div>
-        <div class="field">
+        <div class="field" data-feature="folder">
           <label for="st-folder">Folder</label>
           <div class="controls"><input id="st-folder" spellcheck="false" autocapitalize="none"><button type="button" id="st-folder-browse">Browse&hellip;</button><button type="button" id="st-open-folder">Open</button></div>
         </div>
         <div class="field">
+          <label for="st-keep">Files kept on this machine, in GB (empty: everything)</label>
+          <div class="controls"><input id="st-keep" class="short" type="number" min="0" step="1" inputmode="numeric"></div>
+        </div>
+        <div class="field" data-feature="metered">
+          <label class="choice"><input type="checkbox" id="st-metered"> Download files over mobile data too</label>
+        </div>
+        <div class="field" data-feature="advanced">
           <label for="st-coordinator">Coordinator address</label>
           <div class="controls"><input id="st-coordinator" spellcheck="false" autocapitalize="none"></div>
         </div>
-        <div class="field">
+        <div class="field" data-feature="advanced">
           <label for="st-updates">When a new version is out</label>
           <div class="controls">
             <select id="st-updates">
@@ -237,7 +252,7 @@
         </div>
       </section>
 
-      <section class="card" aria-labelledby="st-h-disks">
+      <section class="card" data-feature="disks" aria-labelledby="st-h-disks">
         <h2 id="st-h-disks">Disks</h2>
         <p class="help">These are done by ITSaNAS running in the background, so it must be running. Nothing here asks for your passphrase.</p>
         <div class="field">
@@ -266,7 +281,7 @@
       <!-- "Copy this account to a USB key": the trays open Settings here
            (section=key). The two passphrases are asked by the copy itself,
            in windows of the system's own, never in this page. -->
-      <section class="card" id="st-usb" aria-labelledby="st-h-usb">
+      <section class="card" id="st-usb" data-feature="usb_key" aria-labelledby="st-h-usb">
         <h2 id="st-h-usb" tabindex="-1">Copy this account to a USB key</h2>
         <p class="help">The key gets ITSaNAS for Windows, Mac and Linux, with this account in it: plug it into any computer, open it, and your files are there.</p>
         <p class="never">Whoever opens the key with its passphrase IS this account: they can read and change all your files. Choose a long passphrase that you use nowhere else, and keep the key as safe as a house key.</p>
@@ -288,6 +303,13 @@
         </div>
         <p id="st-usb-said" class="said" role="status" aria-live="polite"></p>
         <p id="st-usb-detail" class="help said"></p>
+      </section>
+
+      <section class="card" aria-labelledby="st-h-security">
+        <h2 id="st-h-security">Security</h2>
+        <div class="field" data-feature="biometric">
+          <label class="choice"><input type="checkbox" id="st-biometric"> Unlock with my fingerprint or face</label>
+        </div>
       </section>
 
       <section class="card" aria-labelledby="st-h-signout">

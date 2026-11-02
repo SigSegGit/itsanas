@@ -46,6 +46,8 @@ html, body {
 }
 
 [hidden] { display: none !important; }
+/* What this shell lacks (data-feature, from /api/state): not drawn, whatever else shows it. */
+[data-off] { display: none !important; }
 
 .skip {
   position: absolute;

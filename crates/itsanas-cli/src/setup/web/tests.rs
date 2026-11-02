@@ -21,7 +21,8 @@ use std::{
 use zeroize::Zeroizing;
 
 use super::{
-    Backends, Context, LANGUAGE_FILE, Mode, Server, browser_command, has_desktop, http, language_of,
+    Backends, Context, Features, LANGUAGE_FILE, Mode, NoHost, Server, browser_command, has_desktop,
+    http, language_of,
 };
 use crate::{
     error::{CliError, Result},
@@ -123,6 +124,10 @@ fn backends(seen: &Seen, home: &Path) -> Backends {
         drives: Box::new(Vec::new),
         programs: || Some(1024),
         copy: Box::new(|_, _| Err("no copy is started in these tests".to_owned())),
+        features: Features::DESKTOP,
+        phone: false,
+        fixed_coordinator: None,
+        host: Arc::new(NoHost),
     }
 }
 
@@ -821,6 +826,10 @@ fn while_a_window_is_open_the_page_is_told_so_and_a_closed_window_says_what_to_d
         drives: Box::new(Vec::new),
         programs: || None,
         copy: Box::new(|_, _| Err("no copy is started in this test".to_owned())),
+        features: Features::DESKTOP,
+        phone: false,
+        fixed_coordinator: None,
+        host: Arc::new(NoHost),
     };
     let server = Server::bind(&home, None, Mode::Setup, dir.path(), backends).expect("bind");
     let ctx = Arc::clone(&server.ctx);
@@ -1491,7 +1500,7 @@ fn settings_is_one_column_of_cards_with_the_usb_copy_shown() {
     let slot = &slot[..slot.find("</section>").expect("end of the section")];
     assert!(slot.contains("Copy this account to a USB key"));
     assert!(
-        slot.starts_with("id=\"st-usb\" aria-labelledby=\"st-h-usb\">"),
+        slot.starts_with("id=\"st-usb\" data-feature=\"usb_key\" aria-labelledby=\"st-h-usb\">"),
         "the USB copy section is hidden: the tray's \"Copy this account to a USB key\" opens \
          a page without it"
     );
@@ -2054,5 +2063,113 @@ fn the_disks_section_hands_work_to_the_daemon_and_writes_a_portable_copy_itself(
         page.api("GET", "/api/state", "")
             .body
             .contains("\"job\":null")
+    );
+}
+
+#[test]
+fn red_team_every_feature_of_a_shell_is_named_in_the_page() {
+    // The page hides what a shell lacks by `data-feature`. A feature no element
+    // names is a feature the page cannot hide: a phone would be shown it.
+    let html = super::INDEX_HTML;
+    for (name, _) in Features::DESKTOP.all() {
+        assert!(
+            html.contains(&format!("data-feature=\"{name}\"")),
+            "`{name}` is a feature of the shell and no element of index.html carries \
+             data-feature=\"{name}\": a shell without it would still be shown it"
+        );
+    }
+    let named: BTreeSet<&str> = html
+        .split("data-feature=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .collect();
+    let known: BTreeSet<&str> = Features::DESKTOP
+        .all()
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+    assert_eq!(
+        named, known,
+        "the page names a feature the shell does not have: it would never be shown"
+    );
+}
+
+#[test]
+fn red_team_a_route_behind_a_missing_feature_refuses_whatever_the_page_hides() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.features = Features::PHONE;
+        b.phone = true;
+    });
+    for (method, path, body) in [
+        ("POST", "/api/pick", ""),
+        ("POST", "/api/open", ""),
+        ("POST", "/api/pin", ""),
+        ("POST", "/api/disk", "action=export&path=x"),
+        ("GET", "/api/keys", ""),
+        ("POST", "/api/copy-to-key", "path=x"),
+        ("POST", "/api/another", "name=other"),
+        ("POST", "/api/control", "action=pause"),
+        ("POST", "/api/control", "action=interval&every=1h"),
+    ] {
+        let reply = page.api(method, path, body);
+        assert_eq!(
+            reply.status, 403,
+            "{method} {path} was answered on a shell that has no such thing: hiding it in the \
+             page is not the control ({})",
+            reply.body
+        );
+        assert!(
+            reply.body.contains("not offered here"),
+            "{path} refused without saying why: {}",
+            reply.body
+        );
+    }
+    let sync = page.api("POST", "/api/control", "action=sync-now");
+    assert_ne!(
+        sync.status, 403,
+        "syncing now is a phone's own button: {}",
+        sync.body
+    );
+
+    // A computer has no fingerprint to set; a phone does, and is told.
+    let phone = page.api("POST", "/api/host", "name=biometric&value=on");
+    assert_eq!(phone.status, 200, "{}", phone.body);
+    let other = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let desktop = other.api("POST", "/api/host", "name=biometric&value=on");
+    assert_eq!(
+        desktop.status, 403,
+        "a computer was told to set a fingerprint it does not have: {}",
+        desktop.body
+    );
+}
+
+#[test]
+fn red_team_a_fixed_coordinator_is_the_one_the_name_check_asks_whatever_the_form_says() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start_with(&home, dir.path(), Mode::Setup, &Seen::default(), |b| {
+        b.name = |address, name| Ok(address == "official.example:1" && name == "taken");
+        b.fixed_coordinator = Some(("official.example:1".to_owned(), Some("pin".to_owned())));
+    });
+    let reply = page.api(
+        "POST",
+        "/api/name",
+        "username=taken&coordinator=my-own-network.example:9",
+    );
+    assert!(
+        reply.body.contains("\"yes\""),
+        "the name was asked of the address in the form, not of the shell's fixed coordinator: a \
+         phone could be pointed at a network of somebody else's naming ({})",
+        reply.body
+    );
+    let state = page.api("GET", "/api/state", "");
+    assert!(
+        state.body.contains("official.example:1") && !state.body.contains("my-own-network"),
+        "the page was offered a coordinator that is not the fixed one: {}",
+        state.body
     );
 }

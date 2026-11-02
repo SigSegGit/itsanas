@@ -82,6 +82,10 @@ pub(crate) struct Answers {
     /// What the daemon does about a newer release; `None` keeps the node's.
     pub(crate) updates: Option<crate::config::Updates>,
     pub(crate) verify_for: Duration,
+    /// Whether this machine is a phone: no synced folder (its files are in the
+    /// app), no listener to dial back, no service file, and the app updates
+    /// itself. A shell sets it; no answers file does.
+    pub(crate) phone: bool,
 }
 
 /// How long the final check waits for a daemon that just started, unless told.
@@ -102,6 +106,7 @@ impl Default for Answers {
             tray: true,
             updates: None,
             verify_for: DEFAULT_VERIFY,
+            phone: false,
         }
     }
 }

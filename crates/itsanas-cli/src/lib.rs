@@ -4967,7 +4967,10 @@ struct NetworkCheck {
     inbound: Option<Inbound>,
 }
 
-fn network_check(identity: &itsanas_node::node::Identity) -> NetworkCheck {
+/// `dial_back` asks the coordinator to connect to this machine, which costs it a
+/// connection and proves something only while this machine listens: a phone,
+/// which never does, asks `false`.
+fn network_check(identity: &itsanas_node::node::Identity, dial_back: bool) -> NetworkCheck {
     let coordinator = identity.config.coordinator.clone();
     if coordinator.is_none() {
         return NetworkCheck {
@@ -4992,7 +4995,7 @@ fn network_check(identity: &itsanas_node::node::Identity) -> NetworkCheck {
             }
         })
         .map_err(|error| error.to_string());
-    let inbound = outbound.is_ok().then(|| {
+    let inbound = (outbound.is_ok() && dial_back).then(|| {
         match coordinator::check_me_as(&identity.config, &identity.device, user) {
             Ok(Some(answer)) => Inbound::Answered(answer),
             Ok(None) => Inbound::TooOld,
@@ -5027,7 +5030,7 @@ fn network_report(identity: &itsanas_node::node::Identity) {
     println!();
     println!("network");
 
-    let check = network_check(identity);
+    let check = network_check(identity, true);
     let Some(address) = check.coordinator.as_deref() else {
         println!("  no coordinator configured, so this machine can only meet peers on");
         println!("  its own network, or ones added by hand with `itsanas peer add`.");

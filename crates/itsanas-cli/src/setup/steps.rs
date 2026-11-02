@@ -19,6 +19,9 @@ use crate::{
 /// How many times the words may be typed back wrong before setup stops.
 pub(super) const CONFIRM_ATTEMPTS: usize = 3;
 
+/// Why a phone skips the machine and folder steps.
+const NO_FOLDER_ON_A_PHONE: &str = "a phone has no synced folder: its files are in the app";
+
 impl Setup<'_> {
     fn config(&self) -> Option<Config> {
         Config::load(&Node::config_path(&self.home)).ok()
@@ -42,6 +45,9 @@ impl Setup<'_> {
     // -- Machine --------------------------------------------------------------
 
     pub(super) fn machine_state(&self) -> State {
+        if self.answers.phone {
+            return State::Skip(NO_FOLDER_ON_A_PHONE.to_owned());
+        }
         let folder = self.wanted_folder();
         if folder.is_dir() {
             State::Done(format!(
@@ -102,11 +108,15 @@ impl Setup<'_> {
                     .to_owned(),
             ));
         };
-        crate::refuse_stranded(
-            self.home.clone(),
-            &crate::config::user_home(),
-            crate::config::other_user_home().as_deref(),
-        )?;
+        // A phone's home is the app's own directory, which is not where a
+        // desktop's `--home` would be mistaken for the default.
+        if !self.answers.phone {
+            crate::refuse_stranded(
+                self.home.clone(),
+                &crate::config::user_home(),
+                crate::config::other_user_home().as_deref(),
+            )?;
+        }
         // A taken name is refused here, before a key is written: learnt at the
         // registration step instead, it left a whole account on this disk
         // under a name the network would never give it. An unreachable
@@ -265,27 +275,20 @@ impl Setup<'_> {
                 "no background service asked for, so no file needs the passphrase".to_owned(),
             );
         }
-        let path = self.service.passphrase_file();
-        match service::read_passphrase_file(&path) {
+        match self.service.stored_passphrase() {
             // Opened, not merely present: a file left from before
             // `itsanas passphrase` changed it starts a daemon that cannot
             // unlock, which is a setup that is not done.
-            Some(stored) if Identity::open(&self.home, &stored).is_ok() => {
-                State::Done(format!("{} opens this machine's keys", path.display()))
-            }
+            Some(stored) if Identity::open(&self.home, &stored).is_ok() => State::Done(
+                "the passphrase kept for the service opens this machine's keys".to_owned(),
+            ),
             _ => State::Todo,
         }
     }
 
     pub(super) fn apply_secret(&mut self) -> Result<String> {
         let passphrase = self.passphrase(Step::Secret)?;
-        let path = self.service.passphrase_file();
-        service::write_passphrase_file(&path, &passphrase)?;
-        Ok(format!(
-            "{} holds it, readable by this account alone (anything running as you can read it: \
-             the trade every background service makes)",
-            path.display()
-        ))
+        self.service.store_passphrase(&passphrase)
     }
 
     // -- Registration ---------------------------------------------------------
@@ -406,6 +409,9 @@ impl Setup<'_> {
     // -- Folder ---------------------------------------------------------------
 
     pub(super) fn folder_state(&self) -> Result<State> {
+        if self.answers.phone {
+            return Ok(State::Skip(NO_FOLDER_ON_A_PHONE.to_owned()));
+        }
         let config = Config::load(&Node::config_path(&self.home))?;
         let wanted = std::path::absolute(self.wanted_folder()).map_err(|source| CliError::Io {
             path: self.wanted_folder(),
@@ -445,6 +451,11 @@ impl Setup<'_> {
     }
 
     pub(super) fn updates_state(&self) -> Result<State> {
+        if self.answers.phone {
+            return Ok(State::Skip(
+                "the app is updated by the app itself, not by the node".to_owned(),
+            ));
+        }
         let config = Config::load(&Node::config_path(&self.home))?;
         Ok(match self.answers.updates {
             Some(wanted) if wanted != config.updates => State::Todo,
@@ -477,7 +488,7 @@ impl Setup<'_> {
     pub(super) fn apply_connectivity(&mut self) -> Result<String> {
         let passphrase = self.passphrase(Step::Connectivity)?;
         let identity = Identity::open(&self.home, &passphrase)?;
-        let check = crate::network_check(&identity);
+        let check = crate::network_check(&identity, !self.answers.phone);
         let address = check.coordinator.clone().unwrap_or_default();
         let peers = check.outbound.map_err(|why| {
             CliError::Usage(format!(
@@ -490,7 +501,10 @@ impl Setup<'_> {
         );
         // The dial-back proves something only while a daemon listens: before
         // the service runs, it is the final check's to ask.
-        let listening = itsanas_store::Store::is_locked(Node::store_path(&self.home));
+        // And a phone has no listener at all: it dials out, so a dial-back
+        // would fail by design and say nothing about the phone.
+        let listening =
+            itsanas_store::Store::is_locked(Node::store_path(&self.home)) && !self.answers.phone;
         let Some(inbound) = check.inbound.filter(|_| listening) else {
             return Ok(format!(
                 "{reached}; the dial-back is checked once the service listens"
@@ -525,7 +539,10 @@ impl Setup<'_> {
     }
 
     pub(super) fn apply_service(&mut self) -> Result<String> {
-        self.refuse_a_home_the_service_would_not_run()?;
+        // The phone's service is the app's own, which runs the one node it has.
+        if !self.answers.phone {
+            self.refuse_a_home_the_service_would_not_run()?;
+        }
         let store = Node::store_path(&self.home);
         if itsanas_store::Store::is_locked(&store) && !self.service.installed() {
             return Err(CliError::Usage(
@@ -592,7 +609,8 @@ impl Setup<'_> {
         let report = verify::run(&verify::Inputs {
             home: &self.home,
             identity: identity.as_ref(),
-            daemon_expected: self.answers.service,
+            daemon_expected: self.answers.service && !self.answers.phone,
+            phone: self.answers.phone,
             folder: config.folder.as_deref(),
             deadline: self.answers.verify_for,
             log_hint: self.service.log_hint(),

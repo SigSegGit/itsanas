@@ -45,6 +45,33 @@ const TRAY_PY: &str = include_str!("../../../../scripts/itsanas-tray.py");
 pub(crate) trait ServiceControl {
     /// The file the service reads the passphrase from.
     fn passphrase_file(&self) -> PathBuf;
+    /// The passphrase this machine remembers for the service, if there is a
+    /// usable one. A desktop reads [`ServiceControl::passphrase_file`]; a phone
+    /// answers from behind its keystore, so nothing above this trait names a file.
+    fn stored_passphrase(&self) -> Option<Secret> {
+        read_passphrase_file(&self.passphrase_file())
+    }
+    /// Remember `passphrase` for the service; says where, for a page or a log.
+    fn store_passphrase(&self, passphrase: &Secret) -> Result<String> {
+        let path = self.passphrase_file();
+        write_passphrase_file(&path, passphrase)?;
+        Ok(format!(
+            "{} holds it, readable by this account alone (anything running as you can read it: \
+             the trade every background service makes)",
+            path.display()
+        ))
+    }
+    /// Forget what [`ServiceControl::store_passphrase`] kept; says what was done.
+    fn forget_passphrase(&self) -> Result<&'static str> {
+        let file = self.passphrase_file();
+        match std::fs::remove_file(&file) {
+            Ok(()) => Ok("the passphrase file is deleted"),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Ok("there was no passphrase file to delete")
+            }
+            Err(source) => Err(CliError::Io { path: file, source }),
+        }
+    }
     /// Whether the service is defined here (it may be stopped or disabled).
     fn installed(&self) -> bool;
     /// Define the service and, if asked, the tray's autostart; says what was

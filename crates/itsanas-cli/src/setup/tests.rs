@@ -635,3 +635,138 @@ fn red_team_the_built_in_coordinator_is_pinned_and_another_address_is_not() {
         "the built-in pin was applied to another coordinator, which then could never be used"
     );
 }
+
+#[test]
+fn red_team_a_phone_is_never_given_a_synced_folder_an_updater_or_a_listener_to_dial() {
+    // A phone's files are in the app: a folder made for it would hold the same
+    // files twice on a disk that is small; the app updates itself; and it
+    // dials out only, so a dial-back would fail by design and say nothing.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let mut wanted = answers(dir.path());
+    wanted.phone = true;
+    let folder = wanted.folder.clone().expect("a folder was given");
+    let (mut person, _) = Scripted::new(false);
+    let (events, failed) = run(&home, wanted, &mut person);
+    assert_eq!(failed, None, "{events:#?}");
+    for skipped in [Step::Machine, Step::Folder, Step::Updates] {
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::Skipped { step, .. } if *step == skipped)),
+            "{skipped:?} was not skipped on a phone: {events:#?}"
+        );
+    }
+    assert!(
+        !folder.exists(),
+        "a phone got a synced folder: its files would sit twice on a disk that has no room \
+         for them"
+    );
+    assert!(
+        Node::exists(&home),
+        "the account was not made: the skips swallowed more than they should"
+    );
+}
+
+/// A service that remembers the passphrase its own way, as a phone does behind
+/// its keystore: it must never be handed a file.
+struct Remembering {
+    file: PathBuf,
+    kept: RefCell<Option<String>>,
+}
+
+impl ServiceControl for Remembering {
+    fn passphrase_file(&self) -> PathBuf {
+        self.file.clone()
+    }
+    fn stored_passphrase(&self) -> Option<Secret> {
+        self.kept.borrow().clone().map(Zeroizing::new)
+    }
+    fn store_passphrase(&self, passphrase: &Secret) -> Result<String> {
+        *self.kept.borrow_mut() = Some(passphrase.to_string());
+        Ok("the keystore holds it".to_owned())
+    }
+    fn forget_passphrase(&self) -> Result<&'static str> {
+        *self.kept.borrow_mut() = None;
+        Ok("the remembered copy is forgotten")
+    }
+    fn installed(&self) -> bool {
+        true
+    }
+    fn install(&self, _: bool) -> Result<String> {
+        Ok("installed".to_owned())
+    }
+    fn start(&self) -> Result<()> {
+        Ok(())
+    }
+    fn stop(&self) -> Result<()> {
+        Ok(())
+    }
+    fn set_autostart(&self, _: bool) -> Result<()> {
+        Ok(())
+    }
+    fn log_hint(&self) -> String {
+        String::new()
+    }
+}
+
+#[test]
+fn red_team_a_service_that_remembers_the_passphrase_its_own_way_is_never_given_a_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    Node::create(&home, PASSPHRASE, "camille").expect("create");
+    let service = Remembering {
+        file: dir.path().join("service").join("passphrase"),
+        kept: RefCell::new(Some(PASSPHRASE.to_owned())),
+    };
+
+    sign::sign_out(&home, &service).expect("sign out");
+    assert_eq!(
+        service.stored_passphrase(),
+        None,
+        "signed out, and the remembered passphrase is still there: the phone lent to somebody \
+         else unlocks the account"
+    );
+
+    sign::sign_in(&home, &service, &mut Typing(PASSPHRASE)).expect("sign in");
+    assert_eq!(
+        service.stored_passphrase().as_deref().map(String::as_str),
+        Some(PASSPHRASE),
+        "signed in, and nothing remembers the passphrase for the service"
+    );
+    assert!(
+        !service.file.exists() && !service.file.with_extension("new").exists(),
+        "sign in wrote a passphrase file for a service that keeps it elsewhere: a copy of the \
+         secret outside the keystore, readable by whatever runs as the app"
+    );
+}
+
+#[test]
+fn the_default_passphrase_methods_read_write_and_forget_today_s_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let service = NoService {
+        file: dir.path().join("service").join("passphrase"),
+    };
+    assert_eq!(service.stored_passphrase(), None);
+    let secret = Zeroizing::new(PASSPHRASE.to_owned());
+    service.store_passphrase(&secret).expect("store");
+    assert_eq!(
+        super::service::read_passphrase_file(&service.file)
+            .as_deref()
+            .map(String::as_str),
+        Some(PASSPHRASE),
+        "a desktop's remembered passphrase is not in the file the service reads"
+    );
+    assert_eq!(
+        service.stored_passphrase().as_deref().map(String::as_str),
+        Some(PASSPHRASE)
+    );
+    assert_eq!(
+        service.forget_passphrase().expect("forget"),
+        "the passphrase file is deleted"
+    );
+    assert_eq!(
+        service.forget_passphrase().expect("forget again"),
+        "there was no passphrase file to delete"
+    );
+}

@@ -57,14 +57,7 @@ pub(crate) fn sign_out(home: &Path, service: &dyn ServiceControl) -> Result<Stri
                 .to_owned(),
         ));
     }
-    let file = service.passphrase_file();
-    match std::fs::remove_file(&file) {
-        Ok(()) => done.push("the passphrase file is deleted"),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            done.push("there was no passphrase file to delete");
-        }
-        Err(source) => return Err(CliError::Io { path: file, source }),
-    }
+    done.push(service.forget_passphrase()?);
     Ok(done.join("; "))
 }
 
@@ -82,13 +75,11 @@ pub(crate) fn sign_in(
     // Checked before anything is written: a mistyped passphrase saved for
     // the service is a daemon that fails at every logon, silently.
     Identity::open(home, &passphrase)?;
-    let file = service.passphrase_file();
-    service::write_passphrase_file(&file, &passphrase)?;
+    let kept = service.store_passphrase(&passphrase)?;
     if !service.installed() {
         return Ok(format!(
-            "signed in: {} opens this machine's keys again. No background service is \
-             installed; `itsanas setup` installs one, or start the node with `itsanas daemon`",
-            file.display()
+            "signed in: {kept}. No background service is installed; `itsanas setup` installs \
+             one, or start the node with `itsanas daemon`"
         ));
     }
     service.set_autostart(true)?;

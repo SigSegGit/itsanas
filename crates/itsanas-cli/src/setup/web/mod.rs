@@ -40,8 +40,11 @@
 //! again; pause, resume, sync now and the interval go through the control
 //! file (`control.rs`) as the tray's do.
 
+mod features;
 mod http;
 mod json;
+
+pub(crate) use features::{Features, Host, NoHost};
 
 use std::{
     fmt::Write as _,
@@ -192,6 +195,17 @@ pub(crate) struct Backends {
     /// Start `copy-to-key DIR --detach` for the home; what tells whether it
     /// still runs ([`crate::copy_to_key::start_detached`]).
     pub(crate) copy: StartCopy,
+    /// What this shell has; the page hides the rest and the routes refuse it.
+    pub(crate) features: Features,
+    /// Whether this machine is a phone (see [`Answers::phone`]).
+    pub(crate) phone: bool,
+    /// A coordinator the person cannot change: its address and the device it
+    /// is pinned to. The form's `coordinator` is then ignored, and the name
+    /// check and the pin use this one -- a phone offers no way to name another
+    /// network, which is what keeps the official one's pin in force.
+    pub(crate) fixed_coordinator: Option<(String, Option<String>)>,
+    /// Told what the page changed that the shell also draws.
+    pub(crate) host: Arc<dyn Host>,
 }
 
 type ListDrives = Box<dyn Fn() -> Vec<crate::drives::Candidate> + Send + Sync>;
@@ -238,6 +252,10 @@ impl Backends {
                 let running: Running = Box::new(move || matches!(child.try_wait(), Ok(None)));
                 Ok(running)
             }),
+            features: Features::DESKTOP,
+            phone: false,
+            fixed_coordinator: None,
+            host: Arc::new(NoHost),
         }
     }
 }
@@ -600,6 +618,9 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
     if !matches!((method, path), ("GET", "/api/state" | "/api/copy-to-key")) {
         *lock(&ctx.last_action) = Instant::now();
     }
+    if let Some(refusal) = gate(ctx.backends.features, path, request) {
+        return refusal;
+    }
     match (method, path) {
         ("GET", "/api/state") => ok_json(state_json(ctx)),
         ("GET", "/api/keys") if ctx.mode == Mode::Settings => keys(ctx),
@@ -614,6 +635,7 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/name") if ctx.mode == Mode::Setup => check_name(ctx, request),
         ("POST", "/api/another") if ctx.mode == Mode::Setup => another_account(ctx, request),
         ("POST", "/api/language") => choose_language(ctx, request),
+        ("POST", "/api/host") => host_setting(ctx, request),
         ("POST", "/api/free") => free_space(ctx, request),
         ("POST", "/api/pick") => pick(request),
         ("POST", "/api/open") => open_folder(ctx, request, false),
@@ -624,6 +646,60 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         }
         _ => Response::refuse(404, "no such action"),
     }
+}
+
+/// The refusal for a route whose feature this shell lacks, before the route
+/// runs. The page hides what is missing; this is what makes that more than looks.
+fn gate(features: Features, path: &str, request: &Request) -> Option<Response> {
+    let (enabled, what) = match path {
+        "/api/pick" => (features.folder, "folder to browse for"),
+        "/api/open" | "/api/pin" => (features.folder, "synced folder"),
+        "/api/disk" => (features.disks, "disk to move or back up to"),
+        "/api/keys" | "/api/copy-to-key" => (features.usb_key, "USB key to copy to"),
+        "/api/another" => (features.another_account, "second account beside this one"),
+        // Sync now stays: it is what a phone's own button does.
+        "/api/control" => {
+            let form = json::parse_form(&request.body).unwrap_or_default();
+            let timed = matches!(
+                field(&form, "action"),
+                Some("pause" | "resume" | "interval")
+            );
+            (
+                features.sync_controls || !timed,
+                "pause or schedule for syncing",
+            )
+        }
+        _ => return None,
+    };
+    Features::refuse(enabled, what)
+}
+
+/// A setting only the shell can keep (the fingerprint, mobile data): the page
+/// says it, the shell is told. Refused where the shell has no such thing.
+fn host_setting(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let features = ctx.backends.features;
+    let (name, enabled, what) = match field(&form, "name") {
+        Some("biometric") => (
+            "biometric",
+            features.biometric,
+            "fingerprint or face unlock",
+        ),
+        Some("metered") => ("metered", features.metered, "choice about mobile data"),
+        _ => return Response::refuse(400, "no such setting"),
+    };
+    if let Some(refusal) = Features::refuse(enabled, what) {
+        return refusal;
+    }
+    let value = match field(&form, "value") {
+        Some(value @ ("on" | "off")) => value,
+        _ => return Response::refuse(400, "the value is on or off"),
+    };
+    ctx.backends.host.event(name, value);
+    ok_json(object(&[("name", quote(name)), ("value", quote(value))]))
 }
 
 fn ok_json(body: String) -> Response {
@@ -672,12 +748,15 @@ fn state_json(ctx: &Context) -> String {
         ("free_bytes", free.unwrap_or(0).to_string()),
         (
             "coordinator",
-            quote(
-                &Config::load(&Node::config_path(&ctx.home))
-                    .ok()
-                    .and_then(|config| config.coordinator)
-                    .unwrap_or_else(|| super::DEFAULT_COORDINATOR.to_owned()),
-            ),
+            quote(&ctx.backends.fixed_coordinator.as_ref().map_or_else(
+                || {
+                    Config::load(&Node::config_path(&ctx.home))
+                        .ok()
+                        .and_then(|config| config.coordinator)
+                        .unwrap_or_else(|| super::DEFAULT_COORDINATOR.to_owned())
+                },
+                |(address, _)| address.clone(),
+            )),
         ),
         // The bargain the space page shows live, from the code's own split.
         (
@@ -723,6 +802,29 @@ fn state_json(ctx: &Context) -> String {
             ),
         ),
         ("defaults", defaults),
+        ("phone", ctx.backends.phone.to_string()),
+        (
+            "host",
+            object(&[
+                (
+                    "biometric",
+                    optional(ctx.backends.host.value("biometric").as_deref()),
+                ),
+                (
+                    "metered",
+                    optional(ctx.backends.host.value("metered").as_deref()),
+                ),
+            ]),
+        ),
+        (
+            "features",
+            object(
+                &ctx.backends
+                    .features
+                    .all()
+                    .map(|(name, on)| (name, on.to_string())),
+            ),
+        ),
         ("run", run_json(&lock(&ctx.run))),
     ];
     if ctx.mode == Mode::Settings {
@@ -853,6 +955,7 @@ fn settings_json(home: &Path) -> String {
 fn plan_json(ctx: &Context) -> String {
     let found = Answers {
         instance: ctx.instance.clone(),
+        phone: ctx.backends.phone,
         ..Answers::default()
     };
     let service = (ctx.backends.service)();
@@ -878,9 +981,11 @@ fn answers_from_form(
     instance: Option<&str>,
     base: &Path,
     service_installed: bool,
+    shell: &Backends,
 ) -> std::result::Result<Answers, String> {
     let mut answers = Answers {
         instance: instance.map(str::to_owned),
+        phone: shell.phone,
         ..Answers::default()
     };
     if mode == Mode::Setup {
@@ -897,20 +1002,32 @@ fn answers_from_form(
             (Some("new" | "join"), None) => return Err("choose a username".to_owned()),
             (Some(_), _) => return Err("the account is either new or joined".to_owned()),
         };
-        answers.service = field(form, "background") != Some("no");
+        // A shell that offers no choice runs in the background, always.
+        answers.service =
+            !shell.features.background_choice || field(form, "background") != Some("no");
     } else {
         // A node run by a daemon started by hand has no service to restart;
         // the engine then says to stop it, rather than install one unasked.
         answers.service = service_installed;
     }
     answers.tray = answers.service;
-    answers.folder = field(form, "folder").map(|folder| answers::expand(folder, base));
-    answers.coordinator = field(form, "coordinator").map(str::to_owned);
+    answers.folder = field(form, "folder")
+        .filter(|_| shell.features.folder)
+        .map(|folder| answers::expand(folder, base));
+    match &shell.fixed_coordinator {
+        // What the form says is not read: the address and the pin are the shell's.
+        Some((address, device)) => {
+            answers.coordinator = Some(address.clone());
+            answers.coordinator_device.clone_from(device);
+        }
+        None => answers.coordinator = field(form, "coordinator").map(str::to_owned),
+    }
     answers.invite = field(form, "invite").map(str::to_owned);
     answers.pledge = field(form, "pledge")
         .map(|text| parse_size(text).map_err(|error| error.to_string()))
         .transpose()?;
     answers.updates = field(form, "updates")
+        .filter(|_| shell.features.advanced)
         .map(|text| {
             crate::config::Updates::parse(text)
                 .ok_or_else(|| "updates is auto, notify or off".to_owned())
@@ -928,6 +1045,7 @@ fn start_run(ctx: &Arc<Context>, request: &Request) -> Response {
             ctx.instance.as_deref(),
             &ctx.base,
             installed,
+            &ctx.backends,
         )
     }) {
         Ok(answers) => answers,
@@ -1385,9 +1503,15 @@ fn check_name(ctx: &Context, request: &Request) -> Response {
         Ok(form) => form,
         Err(why) => return Response::refuse(400, &why),
     };
-    let (Some(username), Some(coordinator)) =
-        (field(&form, "username"), field(&form, "coordinator"))
-    else {
+    let fixed = ctx
+        .backends
+        .fixed_coordinator
+        .as_ref()
+        .map(|(address, _)| address.as_str());
+    let (Some(username), Some(coordinator)) = (
+        field(&form, "username"),
+        fixed.or(field(&form, "coordinator")),
+    ) else {
         return ok_json(object(&[("taken", quote("unknown"))]));
     };
     if let Some(why) = crate::coordinator::username_refusal(username) {

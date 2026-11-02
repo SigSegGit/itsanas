@@ -966,8 +966,23 @@
         N('Write a portable ITSaNAS there? Whoever has the drive can try to guess your passphrase: use a long one.'));
     });
     initUsb();
+    [['st-biometric', 'biometric'], ['st-metered', 'metered']].forEach(function (pair) {
+      const box = $(pair[0]);
+      box.checked = state.host[pair[1]] === 'on';
+      box.addEventListener('change', function () {
+        api('POST', '/api/host', { name: pair[1], value: box.checked ? 'on' : 'off' }).catch(function (e) { say(e.message); });
+      });
+    });
     settingsTimer = setInterval(refreshSettings, 2000);
     if (state.run.phase === 'running') { $('st-run').hidden = false; settingsRun(); }
+  }
+
+  // The page is the same everywhere; what a shell lacks is not drawn, and the
+  // routes behind it refuse (setup/web/features.rs).
+  function applyFeatures(features) {
+    document.querySelectorAll('[data-feature]').forEach(function (el) {
+      if (!features[el.dataset.feature]) { el.setAttribute('data-off', ''); }
+    });
   }
 
   async function init() {
@@ -979,6 +994,7 @@
     }
     let state;
     try { state = await api('GET', '/api/state'); } catch (e) { say(e.message); return; }
+    applyFeatures(state.features);
     if (state.mode === 'settings') { initSettings(state); } else { await initSetup(state); }
   }
 

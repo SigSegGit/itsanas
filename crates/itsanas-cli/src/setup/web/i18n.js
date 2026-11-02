@@ -361,6 +361,14 @@ window.I18N = {
       'La clé est prête. Éjectez-la proprement avant de la retirer.',
     'The copy stopped:':
       'La copie s’est arrêtée :',
+    'Files kept here': 'Fichiers gardés ici',
+    "How much of your account's files stay on this machine, to open without the network. The rest is fetched when you open it. Empty: everything.":
+      'La part des fichiers de votre compte qui reste sur cette machine, pour les ouvrir sans réseau. Le reste est récupéré à l’ouverture. Vide : tout.',
+    'Files to keep here, in GB': 'Fichiers à garder ici, en Go',
+    'Files kept on this machine, in GB (empty: everything)': 'Fichiers gardés sur cette machine, en Go (vide : tout)',
+    'Download files over mobile data too': 'Télécharger aussi les fichiers en données mobiles',
+    'Security': 'Sécurité',
+    'Unlock with my fingerprint or face': 'Déverrouiller avec mon empreinte ou mon visage',
     'The copy stopped without saying why. Try again; a key it left half written is refused and must be emptied first.':
       'La copie s’est arrêtée sans dire pourquoi. Réessayez ; une clé qu’elle a laissée à moitié écrite est refusée et doit d’abord être vidée.',
   },

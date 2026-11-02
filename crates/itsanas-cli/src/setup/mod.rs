@@ -409,7 +409,7 @@ impl<'a> Setup<'a> {
         if let Some(held) = &self.passphrase {
             return Ok(held.clone());
         }
-        if let Some(stored) = service::read_passphrase_file(&self.service.passphrase_file())
+        if let Some(stored) = self.service.stored_passphrase()
             && itsanas_node::node::Identity::open(&self.home, &stored).is_ok()
         {
             self.passphrase = Some(stored.clone());
