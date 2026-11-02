@@ -53,6 +53,7 @@
 mod host;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -307,6 +308,11 @@ const PAGE_IDLE: Duration = Duration::from_secs(30 * 60);
 /// How to stop the page that is being served, if one is.
 static PAGE: Mutex<Option<Stop>> = Mutex::new(None);
 
+/// Which page is current. A page stopped by the app, or replaced by a new one,
+/// ends without a word: its `closed` would otherwise be read as a page that
+/// ended by itself, and the app would start another, for ever.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
 /// Serve the setup engine's page on 127.0.0.1 and answer its address, the key
 /// in the fragment. `mode` is `setup` (first run) or `settings`; `biometric` is
 /// whether the phone has a fingerprint or a face to offer. The page's secrets
@@ -349,6 +355,7 @@ fn start_page(home: &Path, mode: &str, biometric: bool) -> Answer {
     .with_biometric(biometric);
     let server = Server::bind(home, None, mode, home, backends)?;
     let url = server.url();
+    let mine = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     *PAGE
         .lock()
         .map_err(|_| Failure::Usage("the page lock was poisoned by a panic".to_owned()))? =
@@ -357,17 +364,20 @@ fn start_page(home: &Path, mode: &str, biometric: bool) -> Answer {
         .name("page".to_owned())
         .spawn(move || {
             let done = server.serve(PAGE_IDLE);
-            itsanas_cli::shell::Host::event(
-                &host::PhoneHost,
-                "closed",
-                if done { "done" } else { "left" },
-            );
+            if GENERATION.load(Ordering::SeqCst) == mine {
+                itsanas_cli::shell::Host::event(
+                    &host::PhoneHost,
+                    "closed",
+                    if done { "done" } else { "left" },
+                );
+            }
         })
         .map_err(|error| Failure::Usage(format!("the page could not start: {error}")))?;
     Ok(url)
 }
 
 fn stop_page() {
+    GENERATION.fetch_add(1, Ordering::SeqCst);
     let stop = PAGE.lock().ok().and_then(|mut page| page.take());
     if let Some(stop) = stop {
         stop.stop();

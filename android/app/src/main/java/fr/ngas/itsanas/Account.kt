@@ -20,32 +20,18 @@ object Account {
     var open: Boolean = false
         private set
 
-    suspend fun exists(context: Context): Boolean = withContext(Dispatchers.IO) {
-        Native.exists(Vault.home(context).absolutePath)
+    /** The engine opened the node itself (setup or recovery): the account is open. */
+    fun markOpen() {
+        open = true
     }
 
-    /** Create an account. Returns the twenty-four words, once. */
-    suspend fun create(context: Context, username: String, passphrase: String): String =
-        withContext(Dispatchers.IO) {
-            val home = Vault.home(context).also { it.mkdirs() }
-            val phrase = Answers.phrase(Native.newPhrase())
-            Native.login(home.absolutePath, username, phrase, passphrase)
-            if (!Biometric.enabled(context)) Vault.remember(context, passphrase)
-            open = true
-            phrase
-        }
+    /** The engine stopped the service; the node is closed by the router. */
+    fun markClosed() {
+        open = false
+    }
 
-    /** Restore an account from its twenty-four words. */
-    suspend fun login(
-        context: Context,
-        username: String,
-        phrase: String,
-        passphrase: String,
-    ) = withContext(Dispatchers.IO) {
-        val home = Vault.home(context).also { it.mkdirs() }
-        Native.login(home.absolutePath, username, phrase.trim(), passphrase)
-        if (!Biometric.enabled(context)) Vault.remember(context, passphrase)
-        open = true
+    suspend fun exists(context: Context): Boolean = withContext(Dispatchers.IO) {
+        Native.exists(Vault.home(context).absolutePath)
     }
 
     /** Unlock the node already on this phone. */
@@ -55,9 +41,22 @@ object Account {
         open = true
     }
 
-    suspend fun close() = withContext(Dispatchers.IO) {
+    suspend fun close(context: Context? = null) = withContext(Dispatchers.IO) {
         Native.close()
         open = false
+        context?.let { clearOpened(it, olderThanMillis = 0L) }
+    }
+
+    /**
+     * The plaintext copies made to open a file. They sit in the cache, outside
+     * the vault, so they are not kept: emptied at open when older than a day,
+     * and at Lock and logout altogether.
+     */
+    fun clearOpened(context: Context, olderThanMillis: Long) {
+        val cutoff = System.currentTimeMillis() - olderThanMillis
+        File(context.cacheDir, "opened").listFiles()?.forEach {
+            if (it.lastModified() <= cutoff) it.delete()
+        }
     }
 
     suspend fun files(): List<Known> = withContext(Dispatchers.IO) {
@@ -83,6 +82,7 @@ object Account {
      * than anything from the account.
      */
     suspend fun openable(context: Context, file: Known): File = withContext(Dispatchers.IO) {
+        clearOpened(context, olderThanMillis = 24 * 60 * 60 * 1000L)
         val out = File(context.cacheDir, "opened").also { it.mkdirs() }
         val destination = File(out, file.name)
         Native.get(file.path, destination.absolutePath)
@@ -118,54 +118,4 @@ object Account {
         Unit
     }
 
-    /**
-     * Enrol with the configured coordinator, and hand back what happened.
-     *
-     * The answer is returned rather than discarded because the screen has to
-     * say something: run on an emulator against a real coordinator, the join
-     * succeeded and nothing on the phone changed, which is indistinguishable
-     * from the button not working. Somebody would tap it again.
-     */
-    suspend fun register(invite: String): String = withContext(Dispatchers.IO) {
-        Native.register(invite.trim())
-    }
-
-    suspend fun addPeer(address: String) = withContext(Dispatchers.IO) {
-        Native.addPeer(address.trim())
-        Unit
-    }
-
-    suspend fun removePeer(address: String) = withContext(Dispatchers.IO) {
-        Native.removePeer(address)
-        Unit
-    }
-
-    suspend fun setKeep(bytes: Long?, order: String, only: List<String>) =
-        withContext(Dispatchers.IO) {
-            Native.setKeep(bytes ?: 0L, order, only.joinToString("\n"))
-            Unit
-        }
-
-    suspend fun setPledge(bytes: Long) = withContext(Dispatchers.IO) {
-        Native.setPledge(bytes)
-        Unit
-    }
-
-    /**
-     * Pledge and keep in one call. Saved one after the other, raising both
-     * was refused: the new keep was checked against the old pledge.
-     */
-    suspend fun setLimits(pledge: Long, keep: Long?) = withContext(Dispatchers.IO) {
-        Native.setLimits(pledge, keep ?: 0L)
-        Unit
-    }
-
-    suspend fun devices(): DeviceList = withContext(Dispatchers.IO) {
-        DeviceAnswers.list(Native.devices())
-    }
-
-    /** Withdraw a device; answers the sentence to show. */
-    suspend fun withdrawDevice(id: String): String = withContext(Dispatchers.IO) {
-        org.json.JSONObject(Native.withdrawDevice(id)).getString("said")
-    }
 }

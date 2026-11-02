@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Sync talks to machines on the local network and, through a router the
-         member controls, to machines outside it. Nothing here reaches a server
-         belonging to anybody else. -->
+    <!-- Sync talks to the account's machines, on the local network or through a
+         router the member controls, and to the account's coordinator. The
+         application also asks GitHub for the signed release manifest
+         (Updater.kt). Files and secrets travel only to the account's own
+         machines, encrypted. The page the application shows is served on
+         127.0.0.1 by its own engine (network_security_config.xml). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
@@ -24,7 +27,11 @@
 
     <application
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.ITSaNAS">
@@ -32,6 +39,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|locale|layoutDirection|density|fontScale"
             android:windowSoftInputMode="adjustResize"
             android:label="@string/app_name">
             <intent-filter>
