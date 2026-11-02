@@ -107,6 +107,24 @@ impl ServiceControl for NoService {
     }
 }
 
+/// The node behind the account calls, opened as a computer does: the passphrase
+/// from the scripted person, no service to stop.
+fn test_nodes(seen: &Seen, home: &Path) -> Arc<dyn super::Nodes> {
+    let seen = seen.clone();
+    let file = home.with_extension("passphrase");
+    Arc::new(super::nodes::Opened::new(
+        home.to_owned(),
+        Box::new(move || {
+            let service: Box<dyn ServiceControl> = Box::new(NoService { file: file.clone() });
+            service
+        }),
+        Box::new(move || {
+            let person: Box<dyn SecretPrompt> = Box::new(Person { seen: seen.clone() });
+            Ok(person)
+        }),
+    ))
+}
+
 fn backends(seen: &Seen, home: &Path) -> Backends {
     let seen = seen.clone();
     let file = home.with_extension("passphrase");
@@ -130,6 +148,7 @@ fn backends(seen: &Seen, home: &Path) -> Backends {
         phone: false,
         fixed_coordinator: None,
         host: Arc::new(NoHost),
+        nodes: test_nodes(&Seen::default(), home),
     }
 }
 
@@ -976,6 +995,7 @@ fn while_a_window_is_open_the_page_is_told_so_and_a_closed_window_says_what_to_d
         phone: false,
         fixed_coordinator: None,
         host: Arc::new(NoHost),
+        nodes: test_nodes(&Seen::default(), &home),
     };
     let server = Server::bind(&home, None, Mode::Setup, dir.path(), backends).expect("bind");
     let ctx = Arc::clone(&server.ctx);
@@ -2573,4 +2593,158 @@ fn forgetting_on_a_page_with_no_node_changes_nothing_and_says_so() {
         404,
         "the setup page offers to replace the keys of an account that is not there yet"
     );
+}
+
+/// A node of account `username` at `home`, pointed at the coordinator and
+/// enrolled; its phrase when it was made new, and its device.
+fn enrolled(
+    home: &Path,
+    coordinator: std::net::SocketAddr,
+    username: &str,
+    phrase: Option<&str>,
+) -> (String, itsanas_crypto::DeviceId) {
+    let (mut node, phrase) = match phrase {
+        None => {
+            let (node, phrase) =
+                itsanas_node::Node::create(home, PASSPHRASE, username).expect("create");
+            (node, phrase.0.to_string())
+        }
+        Some(phrase) => (
+            itsanas_node::Node::restore(home, PASSPHRASE, username, phrase).expect("restore"),
+            phrase.to_owned(),
+        ),
+    };
+    node.config.coordinator = Some(coordinator.to_string());
+    node.save_config().expect("config");
+    crate::coordinator::register_with(&node, None, crate::testing::NOW).expect("enrol");
+    (phrase, node.store.device_id())
+}
+
+#[test]
+fn red_team_the_page_withdraws_a_listed_full_id_and_never_this_machine_nor_a_stray_one() {
+    use crate::testing::{live, with_directory};
+    with_directory(|address, directory| {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("node");
+        let (phrase, mine) = enrolled(&home, address, "camille", None);
+        let (_, other) = enrolled(&dir.path().join("other"), address, "camille", Some(&phrase));
+        let (_, stranger) = enrolled(&dir.path().join("voisin"), address, "voisin", None);
+
+        let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+        let listed = page.api("GET", "/api/devices", "");
+        assert_eq!(listed.status, 200, "{}", listed.body);
+        assert!(
+            listed.body.contains(&other.to_string()),
+            "the account's other machine is not offered: {}",
+            listed.body
+        );
+        assert!(
+            !listed.body.contains(&stranger.to_string()),
+            "another account's machine is listed"
+        );
+
+        for (what, id) in [
+            ("an abbreviated id", other.short()),
+            ("this machine", mine.to_string()),
+            ("a device of another account", stranger.to_string()),
+        ] {
+            let refused = page.api("POST", "/api/withdraw", &format!("id={id}"));
+            assert_eq!(
+                refused.status, 409,
+                "{what} was withdrawn: {}",
+                refused.body
+            );
+        }
+        assert!(
+            live(directory, mine),
+            "the page withdrew the machine it runs on"
+        );
+        assert!(
+            live(directory, stranger),
+            "the page withdrew another account's device"
+        );
+        assert!(
+            live(directory, other),
+            "an abbreviated id withdrew a device"
+        );
+
+        let done = page.api("POST", "/api/withdraw", &format!("id={other}"));
+        assert_eq!(done.status, 200, "{}", done.body);
+        assert!(
+            !live(directory, other),
+            "the listed full id was refused its withdrawal: the slot is never freed"
+        );
+    });
+}
+
+#[test]
+fn machines_typed_on_the_page_are_kept_listed_and_forgotten() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let _ = set_up_through_the_page(&home, &dir.path().join("base").join("folder"));
+    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    let added = page.api("POST", "/api/peers", "action=add&address=10.0.0.5%3A7777");
+    assert_eq!(added.status, 200, "{}", added.body);
+    assert!(added.body.contains("10.0.0.5:7777"), "{}", added.body);
+    let config =
+        crate::config::Config::load(&itsanas_node::Node::config_path(&home)).expect("config");
+    assert!(
+        config.peers.iter().any(|peer| peer == "10.0.0.5:7777"),
+        "the address was listed and not kept: the daemon would never dial it"
+    );
+    let parked = page.api("POST", "/api/peers", "action=add&address=relay%3Aabc");
+    assert_eq!(
+        parked.status, 409,
+        "a parked machine was typed in: {}",
+        parked.body
+    );
+    let forgotten = page.api(
+        "POST",
+        "/api/peers",
+        "action=forget&address=10.0.0.5%3A7777",
+    );
+    assert!(
+        !forgotten.body.contains("10.0.0.5:7777\""),
+        "{}",
+        forgotten.body
+    );
+    assert!(
+        crate::config::Config::load(&itsanas_node::Node::config_path(&home))
+            .expect("config")
+            .peers
+            .is_empty(),
+        "a forgotten address stayed in the file"
+    );
+    let phone = Page::start_with(&home, dir.path(), Mode::Settings, &Seen::default(), |b| {
+        b.features = Features::PHONE;
+    });
+    assert_eq!(
+        phone.api("GET", "/api/peers", "").status,
+        403,
+        "a shell without Advanced was offered the machines typed by address"
+    );
+}
+
+#[test]
+fn a_setup_that_stopped_at_the_device_limit_says_so_to_the_page() {
+    use super::{Phase, Run, run_json};
+    use crate::setup::Step;
+    let run = Run {
+        phase: Phase::Failed,
+        failed: Some((
+            Step::Registration,
+            "this account has 10 live devices and the limit is 10".to_owned(),
+            "withdraw one".to_owned(),
+        )),
+        ..Run::default()
+    };
+    assert!(
+        run_json(&run).contains("\"atCap\":true"),
+        "the page is not told to open the devices: the person is left with a refusal and no way out"
+    );
+    let other = Run {
+        failed: Some((Step::Registration, "no route".to_owned(), "wait".to_owned())),
+        ..Run::default()
+    };
+    assert!(run_json(&other).contains("\"atCap\":false"));
 }

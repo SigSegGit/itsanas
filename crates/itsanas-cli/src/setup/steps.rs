@@ -407,7 +407,14 @@ impl Setup<'_> {
             node.config.announce = Some(crate::config::parse_announce(announce)?);
         }
         node.save_config()?;
-        let published = crate::register_and_announce(&node, self.answers.invite.as_deref())?;
+        let published = crate::register_and_announce(&node, self.answers.invite.as_deref())
+            .inspect_err(|refused| {
+                // The devices the refusal names are what Settings offers to
+                // withdraw, as a phone's screen did.
+                if let Some(named) = crate::coordinator::cap_named(refused) {
+                    crate::devices::remember(node.store.device_id(), named);
+                }
+            })?;
         Ok(match published {
             Ok(address) => {
                 format!("registered with {wanted}; this machine is published at {address}")

@@ -50,7 +50,7 @@ fn remembered(mine: DeviceId) -> Vec<DeviceId> {
         .unwrap_or_default()
 }
 
-fn remember(mine: DeviceId, ids: Vec<DeviceId>) {
+pub(crate) fn remember(mine: DeviceId, ids: Vec<DeviceId>) {
     if let Ok(mut named) = CAP_NAMED.lock() {
         named.retain(|(phone, _)| *phone != mine);
         if !ids.is_empty() {

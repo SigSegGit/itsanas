@@ -4894,25 +4894,39 @@ fn sync_folder(node: &Node) {
     }
 }
 
+/// Type a machine's address into the list this node syncs with, as `peer add`
+/// does; says what was done. Shared with the page's Advanced section.
+pub(crate) fn add_peer(node: &mut Node, address: &str) -> Result<String> {
+    if address.starts_with(itsanas_node::contact::RELAY_PREFIX) {
+        return Err(CliError::Usage(format!(
+            "{address}: {UNPINNED_RELAY}, and `peer add` has none to give it; \
+             the machine's own `host:port`, or the coordinator, which knows it"
+        )));
+    }
+    if node.config.peers.iter().any(|known| known == address) {
+        return Ok(format!("{address} is already configured"));
+    }
+    node.config.peers.push(address.to_owned());
+    node.save_config()?;
+    Ok(format!("added {address}"))
+}
+
+/// Forget a typed address, as `peer remove` does; says what was done.
+pub(crate) fn forget_peer(node: &mut Node, address: &str) -> Result<String> {
+    let before = node.config.peers.len();
+    node.config.peers.retain(|peer| peer != address);
+    if node.config.peers.len() == before {
+        return Ok(format!("{address} was not configured"));
+    }
+    node.save_config()?;
+    Ok(format!("removed {address}"))
+}
+
 fn peer(home: &Path, action: PeerAction) -> Result<()> {
     let mut node = open(home)?;
 
     match action {
-        PeerAction::Add { address } => {
-            if address.starts_with(itsanas_node::contact::RELAY_PREFIX) {
-                return Err(CliError::Usage(format!(
-                    "{address}: {UNPINNED_RELAY}, and `peer add` has none to give it; \
-                     the machine's own `host:port`, or the coordinator, which knows it"
-                )));
-            }
-            if node.config.peers.contains(&address) {
-                println!("{address} is already configured");
-                return Ok(());
-            }
-            node.config.peers.push(address.clone());
-            node.save_config()?;
-            println!("added {address}");
-        }
+        PeerAction::Add { address } => println!("{}", add_peer(&mut node, &address)?),
         PeerAction::Find { username } => {
             let (user, found) = coordinator::find_member(&node, &username)?;
             println!("{username} is {user}");
@@ -4939,16 +4953,7 @@ fn peer(home: &Path, action: PeerAction) -> Result<()> {
                 println!("added {added} address(es)");
             }
         }
-        PeerAction::Remove { address } => {
-            let before = node.config.peers.len();
-            node.config.peers.retain(|peer| peer != &address);
-            if node.config.peers.len() == before {
-                println!("{address} was not configured");
-            } else {
-                node.save_config()?;
-                println!("removed {address}");
-            }
-        }
+        PeerAction::Remove { address } => println!("{}", forget_peer(&mut node, &address)?),
         PeerAction::List => {
             if node.config.peers.is_empty() {
                 println!("(no peers configured)");

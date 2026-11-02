@@ -390,6 +390,27 @@ window.I18N = {
     'A window asks for your 24 words, then a new passphrase.':
       'Une fenêtre demande vos 24 mots, puis une nouvelle phrase de passe.',
     'Not changed:': 'Pas modifié :',
+    'Devices of this account': 'Appareils de ce compte',
+    'Devices of this account:': 'Appareils de ce compte :',
+    'withdraw one you no longer use, then try again.': 'retirez-en un que vous n’utilisez plus, puis réessayez.',
+    'The machines that belong to this account. Withdrawing one frees its place for another. Opening this list pauses ITSaNAS on this machine for a moment.':
+      'Les machines de ce compte. En retirer une libère sa place pour une autre. Ouvrir cette liste met ITSaNAS en pause un instant sur cette machine.',
+    'Show the devices': 'Afficher les appareils',
+    'Withdraw': 'Retirer',
+    'this machine': 'cette machine',
+    'Only some of the devices could be listed: those heard from lately.':
+      'Seuls certains appareils ont pu être listés : ceux entendus récemment.',
+    'Withdraw this device? Nothing will dial it again. To use it again it must be set up afresh.':
+      'Retirer cet appareil ? Plus rien ne le contactera. Pour le réutiliser, il faudra le configurer de nouveau.',
+    'Withdrawn. Nothing will dial it again and its slot is free. The withdrawal is final for that device: to use it again, log out on it and log in afresh. Someone who has that device and its passphrase can still read the account.':
+      'Retiré. Plus rien ne le contactera et sa place est libre. Le retrait est définitif pour cet appareil : pour le réutiliser, déconnectez-le et reconnectez-le à neuf. Qui possède cet appareil et sa phrase de passe peut encore lire le compte.',
+    'Machines to sync with': 'Machines avec lesquelles synchroniser',
+    'Machines you name by address, besides the ones the coordinator knows. Write each as host:port.':
+      'Machines que vous nommez par leur adresse, en plus de celles que connaît le coordinateur. Écrivez chacune sous la forme hôte:port.',
+    'Address of a machine': 'Adresse d’une machine',
+    'Add': 'Ajouter',
+    'Forget': 'Oublier',
+    'Show the machines I named': 'Afficher les machines nommées',
     'My 24 recovery words': 'Mes 24 mots de récupération',
     'A window asks for your passphrase, then shows your 24 words. They never appear in this page.':
       'Une fenêtre demande votre phrase de passe, puis affiche vos 24 mots. Ils n’apparaissent jamais dans cette page.',

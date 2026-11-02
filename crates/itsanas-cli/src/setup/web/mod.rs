@@ -43,8 +43,10 @@
 mod features;
 mod http;
 mod json;
+mod nodes;
 
 pub use features::{Features, Host, NoHost};
+pub use nodes::{Held, Nodes, Slot};
 
 use std::{
     fmt::Write as _,
@@ -70,6 +72,7 @@ use super::{
 use crate::{
     config::{Config, format_size, parse_size},
     error::{CliError, Result},
+    failure::Failure,
     node::Node,
 };
 
@@ -229,6 +232,9 @@ pub struct Backends {
     pub(crate) fixed_coordinator: Option<(String, Option<String>)>,
     /// Told what the page changed that the shell also draws.
     pub(crate) host: Arc<dyn Host>,
+    /// The node behind the account calls: devices, machines to sync with,
+    /// removing the account ([`Nodes`]).
+    pub(crate) nodes: Arc<dyn Nodes>,
 }
 
 type ListDrives = Box<dyn Fn() -> Vec<crate::drives::Candidate> + Send + Sync>;
@@ -265,6 +271,7 @@ impl Backends {
         prompt: MakePrompt,
         service: MakeService,
         host: Arc<dyn Host>,
+        nodes: Arc<dyn Nodes>,
         coordinator: (String, Option<String>),
     ) -> Self {
         Self {
@@ -285,24 +292,39 @@ impl Backends {
             phone: true,
             fixed_coordinator: Some(coordinator),
             host,
+            nodes,
         }
     }
 
     fn of_this_machine(home: &Path, instance: Option<&str>) -> Self {
-        let home = home.to_owned();
-        let instance = instance.map(str::to_owned);
-        Self {
-            prompt: Box::new(|| {
+        let native_prompt = || -> MakePrompt {
+            Box::new(|| {
                 let prompt: Box<dyn SecretPrompt> =
                     Box::new(secrets::Native::new(secrets::choose()?));
                 Ok(prompt)
-            }),
-            service: Box::new(move || {
-                let platform: Box<dyn ServiceControl> = Box::new(
-                    service::Platform::of_this_machine(&home, instance.as_deref()),
-                );
-                platform
-            }),
+            })
+        };
+        let platform_service = {
+            let home = home.to_owned();
+            let instance = instance.map(str::to_owned);
+            move || -> MakeService {
+                let (home, instance) = (home.clone(), instance.clone());
+                Box::new(move || {
+                    let platform: Box<dyn ServiceControl> = Box::new(
+                        service::Platform::of_this_machine(&home, instance.as_deref()),
+                    );
+                    platform
+                })
+            }
+        };
+        Self {
+            nodes: Arc::new(nodes::Opened::new(
+                home.to_owned(),
+                platform_service(),
+                native_prompt(),
+            )),
+            prompt: native_prompt(),
+            service: platform_service(),
             name: super::name_taken,
             owner: itsanas_node::coordinator::name_owner,
             pledge: |address, username| {
@@ -754,6 +776,10 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/forgot") if ctx.mode == Mode::Settings => start_forgot(ctx),
         ("POST", "/api/words") if ctx.mode == Mode::Settings => start_words(ctx),
         ("POST", "/api/passphrase") if ctx.mode == Mode::Settings => start_passphrase(ctx),
+        ("GET", "/api/devices") => devices_list(ctx),
+        ("POST", "/api/withdraw") => withdraw_device(ctx, request),
+        ("GET", "/api/peers") if ctx.mode == Mode::Settings => peers_list(ctx),
+        ("POST", "/api/peers") if ctx.mode == Mode::Settings => peers_change(ctx, request),
         ("POST", "/api/free") => free_space(ctx, request),
         ("POST", "/api/pick") => pick(request),
         ("POST", "/api/open") => open_folder(ctx, request, false),
@@ -775,6 +801,10 @@ fn gate(features: Features, path: &str, request: &Request) -> Option<Response> {
         "/api/disk" => (features.disks, "disk to move or back up to"),
         "/api/keys" | "/api/copy-to-key" => (features.usb_key, "USB key to copy to"),
         "/api/another" => (features.another_account, "second account beside this one"),
+        "/api/peers" => (
+            features.advanced,
+            "machine to sync with, named by its address",
+        ),
         // Sync now stays: it is what a phone's own button does.
         "/api/control" => {
             let form = json::parse_form(&request.body).unwrap_or_default();
@@ -1003,6 +1033,12 @@ fn run_json(run: &Run) -> String {
                 ("title", quote(step.title())),
                 ("error", quote(error)),
                 ("remedy", quote(remedy)),
+                // The account is at its device limit: the page opens the
+                // devices to withdraw one ([`crate::coordinator::cap_named`]).
+                (
+                    "atCap",
+                    error.contains("live devices and the limit is").to_string(),
+                ),
             ])
         },
     );
@@ -1311,6 +1347,88 @@ fn start_passphrase(ctx: &Arc<Context>) -> Response {
         "your passphrase, then a new one",
         |worker, prompt, service| super::keys::change_passphrase(&worker.home, prompt, service),
     )
+}
+
+/// Run `body` with the node behind the page ([`Nodes`]) and answer with the JSON
+/// it makes, or with the sentence it was refused in. The node is given back
+/// afterwards, whatever came of it.
+fn node_call(
+    ctx: &Context,
+    body: impl FnOnce(&mut Node) -> std::result::Result<String, Failure>,
+) -> Response {
+    let nodes = &ctx.backends.nodes;
+    if let Err(failure) = nodes.open() {
+        return Response::refuse(409, &failure.message());
+    }
+    let outcome = {
+        let mut held = nodes.slot().lock().unwrap_or_else(PoisonError::into_inner);
+        match held.as_mut() {
+            Some(node) => body(node),
+            None => Err(Failure::Closed),
+        }
+    };
+    nodes.release();
+    match outcome {
+        Ok(json) => ok_json(json),
+        Err(failure) => Response::refuse(409, &failure.message()),
+    }
+}
+
+/// The account's devices, this machine marked, as the coordinator lists them.
+fn devices_list(ctx: &Context) -> Response {
+    node_call(ctx, |node| {
+        crate::devices::list(node).map(|listed| listed.to_string())
+    })
+}
+
+/// Withdraw one of the account's devices by its full id: never this machine,
+/// never an id the coordinator's list does not show ([`crate::devices::withdraw`]).
+fn withdraw_device(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let Some(id) = field(&form, "id") else {
+        return Response::refuse(400, "which device? the full id is needed");
+    };
+    node_call(ctx, |node| {
+        crate::devices::withdraw(node, id, itsanas_discover::now_unix())
+            .map(|answer| answer.to_string())
+    })
+}
+
+/// The machines typed in by address, which this one also syncs with.
+fn peers_list(ctx: &Context) -> Response {
+    node_call(ctx, |node| Ok(peers_json(node, "")))
+}
+
+/// Add or forget a typed address: what `itsanas peer add` and `peer remove` do.
+fn peers_change(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let (Some(action), Some(address)) = (field(&form, "action"), field(&form, "address")) else {
+        return Response::refuse(400, "an action (add or forget) and an address are needed");
+    };
+    node_call(ctx, |node| {
+        let said = match action {
+            "add" => crate::add_peer(node, address)?,
+            "forget" => crate::forget_peer(node, address)?,
+            _ => return Err(Failure::Usage("the action is add or forget".to_owned())),
+        };
+        Ok(peers_json(node, &said))
+    })
+}
+
+fn peers_json(node: &Node, said: &str) -> String {
+    object(&[
+        (
+            "peers",
+            array(node.config.peers.iter().map(|peer| quote(peer))),
+        ),
+        ("said", quote(said)),
+    ])
 }
 
 /// What a secret job does with the prompt and the service it is given.

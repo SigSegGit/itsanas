@@ -154,6 +154,11 @@
         <p><strong>What to do:</strong> <span id="final-remedy"></span></p>
         <p class="help" id="final-error"></p>
       </div>
+      <div id="final-devices" class="notice" hidden>
+        <p><strong>Devices of this account:</strong> withdraw one you no longer use, then try again.</p>
+        <ul id="final-devices-list" class="devices"></ul>
+        <p id="final-devices-said" class="said" role="status" aria-live="polite"></p>
+      </div>
       <ul id="report" class="report"></ul>
       <div class="actions" id="folder-actions" data-feature="folder" hidden>
         <button type="button" id="open-folder">Open my folder</button>
@@ -228,6 +233,17 @@
         <div class="field" data-feature="advanced">
           <label for="st-coordinator">Coordinator address</label>
           <div class="controls"><input id="st-coordinator" spellcheck="false" autocapitalize="none"></div>
+        </div>
+        <div class="field" data-feature="advanced">
+          <span class="label">Machines to sync with</span>
+          <p class="help">Machines you name by address, besides the ones the coordinator knows. Write each as host:port.</p>
+          <ul id="st-peers" class="devices"></ul>
+          <div class="controls">
+            <input id="st-peer-address" spellcheck="false" autocapitalize="none" autocomplete="off" aria-label="Address of a machine">
+            <button type="button" id="st-peer-add">Add</button>
+            <button type="button" id="st-peers-show">Show the machines I named</button>
+          </div>
+          <p id="st-peers-said" class="said" role="status" aria-live="polite"></p>
         </div>
         <div class="field" data-feature="advanced">
           <label for="st-updates">When a new version is out</label>
@@ -345,6 +361,14 @@
           <div class="controls"><button type="button" id="st-forgot">Replace my keys with my 24 words</button></div>
           <p id="st-forgot-said" class="said" role="status" aria-live="polite"></p>
         </div>
+      </section>
+
+      <section class="card" aria-labelledby="st-h-devices">
+        <h2 id="st-h-devices">Devices of this account</h2>
+        <p class="help">The machines that belong to this account. Withdrawing one frees its place for another. Opening this list pauses ITSaNAS on this machine for a moment.</p>
+        <div class="controls"><button type="button" id="st-devices-show">Show the devices</button></div>
+        <ul id="st-devices" class="devices"></ul>
+        <p id="st-devices-said" class="said" role="status" aria-live="polite"></p>
       </section>
 
       <section class="card" aria-labelledby="st-h-about">

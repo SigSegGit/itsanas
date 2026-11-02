@@ -11,7 +11,7 @@
 pub use crate::error::{CliError, Result};
 pub use crate::setup::secrets::{Secret, SecretPrompt};
 pub use crate::setup::service::ServiceControl;
-pub use crate::setup::web::{Backends, Features, Host, Mode, NoHost, Server};
+pub use crate::setup::web::{Backends, Features, Held, Host, Mode, NoHost, Nodes, Server, Slot};
 
 // What the phone's few remaining native calls need of the shared code. The rest
 // of a shell's reach is the page, served by [`Server`].

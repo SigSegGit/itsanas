@@ -17,6 +17,11 @@
       "file": "crates/itsanas-cli/src/setup/keys.rs",
       "live": "    Identity::secrets(home, &current)?;\n",
       "dead": ""
+    },
+    "devices page: a stray full id is withdrawn": {
+      "file": "crates/itsanas-cli/src/devices.rs",
+      "live": "    if !known {",
+      "dead": "    if false {"
     }
   }
 }

@@ -547,6 +547,9 @@
       $('final-error').textContent = failed.error;
       $('final-fix').hidden = false;
       $('retry').hidden = false;
+      // The account is at its device limit: the way out is a device to withdraw.
+      $('final-devices').hidden = !failed.atCap;
+      if (failed.atCap) { showDevices($('final-devices-list'), $('final-devices-said')); }
     }
   }
 
@@ -797,6 +800,69 @@
     }
   }
 
+  // ------------------------------------------------ devices of the account
+  //
+  // The list is the coordinator's (/api/devices); Withdraw sends the full id the
+  // list gave (/api/withdraw), never this machine's own. The same list opens
+  // under a setup that stopped at the device limit.
+  async function showDevices(list, line, keepSaid) {
+    if (!keepSaid) { line.textContent = ''; }
+    let reply;
+    try { reply = await api('GET', '/api/devices'); } catch (e) { line.textContent = e.message; return; }
+    list.textContent = '';
+    reply.devices.forEach(function (device) {
+      const item = document.createElement('li');
+      const label = document.createElement('span');
+      label.textContent = device.short + (device.address ? ' \u00b7 ' + device.address : '') +
+        (device.thisPhone ? ' \u00b7 ' + t('this machine') : '');
+      item.appendChild(label);
+      if (!device.thisPhone) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = t('Withdraw');
+        button.addEventListener('click', function () { withdrawDevice(device, list, line); });
+        item.appendChild(button);
+      }
+      list.appendChild(item);
+    });
+    if (!reply.complete && !keepSaid) {
+      line.textContent = t('Only some of the devices could be listed: those heard from lately.');
+    }
+  }
+
+  async function withdrawDevice(device, list, line) {
+    if (!window.confirm(t('Withdraw this device? Nothing will dial it again. To use it again it must be set up afresh.') + '\n' + device.short)) { return; }
+    let reply;
+    try { reply = await api('POST', '/api/withdraw', { id: device.id }); } catch (e) { line.textContent = e.message; return; }
+    await showDevices(list, line, true);
+    line.textContent = said(reply.said);
+  }
+
+  // ------------------------------------------ machines to sync with (Advanced)
+  async function peers(action, address) {
+    const line = $('st-peers-said');
+    let reply;
+    try {
+      reply = action ? await api('POST', '/api/peers', { action: action, address: address }) : await api('GET', '/api/peers');
+    } catch (e) { line.textContent = e.message; return; }
+    const list = $('st-peers');
+    list.textContent = '';
+    reply.peers.forEach(function (peer) {
+      const item = document.createElement('li');
+      const label = document.createElement('span');
+      label.textContent = peer;
+      item.appendChild(label);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = t('Forget');
+      button.addEventListener('click', function () { peers('forget', peer); });
+      item.appendChild(button);
+      list.appendChild(item);
+    });
+    line.textContent = said(reply.said);
+    if (action === 'add') { $('st-peer-address').value = ''; }
+  }
+
   async function signOut() {
     const sure = window.confirm(
       t('Sign out of ITSaNAS on this machine?') + '\n\n' +
@@ -1038,6 +1104,12 @@
     $('signout').addEventListener('click', signOut);
     $('st-forgot').addEventListener('click', forgot);
     $('st-words').addEventListener('click', function () { windowJob('/api/words', 'st-words', 'A window asks for your passphrase, then shows your 24 words.'); });
+    $('st-devices-show').addEventListener('click', function () { showDevices($('st-devices'), $('st-devices-said')); });
+    $('st-peers-show').addEventListener('click', function () { peers(null, ''); });
+    $('st-peer-add').addEventListener('click', function () {
+      const address = $('st-peer-address').value.trim();
+      if (address) { peers('add', address); }
+    });
     $('st-passphrase').addEventListener('click', function () { windowJob('/api/passphrase', 'st-passphrase', 'A window asks for the current passphrase, then a new one.'); });
     $('close').addEventListener('click', closePage);
     $('st-folder-browse').addEventListener('click', function () { browse($('st-folder')); });
