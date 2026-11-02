@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 317 |
+| `itsanas-cli` unit | 318 |
 | `itsanas-android` unit | 17 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 174 |
@@ -1203,7 +1203,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (317)
+# `itsanas-cli` — unit tests (318)
 
 ## `bench` — measuring this machine (4)
 
