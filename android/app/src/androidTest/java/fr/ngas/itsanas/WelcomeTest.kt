@@ -31,6 +31,11 @@ class WelcomeTest {
         E2e.waitFor("Start did nothing, so nobody gets past Welcome") { E2e.onSection("account") }
         E2e.shotBoth("02-account")
 
+        val said = E2e.js("document.body.innerText").orEmpty()
+        listOf("this machine", "first machine", "separate ITSaNAS window").forEach { words ->
+            assertTrue("a phone is told about \"$words\", which a person holding one looks for in vain", words !in said)
+        }
+
         // The existing-account card is above the new-account card.
         val order = E2e.js(
             "(function(){var j=document.querySelector('input[name=account][value=join]');" +

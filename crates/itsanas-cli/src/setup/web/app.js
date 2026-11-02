@@ -67,7 +67,29 @@
   let dict = {};
   const original = new WeakMap();
 
-  function t(text) { return dict[text] || text; }
+  // The page says "machine" and "window", which a person holding a phone does
+  // not recognise: one set of sentences, with these words changed where it is
+  // read on a phone (applyFeatures).
+  const PHONE_WORDS = [
+    [/\bSet up this machine\b/g, 'Set up this phone'],
+    [/\bthis machine\b/g, 'this phone'],
+    [/\bfirst machine\b/g, 'first device'],
+    [/\ba separate ITSaNAS window\b/g, 'a separate ITSaNAS screen'],
+    [/\bA separate ITSaNAS window\b/g, 'A separate ITSaNAS screen'],
+    [/\bcette machine\b/g, 'ce téléphone'],
+    [/\bCette machine\b/g, 'Ce téléphone'],
+    [/\bvotre première machine\b/g, 'votre premier appareil'],
+    [/\bma première machine\b/g, 'mon premier appareil'],
+    [/\bune fenêtre ITSaNAS séparée\b/g, 'un écran ITSaNAS séparé'],
+    [/\bUne fenêtre ITSaNAS séparée s’est ouverte\b/g, 'Un écran ITSaNAS séparé s’est ouvert'],
+  ];
+  let onPhone = false;
+
+  function phoneWords(text) {
+    return onPhone ? PHONE_WORDS.reduce(function (said, pair) { return said.replace(pair[0], pair[1]); }, text) : text;
+  }
+
+  function t(text) { return phoneWords(dict[text] || text); }
   // A text of a table, translated where it is shown: marks it for the test
   // that every text of the page has a French entry.
   function N(text) { return text; }
@@ -533,7 +555,9 @@
       const proved = run.report.some(function (f) { return f.verdict === 'passed'; });
       $('final-title').textContent = t(proved ? 'All set' : 'Setup finished');
       $('final-lead').textContent = t(proved
-        ? 'ITSaNAS runs on this machine, and its icon is near the clock. A welcome.txt file is in your folder: open it on your other machines to see that they sync.'
+        ? (onPhone
+          ? 'ITSaNAS runs on this phone. Your files are in the app, which keeps them in sync with your other machines.'
+          : 'ITSaNAS runs on this machine, and its icon is near the clock. A welcome.txt file is in your folder: open it on your other machines to see that they sync.')
         : 'Every step is done. The checks below could not run here; each says why.');
       $('final-fix').hidden = true;
       $('retry').hidden = true;
@@ -1223,6 +1247,9 @@
     document.querySelectorAll('[data-feature]').forEach(function (el) {
       if (!features[el.dataset.feature]) { el.setAttribute('data-off', ''); }
     });
+    // Only a phone goes without the advanced settings (features.rs).
+    onPhone = !features.advanced;
+    translatePage($('lang').value);
   }
 
   async function init() {

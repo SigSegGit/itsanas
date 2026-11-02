@@ -26,6 +26,8 @@ window.I18N = {
     'Next': 'Suivant',
     'Your account': 'Votre compte',
     'Is this your first machine with ITSaNAS?': 'Est-ce votre première machine avec ITSaNAS ?',
+    'ITSaNAS runs on this phone. Your files are in the app, which keeps them in sync with your other machines.':
+      'ITSaNAS fonctionne sur ce téléphone. Vos fichiers sont dans l’application, qui les garde synchronisés avec vos autres machines.',
     'Account': 'Compte',
     'Yes, create a new account': 'Oui, créer un nouveau compte',
     'No, I already have an account': 'Non, j’ai déjà un compte',

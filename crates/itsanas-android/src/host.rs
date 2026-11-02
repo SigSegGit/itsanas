@@ -167,7 +167,10 @@ impl SecretPrompt for PhonePrompt {
         phrase: &str,
         positions: [usize; 3],
     ) -> Result<Option<Vec<Secret>>> {
-        let typed = self.screens()?.confirm(phrase, positions)?.ok_or_else(left)?;
+        let typed = self
+            .screens()?
+            .confirm(phrase, positions)?
+            .ok_or_else(left)?;
         Ok(Some(
             typed
                 .split_whitespace()
@@ -195,7 +198,8 @@ impl SecretPrompt for PhonePrompt {
     /// The words are read, not proved: a phone shows them and waits for Done,
     /// where the default would ask three back.
     fn show_words(&mut self, phrase: &str) -> Result<()> {
-        self.screens()?.call("showWords", "(Ljava/lang/String;)V", &[phrase])?;
+        self.screens()?
+            .call("showWords", "(Ljava/lang/String;)V", &[phrase])?;
         Ok(())
     }
 

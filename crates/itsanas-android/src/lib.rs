@@ -364,6 +364,7 @@ fn start_page(home: &Path, mode: &str, biometric: bool) -> Answer {
         .name("page".to_owned())
         .spawn(move || {
             let done = server.serve(PAGE_IDLE);
+            itsanas_cli::shell::Host::event(&host::PhoneHost, "page-ended", "");
             if GENERATION.load(Ordering::SeqCst) == mine {
                 itsanas_cli::shell::Host::event(
                     &host::PhoneHost,
@@ -409,8 +410,11 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_forgot(
     let remembered = host::remember(&mut env);
     answer(&mut env, move || {
         remembered.map_err(Failure::Usage)?;
-        let message =
-            itsanas_cli::shell::forgot(&home?, &mut host::PhonePrompt::default(), &host::PhoneService)?;
+        let message = itsanas_cli::shell::forgot(
+            &home?,
+            &mut host::PhonePrompt::default(),
+            &host::PhoneService,
+        )?;
         Ok(serde_json::json!({ "message": message }).to_string())
     })
 }

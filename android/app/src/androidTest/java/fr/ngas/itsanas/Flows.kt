@@ -49,9 +49,13 @@ object Flows {
     }
 
     /** What a node shows, as one string. */
-    fun textOf(compose: ComposeTestRule, tag: String): String =
-        compose.onNodeWithTag(tag).fetchSemanticsNode().config
-            .getOrNull(SemanticsProperties.Text)?.joinToString("") { it.text } ?: ""
+    /** What a field shows as typed (its label is Text too), else the node's text. */
+    fun textOf(compose: ComposeTestRule, tag: String): String {
+        val config = compose.onNodeWithTag(tag).fetchSemanticsNode().config
+        return config.getOrNull(SemanticsProperties.EditableText)?.text
+            ?: config.getOrNull(SemanticsProperties.Text)?.joinToString("") { it.text }
+            ?: ""
+    }
 
     // ------------------------------------------------------------------ page
 

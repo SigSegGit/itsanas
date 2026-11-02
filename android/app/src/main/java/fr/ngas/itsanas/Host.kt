@@ -116,6 +116,7 @@ object Host {
 
     @JvmStatic
     fun event(name: String, value: String) {
+        android.util.Log.i("itsanas", "host event $name")
         val c = context
         if (c != null) {
             when (name) {

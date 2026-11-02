@@ -40,8 +40,8 @@
     },
     "restore check: no grid": {
       "file": "crates/itsanas-cli/src/account.rs",
-      "live": "phrase: &str) -> String {\n    let words = phrase_words(phrase);\n    let count",
-      "dead": "phrase: &str) -> String {\n    let words = phrase.to_owned();\n    let count"
+      "live": "username: &str, phrase: &str) -> String {\n    let words = phrase_words(phrase);\n",
+      "dead": "username: &str, phrase: &str) -> String {\n    let words = phrase.to_owned();\n"
     },
     "restore check: anybody's name is yours": {
       "file": "crates/itsanas-cli/src/account.rs",

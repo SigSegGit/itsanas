@@ -188,6 +188,7 @@ private fun App(shared: List<Uri>) {
     LaunchedEffect(Unit) {
         Host.events.collect { (name, value) ->
             val current = screen
+            android.util.Log.i("itsanas", "router event $name on ${current::class.simpleName}")
             try {
                 when (name) {
                     "closed" -> if (current is Screen.Page) {
