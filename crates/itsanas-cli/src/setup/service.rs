@@ -85,6 +85,12 @@ pub trait ServiceControl {
     fn set_autostart(&self, on: bool) -> Result<()>;
     /// Where to look when it does not run.
     fn log_hint(&self) -> String;
+    /// Whether the program asking is the one that holds the store, as an app that
+    /// is its own service is. Nothing else will let go of it, so waiting for that
+    /// only makes the person wait.
+    fn holds_the_store_itself(&self) -> bool {
+        false
+    }
 }
 
 /// Every name that carries the instance, in one place, so no platform can

@@ -2749,6 +2749,55 @@ fn a_setup_that_stopped_at_the_device_limit_says_so_to_the_page() {
     assert!(run_json(&other).contains("\"atCap\":false"));
 }
 
+/// The app locks when the page tells it, and the node stays open until then.
+/// Sabotage: tell it nothing, or wait for the store as a computer does.
+#[test]
+fn red_team_a_phone_that_signs_out_locks_at_once() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let (node, _) = itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
+    let file = home.with_extension("passphrase");
+    std::fs::write(&file, "stand-in\n").expect("stand-in passphrase");
+    let slot: &'static super::Slot = Box::leak(Box::new(Mutex::new(Some(node))));
+    let heard = Heard::default();
+    let told = heard.clone();
+    let kept = file.clone();
+    let page = Page::start_with(
+        &home,
+        dir.path(),
+        Mode::Settings,
+        &Seen::default(),
+        move |b| {
+            b.features = Features::PHONE;
+            b.nodes = Arc::new(super::Held(slot));
+            b.host = Arc::new(told);
+            b.service = Box::new(move || {
+                let service: Box<dyn ServiceControl> = Box::new(TheApp { file: kept.clone() });
+                service
+            });
+        },
+    );
+
+    let asked = std::time::Instant::now();
+    let out = page.api("POST", "/api/signout", "");
+    assert_eq!(out.status, 200, "sign out was refused: {}", out.body);
+    assert!(
+        asked.elapsed() < std::time::Duration::from_secs(15),
+        "signing out took {:?}: the phone waited for itself to let go of its own store, and \
+         the person looks at an account that seems to stay open",
+        asked.elapsed()
+    );
+    assert!(
+        !file.exists(),
+        "signed out, and the phone still remembers the passphrase: it opens again for anybody"
+    );
+    assert_eq!(
+        heard.0.lock().expect("heard").as_slice(),
+        [("signedOut".to_owned(), String::new())],
+        "the app was not told: the account stays open on screen after the person signed out"
+    );
+}
+
 /// What the shell was told, in order.
 #[derive(Clone, Default)]
 struct Heard(Arc<Mutex<Vec<(String, String)>>>);
@@ -2759,6 +2808,38 @@ impl super::Host for Heard {
             .lock()
             .expect("heard")
             .push((name.to_owned(), value.to_owned()));
+    }
+}
+
+/// The app as its own service: it holds the node, so nothing else can let go of it.
+struct TheApp {
+    file: PathBuf,
+}
+
+impl ServiceControl for TheApp {
+    fn passphrase_file(&self) -> PathBuf {
+        self.file.clone()
+    }
+    fn installed(&self) -> bool {
+        true
+    }
+    fn install(&self, _: bool) -> Result<String> {
+        Ok("the app is its own service".to_owned())
+    }
+    fn start(&self) -> Result<()> {
+        Ok(())
+    }
+    fn stop(&self) -> Result<()> {
+        Ok(())
+    }
+    fn set_autostart(&self, _: bool) -> Result<()> {
+        Ok(())
+    }
+    fn log_hint(&self) -> String {
+        "the test".to_owned()
+    }
+    fn holds_the_store_itself(&self) -> bool {
+        true
     }
 }
 

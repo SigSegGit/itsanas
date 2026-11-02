@@ -45,9 +45,11 @@ pub(crate) fn sign_out(home: &Path, service: &dyn ServiceControl) -> Result<Stri
     // leaves its PowerShell wrapper and the daemon running (hand test,
     // 2026-10-22). The daemon is asked directly as well; a stop exits 0,
     // which no supervisor restarts.
-    if !wait_until(Duration::from_secs(20), || {
-        !itsanas_store::Store::is_locked(&store)
-    }) && !crate::lifecycle::stop_and_wait(home)
+    if !service.holds_the_store_itself()
+        && !wait_until(Duration::from_secs(20), || {
+            !itsanas_store::Store::is_locked(&store)
+        })
+        && !crate::lifecycle::stop_and_wait(home)
     {
         return Err(CliError::Usage(
             "a daemon still holds this node two minutes after being asked to stop (one \

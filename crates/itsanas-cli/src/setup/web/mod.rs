@@ -1718,10 +1718,13 @@ fn disk_job(ctx: &Context, request: &Request) -> Response {
 fn sign_out(ctx: &Context) -> Response {
     let service = (ctx.backends.service)();
     match sign::sign_out(&ctx.home, service.as_ref()) {
-        Ok(done) => ok_json(object(&[(
-            "said",
-            quote(&format!("{done}.\n{}", sign::SIGNED_OUT)),
-        )])),
+        Ok(done) => {
+            ctx.backends.host.event("signedOut", "");
+            ok_json(object(&[(
+                "said",
+                quote(&format!("{done}.\n{}", sign::SIGNED_OUT)),
+            )]))
+        }
         Err(error) => Response::refuse(409, &error.to_string()),
     }
 }

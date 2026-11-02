@@ -272,6 +272,11 @@ impl ServiceControl for PhoneService {
     fn log_hint(&self) -> String {
         "adb logcat -s itsanas".to_owned()
     }
+
+    /// The app closes the node when it hears `signedOut`.
+    fn holds_the_store_itself(&self) -> bool {
+        true
+    }
 }
 
 /// What the app is told, and what it holds for the page.

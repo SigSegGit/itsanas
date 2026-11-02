@@ -132,6 +132,16 @@
       "file": "crates/itsanas-cli/src/account.rs",
       "live": "    sweep_removed(login.home);\n    let mut node = restore_account(\n        login.home,\n        login.passphrase,\n",
       "dead": "    let mut node = restore_account(\n        login.home,\n        login.passphrase,\n"
+    },
+    "sign out: the app is not told": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "            ctx.backends.host.event(\"signedOut\", \"\");\n",
+      "dead": ""
+    },
+    "sign out: a phone waits for itself": {
+      "file": "crates/itsanas-cli/src/setup/sign.rs",
+      "live": "    if !service.holds_the_store_itself()\n        && !wait_until",
+      "dead": "    if !wait_until"
     }
   }
 }
