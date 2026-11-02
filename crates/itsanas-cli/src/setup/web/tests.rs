@@ -827,7 +827,10 @@ fn red_team_a_mistyped_passphrase_shows_no_words_asks_no_new_one_and_stores_noth
     assert_eq!(
         std::fs::read_to_string(&stored).expect("stored"),
         PASSPHRASE,
-        "the service's copy was replaced by a change that was refused: it would start with a          passphrase that opens nothing"
+        concat!(
+            "the service's copy was replaced by a change that was refused: it would start ",
+            "with a passphrase that opens nothing"
+        )
     );
     assert!(
         itsanas_node::node::Identity::secrets(&home, PASSPHRASE).is_ok(),
