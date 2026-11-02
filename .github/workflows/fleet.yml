@@ -54,7 +54,7 @@ jobs:
       # forwarded port of the VM and uses it as the jump host.
       - name: Tailscale, if configured
         if: env.HAS_TAILSCALE == 'true'
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
