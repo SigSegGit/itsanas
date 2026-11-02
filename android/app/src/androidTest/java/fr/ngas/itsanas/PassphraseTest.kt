@@ -30,7 +30,7 @@ class PassphraseTest {
     private val max = rule.getInt("max")
 
     @Before fun before() {
-        E2e.begin()
+        E2e.begin(compose)
         Flows.toPassphraseScreen(compose, Flows.freshName())
     }
 

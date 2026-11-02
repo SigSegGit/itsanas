@@ -21,7 +21,7 @@ class WordsTest {
 
     private val home get() = Vault.home(E2e.context).absolutePath
 
-    @Before fun before() = E2e.begin()
+    @Before fun before() = E2e.begin(compose)
 
     @After fun after() {
         E2e.scenario?.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
@@ -38,16 +38,16 @@ class WordsTest {
         assertEquals("the screen shows other words than the engine made", expected, Flows.wordsShown(compose))
 
         E2e.scenario!!.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
-        Thread.sleep(2500)
+        E2e.pause(2500)
         assertEquals("a rotation changed the words on screen, so the sheet written from them is wrong", expected, Flows.wordsShown(compose))
         E2e.scenario!!.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
-        Thread.sleep(2500)
+        E2e.pause(2500)
 
         E2e.shell("cmd uimode night yes")
-        Thread.sleep(2000)
+        E2e.pause(2000)
         assertEquals("night mode changed the words on screen", expected, Flows.wordsShown(compose))
         E2e.shell("cmd uimode night no")
-        Thread.sleep(1500)
+        E2e.pause(1500)
         assertTrue("the words screen is not the one the engine asked for", Host.current is Ask.Confirm)
     }
 

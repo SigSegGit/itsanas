@@ -24,7 +24,7 @@ import java.io.File
 class FilesTest {
     @get:Rule val compose = createEmptyComposeRule()
 
-    @Before fun before() = E2e.begin()
+    @Before fun before() = E2e.begin(compose)
 
     @After fun after() {
         runCatching { Intents.release() }

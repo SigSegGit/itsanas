@@ -22,7 +22,7 @@ class LogoutTest {
 
     private val home get() = Vault.home(E2e.context).absolutePath
 
-    @Before fun before() = E2e.begin()
+    @Before fun before() = E2e.begin(compose)
 
     @After fun after() {
         runCatching { Intents.release() }
@@ -98,7 +98,7 @@ class LogoutTest {
             E2e.textOf("#username-check").startsWith("No account has this name")
         }
         Flows.nextOnAccount()
-        Thread.sleep(1500)
+        E2e.pause(1500)
         assertTrue("Next went on with a name no account has", E2e.onSection("account"))
 
         // The right name, then words that are not the account's.
@@ -110,7 +110,7 @@ class LogoutTest {
         E2e.tapId("start")
         Flows.waitTag(compose, "recovery-words", "the screen asking for the 24 words never opened")
         compose.onNodeWithTag("recovery-words").performTextInput("zzzz yyyy xxxx")
-        Thread.sleep(1500)
+        E2e.pause(1500)
         E2e.shot("51-recovery-bad")
         try {
             compose.onNodeWithTag("secret-continue").assertIsNotEnabled()

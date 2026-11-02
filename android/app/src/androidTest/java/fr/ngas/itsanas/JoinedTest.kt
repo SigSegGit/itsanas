@@ -18,7 +18,7 @@ import org.junit.runner.RunWith
 class JoinedTest {
     @get:Rule val compose = createEmptyComposeRule()
 
-    @Before fun before() = E2e.begin()
+    @Before fun before() = E2e.begin(compose)
 
     @After fun after() = E2e.end()
 
@@ -35,7 +35,7 @@ class JoinedTest {
         }
         E2e.shotBoth("11-name-taken")
         Flows.nextOnAccount()
-        Thread.sleep(1500)
+        E2e.pause(1500)
         assertTrue(
             "Next went on with a taken name, so a second person would be handed the first one's account",
             E2e.onSection("account"),

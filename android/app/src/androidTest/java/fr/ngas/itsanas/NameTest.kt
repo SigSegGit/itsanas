@@ -22,7 +22,7 @@ class NameTest {
         E2e.shotBoth("03-name-refused")
         assertTrue("`Marie_1` was not refused in words, so the person is not told what is wrong: '$said'", said.isNotEmpty() && !said.contains("free"))
         Flows.nextOnAccount()
-        Thread.sleep(1500)
+        E2e.pause(1500)
         assertTrue(
             "Next went on with a name the coordinator would refuse, so setup would fail minutes later",
             E2e.onSection("account") && E2e.visible("#problem"),
@@ -50,7 +50,7 @@ class NameTest {
         E2e.waitFor("no Try again was offered when the network could not be asked") { E2e.visible("#username-retry") }
         E2e.shotBoth("06-name-no-network")
         Flows.nextOnAccount()
-        Thread.sleep(1500)
+        E2e.pause(1500)
         assertTrue(
             "Next went on although the network never said the name was free, so two people could claim one name",
             E2e.onSection("account"),

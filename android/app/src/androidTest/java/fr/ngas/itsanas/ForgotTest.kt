@@ -16,7 +16,7 @@ import org.junit.runner.RunWith
 class ForgotTest {
     @get:Rule val compose = createEmptyComposeRule()
 
-    @Before fun before() = E2e.begin()
+    @Before fun before() = E2e.begin(compose)
 
     @After fun after() = E2e.end()
 

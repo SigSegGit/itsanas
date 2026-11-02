@@ -17,7 +17,7 @@ import org.junit.runner.RunWith
 class SettingsTest {
     @get:Rule val compose = createEmptyComposeRule()
 
-    @Before fun before() = E2e.begin()
+    @Before fun before() = E2e.begin(compose)
 
     @After fun after() {
         E2e.shell("cmd uimode night no")

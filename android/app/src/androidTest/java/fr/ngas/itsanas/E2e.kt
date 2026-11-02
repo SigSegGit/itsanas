@@ -38,8 +38,25 @@ object E2e {
     /** Where the shots go: the script pulls this directory off the emulator. */
     private const val SHOTS = "/data/local/tmp/e2e"
 
+    /**
+     * The compose rule of a test that has one. Its test clock draws no frame
+     * unless somebody advances it, so every wait below does: without that the
+     * app stays on its first screen for ever.
+     */
+    private var compose: androidx.compose.ui.test.junit4.ComposeTestRule? = null
+
+    /** Wait [millis], drawing frames meanwhile. */
+    fun pause(millis: Long) {
+        val end = System.nanoTime() + millis * 1_000_000L
+        while (System.nanoTime() < end) {
+            compose?.mainClock?.advanceTimeBy(100)
+            Thread.sleep(100)
+        }
+    }
+
     /** Pin the coordinator, empty the phone, open the app. */
-    fun begin() {
+    fun begin(rule: androidx.compose.ui.test.junit4.ComposeTestRule? = null) {
+        compose = rule
         val args = InstrumentationRegistry.getArguments()
         val address = args.getString("coordinator").orEmpty()
         if (address.isEmpty()) {
@@ -160,6 +177,7 @@ object E2e {
     fun waitFor(consequence: String, seconds: Long = 30, what: () -> Boolean) {
         val end = System.nanoTime() + seconds * 1_000_000_000L
         while (System.nanoTime() < end) {
+            compose?.mainClock?.advanceTimeBy(100)
             if (runCatching(what).getOrDefault(false)) return
             Thread.sleep(250)
         }
