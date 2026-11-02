@@ -31,8 +31,7 @@ class WordsTest {
 
     @Test
     fun the_words_survive_a_rotation_and_a_night_mode_change() {
-        Flows.toPassphraseScreen(compose, Flows.freshName())
-        val ask = Flows.toWordsCheck(compose, Flows.PASSPHRASE)
+        val ask = Flows.toWords(compose, Flows.freshName())
         val expected = ask.phrase.trim().split(Regex("\\s+"))
         assertEquals("the phrase is not 24 words", 24, expected.size)
         assertEquals("the screen shows other words than the engine made", expected, Flows.wordsShown(compose))
@@ -53,8 +52,7 @@ class WordsTest {
 
     @Test
     fun wrong_words_are_refused_three_times_then_the_words_come_back_and_right_ones_write_the_account() {
-        Flows.toPassphraseScreen(compose, Flows.freshName())
-        val ask = Flows.toWordsCheck(compose, Flows.PASSPHRASE)
+        val ask = Flows.toWords(compose, Flows.freshName())
         assertFalse("an account exists before the words were proved, so a half-made one can be left behind", Native.exists(home))
 
         Flows.click(compose, "words-have-them")
@@ -74,6 +72,9 @@ class WordsTest {
         Flows.click(compose, "words-have-them")
         Flows.waitTag(compose, "check-confirm", "the typing-back screen did not open the second time")
         Flows.typeCheckedWords(compose, ask)
+        Flows.waitTag(compose, "new-pass", "the right words did not lead to the passphrase")
+        Flows.typePassphrase(compose, Flows.PASSPHRASE)
+        Flows.click(compose, "secret-continue")
         E2e.waitFor("the right words did not write the account", 240) { Native.exists(home) }
         E2e.waitFor("setup did not finish after the right words", 240) { E2e.onSection("final") }
     }

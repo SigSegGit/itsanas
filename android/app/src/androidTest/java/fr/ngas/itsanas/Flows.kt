@@ -70,8 +70,8 @@ object Flows {
 
     // ---------------------------------------------------------------- secrets
 
-    /** From a fresh phone to the screen that asks for a new passphrase. */
-    fun toPassphraseScreen(compose: ComposeTestRule, name: String) {
+    /** From a fresh phone to the 24 words, which the engine asks for before any passphrase. */
+    fun toWords(compose: ComposeTestRule, name: String): Ask.Confirm {
         toAccountStep()
         newAccountNamed(name)
         E2e.waitFor("a free name was not accepted") { E2e.textOf("#username-check") == "This username is free." }
@@ -79,7 +79,9 @@ object Flows {
         E2e.waitFor("Next on the account step did nothing") { E2e.onSection("folder") }
         E2e.waitFor("Start setting up never became available") { E2e.enabled("#start") }
         E2e.tapId("start")
-        waitTag(compose, "new-pass", "the passphrase screen never opened, so no account can be made")
+        E2e.waitFor("the 24 words never appeared, so no account can be made") { Host.current is Ask.Confirm }
+        waitTag(compose, "words-have-them", "the words screen is not drawn")
+        return Host.current as Ask.Confirm
     }
 
     fun typePassphrase(compose: ComposeTestRule, pass: String) {
@@ -87,13 +89,14 @@ object Flows {
         type(compose, "new-pass-again", pass)
     }
 
-    /** From the passphrase screen to the words, then to the check. */
-    fun toWordsCheck(compose: ComposeTestRule, pass: String): Ask.Confirm {
-        typePassphrase(compose, pass)
-        click(compose, "secret-continue")
-        E2e.waitFor("the 24 words never appeared after the passphrase") { Host.current is Ask.Confirm }
-        waitTag(compose, "words-have-them", "the words screen is not drawn")
-        return Host.current as Ask.Confirm
+    /** Words proved: the engine now asks for the passphrase. */
+    fun toPassphraseScreen(compose: ComposeTestRule, name: String): Ask.Confirm {
+        val ask = toWords(compose, name)
+        click(compose, "words-have-them")
+        waitTag(compose, "check-confirm", "the typing-back screen never opened")
+        typeCheckedWords(compose, ask)
+        waitTag(compose, "new-pass", "the passphrase screen never opened after the words were proved, so no account can be made")
+        return ask
     }
 
     fun typeCheckedWords(compose: ComposeTestRule, ask: Ask.Confirm, wrong: Boolean = false) {
@@ -106,11 +109,9 @@ object Flows {
 
     /** A whole new account, ending on the file list. */
     fun createAccount(compose: ComposeTestRule, name: String, pass: String = PASSPHRASE): Made {
-        toPassphraseScreen(compose, name)
-        val ask = toWordsCheck(compose, pass)
-        click(compose, "words-have-them")
-        waitTag(compose, "check-confirm", "the typing-back screen never opened")
-        typeCheckedWords(compose, ask)
+        val ask = toPassphraseScreen(compose, name)
+        typePassphrase(compose, pass)
+        click(compose, "secret-continue")
         E2e.waitFor("setup never reached its final check after the words were typed back", 240) {
             E2e.onSection("final")
         }
