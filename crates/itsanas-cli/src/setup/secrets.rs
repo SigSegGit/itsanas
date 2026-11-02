@@ -71,6 +71,18 @@ pub trait SecretPrompt {
     fn new_passphrase(&mut self) -> Result<Secret>;
     /// An existing passphrase.
     fn passphrase(&mut self, purpose: &str) -> Result<Secret>;
+    /// Show the 24 words of an account that already exists, for someone who
+    /// wants to read them again. Nothing is asked back that matters: a window
+    /// that wants three words typed is satisfied by whatever is typed, because
+    /// the person is reading, not proving.
+    ///
+    /// The default goes through [`SecretPrompt::show_and_confirm`], which every
+    /// prompt has; a prompt with a plainer way overrides it.
+    fn show_words(&mut self, phrase: &str) -> Result<()> {
+        self.show_and_confirm(phrase, random_positions()?)?
+            .map(|_| ())
+            .ok_or_else(|| CliError::Usage("nobody can be asked to read the words here".to_owned()))
+    }
     /// The 24 words of an existing account.
     fn recovery_phrase(&mut self) -> Result<Secret>;
     /// What the person will see, for the progress line ("a window", "this
@@ -691,6 +703,16 @@ impl SecretPrompt for Native {
         self.one(Ask::RecoveryPhrase)
     }
 
+    fn show_words(&mut self, phrase: &str) -> Result<()> {
+        if self.backend == Backend::Terminal {
+            return terminal_show_words(phrase);
+        }
+        // The window that shows the words is the one that asks three back; what
+        // is typed is not looked at.
+        self.show_and_confirm(phrase, random_positions()?)?;
+        Ok(())
+    }
+
     fn where_asked(&self) -> &'static str {
         if self.backend == Backend::Terminal {
             "this terminal"
@@ -725,6 +747,22 @@ fn terminal_show_and_confirm(
         .iter()
         .map(|position| terminal_line(&format!("Word number {position}: ")))
         .collect()
+}
+
+/// The words in the terminal, until Enter; then the screen is cleared so the
+/// scrollback of a terminal left open does not keep them.
+fn terminal_show_words(phrase: &str) -> Result<()> {
+    println!();
+    println!("{WORDS_INSTRUCTION}");
+    println!();
+    print!("{}", grid(phrase));
+    println!();
+    let _ = terminal_line("Press Enter once you have kept them. ")?;
+    if std::io::stdout().is_terminal() {
+        print!("[2J[3J[H");
+        let _ = std::io::stdout().flush();
+    }
+    Ok(())
 }
 
 /// For `--answers`: nothing can be asked, so everything comes from where the

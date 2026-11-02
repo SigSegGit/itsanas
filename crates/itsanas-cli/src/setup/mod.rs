@@ -27,6 +27,7 @@
 
 pub(crate) mod answers;
 pub(crate) mod forgot;
+pub(crate) mod keys;
 pub(crate) mod secrets;
 pub(crate) mod service;
 pub(crate) mod sign;

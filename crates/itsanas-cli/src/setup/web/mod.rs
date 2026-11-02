@@ -752,6 +752,8 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/host") => host_setting(ctx, request),
         ("POST", "/api/suggest") => suggest(ctx, request),
         ("POST", "/api/forgot") if ctx.mode == Mode::Settings => start_forgot(ctx),
+        ("POST", "/api/words") if ctx.mode == Mode::Settings => start_words(ctx),
+        ("POST", "/api/passphrase") if ctx.mode == Mode::Settings => start_passphrase(ctx),
         ("POST", "/api/free") => free_space(ctx, request),
         ("POST", "/api/pick") => pick(request),
         ("POST", "/api/open") => open_folder(ctx, request, false),
@@ -1279,6 +1281,50 @@ fn run_engine(ctx: &Context, answers: Answers) {
 /// words and the new passphrase asked in the native windows; the page follows it
 /// through `/api/state` and never sees either.
 fn start_forgot(ctx: &Arc<Context>) -> Response {
+    start_job(
+        ctx,
+        "forgot",
+        "the 24 recovery words, then a new passphrase",
+        |worker, prompt, service| {
+            super::forgot::forgot(&worker.home, prompt, service, worker.backends.owner)
+        },
+    )
+}
+
+/// "Show my 24 words": the passphrase is asked in a native window, and so are the
+/// words shown ([`super::keys::show_words`]). The page is told only that it was done.
+fn start_words(ctx: &Arc<Context>) -> Response {
+    start_job(
+        ctx,
+        "words",
+        "your passphrase, to show the 24 words",
+        |worker, prompt, _| super::keys::show_words(&worker.home, prompt),
+    )
+}
+
+/// "Change my passphrase": the current and the new one are asked in native windows
+/// ([`super::keys::change_passphrase`]).
+fn start_passphrase(ctx: &Arc<Context>) -> Response {
+    start_job(
+        ctx,
+        "passphrase",
+        "your passphrase, then a new one",
+        |worker, prompt, service| super::keys::change_passphrase(&worker.home, prompt, service),
+    )
+}
+
+/// What a secret job does with the prompt and the service it is given.
+type JobBody = fn(&Context, &mut dyn SecretPrompt, &dyn ServiceControl) -> Result<String>;
+
+/// Start `body` on a thread of its own, as a setup run is: the page follows it
+/// through `/api/state` (`waiting` says what the window wants) and never sees a
+/// secret. One at a time with every run.
+fn start_job(
+    ctx: &Arc<Context>,
+    name: &'static str,
+    waiting: &'static str,
+    body: JobBody,
+) -> Response {
     {
         let mut run = lock(&ctx.run);
         if run.phase == Phase::Running {
@@ -1287,23 +1333,17 @@ fn start_forgot(ctx: &Arc<Context>) -> Response {
         *run = Run {
             phase: Phase::Running,
             step: Some(Step::Account),
-            waiting: Some("the 24 recovery words, then a new passphrase"),
+            waiting: Some(waiting),
             ..Run::default()
         };
     }
     let worker = Arc::clone(ctx);
     let spawned = std::thread::Builder::new()
-        .name("forgot".to_owned())
+        .name(name.to_owned())
         .spawn(move || {
             let service = (worker.backends.service)();
-            let result = (worker.backends.prompt)().and_then(|mut prompt| {
-                super::forgot::forgot(
-                    &worker.home,
-                    prompt.as_mut(),
-                    service.as_ref(),
-                    worker.backends.owner,
-                )
-            });
+            let result = (worker.backends.prompt)()
+                .and_then(|mut prompt| body(&worker, prompt.as_mut(), service.as_ref()));
             let mut run = lock(&worker.run);
             match result {
                 Ok(said) => {

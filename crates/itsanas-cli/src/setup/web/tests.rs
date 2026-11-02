@@ -648,6 +648,49 @@ fn set_up_through_the_page(home: &Path, folder: &Path) -> (String, String) {
         std::thread::sleep(Duration::from_millis(200));
     }
     heard.push_str(&page.api("GET", "/api/plan", "").all());
+    drop(page);
+    // Settings, on the account just made: the words shown again and the
+    // passphrase changed. Both are asked and shown in the "window"; what comes
+    // back to the page must be a sentence.
+    let settings = Page::start(
+        home,
+        folder.parent().expect("parent"),
+        Mode::Settings,
+        &seen,
+    );
+    for route in ["/api/words", "/api/passphrase"] {
+        let started = settings.api("POST", route, "");
+        assert_eq!(
+            started.status, 202,
+            "{route} was not started: {}",
+            started.body
+        );
+        heard.push_str(&started.all());
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let state = settings.api("GET", "/api/state", "");
+            heard.push_str(&state.all());
+            if !state.body.contains("\"phase\":\"running\"") {
+                assert!(
+                    state.body.contains("\"phase\":\"done\""),
+                    "{route} did not finish: {}",
+                    state.body
+                );
+                break;
+            }
+            assert!(Instant::now() < deadline, "{route} never ended");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    {
+        let shown = seen.0.lock().expect("seen");
+        assert_eq!(
+            shown.get(1),
+            shown.first(),
+            "Show my 24 words did not show this account's words in the window"
+        );
+    }
+    drop(settings);
     let phrase = seen
         .0
         .lock()
@@ -694,6 +737,102 @@ fn red_team_no_response_ever_carries_a_recovery_word_or_the_passphrase() {
             );
         }
     }
+}
+
+/// A person who mistypes the current passphrase, and notes whether a new one
+/// was ever asked of them.
+struct Mistaken {
+    seen: Seen,
+    asked_new: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl SecretPrompt for Mistaken {
+    fn show_and_confirm(&mut self, phrase: &str, _: [usize; 3]) -> Result<Option<Vec<Secret>>> {
+        self.seen.0.lock().expect("seen").push(phrase.to_owned());
+        Ok(None)
+    }
+    fn new_passphrase(&mut self) -> Result<Secret> {
+        self.asked_new
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(Zeroizing::new("another-passphrase-entirely".to_owned()))
+    }
+    fn passphrase(&mut self, _: &str) -> Result<Secret> {
+        Ok(Zeroizing::new("not-the-passphrase".to_owned()))
+    }
+    fn recovery_phrase(&mut self) -> Result<Secret> {
+        Err(CliError::Usage("not asked here".to_owned()))
+    }
+    fn where_asked(&self) -> &'static str {
+        "a test window"
+    }
+}
+
+/// Run `route` on a Settings page whose person mistypes the passphrase; the
+/// state it ended in.
+fn mistaken_job(home: &Path, base: &Path, route: &str, seen: &Seen) -> (String, bool) {
+    let asked_new = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = Arc::clone(&asked_new);
+    let page = Page::start_with(home, base, Mode::Settings, seen, move |backends| {
+        let seen = seen.clone();
+        backends.prompt = Box::new(move || {
+            let person: Box<dyn SecretPrompt> = Box::new(Mistaken {
+                seen: seen.clone(),
+                asked_new: Arc::clone(&flag),
+            });
+            Ok(person)
+        });
+    });
+    assert_eq!(page.api("POST", route, "").status, 202);
+    let mut state = String::new();
+    for _ in 0..200 {
+        state = page.api("GET", "/api/state", "").body;
+        if !state.contains("\"phase\":\"running\"") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    (state, asked_new.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+#[test]
+fn red_team_a_mistyped_passphrase_shows_no_words_asks_no_new_one_and_stores_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let base = dir.path().join("base");
+    let _ = set_up_through_the_page(&home, &base.join("folder"));
+    // The copy the service reads, as an installed service would have left it.
+    let stored = home.with_extension("passphrase");
+    std::fs::write(&stored, PASSPHRASE).expect("stored copy");
+    let seen = Seen::default();
+
+    let (state, _) = mistaken_job(&home, &base, "/api/words", &seen);
+    assert!(
+        state.contains("\"phase\":\"failed\""),
+        "a mistyped passphrase did not stop Show my 24 words: {state}"
+    );
+    assert!(
+        seen.0.lock().expect("seen").is_empty(),
+        "the 24 words were shown to somebody who did not know the passphrase"
+    );
+
+    let (state, asked_new) = mistaken_job(&home, &base, "/api/passphrase", &seen);
+    assert!(
+        state.contains("\"phase\":\"failed\""),
+        "a mistyped current passphrase did not stop the change: {state}"
+    );
+    assert!(
+        !asked_new,
+        "a new passphrase was asked of somebody who had not proved the current one"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&stored).expect("stored"),
+        PASSPHRASE,
+        "the service's copy was replaced by a change that was refused: it would start with a          passphrase that opens nothing"
+    );
+    assert!(
+        itsanas_node::node::Identity::secrets(&home, PASSPHRASE).is_ok(),
+        "a refused change re-sealed the keystore"
+    );
 }
 
 #[test]

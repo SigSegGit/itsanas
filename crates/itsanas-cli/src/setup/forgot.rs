@@ -108,7 +108,10 @@ fn refuse_words_of_another_account(
 }
 
 /// A new passphrase, asked again when it is refused.
-fn new_passphrase(prompt: &mut dyn SecretPrompt, service: &dyn ServiceControl) -> Result<Secret> {
+pub(super) fn new_passphrase(
+    prompt: &mut dyn SecretPrompt,
+    service: &dyn ServiceControl,
+) -> Result<Secret> {
     let mut last = None;
     for _ in 0..ATTEMPTS {
         let passphrase = prompt.new_passphrase()?;

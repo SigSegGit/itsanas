@@ -764,23 +764,29 @@
     }
   }
 
+  // A job that asks in a native window (/api/forgot, /api/words, /api/passphrase):
+  // started here, followed through /api/state, and never given a secret.
   async function forgot() {
     if (!window.confirm(N('Replace the keys on this machine with your 24 recovery words? A window asks for them, then for a new passphrase.'))) { return; }
-    const line = $('st-forgot-said');
-    $('st-forgot').disabled = true;
+    await windowJob('/api/forgot', 'st-forgot', 'A window asks for your 24 words, then a new passphrase.');
+  }
+
+  async function windowJob(route, buttonId, startedText) {
+    const line = $(buttonId + '-said');
+    $(buttonId).disabled = true;
     try {
-      await api('POST', '/api/forgot');
+      await api('POST', route);
     } catch (e) {
-      $('st-forgot').disabled = false;
+      $(buttonId).disabled = false;
       line.textContent = said(e.message);
       return;
     }
-    line.textContent = t('A window asks for your 24 words, then a new passphrase.');
+    line.textContent = t(startedText);
     for (;;) {
       await new Promise(function (resolve) { setTimeout(resolve, 1000); });
       const state = await refreshSettings();
       if (!state || state.run.phase === 'running') { continue; }
-      $('st-forgot').disabled = false;
+      $(buttonId).disabled = false;
       if (state.run.phase === 'done') {
         line.textContent = said(state.run.lines[state.run.lines.length - 1] || '');
       } else {
@@ -1031,6 +1037,8 @@
     $('apply').addEventListener('click', apply);
     $('signout').addEventListener('click', signOut);
     $('st-forgot').addEventListener('click', forgot);
+    $('st-words').addEventListener('click', function () { windowJob('/api/words', 'st-words', 'A window asks for your passphrase, then shows your 24 words.'); });
+    $('st-passphrase').addEventListener('click', function () { windowJob('/api/passphrase', 'st-passphrase', 'A window asks for the current passphrase, then a new one.'); });
     $('close').addEventListener('click', closePage);
     $('st-folder-browse').addEventListener('click', function () { browse($('st-folder')); });
     $('st-open-folder').addEventListener('click', function () { folderAction($('st-folder').value.trim(), false, $('st-said')); });

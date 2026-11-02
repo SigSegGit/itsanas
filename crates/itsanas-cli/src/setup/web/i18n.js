@@ -390,6 +390,23 @@ window.I18N = {
     'A window asks for your 24 words, then a new passphrase.':
       'Une fenêtre demande vos 24 mots, puis une nouvelle phrase de passe.',
     'Not changed:': 'Pas modifié :',
+    'My 24 recovery words': 'Mes 24 mots de récupération',
+    'A window asks for your passphrase, then shows your 24 words. They never appear in this page.':
+      'Une fenêtre demande votre phrase de passe, puis affiche vos 24 mots. Ils n’apparaissent jamais dans cette page.',
+    'Show my 24 words': 'Afficher mes 24 mots',
+    'A window asks for your passphrase, then shows your 24 words.':
+      'Une fenêtre demande votre phrase de passe, puis affiche vos 24 mots.',
+    'The 24 words were shown in the window. Nothing was kept anywhere new.':
+      'Les 24 mots ont été affichés dans la fenêtre. Rien n’a été conservé ailleurs.',
+    'My passphrase': 'Ma phrase de passe',
+    'A window asks for the current passphrase, then for a new one. Your keys and your files stay.':
+      'Une fenêtre demande la phrase de passe actuelle, puis une nouvelle. Vos clés et vos fichiers restent.',
+    'Change my passphrase': 'Changer ma phrase de passe',
+    'A window asks for the current passphrase, then a new one.':
+      'Une fenêtre demande la phrase de passe actuelle, puis une nouvelle.',
+    'The passphrase is changed, and the background service has the new one.':
+      'La phrase de passe est changée, et le service en arrière-plan a la nouvelle.',
+    'The passphrase is changed.': 'La phrase de passe est changée.',
     'Files kept here': 'Fichiers gardés ici',
     "How much of your account's files stay on this machine, to open without the network. The rest is fetched when you open it. Empty: everything.":
       'La part des fichiers de votre compte qui reste sur cette machine, pour les ouvrir sans réseau. Le reste est récupéré à l’ouverture. Vide : tout.',

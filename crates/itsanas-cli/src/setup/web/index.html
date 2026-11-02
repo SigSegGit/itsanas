@@ -328,6 +328,18 @@
           <label class="choice"><input type="checkbox" id="st-biometric"> Unlock with my fingerprint or face</label>
         </div>
         <div class="field">
+          <span class="label">My 24 recovery words</span>
+          <p class="help">A window asks for your passphrase, then shows your 24 words. They never appear in this page.</p>
+          <div class="controls"><button type="button" id="st-words">Show my 24 words</button></div>
+          <p id="st-words-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+        <div class="field">
+          <span class="label">My passphrase</span>
+          <p class="help">A window asks for the current passphrase, then for a new one. Your keys and your files stay.</p>
+          <div class="controls"><button type="button" id="st-passphrase">Change my passphrase</button></div>
+          <p id="st-passphrase-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+        <div class="field">
           <span class="label">I forgot my passphrase</span>
           <p class="help">Replaces the keys on this machine from your 24 recovery words, under a new passphrase. Your account and your files stay.</p>
           <div class="controls"><button type="button" id="st-forgot">Replace my keys with my 24 words</button></div>

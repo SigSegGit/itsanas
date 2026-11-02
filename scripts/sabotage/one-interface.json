@@ -1,0 +1,22 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "setup::web::"
+  ],
+  "defences": {
+    "words: the job answers with the words": {
+      "file": "crates/itsanas-cli/src/setup/keys.rs",
+      "live": "    Ok(\"The 24 words were shown in the window. Nothing was kept anywhere new.\".to_owned())",
+      "dead": "    Ok(format!(\"The 24 words: {}\", phrase.as_str()))"
+    },
+    "passphrase: no proof of the current one before the new one is asked": {
+      "file": "crates/itsanas-cli/src/setup/keys.rs",
+      "live": "    Identity::secrets(home, &current)?;\n",
+      "dead": ""
+    }
+  }
+}

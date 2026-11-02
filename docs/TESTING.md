@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-01 — 1543 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 534 are red-team tests.**
+**Last updated: 2026-11-01 — 1544 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 535 are red-team tests.**
 
-**1427 of the 1543 tests have an entry of their own on this page** — an *entry*,
+**1428 of the 1544 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 306 |
+| `itsanas-cli` unit | 307 |
 | `itsanas-android` unit | 16 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 174 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 54 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 149 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 150 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1203,7 +1203,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (306)
+# `itsanas-cli` — unit tests (307)
 
 ## `bench` — measuring this machine (4)
 
@@ -1377,7 +1377,8 @@ and 375 px (no horizontal scroll), which CI does not run.
 
 | Test | What it proves |
 | --- | --- |
-| **`red_team_no_response_ever_carries_a_recovery_word_or_the_passphrase`** | Two whole setups driven through the page's HTTP API with a scripted person in place of the window; every byte that came back (static files, plan, every state poll, run reply) holds neither passphrase nor the 24-word phrase, nor any word of it the other run did not also say; Sabotaged (engine emits the phrase in an event, so in the state JSON): red. |
+| **`red_team_no_response_ever_carries_a_recovery_word_or_the_passphrase`** | Two whole setups driven through the page's HTTP API with a scripted person in place of the window; then Show my 24 words and Change my passphrase on each account; every byte that came back (static files, plan, every state poll, run reply, those two jobs) holds neither passphrase nor the 24-word phrase, nor any word of it the other run did not also say; Sabotaged (engine emits the phrase in an event, so in the state JSON): red. |
+| **`red_team_a_mistyped_passphrase_shows_no_words_asks_no_new_one_and_stores_nothing`** | Settings' Show my 24 words and Change my passphrase on a mistyped passphrase: no window shows the words, no new passphrase is asked, the copy the service reads is not replaced and the keystore is not re-sealed. Sabotaged (no proof of the current passphrase before the new one is asked): red. |
 | **`red_team_another_account_never_takes_the_home_of_one_already_here`** | "Set up another account" (POST /api/another) refuses the name of an account already on this computer (409) and a name that is no instance name (400), and accepts a free one; Sabotaged (existing-home check dropped): red. |
 | **`red_team_a_rebinding_host_with_the_right_token_is_refused`** | GET /api/state and POST /api/quit under Host evil.example:PORT with the valid token are 403, and the server keeps serving; Sabotaged (Host check dropped): red. |
 | `a_foreign_host_is_refused_before_anything_is_served` | A rebinding name, another port, no port, a localhost-prefixed name, no Host and two Host headers all get 403 for the page itself; 127.0.0.1:PORT and localhost:PORT get 200; Sabotaged (Host check dropped): red. |
