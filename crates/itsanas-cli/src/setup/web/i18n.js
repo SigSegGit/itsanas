@@ -175,8 +175,8 @@ window.I18N = {
       'le nom d’utilisateur ne peut contenir que des lettres minuscules sans accent, des chiffres, « - » et « . »',
     "username may not start or end with '-' or '.'": 'le nom d’utilisateur ne peut pas commencer ni finir par « - » ou « . »',
     'Type a whole number of GB, at least 1.': 'Tapez un nombre entier de Go, au moins 1.',
-    'Three questions, then ITSaNAS sets itself up. If something stops, run setup again and it picks up where it left off.':
-      'Trois questions, puis ITSaNAS s’installe tout seul. Si quelque chose s’arrête, relancez l’installation : elle reprend là où elle en était.',
+    'Three questions, then ITSaNAS sets itself up. If something stops, start again and it picks up where it left off.':
+      'Trois questions, puis ITSaNAS s’installe tout seul. Si quelque chose s’arrête, recommencez : l’installation reprend là où elle en était.',
     'Your recovery words and your passphrase are asked later in a separate ITSaNAS window, never in this page.':
       'Vos mots de récupération et votre phrase de passe seront demandés plus tard dans une fenêtre ITSaNAS séparée, jamais dans cette page.',
     'Your folder and your space': 'Votre dossier et votre espace',
