@@ -152,9 +152,8 @@ object Flows {
 
     fun closeComplaint(compose: ComposeTestRule) {
         waitTag(compose, "complaint", "no refusal was shown")
-        compose.onNodeWithTag("complaint").fetchSemanticsNode()
-        androidx.test.espresso.Espresso.onView(withText(string(R.string.close)))
-            .inRoot(isDialog()).perform(click())
+        // Drawn by Compose, so Espresso's view matchers cannot see its button.
+        click(compose, "complaint-close")
         waitNoTag(compose, "complaint", "the refusal could not be closed")
     }
 

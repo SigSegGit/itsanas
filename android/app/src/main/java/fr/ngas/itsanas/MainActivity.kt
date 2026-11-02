@@ -355,7 +355,9 @@ private fun App(shared: List<Uri>) {
         AlertDialog(
             onDismissRequest = { complaint = null },
             confirmButton = {
-                TextButton({ complaint = null }) { Text(stringResource(R.string.close)) }
+                TextButton({ complaint = null }, Modifier.testTag("complaint-close")) {
+                    Text(stringResource(R.string.close))
+                }
             },
             title = { Text(stringResource(R.string.did_not_work)) },
             text = { Text(message, Modifier.testTag("complaint")) },
