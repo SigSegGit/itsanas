@@ -175,7 +175,7 @@ pub(crate) fn run(inputs: &Inputs<'_>) -> Report {
 fn daemon_health(inputs: &Inputs<'_>, started: Instant) -> Finding {
     const WHAT: &str = "the daemon is healthy";
     if inputs.phone {
-        return Finding::skipped(WHAT, "the app is the node: it has no daemon to ask");
+        return Finding::skipped("the background service", "the app does this itself");
     }
     if !inputs.daemon_expected {
         return Finding::skipped(WHAT, "no background service was asked for");

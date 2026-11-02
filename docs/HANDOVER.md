@@ -11,8 +11,8 @@ contract.
 <!-- ITSANAS-STATE
 NEXT: 8.0y
 TITLE: The phone's status carries the safety verdict (copies wanted, exposed), from shared code (the Android app shows no copy count today; §8 0y, its NEXT paragraph)
-WRITTEN-AT: 2026-10-31
-BASE: 82bbba5
+WRITTEN-AT: 2026-11-02
+BASE: 23c00a4
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -43,6 +43,17 @@ instead of asking. `sabotage.yml` cancels on push and `moved-to-library` needs 1
 with no push. `fixcounts.py`-style global replaces rewrite unrelated numbers: edit counts
 by hand. A plan's command must run the crate holding its test, or NOTHING WENT RED means
 nothing.
+
+The end-to-end protocol found real bugs once its tests got that far: Sign out on a phone
+left the account open, a phone's steps all said 1, the header ran off a narrow screen, and
+the app's own screens ignored night mode. Read the screenshots too: the last three passed
+every test. A Compose dialog is invisible to Espresso's view matchers: tag its buttons.
+`FilesTest` once stayed on the typed-back words after Confirm, cause unknown: if it comes
+back, read that screen first.
+
+Next batch, all at once (Nicolas, 2026-11-02: macOS runners make each CI round costly, so
+group the coming features in one PR instead of one per step): §8 0y, the debts below, and
+the final check's lines, which a French page still shows in English.
 
 Debts left on purpose: on a desktop `show_words` goes through the window that asks three
 words back, and ignores them (a plain window needs one on each platform);
