@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -78,6 +79,7 @@ fun PassphraseField(
     label: String,
     modifier: Modifier = Modifier,
     keyboardOptions: KeyboardOptions = SecretKeyboard,
+    tag: String = "",
 ) {
     var shown by remember { mutableStateOf(false) }
     OutlinedTextField(
@@ -88,14 +90,14 @@ fun PassphraseField(
         visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
         keyboardOptions = keyboardOptions,
         trailingIcon = {
-            IconButton({ shown = !shown }) {
+            IconButton({ shown = !shown }, Modifier.testTag("$tag-eye")) {
                 Icon(
                     if (shown) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                     stringResource(if (shown) R.string.hide_passphrase else R.string.show_passphrase),
                 )
             }
         },
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().testTag(tag),
     )
 }
 
@@ -108,6 +110,7 @@ fun WordsField(
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
     minLines: Int = 1,
+    tag: String = "",
 ) {
     OutlinedTextField(
         value = value,
@@ -116,7 +119,7 @@ fun WordsField(
         singleLine = singleLine,
         minLines = minLines,
         keyboardOptions = SecretKeyboard,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().testTag(tag),
     )
 }
 
@@ -132,7 +135,7 @@ fun WordsGrid(phrase: String, modifier: Modifier = Modifier) {
                         "${column * 12 + row + 1}. $word",
                         fontFamily = FontFamily.Monospace,
                         style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(vertical = 2.dp),
+                        modifier = Modifier.padding(vertical = 2.dp).testTag("word-${column * 12 + row + 1}"),
                     )
                 }
             }

@@ -61,3 +61,52 @@ jobs:
           name: itsanas-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+  e2e:
+    name: The end-to-end protocol on an emulator
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      - name: Let the emulator use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Name the tools the script looks for
+        run: |
+          echo "ANDROID_NDK_HOME=${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=${ANDROID_HOME:-$ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
+          echo "JAVA_HOME=${JAVA_HOME:-$JAVA_HOME_17_X64}" >> "$GITHUB_ENV"
+          echo "GRADLE=gradle" >> "$GITHUB_ENV"
+      - name: Run the protocol
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: bash scripts/android-e2e.sh
+      # Always: the screenshots are the only way anyone sees a screen past the
+      # account step, and the log is the only way to see why a run failed.
+      # Screens of secrets are black on purpose (FLAG_SECURE).
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: itsanas-e2e
+          path: android/app/build/e2e
+          if-no-files-found: warn

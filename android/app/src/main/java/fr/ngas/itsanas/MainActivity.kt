@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -344,7 +345,7 @@ private fun App(shared: List<Uri>) {
                 TextButton({ complaint = null }) { Text(stringResource(R.string.close)) }
             },
             title = { Text(stringResource(R.string.did_not_work)) },
-            text = { Text(message) },
+            text = { Text(message, Modifier.testTag("complaint")) },
         )
     }
 }
@@ -371,7 +372,7 @@ private fun Unlock(onOpen: () -> Unit, complain: (String) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(stringResource(R.string.unlock_title), style = MaterialTheme.typography.headlineMedium)
-        PassphraseField(passphrase, { passphrase = it }, stringResource(R.string.passphrase_label))
+        PassphraseField(passphrase, { passphrase = it }, stringResource(R.string.passphrase_label), tag = "unlock-pass")
         Button(
             onClick = {
                 busy = true
@@ -387,7 +388,7 @@ private fun Unlock(onOpen: () -> Unit, complain: (String) -> Unit) {
                 }
             },
             enabled = !busy && passphrase.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("unlock-open"),
         ) { Text(stringResource(R.string.unlock_open)) }
         TextButton(
             onClick = {
@@ -413,7 +414,7 @@ private fun Unlock(onOpen: () -> Unit, complain: (String) -> Unit) {
                 }
             },
             enabled = !busy,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("unlock-forgot"),
         ) { Text(stringResource(R.string.unlock_forgot)) }
     }
 }
@@ -502,14 +503,14 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                             }
                         }
                     }) { Icon(Icons.Default.Refresh, stringResource(R.string.files_sync)) }
-                    IconButton(onSettings) {
+                    IconButton(onSettings, Modifier.testTag("files-settings")) {
                         Icon(Icons.Default.Settings, stringResource(R.string.files_settings))
                     }
                 },
             )
         },
         floatingActionButton = {
-            FloatingActionButton({ picker.launch(arrayOf("*/*")) }) {
+            FloatingActionButton({ picker.launch(arrayOf("*/*")) }, Modifier.testTag("files-add")) {
                 Icon(Icons.Default.Add, stringResource(R.string.files_add))
             }
         },
@@ -587,6 +588,7 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
+            .testTag("file-row")
     ) {
         Row(
             Modifier.padding(12.dp).fillMaxWidth(),

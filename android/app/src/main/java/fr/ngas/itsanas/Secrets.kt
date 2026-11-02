@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -82,15 +83,15 @@ fun NewPassphrase(ask: Ask.NewPassphrase) {
     val fine = first.length in min..max && first == second
     SecretFrame(stringResource(R.string.new_passphrase_title), { ask.answer.complete(null) }) {
         Text(stringResource(R.string.new_passphrase_help, min, max))
-        PassphraseField(first, { first = it }, stringResource(R.string.passphrase_label))
-        PassphraseField(second, { second = it }, stringResource(R.string.new_passphrase_again))
+        PassphraseField(first, { first = it }, stringResource(R.string.passphrase_label), tag = "new-pass")
+        PassphraseField(second, { second = it }, stringResource(R.string.new_passphrase_again), tag = "new-pass-again")
         if (second.isNotEmpty() && first != second) {
-            Text(stringResource(R.string.new_passphrase_differ), color = MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.new_passphrase_differ), Modifier.testTag("secret-error"), color = MaterialTheme.colorScheme.error)
         }
         Button(
             onClick = { ask.answer.complete(first) },
             enabled = fine,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("secret-continue"),
         ) { Text(stringResource(R.string.continue_)) }
     }
 }
@@ -100,11 +101,11 @@ fun AskPassphrase(ask: Ask.Passphrase) {
     var typed by remember { mutableStateOf("") }
     SecretFrame(stringResource(R.string.ask_passphrase_title), { ask.answer.complete(null) }) {
         Text(stringResource(R.string.ask_passphrase_help, ask.purpose))
-        PassphraseField(typed, { typed = it }, stringResource(R.string.passphrase_label))
+        PassphraseField(typed, { typed = it }, stringResource(R.string.passphrase_label), tag = "ask-pass")
         Button(
             onClick = { ask.answer.complete(typed) },
             enabled = typed.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("secret-continue"),
         ) { Text(stringResource(R.string.continue_)) }
     }
 }
@@ -124,7 +125,7 @@ fun WordsAsk(ask: Ask.Recovery) {
         Text(stringResource(R.string.recovery_help))
         WordsField(
             typed, { typed = it }, stringResource(R.string.recovery_label),
-            singleLine = false, minLines = 4,
+            singleLine = false, minLines = 4, tag = "recovery-words",
         )
         if (said != null && typed.isNotBlank()) {
             when {
@@ -139,7 +140,7 @@ fun WordsAsk(ask: Ask.Recovery) {
         Button(
             onClick = { ask.answer.complete(typed.trim()) },
             enabled = ok,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("secret-continue"),
         ) { Text(stringResource(R.string.continue_)) }
     }
 }
@@ -151,12 +152,12 @@ private fun WordsBody(phrase: String, onDone: () -> Unit, notice: String? = null
     var asking by remember { mutableStateOf(false) }
     Text(stringResource(R.string.words_text))
     Text(stringResource(R.string.words_advice))
-    notice?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    notice?.let { Text(it, Modifier.testTag("secret-error"), color = MaterialTheme.colorScheme.error) }
     WordsGrid(phrase)
-    OutlinedButton({ asking = true }, Modifier.fillMaxWidth()) {
+    OutlinedButton({ asking = true }, Modifier.fillMaxWidth().testTag("words-copy")) {
         Text(stringResource(R.string.words_copy))
     }
-    Button(onDone, Modifier.fillMaxWidth()) { Text(stringResource(R.string.words_have_them)) }
+    Button(onDone, Modifier.fillMaxWidth().testTag("words-have-them")) { Text(stringResource(R.string.words_have_them)) }
     if (asking) {
         AlertDialog(
             onDismissRequest = { asking = false },
@@ -210,10 +211,11 @@ fun WordsCheck(ask: Ask.Confirm) {
                 typed.value[index],
                 { value -> typed.value = typed.value.toMutableList().also { it[index] = value } },
                 stringResource(R.string.check_word, position),
+                tag = "check-$index",
             )
         }
         if (failed) {
-            Text(stringResource(R.string.check_wrong, tries), color = MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.check_wrong, tries), Modifier.testTag("secret-error"), color = MaterialTheme.colorScheme.error)
         }
         Button(
             onClick = {
@@ -234,9 +236,9 @@ fun WordsCheck(ask: Ask.Confirm) {
                 }
             },
             enabled = typed.value.all { it.isNotBlank() },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("check-confirm"),
         ) { Text(stringResource(R.string.check_confirm)) }
-        OutlinedButton({ checking = false }, Modifier.fillMaxWidth()) {
+        OutlinedButton({ checking = false }, Modifier.fillMaxWidth().testTag("check-show-again")) {
             Text(stringResource(R.string.check_show_again))
         }
     }
