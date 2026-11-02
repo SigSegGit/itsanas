@@ -176,14 +176,17 @@ object E2e {
     /** Wait until [what] holds; otherwise fail with [consequence], naming what the page showed. */
     fun waitFor(consequence: String, seconds: Long = 30, what: () -> Boolean) {
         val end = System.nanoTime() + seconds * 1_000_000_000L
+        var lastError: Throwable? = null
         while (System.nanoTime() < end) {
             compose?.mainClock?.advanceTimeBy(100)
-            if (runCatching(what).getOrDefault(false)) return
+            val tried = runCatching(what)
+            if (tried.getOrDefault(false)) return
+            lastError = tried.exceptionOrNull()
             Thread.sleep(250)
         }
         shot("FAILED-${consequence.take(40).replace(Regex("[^A-Za-z0-9]+"), "-")}")
         val said = js("document.getElementById('problem') ? document.getElementById('problem').textContent : ''")
-        fail("$consequence (the page's problem line: ${said ?: "no page"}; the visible section: ${visibleSection()})")
+        fail("$consequence (the page's problem line: ${said ?: "no page"}; the visible section: ${visibleSection()}; asked on screen: ${Host.current?.javaClass?.simpleName}; last error: ${lastError?.toString()?.take(300)})")
     }
 
     fun visibleSection(): String = js(

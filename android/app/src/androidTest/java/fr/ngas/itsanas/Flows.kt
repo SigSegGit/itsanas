@@ -28,7 +28,7 @@ object Flows {
     fun has(compose: ComposeTestRule, tag: String): Boolean =
         compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
 
-    fun waitTag(compose: ComposeTestRule, tag: String, why: String, seconds: Long = 60) {
+    fun waitTag(compose: ComposeTestRule, tag: String, why: String, seconds: Long = 30) {
         E2e.waitFor(why, seconds) { has(compose, tag) }
     }
 
