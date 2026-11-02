@@ -245,9 +245,9 @@ object E2e {
     fun shotBoth(name: String) {
         shot("$name-light")
         shell("cmd uimode night yes")
-        Thread.sleep(1500)
+        Thread.sleep(4000)
         shot("$name-dark")
         shell("cmd uimode night no")
-        Thread.sleep(1500)
+        Thread.sleep(4000)
     }
 }

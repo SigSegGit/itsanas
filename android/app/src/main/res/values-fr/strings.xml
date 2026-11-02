@@ -48,6 +48,7 @@
     <string name="check_confirm">Confirmer</string>
 
     <string name="files_empty">Rien ici pour l\'instant. Ajoutez un fichier, ou synchronisez avec l\'une de vos machines.</string>
+    <string name="not_safe_yet">Vos fichiers ne sont pas encore en sécurité : %1$d des %2$d copies nécessaires existent hors de ce téléphone. Si vous le perdez maintenant, ce qui manque est perdu.</string>
     <string name="files_summary">%1$d ici · %2$d absents · %3$s</string>
     <string name="files_added">%1$d fichier(s) ajouté(s)</string>
     <string name="files_sync">Synchroniser</string>

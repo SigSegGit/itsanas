@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-02 — 1556 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 542 are red-team tests.**
+**Last updated: 2026-11-02 — 1553 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 541 are red-team tests.**
 
-**1440 of the 1556 tests have an entry of their own on this page** — an *entry*,
+**1437 of the 1553 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,8 +179,8 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 318 |
-| `itsanas-android` unit | 17 |
+| `itsanas-cli` unit | 313 |
+| `itsanas-android` unit | 19 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 174 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -214,14 +214,14 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 83 |
+| `identity` | keys, accounts, devices, claims, invitations | 80 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 65 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 72 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 54 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 157 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 159 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1203,7 +1203,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (318)
+# `itsanas-cli` — unit tests (313)
 
 ## `bench` — measuring this machine (4)
 
@@ -1689,15 +1689,10 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | **`red_team_the_space_step_is_told_the_figures_it_shows`** | `space_of` answers every field Kotlin reads, with a real sibling's 100 GiB offered as "the same" on a phone with the room, and what the coordinator last said when it cannot be asked. Sabotaged (no largest): red. |
 | `a_name_no_coordinator_would_take_is_not_sent` | `checkName` answers `valid:false` with the reason, without the protocol's prefix, for names a lookup would call free. |
 | **`red_team_a_name_is_free_or_taken_as_the_coordinator_says_and_unknown_otherwise`** | `checkName` against a real coordinator: yes, no, and `unknown` for one that cannot be asked, which never reads as free. Sabotaged (`unknown` as `no`): red. |
-| **`red_team_the_restore_screen_says_which_word_and_whose_name`** | `checkRestore`: the wrong word by its number on the sheet and never its text, the count, a numbered grid taken as saved, the name not asked until the words are good, and `yours`, `other`, `none`, `invalid`, `unknown` from a real coordinator. Sabotaged twice (no `phrase_words`; any owner read as yours): red. |
-| **`red_team_the_words_come_back_only_for_the_passphrase`** | `newPhrase` is 24 words; `words` throws for a wrong passphrase; `changePassphrase` needs the current one and obeys the rule, and the old one stops opening. Sabotaged (an answer instead of a throw): red. |
+| **`red_team_the_words_come_back_only_for_the_passphrase`** | `words` throws for a wrong passphrase; `changePassphrase` needs the current one and obeys the rule, and the old one stops opening. Sabotaged (an answer instead of a throw): red. |
 | **`red_team_a_phone_that_logs_out_frees_its_slot_and_leaves_nothing_behind`** | `logout_into` against a real coordinator: withdrawn, departed, the home gone with no leftovers and no marker, the node released; a login at the same path gets another device id and enrols. Sabotaged twice (no `withdraw_self`: the slot is held for ever; the node not dropped: on Windows the open store refuses the rename): red. |
 | **`red_team_an_unreachable_coordinator_still_logs_out_and_the_next_login_finishes_it`** | With the coordinator gone the node is still erased and the old id is written beside the home; a login that cannot reach it keeps the id, and one that can withdraws it and removes the file. Sabotaged twice (stopping when not withdrawn; dropping the id on any outcome): red. |
 | `a_withdrawal_for_another_account_is_dropped_once_answered` | An id the coordinator refuses, because this login is another account's, is not asked again, and that device is not withdrawn. Sabotaged (a refusal read as no answer): red. |
-| **`red_team_a_forgotten_passphrase_is_replaced_only_by_this_account_s_words`** | `restore_over`: bad words, another account's words as the coordinator lists them and a passphrase outside the rule each leave the keystore byte for byte and the held node open; the right words, a numbered grid included, replace the node under a new device and the old device is withdrawn. Sabotaged twice (no owner check; the rule judged after the home is set aside): red. |
-| `a_forgotten_passphrase_can_be_replaced_with_no_network` | The words are enough offline, and the old id waits for a later login. |
-| **`red_team_a_login_sets_a_budget_for_the_disk_and_offers_nothing`** | `login_into`: a numbered grid accepted, what an interrupted erase left swept, a keep set silently from the disk because a restore otherwise downloads until it is full, and the pledge left at 0, because hosting is opt-in. Sabotaged four ways (no budget; a pledge set; no sweep; no grid): red. |
-| `a_disk_that_will_not_say_gets_no_budget` | A budget made up from nothing would be worse than none. |
 | **`red_team_deleting_the_account_takes_its_own_name_typed`** | `deleteAccount`: an empty, a differently cased and another name send nothing and erase nothing; the account's own deletes it at a real coordinator and erases the phone. Sabotaged (no comparison): red. |
 | `a_refused_deletion_erases_nothing` | A coordinator that cannot be reached is not a deletion: keys kept, node open. |
 | `a_logout_of_a_home_not_open_erases_nothing` | A stale path erases no other home, and a closed node is not erased with no check. |
@@ -1996,7 +1991,7 @@ not read, the pledge kept whatever the free space.
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 
-# `itsanas-android` — the JNI boundary (17)
+# `itsanas-android` — the JNI boundary (19)
 
 `src/lib.rs`. The only crate that relaxes the unsafe lint, and the only one whose
 contract is with another language. What every shell shares (the account, the
@@ -2024,6 +2019,8 @@ from a host over a real socket, and one of them opened.
 | **`red_team_the_unlock_screen_checks_the_passphrase_when_the_node_is_already_open`** | `open_into` with the node already held judges what was typed against the keystore, keeps the node open on a wrong answer, and answers as before on the right one. Sabotaged (the check dropped): red. |
 | **`red_team_a_negative_keep_is_no_limit_and_zero_is_the_listing_alone`** | Kotlin always sends bytes: `setLimits` with a negative keep is no limit, with 0 a budget of nothing. 0 survives the config file, and a real round against a real sibling lists the file and fetches none of it. Sabotaged (`keep > 0`, as it was): red. |
 | **`red_team_an_engine_whose_page_was_left_asks_nothing`** | Leaving a page does not stop its engine, which may still be checking the connection: once the page is left, its engine is told the screen was closed instead of asking, so its 24 words cannot replace the ones on screen. The Unlock screen, which has no page, still asks. Sabotaged. |
+| **`red_team_opening_a_phone_finishes_what_a_logout_or_a_removal_left`** | `open_into` withdraws the device a logout with no network could not, and removes an erase cut short, whichever way the node got onto the phone. |
+| **`red_team_a_phone_says_its_files_are_not_safe_yet`** | `status_of` says `safe:false` and `copiesWanted:2` for a file on the phone alone, from the rule the CLI uses, and `safe:true` for an empty account. |
 | **`red_team_the_phone_refuses_limits_its_disk_cannot_hold`** | `set_limits_on` with what is free given, because a real disk check would fail on a small runner: a pledge past what is free, and a pair past what the disk holds, are refused naming the Settings sections, and leave the file and the node as they were. Sabotaged twice (each check): red. |
 | **`red_team_a_file_is_fetched_from_a_machine_known_only_from_the_coordinator`** | `get` dials who `sync` dials, through one `targets`: a real sibling that announced itself, nothing typed in, a metadata round that lists the file and a fetch that brings it. It said "no machine configured" beside a running machine, as the round had. Sabotaged (`config.peers` alone): red. |
 | **`red_team_a_round_enrols_the_phone_and_reads_what_its_machines_pledge`** | A round enrols the phone with no step for a person (marker written, device live) and reads what the account's machines pledge, even with nobody to dial, and says so without mentioning an invitation. Sabotaged twice (no `ensure_enrolled`; no `refresh_others_pledged`): red. |

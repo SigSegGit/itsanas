@@ -115,6 +115,8 @@ data class Status(
     val copiesElsewhere: Int,
     val onlyHere: Int,
     val liveChunks: Int,
+    val copiesWanted: Int,
+    val safe: Boolean,
 )
 
 /** Parsing, kept next to the calls it belongs to rather than spread about. */
@@ -147,6 +149,8 @@ object Answers {
             copiesElsewhere = o.getInt("copiesElsewhere"),
             onlyHere = o.getInt("onlyHere"),
             liveChunks = o.getInt("liveChunks"),
+            copiesWanted = o.getInt("copiesWanted"),
+            safe = o.getBoolean("safe"),
         )
     }
 

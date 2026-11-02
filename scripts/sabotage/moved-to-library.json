@@ -38,16 +38,6 @@
       "live": "        Err(_) => \"unknown\",\n",
       "dead": "        Err(_) => \"no\",\n"
     },
-    "restore check: no grid": {
-      "file": "crates/itsanas-cli/src/account.rs",
-      "live": "username: &str, phrase: &str) -> String {\n    let words = phrase_words(phrase);\n",
-      "dead": "username: &str, phrase: &str) -> String {\n    let words = phrase.to_owned();\n"
-    },
-    "restore check: anybody's name is yours": {
-      "file": "crates/itsanas-cli/src/account.rs",
-      "live": "(Ok(Some(owner)), Ok(mine)) if owner == mine => (\"yours\", None),",
-      "dead": "(Ok(Some(_)), Ok(_)) => (\"yours\", None),"
-    },
     "words: a wrong passphrase answers": {
       "file": "crates/itsanas-cli/src/account.rs",
       "live": "    let phrase = Identity::recovery_phrase(home, passphrase)?;\n",
@@ -78,31 +68,6 @@
       "live": "is_ok_and(|device| coordinator::withdraw_old_device(node, device, now).is_err())",
       "dead": "is_ok_and(|device| { let _ = coordinator::withdraw_old_device(node, device, now); false })"
     },
-    "restore over: no owner check": {
-      "file": "crates/itsanas-cli/src/account.rs",
-      "live": "        && owner != user_of(&words)?\n",
-      "dead": "        && false && owner != user_of(&words)?\n"
-    },
-    "restore over: passphrase judged after the erase": {
-      "file": "crates/itsanas-cli/src/account.rs",
-      "live": "    check_new_passphrase(login.passphrase)?;\n\n    let config",
-      "dead": "    let config"
-    },
-    "login: no budget": {
-      "file": "crates/itsanas-cli/src/account.rs",
-      "live": "    set_keep_budget(node, disk);\n",
-      "dead": "    let _ = disk;\n"
-    },
-    "login: a pledge set silently": {
-      "file": "crates/itsanas-cli/src/account.rs",
-      "live": "    // Best effort, as the next setter saves it: the node in memory has it.\n",
-      "dead": "    node.config.pledge_bytes = 6 << 30;\n"
-    },
-    "login: no grid": {
-      "file": "crates/itsanas-cli/src/account.rs",
-      "live": "        &phrase_words(login.phrase),\n",
-      "dead": "        login.phrase,\n"
-    },
     "delete: no comparison": {
       "file": "crates/itsanas-cli/src/account.rs",
       "live": "    if confirm.is_empty() || confirm != node.config.username {\n",
@@ -127,11 +92,6 @@
       "file": "crates/itsanas-node/src/coordinator.rs",
       "live": "text.contains(\"by invitation only\") || text.contains(\"that invitation cannot be used\")",
       "dead": "!text.is_empty()"
-    },
-    "login: no sweep": {
-      "file": "crates/itsanas-cli/src/account.rs",
-      "live": "    sweep_removed(login.home);\n    let mut node = restore_account(\n        login.home,\n        login.passphrase,\n",
-      "dead": "    let mut node = restore_account(\n        login.home,\n        login.passphrase,\n"
     },
     "sign out: the app is not told": {
       "file": "crates/itsanas-cli/src/setup/web/mod.rs",

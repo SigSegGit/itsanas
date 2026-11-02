@@ -88,7 +88,14 @@ use itsanas_store::REPLICATION_TARGET;
 /// until they need it. `REPLICATION_TARGET` is three and counts this machine,
 /// which is the same promise with the headroom that variable availability
 /// needs -- a copy on a laptop that is shut is a copy you cannot reach today.
-const SAFE_COPIES: usize = 2;
+pub const SAFE_COPIES: usize = 2;
+
+/// Whether the account has the copies it is for, for a shell that says so itself.
+/// No data is no question, not a failed answer to one.
+#[must_use]
+pub fn account_is_safe(coverage: &itsanas_store::Coverage) -> bool {
+    coverage.live_chunks == 0 || coverage.meets(SAFE_COPIES)
+}
 
 use crate::{
     config::{format_size, parse_size},

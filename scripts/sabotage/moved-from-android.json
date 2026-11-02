@@ -91,6 +91,21 @@
       "file": "crates/itsanas-android/src/host.rs",
       "live": "            .is_some_and(|page| crate::GENERATION.load(Ordering::SeqCst) != page)",
       "dead": "            .is_some_and(|page| crate::GENERATION.load(Ordering::SeqCst) == page.wrapping_sub(1))"
+    },
+    "status: a phone is always safe": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "\"safe\": itsanas_cli::account_is_safe(&coverage),",
+      "dead": "\"safe\": true,"
+    },
+    "open: nothing finished": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "    itsanas_cli::shell::after_open(&node, now);\n",
+      "dead": ""
+    },
+    "open: no sweep": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    sweep_removed(&node.home);\n",
+      "dead": ""
     }
   }
 }

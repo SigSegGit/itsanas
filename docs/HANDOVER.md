@@ -10,7 +10,7 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0y
-TITLE: The phone's status carries the safety verdict (copies wanted, exposed), from shared code (the Android app shows no copy count today; §8 0y, its NEXT paragraph)
+TITLE: The other safety alerts: a failed challenge, a full or unwritable pledge, low free space (§8 0y, its Left)
 WRITTEN-AT: 2026-11-02
 BASE: 23c00a4
 -->
@@ -51,15 +51,15 @@ every test. A Compose dialog is invisible to Espresso's view matchers: tag its b
 `FilesTest` once stayed on the typed-back words after Confirm, cause unknown: if it comes
 back, read that screen first.
 
-Next batch, all at once (Nicolas, 2026-11-02: macOS runners make each CI round costly, so
-group the coming features in one PR instead of one per step): §8 0y, the debts below, and
-the final check's lines, which a French page still shows in English.
-
 Debts left on purpose: on a desktop `show_words` goes through the window that asks three
-words back, and ignores them (a plain window needs one on each platform);
-`account.rs` keeps `login_into`, `restore_over`, `check_restore` and `new_phrase`, whose
-tests prove logic no route calls since the page's engine took over: delete them with their
-rows and plan entries in a change of their own.
+words back, and ignores them (a plain window needs one on each platform).
+
+**2026-11-02: the phone says when its files are not safe; a phone finishes what it left.**
+`status_of` carries `safe` and `copiesWanted` from the CLI's rule (`account_is_safe`), and
+the file list shows the line. Deleting the phone's old login path showed it was the only
+caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
+and sends the withdrawals an offline logout could not. The final check's lines are in plain
+words and translated; what passed shows no detail.
 
 **Waiting on Nicolas, in this order, as commands to paste** (2026-10-29; a
 session cannot do any of them, and gives him these commands first, every
@@ -1837,29 +1837,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
       copy count); and the other ARCHITECTURE §7 rows (no round for N
       minutes is `stale` already; a failed challenge, a full or unwritable
       pledge, low free space have no alert).
-      **NEXT (scouted 2026-10-30, line numbers to re-check): The phone's
-      status carries the safety verdict (copies wanted, exposed), from
-      shared code.** The Android JNI status (crates/itsanas-
-      android/src/lib.rs:543-575) returns `copiesElsewhere` and
-      `onlyHere`, but not the copies wanted or whether the account is
-      exposed. The app shows the count only inside Settings
-      (android/app/src/main/java/fr/ngas/itsanas/MainActivity.kt:612-626).
-      Move `SAFE_COPIES` (crates/itsanas-cli/src/main.rs:74) and
-      `safety::Copies` (crates/itsanas-cli/src/safety.rs) into itsanas-
-      node or itsanas-store, so the CLI and android crates share one
-      rule. Add `copiesWanted` and `safe` to the JSON. Kotlin:
-      Native.kt:122/154 parse them, and MainActivity shows a red or
-      orange line on the main screen ('your files are only on this
-      phone'). No Gradle job exists in CI (.github/workflows has none),
-      so the Kotlin half cannot be verified by a session unless it also
-      adds one. That is an optional extra job: setup-java plus the SDK
-      on ubuntu-latest, then `./gradlew assembleDebug`, which needs no
-      signing key for a debug build. **Tests:** A Rust test in itsanas-
-      android's tests module (lib.rs:950) through a non-JNI helper, as
-      the setKeep helpers do (:608): a node with stored files and no
-      holders gives `safe:false, copiesWanted:2`. Sabotage: hard-code
-      safe true, and it turns red. The CLI's existing exposed tests keep
-      passing after the move, which proves the shared rule.
+      Done 2026-11-02: the phone says it, from the CLI's rule (`account_is_safe`,
+      `red_team_a_phone_says_its_files_are_not_safe_yet`). **NEXT: the other
+      ARCHITECTURE §7 rows.** Each is a line in the snapshot header that
+      `brief_status` reads (`safety.rs` is the model), a colour in the trays, a
+      line on the phone, and a red-team test with its sabotage.
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
       `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
       Battery is reported (`powercfg /batteryreport`) and not judged; bytes

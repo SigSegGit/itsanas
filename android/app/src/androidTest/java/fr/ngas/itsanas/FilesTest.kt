@@ -43,6 +43,7 @@ class FilesTest {
     fun plus_adds_a_real_file_and_it_is_listed() {
         Flows.createAccount(compose, Flows.freshName())
         E2e.shotBoth("20-files-empty")
+        Flows.waitNoTag(compose, "not-safe", "an empty account is told its files are not safe")
 
         Intents.init()
         val name = "e2e-note.txt"
@@ -51,6 +52,7 @@ class FilesTest {
         )
         Flows.click(compose, "files-add")
         Flows.waitTag(compose, "file-row", "the file chosen with + was never listed, so adding a file does nothing", 90)
+        Flows.waitTag(compose, "not-safe", "a file on this phone alone and no warning: losing the phone loses it, unwarned")
         E2e.shotBoth("21-files-listed")
         val rows = compose.onAllNodesWithTag("file-row").fetchSemanticsNodes().size
         assertTrue("expected exactly one row, saw $rows", rows == 1)

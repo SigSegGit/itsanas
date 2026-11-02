@@ -206,7 +206,13 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_open(
     let passphrase = text(&mut env, &passphrase, "the passphrase");
 
     answer(&mut env, move || {
-        open_into(&NODE, &home?, &passphrase?, &network()?)
+        open_into(
+            &NODE,
+            &home?,
+            &passphrase?,
+            &network()?,
+            itsanas_discover::now_unix(),
+        )
     })
 }
 
@@ -224,6 +230,7 @@ fn open_into(
     home: &Path,
     passphrase: &str,
     network: &Network,
+    now: u64,
 ) -> Answer {
     let mut guard = slot
         .lock()
@@ -235,6 +242,7 @@ fn open_into(
     // Another account's node, if any, is closed before this one opens.
     *guard = None;
     let node = network.pin(Node::open(home, passphrase)?)?;
+    itsanas_cli::shell::after_open(&node, now);
     let answer = describe(&node);
     *guard = Some(node);
     Ok(answer)
@@ -714,6 +722,8 @@ fn status_of(node: &Node) -> Answer {
         "copiesElsewhere": coverage.complete_elsewhere,
         "onlyHere": coverage.only_here,
         "liveChunks": coverage.live_chunks,
+        "copiesWanted": itsanas_cli::SAFE_COPIES,
+        "safe": itsanas_cli::account_is_safe(&coverage),
     })
     .to_string())
 }
@@ -882,12 +892,11 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_plan(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use itsanas_cli::account::{Login, login_into, logout_check, logout_into, restore_account};
+    use itsanas_cli::account::{logout_check, logout_into, restore_account};
     use itsanas_cli::limits::set_limits_on;
     use itsanas_cli::testing::{NOW, PASSPHRASE, live, phone, serving, serving_on, with_directory};
     use itsanas_node::NodeError;
     use itsanas_node::coordinator;
-    use itsanas_node::pledges::DiskSpace;
 
     /// The JSON this shell answers with is the shape Kotlin parses.
     ///
@@ -1008,8 +1017,8 @@ mod tests {
         let home = dir.path().join("phone");
         drop(Node::create(&home, "a passphrase", "camille").expect("create"));
         let slot = Mutex::new(None);
-        let first = open_into(&slot, &home, "a passphrase", &nowhere()).expect("first open");
-        let again = open_into(&slot, &home, "a passphrase", &nowhere());
+        let first = open_into(&slot, &home, "a passphrase", &nowhere(), NOW).expect("first open");
+        let again = open_into(&slot, &home, "a passphrase", &nowhere(), NOW);
         assert!(
             again.is_ok(),
             "unlocking while the node is already open failed ({:?}): the phone stays \
@@ -1029,9 +1038,9 @@ mod tests {
         let home = dir.path().join("phone");
         drop(Node::create(&home, "a passphrase", "camille").expect("create"));
         let slot = Mutex::new(None);
-        let first = open_into(&slot, &home, "a passphrase", &nowhere()).expect("first open");
+        let first = open_into(&slot, &home, "a passphrase", &nowhere(), NOW).expect("first open");
 
-        let wrong = open_into(&slot, &home, "not the passphrase", &nowhere());
+        let wrong = open_into(&slot, &home, "not the passphrase", &nowhere(), NOW);
         assert!(
             matches!(wrong, Err(Failure::Node(NodeError::Unlock))),
             "the Unlock screen opened the account for a wrong passphrase: {:?}",
@@ -1042,7 +1051,7 @@ mod tests {
             "a wrong passphrase closed the node the sync service holds"
         );
         assert_eq!(
-            open_into(&slot, &home, "a passphrase", &nowhere()).expect("right passphrase"),
+            open_into(&slot, &home, "a passphrase", &nowhere(), NOW).expect("right passphrase"),
             first
         );
     }
@@ -1054,14 +1063,6 @@ mod tests {
         Network {
             address: address.to_string(),
             device: None,
-        }
-    }
-
-    /// A disk that answers, roomy enough to matter in no test that does not ask.
-    fn roomy() -> DiskSpace {
-        DiskSpace {
-            free: Some(100 * GIB),
-            total: Some(128 * GIB),
         }
     }
 
@@ -1119,6 +1120,66 @@ mod tests {
     /// A phone cannot promise a disk it has not got: pledging more than is free
     /// made every later write and pull refuse, with no sentence that said why.
     /// Sabotage: drop either check in `check_phone_disk`.
+    /// A logout with no network and an erase cut short are finished by the next open:
+    /// nothing else does, and a phone holds its slot at the coordinator for ever
+    /// otherwise. Sabotage: drop the call from `open_into`; drop the sweep.
+    #[test]
+    fn red_team_opening_a_phone_finishes_what_a_logout_or_a_removal_left() {
+        with_directory(|address, directory| {
+            let dir = tempfile::tempdir().unwrap();
+            let home = dir.path().join("node");
+            let (mut node, phrase) = phone(&home, address, "camille", None);
+            coordinator::register_with(&node, None, NOW).unwrap();
+            let device = node.store.device_id();
+            node.config.coordinator = Some("127.0.0.1:1".to_owned());
+            let slot = Mutex::new(Some(node));
+            logout_into(&slot, &home, NOW + 1).unwrap();
+            assert!(live(directory, device), "the logout had no network to ask");
+
+            let leftover = dir.path().join("node.removing-cut-short");
+            std::fs::create_dir(&leftover).unwrap();
+            drop(phone(&home, address, "camille", Some(&phrase)));
+            open_into(&slot, &home, PASSPHRASE, &network_at(address), NOW + 2).unwrap();
+
+            assert!(
+                !live(directory, device),
+                "the old device stays listed: this phone's slot is held for ever"
+            );
+            assert!(
+                !leftover.exists(),
+                "an erase cut short stays on the disk with the account's keys in it"
+            );
+        });
+    }
+
+    /// A phone's files with no copy elsewhere are the person MVP test L is about.
+    /// Sabotage: hard-code `safe` to true.
+    #[test]
+    fn red_team_a_phone_says_its_files_are_not_safe_yet() {
+        let dir = tempfile::tempdir().unwrap();
+        let (node, _) = Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        let status: serde_json::Value = serde_json::from_str(&status_of(&node).unwrap()).unwrap();
+        assert_eq!(
+            status["safe"], true,
+            "an empty account was called unsafe: {status}"
+        );
+
+        let source = dir.path().join("source");
+        std::fs::write(&source, b"kept on this phone alone").unwrap();
+        node.store
+            .write_stream("one.txt", std::fs::File::open(&source).unwrap())
+            .unwrap();
+        node.store.flush_segment().unwrap();
+
+        let status: serde_json::Value = serde_json::from_str(&status_of(&node).unwrap()).unwrap();
+        assert_eq!(
+            status["safe"], false,
+            "files on this phone alone were called safe: losing it loses them, unwarned: {status}"
+        );
+        assert_eq!(status["copiesWanted"], 2, "{status}");
+        assert_eq!(status["copiesElsewhere"], 0, "{status}");
+    }
+
     #[test]
     fn red_team_the_phone_refuses_limits_its_disk_cannot_hold() {
         let dir = tempfile::tempdir().unwrap();
@@ -1422,6 +1483,7 @@ mod tests {
             &dir.path().join("older"),
             "a long passphrase",
             &official,
+            NOW,
         )
         .unwrap();
         let guard = slot.lock().unwrap();
@@ -1492,13 +1554,15 @@ mod tests {
                 assert_eq!(said["withdrawn"], true, "{said}");
                 assert!(said["told"].as_u64() >= Some(1), "{said}");
 
-                let login = Login {
-                    home: &home,
-                    username: "camille",
-                    phrase: &phrase,
-                    passphrase: NEW_PASSPHRASE,
-                };
-                login_into(&slot, login, roomy(), &network_at(address), NOW + 2).expect("login");
+                let restored = restore_account(
+                    &home,
+                    NEW_PASSPHRASE,
+                    "camille",
+                    &phrase,
+                    &network_at(address),
+                )
+                .expect("login");
+                *slot.lock().expect("lock") = Some(restored);
                 let mut guard = slot.lock().expect("lock");
                 let node = guard.as_mut().expect("held");
                 node.config.peers.push(at.to_string());
