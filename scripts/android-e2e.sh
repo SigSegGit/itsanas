@@ -77,6 +77,10 @@ echo "== the tests"
 "$adb" logcat -c || true
 "$adb" shell rm -rf /data/local/tmp/e2e || true
 # Animations make every tap a race against the screen.
+# A slow runner makes the launcher "not respond", and that dialog takes the
+# window focus from the app under test: every test then fails the same way.
+"$adb" shell settings put global hide_error_dialogs 1 || true
+"$adb" shell input keyevent KEYCODE_HOME || true
 for scale in window_animation_scale transition_animation_scale animator_duration_scale; do
     "$adb" shell settings put global "$scale" 0 || true
 done
