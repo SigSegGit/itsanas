@@ -426,6 +426,7 @@ produces it in one command.
 | --- | --- |
 | The core | unchanged, cross-compiled |
 | Keystore, configuration, one sync round | `crates/itsanas-node`, shared with the command line |
+| The setup engine and Settings, as a page | `crates/itsanas-cli` (a library plus the thin binary): the account, devices, space and removal logic every shell shares, served on 127.0.0.1 for the app's web view |
 | The JNI boundary | `crates/itsanas-android`, the only crate that relaxes the unsafe lint |
 | The application | `android/`, Kotlin and Compose, about 900 lines |
 
@@ -437,7 +438,10 @@ identities, the "a node already exists here" guard — drifting apart from the d
 the second one was written. So the binary became a shell over a library, and the
 application is a second shell over the same library.
 
-**The JNI boundary is coarse on purpose.** Every crossing allocates and can
+**The JNI boundary is coarse on purpose, and small.** What a page can do (creating, restoring and
+leaving an account, the words, the passphrase, the devices, the limits) is the library's, not a
+crossing; what is left is the open node and its files, the sync policy and the app's own update
+check. Every crossing allocates and can
 throw, so the calls are whole operations — list the account, run a round, fetch
 this file — each answering with one JSON string. Errors are Java exceptions
 carrying the same sentence the command line prints for the same fault, which is
