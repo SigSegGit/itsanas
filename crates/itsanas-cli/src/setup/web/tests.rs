@@ -2748,3 +2748,147 @@ fn a_setup_that_stopped_at_the_device_limit_says_so_to_the_page() {
     };
     assert!(run_json(&other).contains("\"atCap\":false"));
 }
+
+/// What the shell was told, in order.
+#[derive(Clone, Default)]
+struct Heard(Arc<Mutex<Vec<(String, String)>>>);
+
+impl super::Host for Heard {
+    fn event(&self, name: &str, value: &str) {
+        self.0
+            .lock()
+            .expect("heard")
+            .push((name.to_owned(), value.to_owned()));
+    }
+}
+
+/// A phone's page over a node it holds open: the Settings of `home`, with the
+/// node in a slot of its own and the shell's events recorded.
+fn phone_page(home: &Path, base: &Path, node: itsanas_node::Node, heard: &Heard) -> Page {
+    let slot: &'static super::Slot = Box::leak(Box::new(Mutex::new(Some(node))));
+    let heard = heard.clone();
+    Page::start_with(home, base, Mode::Settings, &Seen::default(), move |b| {
+        b.features = Features::PHONE;
+        b.nodes = Arc::new(super::Held(slot));
+        b.host = Arc::new(heard);
+    })
+}
+
+#[test]
+fn red_team_removing_the_account_through_the_page_needs_its_name_where_pieces_are_only_here() {
+    use crate::testing::{live, with_directory};
+    with_directory(|address, directory| {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("node");
+        let (mut node, _) =
+            itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
+        node.config.coordinator = Some(address.to_string());
+        node.save_config().expect("config");
+        crate::coordinator::register_with(&node, None, crate::testing::NOW).expect("enrol");
+        let device = node.store.device_id();
+        // A file no other machine has: its pieces exist only here.
+        let source = dir.path().join("source");
+        std::fs::write(&source, b"kept on this machine alone").expect("source");
+        node.store
+            .write_stream("one.txt", std::fs::File::open(&source).expect("open"))
+            .expect("write");
+        node.store.flush_segment().expect("flush");
+
+        let heard = Heard::default();
+        let page = phone_page(&home, dir.path(), node, &heard);
+        let check = page.api("GET", "/api/remove", "");
+        assert_eq!(check.status, 200, "{}", check.body);
+        assert!(
+            !check.body.contains("\"onlyHere\":0")
+                && check.body.contains("\"username\":\"camille\""),
+            "the check did not say the pieces exist only here: {}",
+            check.body
+        );
+
+        for typed in ["", "confirm=camil", "confirm=someone-else"] {
+            let refused = page.api("POST", "/api/remove", typed);
+            assert_eq!(
+                refused.status, 409,
+                "the account was removed without its name ({typed:?}): its only copy is gone"
+            );
+        }
+        assert!(home.exists(), "a refused removal still erased the home");
+        assert!(
+            live(directory, device),
+            "a refused removal still freed the slot"
+        );
+        assert!(
+            heard.0.lock().expect("heard").is_empty(),
+            "the shell was told the account was gone when it was not"
+        );
+
+        let done = page.api("POST", "/api/remove", "confirm=camille");
+        assert_eq!(done.status, 200, "{}", done.body);
+        assert!(!home.exists(), "the home survived the removal");
+        assert!(
+            !live(directory, device),
+            "the removal kept this device's place among the account's"
+        );
+        assert_eq!(
+            heard.0.lock().expect("heard").as_slice(),
+            [("account_removed".to_owned(), "removed".to_owned())],
+            "the shell was not told: its screens would show an account that is gone"
+        );
+    });
+}
+
+#[test]
+fn red_team_deleting_the_account_through_the_page_takes_its_own_name_typed() {
+    use crate::testing::with_directory;
+    with_directory(|address, _| {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("node");
+        let (mut node, _) =
+            itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
+        node.config.coordinator = Some(address.to_string());
+        node.save_config().expect("config");
+        crate::coordinator::register_with(&node, None, crate::testing::NOW).expect("enrol");
+        let heard = Heard::default();
+        let page = phone_page(&home, dir.path(), node, &heard);
+
+        for typed in ["", "confirm=camil", "confirm=voisin"] {
+            let refused = page.api("POST", "/api/delete", typed);
+            assert_eq!(
+                refused.status, 409,
+                "the account was deleted on a name that is not its own ({typed:?})"
+            );
+        }
+        assert!(home.exists(), "a refused deletion erased the home");
+        assert!(
+            heard.0.lock().expect("heard").is_empty(),
+            "the shell was told of a deletion that was refused"
+        );
+
+        let done = page.api("POST", "/api/delete", "confirm=camille");
+        assert_eq!(done.status, 200, "{}", done.body);
+        assert!(!home.exists(), "the home survived the deletion");
+        assert_eq!(
+            heard.0.lock().expect("heard").as_slice(),
+            [("account_removed".to_owned(), "deleted".to_owned())]
+        );
+    });
+}
+
+#[test]
+fn a_computer_is_offered_no_way_to_remove_or_delete_the_account_from_the_page() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    std::fs::create_dir_all(&home).expect("home");
+    let page = Page::start(&home, dir.path(), Mode::Settings, &Seen::default());
+    for (method, path) in [
+        ("GET", "/api/remove"),
+        ("POST", "/api/remove"),
+        ("POST", "/api/delete"),
+    ] {
+        assert_eq!(
+            page.api(method, path, "confirm=x").status,
+            403,
+            "{path} answers on a computer, where the service would be left behind"
+        );
+    }
+}

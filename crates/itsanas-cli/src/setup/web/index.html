@@ -371,6 +371,35 @@
         <p id="st-devices-said" class="said" role="status" aria-live="polite"></p>
       </section>
 
+      <section class="card" data-feature="remove_account" aria-labelledby="st-h-account">
+        <h2 id="st-h-account">Account</h2>
+        <div class="field">
+          <span class="label">Remove this account from this machine</span>
+          <p class="help">This removes the account and every downloaded file from this machine and frees its place among your devices. Nothing is deleted from your other machines. To come back you need your account name and your 24 words.</p>
+          <div class="controls"><button type="button" id="st-remove-check">Check what is safe to remove</button></div>
+          <div id="st-remove-sure" hidden>
+            <p id="st-remove-only" class="notice" hidden></p>
+            <p id="st-remove-reached" class="help" hidden>No other machine answered just now, so the last changes made here may not have reached them.</p>
+            <p id="st-remove-held" class="help" hidden></p>
+            <div id="st-remove-name-box" hidden>
+              <label for="st-remove-name" id="st-remove-name-label"></label>
+              <div class="controls"><input id="st-remove-name" spellcheck="false" autocapitalize="none" autocomplete="off"></div>
+            </div>
+            <div class="controls"><button type="button" id="st-remove-go">Remove this account from this machine</button></div>
+          </div>
+          <p id="st-remove-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+        <div class="field">
+          <span class="label">Delete this account</span>
+          <p class="help">This removes the account for good: your hosts free its data, your other machines stop, and the name stays retired for a year. Type the account's name to confirm.</p>
+          <div class="controls">
+            <input id="st-delete-name" spellcheck="false" autocapitalize="none" autocomplete="off" aria-label="The account's name">
+            <button type="button" id="st-delete-go">Delete this account</button>
+          </div>
+          <p id="st-delete-said" class="said" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
       <section class="card" aria-labelledby="st-h-about">
         <h2 id="st-h-about">About and legal</h2>
         <p class="help">ITSaNAS <span id="st-version"></span></p>

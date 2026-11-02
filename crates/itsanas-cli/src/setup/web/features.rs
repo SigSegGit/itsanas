@@ -10,7 +10,7 @@ use super::http::Response;
 
 /// What this shell can do. Every field has a `data-feature` of its name in
 /// `index.html`; `every_feature_is_named_in_the_page` fails otherwise.
-// Ten independent switches, one per thing a shell may lack: not a state machine
+// Eleven independent switches, one per thing a shell may lack: not a state machine
 // in disguise, so the lint's advice (an enum) would only hide the table.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +36,11 @@ pub struct Features {
     pub biometric: bool,
     /// Download over mobile data, or only on Wi-Fi.
     pub metered: bool,
+    /// Remove the account from this machine, or delete it: the page stops the
+    /// service, tells the network, erases the home and tells the shell. A
+    /// computer removes a machine with `install/clean` and the tray, which also
+    /// take the service away; the page does not yet.
+    pub remove_account: bool,
 }
 
 impl Features {
@@ -51,6 +56,7 @@ impl Features {
         keep_question: false,
         biometric: false,
         metered: false,
+        remove_account: false,
     };
 
     /// A phone: its files are in the app, it dials out only, and it has the one
@@ -66,11 +72,12 @@ impl Features {
         keep_question: true,
         biometric: true,
         metered: true,
+        remove_account: true,
     };
 
     /// Every feature, by the name the page uses.
     #[must_use]
-    pub const fn all(self) -> [(&'static str, bool); 10] {
+    pub const fn all(self) -> [(&'static str, bool); 11] {
         [
             ("folder", self.folder),
             ("background_choice", self.background_choice),
@@ -82,6 +89,7 @@ impl Features {
             ("keep_question", self.keep_question),
             ("biometric", self.biometric),
             ("metered", self.metered),
+            ("remove_account", self.remove_account),
         ]
     }
 
@@ -127,7 +135,10 @@ mod tests {
         let phone = Features::PHONE.all();
         let desktop = Features::DESKTOP.all();
         for ((name, on_phone), (_, on_desktop)) in phone.into_iter().zip(desktop) {
-            let phone_only = matches!(name, "keep_question" | "biometric" | "metered");
+            let phone_only = matches!(
+                name,
+                "keep_question" | "biometric" | "metered" | "remove_account"
+            );
             assert_eq!(on_phone, phone_only, "{name} on a phone");
             assert_eq!(on_desktop, !phone_only, "{name} on a desktop");
         }

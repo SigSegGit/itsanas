@@ -390,6 +390,28 @@ window.I18N = {
     'A window asks for your 24 words, then a new passphrase.':
       'Une fenêtre demande vos 24 mots, puis une nouvelle phrase de passe.',
     'Not changed:': 'Pas modifié :',
+    'Account': 'Compte',
+    'Remove this account from this machine': 'Retirer ce compte de cette machine',
+    'This removes the account and every downloaded file from this machine and frees its place among your devices. Nothing is deleted from your other machines. To come back you need your account name and your 24 words.':
+      'Cela retire le compte et tous les fichiers téléchargés de cette machine, et libère sa place parmi vos appareils. Rien n’est supprimé de vos autres machines. Pour revenir, il faut le nom du compte et vos 24 mots.',
+    'Check what is safe to remove': 'Vérifier ce qui peut être retiré sans risque',
+    'Checking what is safe to remove...': 'Vérification de ce qui peut être retiré sans risque…',
+    'No other machine answered just now, so the last changes made here may not have reached them.':
+      'Aucune autre machine n’a répondu à l’instant : les derniers changements faits ici n’ont peut-être pas pu les atteindre.',
+    '{n} of {total} pieces of your files exist only on this machine. Removing the account now destroys them for good. Sync with one of your other machines first.':
+      '{n} morceaux de vos fichiers sur {total} n’existent que sur cette machine. Retirer le compte maintenant les détruit pour toujours. Synchronisez d’abord avec une de vos autres machines.',
+    'This machine keeps {size} for other members. They re-place it from their own copies.':
+      'Cette machine garde {size} pour d’autres membres. Ils le replacent à partir de leurs propres copies.',
+    'Type {name} to remove it anyway': 'Tapez {name} pour la retirer quand même',
+    'This account is removed from this machine.': 'Ce compte est retiré de cette machine.',
+    'This machine could not tell the network. It will be done at your next login.':
+      'Cette machine n’a pas pu prévenir le réseau. Ce sera fait à votre prochaine connexion.',
+    'Delete this account': 'Supprimer ce compte',
+    'This removes the account for good: your hosts free its data, your other machines stop, and the name stays retired for a year. Type the account\'s name to confirm.':
+      'Cela supprime le compte pour toujours : vos hôtes libèrent ses données, vos autres machines s’arrêtent, et le nom reste retiré un an. Tapez le nom du compte pour confirmer.',
+    'The account\'s name': 'Le nom du compte',
+    'Delete this account for good? This cannot be undone.': 'Supprimer ce compte pour toujours ? Cela ne peut pas être annulé.',
+    'This account is deleted.': 'Ce compte est supprimé.',
     'Devices of this account': 'Appareils de ce compte',
     'Devices of this account:': 'Appareils de ce compte :',
     'withdraw one you no longer use, then try again.': 'retirez-en un que vous n’utilisez plus, puis réessayez.',

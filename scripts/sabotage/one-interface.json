@@ -22,6 +22,16 @@
       "file": "crates/itsanas-cli/src/devices.rs",
       "live": "    if !known {",
       "dead": "    if false {"
+    },
+    "remove page: the name is not required where pieces are only here": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "            if only_here > 0 && confirm != username {",
+      "dead": "            if false {"
+    },
+    "delete: a wrong name still deletes": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    if confirm.is_empty() || confirm != node.config.username {",
+      "dead": "    if false {"
     }
   }
 }

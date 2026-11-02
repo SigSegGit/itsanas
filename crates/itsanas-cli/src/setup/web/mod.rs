@@ -778,6 +778,9 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("POST", "/api/passphrase") if ctx.mode == Mode::Settings => start_passphrase(ctx),
         ("GET", "/api/devices") => devices_list(ctx),
         ("POST", "/api/withdraw") => withdraw_device(ctx, request),
+        ("GET", "/api/remove") if ctx.mode == Mode::Settings => remove_check(ctx),
+        ("POST", "/api/remove") if ctx.mode == Mode::Settings => remove_account(ctx, request),
+        ("POST", "/api/delete") if ctx.mode == Mode::Settings => delete_account(ctx, request),
         ("GET", "/api/peers") if ctx.mode == Mode::Settings => peers_list(ctx),
         ("POST", "/api/peers") if ctx.mode == Mode::Settings => peers_change(ctx, request),
         ("POST", "/api/free") => free_space(ctx, request),
@@ -804,6 +807,10 @@ fn gate(features: Features, path: &str, request: &Request) -> Option<Response> {
         "/api/peers" => (
             features.advanced,
             "machine to sync with, named by its address",
+        ),
+        "/api/remove" | "/api/delete" => (
+            features.remove_account,
+            "way to remove or delete the account from here",
         ),
         // Sync now stays: it is what a phone's own button does.
         "/api/control" => {
@@ -1395,6 +1402,116 @@ fn withdraw_device(ctx: &Context, request: &Request) -> Response {
         crate::devices::withdraw(node, id, itsanas_discover::now_unix())
             .map(|answer| answer.to_string())
     })
+}
+
+/// One best-effort round, then what removing the account from this machine
+/// would lose ([`crate::account::logout_check`]). Closes nothing.
+fn remove_check(ctx: &Context) -> Response {
+    // Only the person's own choice against mobile data is known here; asking
+    // for less is the safe side: more is reported as only here.
+    let metered = ctx.backends.host.value("metered").as_deref() == Some("off");
+    node_call(ctx, |node| crate::account::logout_check(node, metered))
+}
+
+/// The service is not a thing to leave running over an account that is gone,
+/// and the shell is told it is: its screens go back to the beginning.
+fn account_gone(ctx: &Context, how: &str) {
+    let service = (ctx.backends.service)();
+    if service.installed() {
+        let _ = service.set_autostart(false);
+        let _ = service.stop();
+    }
+    let _ = service.forget_passphrase();
+    ctx.backends.nodes.keep_stopped();
+    ctx.backends.nodes.release();
+    ctx.backends.host.event("account_removed", how);
+}
+
+/// Remove the account from this machine: the machines are told, this device is
+/// withdrawn, the home erased ([`crate::account::logout_into`]). Where pieces of
+/// the account's files exist only here, the account's name must be typed.
+fn remove_account(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let confirm = field(&form, "confirm").unwrap_or_default();
+    let nodes = &ctx.backends.nodes;
+    if let Err(failure) = nodes.open() {
+        return Response::refuse(409, &failure.message());
+    }
+    let now = itsanas_discover::now_unix();
+    let refusal = {
+        let held = nodes.slot().lock().unwrap_or_else(PoisonError::into_inner);
+        held.as_ref().map(|node| {
+            let only_here = node.store.coverage(now).map_or(usize::MAX, |c| c.only_here);
+            let username = node.config.username.as_str();
+            if only_here > 0 && confirm != username {
+                Some(format!(
+                    "{only_here} pieces of your files exist only on this machine, so the \
+                     account's name must be typed to remove it. Nothing was removed."
+                ))
+            } else {
+                None
+            }
+        })
+    };
+    match refusal {
+        None => {
+            nodes.release();
+            return Response::refuse(409, &Failure::Closed.message());
+        }
+        Some(Some(why)) => {
+            nodes.release();
+            return Response::refuse(409, &why);
+        }
+        Some(None) => {}
+    }
+    match crate::account::logout_into(nodes.slot(), &ctx.home, now) {
+        Ok(said) => {
+            account_gone(ctx, "removed");
+            let said: serde_json::Value = serde_json::from_str(&said).unwrap_or_default();
+            ok_json(object(&[
+                ("told", said["told"].to_string()),
+                ("departed", said["departed"].to_string()),
+                ("withdrawn", said["withdrawn"].to_string()),
+            ]))
+        }
+        Err(failure) => {
+            nodes.release();
+            Response::refuse(409, &failure.message())
+        }
+    }
+}
+
+/// Delete the whole account at the coordinator, then remove it from this machine.
+/// Only the account's own name, typed, gets this far
+/// ([`crate::account::delete_account`]).
+fn delete_account(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    let confirm = field(&form, "confirm").unwrap_or_default();
+    let nodes = &ctx.backends.nodes;
+    if let Err(failure) = nodes.open() {
+        return Response::refuse(409, &failure.message());
+    }
+    match crate::account::delete_account(
+        nodes.slot(),
+        &ctx.home,
+        confirm,
+        itsanas_discover::now_unix(),
+    ) {
+        Ok(_) => {
+            account_gone(ctx, "deleted");
+            ok_json(object(&[("deleted", "true".to_owned())]))
+        }
+        Err(failure) => {
+            nodes.release();
+            Response::refuse(409, &failure.message())
+        }
+    }
 }
 
 /// The machines typed in by address, which this one also syncs with.

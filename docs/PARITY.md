@@ -39,6 +39,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | Machines to sync with (Advanced) · `/api/peers` | ✅ | ✅ | ✅ | ⬜ a phone offers no Advanced section: it syncs with the machines the coordinator lists |
 | About and legal | ✅ | ✅ | ✅ | ✅ |
 | Sign out · `/api/signout` | ✅ | ✅ | ✅ | ✅ |
+| Account (remove this account from this machine, delete it) · `/api/remove` · `/api/delete` | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ✅ |
 | Language · `/api/language` | ✅ | ✅ | ✅ | ✅ |
 | Open and pin the folder · `/api/open` · `/api/pin` · `/api/pick` | ✅ | ✅ | ✅ | ⬜ a phone has no synced folder to open or add to a file manager |
 | Another account beside this one · `/api/another` | ✅ | ✅ | ✅ | ⬜ a phone keeps one account; a second is a second install |
@@ -56,6 +57,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | `feature:another_account` | ✅ | ✅ | ✅ | ⬜ a phone keeps one account |
 | `feature:keep_question` | ⬜ a computer keeps everything until Settings says otherwise | ⬜ a computer keeps everything until Settings says otherwise | ⬜ a computer keeps everything until Settings says otherwise | ✅ |
 | `feature:biometric` | ⬜ the computers' windows ask the passphrase; no fingerprint reader is used | ⬜ the computers' windows ask the passphrase; no fingerprint reader is used | ⬜ the computers' windows ask the passphrase; no fingerprint reader is used | ✅ |
+| `feature:remove_account` | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ✅ |
 | `feature:metered` | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ✅ |
 
 ## The commands
