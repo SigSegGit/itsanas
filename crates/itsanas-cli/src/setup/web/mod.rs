@@ -195,9 +195,9 @@ const MAX_CONNECTIONS: usize = 16;
 /// Lines of progress kept for the page; a run says about twenty.
 const MAX_LINES: usize = 400;
 
-/// Makes the prompt of a run ([`Backends::prompt`]).
+/// Makes the prompt of a run (`Backends::prompt`).
 pub type MakePrompt = Box<dyn Fn() -> Result<Box<dyn SecretPrompt>> + Send + Sync>;
-/// Makes the service control of a run ([`Backends::service`]).
+/// Makes the service control of a run (`Backends::service`).
 pub type MakeService = Box<dyn Fn() -> Box<dyn ServiceControl> + Send + Sync>;
 
 /// Where the engine asks for secrets and which service it drives, made fresh

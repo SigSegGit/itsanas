@@ -316,7 +316,7 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// Serve the setup engine's page on 127.0.0.1 and answer its address, the key
 /// in the fragment. `mode` is `setup` (first run) or `settings`; `biometric` is
 /// whether the phone has a fingerprint or a face to offer. The page's secrets
-/// are asked through the app's `Host` object ([`host`]).
+/// are asked through the app's `Host` object (`host.rs`).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_fr_ngas_itsanas_Native_pageStart(
     mut env: JNIEnv,
