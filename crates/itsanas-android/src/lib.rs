@@ -342,9 +342,10 @@ fn start_page(home: &Path, mode: &str, biometric: bool) -> Answer {
     };
     stop_page();
     let network = network()?;
+    let mine = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     let backends = Backends::of_a_phone(
-        Box::new(|| {
-            let prompt: Box<dyn SecretPrompt> = Box::new(host::PhonePrompt);
+        Box::new(move || {
+            let prompt: Box<dyn SecretPrompt> = Box::new(host::PhonePrompt::of_page(mine));
             Ok(prompt)
         }),
         Box::new(|| Box::new(host::PhoneService)),
@@ -355,7 +356,6 @@ fn start_page(home: &Path, mode: &str, biometric: bool) -> Answer {
     .with_biometric(biometric);
     let server = Server::bind(home, None, mode, home, backends)?;
     let url = server.url();
-    let mine = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
     *PAGE
         .lock()
         .map_err(|_| Failure::Usage("the page lock was poisoned by a panic".to_owned()))? =
@@ -410,7 +410,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_forgot(
     answer(&mut env, move || {
         remembered.map_err(Failure::Usage)?;
         let message =
-            itsanas_cli::shell::forgot(&home?, &mut host::PhonePrompt, &host::PhoneService)?;
+            itsanas_cli::shell::forgot(&home?, &mut host::PhonePrompt::default(), &host::PhoneService)?;
         Ok(serde_json::json!({ "message": message }).to_string())
     })
 }

@@ -11,6 +11,7 @@
 //! Safe `jni` calls only: `scripts/check-unsafe.py` allows no `unsafe` block.
 
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use itsanas_cli::shell::{CliError, Host, Result, Secret, SecretPrompt, ServiceControl};
@@ -132,8 +133,33 @@ fn left() -> CliError {
 }
 
 /// Where the engine asks for secrets on a phone: a screen over the web view.
+///
+/// `page` is the page this engine was started for; `None` for the Unlock screen's
+/// forgotten passphrase, which has no page. Leaving a page does not stop its
+/// engine, which may still be checking the connection, and a question it asked
+/// afterwards would draw a second set of 24 words over whatever is on screen now.
 #[derive(Debug, Default)]
-pub(crate) struct PhonePrompt;
+pub(crate) struct PhonePrompt {
+    page: Option<u64>,
+}
+
+impl PhonePrompt {
+    pub(crate) fn of_page(page: u64) -> Self {
+        Self { page: Some(page) }
+    }
+
+    /// The screens, unless this engine's page has been left: then it ends as it
+    /// does when the person closes the screen.
+    fn screens(&self) -> Result<Arc<Upcalls>> {
+        if self
+            .page
+            .is_some_and(|page| crate::GENERATION.load(Ordering::SeqCst) != page)
+        {
+            return Err(left());
+        }
+        upcalls()
+    }
+}
 
 impl SecretPrompt for PhonePrompt {
     fn show_and_confirm(
@@ -141,7 +167,7 @@ impl SecretPrompt for PhonePrompt {
         phrase: &str,
         positions: [usize; 3],
     ) -> Result<Option<Vec<Secret>>> {
-        let typed = upcalls()?.confirm(phrase, positions)?.ok_or_else(left)?;
+        let typed = self.screens()?.confirm(phrase, positions)?.ok_or_else(left)?;
         Ok(Some(
             typed
                 .split_whitespace()
@@ -151,13 +177,13 @@ impl SecretPrompt for PhonePrompt {
     }
 
     fn new_passphrase(&mut self) -> Result<Secret> {
-        upcalls()?
+        self.screens()?
             .call("askNewPassphrase", "()Ljava/lang/String;", &[])?
             .ok_or_else(left)
     }
 
     fn passphrase(&mut self, purpose: &str) -> Result<Secret> {
-        upcalls()?
+        self.screens()?
             .call(
                 "askPassphrase",
                 "(Ljava/lang/String;)Ljava/lang/String;",
@@ -169,12 +195,12 @@ impl SecretPrompt for PhonePrompt {
     /// The words are read, not proved: a phone shows them and waits for Done,
     /// where the default would ask three back.
     fn show_words(&mut self, phrase: &str) -> Result<()> {
-        upcalls()?.call("showWords", "(Ljava/lang/String;)V", &[phrase])?;
+        self.screens()?.call("showWords", "(Ljava/lang/String;)V", &[phrase])?;
         Ok(())
     }
 
     fn recovery_phrase(&mut self) -> Result<Secret> {
-        upcalls()?
+        self.screens()?
             .call("askRecoveryPhrase", "()Ljava/lang/String;", &[])?
             .ok_or_else(left)
     }
@@ -265,5 +291,45 @@ impl Host for PhoneHost {
             .call("value", "(Ljava/lang/String;)Ljava/lang/String;", &[name])
             .ok()??;
         Some(said.as_str().to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An engine outlives its page. If it may still ask, its 24 words replace the
+    /// ones on screen, and the person writes down or types back the wrong set.
+    /// Sabotage: ask without looking at the page.
+    #[test]
+    fn red_team_an_engine_whose_page_was_left_asks_nothing() {
+        let page = crate::GENERATION.fetch_add(1, Ordering::SeqCst);
+        let said = PhonePrompt::of_page(page)
+            .show_and_confirm("two words", [1, 2, 3])
+            .err()
+            .expect("a left page's engine had an answer")
+            .to_string();
+        assert!(
+            said.contains("the screen was closed"),
+            "a left page's engine went on to ask for its words: {said}"
+        );
+        let said = PhonePrompt::of_page(page)
+            .new_passphrase()
+            .err()
+            .expect("a left page's engine had an answer")
+            .to_string();
+        assert!(
+            said.contains("the screen was closed"),
+            "a left page's engine went on to ask for a passphrase: {said}"
+        );
+        let said = PhonePrompt::default()
+            .new_passphrase()
+            .err()
+            .expect("no screens exist in a test")
+            .to_string();
+        assert!(
+            said.contains("not ready"),
+            "the Unlock screen, which has no page, was refused its question: {said}"
+        );
     }
 }

@@ -120,6 +120,7 @@ SURFACES = [
         'itsanas-cli/tests/steering.rs',
         'itsanas-release/tests/release.rs',
         'itsanas-android/src/lib.rs',
+        'itsanas-android/src/host.rs',
     ]),
 ]
 

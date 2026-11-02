@@ -10,7 +10,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,11 +29,6 @@ class WordsTest {
         E2e.end()
     }
 
-    // Round 6 of the emulator job: after the rotation the screen showed another
-    // 24 words than the engine had made. Not explained yet (a second phrase
-    // asked for, or a read of the wrong screen); kept out of the required path
-    // until it is looked at on its own, not weakened.
-    @Ignore("the words on screen differ after a rotation: unexplained, to be looked at on its own")
     @Test
     fun the_words_survive_a_rotation_and_a_night_mode_change() {
         val ask = Flows.toWords(compose, Flows.freshName())

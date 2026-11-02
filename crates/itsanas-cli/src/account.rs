@@ -808,6 +808,13 @@ mod tests {
                 "the node is still held"
             );
             assert!(!home.exists(), "the home survived the logout");
+            #[cfg(target_os = "linux")]
+            assert_eq!(
+                open_under(&home),
+                Vec::<PathBuf>::new(),
+                "the logged-out node still holds its files: its database stays on the disk, \
+                 unseen, until the app is killed"
+            );
             assert!(
                 !Node::exists(&home),
                 "the keystore survived the logout: the next person on this phone is asked to \
@@ -828,6 +835,16 @@ mod tests {
             coordinator::register_with(&again, None, NOW + 2)
                 .expect("the account could not come back on this phone");
         });
+    }
+
+    /// The files this process still has open under `home`, deleted or not.
+    #[cfg(target_os = "linux")]
+    fn open_under(home: &Path) -> Vec<PathBuf> {
+        std::fs::read_dir("/proc/self/fd")
+            .expect("this process's descriptors")
+            .filter_map(|entry| std::fs::read_link(entry.ok()?.path()).ok())
+            .filter(|target| target.starts_with(home))
+            .collect()
     }
 
     /// Nobody is kept on a phone by a network being down. With the coordinator

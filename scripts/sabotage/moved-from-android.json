@@ -66,6 +66,31 @@
       "file": "crates/itsanas-node/src/node.rs",
       "live": "        if let Ok(Some(theirs)) = client.present_claim(self.claim_bytes(now)) {\n            siblings.push(theirs);\n        }\n",
       "dead": "        let _ = now;\n"
+    },
+    "limits: keep 0 reads as no limit": {
+      "file": "crates/itsanas-cli/src/limits.rs",
+      "live": "    let keep = u64::try_from(keep).ok();\n",
+      "dead": "    let keep = (keep > 0).then(|| keep.unsigned_abs());\n"
+    },
+    "limits: no pledge disk check": {
+      "file": "crates/itsanas-cli/src/limits.rs",
+      "live": "if let Some(refused) = node.disk_refusal_given(free, pledge, held) {",
+      "dead": "if let Some(refused) = node.disk_refusal_given(None, pledge, held) {"
+    },
+    "limits: no pair disk check": {
+      "file": "crates/itsanas-cli/src/limits.rs",
+      "live": "itsanas_node::pledges::overcommitted(pledge, keep, free, own, held)",
+      "dead": "itsanas_node::pledges::overcommitted(pledge, keep, None, own, held)"
+    },
+    "logout check: coverage before the round": {
+      "file": "crates/itsanas-cli/src/account.rs",
+      "live": "    let round = run_round(node, &targets(node), scope);\n    let coverage = node.store.coverage(itsanas_discover::now_unix())?;\n",
+      "dead": "    let coverage = node.store.coverage(itsanas_discover::now_unix())?;\n    let round = run_round(node, &targets(node), scope);\n"
+    },
+    "page: a left page's engine still asks": {
+      "file": "crates/itsanas-android/src/host.rs",
+      "live": "            .is_some_and(|page| crate::GENERATION.load(Ordering::SeqCst) != page)",
+      "dead": "            .is_some_and(|page| crate::GENERATION.load(Ordering::SeqCst) == page.wrapping_sub(1))"
     }
   }
 }

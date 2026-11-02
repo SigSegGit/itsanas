@@ -141,7 +141,11 @@ private fun App(shared: List<Uri>) {
     fun leave(next: Screen) {
         screen = next
         Host.cancelAll()
-        scope.launch(Dispatchers.IO) { runCatching { Native.pageStop() } }
+        scope.launch(Dispatchers.IO) {
+            runCatching { Native.pageStop() }
+            // Asked between the line above and the stop: nobody can answer it now.
+            Host.cancelAll()
+        }
     }
 
     // A newer release, asked at most once a day when the application opens:

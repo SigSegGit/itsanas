@@ -8,25 +8,10 @@
     "--all-features"
   ],
   "defences": {
-    "limits: keep 0 reads as no limit": {
-      "file": "crates/itsanas-cli/src/limits.rs",
-      "live": "    let keep = u64::try_from(keep).ok();\n",
-      "dead": "    let keep = (keep > 0).then(|| keep.unsigned_abs());\n"
-    },
     "limits: this phone's pledge alone": {
       "file": "crates/itsanas-cli/src/limits.rs",
       "live": "Node::check_split(&node.config, pledge.saturating_add(others), keep)",
       "dead": "Node::check_split(&node.config, pledge, keep)"
-    },
-    "limits: no pledge disk check": {
-      "file": "crates/itsanas-cli/src/limits.rs",
-      "live": "if let Some(refused) = node.disk_refusal_given(free, pledge, held) {",
-      "dead": "if let Some(refused) = node.disk_refusal_given(None, pledge, held) {"
-    },
-    "limits: no pair disk check": {
-      "file": "crates/itsanas-cli/src/limits.rs",
-      "live": "itsanas_node::pledges::overcommitted(pledge, keep, free, own, held)",
-      "dead": "itsanas_node::pledges::overcommitted(pledge, keep, None, own, held)"
     },
     "words: DiskFull in the store's words": {
       "file": "crates/itsanas-cli/src/failure.rs",
@@ -55,8 +40,8 @@
     },
     "restore check: no grid": {
       "file": "crates/itsanas-cli/src/account.rs",
-      "live": "    let words = phrase_words(phrase);\n    let count",
-      "dead": "    let words = phrase.to_owned();\n    let count"
+      "live": "phrase: &str) -> String {\n    let words = phrase_words(phrase);\n    let count",
+      "dead": "phrase: &str) -> String {\n    let words = phrase.to_owned();\n    let count"
     },
     "restore check: anybody's name is yours": {
       "file": "crates/itsanas-cli/src/account.rs",
@@ -137,11 +122,6 @@
       "file": "crates/itsanas-node/src/coordinator.rs",
       "live": "text.contains(\"by invitation only\") || text.contains(\"that invitation cannot be used\")",
       "dead": "!text.is_empty()"
-    },
-    "logout check: coverage before the round": {
-      "file": "crates/itsanas-cli/src/account.rs",
-      "live": "    let round = run_round(node, &targets(node), scope);\n    let coverage = node.store.coverage(itsanas_discover::now_unix())?;\n",
-      "dead": "    let coverage = node.store.coverage(itsanas_discover::now_unix())?;\n    let round = run_round(node, &targets(node), scope);\n"
     },
     "login: no sweep": {
       "file": "crates/itsanas-cli/src/account.rs",

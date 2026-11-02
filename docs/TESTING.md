@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-01 — 1552 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 538 are red-team tests.**
+**Last updated: 2026-11-01 — 1553 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 539 are red-team tests.**
 
-**1436 of the 1552 tests have an entry of their own on this page** — an *entry*,
+**1437 of the 1553 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -180,7 +180,7 @@ guarantee and is not one.
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
 | `itsanas-cli` unit | 315 |
-| `itsanas-android` unit | 16 |
+| `itsanas-android` unit | 17 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 174 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 54 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 153 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 154 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1993,7 +1993,7 @@ not read, the pledge kept whatever the free space.
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 
-# `itsanas-android` — the JNI boundary (16)
+# `itsanas-android` — the JNI boundary (17)
 
 `src/lib.rs`. The only crate that relaxes the unsafe lint, and the only one whose
 contract is with another language. What every shell shares (the account, the
@@ -2020,6 +2020,7 @@ from a host over a real socket, and one of them opened.
 | `the_passphrase_rule_is_the_core_s` | `passphraseRule` answers the core's two numbers. |
 | **`red_team_the_unlock_screen_checks_the_passphrase_when_the_node_is_already_open`** | `open_into` with the node already held judges what was typed against the keystore, keeps the node open on a wrong answer, and answers as before on the right one. Sabotaged (the check dropped): red. |
 | **`red_team_a_negative_keep_is_no_limit_and_zero_is_the_listing_alone`** | Kotlin always sends bytes: `setLimits` with a negative keep is no limit, with 0 a budget of nothing. 0 survives the config file, and a real round against a real sibling lists the file and fetches none of it. Sabotaged (`keep > 0`, as it was): red. |
+| **`red_team_an_engine_whose_page_was_left_asks_nothing`** | Leaving a page does not stop its engine, which may still be checking the connection: once the page is left, its engine is told the screen was closed instead of asking, so its 24 words cannot replace the ones on screen. The Unlock screen, which has no page, still asks. Sabotaged. |
 | **`red_team_the_phone_refuses_limits_its_disk_cannot_hold`** | `set_limits_on` with what is free given, because a real disk check would fail on a small runner: a pledge past what is free, and a pair past what the disk holds, are refused naming the Settings sections, and leave the file and the node as they were. Sabotaged twice (each check): red. |
 | **`red_team_a_file_is_fetched_from_a_machine_known_only_from_the_coordinator`** | `get` dials who `sync` dials, through one `targets`: a real sibling that announced itself, nothing typed in, a metadata round that lists the file and a fetch that brings it. It said "no machine configured" beside a running machine, as the round had. Sabotaged (`config.peers` alone): red. |
 | **`red_team_a_round_enrols_the_phone_and_reads_what_its_machines_pledge`** | A round enrols the phone with no step for a person (marker written, device live) and reads what the account's machines pledge, even with nobody to dial, and says so without mentioning an invitation. Sabotaged twice (no `ensure_enrolled`; no `refresh_others_pledged`): red. |

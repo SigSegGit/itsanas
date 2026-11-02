@@ -81,6 +81,11 @@ object E2e {
     /** A phone that has never seen ITSaNAS: no node, no remembered passphrase, no update question. */
     fun wipe() {
         runCatching { Native.pageStop() }
+        // Host outlives a test: a question left waiting would be read as the next
+        // test's, whose engine then replaces it with other words.
+        Host.cancelAll()
+        val end = System.nanoTime() + 5_000_000_000L
+        while (Host.current != null && System.nanoTime() < end) Thread.sleep(50)
         runCatching { Native.close() }
         Account.markClosed()
         runCatching { SyncService.stop(context) }
