@@ -521,6 +521,28 @@
 
   const VERDICTS = { passed: N('passed'), failed: N('failed'), skipped: N('skipped') };
 
+  // The final check's names (verify.rs) in a person's words.
+  const FINDINGS = {
+    'the daemon is healthy': N('ITSaNAS is running'),
+    'the background service': N('The background service'),
+    'listed by the coordinator': N('The network knows this device'),
+    'reachable from outside': N('Other machines can reach this one'),
+    'the folder syncs': N('The folder syncs'),
+  };
+  // What verify.rs says when it skips a check, marked so that each gets a translation.
+  const FINDING_DETAILS = [
+    N('the app does this itself'),
+    N('a phone has no synced folder'),
+    N('a phone dials out and is never dialled back'),
+    N('no background service was asked for'),
+    N('no coordinator is set'),
+    N('no coordinator is set to dial back'),
+    N('the coordinator was not reached'),
+    N('no folder is set'),
+    N('not asked'),
+  ];
+  void FINDING_DETAILS;
+
   function renderReport(list, report) {
     list.textContent = '';
     const marks = { passed: '✓', failed: '✗', skipped: '–' };
@@ -533,13 +555,16 @@
       mark.setAttribute('role', 'img');
       mark.setAttribute('aria-label', t(VERDICTS[finding.verdict] || finding.verdict));
       item.appendChild(mark);
-      item.appendChild(document.createTextNode(finding.what));
-      const detail = document.createElement('div');
-      detail.className = 'detail';
-      detail.textContent = finding.verdict === 'failed' && finding.remedy
-        ? finding.detail + ' ' + t('What to do:') + ' ' + finding.remedy
-        : finding.detail;
-      item.appendChild(detail);
+      item.appendChild(document.createTextNode(t(FINDINGS[finding.what] || finding.what)));
+      // What passed needs no more words: addresses and counts are for `itsanas setup`.
+      if (finding.verdict !== 'passed') {
+        const detail = document.createElement('div');
+        detail.className = 'detail';
+        detail.textContent = finding.verdict === 'failed' && finding.remedy
+          ? said(finding.detail) + ' ' + t('What to do:') + ' ' + said(finding.remedy)
+          : said(finding.detail);
+        item.appendChild(detail);
+      }
       list.appendChild(item);
     });
   }

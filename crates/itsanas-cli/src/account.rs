@@ -17,10 +17,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use itsanas_crypto::{DeviceId, MasterSecret, PhraseProblem, UserId, UserKeys};
-use itsanas_node::node::{Identity, VAULT_MARKER, check_new_passphrase, phrase_words};
-use itsanas_node::pledges::{self, DiskSpace};
-use itsanas_node::{Config, Node, coordinator};
+use itsanas_crypto::{DeviceId, MasterSecret, PhraseProblem};
+use itsanas_node::node::{Identity, phrase_words};
+use itsanas_node::{Node, coordinator};
 use serde_json::{Value, json};
 
 use crate::failure::{Answer, Failure};
@@ -110,27 +109,12 @@ pub fn check_name(address: &str, username: &str) -> String {
     json!({ "valid": true, "why": Value::Null, "taken": taken }).to_string()
 }
 
-/// The sentence for a phrase that does not parse. Names a position and never a
-/// word: this goes on a screen, and into whatever a person sends for help.
-fn phrase_refusal(problem: PhraseProblem) -> String {
-    match problem {
-        PhraseProblem::UnknownWord(position) => {
-            format!("word {position} is not one of the words a recovery phrase is made of")
-        }
-        PhraseProblem::WordCount(found) => {
-            format!("a recovery phrase is 24 words, and this has {found}")
-        }
-        PhraseProblem::Checksum => {
-            "these 24 words do not fit together: one is misread, or two are swapped".to_owned()
-        }
-    }
-}
-
 /// The account `phrase` opens, from the words alone.
-fn user_of(words: &str) -> Result<UserId, Failure> {
+#[cfg(test)]
+fn user_of(words: &str) -> Result<itsanas_crypto::UserId, Failure> {
     let master =
         MasterSecret::from_recovery_phrase(words).map_err(itsanas_node::NodeError::from)?;
-    Ok(UserKeys::derive(&master).user_id())
+    Ok(itsanas_crypto::UserKeys::derive(&master).user_id())
 }
 
 /// The words alone, as they are typed, for a native screen's live check:
@@ -149,59 +133,6 @@ pub fn check_words(phrase: &str) -> String {
     json!({ "ok": problem.is_none(), "wordIndex": position, "count": count }).to_string()
 }
 
-/// The words and the name of an existing account, before anything is written.
-///
-/// The name decides nothing about which account this is (the words alone do),
-/// which is why a mistyped one is worth stopping: it would bind this key to that
-/// name for ever at its first registration, or read as somebody else's.
-#[must_use]
-pub fn check_restore(address: &str, username: &str, phrase: &str) -> String {
-    let words = phrase_words(phrase);
-    let count = words.split_whitespace().count();
-    if let Some(problem) = MasterSecret::phrase_problem(&words) {
-        let position = match problem {
-            PhraseProblem::UnknownWord(position) => Some(position),
-            PhraseProblem::WordCount(_) | PhraseProblem::Checksum => None,
-        };
-        return json!({
-            "words": "bad",
-            "wordIndex": position,
-            "count": count,
-            "name": "unknown",
-            "why": phrase_refusal(problem),
-        })
-        .to_string();
-    }
-
-    let (name, why) = match coordinator::username_refusal(username) {
-        Some(why) => ("invalid", Some(why)),
-        None => match (coordinator::name_owner(address, username), user_of(&words)) {
-            (Ok(Some(owner)), Ok(mine)) if owner == mine => ("yours", None),
-            (Ok(Some(_)), _) => ("other", None),
-            (Ok(None), _) => ("none", None),
-            (Err(_), _) => ("unknown", None),
-        },
-    };
-    json!({
-        "words": "ok",
-        "wordIndex": Value::Null,
-        "count": count,
-        "name": name,
-        "why": why,
-    })
-    .to_string()
-}
-
-/// A fresh identity's words, written nowhere. The account is made by logging in
-/// with them, once they are shown and checked: a rotation or a kill before that
-/// loses nothing, because nothing exists yet.
-pub fn new_phrase() -> Answer {
-    let phrase = MasterSecret::generate()
-        .and_then(|master| master.to_recovery_phrase())
-        .map_err(itsanas_node::NodeError::from)?;
-    Ok(json!({ "phrase": phrase.as_str() }).to_string())
-}
-
 /// This node's words again, from its keystore and its passphrase.
 pub fn words(home: &Path, passphrase: &str) -> Answer {
     let phrase = Identity::recovery_phrase(home, passphrase)?;
@@ -215,138 +146,14 @@ pub fn change_passphrase(home: &Path, current: &str, new: &str) -> Answer {
     Ok(json!({ "changed": true }).to_string())
 }
 
-// ------------------------------------------------------------ logging in
+// ------------------------------------------------------------ opening
 
-/// What a login is given, as the person typed it.
-#[derive(Clone, Copy, Debug)]
-pub struct Login<'a> {
-    pub home: &'a Path,
-    pub username: &'a str,
-    pub phrase: &'a str,
-    pub passphrase: &'a str,
-}
-
-/// How much of the account to keep on a phone logging in: silently, unlike a
-/// pledge, because it protects the phone's own disk and offers nobody anything.
-/// With no budget a restore of a large account downloads until the disk is
-/// full. Judged at a pledge of 0, which is what is in force until the person
-/// chooses another on the Space step, and left unset when the disk would not
-/// say: a limit made up from nothing would be worse than none.
-fn set_keep_budget(node: &mut Node, disk: DiskSpace) {
-    let (Some(free), Some(total)) = (disk.free, disk.total) else {
-        return;
-    };
-    let usable = pledges::phone_usable(total, free, 0);
-    let others = Node::others_pledged(&node.home);
-    node.config.keep_bytes = Some(pledges::phone_keep(&node.config, usable, others, 0));
-    // Best effort, as the next setter saves it: the node in memory has it.
-    let _ = node.save_config();
-}
-
-/// What the phone does once its keystore is written, by either way of getting
-/// one: withdraw whatever a logout could not, and start with a budget.
-fn settle_in(node: &mut Node, disk: DiskSpace, now: u64) {
-    set_keep_budget(node, disk);
+/// What a phone finishes each time it opens its node: an erase that was
+/// interrupted, and whatever an earlier logout could not withdraw. Whichever way
+/// the node got here, the app opens it through this.
+pub fn after_open(node: &Node, now: u64) {
+    sweep_removed(&node.home);
     withdraw_pending(node, now);
-}
-
-/// Restore an account on this phone: the words, in any of the forms a person
-/// saved them, and a new passphrase. Used for a new account too, once its words
-/// were shown and checked, exactly as the command line's setup does.
-pub fn login_into(
-    slot: &Mutex<Option<Node>>,
-    login: Login<'_>,
-    disk: DiskSpace,
-    network: &Network,
-    now: u64,
-) -> Answer {
-    let mut guard = lock(slot)?;
-    sweep_removed(login.home);
-    let mut node = restore_account(
-        login.home,
-        login.passphrase,
-        login.username,
-        &phrase_words(login.phrase),
-        network,
-    )?;
-    settle_in(&mut node, disk, now);
-    let answer = describe(&node);
-    *guard = Some(node);
-    Ok(answer)
-}
-
-/// "I forgot my passphrase": the words replace the node on this phone.
-///
-/// Everything that can refuse is asked before anything is touched: the words,
-/// the new passphrase, and whether the coordinator gives this account's name to
-/// these words. A coordinator that cannot be asked, or has no such name, does
-/// not stop it, because the words are the proof of the account and the phone
-/// must be recoverable offline. The old home is only set aside until the new one
-/// exists, so a restore that fails puts it back.
-pub fn restore_over(
-    slot: &Mutex<Option<Node>>,
-    login: Login<'_>,
-    disk: DiskSpace,
-    network: &Network,
-    now: u64,
-) -> Answer {
-    let words = phrase_words(login.phrase);
-    if let Some(problem) = MasterSecret::phrase_problem(&words) {
-        return Err(Failure::Usage(format!(
-            "{}. Nothing on this phone was changed.",
-            phrase_refusal(problem)
-        )));
-    }
-    check_new_passphrase(login.passphrase)?;
-
-    let config = Config::load(&Node::config_path(login.home))?;
-    if config.username.is_empty() {
-        return Err(Failure::Usage(
-            "this phone's settings do not say which account it holds, so the words cannot be \
-             checked against it. Nothing on this phone was changed."
-                .to_owned(),
-        ));
-    }
-    if let Ok(Some(owner)) = coordinator::name_owner(&network.address, &config.username)
-        && owner != user_of(&words)?
-    {
-        return Err(Failure::Usage(format!(
-            "these words belong to another account than {}. Nothing on this phone was changed.",
-            config.username
-        )));
-    }
-    let old_device =
-        std::fs::read_to_string(Node::vault_path(login.home, &config).join(VAULT_MARKER))
-            .ok()
-            .and_then(|text| text.trim().parse::<DeviceId>().ok());
-
-    let mut guard = lock(slot)?;
-    // The sync service may hold it; the store cannot move while it is open.
-    *guard = None;
-    sweep_removed(login.home);
-    let aside = set_aside(login.home, now)?;
-    let mut node = match restore_account(
-        login.home,
-        login.passphrase,
-        &config.username,
-        &words,
-        network,
-    ) {
-        Ok(node) => node,
-        Err(failed) => {
-            let _ = std::fs::remove_dir_all(login.home);
-            let _ = std::fs::rename(&aside, login.home);
-            return Err(failed);
-        }
-    };
-    let _ = std::fs::remove_dir_all(&aside);
-    if let Some(old_device) = old_device {
-        remember_to_withdraw(login.home, old_device);
-    }
-    settle_in(&mut node, disk, now);
-    let answer = describe(&node);
-    *guard = Some(node);
-    Ok(answer)
 }
 
 // ------------------------------------------------------------ logging out
@@ -576,15 +383,12 @@ mod tests {
         assert!(few["wordIndex"].is_null() && few["ok"] == false, "{few}");
     }
 
-    use std::fmt::Write as _;
-
     use itsanas_crypto::UserKeys;
 
     use super::*;
     use crate::testing::{NOW, PASSPHRASE, live, phone, with_directory};
 
     const NEW_PASSPHRASE: &str = "a new passphrase for this phone";
-    const GIB: u64 = 1 << 30;
 
     fn network(address: std::net::SocketAddr) -> Network {
         Network {
@@ -593,25 +397,8 @@ mod tests {
         }
     }
 
-    /// A disk that answers, roomy enough to matter in no test that does not ask.
-    fn roomy() -> DiskSpace {
-        DiskSpace {
-            free: Some(100 * GIB),
-            total: Some(128 * GIB),
-        }
-    }
-
     fn answer(text: &str) -> Value {
         serde_json::from_str(text).expect("JSON")
-    }
-
-    /// The words as the command line prints them, numbers and all.
-    fn grid_of(phrase: &str) -> String {
-        let mut grid = String::new();
-        for (index, word) in phrase.split_whitespace().enumerate() {
-            let _ = writeln!(grid, "{:>2}. {word}", index + 1);
-        }
-        grid
     }
 
     fn removing_beside(home: &Path) -> Vec<PathBuf> {
@@ -679,61 +466,6 @@ mod tests {
         );
     }
 
-    /// The Restore screen: which word, 1-based; a grid taken as saved; the words
-    /// checked before the name is asked; the four things a name can be. Sabotage:
-    /// report `bip39`'s own index; drop `phrase_words`; compare no owner (another
-    /// account's name reads as yours, and Join later fails with nothing to do).
-    #[test]
-    fn red_team_the_restore_screen_says_which_word_and_whose_name() {
-        with_directory(|address, _| {
-            let dir = tempfile::tempdir().expect("temp dir");
-            let (holder, phrase) = phone(&dir.path().join("holder"), address, "camille", None);
-            let (stranger, _) = phone(&dir.path().join("stranger"), address, "voisin", None);
-            for node in [&holder, &stranger] {
-                coordinator::register_with(node, None, NOW).expect("enrol");
-            }
-            let at = address.to_string();
-
-            let mut words: Vec<&str> = phrase.split_whitespace().collect();
-            words[6] = "zzzz";
-            let said = answer(&check_restore(&at, "camille", &words.join(" ")));
-            assert_eq!(said["words"], "bad", "{said}");
-            assert_eq!(said["wordIndex"], 7, "not the number on the sheet: {said}");
-            assert_eq!(said["count"], 24, "{said}");
-            assert_eq!(said["name"], "unknown", "the name was asked: {said}");
-            assert!(
-                !said["why"].as_str().unwrap_or("").contains("zzzz"),
-                "a typed word was echoed: {said}"
-            );
-
-            let words: Vec<&str> = phrase.split_whitespace().take(23).collect();
-            let said = answer(&check_restore(&at, "camille", &words.join(" ")));
-            assert_eq!(
-                (&said["words"], &said["count"], &said["wordIndex"]),
-                (&json!("bad"), &json!(23), &Value::Null),
-                "{said}"
-            );
-
-            let grid = grid_of(&phrase);
-            let said = answer(&check_restore(&at, "camille", &grid));
-            assert_eq!(
-                (&said["words"], &said["name"]),
-                (&json!("ok"), &json!("yours")),
-                "a numbered grid, copied as it was shown, was refused: {said}"
-            );
-
-            let said = answer(&check_restore(&at, "voisin", &phrase));
-            assert_eq!(said["name"], "other", "{said}");
-            let said = answer(&check_restore(&at, "personne", &phrase));
-            assert_eq!(said["name"], "none", "{said}");
-            let said = answer(&check_restore(&at, "marie_1", &phrase));
-            assert_eq!(said["name"], "invalid", "{said}");
-            assert!(said["why"].as_str().is_some(), "{said}");
-            let said = answer(&check_restore("127.0.0.1:1", "camille", &phrase));
-            assert_eq!(said["name"], "unknown", "{said}");
-        });
-    }
-
     /// `newPhrase` is 24 words; `words` throws for a wrong passphrase;
     /// `changePassphrase` obeys the rule and needs the current one. Sabotage:
     /// answer an empty phrase instead of throwing.
@@ -741,10 +473,6 @@ mod tests {
     fn red_team_the_words_come_back_only_for_the_passphrase() {
         let dir = tempfile::tempdir().expect("temp dir");
         let home = dir.path().join("phone");
-
-        let fresh = answer(&new_phrase().expect("phrase"));
-        let fresh = fresh["phrase"].as_str().expect("phrase");
-        assert_eq!(fresh.split_whitespace().count(), 24);
 
         let (node, phrase) = Node::create(&home, PASSPHRASE, "camille").expect("create");
         drop(node);
@@ -882,13 +610,9 @@ mod tests {
                 address: "127.0.0.1:1".to_owned(),
                 device: None,
             };
-            let login = Login {
-                home: &home,
-                username: "camille",
-                phrase: &phrase,
-                passphrase: NEW_PASSPHRASE,
-            };
-            login_into(&slot, login, roomy(), &offline, NOW + 2).expect("offline login");
+            let node = restore_account(&home, NEW_PASSPHRASE, "camille", &phrase, &offline)
+                .expect("offline login");
+            after_open(&node, NOW + 2);
             assert!(
                 marker.exists(),
                 "a login that could not ask forgot the id, and its slot is lost"
@@ -896,9 +620,13 @@ mod tests {
             assert!(live(directory, device), "no coordinator was asked yet");
 
             // Out again, and a login that reaches the coordinator.
+            *slot.lock().expect("slot") = Some(node);
             let said = answer(&logout_into(&slot, &home, NOW + 3).expect("logout"));
             assert_eq!(said["withdrawn"], false, "{said}");
-            login_into(&slot, login, roomy(), &network(address), NOW + 4).expect("login");
+            let node =
+                restore_account(&home, NEW_PASSPHRASE, "camille", &phrase, &network(address))
+                    .expect("login");
+            after_open(&node, NOW + 4);
             assert!(
                 !live(directory, device),
                 "the next login did not withdraw the old id: the slot is held for ever"
@@ -936,157 +664,6 @@ mod tests {
                 "an id its coordinator refused is asked again at every login"
             );
         });
-    }
-
-    /// "I FORGOT MY PASSPHRASE" REFUSES BEFORE IT TOUCHES ANYTHING. Bad words, a
-    /// passphrase outside the rule, and another account's words each leave the
-    /// keystore byte for byte; the right words replace the node, under a new
-    /// device, with the old one left to withdraw. Sabotage: erase before asking the
-    /// coordinator; skip the owner check (another account's words replace this one);
-    /// skip `check_new_passphrase` (a refused passphrase comes after the erase, and
-    /// the account is gone from this phone).
-    #[test]
-    fn red_team_a_forgotten_passphrase_is_replaced_only_by_this_account_s_words() {
-        with_directory(|address, directory| {
-            let dir = tempfile::tempdir().expect("temp dir");
-            let home = dir.path().join("node");
-            let (node, phrase) = phone(&home, address, "camille", None);
-            let (stranger, theirs) = phone(&dir.path().join("x"), address, "voisin", None);
-            for enrolled in [&node, &stranger] {
-                coordinator::register_with(enrolled, None, NOW).expect("enrol");
-            }
-            let (old_device, owner) = (node.store.device_id(), node.store.owner());
-            // The sync service holds it, and the passphrase is lost.
-            let slot = Mutex::new(Some(node));
-            let keystore = std::fs::read(home.join("keystore.bin")).expect("keystore");
-
-            let attempt = |phrase: &str, passphrase: &str| {
-                let login = Login {
-                    home: &home,
-                    username: "",
-                    phrase,
-                    passphrase,
-                };
-                restore_over(&slot, login, roomy(), &network(address), NOW + 1)
-            };
-            for (what, words, passphrase) in [
-                ("bad words", "not the words at all", NEW_PASSPHRASE),
-                ("another account's words", theirs.as_str(), NEW_PASSPHRASE),
-                ("a passphrase outside the rule", phrase.as_str(), "short"),
-            ] {
-                assert!(
-                    attempt(words, passphrase).is_err(),
-                    "{what} replaced the node"
-                );
-                assert_eq!(
-                    std::fs::read(home.join("keystore.bin")).expect("keystore"),
-                    keystore,
-                    "{what} touched the keystore"
-                );
-                assert!(
-                    slot.lock().expect("lock").is_some(),
-                    "{what} closed the node the service holds"
-                );
-            }
-
-            let grid = grid_of(&phrase);
-            let said = answer(&attempt(&grid, NEW_PASSPHRASE).expect("the right words"));
-            assert_eq!(said["username"], "camille", "{said}");
-            assert_eq!(said["userId"], owner.to_string(), "{said}");
-            assert_ne!(said["deviceId"], old_device.to_string(), "{said}");
-            drop(slot);
-
-            let reopened = Node::open(&home, NEW_PASSPHRASE).expect("open under the new one");
-            assert_eq!(reopened.store.owner(), owner);
-            assert!(
-                !live(directory, old_device),
-                "the replaced device kept its slot"
-            );
-            assert_eq!(removing_beside(&home), Vec::<PathBuf>::new());
-        });
-    }
-
-    /// Offline, the words are still enough: a phone with a forgotten passphrase is
-    /// not left waiting for a network, and the old id waits for a later login.
-    #[test]
-    fn a_forgotten_passphrase_can_be_replaced_with_no_network() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let home = dir.path().join("node");
-        let (node, phrase) = Node::create(&home, PASSPHRASE, "camille").expect("create");
-        let (device, owner) = (node.store.device_id(), node.store.owner());
-        drop(node);
-
-        let slot = Mutex::new(None);
-        let offline = Network {
-            address: "127.0.0.1:1".to_owned(),
-            device: None,
-        };
-        let login = Login {
-            home: &home,
-            username: "",
-            phrase: phrase.as_str(),
-            passphrase: NEW_PASSPHRASE,
-        };
-        let said = answer(&restore_over(&slot, login, roomy(), &offline, NOW).expect("restore"));
-        assert_eq!(said["userId"], owner.to_string(), "{said}");
-        assert_eq!(
-            std::fs::read_to_string(dir.path().join(WITHDRAW_AFTER_LOGIN))
-                .expect("marker")
-                .trim(),
-            device.to_hex()
-        );
-    }
-
-    /// A login takes the grid, sweeps what an interrupted erase left, and sets the
-    /// budget silently, with the pledge untouched. Sabotage: leave `keep` unset (a
-    /// restore downloads until the disk is full); set the suggested pledge as well
-    /// (hosting is opt-in).
-    #[test]
-    fn red_team_a_login_sets_a_budget_for_the_disk_and_offers_nothing() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let home = dir.path().join("node");
-        let phrase = MasterSecret::generate()
-            .and_then(|master| master.to_recovery_phrase())
-            .expect("phrase");
-        let leftover = dir.path().join(format!("{REMOVING_PREFIX}5"));
-        std::fs::create_dir_all(leftover.join("vault")).expect("leftover");
-        let grid = grid_of(&phrase);
-
-        let slot = Mutex::new(None);
-        let offline = Network {
-            address: "127.0.0.1:1".to_owned(),
-            device: None,
-        };
-        let login = Login {
-            home: &home,
-            username: "camille",
-            phrase: &grid,
-            passphrase: NEW_PASSPHRASE,
-        };
-        let disk = DiskSpace {
-            free: Some(30 * GIB),
-            total: Some(64 * GIB),
-        };
-        login_into(&slot, login, disk, &offline, NOW).expect("login");
-
-        let saved = Config::load(&Node::config_path(&home)).expect("config");
-        assert_eq!(
-            saved.keep_bytes,
-            Some(10 * GIB),
-            "no budget, or not the disk's: a restore of a large account fills the phone"
-        );
-        assert_eq!(saved.pledge_bytes, 0, "a pledge was set with nobody asked");
-        assert!(!leftover.exists(), "an interrupted erase was not swept");
-    }
-
-    /// A disk that will not say gets no made-up budget.
-    #[test]
-    fn a_disk_that_will_not_say_gets_no_budget() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let (mut node, _) =
-            Node::create(&dir.path().join("node"), PASSPHRASE, "camille").expect("create");
-        set_keep_budget(&mut node, DiskSpace::default());
-        assert_eq!(node.config.keep_bytes, None);
     }
 
     /// Deleting takes the account's own name, sends nothing otherwise, and a

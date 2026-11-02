@@ -18,7 +18,7 @@ pub use crate::setup::web::{
 
 // What the phone's few remaining native calls need of the shared code. The rest
 // of a shell's reach is the page, served by [`Server`].
-pub use crate::account::{Network, check_words, describe, restore_account};
+pub use crate::account::{Network, after_open, check_words, describe, restore_account};
 pub use crate::failure::{Answer, Failure};
 pub use crate::rounds::{NO_MACHINE_YET, RoundTotals, run_round, targets};
 

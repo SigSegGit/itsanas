@@ -50,6 +50,7 @@
     <string name="check_confirm">Confirm</string>
 
     <string name="files_empty">Nothing here yet. Add a file, or sync with one of your machines.</string>
+    <string name="not_safe_yet">Your files are not safe yet: %1$d of the %2$d copies they need exist outside this phone. If you lose it now, what is missing is gone.</string>
     <string name="files_summary">%1$d here · %2$d not here · %3$s</string>
     <string name="files_added">%1$d file(s) added</string>
     <string name="files_sync">Sync now</string>

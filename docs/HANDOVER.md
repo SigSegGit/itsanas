@@ -51,15 +51,15 @@ every test. A Compose dialog is invisible to Espresso's view matchers: tag its b
 `FilesTest` once stayed on the typed-back words after Confirm, cause unknown: if it comes
 back, read that screen first.
 
-Next batch, all at once (Nicolas, 2026-11-02: macOS runners make each CI round costly, so
-group the coming features in one PR instead of one per step): §8 0y, the debts below, and
-the final check's lines, which a French page still shows in English.
-
 Debts left on purpose: on a desktop `show_words` goes through the window that asks three
-words back, and ignores them (a plain window needs one on each platform);
-`account.rs` keeps `login_into`, `restore_over`, `check_restore` and `new_phrase`, whose
-tests prove logic no route calls since the page's engine took over: delete them with their
-rows and plan entries in a change of their own.
+words back, and ignores them (a plain window needs one on each platform).
+
+**2026-11-02: the phone says when its files are not safe; a phone finishes what it left.**
+`status_of` carries `safe` and `copiesWanted` from the CLI's rule (`account_is_safe`), and
+the file list shows the line. Deleting the phone's old login path showed it was the only
+caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
+and sends the withdrawals an offline logout could not. The final check's lines are in plain
+words and translated; what passed shows no detail.
 
 **Waiting on Nicolas, in this order, as commands to paste** (2026-10-29; a
 session cannot do any of them, and gives him these commands first, every

@@ -543,6 +543,14 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            status?.takeIf { !it.safe }?.let {
+                Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
+                    Text(
+                        stringResource(R.string.not_safe_yet, it.copiesElsewhere, it.copiesWanted),
+                        Modifier.fillMaxWidth().padding(16.dp).testTag("not-safe"),
+                    )
+                }
+            }
             if (busy) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(8.dp))
             }
