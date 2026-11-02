@@ -38,7 +38,7 @@ class WelcomeTest {
 
         // The same in French, read from the page's own language list.
         E2e.js("(function(){var s=document.getElementById('lang');s.value='fr';s.dispatchEvent(new Event('change'));return true})()")
-        E2e.waitFor("the language list did not turn the page to French") { E2e.js("document.documentElement.lang") == "fr" }
+        E2e.waitFor("the language list did not turn the page to French") { E2e.pageHas("document.documentElement.lang==='fr'") }
         E2e.shot("02-account-fr")
         val dit = E2e.js("document.body.innerText").orEmpty()
         listOf("cette machine", "première machine", "fenêtre ITSaNAS séparée").forEach { words ->
