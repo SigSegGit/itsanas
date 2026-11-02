@@ -161,8 +161,10 @@ fun copyWords(context: Context, words: String) {
     }
     clipboard.setPrimaryClip(clip)
     handler.postDelayed({
-        val now = runCatching { clipboard.primaryClip?.getItemAt(0)?.text?.toString() }.getOrNull()
-        if (now == words) {
+        // By the label: from Android 10 an app in the background reads no clip, and
+        // the person is in another app, pasting. Something copied since has its own.
+        val ours = runCatching { clipboard.primaryClipDescription?.label == "ITSaNAS" }.getOrDefault(false)
+        if (ours) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 clipboard.clearPrimaryClip()
             } else {

@@ -810,7 +810,7 @@ mod tests {
             assert!(!home.exists(), "the home survived the logout");
             #[cfg(target_os = "linux")]
             assert_eq!(
-                open_under(&home),
+                open_under(dir.path()),
                 Vec::<PathBuf>::new(),
                 "the logged-out node still holds its files: its database stays on the disk, \
                  unseen, until the app is killed"
@@ -837,13 +837,14 @@ mod tests {
         });
     }
 
-    /// The files this process still has open under `home`, deleted or not.
+    /// The files this process still has open under `dir`, deleted or not. The
+    /// parent of the home, since erasing moves a home aside first.
     #[cfg(target_os = "linux")]
-    fn open_under(home: &Path) -> Vec<PathBuf> {
+    fn open_under(dir: &Path) -> Vec<PathBuf> {
         std::fs::read_dir("/proc/self/fd")
             .expect("this process's descriptors")
             .filter_map(|entry| std::fs::read_link(entry.ok()?.path()).ok())
-            .filter(|target| target.starts_with(home))
+            .filter(|target| target.starts_with(dir))
             .collect()
     }
 

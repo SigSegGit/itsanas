@@ -46,6 +46,11 @@
       "file": "crates/itsanas-cli/src/account.rs",
       "live": "    json!({ \"ok\": problem.is_none(), \"wordIndex\": position, \"count\": count }).to_string()",
       "dead": "    json!({ \"ok\": true, \"wordIndex\": position, \"count\": count }).to_string()"
+    },
+    "page: a phone replaces its keys under an open node": {
+      "file": "crates/itsanas-cli/src/setup/web/mod.rs",
+      "live": "        \"/api/forgot\" => (\n            features.forgot_in_settings,",
+      "dead": "        \"/api/forgot\" => (\n            true || features.forgot_in_settings,"
     }
   }
 }

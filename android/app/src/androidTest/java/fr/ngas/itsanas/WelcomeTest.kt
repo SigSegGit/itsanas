@@ -36,6 +36,16 @@ class WelcomeTest {
             assertTrue("a phone is told about \"$words\", which a person holding one looks for in vain", words !in said)
         }
 
+        // The same in French, read from the page's own language list.
+        E2e.js("(function(){var s=document.getElementById('lang');s.value='fr';s.dispatchEvent(new Event('change'));return true})()")
+        E2e.waitFor("the language list did not turn the page to French") { E2e.js("document.documentElement.lang") == "fr" }
+        E2e.shot("02-account-fr")
+        val dit = E2e.js("document.body.innerText").orEmpty()
+        listOf("cette machine", "première machine", "fenêtre ITSaNAS séparée").forEach { words ->
+            assertTrue("a phone is told about \"$words\" in French", words !in dit)
+        }
+        assertTrue("the French page does not say what a phone is: $dit", "premier appareil" in dit)
+
         // The existing-account card is above the new-account card.
         val order = E2e.js(
             "(function(){var j=document.querySelector('input[name=account][value=join]');" +

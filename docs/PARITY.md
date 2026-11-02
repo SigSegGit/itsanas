@@ -57,6 +57,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | `feature:another_account` | ✅ | ✅ | ✅ | ⬜ a phone keeps one account |
 | `feature:keep_question` | ⬜ a computer keeps everything until Settings says otherwise | ⬜ a computer keeps everything until Settings says otherwise | ⬜ a computer keeps everything until Settings says otherwise | ✅ |
 | `feature:biometric` | ⬜ the computers' windows ask the passphrase; no fingerprint reader is used | ⬜ the computers' windows ask the passphrase; no fingerprint reader is used | ⬜ the computers' windows ask the passphrase; no fingerprint reader is used | ✅ |
+| `feature:forgot_in_settings` | ✅ | ✅ | ✅ | ⬜ on a phone the node is open in the app itself and holds the store: "I forgot" is on its Unlock screen, with nothing open |
 | `feature:remove_account` | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ✅ |
 | `feature:metered` | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ✅ |
 

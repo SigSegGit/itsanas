@@ -29,14 +29,26 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
-**2026-11-02: PR #361 is the current step, ahead of NEXT.** Decided by Nicolas after a
-novice test on Android: one interface on every platform. `itsanas-cli` is a library, the
-app embeds the desktop page and engine, and a shell draws only what it alone can
-(`docs/PARITY.md`, `scripts/check-parity.py`). Left: the security, devices and account cards;
-moving logic out of `crates/itsanas-android`; the catalogue; the Android part (WebView, native
-secret screens, end-to-end protocol, `android.yml`); a sabotage job in CI; review. The
-specifications are in the owner's private notes. Rule from this batch: CI verifies, sessions
-push every step and run only `cargo check` locally.
+**2026-11-02: one interface on every platform (#361).** Decided by Nicolas after a
+novice test on Android. `itsanas-cli` is a library, the app embeds the desktop page and
+engine, and a shell draws only what it alone can (`docs/PARITY.md`,
+`scripts/check-parity.py`). `android.yml` and `scripts/android-e2e.sh` run ten scenarios on
+an emulator against a local coordinator; `sabotage.yml` runs `scripts/sabotage/*.json`.
+Rule from this batch: CI verifies, sessions push every step and run only `cargo check`
+locally. The specifications are in the owner's private notes.
+
+Traps that cost time here, one line each. `Host` outlives a test: a question left waiting
+reads as the next test's. An engine outlives its page: `PhonePrompt` knows its page and ends
+instead of asking. `sabotage.yml` cancels on push and `moved-to-library` needs 17 minutes
+with no push. `fixcounts.py`-style global replaces rewrite unrelated numbers: edit counts
+by hand. A plan's command must run the crate holding its test, or NOTHING WENT RED means
+nothing.
+
+Debts left on purpose: on a desktop `show_words` goes through the window that asks three
+words back, and ignores them (a plain window needs one on each platform);
+`account.rs` keeps `login_into`, `restore_over`, `check_restore` and `new_phrase`, whose
+tests prove logic no route calls since the page's engine took over: delete them with their
+rows and plan entries in a change of their own.
 
 **Waiting on Nicolas, in this order, as commands to paste** (2026-10-29; a
 session cannot do any of them, and gives him these commands first, every

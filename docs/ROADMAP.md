@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1553 test functions, 20 of them `#[ignore]`d into the slow job, and 539 of
+**1554 test functions, 20 of them `#[ignore]`d into the slow job, and 540 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1061,7 +1061,7 @@ serve | sync | doctor | gc`
 
 - Identity created or restored from a 24-word phrase, sealed under a passphrase
   at production Argon2id cost, with the device seed sealed alongside it.
-- The recovery phrase is shown once and never written to disk — enforced by a
+- The recovery phrase is never written to disk in clear — enforced by a
   test that scans the whole node directory for it.
 - Published test identities are refused as real accounts, with an explanation.
 - `serve` refuses a non-loopback address unless explicitly overridden.

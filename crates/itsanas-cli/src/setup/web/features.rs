@@ -32,6 +32,10 @@ pub struct Features {
     /// How much of the account's files stay here, on the space question of the
     /// first run.
     pub keep_question: bool,
+    /// "I forgot my passphrase" while the account is open. A phone's service
+    /// is this process, so the node would never let go of the store: it asks on
+    /// its Unlock screen, with nothing open.
+    pub forgot_in_settings: bool,
     /// Unlock with a fingerprint or a face.
     pub biometric: bool,
     /// Download over mobile data, or only on Wi-Fi.
@@ -54,6 +58,7 @@ impl Features {
         usb_key: true,
         another_account: true,
         keep_question: false,
+        forgot_in_settings: true,
         biometric: false,
         metered: false,
         remove_account: false,
@@ -70,6 +75,7 @@ impl Features {
         usb_key: false,
         another_account: false,
         keep_question: true,
+        forgot_in_settings: false,
         biometric: true,
         metered: true,
         remove_account: true,
@@ -77,7 +83,7 @@ impl Features {
 
     /// Every feature, by the name the page uses.
     #[must_use]
-    pub const fn all(self) -> [(&'static str, bool); 11] {
+    pub const fn all(self) -> [(&'static str, bool); 12] {
         [
             ("folder", self.folder),
             ("background_choice", self.background_choice),
@@ -87,6 +93,7 @@ impl Features {
             ("usb_key", self.usb_key),
             ("another_account", self.another_account),
             ("keep_question", self.keep_question),
+            ("forgot_in_settings", self.forgot_in_settings),
             ("biometric", self.biometric),
             ("metered", self.metered),
             ("remove_account", self.remove_account),

@@ -140,12 +140,10 @@ private fun App(shared: List<Uri>) {
     // "closed" is not read as a page that ended by itself.
     fun leave(next: Screen) {
         screen = next
+        // Not on another thread: it does not wait for the engine, and a queued stop
+        // could land after the next page opened, and stop that one.
+        runCatching { Native.pageStop() }
         Host.cancelAll()
-        scope.launch(Dispatchers.IO) {
-            runCatching { Native.pageStop() }
-            // Asked between the line above and the stop: nobody can answer it now.
-            Host.cancelAll()
-        }
     }
 
     // A newer release, asked at most once a day when the application opens:
@@ -188,7 +186,7 @@ private fun App(shared: List<Uri>) {
     LaunchedEffect(Unit) {
         Host.events.collect { (name, value) ->
             val current = screen
-            android.util.Log.i("itsanas", "router event $name on ${current::class.simpleName}")
+            android.util.Log.i("itsanas", "router event $name=$value on ${current::class.simpleName}")
             try {
                 when (name) {
                     "closed" -> if (current is Screen.Page) {
@@ -248,6 +246,9 @@ private fun App(shared: List<Uri>) {
                                 SyncService.start(context)
                                 Screen.Ready
                             } catch (error: Throwable) {
+                                // What the fingerprint holds opened nothing: the passphrase
+                                // was changed since. Typing it works; asking again never would.
+                                Biometric.disable(context)
                                 complaint = error.message
                                 Screen.Locked
                             }

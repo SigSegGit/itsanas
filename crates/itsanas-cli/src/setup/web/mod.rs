@@ -838,6 +838,10 @@ fn gate(features: Features, path: &str, request: &Request) -> Option<Response> {
         "/api/disk" => (features.disks, "disk to move or back up to"),
         "/api/keys" | "/api/copy-to-key" => (features.usb_key, "USB key to copy to"),
         "/api/another" => (features.another_account, "second account beside this one"),
+        "/api/forgot" => (
+            features.forgot_in_settings,
+            "way to replace the keys while the account is open: lock it, then choose I forgot",
+        ),
         "/api/peers" => (
             features.advanced,
             "machine to sync with, named by its address",

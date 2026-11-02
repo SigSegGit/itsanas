@@ -123,6 +123,12 @@ object Flows {
         E2e.waitFor("setup never reached its final check after the words were typed back", 240) {
             E2e.onSection("final")
         }
+        E2e.shotBoth("10-final")
+        if (E2e.visible("#final-fix")) {
+            org.junit.Assert.fail(
+                "setup failed on a phone: ${E2e.textOf("#final-title")} / ${E2e.textOf("#final-fix")} / ${E2e.textOf("#report")}"
+            )
+        }
         E2e.waitFor("Close on the final check is not there") { E2e.visible("#finish") }
         E2e.tapId("finish")
         waitTag(compose, "files-add", "the file list never opened after setup, so the account is unusable", 90)

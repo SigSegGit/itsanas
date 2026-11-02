@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-01 — 1553 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 539 are red-team tests.**
+**Last updated: 2026-11-01 — 1554 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 540 are red-team tests.**
 
-**1437 of the 1553 tests have an entry of their own on this page** — an *entry*,
+**1438 of the 1554 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 315 |
+| `itsanas-cli` unit | 316 |
 | `itsanas-android` unit | 17 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 174 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 54 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 154 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 155 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1203,7 +1203,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (315)
+# `itsanas-cli` — unit tests (316)
 
 ## `bench` — measuring this machine (4)
 
@@ -1364,7 +1364,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (46)
+## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (47)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1384,6 +1384,7 @@ and 375 px (no horizontal scroll), which CI does not run.
 | **`red_team_the_page_withdraws_a_listed_full_id_and_never_this_machine_nor_a_stray_one`** | Settings' device list against a real coordinator, an account of two machines and another account's: an abbreviated id, this machine and another account's device are each refused and stay live; the listed full id of the other machine is withdrawn. Sabotaged (the `known` check dropped): red. |
 | **`red_team_removing_the_account_through_the_page_needs_its_name_where_pieces_are_only_here`** | A phone's page over a held node and a real coordinator, with a file only this node has: the check reports the pieces as only here; no name, a truncated name and another name are each refused with the home, the slot and the shell untouched; the right name erases the home, frees the device's place and tells the shell. Sabotaged (the name is not required): red. |
 | **`red_team_deleting_the_account_through_the_page_takes_its_own_name_typed`** | `/api/delete` with no name, a truncated one or another account's: refused, the home stays and the shell is told nothing; the account's own name deletes it, erases the home and tells the shell. Sabotaged (the typed name not compared): red. |
+| **`red_team_a_phone_refuses_to_replace_the_keys_under_an_open_node`** | `/api/forgot` answers 403 on a phone, whose open node would hold the store for good, and says to lock and choose I forgot. Sabotaged. |
 | **`a_computer_is_offered_no_way_to_remove_or_delete_the_account_from_the_page`** | `/api/remove` and `/api/delete` answer 403 where `remove_account` is off. |
 | **`machines_typed_on_the_page_are_kept_listed_and_forgotten`** | `/api/peers` adds an address to the node's file and lists it, refuses a parked `relay:` machine, forgets it, and is refused to a shell without Advanced. |
 | **`a_setup_that_stopped_at_the_device_limit_says_so_to_the_page`** | A failed run whose refusal names the device limit carries `atCap`, which opens the devices under the failure; any other refusal does not. |

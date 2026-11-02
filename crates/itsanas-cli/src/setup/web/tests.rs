@@ -2774,6 +2774,30 @@ fn phone_page(home: &Path, base: &Path, node: itsanas_node::Node, heard: &Heard)
     })
 }
 
+/// On a phone the node is open in this process, so a replacement of the keys
+/// would wait twenty seconds for a store that never lets go, then fail: the
+/// person who forgot is sent on to the Unlock screen instead. Sabotage: drop the
+/// arm of `gate`.
+#[test]
+fn red_team_a_phone_refuses_to_replace_the_keys_under_an_open_node() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("node");
+    let (node, _) = itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
+    let heard = Heard::default();
+    let page = phone_page(&home, dir.path(), node, &heard);
+    let said = page.api("POST", "/api/forgot", "");
+    assert_eq!(
+        said.status, 403,
+        "a phone started replacing the keys under its own open node: {}",
+        said.body
+    );
+    assert!(
+        said.body.contains("choose I forgot"),
+        "the person was not told where to go: {}",
+        said.body
+    );
+}
+
 #[test]
 fn red_team_removing_the_account_through_the_page_needs_its_name_where_pieces_are_only_here() {
     use crate::testing::{live, with_directory};

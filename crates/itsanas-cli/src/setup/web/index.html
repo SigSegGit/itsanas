@@ -355,7 +355,7 @@
           <div class="controls"><button type="button" id="st-passphrase">Change my passphrase</button></div>
           <p id="st-passphrase-said" class="said" role="status" aria-live="polite"></p>
         </div>
-        <div class="field">
+        <div class="field" data-feature="forgot_in_settings">
           <span class="label">I forgot my passphrase</span>
           <p class="help">Replaces the keys on this machine from your 24 recovery words, under a new passphrase. Your account and your files stay.</p>
           <div class="controls"><button type="button" id="st-forgot">Replace my keys with my 24 words</button></div>
@@ -420,7 +420,7 @@
 
     <section data-page="closed" hidden>
       <h1 tabindex="-1">This page is closed</h1>
-      <p class="lead">You can close this tab. The icon near the clock opens Settings again (or run <code>itsanas settings</code>).</p>
+      <p class="lead" data-feature="advanced">You can close this tab. The icon near the clock opens Settings again (or run <code>itsanas settings</code>).</p>
     </section>
   </main>
 </div>

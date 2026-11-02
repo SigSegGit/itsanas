@@ -15,6 +15,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -30,9 +31,16 @@ import androidx.compose.ui.viewinterop.AndroidView
  * to the phone's own browser, so nothing outside the engine is ever drawn here
  * with the page's key in reach.
  */
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun Page(url: String, onLeave: () -> Unit, modifier: Modifier = Modifier) {
+    // A new page is a new port and a new key: a web view of its own, or the old
+    // one stays on an address nobody serves any more.
+    key(url) { PageView(url, onLeave, modifier) }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun PageView(url: String, onLeave: () -> Unit, modifier: Modifier) {
     val origin = remember(url) { Uri.parse(url).let { "${it.scheme}://${it.host}:${it.port}" } }
     var view by remember { mutableStateOf<WebView?>(null) }
 

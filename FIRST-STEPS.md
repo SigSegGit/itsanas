@@ -192,9 +192,10 @@ The numbered steps below are the same thing done by hand, the alternative.
 itsanas init --username you
 ```
 
-It prints **twenty-four words, once**. They are the only way to recover this
-account on another machine, they are stored nowhere, and they cannot be
-reissued. Write them down on paper now.
+It prints **twenty-four words**. They are the only way to recover this account
+once no machine has its passphrase, and no server keeps them; they are sealed in
+the keystore, and `itsanas words` shows them again for the passphrase. Write them
+down on paper now.
 
 ### 2. Decide how much space, and for whom
 

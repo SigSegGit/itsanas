@@ -22,9 +22,9 @@ import java.io.File
  * launch — sounds stricter and is not: an application that asks for a
  * thirty-character passphrase every time it is opened gets a six-character one.
  *
- * What this does **not** do is store the recovery phrase. That is shown once,
- * at creation, and is the member's to write on paper. A phone that held both
- * would be a single object whose theft loses everything.
+ * What this does **not** do is store the recovery phrase. It stays sealed in the
+ * node's keystore, shown only for the passphrase typed again, and is the member's
+ * to write on paper.
  */
 object Vault {
     private const val PREFERENCES = "itsanas.secrets"

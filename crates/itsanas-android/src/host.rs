@@ -310,8 +310,7 @@ mod tests {
         let page = crate::GENERATION.fetch_add(1, Ordering::SeqCst);
         let said = PhonePrompt::of_page(page)
             .show_and_confirm("two words", [1, 2, 3])
-            .err()
-            .expect("a left page's engine had an answer")
+            .expect_err("a left page's engine had an answer")
             .to_string();
         assert!(
             said.contains("the screen was closed"),
@@ -319,8 +318,7 @@ mod tests {
         );
         let said = PhonePrompt::of_page(page)
             .new_passphrase()
-            .err()
-            .expect("a left page's engine had an answer")
+            .expect_err("a left page's engine had an answer")
             .to_string();
         assert!(
             said.contains("the screen was closed"),
@@ -328,8 +326,7 @@ mod tests {
         );
         let said = PhonePrompt::default()
             .new_passphrase()
-            .err()
-            .expect("no screens exist in a test")
+            .expect_err("no screens exist in a test")
             .to_string();
         assert!(
             said.contains("not ready"),
