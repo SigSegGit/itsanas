@@ -3,6 +3,9 @@ package fr.ngas.itsanas
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
+import android.app.AlertDialog
+import android.webkit.JsResult
+import android.webkit.WebChromeClient
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -53,6 +56,39 @@ fun Page(url: String, onLeave: () -> Unit, modifier: Modifier = Modifier) {
                     javaScriptCanOpenWindowsAutomatically = false
                     @Suppress("DEPRECATION")
                     saveFormData = false
+                }
+                // A web view with no chrome client answers every confirm() with
+                // "no" and says nothing: Sign out, Withdraw, Delete and the
+                // others the page asks about did nothing at all on a phone.
+                webChromeClient = object : WebChromeClient() {
+                    override fun onJsConfirm(
+                        view: WebView,
+                        url: String,
+                        message: String,
+                        result: JsResult,
+                    ): Boolean {
+                        AlertDialog.Builder(context)
+                            .setMessage(message)
+                            .setPositiveButton(android.R.string.ok) { _, _ -> result.confirm() }
+                            .setNegativeButton(android.R.string.cancel) { _, _ -> result.cancel() }
+                            .setOnCancelListener { result.cancel() }
+                            .show()
+                        return true
+                    }
+
+                    override fun onJsAlert(
+                        view: WebView,
+                        url: String,
+                        message: String,
+                        result: JsResult,
+                    ): Boolean {
+                        AlertDialog.Builder(context)
+                            .setMessage(message)
+                            .setPositiveButton(android.R.string.ok) { _, _ -> result.confirm() }
+                            .setOnCancelListener { result.confirm() }
+                            .show()
+                        return true
+                    }
                 }
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(

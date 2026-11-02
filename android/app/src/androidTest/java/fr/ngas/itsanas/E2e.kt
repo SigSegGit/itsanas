@@ -76,6 +76,32 @@ object E2e {
             .edit().putLong("asked", System.currentTimeMillis()).commit()
     }
 
+    /** The phone emptied again and the app opened afresh; the coordinator keeps what it knows. */
+    fun relaunch() {
+        scenario?.close()
+        wipe()
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+    }
+
+    /** The app closed and opened again, the phone's data kept: a person coming back later. */
+    fun reopen() {
+        scenario?.close()
+        runCatching { Native.pageStop() }
+        scenario = ActivityScenario.launch(MainActivity::class.java)
+    }
+
+    fun shell(command: String): String {
+        val fd: ParcelFileDescriptor = instrumentation.uiAutomation.executeShellCommand(command)
+        return ParcelFileDescriptor.AutoCloseInputStream(fd).use { String(it.readBytes()) }
+    }
+
+    /** Brightness, 0 to 255, of one pixel of what is on the screen now. */
+    fun brightness(xFraction: Double, yFraction: Double): Int {
+        val bitmap = instrumentation.uiAutomation.takeScreenshot()
+        val pixel = bitmap.getPixel((bitmap.width * xFraction).toInt(), (bitmap.height * yFraction).toInt())
+        return (android.graphics.Color.red(pixel) + android.graphics.Color.green(pixel) + android.graphics.Color.blue(pixel)) / 3
+    }
+
     /** Recreate the activity, as Android does after the app was left in the background. */
     fun recreate() {
         scenario!!.recreate()
@@ -94,7 +120,7 @@ object E2e {
     /** Run [script] in the page; the answer is its JSON text, or null when there is no page yet. */
     fun js(script: String): String? {
         var view: WebView? = null
-        scenario?.onActivity { activity: Activity ->
+        scenario?.onActivity { activity ->
             view = findWebView(activity.window.decorView)
         }
         val web = view ?: return null
@@ -170,11 +196,6 @@ object E2e {
     }
 
     // ----------------------------------------------------------------- shots
-
-    private fun shell(command: String) {
-        val fd: ParcelFileDescriptor = instrumentation.uiAutomation.executeShellCommand(command)
-        ParcelFileDescriptor.AutoCloseInputStream(fd).use { it.readBytes() }
-    }
 
     /**
      * A screenshot named for what it shows. A screen that sets FLAG_SECURE (the
