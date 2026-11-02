@@ -110,6 +110,17 @@ Two things to know before you spend the time:
 - **This is a shell, not a client.** No notification, no file picker, no
   integration with the gallery or Documents. Use the app for that.
 
+## What the app shares with the computers
+
+The setup and Settings page, the rules it applies (a username is checked at the
+coordinator before an account is made, a new passphrase has six to 128
+characters, space is suggested by one rule from the disk and from what the
+account's other machines offer), its French and its dark theme are those of the
+library `itsanas-cli`, the same on every platform. `docs/PARITY.md` lists, for
+each capability, where it exists and why not where it does not. What must never
+be a web page stays in the app's own screens: the 24 words, the passphrase and
+Unlock.
+
 ## Removing either of them
 
 The app: uninstall it like any other, which takes the account with it — its

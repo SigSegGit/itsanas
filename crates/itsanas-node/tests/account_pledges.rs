@@ -83,7 +83,13 @@ fn a_person_joining_is_told_the_largest_pledge_of_the_accounts_machines_and_noth
         );
 
         let phrase = machine(&dir.path().join("a"), address, None, 10 * GIB, true);
-        machine(&dir.path().join("b"), address, Some(&phrase), 30 * GIB, true);
+        machine(
+            &dir.path().join("b"),
+            address,
+            Some(&phrase),
+            30 * GIB,
+            true,
+        );
         assert_eq!(
             coordinator::account_pledge(&at, "nicolas").expect("asked"),
             Some(30 * GIB),

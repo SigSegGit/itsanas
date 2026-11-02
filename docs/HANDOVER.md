@@ -29,6 +29,15 @@ above names the next step and `scripts/check-handover.py` keeps it honest;
 whether CI is green and whether a PR is open are facts for `git` and `gh`,
 never for this file.
 
+**2026-11-02: PR #361 is the current step, ahead of NEXT.** Decided by Nicolas after a
+novice test on Android: one interface on every platform. `itsanas-cli` is a library, the
+app embeds the desktop page and engine, and a shell draws only what it alone can
+(`docs/PARITY.md`, `scripts/check-parity.py`). Left: the security, devices and account cards;
+moving logic out of `crates/itsanas-android`; the catalogue; the Android part (WebView, native
+secret screens, end-to-end protocol, `android.yml`); a sabotage job in CI; review. The
+specifications are in the owner's private notes. Rule from this batch: CI verifies, sessions
+push every step and run only `cargo check` locally.
+
 **Waiting on Nicolas, in this order, as commands to paste** (2026-10-29; a
 session cannot do any of them, and gives him these commands first, every
 time -- he does not want to remember them). The Pi and the VM run their
@@ -1514,6 +1523,7 @@ Each of these has a test that fails if it is:
 
 | Decision | Why | Guarded by |
 | --- | --- | --- |
+| A feature lives in the library, and a shell draws only what it alone can | A feature written twice is two features: the novice test of 2026-11-01 found the phone short of what the PC page does, and Nicolas chose one interface over three. What a shell lacks is `Features`, hidden in the page and refused by the routes | `scripts/check-parity.py` reads `docs/PARITY.md` against the commands, the page's headings and routes and `Features`; `red_team_every_feature_of_a_shell_is_named_in_the_page` and `red_team_a_route_behind_a_missing_feature_refuses_whatever_the_page_hides` |
 | No floating point in placement or accounting | `f64::ln` is libm-dependent; two machines disagreeing in the last ulp about where a chunk lives is a silent, permanent split | `no_floating_point_is_involved` greps the module's own source |
 | The FastCDC gear table is derived and pinned | If two devices disagree about boundaries, dedup silently stops network-wide | `the_gear_table_is_pinned_forever` |
 | A delete is only acted on for a path the ledger says this device had | Otherwise a fresh device announces the deletion of everything its owner has | `a_brand_new_device_downloads_everything_and_deletes_nothing`, and an exhaustive 27-case matrix in `decision.rs` |

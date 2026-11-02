@@ -95,6 +95,8 @@ ANDROID_CORE = (
     "itsanas-discover",
     "itsanas-placement",
     "itsanas-wire",
+    # The setup engine and the page the phone's app links as a library.
+    "itsanas-cli",
 )
 
 # Job id in ci.yml -> the output key its `if:` reads. `test` is the one job

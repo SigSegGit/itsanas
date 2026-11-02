@@ -563,12 +563,17 @@ fn serve_once<T>(path: &std::path::Path, body: impl FnOnce(std::net::SocketAddr)
 /// rule, and this proves the process that holds the directory runs it, as it
 /// starts and again without a restart. Two runs, because a short period would
 /// cover for a pass missing at the start.
-#[test]
-fn red_team_a_serving_coordinator_erases_silent_addresses_at_start_and_again_later() {
-    let now = SystemTime::now()
+/// The wall clock, as the serving coordinator reads it.
+fn unix_now() -> u64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("a clock after 1970")
-        .as_secs();
+        .as_secs()
+}
+
+#[test]
+fn red_team_a_serving_coordinator_erases_silent_addresses_at_start_and_again_later() {
+    let now = unix_now();
     let long_ago = now - PRESENCE_KEPT_FOR - 3600;
 
     let dir = tempfile::tempdir().expect("temp dir");

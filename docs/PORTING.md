@@ -34,6 +34,30 @@ needs its own because it has none of those three.
 the platform that forces it. A laptop tethered to a phone should not upload
 forty gigabytes either.
 
+## 1b. What a shell is for
+
+A feature lives in the library, and a shell draws only what it alone can.
+
+- `itsanas-cli` is a library (`src/lib.rs`, `pub fn run`) with a thin binary
+  (`src/main.rs`); another shell links the library and takes what
+  `itsanas_cli::shell` names.
+- The setup engine and the page it serves on 127.0.0.1 are the only first run and
+  settings there are. A shell supplies the two things the engine asks of it: where
+  a secret is asked (`SecretPrompt`) and how the node runs in the background
+  (`ServiceControl`: the OS service on a computer, the app's own on a phone).
+- What a shell lacks is data, not a second page: `Features` names it, the page
+  hides every element carrying that `data-feature`, and the routes behind it
+  answer 403. What a phone has that a computer lacks (the fingerprint, the keep
+  question, mobile data) is in the same table.
+- A phone differs where it is a phone: `Answers.phone` skips the synced folder and
+  the updater, asks the coordinator for no dial-back, and judges what it may keep
+  against what the whole account pledges.
+- The words and the passphrase never cross the page: they stay in the shell's own
+  screens, which is why those stay native.
+- Fixing something on the page or in the engine fixes it on every platform, and the
+  French and the theme come with it. `docs/PARITY.md` lists, for every capability,
+  which platform has it; `scripts/check-parity.py` reads it against the source.
+
 ## 2. macOS on Apple Silicon — ready
 
 **This is where ITSaNAS meets real ARM silicon.** CI runs the full test suite on

@@ -127,7 +127,10 @@ pub fn account_pledge(address: &str, username: &str) -> Result<Option<u64>> {
     match client.ask(&Request::ClaimedPeers { user }) {
         Ok(Response::ClaimedPeers(list)) => {
             let (claimed, _) = verified_claimed(list, user);
-            Ok(claimed.iter().map(|row| row.claim.claim.pledged_bytes).max())
+            Ok(claimed
+                .iter()
+                .map(|row| row.claim.claim.pledged_bytes)
+                .max())
         }
         Ok(Response::Refused(_)) => Ok(None),
         Ok(other) => Err(CliError::Usage(format!("{address} answered {other:?}"))),

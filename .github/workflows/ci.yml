@@ -557,6 +557,12 @@ jobs:
           -p itsanas-crypto -p itsanas-store -p itsanas-sync
           -p itsanas-policy -p itsanas-discover -p itsanas-placement
           -p itsanas-wire
+      # The phone's app links the library `itsanas-cli` -- the setup engine and the
+      # page -- so one interface serves every platform. It builds for Android
+      # without a cfg of its own; this keeps it that way. Run locally with
+      # cargo-ndk, for the x86_64 emulator target.
+      - name: The library the app links builds for Android
+        run: cargo check --target aarch64-linux-android -p itsanas-cli
 
   minimum-rust-version:
     name: Minimum supported Rust version
