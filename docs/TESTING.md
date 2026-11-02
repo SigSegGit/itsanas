@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-01 — 1550 test functions across 42 binaries, 20 of them
+**Last updated: 2026-11-01 — 1552 test functions across 42 binaries, 20 of them
 `#[ignore]`d, plus 2 doctests. 538 are red-team tests.**
 
-**1434 of the 1550 tests have an entry of their own on this page** — an *entry*,
+**1436 of the 1552 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 313 |
+| `itsanas-cli` unit | 315 |
 | `itsanas-android` unit | 16 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 174 |
@@ -1203,7 +1203,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (313)
+# `itsanas-cli` — unit tests (315)
 
 ## `bench` — measuring this machine (4)
 
@@ -1364,7 +1364,7 @@ tested: no window was opened by a test.
 | `the_snapshot_count_is_read_as_the_daemon_writes_it` | The canary check parses the daemon's snapshot file count in the format the daemon writes; otherwise every setup would fail its last check. |
 | `the_folder_check_leaves_a_welcome_file_and_never_a_second_one` | Against a fake daemon counting the folder, the folder check passes, leaves `welcome.txt` (the witness the person opens on another machine), and a second run leaves no second file. |
 
-## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (44)
+## `web` — the local setup and Settings page, its features, the name and space rules, the theme and the legal block (46)
 
 `crates/itsanas-cli/src/setup/web/` (tests in `web/tests.rs`). `itsanas setup`
 on a desktop and `itsanas settings` serve a page on 127.0.0.1 with a random
@@ -1377,6 +1377,8 @@ and 375 px (no horizontal scroll), which CI does not run.
 
 | Test | What it proves |
 | --- | --- |
+| `the_stop_handle_ends_a_server_that_would_otherwise_wait_for_the_idle_exit` | The phone's Back ends the page server at once, where only the idle exit would: a stopped server stops answering, so the account is not left reachable by a page nobody looks at; Sabotaged (`Stop::stop` does nothing): red. |
+| `checking_words_names_the_misspelt_one_and_accepts_only_a_whole_phrase` | The phone's native screen checks the 24 words as they are typed: a word in no recovery phrase is named by its number, a phrase still being typed is not accepted and names no word; Sabotaged (every phrase ok): red. |
 | **`red_team_no_response_ever_carries_a_recovery_word_or_the_passphrase`** | Two whole setups driven through the page's HTTP API with a scripted person in place of the window; then Show my 24 words and Change my passphrase on each account; every byte that came back (static files, plan, every state poll, run reply, those two jobs) holds neither passphrase nor the 24-word phrase, nor any word of it the other run did not also say; Sabotaged (engine emits the phrase in an event, so in the state JSON): red. |
 | **`red_team_a_mistyped_passphrase_shows_no_words_asks_no_new_one_and_stores_nothing`** | Settings' Show my 24 words and Change my passphrase on a mistyped passphrase: no window shows the words, no new passphrase is asked, the copy the service reads is not replaced and the keystore is not re-sealed. Sabotaged (no proof of the current passphrase before the new one is asked): red. |
 | **`red_team_the_page_withdraws_a_listed_full_id_and_never_this_machine_nor_a_stray_one`** | Settings' device list against a real coordinator, an account of two machines and another account's: an abbreviated id, this machine and another account's device are each refused and stay live; the listed full id of the other machine is withdrawn. Sabotaged (the `known` check dropped): red. |
