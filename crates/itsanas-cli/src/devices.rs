@@ -14,7 +14,7 @@
 //! shown, never one typed or abbreviated.
 //!
 //! The bodies take a `&Node` and are tested against a real coordinator
-//! (`tests` below); the JNI shims in `lib.rs` only lock the node and call them.
+//! (`tests` below); a shell locks or opens its node and calls them.
 
 use std::sync::Mutex;
 
@@ -23,7 +23,7 @@ use itsanas_node::Node;
 use itsanas_node::coordinator::{self, MAX_DEVICES_PER_ACCOUNT as LIMIT, Secret};
 use serde_json::{Value, json};
 
-use crate::Failure;
+use crate::failure::Failure;
 
 /// The full ids each phone was last refused a slot over, keyed by that
 /// phone's own device id.
@@ -76,7 +76,7 @@ fn no_coordinator(node: &Node) -> Result<(), Failure> {
 /// device (this phone is not enrolled, or the coordinator is older than
 /// `Devices`): then the list holds the devices seen this week plus any the
 /// last refusal named, and the screen says so rather than pretending.
-pub(crate) fn list(node: &Node) -> Result<Value, Failure> {
+pub fn list(node: &Node) -> Result<Value, Failure> {
     no_coordinator(node)?;
     let mine = node.store.device_id();
     let entry = |device: DeviceId, address: Option<String>| {
@@ -149,7 +149,7 @@ pub(crate) fn list(node: &Node) -> Result<Value, Failure> {
 /// that holds. This phone itself is refused by
 /// `coordinator::withdraw_device`, the command line's rule. The screen offers
 /// only listed ids, so a refusal here is a bug in the shell, said out loud.
-pub(crate) fn withdraw(node: &Node, id: &str, now: u64) -> Result<Value, Failure> {
+pub fn withdraw(node: &Node, id: &str, now: u64) -> Result<Value, Failure> {
     let id = id.trim();
     if id.len() != 2 * ID_LEN {
         return Err(Failure::Usage(format!(
@@ -200,7 +200,7 @@ pub(crate) fn withdraw(node: &Node, id: &str, now: u64) -> Result<Value, Failure
 /// refused is a screen too, the one with a field for a code: `needsInvite`,
 /// and `codeRefused` when a code was given and it would not do. Every other
 /// failure is the same `Err` the command line prints.
-pub(crate) fn register(node: &Node, invite: Option<&Secret>, now: u64) -> Result<Value, Failure> {
+pub fn register(node: &Node, invite: Option<&Secret>, now: u64) -> Result<Value, Failure> {
     no_coordinator(node)?;
     let mine = node.store.device_id();
 
@@ -269,92 +269,16 @@ pub(crate) fn register(node: &Node, invite: Option<&Secret>, now: u64) -> Result
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
-    use std::net::SocketAddr;
-    use std::path::Path;
-    use std::sync::atomic::{AtomicBool, Ordering};
+mod tests {
 
-    use itsanas_coord::Directory;
     use itsanas_coord::directory::Admission;
-    use itsanas_coord::server::CoordServer;
     use itsanas_crypto::{DeviceKeys, SecretBytes};
 
     use super::*;
-
-    pub(crate) const PASSPHRASE: &str = "a passphrase for a test and nowhere else";
-    pub(crate) const NOW: u64 = 1_700_000_000;
-
-    /// Stops the server even when the body panics, so a failed assertion is
-    /// reported as one and not as a hang.
-    struct StopOnDrop<'a>(&'a AtomicBool, SocketAddr);
-
-    impl Drop for StopOnDrop<'_> {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::Relaxed);
-            let _ = std::net::TcpStream::connect(self.1);
-        }
-    }
-
-    pub(crate) fn with_directory<T>(body: impl FnOnce(SocketAddr, &Directory) -> T) -> T {
-        admitting(Admission::Open, body)
-    }
-
-    /// [`with_directory`], under a stated admission policy.
-    fn admitting<T>(admission: Admission, body: impl FnOnce(SocketAddr, &Directory) -> T) -> T {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let directory = Directory::open(dir.path().join("directory.redb")).expect("directory");
-        let server = CoordServer::bind("127.0.0.1:0").expect("bind");
-        let address = server.local_addr().expect("address");
-        let shutdown = AtomicBool::new(false);
-        let coordinator_device = DeviceKeys::from_seed(&SecretBytes::new([0xC0; 32]));
-
-        std::thread::scope(|scope| {
-            scope.spawn(|| {
-                let _ = server.serve_admitting(
-                    &directory,
-                    &coordinator_device,
-                    admission,
-                    &shutdown,
-                    |_| {},
-                );
-            });
-            let _stop = StopOnDrop(&shutdown, address);
-            body(address, &directory)
-        })
-    }
-
-    /// A phone of the account `phrase` names (a new account `username` when
-    /// `None`), pointed at `coordinator`, not yet enrolled.
-    pub(crate) fn phone(
-        home: &Path,
-        coordinator: SocketAddr,
-        username: &str,
-        phrase: Option<&str>,
-    ) -> (Node, String) {
-        let (mut node, phrase) = match phrase {
-            None => {
-                let (node, phrase) = Node::create(home, PASSPHRASE, username).expect("create");
-                (node, phrase.0.to_string())
-            }
-            Some(phrase) => (
-                Node::restore(home, PASSPHRASE, username, phrase).expect("restore"),
-                phrase.to_owned(),
-            ),
-        };
-        node.config.coordinator = Some(coordinator.to_string());
-        node.save_config().expect("save config");
-        (node, phrase)
-    }
-
-    pub(crate) fn live(directory: &Directory, device: DeviceId) -> bool {
-        directory
-            .claim_for(device)
-            .expect("read")
-            .is_some_and(|signed| !signed.claim.revoked)
-    }
+    use crate::testing::{NOW, PASSPHRASE, admitting, live, phone, with_directory};
 
     /// What a refusal said; an acceptance fails the test.
-    pub(crate) fn usage(outcome: Result<Value, Failure>) -> String {
+    fn usage(outcome: Result<Value, Failure>) -> String {
         match outcome {
             Err(refused) => refused.message(),
             Ok(answer) => panic!("accepted: {answer}"),

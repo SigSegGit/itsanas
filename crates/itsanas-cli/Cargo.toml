@@ -35,13 +35,23 @@ itsanas-sync = { version = "0.1.0", path = "../itsanas-sync", default-features =
 postcard = { version = "1.1.1", default-features = false, features = ["use-std"] }
 rpassword = "7.4.0"
 serde = { version = "1.0.229", features = ["derive"] }
+# The JSON the shells parse, answered by the account and device calls moved here
+# from the phone (they build it with `json!`).
+serde_json = "1.0.145"
 tempfile = "3.23.0"
 thiserror = "2.0.20"
 zeroize = "1.9.0"
 fs4 = { version = "1.1.0", default-features = false }
 
+[features]
+# The in-process coordinator and serving machine of `testing`, for a shell
+# crate's tests (the phone's). Nothing ships with it.
+testing = []
+
 [lints]
 workspace = true
 
 [dev-dependencies]
+# A real coordinator in process, with the `hostile` hooks the device tests use.
+itsanas-coord = { version = "0.1.0", path = "../itsanas-coord", features = ["hostile"] }
 # blake3 and tempfile are ordinary dependencies now: `itsanas bench` ships.

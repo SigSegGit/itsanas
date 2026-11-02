@@ -1,8 +1,10 @@
-//! Getting an account onto a phone and off it again: what is asked before
+//! Getting an account onto a machine and off it again: what is asked before
 //! anything is written, and what a logout leaves behind.
 //!
-//! The bodies are tested against a real coordinator (`tests` below); the JNI
-//! shims in `lib.rs` only read their arguments and call them.
+//! Every shell's Settings page reaches these through `/api/remove`; the bodies
+//! are tested against a real coordinator (`tests` below). They answer with the
+//! JSON a shell can parse, and with a [`Failure`] whose sentence is the one a
+//! person sees.
 //!
 //! # Why a logout renames before it deletes
 //!
@@ -21,7 +23,59 @@ use itsanas_node::pledges::{self, DiskSpace};
 use itsanas_node::{Config, Node, coordinator};
 use serde_json::{Value, json};
 
-use crate::{Answer, Failure, Network};
+use crate::failure::{Answer, Failure};
+use crate::rounds::{run_round, targets};
+
+/// The coordinator a node on this phone belongs to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Network {
+    pub address: String,
+    /// The device to pin it to; `None` only for a test's coordinator.
+    pub device: Option<String>,
+}
+
+impl Network {
+    pub fn official() -> Self {
+        Self {
+            address: itsanas_node::coordinator::DEFAULT_COORDINATOR.to_owned(),
+            device: Some(itsanas_node::coordinator::DEFAULT_COORDINATOR_DEVICE.to_owned()),
+        }
+    }
+
+    /// Point `node` at this coordinator, pinned to its device, and save.
+    ///
+    /// The app offers no way to name another coordinator: a field for one let
+    /// anybody who could talk a user into typing an address send that user's
+    /// account to a network of their choosing. Done on restore and open, so a
+    /// node made by an older build that could be pointed elsewhere comes back
+    /// to the official network the next time it is unlocked.
+    pub fn pin(&self, mut node: Node) -> Result<Node, Failure> {
+        node.config.coordinator = Some(self.address.clone());
+        node.config.coordinator_device.clone_from(&self.device);
+        node.save_config()?;
+        Ok(node)
+    }
+}
+
+/// A restored node, on `network`'s coordinator.
+pub fn restore_account(
+    home: &std::path::Path,
+    passphrase: &str,
+    username: &str,
+    phrase: &str,
+    network: &Network,
+) -> Result<Node, Failure> {
+    network.pin(Node::restore(home, passphrase, username, phrase)?)
+}
+
+pub fn describe(node: &Node) -> String {
+    serde_json::json!({
+        "userId": node.store.owner().to_string(),
+        "deviceId": node.store.device_id().to_string(),
+        "username": node.config.username,
+    })
+    .to_string()
+}
 
 /// Beside the home, an old home on its way out.
 const REMOVING_PREFIX: &str = "node.removing-";
@@ -30,7 +84,9 @@ const REMOVING_PREFIX: &str = "node.removing-";
 /// the next login to withdraw. Not a secret: a device id is on every claim.
 const WITHDRAW_AFTER_LOGIN: &str = "withdraw-after-login";
 
-fn lock(slot: &Mutex<Option<Node>>) -> Result<std::sync::MutexGuard<'_, Option<Node>>, Failure> {
+pub fn lock(
+    slot: &Mutex<Option<Node>>,
+) -> Result<std::sync::MutexGuard<'_, Option<Node>>, Failure> {
     slot.lock()
         .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))
 }
@@ -40,7 +96,8 @@ fn lock(slot: &Mutex<Option<Node>>) -> Result<std::sync::MutexGuard<'_, Option<N
 /// Whether `username` can be taken at the coordinator at `address`. A name no
 /// coordinator would register is not sent, and a coordinator that cannot be
 /// asked is an answer, not a failure: the screen says so and offers a retry.
-pub(crate) fn check_name(address: &str, username: &str) -> String {
+#[must_use]
+pub fn check_name(address: &str, username: &str) -> String {
     if let Some(why) = coordinator::username_refusal(username) {
         return json!({ "valid": false, "why": why, "taken": "unknown" }).to_string();
     }
@@ -80,7 +137,8 @@ fn user_of(words: &str) -> Result<UserId, Failure> {
 /// The name decides nothing about which account this is (the words alone do),
 /// which is why a mistyped one is worth stopping: it would bind this key to that
 /// name for ever at its first registration, or read as somebody else's.
-pub(crate) fn check_restore(address: &str, username: &str, phrase: &str) -> String {
+#[must_use]
+pub fn check_restore(address: &str, username: &str, phrase: &str) -> String {
     let words = phrase_words(phrase);
     let count = words.split_whitespace().count();
     if let Some(problem) = MasterSecret::phrase_problem(&words) {
@@ -120,7 +178,7 @@ pub(crate) fn check_restore(address: &str, username: &str, phrase: &str) -> Stri
 /// A fresh identity's words, written nowhere. The account is made by logging in
 /// with them, once they are shown and checked: a rotation or a kill before that
 /// loses nothing, because nothing exists yet.
-pub(crate) fn new_phrase() -> Answer {
+pub fn new_phrase() -> Answer {
     let phrase = MasterSecret::generate()
         .and_then(|master| master.to_recovery_phrase())
         .map_err(itsanas_node::NodeError::from)?;
@@ -128,14 +186,14 @@ pub(crate) fn new_phrase() -> Answer {
 }
 
 /// This node's words again, from its keystore and its passphrase.
-pub(crate) fn words(home: &Path, passphrase: &str) -> Answer {
+pub fn words(home: &Path, passphrase: &str) -> Answer {
     let phrase = Identity::recovery_phrase(home, passphrase)?;
     Ok(json!({ "phrase": phrase.as_str() }).to_string())
 }
 
 /// Re-seal the keystore. It reads the keystore file alone, so it works while
 /// the sync service holds the node.
-pub(crate) fn change_passphrase(home: &Path, current: &str, new: &str) -> Answer {
+pub fn change_passphrase(home: &Path, current: &str, new: &str) -> Answer {
     Node::change_passphrase(home, current, new)?;
     Ok(json!({ "changed": true }).to_string())
 }
@@ -144,11 +202,11 @@ pub(crate) fn change_passphrase(home: &Path, current: &str, new: &str) -> Answer
 
 /// What a login is given, as the person typed it.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Login<'a> {
-    pub(crate) home: &'a Path,
-    pub(crate) username: &'a str,
-    pub(crate) phrase: &'a str,
-    pub(crate) passphrase: &'a str,
+pub struct Login<'a> {
+    pub home: &'a Path,
+    pub username: &'a str,
+    pub phrase: &'a str,
+    pub passphrase: &'a str,
 }
 
 /// How much of the account to keep on a phone logging in: silently, unlike a
@@ -178,7 +236,7 @@ fn settle_in(node: &mut Node, disk: DiskSpace, now: u64) {
 /// Restore an account on this phone: the words, in any of the forms a person
 /// saved them, and a new passphrase. Used for a new account too, once its words
 /// were shown and checked, exactly as the command line's setup does.
-pub(crate) fn login_into(
+pub fn login_into(
     slot: &Mutex<Option<Node>>,
     login: Login<'_>,
     disk: DiskSpace,
@@ -187,7 +245,7 @@ pub(crate) fn login_into(
 ) -> Answer {
     let mut guard = lock(slot)?;
     sweep_removed(login.home);
-    let mut node = crate::restore_account(
+    let mut node = restore_account(
         login.home,
         login.passphrase,
         login.username,
@@ -195,7 +253,7 @@ pub(crate) fn login_into(
         network,
     )?;
     settle_in(&mut node, disk, now);
-    let answer = crate::describe(&node);
+    let answer = describe(&node);
     *guard = Some(node);
     Ok(answer)
 }
@@ -208,7 +266,7 @@ pub(crate) fn login_into(
 /// not stop it, because the words are the proof of the account and the phone
 /// must be recoverable offline. The old home is only set aside until the new one
 /// exists, so a restore that fails puts it back.
-pub(crate) fn restore_over(
+pub fn restore_over(
     slot: &Mutex<Option<Node>>,
     login: Login<'_>,
     disk: DiskSpace,
@@ -250,7 +308,7 @@ pub(crate) fn restore_over(
     *guard = None;
     sweep_removed(login.home);
     let aside = set_aside(login.home, now)?;
-    let mut node = match crate::restore_account(
+    let mut node = match restore_account(
         login.home,
         login.passphrase,
         &config.username,
@@ -269,7 +327,7 @@ pub(crate) fn restore_over(
         remember_to_withdraw(login.home, old_device);
     }
     settle_in(&mut node, disk, now);
-    let answer = crate::describe(&node);
+    let answer = describe(&node);
     *guard = Some(node);
     Ok(answer)
 }
@@ -281,14 +339,14 @@ pub(crate) fn restore_over(
 /// `onlyHere` is the figure that matters and it comes after the round on
 /// purpose: a phone that can reach a machine should not be told its files are
 /// about to be lost when pushing them was all it took.
-pub(crate) fn logout_check(node: &Node, metered: bool) -> Answer {
+pub fn logout_check(node: &Node, metered: bool) -> Answer {
     let scope = if metered {
         itsanas_net::session::Scope::Metadata
     } else {
         itsanas_net::session::Scope::Everything
     };
     let _ = node.bound_writes();
-    let round = crate::run_round(node, &crate::targets(node), scope);
+    let round = run_round(node, &targets(node), scope);
     let coverage = node.store.coverage(itsanas_discover::now_unix())?;
     Ok(json!({
         "reached": round.reached,
@@ -331,7 +389,7 @@ fn tell_machines(node: &Node, targets: &[(String, Option<DeviceId>)]) -> usize {
 /// on a phone by a network being down. The withdrawal comes last, since a
 /// withdrawn device can no longer say anything for itself.
 fn farewell(node: &Node, now: u64) -> Farewell {
-    let told = tell_machines(node, &crate::targets(node));
+    let told = tell_machines(node, &targets(node));
     let departed = coordinator::depart(node, now).unwrap_or(false);
     let withdrawn = coordinator::withdraw_self(node, now).is_ok();
     Farewell {
@@ -346,7 +404,7 @@ fn farewell(node: &Node, now: u64) -> Farewell {
 /// Holds the lock to the end: it waits for a running round, and `open_into`
 /// cannot slip a new node into the home on its way out. A coordinator that could
 /// not be told leaves the old id for the next login to withdraw.
-pub(crate) fn logout_into(slot: &Mutex<Option<Node>>, home: &Path, now: u64) -> Answer {
+pub fn logout_into(slot: &Mutex<Option<Node>>, home: &Path, now: u64) -> Answer {
     let mut guard = lock(slot)?;
     if guard.as_ref().is_none_or(|node| node.home != home) {
         return Err(Failure::Closed);
@@ -372,12 +430,7 @@ pub(crate) fn logout_into(slot: &Mutex<Option<Node>>, home: &Path, now: u64) -> 
 
 /// Delete the whole account at the coordinator, then log this phone out. Only
 /// the account's own name, typed, gets this far; a refusal leaves everything.
-pub(crate) fn delete_account(
-    slot: &Mutex<Option<Node>>,
-    home: &Path,
-    confirm: &str,
-    now: u64,
-) -> Answer {
+pub fn delete_account(slot: &Mutex<Option<Node>>, home: &Path, confirm: &str, now: u64) -> Answer {
     let mut guard = lock(slot)?;
     if guard.as_ref().is_none_or(|node| node.home != home) {
         return Err(Failure::Closed);
@@ -392,7 +445,7 @@ pub(crate) fn delete_account(
         ));
     }
     // Asked first: once the account is gone the coordinator lists no machines.
-    let targets = crate::targets(node);
+    let targets = targets(node);
     coordinator::delete_account(node, now)?;
     tell_machines(node, &targets);
 
@@ -489,16 +542,13 @@ fn withdraw_pending(node: &Node, now: u64) {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use std::fmt::Write as _;
-    use std::sync::atomic::{AtomicBool, Ordering};
 
     use itsanas_crypto::UserKeys;
-    use itsanas_net::{PeerServer, PeerService, Pledge};
-    use itsanas_node::owners::ClaimBook;
 
     use super::*;
-    use crate::devices::tests::{NOW, PASSPHRASE, live, phone, with_directory};
+    use crate::testing::{NOW, PASSPHRASE, live, phone, with_directory};
 
     const NEW_PASSPHRASE: &str = "a new passphrase for this phone";
     const GIB: u64 = 1 << 30;
@@ -543,43 +593,6 @@ pub(crate) mod tests {
             })
             .map(|entry| entry.path())
             .collect()
-    }
-
-    /// Stops the peer server even when the body panics.
-    struct StopOnDrop<'a>(&'a AtomicBool, std::net::SocketAddr);
-
-    impl Drop for StopOnDrop<'_> {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::Relaxed);
-            let _ = std::net::TcpStream::connect(self.1);
-        }
-    }
-
-    /// `host` serving as a machine of the account does, for the length of `body`.
-    pub(crate) fn serving<T>(host: &Node, body: impl FnOnce(std::net::SocketAddr) -> T) -> T {
-        serving_on(&PeerServer::bind("127.0.0.1:0").expect("bind"), host, body)
-    }
-
-    /// [`serving`] on a listener already bound, for a test that has to publish
-    /// the address first.
-    pub(crate) fn serving_on<T>(
-        server: &PeerServer,
-        host: &Node,
-        body: impl FnOnce(std::net::SocketAddr) -> T,
-    ) -> T {
-        let book = ClaimBook::new();
-        let service = PeerService::new(&host.store, &host.vault, Pledge::gigabytes(1))
-            .with_owners(&book)
-            .claiming(host.claim_bytes(itsanas_discover::now_unix()));
-        let address = server.local_addr().expect("address");
-        let shutdown = AtomicBool::new(false);
-        std::thread::scope(|scope| {
-            scope.spawn(|| {
-                let _ = server.serve_until(&service, &host.device, &shutdown);
-            });
-            let _stop = StopOnDrop(&shutdown, address);
-            body(address)
-        })
     }
 
     #[test]
@@ -872,105 +885,6 @@ pub(crate) mod tests {
                 "an id its coordinator refused is asked again at every login"
             );
         });
-    }
-
-    /// The reason a withdrawal is safe: what the phone wrote outlives it. Written
-    /// here, pushed to a sibling that serves, logged out; a new login dialling that
-    /// sibling lists the file and reads it. Sabotage: ask the host for no claims
-    /// in `Node::introduce` (the new login's roster refuses the old phone's chain:
-    /// the file is listed and cannot be read).
-    #[test]
-    fn red_team_files_written_by_a_phone_that_logged_out_reach_the_next_login() {
-        with_directory(|address, _| {
-            let dir = tempfile::tempdir().expect("temp dir");
-            let home = dir.path().join("node");
-            let (mut phone_node, phrase) = phone(&home, address, "camille", None);
-            let (sibling, _) = phone(&dir.path().join("nas"), address, "camille", Some(&phrase));
-            for node in [&phone_node, &sibling] {
-                coordinator::register_with(node, None, NOW).expect("enrol");
-            }
-
-            let source = dir.path().join("source");
-            std::fs::write(&source, b"written on the phone").expect("source");
-            crate::put_file(
-                &phone_node,
-                "Photos/one.jpg",
-                source.to_str().expect("path"),
-            )
-            .expect("put");
-
-            serving(&sibling, |at| {
-                phone_node.config.peers.push(at.to_string());
-                phone_node.save_config().expect("save");
-
-                let check = answer(&logout_check(&phone_node, false).expect("check"));
-                assert!(check["reached"].as_u64() >= Some(1), "{check}");
-                assert_eq!(
-                    check["onlyHere"], 0,
-                    "a pushed file is still called the only copy: the person is warned for \
-                     nothing, and learns to type through it: {check}"
-                );
-
-                let slot = Mutex::new(Some(phone_node));
-                let said = answer(&logout_into(&slot, &home, NOW + 1).expect("logout"));
-                assert_eq!(said["withdrawn"], true, "{said}");
-                assert!(said["told"].as_u64() >= Some(1), "{said}");
-
-                let login = Login {
-                    home: &home,
-                    username: "camille",
-                    phrase: &phrase,
-                    passphrase: NEW_PASSPHRASE,
-                };
-                login_into(&slot, login, roomy(), &network(address), NOW + 2).expect("login");
-                let mut guard = slot.lock().expect("lock");
-                let node = guard.as_mut().expect("held");
-                node.config.peers.push(at.to_string());
-
-                crate::run_round(
-                    node,
-                    &crate::targets(node),
-                    itsanas_net::session::Scope::Everything,
-                );
-                let listing = itsanas_store::catalogue(&node.store, &node.vault).expect("list");
-                assert!(
-                    listing
-                        .files
-                        .iter()
-                        .any(|file| file.path == "Photos/one.jpg"),
-                    "the next login does not see what the logged-out phone wrote: withdrawing \
-                     a phone orphans its files. Listed: {:?}",
-                    listing
-                        .files
-                        .iter()
-                        .map(|file| &file.path)
-                        .collect::<Vec<_>>()
-                );
-                let out = dir.path().join("out");
-                crate::get_file(node, "Photos/one.jpg", out.to_str().expect("path")).expect("get");
-                assert_eq!(std::fs::read(&out).expect("read"), b"written on the phone");
-            });
-        });
-    }
-
-    /// What a logout would lose is said before it happens, and the check closes
-    /// nothing. Sabotage: report the coverage from before the round.
-    #[test]
-    fn a_phone_with_no_machine_is_told_its_files_are_only_here() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let (mut node, _) =
-            Node::create(&dir.path().join("node"), PASSPHRASE, "camille").expect("create");
-        node.config.coordinator = Some("127.0.0.1:1".to_owned());
-        let source = dir.path().join("source");
-        std::fs::write(&source, b"the only copy").expect("source");
-        crate::put_file(&node, "one.txt", source.to_str().expect("path")).expect("put");
-
-        let said = answer(&logout_check(&node, true).expect("check"));
-        assert_eq!(said["reached"], 0, "{said}");
-        assert_eq!(said["username"], "camille", "{said}");
-        assert!(said["onlyHere"].as_u64() >= Some(1), "{said}");
-        assert_eq!(said["onlyHere"], said["liveChunks"], "{said}");
-        assert_eq!(said["heldForOthers"], 0, "{said}");
     }
 
     /// "I FORGOT MY PASSPHRASE" REFUSES BEFORE IT TOUCHES ANYTHING. Bad words, a

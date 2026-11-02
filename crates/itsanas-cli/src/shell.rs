@@ -12,3 +12,9 @@ pub use crate::error::{CliError, Result};
 pub use crate::setup::secrets::{Secret, SecretPrompt};
 pub use crate::setup::service::ServiceControl;
 pub use crate::setup::web::{Backends, Features, Host, Mode, NoHost, Server};
+
+// What the phone's few remaining native calls need of the shared code. The rest
+// of a shell's reach is the page, served by [`Server`].
+pub use crate::account::{Network, describe, restore_account};
+pub use crate::failure::{Answer, Failure};
+pub use crate::rounds::{NO_MACHINE_YET, RoundTotals, run_round, targets};

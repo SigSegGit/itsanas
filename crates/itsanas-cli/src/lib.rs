@@ -16,21 +16,32 @@
 //! the coordinator to say who the peers are. Recorded in `docs/ROADMAP.md`
 //! rather than glossed over.
 
+// What every shell shares: the machine's account (logging out, deleting), the
+// account's devices, the figures a phone shows of its space, the machines to
+// dial. `pub` so the phone's app reaches them through `shell`.
+pub mod account;
 mod backup;
 mod bench;
 mod control;
 mod copy_to_key;
 mod daemon;
+pub mod devices;
 mod discovery;
 mod drives;
+pub mod failure;
 mod jobs;
 mod lifecycle;
+pub mod limits;
 mod natpmp;
 mod placing;
 mod portable;
+pub mod rounds;
 mod safety;
 mod setup;
 pub mod shell;
+/// Stand-ins for a coordinator and a serving machine, for a shell's tests.
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 mod update;
 mod upnp;
 
