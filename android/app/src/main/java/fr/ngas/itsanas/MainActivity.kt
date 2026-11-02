@@ -1,6 +1,7 @@
 package fr.ngas.itsanas
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -74,6 +75,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         Appearance.load(this)
+        Appearance.phoneDark = isNight(resources.configuration)
         super.onCreate(savedInstanceState)
         Host.attach(applicationContext)
         // The Recents card would show a file list, or the words.
@@ -83,6 +85,14 @@ class MainActivity : FragmentActivity() {
         val shared = incoming(intent)
         setContent { ITSaNASTheme { App(shared) } }
     }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        Appearance.phoneDark = isNight(newConfig)
+    }
+
+    private fun isNight(config: Configuration) =
+        config.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
 
     /**
      * Files another application shared into this one, if any.
@@ -208,6 +218,8 @@ private fun App(shared: List<Uri>) {
                     }
 
                     "signedOut" -> {
+                        // Or a fingerprint would still open what was signed out of.
+                        Biometric.disable(context)
                         Account.close(context)
                         leave(Screen.Locked)
                     }

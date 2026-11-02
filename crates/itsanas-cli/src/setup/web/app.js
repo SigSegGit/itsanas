@@ -185,9 +185,10 @@
   function buildProgress() {
     const list = $('progress');
     list.textContent = '';
-    STEPS.forEach(function (step) {
+    STEPS.forEach(function (step, index) {
       const item = document.createElement('li');
       item.textContent = t(step.label);
+      item.dataset.n = String(index + 1);
       item.dataset.page = step.page;
       list.appendChild(item);
     });

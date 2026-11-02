@@ -67,6 +67,11 @@ object Flows {
         E2e.waitFor("Welcome never appeared on a phone with no account") { E2e.onSection("welcome") }
         E2e.tap("section[data-page=welcome] [data-next]")
         E2e.waitFor("Start on Welcome did nothing") { E2e.onSection("account") }
+        E2e.waitFor("the second step does not say 2: a person cannot tell how far along they are") {
+            E2e.js(
+                "getComputedStyle(document.querySelector('#progress li[aria-current=step]'),'::before').content",
+            ).orEmpty().contains("2")
+        }
     }
 
     /** Pick "new account" and type a name; returns once the coordinator has said something. */

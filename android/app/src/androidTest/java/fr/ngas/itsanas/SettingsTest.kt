@@ -96,7 +96,15 @@ class SettingsTest {
     @Test
     fun the_theme_changes_the_screen_at_once_and_follows_the_phone() {
         Flows.createAccount(compose, Flows.freshName())
+        // The file list is drawn by the app, not the page: it must follow the phone too.
+        E2e.shell("cmd uimode night yes")
+        E2e.waitFor("the file list stayed light when the phone went to night mode") { dark() }
+        E2e.shell("cmd uimode night no")
+        E2e.waitFor("the file list stayed dark when the phone went back to day") { !dark() }
         Flows.openSettings(compose)
+        E2e.waitFor("Settings is wider than the phone: its right side cannot be read without scrolling sideways") {
+            E2e.js("document.documentElement.scrollWidth<=window.innerWidth") == "true"
+        }
         chooseTheme("dark")
         E2e.waitFor("Dark did not darken the screen") { dark() }
         E2e.shot("41-theme-dark")

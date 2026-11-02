@@ -6,7 +6,6 @@ import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -31,6 +30,9 @@ object Appearance {
 
     var choice by mutableStateOf(ThemeChoice.SYSTEM)
         private set
+
+    /** Whether the phone is in night mode, from the activity: it handles the change itself. */
+    var phoneDark by mutableStateOf(false)
 
     fun load(context: Context) {
         val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(THEME, null)
@@ -114,7 +116,7 @@ private val Dark = darkColorScheme(
 @Composable
 fun ITSaNASTheme(content: @Composable () -> Unit) {
     val dark = when (Appearance.choice) {
-        ThemeChoice.SYSTEM -> isSystemInDarkTheme()
+        ThemeChoice.SYSTEM -> Appearance.phoneDark
         ThemeChoice.LIGHT -> false
         ThemeChoice.DARK -> true
     }

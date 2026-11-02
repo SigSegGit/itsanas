@@ -105,16 +105,15 @@ html, body {
   list-style: none;
   margin: 0;
   padding: 0;
-  counter-reset: step;
 }
 #progress li {
-  counter-increment: step;
   padding: 8px 10px;
   border-radius: 8px;
   color: var(--muted);
 }
 #progress li::before {
-  content: counter(step) ". ";
+  /* Not a CSS counter: a narrow screen hides the other steps, and a hidden step counts for nothing. */
+  content: attr(data-n) ". ";
 }
 #progress li.done { color: var(--ok); }
 #progress li.done::before { content: "\2713  "; }
@@ -248,6 +247,8 @@ button:disabled { opacity: 0.6; cursor: default; }
 code { font-family: ui-monospace, Consolas, monospace; }
 
 @media (max-width: 720px) {
+  .top { flex-wrap: wrap; padding: 10px 12px; align-items: center; }
+  #mode-title { order: 1; flex-basis: 100%; }
   .layout { grid-template-columns: 1fr; padding: 12px; gap: 12px; }
   main { padding: 18px; }
   #progress { display: flex; flex-wrap: wrap; gap: 4px; }
