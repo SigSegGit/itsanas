@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-03 01:40 | ~20 min | fenêtre 5 h 3 % → 13 % ; hebdo 60 % → 62 % ; contexte 237 k | 8.0y | au bout | 🟨 | Lot groupé : alertes `failing` et `lowdisk` (bureau, page, téléphone), silence dit par `status` et par le téléphone, plancher de nœuds prouvé par `exposed` ; tests jamais lancés en local, CI à lire | #365 |
 | 2026-11-02 22:10 | ~20 min | fenêtre 5 h 8 % → 12 % ; contexte 260 k | 8.0y | au bout | 🟨 | Lot groupé : verdict de sécurité sur le téléphone, retraits et effacements repris à l'ouverture, ancien chemin de connexion supprimé, contrôle final en clair ; budget disque au login à revérifier | suivante |
 | 2026-11-02 20:48 | ~1 h | fenêtre 5 h 1 % → 8 % ; hebdo 58 % → 59 % ; contexte 213 k | hors §8 (#361) | au bout | 🟨 | Une interface partout : Sign out verrouille enfin le téléphone, numéros d'étape, en-tête, mode nuit des écrans natifs ; `FilesTest` a échoué une fois sans cause connue | #361 |
 | 2026-11-02 16:27 | ~3 h 45 | fenêtre 5 h 20 % → 96 % ; hebdo 47 % → 57 % ; contexte 383 k puis 176 k après /clear | hors §8 (#361) | au bout | 🟨 | Une interface partout : le setup attendait un daemon absent des téléphones, le nœud n'était pas ouvert après le setup, un test aléatoire et une attente du test français corrigés ; CI et scénarios 3 à 10 encore à voir | #361 |

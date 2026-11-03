@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0y
 TITLE: The phone's unwritable, and the desktop notifications at the next hand test (§8 0y, its Left)
 WRITTEN-AT: 2026-11-03
-BASE: 23c00a4
+BASE: ede9a77
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
