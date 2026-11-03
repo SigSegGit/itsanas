@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0y
-TITLE: The phone's unwritable, and the desktop notifications at the next hand test (§8 0y, its Left)
+NEXT: 8.2
+TITLE: Finish the red team, the next surface not yet swept (§8 2)
 WRITTEN-AT: 2026-11-03
-BASE: ede9a77
+BASE: e55a31a
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -60,6 +60,12 @@ the file list shows the line. Deleting the phone's old login path showed it was 
 caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
+
+**2026-11-03: `scripts/preflight.sh` before a push.** #365 went red on clippy, the format,
+rustdoc and the catalogue, one push at a time. It runs the fast part of the gates and collects
+every failure; a session runs it before each push. A backticked snake_case name in a
+`docs/TESTING.md` row reads as a test name. What is left of §8 0y is the hand test, so `NEXT`
+moved on.
 
 **2026-11-03: the last two safety alerts.** `failing N` and `lowdisk FREE` on the snapshot
 header, read by `brief_status` (`isolated` before `failing`: a node cut off cannot audit),
