@@ -84,5 +84,4 @@
     <string name="biometric_not_now">Pas maintenant</string>
     <string name="biometric_failed">Le déverrouillage par empreinte ou visage n\'a pas été activé.</string>
 
-    <string name="notification_channel">Synchronisation</string>
 </resources>
