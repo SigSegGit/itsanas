@@ -1007,6 +1007,7 @@ impl Directory {
     ///
     /// Always, except where a test has turned it off to play a coordinator
     /// built before the bound existed ([`Self::bound_devices`]).
+    #[cfg_attr(not(any(test, feature = "hostile")), allow(clippy::unused_self))]
     fn bounds_devices(&self) -> bool {
         #[cfg(any(test, feature = "hostile"))]
         {
