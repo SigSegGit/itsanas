@@ -161,6 +161,8 @@ window.I18N = {
     'Running, but this disk can no longer hold what it promised to others': 'En marche, mais ce disque ne peut plus garder ce qu\'il a promis aux autres',
     'Running, but it has not reached any of your other machines for hours: check that this machine is online': 'En marche, mais aucune de vos autres machines n\'a été jointe depuis des heures : vérifiez que cette machine est en ligne',
     'Running, but this disk refuses every write: what it promised to others fails': 'En marche, mais ce disque refuse toute écriture : ce qu\'il a promis aux autres échoue',
+    'Running, but a machine failed a storage check: what it holds no longer counts as a copy': 'En marche, mais une machine a échoué à une vérification de stockage : ce qu\'elle garde ne compte plus comme une copie',
+    'Running, but this disk is nearly full: free some room before writes start to fail': 'En marche, mais ce disque est presque plein : libérez de la place avant que les écritures n\'échouent',
     'Not running': 'Arrêté',
     'This machine has left the network': 'Cette machine a quitté le réseau',
     'Cannot tell right now': 'Impossible à dire pour l’instant',

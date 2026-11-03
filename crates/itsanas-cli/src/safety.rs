@@ -197,9 +197,89 @@ pub fn isolated_for(header: &str, now: u64, every: u64) -> Option<u64> {
     (silent >= threshold).then_some(silent)
 }
 
+/// The number that follows `word` on a header.
+fn number_after(header: &str, word: &str) -> Option<u64> {
+    let words: Vec<&str> = header.split_whitespace().collect();
+    let at = words.iter().position(|candidate| *candidate == word)?;
+    words.get(at + 1)?.parse().ok()
+}
+
+/// The header's alert words, with their leading space: how many machines
+/// failed their last storage challenge, and the free bytes of a disk below
+/// the reserve. Neither is said when it is not so.
+#[must_use]
+pub fn alert_words(failing: usize, low_disk: Option<u64>) -> String {
+    let failing = if failing > 0 {
+        format!(" failing {failing}")
+    } else {
+        String::new()
+    };
+    let low_disk = low_disk.map(|free| format!(" lowdisk {free}"));
+    format!("{failing}{}", low_disk.unwrap_or_default())
+}
+
+/// How many machines a header says failed their last storage challenge.
+#[must_use]
+pub fn failing_machines(header: &str) -> Option<u64> {
+    number_after(header, "failing").filter(|count| *count > 0)
+}
+
+/// The free bytes a header says are left on a disk below the reserve.
+#[must_use]
+pub fn low_disk(header: &str) -> Option<u64> {
+    number_after(header, "lowdisk")
+}
+
+/// Hours, then days: the shortest silence said is six hours.
+#[must_use]
+pub fn silence_words(seconds: u64) -> String {
+    if seconds < 48 * 3600 {
+        format!("{} h", seconds / 3600)
+    } else {
+        format!("{} days", seconds / 86400)
+    }
+}
+
+/// The line `status` opens with while no round reaches another machine: the
+/// icon has said so since 2026-10-30, and the command a person runs to learn
+/// why said nothing.
+#[must_use]
+pub fn silence_line(seconds: u64) -> String {
+    format!(
+        "  NOT SYNCED     no round has reached another machine for {}; check that this machine \
+         is online and that the account's other machines are on\n",
+        silence_words(seconds)
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Copies, GRACE_INTERVALS, ISOLATED_AFTER, isolated_for, reached_words};
+    use super::{
+        Copies, GRACE_INTERVALS, ISOLATED_AFTER, alert_words, failing_machines, isolated_for,
+        low_disk, reached_words, silence_words,
+    };
+
+    #[test]
+    fn the_alert_words_read_back_and_a_quiet_node_writes_none() {
+        assert_eq!(
+            alert_words(0, None),
+            "",
+            "a node with nothing to say wrote an alert: every icon would turn orange"
+        );
+        let words = alert_words(2, Some(1000));
+        assert_eq!(failing_machines(&words), Some(2), "{words}");
+        assert_eq!(low_disk(&words), Some(1000), "{words}");
+        assert_eq!(failing_machines("snapshot 1 every 300"), None);
+        assert_eq!(low_disk("snapshot 1 every 300"), None);
+        assert_eq!(failing_machines(" failing 0"), None);
+    }
+
+    #[test]
+    fn a_silence_is_said_in_hours_then_days() {
+        assert_eq!(silence_words(7 * 3600), "7 h");
+        assert_eq!(silence_words(47 * 3600), "47 h");
+        assert_eq!(silence_words(5 * 86400), "5 days");
+    }
 
     const EVERY: u64 = 300;
 

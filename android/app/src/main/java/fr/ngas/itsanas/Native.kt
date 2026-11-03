@@ -117,6 +117,8 @@ data class Status(
     val liveChunks: Int,
     val copiesWanted: Int,
     val safe: Boolean,
+    val failing: Int,
+    val lowDisk: Long?,
 )
 
 /** Parsing, kept next to the calls it belongs to rather than spread about. */
@@ -151,6 +153,8 @@ object Answers {
             liveChunks = o.getInt("liveChunks"),
             copiesWanted = o.getInt("copiesWanted"),
             safe = o.getBoolean("safe"),
+            failing = o.getInt("failing"),
+            lowDisk = if (o.isNull("lowDisk")) null else o.getLong("lowDisk"),
         )
     }
 

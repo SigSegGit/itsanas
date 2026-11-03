@@ -41,6 +41,8 @@ var REMOVE_WORDS = 'This hands what this machine keeps for other people to other
 var EXPOSED_ADVICE = 'Add a machine to this account, or keep its other machines on, so copies exist elsewhere.';
 // What a node that has reached no other machine for hours is told
 // (ARCHITECTURE §7), in the menu and in its one notification.
+var FAILING_ADVICE = 'itsanas status says which.';
+var LOW_DISK_ADVICE = 'Free some room: writes fail when the disk is full.';
 var ISOLATED_ADVICE = "Check that this machine is online, and that the account's other machines are on.";
 
 var COLOURS = {
@@ -100,6 +102,24 @@ function silentOf(brief) {
     return null;
 }
 
+// `failing AGE COUNT`: machines that failed their last storage challenge.
+function failingOf(brief) {
+    var parts = String(brief || '').trim().split(/\s+/);
+    if (parts.length >= 3 && parts[0] === 'failing' && /^\d+$/.test(parts[2])) {
+        return parseInt(parts[2], 10);
+    }
+    return null;
+}
+
+// `lowdisk AGE FREE`: the free bytes of a disk below the reserve, in MB.
+function lowDiskOf(brief) {
+    var parts = String(brief || '').trim().split(/\s+/);
+    if (parts.length >= 3 && parts[0] === 'lowdisk' && /^\d+$/.test(parts[2])) {
+        return Math.floor(parseInt(parts[2], 10) / 1048576);
+    }
+    return null;
+}
+
 // Hours, then days: the shortest silence said is six hours.
 function formatSilence(seconds) {
     if (seconds < 48 * 3600) { return Math.floor(seconds / 3600) + ' h'; }
@@ -111,6 +131,10 @@ function stateWords(brief) {
     var silent = silentOf(brief);
     if (silent !== null) { return 'not synced with any machine for ' + formatSilence(silent); }
     if (splitBrief(brief)[0] === 'unwritable') { return 'its vault cannot be written (itsanas status says why)'; }
+    var failing = failingOf(brief);
+    if (failing !== null) { return failing + ' machine(s) failed a storage check (itsanas status says which)'; }
+    var low = lowDiskOf(brief);
+    if (low !== null) { return 'only ' + low + ' MB free on its disk'; }
     var copies = copiesOf(brief);
     if (copies === null) { return splitBrief(brief)[0]; }
     if (copies[0] === 0) { return 'only on this machine (0 of ' + copies[1] + ' copies elsewhere)'; }
@@ -126,6 +150,17 @@ function notice(previous, brief, label) {
     if (silent !== null) {
         if (silentOf(previous) !== null) { return null; }
         return label + ': not synced with any machine for ' + formatSilence(silent) + '. ' + ISOLATED_ADVICE;
+    }
+    var failing = failingOf(brief);
+    if (failing !== null) {
+        var failedBefore = failingOf(previous);
+        if (failedBefore !== null && failedBefore >= failing) { return null; }
+        return label + ': ' + failing + ' machine(s) failed a storage check: what they hold no longer counts as a copy. ' + FAILING_ADVICE;
+    }
+    var low = lowDiskOf(brief);
+    if (low !== null) {
+        if (lowDiskOf(previous) !== null) { return null; }
+        return label + ': only ' + low + ' MB free on its disk. ' + LOW_DISK_ADVICE;
     }
     var now = copiesOf(brief);
     if (now === null) { return null; }

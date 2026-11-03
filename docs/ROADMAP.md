@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1553 test functions, 20 of them `#[ignore]`d into the slow job, and 541 of
+**1560 test functions, 20 of them `#[ignore]`d into the slow job, and 546 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1187,8 +1187,20 @@ Still to build:
   a contact is a round *this* node dialled out on; a public machine that
   others only dial in to, unparked, can read `isolated` though they reach it
   (the listener's witness counts scanners, so it cannot say who synced).
-  `status` itself does not yet say the silence in words. The online-node
-  floor and failed storage challenges have no alert.
+  Three more (2026-11-03): a machine that failed its last storage challenge
+  reads `failing`, orange, one notification, and `status` names it
+  (`red_team_a_failed_challenge_reaches_the_icon_and_status_and_clears`); a
+  disk below the reserve reads `lowdisk`
+  (`red_team_a_disk_below_the_reserve_says_how_little_is_left`,
+  `red_team_a_failing_machine_and_a_full_disk_are_never_drawn_green`), measured
+  on both the home's disk and the vault's; `status` says the silence in words
+  (`red_team_status_says_in_words_that_no_round_reached_anybody`). The phone
+  says the first two
+  (`red_team_a_phone_says_a_machine_failed_its_storage_check`). Left: the
+  online-node floor has no alert of its own, because the next write already
+  reads `exposed` while a machine is off (no test names that route yet); the
+  phone does not say `isolated` or `unwritable`; nothing fills a real disk to
+  prove the daemon's call to `low_on_disk`.
 - While the daemon runs, commands that open the store still refuse to start.
   Pausing, resuming, asking for a round and changing the interval do not need
   the store and work while it runs (`itsanas pause|resume|sync-now|interval`,

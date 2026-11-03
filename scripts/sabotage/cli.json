@@ -86,6 +86,41 @@
       "file": "crates/itsanas-cli/src/setup/steps.rs",
       "live": "        node.config.keep_bytes = self.answers.keep.apply(node.config.keep_bytes);\n",
       "dead": ""
+    },
+    "alerts: no failing word on the header": {
+      "file": "crates/itsanas-cli/src/safety.rs",
+      "live": "let failing = if failing > 0 {",
+      "dead": "let failing = if false && failing > 0 {"
+    },
+    "alerts: every machine that ever failed counts": {
+      "file": "crates/itsanas-cli/src/lib.rs",
+      "live": ".filter(|(_, record)| record.consecutive_failures > 0)",
+      "dead": ".filter(|(_, record)| record.failed > 0)"
+    },
+    "alerts: the failed list goes to stdout": {
+      "file": "crates/itsanas-cli/src/lib.rs",
+      "live": "    report_unreliable_peers(node, &mut out)?;",
+      "dead": "    report_unreliable_peers(node, &mut String::new())?;"
+    },
+    "alerts: failing reads green": {
+      "file": "crates/itsanas-cli/src/lib.rs",
+      "live": "Ok(_) if safety::failing_machines(header).is_some() => {",
+      "dead": "Ok(_) if false && safety::failing_machines(header).is_some() => {"
+    },
+    "alerts: lowdisk reads green": {
+      "file": "crates/itsanas-cli/src/lib.rs",
+      "live": "Ok(_) if safety::low_disk(header).is_some() => {",
+      "dead": "Ok(_) if false && safety::low_disk(header).is_some() => {"
+    },
+    "alerts: isolated hidden by failing": {
+      "file": "crates/itsanas-cli/src/lib.rs",
+      "live": "Ok(_) if isolated.is_some() => {",
+      "dead": "Ok(_) if isolated.is_some() && safety::failing_machines(header).is_none() => {"
+    },
+    "alerts: status says no silence": {
+      "file": "crates/itsanas-cli/src/daemon.rs",
+      "live": "\"{}\\n{silence}{text}\",",
+      "dead": "\"{}\\n{text}\", "
     }
   }
 }

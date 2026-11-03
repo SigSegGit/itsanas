@@ -51,6 +51,16 @@
       "file": "crates/itsanas-node/src/pledges.rs",
       "live": "usable.saturating_sub(pledge).min(allowed) / GIB * GIB",
       "dead": "usable.min(allowed) / GIB * GIB"
+    },
+    "alerts: a disk at the reserve is low": {
+      "file": "crates/itsanas-node/src/pledges.rs",
+      "live": "free.filter(|free| *free < RESERVE)",
+      "dead": "free.filter(|free| *free <= RESERVE)"
+    },
+    "alerts: a disk below the reserve goes unsaid": {
+      "file": "crates/itsanas-node/src/pledges.rs",
+      "live": "free.filter(|free| *free < RESERVE)",
+      "dead": "free.filter(|_| false)"
     }
   }
 }

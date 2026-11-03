@@ -55,6 +55,8 @@ EXPOSED_ADVICE = (
 )
 # What a node that has reached no other machine for hours is told
 # (ARCHITECTURE §7), in the menu and in its one notification.
+FAILING_ADVICE = "itsanas status says which."
+LOW_DISK_ADVICE = "Free some room: writes fail when the disk is full."
 ISOLATED_ADVICE = "Check that this machine is online, and that the account's other machines are on."
 NO_TOOLKIT = (
     "itsanas-tray: no GTK for Python here (python3-gi), so no tray icon; "
@@ -122,6 +124,22 @@ def silent_of(brief):
     return None
 
 
+def failing_of(brief):
+    """`failing AGE COUNT`: machines that failed their last storage challenge."""
+    parts = (brief or "").split()
+    if len(parts) >= 3 and parts[0] == "failing" and parts[2].isdigit():
+        return int(parts[2])
+    return None
+
+
+def low_disk_of(brief):
+    """`lowdisk AGE FREE`: the free bytes of a disk below the reserve, in MB."""
+    parts = (brief or "").split()
+    if len(parts) >= 3 and parts[0] == "lowdisk" and parts[2].isdigit():
+        return int(parts[2]) // (1024 * 1024)
+    return None
+
+
 def format_silence(seconds):
     """Hours, then days: the shortest silence said is six hours."""
     if seconds < 48 * 3600:
@@ -137,6 +155,12 @@ def state_words(brief):
         return "not synced with any machine for %s" % format_silence(silent)
     if state == "unwritable":
         return "its vault cannot be written (itsanas status says why)"
+    failing = failing_of(brief)
+    if failing is not None:
+        return "%d machine(s) failed a storage check (itsanas status says which)" % failing
+    low = low_disk_of(brief)
+    if low is not None:
+        return "only %d MB free on its disk" % low
     copies = copies_of(brief)
     if copies is None:
         return state
@@ -162,6 +186,20 @@ def notice(previous, brief, label):
             format_silence(silent),
             ISOLATED_ADVICE,
         )
+    failing = failing_of(brief)
+    if failing is not None:
+        if (failing_of(previous) or 0) >= failing:
+            return None
+        return "%s: %d machine(s) failed a storage check: what they hold no longer counts as a copy. %s" % (
+            label,
+            failing,
+            FAILING_ADVICE,
+        )
+    low = low_disk_of(brief)
+    if low is not None:
+        if low_disk_of(previous) is not None:
+            return None
+        return "%s: only %d MB free on its disk. %s" % (label, low, LOW_DISK_ADVICE)
     now = copies_of(brief)
     if now is None:
         return None

@@ -552,6 +552,22 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                     )
                 }
             }
+            status?.takeIf { it.failing > 0 }?.let {
+                Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
+                    Text(
+                        stringResource(R.string.machines_failing, it.failing),
+                        Modifier.fillMaxWidth().padding(16.dp).testTag("machines-failing"),
+                    )
+                }
+            }
+            status?.lowDisk?.let {
+                Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
+                    Text(
+                        stringResource(R.string.low_disk, humanSize(it)),
+                        Modifier.fillMaxWidth().padding(16.dp).testTag("low-disk"),
+                    )
+                }
+            }
             if (busy) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(8.dp))
             }

@@ -97,6 +97,22 @@ pub fn account_is_safe(coverage: &itsanas_store::Coverage) -> bool {
     coverage.live_chunks == 0 || coverage.meets(SAFE_COPIES)
 }
 
+/// How many machines failed their last storage challenge: what they hold no
+/// longer counts as a copy. The daemon's snapshot and a phone both say this
+/// number, and an answered round pays a failure off.
+///
+/// # Errors
+///
+/// When the store cannot be read.
+pub fn machines_failing(node: &Node) -> Result<usize> {
+    Ok(node
+        .store
+        .unreliable_devices()?
+        .iter()
+        .filter(|(_, record)| record.consecutive_failures > 0)
+        .count())
+}
+
 use crate::{
     config::{format_size, parse_size},
     coordinator::{REGISTERED, mark_registered, registered_with},
@@ -248,6 +264,7 @@ enum Command {
     /// Show this node's identity, contents and hosting.
     Status {
         /// One line for a tray icon or a script: `healthy`, `paused`,
+        /// `exposed`, `isolated`, `failing`, `unwritable`, `lowdisk`, `short`,
         /// `stale`, `stopped`, `departed` or `unknown`, then the snapshot's
         /// age in seconds when there is one. Never asks for a passphrase.
         #[arg(long)]
@@ -1360,23 +1377,30 @@ fn login(
 ///
 /// Silence means every peer that has ever been audited answered, which is the
 /// ordinary case and worth no words at all.
-fn report_unreliable_peers(node: &Node) -> Result<()> {
+fn report_unreliable_peers(node: &Node, out: &mut String) -> Result<()> {
     let unreliable = node.store.unreliable_devices()?;
     if unreliable.is_empty() {
         return Ok(());
     }
 
-    println!();
-    println!("peers that have failed a storage challenge");
+    // Into the text, not to stdout: printed, it went to the daemon's log and
+    // never reached the snapshot, so on a running node `status` could not say
+    // which machine had failed.
+    let _ = writeln!(out, "\npeers that have failed a storage challenge");
     for (device, record) in &unreliable {
         match record.complaint(device) {
-            Some(complaint) => println!("  {complaint}"),
-            None => println!(
-                "  {} answered {} and failed {}, and is answering now",
-                device.short(),
-                record.passed,
-                record.failed
-            ),
+            Some(complaint) => {
+                let _ = writeln!(out, "  {complaint}");
+            }
+            None => {
+                let _ = writeln!(
+                    out,
+                    "  {} answered {} and failed {}, and is answering now",
+                    device.short(),
+                    record.passed,
+                    record.failed
+                );
+            }
         }
     }
     Ok(())
@@ -1821,7 +1845,7 @@ fn render_status_and_copies(
     let copies = coverage_report(node, &mut out)?;
     w!("  placements     {} recorded", store.holder_records);
 
-    report_unreliable_peers(node)?;
+    report_unreliable_peers(node, &mut out)?;
 
     // In every mode: the figures are read before anyone acts on them.
     w!();
@@ -2157,10 +2181,30 @@ fn brief_status(home: &Path, running: bool, now: u64) -> String {
             Ok(_) if isolated.is_some() => {
                 format!("isolated {age} {}", isolated.unwrap_or_default())
             }
+            // A machine failed its last storage challenge: what it holds no
+            // longer counts (`status` says which). After `isolated`: a node
+            // cut off cannot audit, so this word would otherwise hide the
+            // silence for as long as the silence lasts. The count follows.
+            Ok(_) if safety::failing_machines(header).is_some() => {
+                format!(
+                    "failing {age} {}",
+                    safety::failing_machines(header).unwrap_or_default()
+                )
+            }
             // The vault refused the daemon's last write probe: room on the
             // disk, and every chunk sent to it fails (`status` says why).
             Ok(_) if header.split_whitespace().any(|word| word == "unwritable") => {
                 format!("unwritable {age}")
+            }
+            // Below the reserve: the next writes fail, this node's own index
+            // first. Before `short`, which such a disk usually is as well and
+            // which only speaks of the room promised to others. The free bytes
+            // follow.
+            Ok(_) if safety::low_disk(header).is_some() => {
+                format!(
+                    "lowdisk {age} {}",
+                    safety::low_disk(header).unwrap_or_default()
+                )
             }
             // Running, but the disk can no longer hold what it promised: not
             // green (`status` says CANNOT KEEP and why).

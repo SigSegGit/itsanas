@@ -10,8 +10,8 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0y
-TITLE: The other safety alerts: a failed challenge, a full or unwritable pledge, low free space (§8 0y, its Left)
-WRITTEN-AT: 2026-11-02
+TITLE: The online-node floor and the phone's isolated and unwritable (§8 0y, its Left)
+WRITTEN-AT: 2026-11-03
 BASE: 23c00a4
 -->
 
@@ -60,6 +60,13 @@ the file list shows the line. Deleting the phone's old login path showed it was 
 caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
+
+**2026-11-03: the last two safety alerts.** `failing N` and `lowdisk FREE` on the snapshot
+header, read by `brief_status` (`isolated` before `failing`: a node cut off cannot audit),
+drawn orange by the three trays, said on the page and the phone. Found on the way:
+`report_unreliable_peers` printed to stdout, so on a running node `status` never named the
+machine that failed. Not proven: the daemon's call to `low_on_disk` (nothing fills a real
+disk in a test).
 
 **Waiting on Nicolas, in this order, as commands to paste** (2026-10-29; a
 session cannot do any of them, and gives him these commands first, every
@@ -1838,10 +1845,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
       minutes is `stale` already; a failed challenge, a full or unwritable
       pledge, low free space have no alert).
       Done 2026-11-02: the phone says it, from the CLI's rule (`account_is_safe`,
-      `red_team_a_phone_says_its_files_are_not_safe_yet`). **NEXT: the other
-      ARCHITECTURE §7 rows.** Each is a line in the snapshot header that
-      `brief_status` reads (`safety.rs` is the model), a colour in the trays, a
-      line on the phone, and a red-team test with its sabotage.
+      `red_team_a_phone_says_its_files_are_not_safe_yet`).
+      Done 2026-11-03: `failing` and `lowdisk` through the header, the trays,
+      the page and the phone, and `status` says the silence and which machine
+      failed (ROADMAP M7, ARCHITECTURE §7). **Left:** the online-node floor,
+      the phone's `isolated` and `unwritable` (ROADMAP M7), and the desktop
+      notifications seen by Nicolas at the next hand test.
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
       `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
       Battery is reported (`powercfg /batteryreport`) and not judged; bytes

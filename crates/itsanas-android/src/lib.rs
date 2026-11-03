@@ -724,6 +724,8 @@ fn status_of(node: &Node) -> Answer {
         "liveChunks": coverage.live_chunks,
         "copiesWanted": itsanas_cli::SAFE_COPIES,
         "safe": itsanas_cli::account_is_safe(&coverage),
+        "failing": itsanas_cli::machines_failing(node)?,
+        "lowDisk": itsanas_node::pledges::low_on_disk(&node.home),
     })
     .to_string())
 }
@@ -1178,6 +1180,24 @@ mod tests {
         );
         assert_eq!(status["copiesWanted"], 2, "{status}");
         assert_eq!(status["copiesElsewhere"], 0, "{status}");
+    }
+
+    /// A machine that lied about what it holds, said on the phone from the same
+    /// rule as the desktop's icon. Sabotage: hard-code `failing` to 0.
+    #[test]
+    fn red_team_a_phone_says_a_machine_failed_its_storage_check() {
+        let dir = tempfile::tempdir().unwrap();
+        let (node, _) = Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        let status: serde_json::Value = serde_json::from_str(&status_of(&node).unwrap()).unwrap();
+        assert_eq!(status["failing"], 0, "nobody failed anything: {status}");
+
+        let liar = itsanas_crypto::DeviceId::from_bytes([7; 32]);
+        node.store.note_audit(&liar, false).unwrap();
+        let status: serde_json::Value = serde_json::from_str(&status_of(&node).unwrap()).unwrap();
+        assert_eq!(
+            status["failing"], 1,
+            "a machine stopped holding this phone's files and the phone says nothing: {status}"
+        );
     }
 
     #[test]

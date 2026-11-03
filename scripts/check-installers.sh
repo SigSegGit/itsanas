@@ -1116,7 +1116,7 @@ if [ -n "$PY" ]; then
     command -v node >/dev/null 2>&1 && others="$others js"
     command -v pwsh >/dev/null 2>&1 && others="$others ps1"
     briefs=('healthy 30' 'paused 4000' 'stale 900' 'stopped' 'departed' 'signed-out' '')
-    briefs+=('exposed 30 0 2' 'exposed 30 1 2' 'isolated 30 25200' 'isolated 30 400000' 'unwritable 30')
+    briefs+=('exposed 30 0 2' 'exposed 30 1 2' 'isolated 30 25200' 'isolated 30 400000' 'unwritable 30' 'failing 30 2' 'lowdisk 30 104857600')
     for brief in "${briefs[@]}"; do
         for instance in '' b; do
             for every in 'every 15 min (set with `itsanas interval`)' 'auto: the daemon'"'"'s own setting'; do
@@ -1184,6 +1184,27 @@ if [ -n "$PY" ]; then
         for line in 'icon orange' 'status ITSaNAS: its vault cannot be written (itsanas status says why) (30 s ago)'; do
             printf '%s\n' "$unwritable" | grep -qxF -- "$line" || { bad "the $tray tray of a node whose vault takes no write lacks: $line"; menus_ok=0; }
         done
+        # A machine that failed a storage check, and a disk below the reserve:
+        # orange, said, and told once; a further machine failing is news.
+        failing=$(tray_menu "$tray" '' 'failing 30 2' 'auto: x' 'healthy 30')
+        wanted=('icon orange' 'status ITSaNAS: 2 machine(s) failed a storage check (itsanas status says which) (30 s ago)' 'notice ITSaNAS: 2 machine(s) failed a storage check: what they hold no longer counts as a copy. itsanas status says which.')
+        for line in "${wanted[@]}"; do
+            printf '%s\n' "$failing" | grep -qxF -- "$line" || { bad "the $tray tray of a node whose machines failed a storage check lacks: $line"; menus_ok=0; }
+        done
+        if tray_menu "$tray" '' 'failing 30 2' 'auto: x' 'failing 30 2' | grep -q '^notice '; then
+            bad "the $tray tray notifies again for the same failed machines: an alarm every poll"; menus_ok=0
+        fi
+        if ! tray_menu "$tray" '' 'failing 30 2' 'auto: x' 'failing 30 1' | grep -q '^notice '; then
+            bad "the $tray tray says nothing when one more machine fails a storage check"; menus_ok=0
+        fi
+        low=$(tray_menu "$tray" '' 'lowdisk 30 104857600' 'auto: x' 'healthy 30')
+        wanted=('icon orange' 'status ITSaNAS: only 100 MB free on its disk (30 s ago)' 'notice ITSaNAS: only 100 MB free on its disk. Free some room: writes fail when the disk is full.')
+        for line in "${wanted[@]}"; do
+            printf '%s\n' "$low" | grep -qxF -- "$line" || { bad "the $tray tray of a node whose disk is below the reserve lacks: $line"; menus_ok=0; }
+        done
+        if tray_menu "$tray" '' 'lowdisk 30 94857600' 'auto: x' 'lowdisk 30 104857600' | grep -q '^notice '; then
+            bad "the $tray tray notifies again for a disk still below the reserve: an alarm every poll"; menus_ok=0
+        fi
     done
     paused=$(tray_menu py '' 'paused 60' 'auto: x')
     for line in 'icon blue' 'item Resume syncing -> itsanas resume' '  item Automatic -> itsanas interval auto [checked]'; do

@@ -50,6 +50,8 @@
     <string name="check_confirm">Confirm</string>
 
     <string name="files_empty">Nothing here yet. Add a file, or sync with one of your machines.</string>
+    <string name="machines_failing">Machines that failed a storage check: %1$d. What they hold no longer counts as a copy of your files.</string>
+    <string name="low_disk">Only %1$s free on this phone. Free some room: saving fails when it is full.</string>
     <string name="not_safe_yet">Your files are not safe yet: %1$d of the %2$d copies they need exist outside this phone. If you lose it now, what is missing is gone.</string>
     <string name="files_summary">%1$d here · %2$d not here · %3$s</string>
     <string name="files_added">%1$d file(s) added</string>

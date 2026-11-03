@@ -1443,17 +1443,19 @@ fn paused_round(
 /// test, 2026-10-22). The fleet run compares it across machines. Then the
 /// copies, when anything is stored (`safety.rs`): what the icon colours. Then
 /// when a round last reached another machine, or since when none has
-/// (`safety::reached_words`), and ` unwritable` while the
-/// vault refuses a write ([`Seen`]).
+/// (`safety::reached_words`), ` unwritable` while the vault refuses a write
+/// ([`Seen`]), then a failed challenge and a disk below the reserve
+/// (`safety::alert_words`).
 fn snapshot_header(
     now: u64,
     every: u64,
     copies: Option<crate::safety::Copies>,
     reached: &str,
     unwritable: bool,
+    alerts: &str,
 ) -> String {
     format!(
-        "snapshot {now} every {every} version {}{}{reached}{}",
+        "snapshot {now} every {every} version {}{}{reached}{}{alerts}",
         env!("CARGO_PKG_VERSION"),
         copies.map(|c| c.render()).unwrap_or_default(),
         if unwritable { " unwritable" } else { "" }
@@ -1483,6 +1485,16 @@ fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr, 
     });
     // So is the last contact (`safety::reached_words`).
     let reached = crate::safety::reached_words(seen.reached, old, now);
+    // `render_status_and_copies` read this store a moment ago; a read that
+    // fails now must not cost the snapshot, which is what says the node lives.
+    let alerts = crate::safety::alert_words(
+        crate::machines_failing(node).unwrap_or(0),
+        itsanas_node::pledges::low_on_disk(&node.home),
+    );
+    // What the icon says in a colour, `status` says in words.
+    let silence = crate::safety::isolated_for(&reached, now, interval.as_secs())
+        .map(crate::safety::silence_line)
+        .unwrap_or_default();
 
     // The first line is the time it was taken, in seconds, and the reader turns
     // that into an age. Storing the age itself would be wrong the moment it was
@@ -1493,13 +1505,14 @@ fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr, 
     // one: "stale" is two intervals without a round, and the interval is this
     // process's to know (`--interval`, the metered plan), nobody else's.
     let stamped = format!(
-        "{}\n{text}",
+        "{}\n{silence}{text}",
         snapshot_header(
             now,
             interval.as_secs(),
             copies,
             &reached,
-            seen.unwritable.is_some()
+            seen.unwritable.is_some(),
+            &alerts
         )
     );
 
@@ -2867,7 +2880,7 @@ mod tests {
 
     #[test]
     fn the_snapshot_says_which_version_wrote_it_and_still_reads_as_before() {
-        let header = snapshot_header(1_792_000_000, 300, None, "", false);
+        let header = snapshot_header(1_792_000_000, 300, None, "", false, "");
         assert!(
             header.ends_with(&format!(" version {}", env!("CARGO_PKG_VERSION"))),
             "the snapshot does not say which program wrote it: a daemon an update left \
@@ -3073,6 +3086,124 @@ mod tests {
         assert!(
             text.contains("cannot be written (Read-only file system (os error 30))"),
             "the snapshot `status` prints does not say why the vault takes nothing:\n{text}"
+        );
+    }
+
+    /// ARCHITECTURE §7, "a proof-of-storage challenge fails". Through
+    /// `write_snapshot`: the icon reads `failing`, `status` names the machine
+    /// (it used to go to stdout, so a running node's `status` could not), and
+    /// an answered round clears it, or the icon stays orange for good.
+    /// Sabotage: write no count, count every machine that ever failed, or
+    /// print the list instead of keeping it.
+    #[test]
+    fn red_team_a_failed_challenge_reaches_the_icon_and_status_and_clears() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        let bound: std::net::SocketAddr = "127.0.0.1:9797".parse().unwrap();
+        let seen = Seen {
+            reached: None,
+            unwritable: None,
+        };
+        let liar = DeviceId::from_bytes([7; 32]);
+        node.store.note_audit(&liar, false).expect("audit");
+        write_snapshot(&node, Duration::from_secs(300), bound, &seen);
+        let text = std::fs::read_to_string(home.join(crate::node::SNAPSHOT)).expect("snapshot");
+        let brief = crate::brief_status(&home, true, itsanas_discover::now_unix());
+        assert!(
+            brief.starts_with("failing ") && brief.ends_with(" 1"),
+            "a machine that lied about holding this account's data was drawn {brief:?}: its \
+             copies stopped counting and nobody was told"
+        );
+        assert!(
+            text.contains("peers that have failed a storage challenge")
+                && text.contains(&liar.short().to_string()),
+            "`status` on a running node does not say which machine failed:\n{text}"
+        );
+
+        node.store.note_audit(&liar, true).expect("audit");
+        write_snapshot(&node, Duration::from_secs(300), bound, &seen);
+        let brief = crate::brief_status(&home, true, itsanas_discover::now_unix());
+        assert!(
+            brief.starts_with("healthy "),
+            "a machine that answered again still reads {brief:?}: an orange icon nothing can \
+             turn back is a colour nobody reads"
+        );
+    }
+
+    /// What each word reads as, and which one wins. `isolated` over `failing`:
+    /// a node cut off cannot audit, so the record would hide the silence for as
+    /// long as the silence lasts. `lowdisk` over `short`: such a disk is usually
+    /// both, and only this one says the node's own writes are next. Sabotage:
+    /// remove either arm, or swap the order.
+    #[test]
+    fn red_team_a_failing_machine_and_a_full_disk_are_never_drawn_green() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        let now = 1_000_000;
+        let brief = |words: &str| {
+            std::fs::write(
+                home.join(crate::node::SNAPSHOT),
+                format!("snapshot {} every 300 version 0.1.15{words}\n", now - 60),
+            )
+            .expect("snapshot");
+            crate::brief_status(&home, true, now)
+        };
+        assert_eq!(
+            brief(" copies 2 of 2 failing 3"),
+            "failing 60 3",
+            "machines holding nothing of what they claimed were drawn green"
+        );
+        assert_eq!(
+            brief(" copies 2 of 2 lowdisk 1000"),
+            "lowdisk 60 1000",
+            "a disk about to fail every write was drawn green"
+        );
+        assert_eq!(
+            brief(" copies 2 of 2 failing 1 lowdisk 1000"),
+            "failing 60 1",
+            "the lower alert hid the one about the person's own copies"
+        );
+        assert_eq!(
+            brief(&format!(
+                " copies 2 of 2 reached {} failing 1",
+                now - 25_200
+            )),
+            "isolated 60 25200",
+            "a failed challenge hid a node cut off from every machine"
+        );
+    }
+
+    /// The silence the icon shows, in the command a person runs next
+    /// (ROADMAP M7). Sabotage: drop the line, or print it on any contact.
+    #[test]
+    fn red_team_status_says_in_words_that_no_round_reached_anybody() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        let bound: std::net::SocketAddr = "127.0.0.1:9797".parse().unwrap();
+        let now = itsanas_discover::now_unix();
+        let read = |reached: u64| {
+            let seen = Seen {
+                reached: Some(reached),
+                unwritable: None,
+            };
+            let _ = std::fs::remove_file(home.join(crate::node::SNAPSHOT));
+            write_snapshot(&node, Duration::from_secs(300), bound, &seen);
+            std::fs::read_to_string(home.join(crate::node::SNAPSHOT)).expect("snapshot")
+        };
+        let silent = read(now - 7 * 3600);
+        assert!(
+            silent.contains("NOT SYNCED") && silent.contains("for 7 h"),
+            "the icon is orange and `status` does not say why:\n{silent}"
+        );
+        let fresh = read(now);
+        assert!(
+            !fresh.contains("NOT SYNCED"),
+            "a node that reached a machine just now says it did not:\n{fresh}"
         );
     }
 
