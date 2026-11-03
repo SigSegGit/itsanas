@@ -81,7 +81,7 @@
     <string name="update_body">This phone runs %1$s. Android asks before installing it.</string>
     <string name="update_install">Install</string>
     <string name="update_later">Later</string>
-    <string name="update_allow">Allow ITSaNAS to install apps in Android\'s settings. The offer comes back the next time the app opens.</string>
+    <string name="unlock_use_passphrase">Use the passphrase</string>
     <string name="update_failed">The update was not installed: %1$s</string>
 
     <string name="biometric_title">Unlock with your fingerprint or face?</string>

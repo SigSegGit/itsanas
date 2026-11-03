@@ -79,7 +79,7 @@
     <string name="update_body">Ce téléphone utilise %1$s. Android demande confirmation avant l\'installation.</string>
     <string name="update_install">Installer</string>
     <string name="update_later">Plus tard</string>
-    <string name="update_allow">Autorisez ITSaNAS à installer des applications dans les réglages d\'Android. La proposition reviendra à la prochaine ouverture de l\'application.</string>
+    <string name="unlock_use_passphrase">Utiliser la phrase secrète</string>
     <string name="update_failed">La mise à jour n\'a pas été installée : %1$s</string>
 
     <string name="biometric_title">Déverrouiller par empreinte ou visage ?</string>

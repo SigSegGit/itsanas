@@ -42,6 +42,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -259,7 +260,16 @@ private fun App(shared: List<Uri>) {
         when (val current = screen) {
             Screen.Opening -> Centred { CircularProgressIndicator() }
             Screen.Biometric -> {
-                Centred { CircularProgressIndicator() }
+                // Android can drop its prompt without a word, and a spinner alone
+                // would then be a dead end.
+                Centred {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        TextButton({ screen = Screen.Locked }) {
+                            Text(stringResource(R.string.unlock_use_passphrase))
+                        }
+                    }
+                }
                 LaunchedEffect(Unit) {
                     val activity = context as FragmentActivity
                     Biometric.unlock(activity, { passphrase ->
@@ -342,19 +352,21 @@ private fun App(shared: List<Uri>) {
         Host.current?.let { AskOverlay(it) }
     }
 
-    offered?.let { offer ->
+    // Not over the fingerprint: answering one interrupted the other, on a real phone,
+    // and the screen under them never came back.
+    offered?.takeIf { screen == Screen.Ready }?.let { offer ->
         AlertDialog(
             onDismissRequest = { offered = null },
             title = { Text(stringResource(R.string.update_title, offer.version)) },
             text = { Text(stringResource(R.string.update_body, BuildConfig.VERSION_NAME)) },
             confirmButton = {
                 TextButton({
-                    offered = null
+                    // Without the permission, Android's settings open and this stays
+                    // for the person coming back: the offer is made once a day.
+                    if (context.packageManager.canRequestPackageInstalls()) offered = null
                     scope.launch {
                         try {
-                            if (!Updater.install(context, offer)) {
-                                complaint = context.getString(R.string.update_allow)
-                            }
+                            Updater.install(context, offer)
                         } catch (e: Exception) {
                             complaint = context.getString(R.string.update_failed, e.message ?: "")
                         }
@@ -468,6 +480,19 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         status = Account.status()
     }
 
+    // A round now, as the button does: in the background the next one can be two
+    // hours away, and a person who adds a file and leaves believes it has left too.
+    suspend fun syncOnce() {
+        try {
+            val plan = Vault.plan(context, foreground = true)
+            Account.syncNow(metadataOnly = !plan.movesContent)
+            refresh()
+            snackbar.showSnackbar(plan.because)
+        } catch (error: Throwable) {
+            complain(error.message ?: "the round failed")
+        }
+    }
+
     fun open(folder: String) {
         scope.launch {
             try {
@@ -494,6 +519,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             if (shared.isNotEmpty()) {
                 refresh()
                 snackbar.showSnackbar(context.getString(R.string.files_added, shared.size))
+                syncOnce()
             }
         } catch (error: Throwable) {
             complain(error.message ?: "could not read the account")
@@ -509,6 +535,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             try {
                 Account.add(context, uri, nameOf(context, uri), folder = level.at)
                 refresh()
+                syncOnce()
             } catch (error: Throwable) {
                 complain(error.message ?: "could not add that file")
             } finally {
@@ -529,6 +556,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             try {
                 PhoneFolder.sync(context)
                 refresh()
+                syncOnce()
             } catch (error: Throwable) {
                 complain(error.message ?: "could not read that folder")
             } finally {
@@ -538,7 +566,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
+        snackbarHost = { SnackbarHost(snackbar) { Snackbar(it, Modifier.testTag("files-told")) } },
         topBar = {
             TopAppBar(
                 title = {
@@ -569,12 +597,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                         scope.launch {
                             busy = true
                             try {
-                                val plan = Vault.plan(context, foreground = true)
-                                Account.syncNow(metadataOnly = !plan.movesContent)
-                                refresh()
-                                snackbar.showSnackbar(plan.because)
-                            } catch (error: Throwable) {
-                                complain(error.message ?: "the round failed")
+                                syncOnce()
                             } finally {
                                 busy = false
                             }

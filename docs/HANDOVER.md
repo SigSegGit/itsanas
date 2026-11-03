@@ -65,7 +65,12 @@ words and translated; what passed shows no detail.
 Files screen.** The self-update went 0.1.15 to 0.1.16 with the account intact, and a real folder of
 22 screenshots entered it. The Files screen now reads one folder at a time
 (`crates/itsanas-cli/src/file_tree.rs`, `Native.listAt`), and + adds to the folder on screen. Never
-run the e2e suite on a person's phone: it wipes it.
+run the e2e suite on a person's phone: it wipes it. That phone found three more. A file added or a
+folder chosen stayed on it, its next background round being two hours off: a round now follows.
+The update offer sat over the fingerprint, and answering it left a spinner with no way out: it waits
+for an open account, and the spinner has a way to the passphrase. Asked for the install permission,
+the offer vanished for a day: it stays open. No test covers the last two: the emulator has no
+fingerprint and no test reaches an offer, so the next release on that phone is what proves them.
 
 **2026-11-03: a fleet run starts by updating the machines.** A run after the 0.1.16 release tested
 0.1.13 and was green, because row V only asked that the machines agree. Row U now asks each Docker

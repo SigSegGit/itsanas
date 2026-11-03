@@ -121,6 +121,12 @@ class FilesTest {
         Flows.click(compose, "files-add")
         Flows.waitTag(compose, "file-row", "the file chosen with + was never listed, so adding a file does nothing", 90)
         Flows.waitTag(compose, "not-safe", "a file on this phone alone and no warning: losing the phone loses it, unwarned")
+        Flows.waitTag(
+            compose,
+            "files-told",
+            "no round ran after adding a file: it stays on this phone alone for up to two hours, and the person has left",
+            90,
+        )
         E2e.shotBoth("21-files-listed")
         val rows = compose.onAllNodesWithTag("file-row").fetchSemanticsNodes().size
         assertTrue("expected exactly one row, saw $rows", rows == 1)
