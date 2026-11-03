@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-03 — 1582 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 564 are red-team tests.**
+**Last updated: 2026-11-03 — 1583 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 565 are red-team tests.**
 
-**1466 of the 1582 tests have an entry of their own on this page** — an *entry*,
+**1467 of the 1583 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -181,7 +181,7 @@ guarantee and is not one.
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
 | `itsanas-cli` unit | 325 |
 | `itsanas-android` unit | 24 |
-| `itsanas-drive` unit | 20 |
+| `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 175 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 55 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 179 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 180 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -2052,7 +2052,7 @@ from a host over a real socket, and one of them opened.
 | `a_phone_with_no_machine_is_told_its_files_are_only_here` | `logoutCheck` with nobody to reach says every piece is only here, and closes nothing. |
 | **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
 
-# `itsanas-drive` — the account as a folder (20)
+# `itsanas-drive` — the account as a folder (21)
 
 Two files, and they are tested for two different reasons.
 
@@ -2087,6 +2087,7 @@ an account several machines hold.
 | `a_deleted_file_needs_no_read` | A deletion drops the write waiting before it. |
 | **`red_team_a_wave_of_deletions_is_refused_however_slowly_it_comes`** | Most of the account, at once or a file at a time within an hour, is refused; saves still pass, and an hour later deleting works again. |
 | **`red_team_a_rename_that_cannot_copy_deletes_nothing`** | A file renamed with no machine up to fetch it from stays in the account. |
+| **`red_team_a_file_this_machine_does_not_hold_is_said_once_and_not_retried`** | What the store cannot do is reported once; a file an editor holds open is tried again. |
 | **`red_team_a_save_by_renaming_a_scratch_file_keeps_the_new_bytes`** | Office's save, a scratch file renamed to the real name, reads the bytes from the disk. |
 | `a_folder_renamed_or_deleted_takes_its_files_and_no_neighbours` | `a/` moves its files and leaves `ab/` alone. |
 | **`a_directory_is_a_prefix_several_files_share`** | An account stores paths, not a tree: nothing anywhere records that `Documents` exists, only that `Documents/report.pdf` does. A projection that does not invent the directory shows an account with sub-folders as an empty one. |

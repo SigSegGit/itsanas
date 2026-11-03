@@ -56,6 +56,11 @@
       "file": "crates/itsanas-drive/src/writes.rs",
       "live": "if moved.is_empty() && may_keep(to) {",
       "dead": "if false && moved.is_empty() && may_keep(to) {"
+    },
+    "drive: retries what cannot work": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": "error.kind() != io::ErrorKind::Unsupported",
+      "dead": "error.kind() != io::ErrorKind::InvalidData"
     }
   }
 }

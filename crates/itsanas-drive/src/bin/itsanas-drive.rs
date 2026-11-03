@@ -139,7 +139,17 @@ mod windows {
 
         fn remove(&self, path: &str) -> io::Result<()> {
             let node = self.locked()?;
-            node.store.remove_file(path).map_err(io::Error::other)?;
+            // The store deletes only what this machine holds. Saying "kept" here
+            // would be a lie: the file stays in the account and on every machine.
+            if !node.store.remove_file(path).map_err(io::Error::other)? {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    format!(
+                        "{path} is not on this machine, so it stays in your account. Open it \
+                         once, then delete it again"
+                    ),
+                ));
+            }
             node.store
                 .flush_segment()
                 .map_err(io::Error::other)
@@ -192,7 +202,7 @@ mod windows {
                     Err(error) => {
                         let attempts = tries.entry(change.clone()).or_insert(0);
                         *attempts += 1;
-                        if *attempts < TRIES {
+                        if *attempts < TRIES && writes::worth_retrying(&error) {
                             settling.push(change, now());
                         } else {
                             println!("NOT KEPT in your account: {change:?}: {error}");

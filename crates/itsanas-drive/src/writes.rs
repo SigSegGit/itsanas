@@ -177,6 +177,14 @@ pub trait Target {
     fn copy(&self, from: &str, to: &str) -> io::Result<()>;
 }
 
+/// Whether trying again can help. A file an editor holds open refuses a read for
+/// a moment; a file this machine does not hold will not be deleted by asking
+/// five times, and the copy a rename made must not be made five times.
+#[must_use]
+pub fn worth_retrying(error: &io::Error) -> bool {
+    error.kind() != io::ErrorKind::Unsupported
+}
+
 /// Whether `candidate` is `path` or under it.
 fn is_or_under(candidate: &str, path: &str) -> bool {
     candidate
@@ -422,6 +430,19 @@ mod tests {
         assert!(
             deletions.allow(1, known, 1000 + 2 * 3600),
             "a refused wave blocks deletions for ever: nothing the person does clears it"
+        );
+    }
+
+    /// Sabotage: retry everything.
+    #[test]
+    fn red_team_a_file_this_machine_does_not_hold_is_said_once_and_not_retried() {
+        assert!(
+            !super::worth_retrying(&io::Error::from(io::ErrorKind::Unsupported)),
+            "a deletion the store cannot do was tried again: its renamed copy is written five times"
+        );
+        assert!(
+            super::worth_retrying(&io::Error::from(io::ErrorKind::PermissionDenied)),
+            "a file an editor still held open was given up on at once: the save never arrives"
         );
     }
 

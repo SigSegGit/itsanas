@@ -9,8 +9,8 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0c
-TITLE: Nicolas's hand test on 0.1.16, with Mandarine (§8 0c)
+NEXT: 8.9b
+TITLE: Delete a file this machine does not hold (§8 9b, after the hand test on 0.1.16)
 WRITTEN-AT: 2026-11-03
 BASE: 4460a70
 -->
@@ -3833,6 +3833,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
       CI; Windows refuses to rename a projected folder (error 50), so that stays an error.
       Found by that script: every refusal reached Windows as a positive HRESULT, which reads as
       success, so no new file could ever be created in the folder.
+      **NEXT, the real gap:** a file not on this machine cannot be deleted. `Store::remove_file`
+      answers `false` when the index has no entry, and a file only listed has none (§6: a listing
+      never writes one). So `itsanas rm`, the phone and this folder all leave it in the account;
+      this folder says so, and a rename leaves it under both names. The fix is a tombstone whose
+      version comes from the catalogue, written with no index entry, and a red-team test that an
+      edit racing it still wins (§6). Not done overnight: it touches the delete rules.
    c. 🟨 **Small residues.** Done 2026-11-03: a device list cut at `MAX_PEERS_RETURNED` is not
       called complete, and the phone says when its vault takes no write. **Left, on purpose:**
       the desktop `show_words` debt needs a native window per platform, which nothing here can
