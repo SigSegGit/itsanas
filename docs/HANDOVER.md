@@ -9,10 +9,10 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.0y
-TITLE: The phone's unwritable, and the desktop notifications at the next hand test (§8 0y, its Left)
+NEXT: 8.9a
+TITLE: A phone folder that syncs by itself (§8 9a)
 WRITTEN-AT: 2026-11-03
-BASE: ede9a77
+BASE: e55a31a
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -60,6 +60,12 @@ the file list shows the line. Deleting the phone's old login path showed it was 
 caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
+
+**2026-11-03: `scripts/preflight.sh` before a push.** #365 went red on clippy, the format,
+rustdoc and the catalogue, one push at a time. It runs the fast part of the gates and collects
+every failure; a session runs it before each push. A backticked snake_case name in a
+`docs/TESTING.md` row reads as a test name. What is left of §8 0y is the hand test, and every
+other open item of §8 waits on Nicolas, so he chose the next three: §8 9.
 
 **2026-11-03: the last two safety alerts.** `failing N` and `lowdisk FREE` on the snapshot
 header, read by `brief_status` (`isolated` before `failing`: a node cut off cannot audit),
@@ -3799,6 +3805,19 @@ Detail and measurements are in ROADMAP.md; this is the map.
    the coordinator's swarm-wide marking stays ⬜, and must never feed
    placement (§6). Not before (a): changing
    the default.
+
+9. **Three features Nicolas chose on 2026-11-03**, when everything else open in §8 waited on
+   him. In this order; none has a specification yet, so each starts by reading the code named.
+
+   a. **A phone folder that syncs by itself** (issue 95). The phone picks a folder, such as its
+      photos, and new files reach the account with no action. Not yet read: how the app imports
+      a picked file (`files-add`, `MainActivity.kt`) and `SyncService`.
+   b. **Writing into the virtual drive.** `crates/itsanas-drive` reads through ProjFS today;
+      saving and editing in Explorer is the missing half. Unsafe stays in `projfs.rs`, and it
+      needs a real Windows run.
+   c. **Small residues.** A device list cut at `MAX_PEERS_RETURNED` read as complete on the
+      phone (§8 2e); the phone's `unwritable`; the desktop `show_words` debt (§0); `isolated`
+      on a public machine that others only dial in to (ROADMAP M7).
 
 8. ✅ **Removable disks.** Built 2026-10-19, all four uses Nicolas listed:
    (a) a vault on a USB disk lent to the network: unplugged, `itsanas daemon`
