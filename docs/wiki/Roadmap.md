@@ -130,7 +130,6 @@ A🟨 B🟨 C🟩 D🟩 E🟩 F🟦 G🟦 H🟨 I🟦 J🟨 K❔ L❔ M❔ N❔ 
 ### Not started
 
 - ⬜ **M8** Three-device bring-up
-- ⬜ A folder that syncs by itself on Android
 - ⬜ The `dataSync` budget and Doze, measured rather than remembered
 
 ### Deferred beyond v1
