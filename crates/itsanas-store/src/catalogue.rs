@@ -229,6 +229,29 @@ pub fn chunks_for(store: &Store, vault: &Vault, path: &str) -> Result<Option<Vec
     Ok(still_a_file(store, path, latest)?.map(|entry| entry.chunks.clone()))
 }
 
+/// Delete a file from the account, whether or not its content is here.
+///
+/// A file only listed has no index entry (a listing never writes one), so
+/// [`Store::remove_file`] alone answers "no such file" for what the person is
+/// looking at. Answers whether anything was deleted.
+///
+/// # Errors
+///
+/// When the store or the vault cannot be read or written.
+pub fn remove_known(store: &Store, vault: &Vault, path: &str) -> Result<bool> {
+    if store.stat(path)?.is_some() {
+        return store.remove_file(path);
+    }
+    let from_log = walk_vault(store, vault, store.owner(), store.device_id())?.latest;
+    let Some(latest) = from_log.get(path) else {
+        return Ok(false);
+    };
+    if still_a_file(store, path, latest)?.is_none() {
+        return Ok(false);
+    }
+    store.remove_unheld(path, &latest.version)
+}
+
 /// The chunks of many known-but-absent files, from a single walk.
 ///
 /// Paths the account does not have are silently absent from the answer rather

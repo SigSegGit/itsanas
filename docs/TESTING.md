@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-03 — 1583 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 565 are red-team tests.**
+**Last updated: 2026-11-03 — 1586 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 567 are red-team tests.**
 
-**1467 of the 1583 tests have an entry of their own on this page** — an *entry*,
+**1470 of the 1586 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -165,7 +165,7 @@ guarantee and is not one.
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
 | `itsanas-net` unit | 69 |
-| `itsanas-net` two-node (`tests/two_nodes.rs`) | 64 |
+| `itsanas-net` two-node (`tests/two_nodes.rs`) | 67 |
 | `itsanas-net` relay (`tests/relay.rs`) | 7 |
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
@@ -219,7 +219,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
-| `peers-sync` | two nodes over sockets, logs and convergence | 30 |
+| `peers-sync` | two nodes over sockets, logs and convergence | 32 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 55 |
 | `local-control` | setup, secrets, the control socket, the daemon, updates | 180 |
 
@@ -1003,7 +1003,7 @@ and is catalogued with that crate.
 ---
 | **`red_team_a_chunk_written_after_the_summary_is_not_restamped`** | Found by Rodin on the 4c plan: the verdict "this bucket agrees" comes from a summary taken before the re-stamp reads its rows, so a chunk written between would be recorded as held by a peer that never saw it. `restamp_agreeing` recomputes each bucket's digest from the rows it re-stamps and hands a mismatch back to be listed. Sabotaged by skipping the recomputation. |
 
-# `itsanas-net` — two-node tests (64)
+# `itsanas-net` — two-node tests (67)
 
 Real stores, real chunking, real sealing, real signatures, real TCP.
 `tests/two_nodes.rs`.
@@ -1033,6 +1033,9 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`an_audit_never_asks_about_a_chunk_it_could_not_check`** | Verifying a proof means re-deriving the sealed bytes locally. Challenging on a chunk this device has collected would fail for a reason that is nothing to do with the peer, and would withdraw an honest record. |
 | `an_audit_confirms_a_host_that_is_still_holding_the_data` | The ordinary path: evidence becomes proof, for the moment it is asked. |
 | **`a_metadata_round_makes_the_file_listable_before_it_is_downloaded`** | The behaviour everyone expects from a phone: everything listed, tap one to download it. Before the catalogue, a metadata round left the file invisible — deferred means no index entry, and a client on a metered connection could show nothing at all. |
+| **`red_team_a_file_only_listed_here_can_be_deleted_from_the_account`** | A phone that holds only the listing deletes a file: it stops being listed, and the deletion reaches the machine that holds it. |
+| **`red_team_a_delete_of_a_listed_file_loses_to_an_edit_it_did_not_see`** | An edit the phone had not seen survives its deletion on the laptop, and is listed on the phone again. |
+| `deleting_what_the_account_does_not_have_deletes_nothing` | A path nobody has gets no tombstone. |
 | **`a_metadata_round_learns_what_changed_without_downloading_it`** | The other half: nothing is fetched, nothing is half-written, and a later round on an unmetered connection completes it. Writing this test is what found that deferred work was never retried. |
 | **`a_delete_racing_an_edit_still_leaves_the_file_listed`** | The listing applies the same asymmetry as the merge engine. A listing that hid a file the engine is about to keep would tell somebody their edit was lost. |
 | **`a_file_deleted_elsewhere_is_never_offered_for_download`** | A client that listed a file deleted last week, and fetched it when tapped, would have resurrected it. |
@@ -2087,7 +2090,7 @@ an account several machines hold.
 | `a_deleted_file_needs_no_read` | A deletion drops the write waiting before it. |
 | **`red_team_a_wave_of_deletions_is_refused_however_slowly_it_comes`** | Most of the account, at once or a file at a time within an hour, is refused; saves still pass, and an hour later deleting works again. |
 | **`red_team_a_rename_that_cannot_copy_deletes_nothing`** | A file renamed with no machine up to fetch it from stays in the account. |
-| **`red_team_a_file_this_machine_does_not_hold_is_said_once_and_not_retried`** | What the store cannot do is reported once; a file an editor holds open is tried again. |
+| **`red_team_a_deletion_that_cannot_happen_is_said_once_and_not_retried`** | What the store cannot do is reported once; a file an editor holds open is tried again. |
 | **`red_team_a_save_by_renaming_a_scratch_file_keeps_the_new_bytes`** | Office's save, a scratch file renamed to the real name, reads the bytes from the disk. |
 | `a_folder_renamed_or_deleted_takes_its_files_and_no_neighbours` | `a/` moves its files and leaves `ab/` alone. |
 | **`a_directory_is_a_prefix_several_files_share`** | An account stores paths, not a tree: nothing anywhere records that `Documents` exists, only that `Documents/report.pdf` does. A projection that does not invent the directory shows an account with sub-folders as an empty one. |

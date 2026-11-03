@@ -606,6 +606,41 @@ impl Store {
         Ok(true)
     }
 
+    /// Delete a file this device knows only from the log: no index entry, no
+    /// content, and `seen` the newest version it has read.
+    ///
+    /// The tombstone advances `seen`, so it beats exactly what this device saw.
+    /// An edit it did not see is concurrent with it and wins: an unexpected file
+    /// costs a second, a lost edit cannot be undone.
+    pub(crate) fn remove_unheld(&self, path: &str, seen: &VersionVector) -> Result<bool> {
+        logical_path::validate(path)?;
+
+        let _guard = self.write_lock.lock().map_err(|_| {
+            StoreError::Corrupt("the store write lock was poisoned by a panic".to_owned())
+        })?;
+
+        let sequence = self.index.next_sequence()?;
+        let mut base = self.base_version(path)?;
+        base.merge(seen);
+        let tombstone = Tombstone {
+            version: base.advanced(self.device.device_id(), sequence),
+            removed_unix: now_unix(),
+            author: self.device.device_id(),
+        };
+
+        self.index.remove_file(path, &tombstone)?;
+        self.index.push_pending(&LogEntry {
+            sequence,
+            recorded_unix: tombstone.removed_unix,
+            operation: Operation::Remove {
+                path: path.to_owned(),
+                version: tombstone.version.clone(),
+            },
+        })?;
+
+        Ok(true)
+    }
+
     /// Stop holding the content of `path` on this device, without deleting it
     /// from the account.
     ///

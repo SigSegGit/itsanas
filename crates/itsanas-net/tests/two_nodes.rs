@@ -2006,6 +2006,120 @@ fn a_metadata_round_offers_the_log_but_sends_no_chunks() {
     });
 }
 
+/// Pull everything `to` has not seen from `from`.
+fn pull_all(to: &Node, from: &Node) {
+    with_server(from, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &to.device, to.store.owner(), None).expect("dial");
+        session::pull_scoped(
+            &to.store,
+            &to.vault,
+            &mut client,
+            session::Scope::Everything,
+        )
+        .expect("pull");
+    });
+}
+
+/// Pull only the log, so `to` lists what `from` has and holds none of it.
+fn pull_listing(to: &Node, from: &Node) {
+    with_server(from, Pledge { bytes: 1 << 30 }, |address| {
+        let mut client =
+            PeerClient::connect(address, &to.device, to.store.owner(), None).expect("dial");
+        session::pull_scoped(&to.store, &to.vault, &mut client, session::Scope::Metadata)
+            .expect("pull");
+    });
+}
+
+/// A phone lists everything and holds little, so most of what it shows can only
+/// be deleted this way. Sabotage: start the tombstone from an empty version, or
+/// log nothing.
+#[test]
+fn red_team_a_file_only_listed_here_can_be_deleted_from_the_account() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    laptop
+        .store
+        .write_file("old.jpg", b"a photo")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+
+    pull_listing(&phone, &laptop);
+    assert_eq!(
+        phone.store.list().expect("list").len(),
+        0,
+        "the setup holds the file"
+    );
+    assert!(
+        itsanas_store::remove_known(&phone.store, &phone.vault, "old.jpg").expect("remove"),
+        "a file on screen could not be deleted: it stays in the account for ever"
+    );
+    phone.store.flush_segment().expect("flush");
+    assert!(
+        itsanas_store::catalogue(&phone.store, &phone.vault)
+            .expect("catalogue")
+            .files
+            .is_empty(),
+        "the deleted file is still listed on the phone that deleted it"
+    );
+
+    pull_all(&laptop, &phone);
+    assert_eq!(
+        laptop.store.read_file("old.jpg").expect("read"),
+        None,
+        "the deletion never reached the machine that holds the file"
+    );
+}
+
+/// ARCHITECTURE: a concurrent delete loses to an edit, here too. Sabotage: make
+/// the tombstone beat everything.
+#[test]
+fn red_team_a_delete_of_a_listed_file_loses_to_an_edit_it_did_not_see() {
+    let master = alice();
+    let laptop = node(&master, 1);
+    let phone = node(&master, 2);
+    laptop
+        .store
+        .write_file("essay.txt", b"first")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    pull_listing(&phone, &laptop);
+
+    // Edited on the laptop, unseen by the phone, which then deletes what it saw.
+    laptop
+        .store
+        .write_file("essay.txt", b"second")
+        .expect("write");
+    laptop.store.flush_segment().expect("flush");
+    assert!(itsanas_store::remove_known(&phone.store, &phone.vault, "essay.txt").expect("remove"));
+    phone.store.flush_segment().expect("flush");
+
+    pull_all(&laptop, &phone);
+    assert_eq!(
+        laptop.store.read_file("essay.txt").expect("read"),
+        Some(b"second".to_vec()),
+        "a delete that never saw the edit destroyed it: a lost edit cannot be undone"
+    );
+    pull_listing(&phone, &laptop);
+    let listed = itsanas_store::catalogue(&phone.store, &phone.vault)
+        .expect("catalogue")
+        .files;
+    assert_eq!(
+        listed.len(),
+        1,
+        "the edit that won the race is hidden on the phone: its owner cannot see or open it"
+    );
+}
+
+#[test]
+fn deleting_what_the_account_does_not_have_deletes_nothing() {
+    let master = alice();
+    let phone = node(&master, 2);
+    assert!(!itsanas_store::remove_known(&phone.store, &phone.vault, "never.txt").expect("remove"));
+    assert_eq!(phone.store.tombstone("never.txt").expect("tombstone"), None);
+}
+
 #[test]
 fn a_metadata_round_makes_the_file_listable_before_it_is_downloaded() {
     // The behaviour everyone expects from a phone client: everything is

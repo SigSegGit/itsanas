@@ -178,7 +178,7 @@ pub trait Target {
 }
 
 /// Whether trying again can help. A file an editor holds open refuses a read for
-/// a moment; a file this machine does not hold will not be deleted by asking
+/// a moment; a file the account no longer has will not be deleted by asking
 /// five times, and the copy a rename made must not be made five times.
 #[must_use]
 pub fn worth_retrying(error: &io::Error) -> bool {
@@ -435,7 +435,7 @@ mod tests {
 
     /// Sabotage: retry everything.
     #[test]
-    fn red_team_a_file_this_machine_does_not_hold_is_said_once_and_not_retried() {
+    fn red_team_a_deletion_that_cannot_happen_is_said_once_and_not_retried() {
         assert!(
             !super::worth_retrying(&io::Error::from(io::ErrorKind::Unsupported)),
             "a deletion the store cannot do was tried again: its renamed copy is written five times"

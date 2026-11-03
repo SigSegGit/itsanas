@@ -1,0 +1,36 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-net",
+    "--test",
+    "two_nodes",
+    "--",
+    "only_listed_here",
+    "listed_file_loses",
+    "does_not_have"
+  ],
+  "defences": {
+    "delete: the tombstone ignores what was seen": {
+      "file": "crates/itsanas-store/src/store.rs",
+      "live": "base.merge(seen);",
+      "dead": ""
+    },
+    "delete: an unknown path gets a tombstone": {
+      "file": "crates/itsanas-store/src/catalogue.rs",
+      "live": "    let Some(latest) = from_log.get(path) else {\n        return Ok(false);\n    };\n    if still_a_file(store, path, latest)?.is_none() {",
+      "dead": "    let Some(latest) = from_log.get(path) else {\n        return store.remove_unheld(path, &VersionVector::new());\n    };\n    if still_a_file(store, path, latest)?.is_none() {"
+    },
+    "delete: only what is held": {
+      "file": "crates/itsanas-store/src/catalogue.rs",
+      "live": "    store.remove_unheld(path, &latest.version)\n",
+      "dead": "    let _ = latest;\n    Ok(false)\n"
+    },
+    "delete: a concurrent delete hides the edit": {
+      "file": "crates/itsanas-store/src/catalogue.rs",
+      "live": "        // version keeps the file hidden.\n        if let Some(tombstone) = store.tombstone(&path)?\n            && matches!(\n                tombstone.version.compare(&latest.version),\n                CausalOrder::After | CausalOrder::Equal\n",
+      "dead": "        // version keeps the file hidden.\n        if let Some(tombstone) = store.tombstone(&path)?\n            && matches!(\n                tombstone.version.compare(&latest.version),\n                CausalOrder::After | CausalOrder::Equal | CausalOrder::Concurrent\n"
+    }
+  }
+}

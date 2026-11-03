@@ -139,15 +139,14 @@ mod windows {
 
         fn remove(&self, path: &str) -> io::Result<()> {
             let node = self.locked()?;
-            // The store deletes only what this machine holds. Saying "kept" here
-            // would be a lie: the file stays in the account and on every machine.
-            if !node.store.remove_file(path).map_err(io::Error::other)? {
+            // Whether its content is here or not: the folder shows both. Nothing
+            // deleted is not "kept", and asking again will not change it.
+            if !itsanas_store::remove_known(&node.store, &node.vault, path)
+                .map_err(io::Error::other)?
+            {
                 return Err(io::Error::new(
                     io::ErrorKind::Unsupported,
-                    format!(
-                        "{path} is not on this machine, so it stays in your account. Open it \
-                         once, then delete it again"
-                    ),
+                    format!("{path} is no longer in your account"),
                 ));
             }
             node.store
