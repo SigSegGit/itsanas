@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0c
 TITLE: Nicolas's hand test on 0.1.16, with Mandarine (§8 0c)
 WRITTEN-AT: 2026-11-03
-BASE: d5dd6b6
+BASE: eb85a01
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -60,6 +60,13 @@ the file list shows the line. Deleting the phone's old login path showed it was 
 caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
+
+**2026-11-03: the first try at 0.1.16 stopped at the APK.** `lintVitalRelease` runs only on a
+release build and CI built debug, so a French string with no default, there since #361, first
+failed on the signing machine, with the tag and the draft already made. `android.yml` now runs
+that lint (seen red on that string first). `release.ps1` cleans a draft and tag left on another
+commit, so the same command starts over. Tailscale v4 (#370) is unproven: Fleet skips that step
+while Tailscale is not configured, so a green Fleet says nothing about it.
 
 **2026-11-03: 0.1.16, phone folder and drive writes.** A phone folder syncs by itself (#367), and
 the virtual drive takes writes. `main` already says 0.1.16 and the last release is 0.1.15. `itsanas-coord` alone
