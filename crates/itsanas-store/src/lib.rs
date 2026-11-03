@@ -99,7 +99,9 @@ pub(crate) fn commits() -> u64 {
 pub const REPLICATION_TARGET: usize = 3;
 
 pub use blob::BlobStore;
-pub use catalogue::{Known, Presence, absent_count, catalogue, chunks_for, chunks_for_all};
+pub use catalogue::{
+    Known, Presence, absent_count, catalogue, chunks_for, chunks_for_all, remove_known,
+};
 pub use chunker::split_stream;
 pub use chunker::{Chunk, ChunkerConfig, Chunks};
 pub use error::{Result, StoreError};

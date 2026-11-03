@@ -2992,7 +2992,7 @@ fn get(home: &Path, path: &str, destination: Option<&std::path::Path>) -> Result
 fn remove(home: &Path, path: &str) -> Result<()> {
     let node = open(home)?;
 
-    if node.store.remove_file(path)? {
+    if itsanas_store::remove_known(&node.store, &node.vault, path)? {
         node.store.flush_segment()?;
         println!("deleted {path}");
     } else {

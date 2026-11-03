@@ -703,7 +703,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_remove(
     answer(&mut env, move || {
         let path = path?;
         with_node(|node| {
-            let removed = node.store.remove_file(&path)?;
+            let removed = itsanas_store::remove_known(&node.store, &node.vault, &path)?;
             if removed {
                 node.store.flush_segment()?;
             }
