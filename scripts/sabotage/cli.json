@@ -121,6 +121,16 @@
       "file": "crates/itsanas-cli/src/daemon.rs",
       "live": "\"{}\\n{silence}{text}\",",
       "dead": "\"{}\\n{text}\", "
+    },
+    "alerts: a phone forgets its contact": {
+      "file": "crates/itsanas-cli/src/safety.rs",
+      "live": "let words = reached_words(reached.then_some(now), &previous, now);",
+      "dead": "let words = reached_words(reached.then_some(now), \"\", now);"
+    },
+    "alerts: a phone's failed round counts as contact": {
+      "file": "crates/itsanas-cli/src/safety.rs",
+      "live": "let words = reached_words(reached.then_some(now), &previous, now);",
+      "dead": "let words = reached_words(Some(now), &previous, now);"
     }
   }
 }

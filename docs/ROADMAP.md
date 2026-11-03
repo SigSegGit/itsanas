@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1560 test functions, 20 of them `#[ignore]`d into the slow job, and 546 of
+**1563 test functions, 20 of them `#[ignore]`d into the slow job, and 549 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1196,11 +1196,13 @@ Still to build:
   on both the home's disk and the vault's; `status` says the silence in words
   (`red_team_status_says_in_words_that_no_round_reached_anybody`). The phone
   says the first two
-  (`red_team_a_phone_says_a_machine_failed_its_storage_check`). Left: the
-  online-node floor has no alert of its own, because the next write already
-  reads `exposed` while a machine is off (no test names that route yet); the
-  phone does not say `isolated` or `unwritable`; nothing fills a real disk to
-  prove the daemon's call to `low_on_disk`.
+  (`red_team_a_phone_says_a_machine_failed_its_storage_check`), and a day
+  without reaching a machine (`red_team_a_phone_says_it_has_reached_nobody`).
+  The online-node floor needs no word of its own: a write made while a machine
+  is off reads `exposed` past its grace
+  (`red_team_a_write_made_while_a_machine_is_off_reads_exposed`). Left: the
+  phone does not say `unwritable` (its store is app-private, and nothing probes
+  it); nothing fills a real disk to prove the daemon's call to `low_on_disk`.
 - While the daemon runs, commands that open the store still refuse to start.
   Pausing, resuming, asking for a round and changing the interval do not need
   the store and work while it runs (`itsanas pause|resume|sync-now|interval`,

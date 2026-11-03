@@ -3118,7 +3118,7 @@ mod tests {
         );
         assert!(
             text.contains("peers that have failed a storage challenge")
-                && text.contains(&liar.short().to_string()),
+                && text.contains(&liar.short()),
             "`status` on a running node does not say which machine failed:\n{text}"
         );
 
@@ -3173,6 +3173,67 @@ mod tests {
             )),
             "isolated 60 25200",
             "a failed challenge hid a node cut off from every machine"
+        );
+    }
+
+    /// ARCHITECTURE §7, "online node count below the replication floor": a
+    /// write made while a machine is off reaches fewer machines, so the
+    /// account's complete copies drop and the icon says `exposed` past its
+    /// grace. This is why that row has no word of its own. Sabotage: count a
+    /// copy that holds only some of the chunks as complete.
+    #[test]
+    fn red_team_a_write_made_while_a_machine_is_off_reads_exposed() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let home = base.path().join(".itsanas");
+        let (node, _) =
+            itsanas_node::Node::create(&home, "a passphrase", "camille").expect("create");
+        let now = itsanas_discover::now_unix();
+        let save = |name: &str, body: &[u8]| {
+            let source = base.path().join(name);
+            std::fs::write(&source, body).expect("source");
+            node.store
+                .write_stream(name, std::fs::File::open(&source).expect("open"))
+                .expect("write");
+            node.store.flush_segment().expect("flush");
+            node.store.stat(name).expect("stat").expect("saved").chunks
+        };
+        let on = DeviceId::from_bytes([1; 32]);
+        let off = DeviceId::from_bytes([2; 32]);
+        for machine in [&on, &off] {
+            node.store.note_audit(machine, true).expect("audit");
+            node.store.note_seen_at(machine, now).expect("seen");
+        }
+        let both = save("both.txt", b"on both machines");
+        node.store.record_holders(&both, &on).expect("record");
+        node.store.record_holders(&both, &off).expect("record");
+        let before = node.store.coverage(now).expect("coverage");
+        assert_eq!(before.complete_elsewhere, 2, "the setup is not two copies");
+
+        let one_machine = save("second.txt", b"saved with one machine off");
+        node.store.record_holders(&one_machine, &on).expect("record");
+        let after = node.store.coverage(now).expect("coverage");
+        assert_eq!(
+            after.complete_elsewhere, 1,
+            "a file on one machine counted as two complete copies: nothing warns that new \
+             writes miss their target while a machine is off"
+        );
+
+        let safe = crate::safety::Copies {
+            have: before.complete_elsewhere,
+            want: crate::SAFE_COPIES,
+            since: None,
+        };
+        let short = crate::safety::Copies::this_round(
+            after.complete_elsewhere,
+            crate::SAFE_COPIES,
+            true,
+            Some(safe),
+            now,
+        )
+        .expect("something is stored");
+        assert!(
+            !short.exposed(now, 300) && short.exposed(now + 600, 300),
+            "the shortfall does not read `exposed` past its grace: {short:?}"
         );
     }
 

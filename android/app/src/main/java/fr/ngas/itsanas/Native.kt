@@ -119,6 +119,7 @@ data class Status(
     val safe: Boolean,
     val failing: Int,
     val lowDisk: Long?,
+    val silentFor: Long?,
 )
 
 /** Parsing, kept next to the calls it belongs to rather than spread about. */
@@ -155,6 +156,7 @@ object Answers {
             safe = o.getBoolean("safe"),
             failing = o.getInt("failing"),
             lowDisk = if (o.isNull("lowDisk")) null else o.getLong("lowDisk"),
+            silentFor = if (o.isNull("silentFor")) null else o.getLong("silentFor"),
         )
     }
 

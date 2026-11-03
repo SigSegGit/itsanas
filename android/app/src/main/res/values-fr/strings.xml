@@ -48,6 +48,8 @@
     <string name="check_confirm">Confirmer</string>
 
     <string name="files_empty">Rien ici pour l\'instant. Ajoutez un fichier, ou synchronisez avec l\'une de vos machines.</string>
+    <string name="not_synced_hours">Aucune synchronisation avec vos machines depuis %1$d h. Vérifiez que ce téléphone est en ligne et que vos autres machines sont allumées.</string>
+    <string name="not_synced_days">Aucune synchronisation avec vos machines depuis %1$d jours. Vérifiez que ce téléphone est en ligne et que vos autres machines sont allumées.</string>
     <string name="machines_failing">Machines ayant échoué à une vérification de stockage : %1$d. Ce qu\'elles gardent ne compte plus comme une copie de vos fichiers.</string>
     <string name="low_disk">Plus que %1$s de libre sur ce téléphone. Libérez de la place : l\'enregistrement échoue quand il est plein.</string>
     <string name="not_safe_yet">Vos fichiers ne sont pas encore en sécurité : %1$d des %2$d copies nécessaires existent hors de ce téléphone. Si vous le perdez maintenant, ce qui manque est perdu.</string>

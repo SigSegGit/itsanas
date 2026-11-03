@@ -10,7 +10,7 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0y
-TITLE: The online-node floor and the phone's isolated and unwritable (§8 0y, its Left)
+TITLE: The phone's unwritable, and the desktop notifications at the next hand test (§8 0y, its Left)
 WRITTEN-AT: 2026-11-03
 BASE: 23c00a4
 -->
@@ -65,8 +65,10 @@ words and translated; what passed shows no detail.
 header, read by `brief_status` (`isolated` before `failing`: a node cut off cannot audit),
 drawn orange by the three trays, said on the page and the phone. Found on the way:
 `report_unreliable_peers` printed to stdout, so on a running node `status` never named the
-machine that failed. Not proven: the daemon's call to `low_on_disk` (nothing fills a real
-disk in a test).
+machine that failed. A phone has no snapshot, so `note_phone_contact` keeps the same contact
+words in `last-contact` and says so after a day, not six hours. Not proven: the daemon's call
+to `low_on_disk` (nothing fills a real disk in a test), and the phone's three new lines were
+never looked at on a screen.
 
 **Waiting on Nicolas, in this order, as commands to paste** (2026-10-29; a
 session cannot do any of them, and gives him these commands first, every
@@ -1848,9 +1850,10 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `red_team_a_phone_says_its_files_are_not_safe_yet`).
       Done 2026-11-03: `failing` and `lowdisk` through the header, the trays,
       the page and the phone, and `status` says the silence and which machine
-      failed (ROADMAP M7, ARCHITECTURE §7). **Left:** the online-node floor,
-      the phone's `isolated` and `unwritable` (ROADMAP M7), and the desktop
-      notifications seen by Nicolas at the next hand test.
+      failed (ROADMAP M7, ARCHITECTURE §7). A phone says a day of silence from
+      its own `last-contact` file. The online-node floor reads `exposed` on the
+      next write, which a test now names. **Left:** the phone's `unwritable`,
+      and the desktop notifications seen by Nicolas at the next hand test.
    e. ✅ **Measure H on the machine it is about.** Built 2026-09-15 as
       `scripts/acceptance.ps1 H schedule|sample|report|sleep|unschedule`.
       Battery is reported (`powercfg /batteryreport`) and not judged; bytes

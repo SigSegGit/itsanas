@@ -505,14 +505,14 @@ silently, so the daemon should raise explicit alerts on the conditions below.
 > refused the daemon's once-a-round write probe turns it orange and makes
 > `status` say CANNOT KEEP and why (`unwritable`). **Two more (2026-11-03):**
 > a machine that failed its last storage challenge (`failing`) and a disk below
-> the reserve (`lowdisk`), orange with one notification, also on the phone. The
-> first row has no alert of its own. This table is the specification.
+> the reserve (`lowdisk`), orange with one notification, also on the phone.
+> This table is the specification.
 
 Conditions that must eventually alert:
 
 | Condition | Why it matters |
 | --- | --- |
-| Online node count below the replication floor | New writes cannot reach their durability target. 🟨 no alert of its own: a write made while a machine is off leaves fewer complete copies, which reads `exposed` after its grace; no test names that route yet |
+| Online node count below the replication floor | New writes cannot reach their durability target. ✅ as `exposed`: a write made while a machine is off leaves fewer complete copies, which reads `exposed` past its grace (`red_team_a_write_made_while_a_machine_is_off_reads_exposed`) |
 | Any chunk below minimum replicas past a grace period | Data is one failure from loss. ✅ as "fewer than two complete copies elsewhere" (the tray and a notification) |
 | No successful sync round in *N* minutes | Sync is broken, not merely quiet. ✅ as "no round reached another machine" for max(6 h, 12 intervals) (`isolated`: the tray and a notification) |
 | A proof-of-storage challenge fails | A host is not holding what it claims. ✅ `failing`: the tray and a notification until an answered round pays it off, `status` names the machine, the phone says how many |

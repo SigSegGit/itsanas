@@ -669,6 +669,8 @@ fn sync_node(node: &Node, metadata_only: bool, now: u64) -> Answer {
 
     let targets = targets(node);
     if targets.is_empty() {
+        // The wait starts here: a phone with no machine yet is reaching nobody.
+        itsanas_cli::note_phone_contact(&node.home, false, now);
         return Err(Failure::Usage(NO_MACHINE_YET.to_owned()));
     }
 
@@ -677,6 +679,7 @@ fn sync_node(node: &Node, metadata_only: bool, now: u64) -> Answer {
     node.bound_writes()?;
 
     let totals = run_round(node, &targets, scope);
+    itsanas_cli::note_phone_contact(&node.home, totals.reached > 0, now);
     Ok(serde_json::json!({
         "reached": totals.reached,
         "adopted": totals.adopted,
@@ -726,6 +729,7 @@ fn status_of(node: &Node) -> Answer {
         "safe": itsanas_cli::account_is_safe(&coverage),
         "failing": itsanas_cli::machines_failing(node)?,
         "lowDisk": itsanas_node::pledges::low_on_disk(&node.home),
+        "silentFor": itsanas_cli::phone_silence(&node.home, itsanas_discover::now_unix()),
     })
     .to_string())
 }
@@ -1109,6 +1113,13 @@ mod tests {
                     serde_json::from_str(&sync_node(&me, false, NOW).unwrap()).unwrap();
                 assert_eq!(said["reached"], 1, "{said}");
             });
+            let contact = std::fs::read_to_string(me.home.join("last-contact")).unwrap();
+            assert_eq!(
+                contact,
+                format!(" reached {NOW}"),
+                "a round that reached a machine was not recorded: this phone goes on to say \
+                 it reached nobody"
+            );
             let status: serde_json::Value = serde_json::from_str(&status_of(&me).unwrap()).unwrap();
             assert_eq!(status["notHere"], 1, "{status}");
             assert_eq!(
@@ -1180,6 +1191,30 @@ mod tests {
         );
         assert_eq!(status["copiesWanted"], 2, "{status}");
         assert_eq!(status["copiesElsewhere"], 0, "{status}");
+    }
+
+    /// A phone that reached nobody for a day says so, with no daemon and no icon.
+    /// The wait starts at a round with no machine to try. Sabotage: hard-code
+    /// `silentFor` to null, or drop the note on that path.
+    #[test]
+    fn red_team_a_phone_says_it_has_reached_nobody() {
+        let dir = tempfile::tempdir().unwrap();
+        let (node, _) = Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        let status: serde_json::Value = serde_json::from_str(&status_of(&node).unwrap()).unwrap();
+        assert!(
+            status["silentFor"].is_null(),
+            "a phone that has tried nothing says it reached nobody: {status}"
+        );
+
+        let two_days_ago = itsanas_discover::now_unix() - 2 * 86_400;
+        assert!(sync_node(&node, true, two_days_ago).is_err());
+        let status: serde_json::Value = serde_json::from_str(&status_of(&node).unwrap()).unwrap();
+        assert!(
+            status["silentFor"]
+                .as_u64()
+                .is_some_and(|s| s >= 2 * 86_400),
+            "two days of reaching nobody and the phone says nothing: {status}"
+        );
     }
 
     /// A machine that lied about what it holds, said on the phone from the same

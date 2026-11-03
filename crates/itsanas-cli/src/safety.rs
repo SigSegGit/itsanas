@@ -197,6 +197,31 @@ pub fn isolated_for(header: &str, now: u64, every: u64) -> Option<u64> {
     (silent >= threshold).then_some(silent)
 }
 
+/// Where a phone keeps its contact words: it has no daemon, so no snapshot.
+const PHONE_CONTACT: &str = "last-contact";
+
+/// A phone's rounds are the system's to schedule, and a phone is often off a
+/// network for an evening. Twelve of these make the day before it says so.
+const PHONE_EVERY: u64 = 2 * 3600;
+
+/// Record what a phone's round found, in the words a snapshot carries
+/// ([`reached_words`]). Best effort: a store that took the round must not fail
+/// it over this line.
+pub fn note_phone_contact(home: &std::path::Path, reached: bool, now: u64) {
+    let path = home.join(PHONE_CONTACT);
+    let previous = std::fs::read_to_string(&path).unwrap_or_default();
+    let words = reached_words(reached.then_some(now), &previous, now);
+    let _ = std::fs::write(path, words);
+}
+
+/// How long this phone has reached no other machine, once a day has gone by.
+/// `None` before its first round: nothing has been tried yet.
+#[must_use]
+pub fn phone_silence(home: &std::path::Path, now: u64) -> Option<u64> {
+    let words = std::fs::read_to_string(home.join(PHONE_CONTACT)).ok()?;
+    isolated_for(&words, now, PHONE_EVERY)
+}
+
 /// The number that follows `word` on a header.
 fn number_after(header: &str, word: &str) -> Option<u64> {
     let words: Vec<&str> = header.split_whitespace().collect();
@@ -256,8 +281,47 @@ pub fn silence_line(seconds: u64) -> String {
 mod tests {
     use super::{
         Copies, GRACE_INTERVALS, ISOLATED_AFTER, alert_words, failing_machines, isolated_for,
-        low_disk, reached_words, silence_words,
+        low_disk, note_phone_contact, phone_silence, reached_words, silence_words,
     };
+
+    /// A phone has no snapshot, so its silence lives in a file of its own, and
+    /// must age across restarts of the app. Sabotage: forget the previous words,
+    /// or stamp a contact on a round that reached nobody.
+    #[test]
+    fn red_team_a_phone_remembers_its_last_contact_and_says_a_day_of_silence() {
+        const DAY: u64 = 86_400;
+        let home = tempfile::tempdir().expect("temp dir");
+        let start = 1_792_000_000;
+        assert_eq!(
+            phone_silence(home.path(), start),
+            None,
+            "a phone that has tried nothing yet says it reached nobody"
+        );
+        note_phone_contact(home.path(), false, start);
+        assert_eq!(
+            phone_silence(home.path(), start + 3600),
+            None,
+            "an hour off the network is orange on a phone: a colour nobody reads"
+        );
+        note_phone_contact(home.path(), false, start + DAY);
+        assert_eq!(
+            phone_silence(home.path(), start + DAY),
+            Some(DAY),
+            "a later failed round restarted the silence: it would never reach a day"
+        );
+        note_phone_contact(home.path(), true, start + DAY);
+        assert_eq!(
+            phone_silence(home.path(), start + DAY),
+            None,
+            "a phone that just reached a machine still says it did not"
+        );
+        note_phone_contact(home.path(), false, start + 2 * DAY);
+        assert_eq!(
+            phone_silence(home.path(), start + 2 * DAY),
+            Some(DAY),
+            "a failed round wiped the contact before it: the silence is counted wrong"
+        );
+    }
 
     #[test]
     fn the_alert_words_read_back_and_a_quiet_node_writes_none() {

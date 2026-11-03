@@ -37,6 +37,7 @@ mod placing;
 mod portable;
 pub mod rounds;
 mod safety;
+pub use safety::{note_phone_contact, phone_silence};
 mod setup;
 pub mod shell;
 /// Stand-ins for a coordinator and a serving machine, for a shell's tests.

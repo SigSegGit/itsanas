@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-03 — 1560 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 546 are red-team tests.**
+**Last updated: 2026-11-03 — 1563 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 549 are red-team tests.**
 
-**1444 of the 1560 tests have an entry of their own on this page** — an *entry*,
+**1447 of the 1563 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,8 +179,8 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 318 |
-| `itsanas-android` unit | 20 |
+| `itsanas-cli` unit | 320 |
+| `itsanas-android` unit | 21 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 175 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 54 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 163 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 166 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1203,7 +1203,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (318)
+# `itsanas-cli` — unit tests (320)
 
 ## `bench` — measuring this machine (4)
 
@@ -1549,7 +1549,7 @@ requests are tested on the bytes a router sends.
 | **`red_team_only_a_granting_answer_opens_a_port_or_names_an_address`** | Only a NAT-PMP answer of the right opcode, result 0, for this port and with a lifetime counts; a refusal, a truncated answer, a UDP mapping's answer, another port's or a deletion never makes the node announce an address nobody can dial; the router's external port is the one announced. Sabotaged (result code ignored): red. |
 | **`red_team_an_answer_from_another_machine_on_the_lan_is_ignored`** | An answer from any address but the gateway's port 5351 is not read, so another machine on the LAN cannot choose the address this node announces. Sabotaged (source not checked): red. |
 | `the_gateway_is_read_from_the_routing_table_or_guessed_on_the_lan` | The default route of `/proc/net/route` (little-endian hex), else the `.1` and `.254` of the local `/24`; a mapping is renewed at half the lease the router granted, never sooner than a minute. |
-## `safety` — whether the account's files are elsewhere yet, as the icon reads it (7)
+## `safety` — whether the account's files are elsewhere yet, as the icon reads it (8)
 
 MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`, and `status --brief` says `exposed` from it.
 
@@ -1558,12 +1558,13 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | `the_count_reads_back_as_written_and_a_header_without_one_has_none` | `copies 0 of 2`, `copies 1 of 2 since T` and `copies 3 of 2` read back as written after the version; a header from 0.1.12 (no count) and a malformed count read as none. |
 | `the_alert_words_read_back_and_a_quiet_node_writes_none` | `failing N` and `lowdisk FREE` read back from a header; a node with nothing to say writes neither, and `failing 0` is no alert. |
 | `a_silence_is_said_in_hours_then_days` | 7 h and 47 h in hours, five days in days. |
+| **`red_team_a_phone_remembers_its_last_contact_and_says_a_day_of_silence`** | `note_phone_contact` and `phone_silence`: nothing tried says nothing, an hour says nothing, a day of failed rounds says a day, a contact clears it, and a later failed round keeps that contact. |
 | **`red_team_a_node_never_safe_is_exposed_from_its_first_round`** | A node whose files are on its disk only is exposed from its **first** round, and still on its second: no grace for a node that was never safe, which is the person who installs it, drops files in and leaves. Nothing stored is no question. Sabotaged (a grace from a missing previous header; a new `since` every round): red. |
 | **`red_team_a_save_on_a_safe_account_is_unsaid_for_the_grace_and_said_after`** | Safe, then a save: `since` is set and the shortfall is unsaid for `GRACE_INTERVALS` (2) rounds, keeps its age across rounds, is said after, and clears when the copies are back. Sabotaged (a new `since` each round): red. |
 | **`red_team_a_node_that_never_reached_anybody_turns_isolated`** | The review of #345: a node with nothing stored (no `copies`, never `exposed`) that no round ever reached anybody from -- a Mac with an empty folder behind a firewall, or a header from before `reached` -- read green for good. `reached_words` writes `reached never since T` on the first snapshot with no contact, keeps T at the next, and `isolated_for` ages it: `isolated` at six hours; a contact then replaces it with `reached T`. Sabotaged (the wait restarted at every snapshot; `isolated_for` reading only `reached T`): red, both. |
 | **`red_team_a_contact_dated_in_the_future_is_not_kept`** | The review of #345: the larger value wins at every write, so a `reached` stamped with a clock a day ahead (a resumed VM, a dead RTC) stayed for good and the machine read healthy cut off that whole day. A contact later than now, carried or this process's own, and a wait dated later, are dropped; a real past contact is kept. Sabotaged (no filter): red. |
 
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (35)
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (36)
 
 | Test | What it proves |
 | --- | --- |
@@ -1575,6 +1576,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_failed_challenge_reaches_the_icon_and_status_and_clears`** | A failed storage challenge, through `write_snapshot`: `status --brief` reads `failing AGE 1`, the snapshot `status` prints names the machine (the list used to go to stdout, so a running node could not say), and an answered round reads `healthy` again. |
 | **`red_team_a_failing_machine_and_a_full_disk_are_never_drawn_green`** | ` failing N` reads `failing AGE N`, ` lowdisk FREE` reads `lowdisk AGE FREE`; `failing` wins over `lowdisk`, and `isolated` over `failing`, because a node cut off cannot audit and the record would hide the silence. |
 | **`red_team_status_says_in_words_that_no_round_reached_anybody`** | Seven hours without a contact puts `NOT SYNCED ... for 7 h` in what `status` prints; a contact just now does not. |
+| **`red_team_a_write_made_while_a_machine_is_off_reads_exposed`** | The online-node floor of ARCHITECTURE §7: a file on one of two machines drops `complete_elsewhere` from 2 to 1, and that shortfall reads `exposed` past its grace. |
 | **`red_team_a_stranger_that_only_answered_is_no_contact`** | The review of #345: every machine a round completed with stamped the contact, rationed LAN strangers included, whose identity costs nothing -- a laptop on a café LAN read green all week with nothing of its account synced. `counts_as_contact`: the account's own machine (beacon tag), a host confirmed before, or one that earned trust this round; not a stranger that only authenticated. Configured peers and the coordinator's listed machines count as they are. Sabotaged (every machine counts): red. Its use in `one_round`'s LAN loop is the two `tests/route.rs` rows on the contact. |
 | **`red_team_an_idle_daemon_writes_its_snapshot_a_few_times_a_round_not_every_pass`** | The idle bench read with inotify, 2026-10-27: `status.snapshot` was rewritten at every pass of the loop, every two seconds whatever the interval -- 43200 a day, 150 a five-minute round at some 4 KB of journal each, and the whole status counted again each time (164 KB a round at a one-minute round). A day of two-second passes through `snapshot_due`: written after every round (off the half-minute grid), at once when the interval changes, at most every `SNAPSHOT_EVERY` (30 s) otherwise, and never longer than that or a round. 164 to 50 KB a round at a one-minute round on the bench. Sabotaged (a round is no news; the interval change ignored; no shorter wait at a short round; written at every pass): red each. The wiring in `sync_loop` is `red_team_an_idle_daemon_leaves_its_snapshot_alone_between_rounds`'s. |
 | **`red_team_a_relay_that_closes_the_park_is_passed_over_for_the_next`** | `park_loop` over a scripted `ParkSite`: a relay that closed the park is skipped for the next one rather than redialled at every look. Sabotage: no `failed.insert` (red). |
@@ -1997,7 +1999,7 @@ not read, the pledge kept whatever the free space.
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 
-# `itsanas-android` — the JNI boundary (20)
+# `itsanas-android` — the JNI boundary (21)
 
 `src/lib.rs`. The only crate that relaxes the unsafe lint, and the only one whose
 contract is with another language. What every shell shares (the account, the
@@ -2028,6 +2030,7 @@ from a host over a real socket, and one of them opened.
 | **`red_team_opening_a_phone_finishes_what_a_logout_or_a_removal_left`** | `open_into` withdraws the device a logout with no network could not, and removes an erase cut short, whichever way the node got onto the phone. |
 | **`red_team_a_phone_says_its_files_are_not_safe_yet`** | `status_of` says `safe:false` and `copiesWanted:2` for a file on the phone alone, from the rule the CLI uses, and `safe:true` for an empty account. |
 | **`red_team_a_phone_says_a_machine_failed_its_storage_check`** | `status_of` says `failing:0`, then `failing:1` once a machine fails a storage challenge, from the same `machines_failing` the desktop's snapshot uses. |
+| **`red_team_a_phone_says_it_has_reached_nobody`** | `silentFor` is null before any round; a round with no machine starts the wait, and two days later `status_of` says so. A round that reached a machine is recorded (asserted in the budget-of-nothing test). |
 | **`red_team_the_phone_refuses_limits_its_disk_cannot_hold`** | `set_limits_on` with what is free given, because a real disk check would fail on a small runner: a pledge past what is free, and a pair past what the disk holds, are refused naming the Settings sections, and leave the file and the node as they were. Sabotaged twice (each check): red. |
 | **`red_team_a_file_is_fetched_from_a_machine_known_only_from_the_coordinator`** | `get` dials who `sync` dials, through one `targets`: a real sibling that announced itself, nothing typed in, a metadata round that lists the file and a fetch that brings it. It said "no machine configured" beside a running machine, as the round had. Sabotaged (`config.peers` alone): red. |
 | **`red_team_a_round_enrols_the_phone_and_reads_what_its_machines_pledge`** | A round enrols the phone with no step for a person (marker written, device live) and reads what the account's machines pledge, even with nobody to dial, and says so without mentioning an invitation. Sabotaged twice (no `ensure_enrolled`; no `refresh_others_pledged`): red. |
