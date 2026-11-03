@@ -70,6 +70,12 @@ fn no_coordinator(node: &Node) -> Result<(), Failure> {
     Ok(())
 }
 
+/// Whether a coordinator's list holds every device: it stops at a page, and a
+/// full page may have more behind it.
+const fn all_listed(rows: usize) -> bool {
+    rows < itsanas_coord::protocol::MAX_PEERS_RETURNED
+}
+
 /// The account's devices, this phone marked, as JSON for the devices screen.
 ///
 /// `complete` is false when the coordinator would not list every enrolled
@@ -99,7 +105,7 @@ pub fn list(node: &Node) -> Result<Value, Failure> {
                     value
                 })
                 .collect::<Vec<_>>(),
-            true,
+            all_listed(enrolled.len()),
         ),
         // Refused (not enrolled), too old, or not answering: what can be seen.
         first => match coordinator::devices(node, node.store.owner()) {
@@ -572,6 +578,19 @@ mod tests {
         assert!(
             register(&me, None, NOW).is_err(),
             "a coordinator that cannot be reached reads as one that answered"
+        );
+    }
+
+    /// A list cut short called complete would forget the phones it left out.
+    /// Sabotage: always true.
+    #[test]
+    fn red_team_a_list_the_coordinator_cut_short_is_not_called_complete() {
+        use itsanas_coord::protocol::MAX_PEERS_RETURNED;
+        assert!(super::all_listed(MAX_PEERS_RETURNED - 1));
+        assert!(
+            !super::all_listed(MAX_PEERS_RETURNED),
+            "a full page read as every device: the ones past its end lose their Withdraw \
+             button, and a stolen phone among them cannot be withdrawn from here"
         );
     }
 

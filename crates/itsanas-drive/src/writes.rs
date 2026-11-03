@@ -362,6 +362,17 @@ mod tests {
         settling.push(written("d"), 105);
         assert_eq!(settling.due(102), vec![written("a"), rename]);
         assert_eq!(settling.due(106), Vec::new());
+
+        // The clock stepped back: the second is old enough and the first is not.
+        settling.due(1000);
+        settling.push(written("first"), 2000);
+        settling.push(written("second"), 1000);
+        assert_eq!(
+            settling.due(1500),
+            Vec::new(),
+            "a later change was applied ahead of an earlier one: the account ends on the \
+             wrong bytes"
+        );
     }
 
     /// A deletion that follows a write: the write is gone, or a read of a file
@@ -404,7 +415,8 @@ mod tests {
              stops nothing"
         );
         assert!(
-            deletions.allow(0, known, 1000 + 20),
+            // Few files left, so the count alone would read as a wave.
+            deletions.allow(0, 1, 1000 + 20),
             "during a refused wave a saved file was refused too: it never reaches the account"
         );
         assert!(

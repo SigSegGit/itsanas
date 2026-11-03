@@ -122,6 +122,7 @@ data class Status(
     val copiesWanted: Int,
     val safe: Boolean,
     val failing: Int,
+    val vaultRefuses: Boolean,
     val lowDisk: Long?,
     val silentFor: Long?,
 )
@@ -159,6 +160,7 @@ object Answers {
             copiesWanted = o.getInt("copiesWanted"),
             safe = o.getBoolean("safe"),
             failing = o.getInt("failing"),
+            vaultRefuses = o.getBoolean("vaultRefuses"),
             lowDisk = if (o.isNull("lowDisk")) null else o.getLong("lowDisk"),
             silentFor = if (o.isNull("silentFor")) null else o.getLong("silentFor"),
         )

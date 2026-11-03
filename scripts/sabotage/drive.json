@@ -1,0 +1,61 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-drive",
+    "--lib"
+  ],
+  "defences": {
+    "drive: recycling keeps the file": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": "(false, true) => Some(Change::Deleted(path)),",
+      "dead": "(false, true) => None,"
+    },
+    "drive: restoring is nothing": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": "(true, false) => Some(Change::Written(destination)),",
+      "dead": "(true, false) => None,"
+    },
+    "drive: Office locks go in": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": "|| name.starts_with(\"~$\")\n",
+      "dead": "\n"
+    },
+    "drive: read at once": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": ".take_while(|(_, at)| now.saturating_sub(*at) >= SETTLE_SECS)",
+      "dead": ".take_while(|_| true)"
+    },
+    "drive: a change overtakes": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": ".take_while(|(_, at)| now.saturating_sub(*at) >= SETTLE_SECS)",
+      "dead": ".filter(|(_, at)| now.saturating_sub(*at) >= SETTLE_SECS)"
+    },
+    "drive: a slow wave passes": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": "let total = self.recent.len() + count;",
+      "dead": "let total = count;"
+    },
+    "drive: a wave stops saves": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": "if count == 0 {\n            return true;\n        }",
+      "dead": ""
+    },
+    "drive: a wave never ends": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": ".retain(|at| now.saturating_sub(*at) < DELETION_WINDOW_SECS);",
+      "dead": ".retain(|_| true);"
+    },
+    "drive: a failed copy still removes": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": "target.copy(file, &new)?;",
+      "dead": "let _ = target.copy(file, &new);"
+    },
+    "drive: a save by rename is lost": {
+      "file": "crates/itsanas-drive/src/writes.rs",
+      "live": "if moved.is_empty() && may_keep(to) {",
+      "dead": "if false && moved.is_empty() && may_keep(to) {"
+    }
+  }
+}

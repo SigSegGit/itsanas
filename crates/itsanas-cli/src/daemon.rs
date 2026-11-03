@@ -2247,13 +2247,8 @@ fn this_listener(
 /// the trays poll. Said in the log when it starts and when it ends, not every
 /// round. A node away from its vault, or pledging nothing, promised nobody.
 fn probe_vault(node: &Node, unwritable: &mut Option<String>) {
-    let probe = if node.away || node.config.pledge_bytes == 0 {
-        Ok(())
-    } else {
-        itsanas_node::pledges::probe_write(&node.vault_dir())
-    };
-    match probe {
-        Err(error) => {
+    match crate::vault_refuses(node) {
+        Some(error) => {
             if unwritable.is_none() {
                 eprintln!(
                     "itsanas: the vault at {} cannot be written ({error}); it keeps no \
@@ -2261,9 +2256,9 @@ fn probe_vault(node: &Node, unwritable: &mut Option<String>) {
                     node.vault_dir().display()
                 );
             }
-            *unwritable = Some(error.to_string());
+            *unwritable = Some(error);
         }
-        Ok(()) => {
+        None => {
             if unwritable.take().is_some() {
                 println!(
                     "the vault at {} takes writes again",

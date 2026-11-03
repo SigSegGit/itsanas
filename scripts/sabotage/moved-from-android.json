@@ -141,6 +141,11 @@
       "file": "crates/itsanas-android/src/lib.rs",
       "live": ".map(folder_file)\n        .collect::<Result<Vec<_>, _>>()?;",
       "dead": ".filter_map(|row| folder_file(row).ok())\n        .collect::<Vec<_>>();"
+    },
+    "alerts: the phone hides a refusing vault": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "\"vaultRefuses\": itsanas_cli::vault_refuses(node).is_some(),",
+      "dead": "\"vaultRefuses\": false,"
     }
   }
 }

@@ -616,6 +616,14 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                     )
                 }
             }
+            status?.takeIf { it.vaultRefuses }?.let {
+                Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
+                    Text(
+                        stringResource(R.string.vault_refuses),
+                        Modifier.fillMaxWidth().padding(16.dp).testTag("vault-refuses"),
+                    )
+                }
+            }
             status?.lowDisk?.let {
                 Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
                     Text(

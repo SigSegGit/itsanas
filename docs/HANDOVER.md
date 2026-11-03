@@ -9,8 +9,8 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.9b
-TITLE: Writing into the virtual drive (§8 9b)
+NEXT: 8.0c
+TITLE: Nicolas's hand test on 0.1.16, with Mandarine (§8 0c)
 WRITTEN-AT: 2026-11-03
 BASE: e55a31a
 -->
@@ -61,6 +61,10 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-03: 0.1.16, phone folder and drive writes.** A phone folder syncs by itself (#367), and
+the virtual drive takes writes. `main` already says 0.1.16 and the last release is 0.1.15. `itsanas-coord` alone
+failed clippy without its `hostile` feature, so `preflight.sh` on one crate could fail on it; fixed.
+
 **2026-11-03: `scripts/preflight.sh` before a push.** #365 went red on clippy, the format,
 rustdoc and the catalogue, one push at a time. It runs the fast part of the gates and collects
 every failure; a session runs it before each push. A backticked snake_case name in a
@@ -86,6 +90,10 @@ image's, rebuilt from `~/itsanas`, and `itsanas update` does not apply there
 of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
+
+0. **Release 0.1.16**, once its PR is merged (check: `gh pr list`):
+
+       cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
 
 1. **The Android release key, before any phone that should keep its
    updates installs the application** (docs/ANDROID-RELEASE.md §1, §1b):
@@ -3814,12 +3822,18 @@ Detail and measurements are in ROADMAP.md; this is the map.
       `phone_folder.rs` decides what is new and what may enter, under `Phone/`. One way: a
       deletion on the phone stays there. **Left:** a real phone and its gallery; one segment per
       file on a first run of thousands (issue 93).
-   b. **Writing into the virtual drive.** `crates/itsanas-drive` reads through ProjFS today;
-      saving and editing in Explorer is the missing half. Unsafe stays in `projfs.rs`, and it
-      needs a real Windows run.
-   c. **Small residues.** A device list cut at `MAX_PEERS_RETURNED` read as complete on the
-      phone (§8 2e); the phone's `unwritable`; the desktop `show_words` debt (§0); `isolated`
-      on a public machine that others only dial in to (ROADMAP M7).
+   b. 🟨 **Writing into the virtual drive.** Built 2026-11-03: `crates/itsanas-drive/src/writes.rs`
+      holds the rules and `projfs.rs` the notification. **Left:** no real Explorer or Office
+      session has driven it, only a script against real ProjFS on the laptop; it does not run in
+      CI; Windows refuses to rename a projected folder (error 50), so that stays an error.
+      Found by that script: every refusal reached Windows as a positive HRESULT, which reads as
+      success, so no new file could ever be created in the folder.
+   c. 🟨 **Small residues.** Done 2026-11-03: a device list cut at `MAX_PEERS_RETURNED` is not
+      called complete, and the phone says when its vault takes no write. **Left, on purpose:**
+      the desktop `show_words` debt needs a native window per platform, which nothing here can
+      test before a release; `isolated` on a public machine others only dial in to needs an
+      inbound contact a stranger cannot earn (`note_seen_if_known_at` is not that, since a dial
+      makes any peer known).
 
 8. ✅ **Removable disks.** Built 2026-10-19, all four uses Nicolas listed:
    (a) a vault on a USB disk lent to the network: unplugged, `itsanas daemon`

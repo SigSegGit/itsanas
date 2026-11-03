@@ -151,6 +151,11 @@
       "file": "crates/itsanas-cli/src/phone_folder.rs",
       "live": ".all(|part| !part.is_empty() && !part.starts_with('.'))",
       "dead": ".all(|part| !part.is_empty() && part != \"..\")"
+    },
+    "devices: a full page is complete": {
+      "file": "crates/itsanas-cli/src/devices.rs",
+      "live": "rows < itsanas_coord::protocol::MAX_PEERS_RETURNED",
+      "dead": "rows < usize::MAX"
     }
   }
 }

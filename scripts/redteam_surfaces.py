@@ -114,6 +114,7 @@ SURFACES = [
         'itsanas-cli/src/daemon.rs',
         'itsanas-cli/src/phone_folder.rs',
         'itsanas-cli/src/safety.rs',
+        'itsanas-drive/src/writes.rs',
         'itsanas-cli/src/lifecycle.rs',
         'itsanas-cli/src/portable.rs',
         'itsanas-cli/src/setup/',
