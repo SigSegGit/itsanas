@@ -679,6 +679,8 @@
     // vault that refuses the daemon's write probe.
     isolated: [N('Running, but it has not reached any of your other machines for hours: check that this machine is online'), 'bad'],
     unwritable: [N('Running, but this disk refuses every write: what it promised to others fails'), 'bad'],
+    failing: [N('Running, but a machine failed a storage check: what it holds no longer counts as a copy'), 'bad'],
+    lowdisk: [N('Running, but this disk is nearly full: free some room before writes start to fail'), 'bad'],
     stopped: [N('Not running'), 'bad'],
     departed: [N('This machine has left the network'), 'bad'],
     unknown: [N('Cannot tell right now'), ''],

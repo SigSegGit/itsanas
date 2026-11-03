@@ -503,20 +503,21 @@ silently, so the daemon should raise explicit alerts on the conditions below.
 > for the larger of six hours and twelve intervals turn the tray orange with
 > one notification (`isolated`; the header's `reached T`), and a vault that
 > refused the daemon's once-a-round write probe turns it orange and makes
-> `status` say CANNOT KEEP and why (`unwritable`). The other rows have no
-> alert yet; `itsanas status` and `doctor` say them when asked. This table is
-> the specification.
+> `status` say CANNOT KEEP and why (`unwritable`). **Two more (2026-11-03):**
+> a machine that failed its last storage challenge (`failing`) and a disk below
+> the reserve (`lowdisk`), orange with one notification, also on the phone.
+> This table is the specification.
 
 Conditions that must eventually alert:
 
 | Condition | Why it matters |
 | --- | --- |
-| Online node count below the replication floor | New writes cannot reach their durability target |
+| Online node count below the replication floor | New writes cannot reach their durability target. ✅ as `exposed`: a write made while a machine is off leaves fewer complete copies, which reads `exposed` past its grace (`red_team_a_write_made_while_a_machine_is_off_reads_exposed`) |
 | Any chunk below minimum replicas past a grace period | Data is one failure from loss. ✅ as "fewer than two complete copies elsewhere" (the tray and a notification) |
 | No successful sync round in *N* minutes | Sync is broken, not merely quiet. ✅ as "no round reached another machine" for max(6 h, 12 intervals) (`isolated`: the tray and a notification) |
-| A proof-of-storage challenge fails | A host is not holding what it claims |
+| A proof-of-storage challenge fails | A host is not holding what it claims. ✅ `failing`: the tray and a notification until an answered round pays it off, `status` names the machine, the phone says how many |
 | Local pledged space exhausted or unwritable | Node can no longer meet its side of the bargain. ✅ both: free space short of the pledge (`short`) and a vault that refuses the write probe (`unwritable`), the tray orange and `status` CANNOT KEEP |
-| Local free space below reserve | Host is about to start failing writes |
+| Local free space below reserve | Host is about to start failing writes. ✅ `lowdisk`, on the home's disk or the vault's: the tray and a notification, a line on the phone |
 
 ## 8. What is deliberately not protected
 

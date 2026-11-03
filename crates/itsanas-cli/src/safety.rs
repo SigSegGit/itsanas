@@ -197,9 +197,157 @@ pub fn isolated_for(header: &str, now: u64, every: u64) -> Option<u64> {
     (silent >= threshold).then_some(silent)
 }
 
+/// Where a phone keeps its contact words: it has no daemon, so no snapshot.
+const PHONE_CONTACT: &str = "last-contact";
+
+/// A phone's rounds are the system's to schedule, and a phone is often off a
+/// network for an evening. Twelve of these make the day before it says so.
+const PHONE_EVERY: u64 = 2 * 3600;
+
+/// Record what a phone's round found, in the words a snapshot carries. Best effort: a store that took the round must not fail
+/// it over this line.
+pub fn note_phone_contact(home: &std::path::Path, reached: bool, now: u64) {
+    let path = home.join(PHONE_CONTACT);
+    let previous = std::fs::read_to_string(&path).unwrap_or_default();
+    let words = reached_words(reached.then_some(now), &previous, now);
+    // Renamed into place: a phone killed mid-write would otherwise leave an
+    // empty file, and the silence would start again from nothing.
+    let pending = home.join(format!("{PHONE_CONTACT}.new"));
+    if std::fs::write(&pending, words).is_ok() {
+        let _ = std::fs::rename(&pending, path);
+    }
+}
+
+/// How long this phone has reached no other machine, once a day has gone by.
+/// `None` while nothing has started the wait: a phone's status starts it.
+#[must_use]
+pub fn phone_silence(home: &std::path::Path, now: u64) -> Option<u64> {
+    let words = std::fs::read_to_string(home.join(PHONE_CONTACT)).ok()?;
+    isolated_for(&words, now, PHONE_EVERY)
+}
+
+/// The number that follows `word` on a header.
+fn number_after(header: &str, word: &str) -> Option<u64> {
+    let words: Vec<&str> = header.split_whitespace().collect();
+    let at = words.iter().position(|candidate| *candidate == word)?;
+    words.get(at + 1)?.parse().ok()
+}
+
+/// The header's alert words, with their leading space: how many machines
+/// failed their last storage challenge, and the free bytes of a disk below
+/// the reserve. Neither is said when it is not so.
+#[must_use]
+pub fn alert_words(failing: usize, low_disk: Option<u64>) -> String {
+    let failing = if failing > 0 {
+        format!(" failing {failing}")
+    } else {
+        String::new()
+    };
+    let low_disk = low_disk.map(|free| format!(" lowdisk {free}"));
+    format!("{failing}{}", low_disk.unwrap_or_default())
+}
+
+/// How many machines a header says failed their last storage challenge.
+#[must_use]
+pub fn failing_machines(header: &str) -> Option<u64> {
+    number_after(header, "failing").filter(|count| *count > 0)
+}
+
+/// The free bytes a header says are left on a disk below the reserve.
+#[must_use]
+pub fn low_disk(header: &str) -> Option<u64> {
+    number_after(header, "lowdisk")
+}
+
+/// Hours, then days: the shortest silence said is six hours.
+#[must_use]
+pub fn silence_words(seconds: u64) -> String {
+    if seconds < 48 * 3600 {
+        format!("{} h", seconds / 3600)
+    } else {
+        format!("{} days", seconds / 86400)
+    }
+}
+
+/// The line `status` opens with while no round reaches another machine: the
+/// icon has said so since 2026-10-30, and the command a person runs to learn
+/// why said nothing.
+#[must_use]
+pub fn silence_line(seconds: u64) -> String {
+    format!(
+        "  NOT SYNCED     no round has reached another machine for {}; check that this machine \
+         is online and that the account's other machines are on\n",
+        silence_words(seconds)
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Copies, GRACE_INTERVALS, ISOLATED_AFTER, isolated_for, reached_words};
+    use super::{
+        Copies, GRACE_INTERVALS, ISOLATED_AFTER, alert_words, failing_machines, isolated_for,
+        low_disk, note_phone_contact, phone_silence, reached_words, silence_words,
+    };
+
+    /// A phone has no snapshot, so its silence lives in a file of its own, and
+    /// must age across restarts of the app. Sabotage: forget the previous words,
+    /// or stamp a contact on a round that reached nobody.
+    #[test]
+    fn red_team_a_phone_remembers_its_last_contact_and_says_a_day_of_silence() {
+        const DAY: u64 = 86_400;
+        let home = tempfile::tempdir().expect("temp dir");
+        let start = 1_792_000_000;
+        assert_eq!(
+            phone_silence(home.path(), start),
+            None,
+            "a phone that has tried nothing yet says it reached nobody"
+        );
+        note_phone_contact(home.path(), false, start);
+        assert_eq!(
+            phone_silence(home.path(), start + 3600),
+            None,
+            "an hour off the network is orange on a phone: a colour nobody reads"
+        );
+        note_phone_contact(home.path(), false, start + DAY);
+        assert_eq!(
+            phone_silence(home.path(), start + DAY),
+            Some(DAY),
+            "a later failed round restarted the silence: it would never reach a day"
+        );
+        note_phone_contact(home.path(), true, start + DAY);
+        assert_eq!(
+            phone_silence(home.path(), start + DAY),
+            None,
+            "a phone that just reached a machine still says it did not"
+        );
+        note_phone_contact(home.path(), false, start + 2 * DAY);
+        assert_eq!(
+            phone_silence(home.path(), start + 2 * DAY),
+            Some(DAY),
+            "a failed round wiped the contact before it: the silence is counted wrong"
+        );
+    }
+
+    #[test]
+    fn the_alert_words_read_back_and_a_quiet_node_writes_none() {
+        assert_eq!(
+            alert_words(0, None),
+            "",
+            "a node with nothing to say wrote an alert: every icon would turn orange"
+        );
+        let words = alert_words(2, Some(1000));
+        assert_eq!(failing_machines(&words), Some(2), "{words}");
+        assert_eq!(low_disk(&words), Some(1000), "{words}");
+        assert_eq!(failing_machines("snapshot 1 every 300"), None);
+        assert_eq!(low_disk("snapshot 1 every 300"), None);
+        assert_eq!(failing_machines(" failing 0"), None);
+    }
+
+    #[test]
+    fn a_silence_is_said_in_hours_then_days() {
+        assert_eq!(silence_words(7 * 3600), "7 h");
+        assert_eq!(silence_words(47 * 3600), "47 h");
+        assert_eq!(silence_words(5 * 86400), "5 days");
+    }
 
     const EVERY: u64 = 300;
 

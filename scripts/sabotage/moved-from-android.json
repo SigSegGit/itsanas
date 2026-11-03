@@ -106,6 +106,31 @@
       "file": "crates/itsanas-cli/src/account.rs",
       "live": "    sweep_removed(&node.home);\n",
       "dead": ""
+    },
+    "alerts: the phone hides a failed machine": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "\"failing\": itsanas_cli::machines_failing(node, itsanas_discover::now_unix())?,",
+      "dead": "\"failing\": 0,"
+    },
+    "alerts: the phone hides its silence": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "\"silentFor\": itsanas_cli::phone_silence(&node.home, itsanas_discover::now_unix()),",
+      "dead": "\"silentFor\": Option::<u64>::None,"
+    },
+    "alerts: a round records no contact": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "itsanas_cli::note_phone_contact(&node.home, totals.reached > 0, now);",
+      "dead": "itsanas_cli::note_phone_contact(&node.home, false, now);"
+    },
+    "alerts: the wait never starts": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "itsanas_cli::note_phone_contact(&node.home, false, now);\n        return Err",
+      "dead": "return Err"
+    },
+    "alerts: looking at a phone starts no wait": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "itsanas_cli::note_phone_contact(&node.home, false, itsanas_discover::now_unix());",
+      "dead": ""
     }
   }
 }

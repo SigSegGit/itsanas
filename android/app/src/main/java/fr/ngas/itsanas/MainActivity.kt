@@ -552,6 +552,34 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                     )
                 }
             }
+            status?.silentFor?.let {
+                Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
+                    Text(
+                        if (it < 48 * 3600) {
+                            stringResource(R.string.not_synced_hours, it / 3600)
+                        } else {
+                            stringResource(R.string.not_synced_days, it / 86400)
+                        },
+                        Modifier.fillMaxWidth().padding(16.dp).testTag("not-synced"),
+                    )
+                }
+            }
+            status?.takeIf { it.failing > 0 }?.let {
+                Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
+                    Text(
+                        stringResource(R.string.machines_failing, it.failing),
+                        Modifier.fillMaxWidth().padding(16.dp).testTag("machines-failing"),
+                    )
+                }
+            }
+            status?.lowDisk?.let {
+                Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
+                    Text(
+                        stringResource(R.string.low_disk, humanSize(it)),
+                        Modifier.fillMaxWidth().padding(16.dp).testTag("low-disk"),
+                    )
+                }
+            }
             if (busy) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(8.dp))
             }

@@ -422,6 +422,28 @@ pub fn keepable(pledge: u64, held: u64, free: Option<u64>) -> u64 {
     }
 }
 
+/// `free`, when it is below [`RESERVE`]. An unknown free space says nothing:
+/// a disk nobody could measure is not a full one.
+#[must_use]
+pub fn below_reserve(free: Option<u64>) -> Option<u64> {
+    free.filter(|free| *free < RESERVE)
+}
+
+/// The free bytes left on the fuller of this node's two disks, once one is
+/// below [`RESERVE`]: the index lives under `home`, the vault may be on a NAS,
+/// and either one filling stops the node writing.
+#[must_use]
+pub fn low_on_disk(home: &Path) -> Option<u64> {
+    let free = |path: &Path| fs4::available_space(crate::node::existing_ancestor(path)).ok();
+    [
+        below_reserve(free(home)),
+        below_reserve(free(&vault_of(home))),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
+}
+
 /// The file [`probe_write`] creates and removes at the vault's root.
 pub const PROBE_FILE: &str = ".write-probe";
 
@@ -480,6 +502,27 @@ pub fn describe(others: &[Promise], stale: &[String], size: impl Fn(u64) -> Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ARCHITECTURE §7, "local free space below reserve": the host is about to
+    /// start failing writes. Sabotage: `<=` in the filter, or no filter.
+    #[test]
+    fn red_team_a_disk_below_the_reserve_says_how_little_is_left() {
+        assert_eq!(
+            below_reserve(Some(RESERVE - 1)),
+            Some(RESERVE - 1),
+            "a disk under the reserve went unsaid: its next write fails, unwarned"
+        );
+        assert_eq!(
+            below_reserve(Some(RESERVE)),
+            None,
+            "a disk exactly at the reserve was called low: an alarm over nothing"
+        );
+        assert_eq!(
+            below_reserve(None),
+            None,
+            "a disk nobody could measure was called full"
+        );
+    }
 
     fn home(base: &Path, name: &str) -> PathBuf {
         let home = base.join(name);

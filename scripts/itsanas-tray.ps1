@@ -55,6 +55,8 @@ $signoutWords = "This stops ITSaNAS on this machine and forgets the passphrase h
 $exposedAdvice = 'Add a machine to this account, or keep its other machines on, so copies exist elsewhere.'
 # What a node that has reached no other machine for hours is told
 # (ARCHITECTURE §7), in the menu and in its one notification.
+$failingAdvice = "itsanas status says which."
+$lowDiskAdvice = "Free some room: writes fail when the disk is full."
 $isolatedAdvice = "Check that this machine is online, and that the account's other machines are on."
 
 # ---------------------------------------------------------------- the model
@@ -93,6 +95,24 @@ function Get-Silent([string]$Brief) {
     return $null
 }
 
+# `failing AGE COUNT`: machines that failed their last storage challenge.
+function Get-Failing([string]$Brief) {
+    $parts = "$Brief".Trim() -split '\s+'
+    if ($parts.Count -ge 3 -and $parts[0] -eq 'failing' -and $parts[2] -match '^\d+$') {
+        return [int64]$parts[2]
+    }
+    return $null
+}
+
+# `lowdisk AGE FREE`: the free bytes of a disk below the reserve, in MB.
+function Get-LowDisk([string]$Brief) {
+    $parts = "$Brief".Trim() -split '\s+'
+    if ($parts.Count -ge 3 -and $parts[0] -eq 'lowdisk' -and $parts[2] -match '^\d+$') {
+        return [int64][math]::Floor([int64]$parts[2] / 1048576)
+    }
+    return $null
+}
+
 # Hours, then days: the shortest silence said is six hours.
 function Format-Silence([int64]$Seconds) {
     if ($Seconds -lt 48 * 3600) { return "$([math]::Floor($Seconds / 3600)) h" }
@@ -104,6 +124,10 @@ function Get-StateWords([string]$Brief) {
     $silent = Get-Silent $Brief
     if ($null -ne $silent) { return "not synced with any machine for $(Format-Silence $silent)" }
     if ((Split-Brief $Brief)[0] -eq 'unwritable') { return 'its vault cannot be written (itsanas status says why)' }
+    $failing = Get-Failing $Brief
+    if ($null -ne $failing) { return "$failing machine(s) failed a storage check (itsanas status says which)" }
+    $low = Get-LowDisk $Brief
+    if ($null -ne $low) { return "only $low MB free on its disk" }
     $copies = Get-Copies $Brief
     if ($null -eq $copies) { return (Split-Brief $Brief)[0] }
     if ($copies[0] -eq 0) { return "only on this machine (0 of $($copies[1]) copies elsewhere)" }
@@ -119,6 +143,19 @@ function Get-Notice([string]$Before, [string]$Brief, [string]$Label) {
     if ($null -ne $silent) {
         if ($null -ne (Get-Silent $Before)) { return $null }
         return "${Label}: not synced with any machine for $(Format-Silence $silent). $isolatedAdvice"
+    }
+    $failing = Get-Failing $Brief
+    if ($null -ne $failing) {
+        # Not `$before`: names ignore case, so that is the [string] parameter,
+        # and 9 machines then compare as more than 10.
+        $failedBefore = Get-Failing $Before
+        if ($null -ne $failedBefore -and $failedBefore -ge $failing) { return $null }
+        return "${Label}: $failing machine(s) failed a storage check: what they hold no longer counts as a copy. $failingAdvice"
+    }
+    $low = Get-LowDisk $Brief
+    if ($null -ne $low) {
+        if ($null -ne (Get-LowDisk $Before)) { return $null }
+        return "${Label}: only $low MB free on its disk. $lowDiskAdvice"
     }
     $now = Get-Copies $Brief
     if ($null -eq $now) { return $null }
