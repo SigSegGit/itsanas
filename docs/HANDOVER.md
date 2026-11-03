@@ -79,9 +79,9 @@ while Tailscale is not configured, so a green Fleet says nothing about it.
 the virtual drive takes writes. `main` already says 0.1.16 and the last release is 0.1.15. `itsanas-coord` alone
 failed clippy without its `hostile` feature, so `preflight.sh` on one crate could fail on it; fixed.
 Read the end-to-end screenshots: they caught a header wrapped by the new button, and a test that
-waited on the account and not the screen. Not known: dark mode on most screens, because the
-`-dark` shots after the first pages match the `-light` ones (`cmd uimode night` against an app
-that sets its own mode, unread). #367 was squashed under a stacked branch: check that the two
+waited on the account and not the screen. The `-dark` shots of the app's own screens matched the
+`-light` ones because `Thread.sleep` draws no frame under Compose's test clock: `shotBoth` now
+waits for a dark margin, and fails if the screen stays light. #367 was squashed under a stacked branch: check that the two
 trees match, then `git merge -s ours origin/main`, not a force push.
 
 **2026-11-03: `scripts/preflight.sh` before a push.** #365 went red on clippy, the format,
