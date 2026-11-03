@@ -109,7 +109,7 @@
     },
     "alerts: the phone hides a failed machine": {
       "file": "crates/itsanas-android/src/lib.rs",
-      "live": "\"failing\": itsanas_cli::machines_failing(node)?,",
+      "live": "\"failing\": itsanas_cli::machines_failing(node, itsanas_discover::now_unix())?,",
       "dead": "\"failing\": 0,"
     },
     "alerts: the phone hides its silence": {

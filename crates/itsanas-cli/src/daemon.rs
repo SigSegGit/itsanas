@@ -1488,7 +1488,7 @@ fn write_snapshot(node: &Node, interval: Duration, bound: std::net::SocketAddr, 
     // `render_status_and_copies` read this store a moment ago; a read that
     // fails now must not cost the snapshot, which is what says the node lives.
     let alerts = crate::safety::alert_words(
-        crate::machines_failing(node).unwrap_or(0),
+        crate::machines_failing(node, now).unwrap_or(0),
         itsanas_node::pledges::low_on_disk(&node.home),
     );
     // What the icon says in a colour, `status` says in words.
@@ -3129,6 +3129,27 @@ mod tests {
             brief.starts_with("healthy "),
             "a machine that answered again still reads {brief:?}: an orange icon nothing can \
              turn back is a colour nobody reads"
+        );
+    }
+
+    /// A machine that failed and then left never answers again. Sabotage: drop
+    /// the age from `machines_failing`.
+    #[test]
+    fn red_team_a_machine_that_failed_and_left_does_not_keep_the_icon_orange() {
+        let base = tempfile::tempdir().expect("temp dir");
+        let (node, _) =
+            itsanas_node::Node::create(&base.path().join(".itsanas"), "a passphrase", "camille")
+                .expect("create");
+        let liar = DeviceId::from_bytes([7; 32]);
+        node.store.note_audit(&liar, false).expect("audit");
+        let now = itsanas_discover::now_unix();
+        assert_eq!(crate::machines_failing(&node, now).expect("count"), 1);
+        assert_eq!(
+            crate::machines_failing(&node, now + itsanas_store::holders::LIVE_FOR + 60)
+                .expect("count"),
+            0,
+            "a machine gone for good keeps the icon orange for ever: nothing the person can \
+             do turns it back, and a colour that never changes is one nobody reads"
         );
     }
 

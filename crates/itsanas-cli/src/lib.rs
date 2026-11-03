@@ -102,15 +102,23 @@ pub fn account_is_safe(coverage: &itsanas_store::Coverage) -> bool {
 /// longer counts as a copy. The daemon's snapshot and a phone both say this
 /// number, and an answered round pays a failure off.
 ///
+/// Only failures within `LIVE_FOR`: a machine that failed and then left for
+/// good never answers again, and without this the icon stays orange for ever
+/// over a machine whose copies stopped counting long ago. One still failing
+/// renews its date every round.
+///
 /// # Errors
 ///
 /// When the store cannot be read.
-pub fn machines_failing(node: &Node) -> Result<usize> {
+pub fn machines_failing(node: &Node, now: u64) -> Result<usize> {
     Ok(node
         .store
         .unreliable_devices()?
         .iter()
-        .filter(|(_, record)| record.consecutive_failures > 0)
+        .filter(|(_, record)| {
+            record.consecutive_failures > 0
+                && now.saturating_sub(record.last_failure_unix) < itsanas_store::holders::LIVE_FOR
+        })
         .count())
 }
 

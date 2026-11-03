@@ -727,7 +727,7 @@ fn status_of(node: &Node) -> Answer {
         "liveChunks": coverage.live_chunks,
         "copiesWanted": itsanas_cli::SAFE_COPIES,
         "safe": itsanas_cli::account_is_safe(&coverage),
-        "failing": itsanas_cli::machines_failing(node)?,
+        "failing": itsanas_cli::machines_failing(node, itsanas_discover::now_unix())?,
         "lowDisk": itsanas_node::pledges::low_on_disk(&node.home),
         "silentFor": itsanas_cli::phone_silence(&node.home, itsanas_discover::now_unix()),
     })

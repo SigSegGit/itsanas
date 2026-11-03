@@ -32,7 +32,7 @@ row was short by 19, and the coordinator row by 17. The counts live in one place
 now, and `scripts/check-counts.py` reads that place back against the source on
 every push.
 
-**1563 test functions, 20 of them `#[ignore]`d into the slow job, and 549 of
+**1564 test functions, 20 of them `#[ignore]`d into the slow job, and 550 of
 them red-team tests that pass when an attack fails.**
 
 **Nothing here should hold data you care about yet**, but the reason has
@@ -1189,7 +1189,9 @@ Still to build:
   (the listener's witness counts scanners, so it cannot say who synced).
   Three more (2026-11-03): a machine that failed its last storage challenge
   reads `failing`, orange, one notification, and `status` names it
-  (`red_team_a_failed_challenge_reaches_the_icon_and_status_and_clears`); a
+  (`red_team_a_failed_challenge_reaches_the_icon_and_status_and_clears`), for
+  a week after its last failure, so a machine that left does not keep it orange
+  (`red_team_a_machine_that_failed_and_left_does_not_keep_the_icon_orange`); a
   disk below the reserve reads `lowdisk`
   (`red_team_a_disk_below_the_reserve_says_how_little_is_left`,
   `red_team_a_failing_machine_and_a_full_disk_are_never_drawn_green`), measured

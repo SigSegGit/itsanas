@@ -94,8 +94,8 @@
     },
     "alerts: every machine that ever failed counts": {
       "file": "crates/itsanas-cli/src/lib.rs",
-      "live": ".filter(|(_, record)| record.consecutive_failures > 0)",
-      "dead": ".filter(|(_, record)| record.failed > 0)"
+      "live": "record.consecutive_failures > 0\n                && now",
+      "dead": "record.failed > 0\n                && now"
     },
     "alerts: the failed list goes to stdout": {
       "file": "crates/itsanas-cli/src/lib.rs",
@@ -131,6 +131,11 @@
       "file": "crates/itsanas-cli/src/safety.rs",
       "live": "let words = reached_words(reached.then_some(now), &previous, now);",
       "dead": "let words = reached_words(Some(now), &previous, now);"
+    },
+    "alerts: a machine that left stays failing": {
+      "file": "crates/itsanas-cli/src/lib.rs",
+      "live": "&& now.saturating_sub(record.last_failure_unix) < itsanas_store::holders::LIVE_FOR",
+      "dead": "&& now.saturating_sub(record.last_failure_unix) < u64::MAX"
     }
   }
 }

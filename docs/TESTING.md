@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-03 — 1563 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 549 are red-team tests.**
+**Last updated: 2026-11-03 — 1564 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 550 are red-team tests.**
 
-**1447 of the 1563 tests have an entry of their own on this page** — an *entry*,
+**1448 of the 1564 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 320 |
+| `itsanas-cli` unit | 321 |
 | `itsanas-android` unit | 21 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 175 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 54 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 166 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 167 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1203,7 +1203,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (320)
+# `itsanas-cli` — unit tests (321)
 
 ## `bench` — measuring this machine (4)
 
@@ -1564,7 +1564,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_node_that_never_reached_anybody_turns_isolated`** | The review of #345: a node with nothing stored (no `copies`, never `exposed`) that no round ever reached anybody from -- a Mac with an empty folder behind a firewall, or a header from before `reached` -- read green for good. `reached_words` writes `reached never since T` on the first snapshot with no contact, keeps T at the next, and `isolated_for` ages it: `isolated` at six hours; a contact then replaces it with `reached T`. Sabotaged (the wait restarted at every snapshot; `isolated_for` reading only `reached T`): red, both. |
 | **`red_team_a_contact_dated_in_the_future_is_not_kept`** | The review of #345: the larger value wins at every write, so a `reached` stamped with a clock a day ahead (a resumed VM, a dead RTC) stayed for good and the machine read healthy cut off that whole day. A contact later than now, carried or this process's own, and a wait dated later, are dropped; a real past contact is kept. Sabotaged (no filter): red. |
 
-## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (36)
+## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (37)
 
 | Test | What it proves |
 | --- | --- |
@@ -1574,6 +1574,7 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_vault_the_probe_could_not_write_reaches_the_icon_and_status`** | A failed write probe, through `write_snapshot`: the header carries ` unwritable`, `brief_status` reads `unwritable ...`, and the text `status` prints says `cannot be written (why)`. Sabotaged (the header without ` unwritable`; the `unwritable` arm dropped): red, both. It sets `Seen.unwritable` by hand: the probe is the row below, its call from `sync_loop` `red_team_a_running_daemon_says_when_its_vault_takes_no_write` (steering). |
 | **`red_team_the_round_probe_says_unwritable_while_the_vault_refuses_and_stops_after`** | `probe_vault`, which `sync_loop` calls once a round: a writable vault leaves `unwritable` unset, a vault path that is a plain file sets it, a node pledging nothing or away from its vault's disk is not probed, and a vault that takes writes again clears it -- else the icon stays orange for good. Runs on Windows. Sabotaged (never set; never cleared; a pledge of 0 probed; an away node probed): red, all four. |
 | **`red_team_a_failed_challenge_reaches_the_icon_and_status_and_clears`** | A failed storage challenge, through `write_snapshot`: `status --brief` reads `failing AGE 1`, the snapshot `status` prints names the machine (the list used to go to stdout, so a running node could not say), and an answered round reads `healthy` again. |
+| **`red_team_a_machine_that_failed_and_left_does_not_keep_the_icon_orange`** | `machines_failing` counts a failure for `LIVE_FOR`: a machine that failed and left stops counting, so the icon does not stay orange for ever. |
 | **`red_team_a_failing_machine_and_a_full_disk_are_never_drawn_green`** | ` failing N` reads `failing AGE N`, ` lowdisk FREE` reads `lowdisk AGE FREE`; `failing` wins over `lowdisk`, and `isolated` over `failing`, because a node cut off cannot audit and the record would hide the silence. |
 | **`red_team_status_says_in_words_that_no_round_reached_anybody`** | Seven hours without a contact puts `NOT SYNCED ... for 7 h` in what `status` prints; a contact just now does not. |
 | **`red_team_a_write_made_while_a_machine_is_off_reads_exposed`** | The online-node floor of ARCHITECTURE §7: a file on one of two machines drops `complete_elsewhere` from 2 to 1, and that shortfall reads `exposed` past its grace. |

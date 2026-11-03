@@ -204,8 +204,7 @@ const PHONE_CONTACT: &str = "last-contact";
 /// network for an evening. Twelve of these make the day before it says so.
 const PHONE_EVERY: u64 = 2 * 3600;
 
-/// Record what a phone's round found, in the words a snapshot carries
-/// ([`reached_words`]). Best effort: a store that took the round must not fail
+/// Record what a phone's round found, in the words a snapshot carries. Best effort: a store that took the round must not fail
 /// it over this line.
 pub fn note_phone_contact(home: &std::path::Path, reached: bool, now: u64) {
     let path = home.join(PHONE_CONTACT);
