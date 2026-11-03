@@ -48,6 +48,9 @@
     <string name="check_confirm">Confirmer</string>
 
     <string name="files_empty">Rien ici pour l\'instant. Ajoutez un fichier, ou synchronisez avec l\'une de vos machines.</string>
+    <string name="phone_folder_choose">Choisir un dossier à garder dans votre compte</string>
+    <string name="phone_folder_on">Les nouveaux fichiers de %1$s vont seuls dans votre compte. En supprimer un ici le laisse là-bas.</string>
+    <string name="phone_folder_stop">Arrêter</string>
     <string name="not_synced_hours">Aucune synchronisation avec vos machines depuis %1$d h. Vérifiez que ce téléphone est en ligne et que vos autres machines sont allumées.</string>
     <string name="not_synced_days">Aucune synchronisation avec vos machines depuis %1$d jours. Vérifiez que ce téléphone est en ligne et que vos autres machines sont allumées.</string>
     <string name="machines_failing">Machines ayant échoué à une vérification de stockage : %1$d. Ce qu\'elles gardent ne compte plus comme une copie de vos fichiers.</string>

@@ -39,6 +39,44 @@ class FilesTest {
         return Uri.fromFile(file)
     }
 
+    /** The real walk, against a real provider (`E2eDocuments`, debug builds only). */
+    @Test
+    fun a_chosen_folder_reaches_the_account_without_its_hidden_files() {
+        Flows.createAccount(compose, Flows.freshName())
+        val top = File(E2e.context.cacheDir, "e2e-tree/Camera").apply { deleteRecursively() }
+        File(top, "trip").mkdirs()
+        File(top, "a.jpg").writeText("first photo")
+        File(top, "trip/b.jpg").writeText("second photo")
+        File(top, ".pending-c.jpg").writeText("a photo still being taken")
+
+        Intents.init()
+        val tree = android.provider.DocumentsContract.buildTreeDocumentUri(
+            "${E2e.context.packageName}.e2edocs",
+            "Camera",
+        )
+        intending(hasAction(Intent.ACTION_OPEN_DOCUMENT_TREE)).respondWith(
+            Instrumentation.ActivityResult(Activity.RESULT_OK, Intent().setData(tree)),
+        )
+        Flows.click(compose, "phone-folder")
+        Flows.waitTag(compose, "phone-folder-line", "the folder chosen is not shown as chosen")
+        compose.waitUntil(60_000) {
+            val listed = Native.list()
+            listed.contains("Phone/Camera/a.jpg") && listed.contains("Phone/Camera/trip/b.jpg")
+        }
+        assertTrue(
+            "a photo still being taken reached the account, and from there every machine",
+            !Native.list().contains("pending"),
+        )
+        E2e.shotBoth("22-files-folder")
+
+        Flows.click(compose, "phone-folder-stop")
+        Flows.waitNoTag(compose, "phone-folder-line", "Stop did not stop the folder")
+        assertTrue(
+            "stopping the folder took its files out of the account",
+            Native.list().contains("Phone/Camera/a.jpg"),
+        )
+    }
+
     @Test
     fun plus_adds_a_real_file_and_it_is_listed() {
         Flows.createAccount(compose, Flows.freshName())

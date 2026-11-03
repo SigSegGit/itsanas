@@ -532,7 +532,7 @@
   // What verify.rs says when it skips a check, marked so that each gets a translation.
   const FINDING_DETAILS = [
     N('the app does this itself'),
-    N('a phone has no synced folder'),
+    N('a phone picks its folder in the app'),
     N('a phone dials out and is never dialled back'),
     N('no background service was asked for'),
     N('no coordinator is set'),

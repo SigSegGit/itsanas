@@ -112,6 +112,7 @@ SURFACES = [
         'itsanas-cli/src/control.rs',
         'itsanas-cli/src/jobs.rs',
         'itsanas-cli/src/daemon.rs',
+        'itsanas-cli/src/phone_folder.rs',
         'itsanas-cli/src/safety.rs',
         'itsanas-cli/src/lifecycle.rs',
         'itsanas-cli/src/portable.rs',

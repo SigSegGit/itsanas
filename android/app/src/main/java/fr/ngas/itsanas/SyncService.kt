@@ -96,9 +96,22 @@ class SyncService : Service() {
             }
 
             update("Syncing", plan.because)
+            // Only when content may move, so a metered link pays for no photos.
+            // A folder that fails stops nothing: the round still runs, and says so.
+            val folderFailed = if (plan.movesContent) {
+                try {
+                    PhoneFolder.sync(this)
+                    null
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    error.message ?: "the folder could not be read"
+                }
+            } else {
+                null
+            }
             val line = try {
                 val report = Account.syncNow(metadataOnly = !plan.movesContent)
-                summarise(report, plan.because)
+                folderFailed?.let { "Folder: $it" } ?: summarise(report, plan.because)
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 error.message ?: "the round failed"

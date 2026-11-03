@@ -57,6 +57,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use itsanas_cli::phone_folder::{self, FolderFile};
 use itsanas_cli::shell::{
     Answer, Backends, Failure, Held, Mode, NO_MACHINE_YET, Network, SecretPrompt, Server, Stop,
     check_words, describe, run_round, targets,
@@ -608,6 +609,86 @@ fn put_file(node: &Node, path: &str, source: &str) -> Answer {
         "chunks": entry.chunks.len(),
     })
     .to_string())
+}
+
+/// One file of a listing, as the application sends it.
+fn folder_file(value: &serde_json::Value) -> Result<FolderFile, Failure> {
+    let number = |key: &str| value[key].as_u64();
+    match (value["path"].as_str(), number("size"), number("modified")) {
+        (Some(path), Some(size), Some(modified)) => Ok(FolderFile {
+            path: path.to_owned(),
+            size,
+            modified,
+        }),
+        _ => Err(Failure::Usage(format!("not a file in a folder: {value}"))),
+    }
+}
+
+fn folder_json(text: &str) -> Result<serde_json::Value, Failure> {
+    serde_json::from_str(text)
+        .map_err(|error| Failure::Usage(format!("not a folder listing: {error}")))
+}
+
+/// Which files of the chosen folder the application should copy
+/// (`phone_folder.rs`).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_folderWanted(
+    mut env: JNIEnv,
+    _class: JClass,
+    listing: JString,
+) -> jstring {
+    let listing = text(&mut env, &listing, "the listing");
+    answer(&mut env, move || {
+        let listing = listing?;
+        with_node(|node| folder_wanted(node, &listing))
+    })
+}
+
+/// [`Java_fr_ngas_itsanas_Native_folderWanted`] without the JNI.
+fn folder_wanted(node: &Node, listing: &str) -> Answer {
+    let listed = folder_json(listing)?
+        .as_array()
+        .ok_or_else(|| Failure::Usage("a folder listing is a list".to_owned()))?
+        .iter()
+        .map(folder_file)
+        .collect::<Result<Vec<_>, _>>()?;
+    let wanted: Vec<_> = phone_folder::wanted(&node.home, listed)
+        .into_iter()
+        .map(|file| {
+            serde_json::json!({
+                "path": file.path,
+                "size": file.size,
+                "modified": file.modified,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({ "wanted": wanted }).to_string())
+}
+
+/// Put a copied file of the folder into the account, then record it.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_folderImport(
+    mut env: JNIEnv,
+    _class: JClass,
+    file: JString,
+    source: JString,
+) -> jstring {
+    let file = text(&mut env, &file, "the file");
+    let source = text(&mut env, &source, "the source file");
+    answer(&mut env, move || {
+        let (file, source) = (file?, source?);
+        with_node(|node| folder_import(node, &file, &source))
+    })
+}
+
+/// [`Java_fr_ngas_itsanas_Native_folderImport`] without the JNI. Recorded only
+/// once the store has it: a file refused for room is asked for again next round.
+fn folder_import(node: &Node, file: &str, source: &str) -> Answer {
+    let file = folder_file(&folder_json(file)?)?;
+    let answer = put_file(node, &file.in_account(), source)?;
+    phone_folder::imported(&node.home, &file)
+        .map_err(|error| Failure::Usage(format!("could not record {}: {error}", file.path)))?;
+    Ok(answer)
 }
 
 /// Delete a file from the account, everywhere.
@@ -1194,6 +1275,55 @@ mod tests {
         );
         assert_eq!(status["copiesWanted"], 2, "{status}");
         assert_eq!(status["copiesElsewhere"], 0, "{status}");
+    }
+
+    /// The whole route of a photo. Sabotage: record before the store has it.
+    #[test]
+    fn red_team_a_folder_file_reaches_the_account_and_only_then_counts_as_seen() {
+        let dir = tempfile::tempdir().unwrap();
+        let (node, _) = Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        let listing = r#"[{"path":"Camera/a.jpg","size":5,"modified":100}]"#;
+        let one = r#"{"path":"Camera/a.jpg","size":5,"modified":100}"#;
+        let wanted = |node: &Node| -> serde_json::Value {
+            serde_json::from_str(&folder_wanted(node, listing).unwrap()).unwrap()
+        };
+        assert_eq!(wanted(&node)["wanted"].as_array().unwrap().len(), 1);
+
+        let missing = dir.path().join("gone.jpg");
+        assert!(folder_import(&node, one, missing.to_str().unwrap()).is_err());
+        assert_eq!(
+            wanted(&node)["wanted"].as_array().unwrap().len(),
+            1,
+            "a copy the store never took counts as seen: this photo never reaches the account"
+        );
+
+        let source = dir.path().join("a.jpg");
+        std::fs::write(&source, b"photo").unwrap();
+        folder_import(&node, one, source.to_str().unwrap()).unwrap();
+        assert_eq!(
+            node.store.read_file("Phone/Camera/a.jpg").unwrap(),
+            Some(b"photo".to_vec()),
+            "the photo is not in the account where the phone said it would be"
+        );
+        assert!(
+            wanted(&node)["wanted"].as_array().unwrap().is_empty(),
+            "an imported photo was asked for again: every round copies the whole folder"
+        );
+    }
+
+    /// The application is the only caller, and still: a bad listing is an error,
+    /// not an empty folder that reads as nothing to do. Sabotage: skip bad rows.
+    #[test]
+    fn red_team_a_folder_listing_that_makes_no_sense_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let (node, _) = Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        for listing in ["not json", "{}", r#"[{"path":"a","size":-1,"modified":1}]"#] {
+            assert!(
+                folder_wanted(&node, listing).is_err(),
+                "{listing} read as a folder with nothing new: its photos would stop syncing \
+                 and nothing would say so"
+            );
+        }
     }
 
     /// A phone that reached nobody for a day says so, with no daemon and no icon.

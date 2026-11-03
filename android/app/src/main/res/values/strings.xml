@@ -50,6 +50,9 @@
     <string name="check_confirm">Confirm</string>
 
     <string name="files_empty">Nothing here yet. Add a file, or sync with one of your machines.</string>
+    <string name="phone_folder_choose">Choose a folder to keep in your account</string>
+    <string name="phone_folder_on">New files in %1$s go to your account by themselves. Deleting one here leaves it there.</string>
+    <string name="phone_folder_stop">Stop</string>
     <string name="not_synced_hours">Not synced with any of your machines for %1$d h. Check that this phone is online and that your other machines are on.</string>
     <string name="not_synced_days">Not synced with any of your machines for %1$d days. Check that this phone is online and that your other machines are on.</string>
     <string name="machines_failing">Machines that failed a storage check: %1$d. What they hold no longer counts as a copy of your files.</string>
