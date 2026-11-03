@@ -381,8 +381,8 @@ combien de temps elles se taisent. Note ce que tu vois pour chacune.
   plusieurs semaines de corrections et n'a jamais tourné que sur émulateur. Il faut
   en construire une neuve (`scripts/build-apk.sh`, SDK et NDK requis). Test :
   restaurer `nicolas` avec les 24 mots, ajouter W comme machine, synchroniser,
-  ouvrir un fichier. **Pas de dossier qui se synchronise tout seul** : l'app tient
-  des fichiers, elle ne surveille pas un répertoire.
+  ouvrir un fichier. Le dossier choisi sur l'écran Fichiers part tout seul vers le
+  compte, dans un seul sens.
 - **Mac** : pas de binaire ; `sh install/macos.sh` depuis un checkout (compile, Apple
   silicon validé en CI seulement), puis les mêmes commandes qu'un Linux. Une seule
   instance (le service launchd n'a pas de variante nommée).

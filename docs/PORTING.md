@@ -480,7 +480,7 @@ instead of being the first caller of it.
 
 | Piece | Why it matters |
 | --- | --- |
-| A folder that syncs by itself | The application holds files; it does not watch a directory. Scoped storage means an app may not watch an arbitrary one since Android 10, so this is a design question rather than a port |
+| A real phone for its folder | The Files screen takes a folder the person grants and walks it each round, one way, under `Phone/` (`phone_folder`, `FilesTest`). Only an emulator has run it, never a gallery of thousands |
 | Doze and the `dataSync` budget | Android 14 caps foreground data-sync at about six hours a day. **Written from memory and still unverified** — the twenty-four-hour measurement now running on three desktops is the first honest number this project will have about idle cost |
 | A signing key of its own | The APK is signed with the debug key, which is fine for installing by hand and not for anything else |
 | Folders in the interface | Every file is listed flat. The paths carry directories and nothing renders them |
