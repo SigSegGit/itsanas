@@ -1197,6 +1197,13 @@ if [ -n "$PY" ]; then
         if ! tray_menu "$tray" '' 'failing 30 2' 'auto: x' 'failing 30 1' | grep -q '^notice '; then
             bad "the $tray tray says nothing when one more machine fails a storage check"; menus_ok=0
         fi
+        # Compared as numbers: as strings, 9 machines read as more than 10.
+        if ! tray_menu "$tray" '' 'failing 30 10' 'auto: x' 'failing 30 9' | grep -q '^notice '; then
+            bad "the $tray tray says nothing when a tenth machine fails a storage check: the counts compare as strings"; menus_ok=0
+        fi
+        if tray_menu "$tray" '' 'failing 30 9' 'auto: x' 'failing 30 10' | grep -q '^notice '; then
+            bad "the $tray tray notifies when a machine answers again: the counts compare as strings"; menus_ok=0
+        fi
         low=$(tray_menu "$tray" '' 'lowdisk 30 104857600' 'auto: x' 'healthy 30')
         wanted=('icon orange' 'status ITSaNAS: only 100 MB free on its disk (30 s ago)' 'notice ITSaNAS: only 100 MB free on its disk. Free some room: writes fail when the disk is full.')
         for line in "${wanted[@]}"; do

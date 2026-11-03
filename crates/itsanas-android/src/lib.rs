@@ -706,6 +706,9 @@ fn status_of(node: &Node) -> Answer {
     let vault = node.vault.stats()?;
     let coverage = node.store.coverage(itsanas_discover::now_unix())?;
     let absent = itsanas_store::absent_count(&node.store, &node.vault)?;
+    // The wait starts here too: a phone whose scheduled sync never runs would
+    // otherwise have no date to age from, and read as fine for ever.
+    itsanas_cli::note_phone_contact(&node.home, false, itsanas_discover::now_unix());
 
     Ok(serde_json::json!({
         "username": node.config.username,
@@ -1195,7 +1198,7 @@ mod tests {
 
     /// A phone that reached nobody for a day says so, with no daemon and no icon.
     /// The wait starts at a round with no machine to try. Sabotage: hard-code
-    /// `silentFor` to null, or drop the note on that path.
+    /// `silentFor` to null, or drop the note on either path.
     #[test]
     fn red_team_a_phone_says_it_has_reached_nobody() {
         let dir = tempfile::tempdir().unwrap();
@@ -1204,6 +1207,12 @@ mod tests {
         assert!(
             status["silentFor"].is_null(),
             "a phone that has tried nothing says it reached nobody: {status}"
+        );
+        let started = std::fs::read_to_string(node.home.join("last-contact")).unwrap_or_default();
+        assert!(
+            started.contains("reached never since"),
+            "looking at a phone starts no wait: if its scheduled sync never runs it reads as \
+             fine for ever ({started:?})"
         );
 
         let two_days_ago = itsanas_discover::now_unix() - 2 * 86_400;

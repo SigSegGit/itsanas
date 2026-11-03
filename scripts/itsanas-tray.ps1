@@ -146,8 +146,10 @@ function Get-Notice([string]$Before, [string]$Brief, [string]$Label) {
     }
     $failing = Get-Failing $Brief
     if ($null -ne $failing) {
-        $before = Get-Failing $Before
-        if ($null -ne $before -and $before -ge $failing) { return $null }
+        # Not `$before`: names ignore case, so that is the [string] parameter,
+        # and 9 machines then compare as more than 10.
+        $failedBefore = Get-Failing $Before
+        if ($null -ne $failedBefore -and $failedBefore -ge $failing) { return $null }
         return "${Label}: $failing machine(s) failed a storage check: what they hold no longer counts as a copy. $failingAdvice"
     }
     $low = Get-LowDisk $Brief

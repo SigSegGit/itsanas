@@ -210,11 +210,16 @@ pub fn note_phone_contact(home: &std::path::Path, reached: bool, now: u64) {
     let path = home.join(PHONE_CONTACT);
     let previous = std::fs::read_to_string(&path).unwrap_or_default();
     let words = reached_words(reached.then_some(now), &previous, now);
-    let _ = std::fs::write(path, words);
+    // Renamed into place: a phone killed mid-write would otherwise leave an
+    // empty file, and the silence would start again from nothing.
+    let pending = home.join(format!("{PHONE_CONTACT}.new"));
+    if std::fs::write(&pending, words).is_ok() {
+        let _ = std::fs::rename(&pending, path);
+    }
 }
 
 /// How long this phone has reached no other machine, once a day has gone by.
-/// `None` before its first round: nothing has been tried yet.
+/// `None` while nothing has started the wait: a phone's status starts it.
 #[must_use]
 pub fn phone_silence(home: &std::path::Path, now: u64) -> Option<u64> {
     let words = std::fs::read_to_string(home.join(PHONE_CONTACT)).ok()?;

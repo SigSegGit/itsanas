@@ -68,7 +68,8 @@ drawn orange by the three trays, said on the page and the phone. Found on the wa
 machine that failed. A phone has no snapshot, so `note_phone_contact` keeps the same contact
 words in `last-contact` and says so after a day, not six hours. Not proven: the daemon's call
 to `low_on_disk` (nothing fills a real disk in a test), and the phone's three new lines were
-never looked at on a screen.
+never looked at on a screen. Trap: in PowerShell `$before` is the `[string]$Before`
+parameter, so counts compare as text; `check-installers.sh` now feeds 9 then 10.
 
 **Waiting on Nicolas, in this order, as commands to paste** (2026-10-29; a
 session cannot do any of them, and gives him these commands first, every

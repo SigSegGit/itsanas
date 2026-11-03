@@ -126,6 +126,11 @@
       "file": "crates/itsanas-android/src/lib.rs",
       "live": "itsanas_cli::note_phone_contact(&node.home, false, now);\n        return Err",
       "dead": "return Err"
+    },
+    "alerts: looking at a phone starts no wait": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "itsanas_cli::note_phone_contact(&node.home, false, itsanas_discover::now_unix());",
+      "dead": ""
     }
   }
 }
