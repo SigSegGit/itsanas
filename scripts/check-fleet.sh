@@ -36,7 +36,13 @@ trap 'rm -rf "$WORK"' EXIT
 failures=0
 
 ok() { printf '  ok    %s\n' "$*"; }
-bad() { printf '  FAIL  %s\n' "$*"; failures=$((failures + 1)); }
+# The second line is what scripts/sabotage.py reads as a red test, the format
+# cargo prints: without it a sabotage of this script could never count as caught.
+bad() {
+    printf '  FAIL  %s\n' "$*"
+    printf 'test check-fleet: %s ... FAILED\n' "$(printf '%s' "$*" | head -1)"
+    failures=$((failures + 1))
+}
 
 # A machine: an agent configuration, a test folder, a test home with a fresh
 # snapshot (or a stale one), and another account's home.
