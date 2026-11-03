@@ -1,0 +1,48 @@
+{
+  "command": [
+    "bash",
+    "scripts/check-fleet.sh"
+  ],
+  "defences": {
+    "update: restarts when already there": {
+      "file": "scripts/fleet/update.sh",
+      "live": "        if every_daemon_runs \"${TAG#v}\"; then\n",
+      "dead": "        if false; then\n"
+    },
+    "update: any tag accepted": {
+      "file": "scripts/fleet/update.sh",
+      "live": "grep -Eq '^v[0-9]+\\.[0-9]+\\.[0-9]+$'",
+      "dead": "grep -Eq ''"
+    },
+    "update: retries a failed build at once": {
+      "file": "scripts/fleet/update.sh",
+      "live": "[ $(($(date +%s) - was_time)) -lt \"$RETRY_AFTER\" ]",
+      "dead": "false"
+    },
+    "update: a container up counts as updated": {
+      "file": "scripts/fleet/update.sh",
+      "live": "until every_daemon_runs \"$want\"; do",
+      "dead": "until true; do"
+    },
+    "update: a diverged checkout is not refused": {
+      "file": "scripts/fleet/update.sh",
+      "live": "merge --ff-only --quiet",
+      "dead": "merge --no-edit --quiet"
+    },
+    "agent: update takes an argument": {
+      "file": "scripts/fleet/agent.sh",
+      "live": "    update | \"update status\")\n",
+      "dead": "    update | \"update status\" | \"update \"*)\n"
+    },
+    "run: agreeing on an old build passes V": {
+      "file": "scripts/fleet/run.sh",
+      "live": "    elif [ -n \"$LATEST\" ] && [ \"$known\" != \"$LATEST\" ]; then\n",
+      "dead": "    elif false; then\n"
+    },
+    "run: a failed update is not a failure": {
+      "file": "scripts/fleet/run.sh",
+      "live": "UPDATEFAILED*) row FAIL \"U $host: stays",
+      "dead": "UPDATEFAILED*) row PASS \"U $host: stays"
+    }
+  }
+}

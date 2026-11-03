@@ -58,6 +58,12 @@ SSH=${FLEET_SSH:-ssh}
 TIMEOUT=${FLEET_TIMEOUT:-20}
 SETTLE=${FLEET_SETTLE:-360}
 SCAN_TIMEOUT=${FLEET_SCAN_TIMEOUT:-600}
+# How long a machine may take to rebuild: a Pi compiles the whole client.
+UPDATE_WAIT=${FLEET_UPDATE_WAIT:-5400}
+# The release the machines must run, from the workflow; empty, row V only
+# compares them with each other.
+LATEST=${FLEET_LATEST:-}
+LATEST=${LATEST#v}
 AGENT="$(cd "$(dirname "$0")" && pwd)/agent.sh"
 # The fleet workflow restores .fleet-member from last night and saves it even
 # on a red run, so the count lives there with no change to fleet.yml.
@@ -169,6 +175,45 @@ for host in $HOSTS; do
     fi
 done
 
+# ------------------------------------- U: the latest release, before testing it
+# A machine checks for a new version now and then; a test of a release must not
+# wait for that (Nicolas, 2026-11-03). Asked of all at once, because a machine
+# already there answers at once and the slow one is the Pi either way.
+updating=()
+for host in "${up[@]}"; do
+    [ "$host" != runner ] || continue
+    out=$(ask "$host" update 2>&1)
+    case "$out" in
+        UPTODATE*) row PASS "U $host: already on ${out#UPTODATE }" ;;
+        UPDATING*) updating+=("$host") ;;
+        REFUSED*"unknown request"* | REFUSED*"cannot update"*)
+            # Not a SKIP row, which turns red after seven nights: the laptop's
+            # agent has no such request. Row V says it if that leaves it behind.
+            say "note  U $host: its agent cannot update (run scripts/fleet/setup.sh there again)"
+            ;;
+        *) row FAIL "U $host: $(printf '%s' "$out" | head -1)" ;;
+    esac
+done
+started=$(date +%s)
+while [ ${#updating[@]} -gt 0 ]; do
+    still=()
+    for host in "${updating[@]}"; do
+        out=$(ask "$host" update status 2>&1)
+        case "$out" in
+            UPDATED*) row PASS "U $host: updated to $(printf '%s' "$out" | cut -d' ' -f2) in $(($(date +%s) - started))s" ;;
+            UPDATEFAILED*) row FAIL "U $host: stays on its old build, $(printf '%s' "$out" | cut -d' ' -f2,4-)" ;;
+            *) still+=("$host") ;;
+        esac
+    done
+    updating=("${still[@]+"${still[@]}"}")
+    [ ${#updating[@]} -gt 0 ] || break
+    if [ $(($(date +%s) - started)) -ge "$UPDATE_WAIT" ]; then
+        row FAIL "U ${updating[*]}: still updating after ${UPDATE_WAIT}s"
+        break
+    fi
+    sleep "$POLL"
+done
+
 if [ ${#up[@]} -lt 2 ]; then
     row FAIL "fewer than two machines answered (${up[*]:-none}): nothing crossed a network, so nothing was tested"
 else
@@ -218,6 +263,10 @@ else
         row SKIP "V: no machine's snapshot names its version (daemons from 0.1.12 or before)"
     elif [ "$(printf '%s\n' "$known" | wc -l)" -gt 1 ]; then
         row FAIL "V: the machines run different builds:$versions"
+    elif [ -n "$LATEST" ] && [ "$known" != "$LATEST" ]; then
+        # Agreeing is not enough: the whole fleet on an old build tests nothing
+        # new and stays green, as on 2026-11-03.
+        row FAIL "V: the latest release is $LATEST, and the machines run:$versions"
     else
         row PASS "V: every machine that says runs $known:$versions"
     fi

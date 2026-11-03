@@ -17,7 +17,8 @@ Fleet → Run workflow). For each machine that answers:
 
 | Row | What it checks | Kit phase |
 | --- | --- | --- |
-| **V** | the machines' running daemons are one build (the snapshot's `version`, from the release after 0.1.12 on): an `update` that restarted nothing shows here. The runner, which runs this checkout, is left out | -- |
+| **U** | each machine is brought to the latest published release before anything is tested (`update`, `scripts/fleet/update.sh`): at once when it is already there, else it rebuilds its images and waits for its daemons to say the new build. A machine that cannot stays on its old build and the row is FAIL. An older agent gets a note instead (run `scripts/fleet/setup.sh` there again), and row V says if that left it behind. Docker machines only, since the laptop's `agent.ps1` has no such request yet | -- |
+| **V** | the machines' running daemons are the latest release, and so one build (the snapshot's `version`, from the release after 0.1.12 on): an `update` that restarted nothing shows here. The runner, which runs this checkout, is left out | -- |
 | **S** | the `test` node's daemon took a round in the last three intervals (its `status.snapshot`) | -- |
 | **L** | what each machine's `test` node counts -- `copies H of W` on its snapshot's first line, which its icon draws (MVP.md L) -- said in the row: safe, NOT safe past the grace (it reads `exposed`, by `Copies::exposed`'s rule to the second), or NOT safe within the two-round grace. It says what the copies rule says, not the icon's colour: a paused node shows paused whatever its copies. A PASS either way: the row tests that the machine tells, not that the fleet is full. FAIL when a daemon that names its build stores files and counts no copies; SKIP for a daemon from 0.1.12 or before, a node storing nothing, or an agent copy older than this row (run `setup.sh` again) | -- |
 | **B** | a file written on the first machine is byte for byte on every other | `B write`, `B check` |
@@ -65,7 +66,15 @@ the one already open; the session that resumes the project reads it first.
   the `test` account's folder, at most 50 files, and scans other accounts'
   homes read-only, limited to what they hold for `test`. One request at a time
   (`flock`). It calls the kit, so "B passes" means the same thing at night as
-  by hand. No sudo, no docker: the containers run as that user.
+  by hand. No sudo: the containers run as that user.
+- **One request reaches docker: `update`.** It takes no argument and goes to the
+  release GitHub calls the latest, by a fast-forward, so it cannot choose a version
+  or go back. Already there, it restarts nothing; after a failure it does not try
+  that tag again for six hours. It trusts GitHub's tag as a `git pull` by hand does
+  and checks no signature, because an image is built from source and the signed
+  manifest covers binaries. A leaked key can therefore restart the containers
+  when a new release exists, which is new since 2026-11-03: until then this key
+  never touched docker.
 - **The secrets reach only main.** They sit in a GitHub environment, `fleet`,
   whose deployment rule is the `main` branch. The workflow never runs on a pull
   request; a branch a session pushes, or a fork's PR, never reads them.
