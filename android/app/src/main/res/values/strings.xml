@@ -68,6 +68,10 @@
     <string name="file_fetch">Fetch and open</string>
     <string name="file_delete">Delete</string>
     <string name="file_not_here">not on this phone</string>
+    <string name="tree_up">Up one folder</string>
+    <string name="tree_one_file">1 file · %1$s</string>
+    <string name="tree_files">%1$d files · %2$s</string>
+    <string name="tree_not_here">%1$d not on this phone</string>
     <string name="delete_title">Delete %1$s?</string>
     <string name="delete_body">It goes from every machine in this account, not just this phone. There is no undo.</string>
     <string name="delete_everywhere">Delete everywhere</string>

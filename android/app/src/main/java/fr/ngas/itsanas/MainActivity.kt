@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
@@ -455,15 +457,29 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
-    var files by remember { mutableStateOf<List<Known>>(emptyList()) }
+    // The folder on screen. The account answers with the nearest one still there.
+    var level by remember { mutableStateOf(Level("", emptyList(), emptyList())) }
     var status by remember { mutableStateOf<Status?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf<Known?>(null) }
 
-    suspend fun refresh() {
-        files = Account.files()
+    suspend fun refresh(folder: String = level.at) {
+        level = Account.level(folder)
         status = Account.status()
     }
+
+    fun open(folder: String) {
+        scope.launch {
+            try {
+                refresh(folder)
+            } catch (error: Throwable) {
+                complain(error.message ?: "could not read the account")
+            }
+        }
+    }
+
+    // Back climbs the folders before it leaves the application.
+    BackHandler(level.at.isNotEmpty()) { open(level.at.substringBeforeLast('/', "")) }
 
     LaunchedEffect(Unit) {
         try {
@@ -491,7 +507,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         scope.launch {
             busy = true
             try {
-                Account.add(context, uri, nameOf(context, uri), folder = "")
+                Account.add(context, uri, nameOf(context, uri), folder = level.at)
                 refresh()
             } catch (error: Throwable) {
                 complain(error.message ?: "could not add that file")
@@ -642,7 +658,28 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(8.dp))
             }
 
-            if (files.isEmpty()) {
+            if (level.at.isNotEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        { open(level.at.substringBeforeLast('/', "")) },
+                        Modifier.testTag("tree-up"),
+                    ) {
+                        Icon(Icons.Default.ArrowUpward, stringResource(R.string.tree_up))
+                    }
+                    Text(
+                        level.at,
+                        Modifier.testTag("tree-at"),
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            if (level.at.isEmpty() && level.folders.isEmpty() && level.files.isEmpty()) {
                 Centred {
                     Text(
                         stringResource(R.string.files_empty),
@@ -653,7 +690,10 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             }
 
             LazyColumn(Modifier.fillMaxSize()) {
-                items(files, key = { it.path }) { file ->
+                items(level.folders, key = { "folder:${it.path}" }) { folder ->
+                    FolderRow(folder) { open(folder.path) }
+                }
+                items(level.files, key = { "file:${it.path}" }) { file ->
                     FileRow(
                         file = file,
                         onOpen = {
@@ -705,6 +745,47 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
 }
 
 @Composable
+private fun FolderRow(folder: KnownFolder, onOpen: () -> Unit) {
+    Card(
+        onOpen,
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .testTag("folder-row"),
+    ) {
+        Row(
+            Modifier.padding(12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.Folder, null, Modifier.padding(end = 12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    folder.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    buildString {
+                        append(
+                            if (folder.files == 1L) {
+                                stringResource(R.string.tree_one_file, humanSize(folder.size))
+                            } else {
+                                stringResource(R.string.tree_files, folder.files, humanSize(folder.size))
+                            },
+                        )
+                        if (folder.notHere > 0) {
+                            append(" · ${stringResource(R.string.tree_not_here, folder.notHere)}")
+                        }
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
     Card(
         Modifier
@@ -726,7 +807,6 @@ private fun FileRow(file: Known, onOpen: () -> Unit, onDelete: () -> Unit) {
                 Text(
                     buildString {
                         append(humanSize(file.size))
-                        if (file.folder.isNotEmpty()) append(" · ${file.folder}")
                         if (!file.here) append(" · ${stringResource(R.string.file_not_here)}")
                     },
                     style = MaterialTheme.typography.labelSmall,

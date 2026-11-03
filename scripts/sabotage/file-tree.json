@@ -1,0 +1,32 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-cli",
+    "--lib",
+    "file_tree"
+  ],
+  "defences": {
+    "tree: the separator is part of the match": {
+      "file": "crates/itsanas-cli/src/file_tree.rs",
+      "live": "entry.path.strip_prefix(folder)?.strip_prefix('/')",
+      "dead": "entry.path.strip_prefix(folder).map(|rest| rest.trim_start_matches('/'))"
+    },
+    "tree: a gone folder climbs": {
+      "file": "crates/itsanas-cli/src/file_tree.rs",
+      "live": "    while !folder.is_empty() && !entries.iter().any(|entry| below(entry, folder).is_some()) {",
+      "dead": "    while false && !folder.is_empty() && !entries.iter().any(|entry| below(entry, folder).is_some()) {"
+    },
+    "tree: only a folder's own files": {
+      "file": "crates/itsanas-cli/src/file_tree.rs",
+      "live": "        let Some((name, _)) = rest.split_once('/') else {\n            files.push(entry.clone());\n            continue;\n        };",
+      "dead": "        files.push(entry.clone());\n        let Some((name, _)) = rest.split_once('/') else {\n            continue;\n        };"
+    },
+    "tree: what is not here is counted": {
+      "file": "crates/itsanas-cli/src/file_tree.rs",
+      "live": "folder.not_here += u64::from(!entry.here);",
+      "dead": "folder.not_here += 0;"
+    }
+  }
+}

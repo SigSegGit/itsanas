@@ -476,6 +476,53 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_list(
     })
 }
 
+/// One folder of the account: the folders in it and the files directly in it.
+///
+/// The folder answered may be above the one asked for, when the last file below
+/// it is gone ([`itsanas_cli::file_tree`]).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_listAt(
+    mut env: JNIEnv,
+    _class: JClass,
+    folder: JString,
+) -> jstring {
+    let folder = text(&mut env, &folder, "the folder");
+    answer(&mut env, move || {
+        let folder = folder?;
+        with_node(|node| {
+            let listing = itsanas_store::catalogue(&node.store, &node.vault)?;
+            let entries: Vec<_> = listing
+                .files
+                .iter()
+                .map(|file| itsanas_cli::file_tree::Entry {
+                    path: file.path.clone(),
+                    size: file.size,
+                    modified_unix: file.modified_unix,
+                    here: file.presence == itsanas_store::Presence::Local,
+                })
+                .collect();
+            let level = itsanas_cli::file_tree::level(&entries, &folder);
+            Ok(serde_json::json!({
+                "at": level.at,
+                "folders": level.folders.iter().map(|folder| serde_json::json!({
+                    "name": folder.name,
+                    "path": folder.path,
+                    "files": folder.files,
+                    "size": folder.size,
+                    "notHere": folder.not_here,
+                })).collect::<Vec<_>>(),
+                "files": level.files.iter().map(|file| serde_json::json!({
+                    "path": file.path,
+                    "size": file.size,
+                    "modified": file.modified_unix,
+                    "here": file.here,
+                })).collect::<Vec<_>>(),
+            })
+            .to_string())
+        })
+    })
+}
+
 /// Write one file out of the account, fetching it first if it is not here.
 ///
 /// `destination` is a path the application may write: on Android that is its

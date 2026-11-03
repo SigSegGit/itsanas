@@ -66,6 +66,10 @@
     <string name="file_fetch">Récupérer et ouvrir</string>
     <string name="file_delete">Supprimer</string>
     <string name="file_not_here">pas sur ce téléphone</string>
+    <string name="tree_up">Remonter d\'un dossier</string>
+    <string name="tree_one_file">1 fichier · %1$s</string>
+    <string name="tree_files">%1$d fichiers · %2$s</string>
+    <string name="tree_not_here">%1$d absents de ce téléphone</string>
     <string name="delete_title">Supprimer %1$s ?</string>
     <string name="delete_body">Il disparaît de toutes les machines du compte, pas seulement de ce téléphone. Il n\'y a pas d\'annulation.</string>
     <string name="delete_everywhere">Supprimer partout</string>
