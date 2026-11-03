@@ -61,6 +61,11 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-03: a fleet run starts by updating the machines.** A run after the 0.1.16 release tested
+0.1.13 and was green, because row V only asked that the machines agree. Row U now asks each Docker
+machine to go to the latest release (`scripts/fleet/update.sh`), and V fails if they are not on it.
+The CI key can therefore restart containers, a change from "no docker" that Nicolas asked for.
+
 **2026-11-03: the first try at 0.1.16 stopped at the APK.** `lintVitalRelease` runs only on a
 release build and CI built debug, so a French string with no default, there since #361, first
 failed on the signing machine, with the tag and the draft already made. `android.yml` now runs

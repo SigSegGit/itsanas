@@ -94,6 +94,9 @@ C scan ITSANAS-CANARY-000000000000000000000000 test
 C scan ITSANAS-CANARY-000000000000000000000000 nobody
 C scan /etc/passwd other
 status nobody
+update v0.1.1
+update status now
+update ../../etc/passwd
 sh
 bash -i
 
@@ -387,6 +390,198 @@ else
     bad "setup.sh run again with no key did not keep the key (installed $(installed)): $(head -3 "$WORK/setup.log")"
 fi
 
+echo "update brings a machine to the latest release, and to nothing else"
+
+# A checkout one release behind an origin, docker and curl stood in for: docker
+# records what it is asked and, on `up`, restarts a daemon on the new build
+# unless FAKE_NO_RESTART says it hangs on the old one.
+FAKE="$WORK/fake-bin"
+mkdir -p "$FAKE"
+cat >"$FAKE/curl" <<'EOF'
+#!/bin/sh
+printf '{"url":"x","tag_name": "%s","name":"y"}\n' "$FAKE_LATEST"
+EOF
+cat >"$FAKE/docker" <<'EOF'
+#!/bin/sh
+[ "$1" = info ] && exit 0
+[ "$1" = image ] && exit 0
+echo "$*" >>"$FAKE_DOCKER_LOG"
+case "$*" in
+    *" build") [ -z "${FAKE_BUILD_FAILS:-}" ] || exit 1 ;;
+    *" up -d")
+        if [ -z "${FAKE_NO_RESTART:-}" ]; then
+            printf 'snapshot 1 every 300 version %s\n' "${FAKE_LATEST#v}" >"$ITSANAS_DATA/status.snapshot"
+        fi
+        ;;
+esac
+EOF
+chmod +x "$FAKE/curl" "$FAKE/docker"
+
+update_machine() {
+    local name=$1 dir="$WORK/$1"
+    mkdir -p "$dir/receipts" "$dir/data/test/home" "$dir/data/other/home" "$dir/folder"
+    git init -q -b main "$dir/origin"
+    (
+        cd "$dir/origin" || exit 1
+        git config user.email fleet@example.invalid
+        git config user.name fleet
+        printf 'version = "0.1.15"\n' >Cargo.toml
+        git add Cargo.toml && git commit -qm old && git tag v0.1.15
+        printf 'version = "0.1.16"\n' >Cargo.toml
+        git add Cargo.toml && git commit -qm new && git tag v0.1.16
+    )
+    git clone -q "$dir/origin" "$dir/checkout"
+    git -C "$dir/checkout" reset -q --hard v0.1.15
+    git -C "$dir/checkout" tag -d v0.1.16 >/dev/null
+    for account in test other; do
+        printf 'snapshot 1 every 300 version 0.1.15\n' >"$dir/data/$account/home/status.snapshot"
+    done
+    cat >"$dir/agent.conf" <<EOF
+FOLDER="$dir/folder"
+KIT="$PWD/scripts/acceptance.sh"
+RECEIPTS="$dir/receipts"
+ACCOUNTS="test other"
+CHECKOUT="$dir/checkout"
+DATA="$dir/data"
+COORDINATOR=${COORDINATOR:-0}
+UPDATE_SETTLE=2
+UPDATE_POLL=1
+MIN_FREE_KB=${MIN_FREE_KB:-1}
+EOF
+}
+# update.sh beside agent.sh writes to its RECEIPTS from the configuration.
+update_agent() {
+    PATH="$FAKE:$PATH" FAKE_DOCKER_LOG="$WORK/$1/docker.log" agent "$@"
+}
+update_settled() {
+    local i
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        case "$(agent "$1" update status)" in
+            UPDATING*) sleep 1 ;;
+            *) break ;;
+        esac
+    done
+    agent "$1" update status
+}
+update_calls() { cat "$WORK/$1/docker.log" 2>/dev/null; }
+
+export FAKE_LATEST=v0.1.16
+
+update_machine u_behind
+out=$(update_agent u_behind update)
+[ "${out%% *}" = UPDATING ] && ok "a machine behind starts updating" || bad "a machine behind said: $out"
+out=$(update_settled u_behind)
+[ "${out%% *}" = UPDATED ] && ok "and says UPDATED" || bad "the update ended: $out $(cat "$WORK/u_behind/receipts/update.log")"
+[ "$(git -C "$WORK/u_behind/checkout" rev-parse HEAD)" = "$(git -C "$WORK/u_behind/origin" rev-parse v0.1.16)" ] &&
+    ok "its checkout is at the release" || bad "the checkout is not at v0.1.16"
+update_calls u_behind | grep -q -- '-p itsanas-test .*up -d' && update_calls u_behind | grep -q -- '-p itsanas-other .*up -d' &&
+    ok "every account's container came up on the new image" || bad "not every account came up: $(update_calls u_behind)"
+if update_calls u_behind | grep -q 'compose.yml'; then
+    bad "a machine without the coordinator rebuilt one"
+else
+    ok "a machine without the coordinator does not rebuild one"
+fi
+
+before=$(update_calls u_behind | wc -l)
+out=$(update_agent u_behind update)
+[ "${out%% *}" = UPTODATE ] && [ "$(update_calls u_behind | wc -l)" = "$before" ] &&
+    ok "asked again, it says UPTODATE and restarts nothing" || bad "asked again it said: $out, docker called again"
+
+COORDINATOR=1 update_machine u_coord
+update_agent u_coord update >/dev/null
+update_settled u_coord >/dev/null
+update_calls u_coord | grep -q 'compose.yml up -d --build' &&
+    ok "the machine with the coordinator rebuilds it too" || bad "the coordinator was not rebuilt: $(update_calls u_coord)"
+
+update_machine u_broken
+FAKE_BUILD_FAILS=1 update_agent u_broken update >/dev/null
+out=$(update_settled u_broken)
+case "$out" in
+    UPDATEFAILED*"client image"*) ok "a build that fails says so" ;;
+    *) bad "a failed build said: $out" ;;
+esac
+update_calls u_broken | grep -q 'up -d$' && bad "a failed build still restarted the accounts" ||
+    ok "a failed build leaves the old containers running"
+before=$(update_calls u_broken | wc -l)
+out=$(FAKE_BUILD_FAILS=1 update_agent u_broken update)
+case "$out" in
+    UPDATEFAILED*"not tried again"*) [ "$(update_calls u_broken | wc -l)" = "$before" ] &&
+        ok "asked again right after a failure, it does not compile again" || bad "it compiled again after a failure" ;;
+    *) bad "asked again after a failure it said: $out" ;;
+esac
+
+update_machine u_hung
+FAKE_NO_RESTART=1 update_agent u_hung update >/dev/null
+out=$(FAKE_NO_RESTART=1 update_settled u_hung)
+case "$out" in
+    UPDATEFAILED*"does not say"*) ok "a daemon still on the old build is a failure, not UPDATED" ;;
+    *) bad "a daemon on the old build said: $out" ;;
+esac
+
+update_machine u_diverged
+(
+    cd "$WORK/u_diverged/checkout" || exit 1
+    git config user.email fleet@example.invalid
+    git config user.name fleet
+    echo local >local.txt
+    git add local.txt && git commit -qm local
+)
+here=$(git -C "$WORK/u_diverged/checkout" rev-parse HEAD)
+update_agent u_diverged update >/dev/null
+out=$(update_settled u_diverged)
+case "$out" in
+    UPDATEFAILED*"fast-forward"*) [ "$(git -C "$WORK/u_diverged/checkout" rev-parse HEAD)" = "$here" ] &&
+        ok "a checkout that would not fast-forward is left alone" || bad "a diverged checkout moved" ;;
+    *) bad "a diverged checkout said: $out" ;;
+esac
+
+update_machine u_hostile
+out=$(FAKE_LATEST="v1;touch $WORK/pwned" update_agent u_hostile update)
+case "$out" in
+    UPDATEFAILED*) [ ! -e "$WORK/pwned" ] && [ ! -s "$WORK/u_hostile/docker.log" ] &&
+        ok "a tag that is not a plain version is refused" || bad "a hostile tag reached a command" ;;
+    *) bad "a hostile tag said: $out" ;;
+esac
+
+update_machine u_full
+out=$(printf 'MIN_FREE_KB=999999999999\n' >>"$WORK/u_full/agent.conf"; update_agent u_full update; update_settled u_full)
+case "$out" in
+    *UPDATEFAILED*"free"*) ok "too little disk stops the update before a build" ;;
+    *) bad "too little disk said: $out" ;;
+esac
+
+machine oldagent "$WORK/oldagent-folder"
+out=$(agent oldagent update 2>&1)
+[ "${out%% *}" = REFUSED ] && ok "an agent set up before update says so" || bad "an old configuration said: $out"
+
+echo
+echo "the run's rows U and V"
+machine pi "$WORK/synced"
+machine vm "$WORK/synced"
+FLEET_LATEST=v0.1.16 fleet "pi vm" ""
+expect fail "the whole fleet agreeing on an old build is FAIL V" "^FAIL  V: the latest release is 0.1.16" $?
+FLEET_LATEST=v0.1.13 fleet "pi vm" ""
+expect pass "the whole fleet on the latest release passes V" "" $?
+grep -q '^note  U pi: its agent cannot update' "$WORK/run.log" &&
+    ok "an agent that cannot update says what to run" || bad "no note on U: $(grep -c . "$WORK/run.log") lines"
+
+update_row() {
+    local name=$1
+    update_machine "$name"
+    printf 'TEST_UID="%s"\nHOME_test="%s"\n' "$TEST_UID" "$WORK/$name/data/test/home" >>"$WORK/$name/agent.conf"
+    printf '  username test\n' >>"$WORK/$name/data/test/home/status.snapshot"
+}
+update_row u_row
+machine u_peer "$WORK/u_row/folder"
+PATH="$FAKE:$PATH" FAKE_DOCKER_LOG="$WORK/u_row/docker.log" fleet "u_row u_peer" ""
+grep -q '^PASS  U u_row: updated to v0.1.16' "$WORK/run.log" &&
+    ok "row U waits for the update and says it passed" || bad "no PASS U: $(grep -E ' U ' "$WORK/run.log")"
+update_row u_row_bad
+machine u_peer2 "$WORK/u_row_bad/folder"
+PATH="$FAKE:$PATH" FAKE_BUILD_FAILS=1 FAKE_DOCKER_LOG="$WORK/u_row_bad/docker.log" fleet "u_row_bad u_peer2" ""
+expect fail "an update that fails is FAIL U" "^FAIL  U u_row_bad: stays on its old build" $?
+
+echo
 echo "the Windows agent refuses the same requests"
 
 if command -v pwsh >/dev/null 2>&1; then

@@ -36,7 +36,7 @@ jobs:
     name: The acceptance kit on the fleet
     runs-on: ubuntu-latest
     environment: fleet
-    timeout-minutes: 75
+    timeout-minutes: 180
     # A step's own `env` is not visible to its `if`, so whether Tailscale is
     # configured is decided here.
     env:
@@ -104,7 +104,12 @@ jobs:
         env:
           FLEET_HOSTS: ${{ steps.member.outputs.hosts }} ${{ vars.FLEET_HOSTS }}
           FLEET_SCAN: ${{ vars.FLEET_SCAN }}
-        run: bash scripts/fleet/run.sh
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The release the machines update to and row V compares with.
+          FLEET_LATEST=$(gh release view --json tagName --jq .tagName)
+          export FLEET_LATEST
+          bash scripts/fleet/run.sh
 
       - name: The member leaves, sealed for tomorrow
         if: always() && steps.member.outputs.hosts == 'runner'

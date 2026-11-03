@@ -31,12 +31,17 @@
 #   owner and its databases, never the rest of its vault), and a node's
 #   status snapshot;
 # * one request at a time: a second one while one runs is refused, so a
-#   leaked key cannot pile scans onto a Pi that also runs other services.
+#   leaked key cannot pile scans onto a Pi that also runs other services;
+# * bring this machine to the latest published release (`update`, update.sh),
+#   asked for by Nicolas on 2026-11-03 so that a run tests that release. It
+#   restarts the containers, and only when a new release exists. That request
+#   and nothing else reaches docker.
 #
 # It never runs a command built from the request, never reads a path from it,
-# and never touches an account other than `test` except to scan it read-only.
-# No sudo, no docker: the containers run as this user (fleet-docker.sh), so
-# their homes and folders are this user's files.
+# and never touches an account other than `test` except to scan it read-only
+# and, through `update`, to restart it on the new build. No sudo: the containers
+# run as this user (fleet-docker.sh), so their homes and folders are this user's
+# files.
 #
 # Configuration: agent.conf beside this script, written by setup.sh and owned
 # by this user. It is sourced, so it is trusted like this script is.
@@ -134,6 +139,11 @@ case "$*" in
         room_for_one_more
         kit C plant "$FOLDER"
         ;;
+    update | "update status")
+        [ -n "${CHECKOUT:-}" ] && [ -r "$HERE/update.sh" ] || refuse "this agent cannot update: run setup.sh again"
+        # 9>&-: the work outlives this request, and must not keep its lock.
+        ITSANAS_FLEET_CONF="$CONF" sh "$HERE/update.sh" "${2:-start}" 9>&-
+        ;;
     *)
         verb="$1 ${2:-}"
         case "$verb" in
@@ -212,7 +222,7 @@ case "$*" in
                 grep -E '^  (username|device|files|live chunks)' "$snapshot"
                 ;;
             *)
-                refuse "unknown request '$*' (hello, B|E write|check, C plant|scan, F delete|check, status)"
+                refuse "unknown request '$*' (hello, B|E write|check, C plant|scan, F delete|check, status, update)"
                 ;;
         esac
         ;;

@@ -7,7 +7,7 @@
 #
 # What it does, and nothing else:
 #
-# 1. copies agent.sh and the acceptance kit to ~/.itsanas-fleet/ -- a copy,
+# 1. copies agent.sh, update.sh and the acceptance kit to ~/.itsanas-fleet/ -- a copy,
 #    so a `git pull` of this checkout never changes what the key can run;
 #    run this again to update it;
 # 2. writes ~/.itsanas-fleet/agent.conf from the accounts fleet-docker.sh
@@ -18,8 +18,8 @@
 # 4. asks the agent `hello` and `status test` as the key would, and prints
 #    this machine's host key for FLEET_KNOWN_HOSTS.
 #
-# No sudo, no new user, no docker: the agent reads and writes this user's
-# files only (docs/FLEET-CI.md, "What a leaked key can do").
+# No sudo, no new user: the agent reads and writes this user's files, and
+# reaches docker only through `update` (docs/FLEET-CI.md, "What a leaked key can do").
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -44,6 +44,7 @@ FOLDER="$HOME/ITSaNAS-test"
 mkdir -p "$DEST/receipts"
 chmod 700 "$DEST"
 install -m 755 scripts/fleet/agent.sh "$DEST/agent.sh"
+install -m 755 scripts/fleet/update.sh "$DEST/update.sh"
 install -m 644 scripts/acceptance.sh "$DEST/acceptance.sh"
 
 accounts=""
@@ -60,6 +61,10 @@ done
 test_uid=$(sed -n 's/^ *user id *\([0-9a-f]\{64\}\).*/\1/p' "$DATA/test/home/status.snapshot" 2>/dev/null | head -1)
 [ -n "$test_uid" ] || { echo "the test node has no snapshot with its user id yet: start its container, wait a round, run this again"; exit 1; }
 
+# Whether an update rebuilds the coordinator too: only where it already runs.
+coordinator=0
+if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx itsanas-coordinator; then coordinator=1; fi
+
 cat >"$DEST/agent.conf" <<EOF
 # Written by scripts/fleet/setup.sh on $(date -u +%Y-%m-%d). Read by agent.sh.
 FOLDER="$FOLDER"
@@ -67,6 +72,9 @@ KIT="$DEST/acceptance.sh"
 RECEIPTS="$DEST/receipts"
 ACCOUNTS="${accounts# }"
 TEST_UID="$test_uid"
+CHECKOUT="$PWD"
+DATA="$DATA"
+COORDINATOR=$coordinator
 ${homes}MAX_FILES=50
 EOF
 chmod 600 "$DEST/agent.conf"
