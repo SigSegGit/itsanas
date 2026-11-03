@@ -812,6 +812,7 @@ fn status_of(node: &Node) -> Answer {
         "copiesWanted": itsanas_cli::SAFE_COPIES,
         "safe": itsanas_cli::account_is_safe(&coverage),
         "failing": itsanas_cli::machines_failing(node, itsanas_discover::now_unix())?,
+        "vaultRefuses": itsanas_cli::vault_refuses(node).is_some(),
         "lowDisk": itsanas_node::pledges::low_on_disk(&node.home),
         "silentFor": itsanas_cli::phone_silence(&node.home, itsanas_discover::now_unix()),
     })
@@ -1324,6 +1325,31 @@ mod tests {
                  and nothing would say so"
             );
         }
+    }
+
+    /// The promise a phone cannot keep, said where its owner looks. Sabotage:
+    /// hard-code `vaultRefuses` to false.
+    #[test]
+    fn red_team_a_phone_says_its_vault_takes_no_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut node, _) =
+            Node::create(&dir.path().join("me"), "a passphrase", "camille").unwrap();
+        node.config.pledge_bytes = 100 << 20;
+        let status: serde_json::Value = serde_json::from_str(&status_of(&node).unwrap()).unwrap();
+        assert_eq!(
+            status["vaultRefuses"], false,
+            "a good vault failed: {status}"
+        );
+
+        let refusing = dir.path().join("not-a-directory");
+        std::fs::write(&refusing, b"a file where the vault should be").unwrap();
+        let real = node.config.vault.replace(refusing);
+        let status: serde_json::Value = serde_json::from_str(&status_of(&node).unwrap()).unwrap();
+        node.config.vault = real;
+        assert_eq!(
+            status["vaultRefuses"], true,
+            "this phone goes on promising room every push to it fails on: {status}"
+        );
     }
 
     /// A phone that reached nobody for a day says so, with no daemon and no icon.

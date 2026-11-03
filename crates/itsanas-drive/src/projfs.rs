@@ -36,13 +36,11 @@
 //! 3. **Unknown flags were fatal rather than ignored.** A flag this code does
 //!    not understand means "there is a feature here we do not use", not "stop".
 //!
-//! # What is not bound
+//! # Writing
 //!
-//! Writing. `ProjFS` reports a file dropped into the folder through
-//! `NotificationCallback`, and honouring it means deciding what a local edit
-//! does to an account that other machines also hold. `itsanas put` and
-//! `itsanas folder` are how things get in, and the folder is read-only until
-//! that question has an answer rather than an implementation.
+//! `NotificationCallback` hands each report to [`Source::changed`] and returns:
+//! it runs on a thread Windows is waiting on. What a report means for the
+//! account is `crate::writes`, which needs no driver to test.
 
 #![cfg(windows)]
 // The one place in this crate where unsafe is allowed, and every use of it is
@@ -60,6 +58,8 @@ use std::ptr;
 use std::sync::Mutex;
 
 use projfs_sys as sys;
+
+use crate::writes::{Event, change_of};
 
 /// One entry as Windows wants to hear about it.
 ///
@@ -116,7 +116,17 @@ pub trait Source: Sync {
     /// or the fetch failed. The read fails in the application that asked, which
     /// is the honest outcome: a short read would be silent corruption.
     fn read(&self, path: &str, offset: u64, into: &mut [u8]) -> io::Result<usize>;
+
+    /// Something other than this process changed the folder. Called on a thread
+    /// Windows is waiting on, so this must queue the change and return.
+    fn changed(&self, _change: crate::writes::Change) {}
 }
+
+/// What is reported: files made, saved, renamed and deleted, and not every open.
+const NOTIFY: sys::PRJ_NOTIFY_TYPES = sys::PRJ_NOTIFY_TYPES_PRJ_NOTIFY_NEW_FILE_CREATED
+    | sys::PRJ_NOTIFY_TYPES_PRJ_NOTIFY_FILE_RENAMED
+    | sys::PRJ_NOTIFY_TYPES_PRJ_NOTIFY_FILE_HANDLE_CLOSED_FILE_MODIFIED
+    | sys::PRJ_NOTIFY_TYPES_PRJ_NOTIFY_FILE_HANDLE_CLOSED_FILE_DELETED;
 
 /// Where one open enumeration has got to.
 ///
@@ -217,7 +227,7 @@ pub fn mount<S: Source + 'static>(at: &Path, source: S) -> Result<Mount<S>, Erro
         GetPlaceholderInfoCallback: Some(Bind::<S>::placeholder),
         GetFileDataCallback: Some(Bind::<S>::file_data),
         QueryFileNameCallback: None,
-        NotificationCallback: None,
+        NotificationCallback: Some(Bind::<S>::notified),
         CancelCommandCallback: None,
     });
 
@@ -234,16 +244,29 @@ pub fn mount<S: Source + 'static>(at: &Path, source: S) -> Result<Mount<S>, Erro
         return Err(Error::Mark(marked));
     }
 
+    // The empty string is the whole folder. Read during the call only.
+    let everywhere = [0_u16];
+    let mut mappings = [sys::PRJ_NOTIFICATION_MAPPING {
+        NotificationBitMask: NOTIFY,
+        NotificationRoot: everywhere.as_ptr(),
+    }];
+    let options = sys::PRJ_STARTVIRTUALIZING_OPTIONS {
+        Flags: 0,
+        PoolThreadCount: 0,
+        ConcurrentThreadCount: 0,
+        NotificationMappings: mappings.as_mut_ptr(),
+        NotificationMappingsCount: 1,
+    };
+
     let mut context: sys::PRJ_NAMESPACE_VIRTUALIZATION_CONTEXT = ptr::null_mut();
-    // SAFETY: `root` and `callbacks` outlive the call; `state` outlives the
-    // mount, which is what `Drop` below guarantees. `options` is the documented
-    // null for "no options".
+    // SAFETY: `root`, `callbacks`, `options` and what it points at outlive the
+    // call; `state` outlives the mount, which is what `Drop` below guarantees.
     let started = unsafe {
         sys::PrjStartVirtualizing(
             root.as_ptr(),
             &raw const *callbacks,
             state.cast::<c_void>(),
-            ptr::null(),
+            &raw const options,
             &raw mut context,
         )
     };
@@ -303,6 +326,45 @@ impl<S: Source> Bind<S> {
         // Windows for the duration of the callback.
         let path = unsafe { from_wide(data.FilePathName) };
         Some((state, path))
+    }
+
+    unsafe extern "C" fn notified(
+        data: *const sys::PRJ_CALLBACK_DATA,
+        is_directory: sys::BOOLEAN,
+        notification: sys::PRJ_NOTIFICATION,
+        destination: sys::PCWSTR,
+        _parameters: *mut sys::PRJ_NOTIFICATION_PARAMETERS,
+    ) -> sys::HRESULT {
+        guard(|| {
+            // SAFETY: called by Windows with this instance's data.
+            let (state, path) = unsafe { Self::unpack(data) }.ok_or(io::ErrorKind::InvalidData)?;
+            // SAFETY: same.
+            let data = unsafe { data.as_ref() }.ok_or(io::ErrorKind::InvalidData)?;
+            // This process reading a file through the folder, or writing into
+            // it, is not a person saving one: answering it would loop.
+            if data.TriggeringProcessId == std::process::id() {
+                return Ok(());
+            }
+            let event = match notification {
+                sys::PRJ_NOTIFICATION_PRJ_NOTIFICATION_NEW_FILE_CREATED => Event::Created,
+                sys::PRJ_NOTIFICATION_PRJ_NOTIFICATION_FILE_HANDLE_CLOSED_FILE_MODIFIED => {
+                    Event::Modified
+                }
+                sys::PRJ_NOTIFICATION_PRJ_NOTIFICATION_FILE_HANDLE_CLOSED_FILE_DELETED => {
+                    Event::Deleted
+                }
+                sys::PRJ_NOTIFICATION_PRJ_NOTIFICATION_FILE_RENAMED => Event::Renamed,
+                // Flags this code does not understand are not faults (see above).
+                _ => return Ok(()),
+            };
+            // SAFETY: a NUL-terminated wide string owned by Windows for the
+            // duration of the callback, or null, which `from_wide` answers.
+            let destination = unsafe { from_wide(destination) };
+            if let Some(change) = change_of(event, &path, &destination, is_directory != 0) {
+                state.source.changed(change);
+            }
+            Ok(())
+        })
     }
 
     unsafe extern "C" fn start_enum(
@@ -570,19 +632,28 @@ where
 /// An error on its way back to Windows, already as an HRESULT.
 struct Fault(sys::HRESULT);
 
+/// `HRESULT_FROM_WIN32`. A bare Win32 code is positive, and a positive HRESULT
+/// means success: "not found" answered as 2 told Windows a placeholder had been
+/// written, and creating any new file in the folder failed with "invalid
+/// argument". Nothing had ever tried until writing was bound.
+fn from_win32(code: u32) -> sys::HRESULT {
+    (0x8007_0000_u32 | (code & 0xFFFF)).cast_signed()
+}
+
 impl From<io::Error> for Fault {
     fn from(why: io::Error) -> Self {
         if let Some(code) = why.raw_os_error() {
-            return Self(code);
+            // Negative is an HRESULT handed back to us; positive a Win32 code.
+            return Self(if code < 0 {
+                code
+            } else {
+                from_win32(code.cast_unsigned())
+            });
         }
         Self(match why.kind() {
-            // The constants are `u32` and the field is `i32`. All three are
-            // small positive numbers, so the reinterpretation is exact; saying
-            // so with `cast_signed` rather than `as` is what keeps it exact if
-            // one of them ever is not.
-            io::ErrorKind::NotFound => sys::IO_ERROR_FILE_NOT_FOUND.cast_signed(),
-            io::ErrorKind::WouldBlock => sys::IO_ERROR_IO_PENDING.cast_signed(),
-            io::ErrorKind::InvalidData => sys::IO_ERROR_INSUFFICIENT_BUFFER.cast_signed(),
+            io::ErrorKind::NotFound => from_win32(sys::IO_ERROR_FILE_NOT_FOUND),
+            io::ErrorKind::WouldBlock => from_win32(sys::IO_ERROR_IO_PENDING),
+            io::ErrorKind::InvalidData => from_win32(sys::IO_ERROR_INSUFFICIENT_BUFFER),
             _ => -1_i32,
         })
     }
@@ -671,6 +742,21 @@ fn guid_bytes(guid: &sys::GUID) -> [u8; 16] {
 
 #[cfg(test)]
 mod tests {
+    /// Sabotage: answer the bare Win32 code.
+    #[test]
+    fn red_team_a_refusal_reaches_windows_as_a_failure() {
+        let not_found: super::Fault = std::io::Error::from(std::io::ErrorKind::NotFound).into();
+        assert_eq!(
+            not_found.0,
+            0x8007_0002_u32.cast_signed(),
+            "\"not found\" read as success: no new file can be created in the folder"
+        );
+        let denied: super::Fault = std::io::Error::from_raw_os_error(5).into();
+        assert!(denied.0 < 0, "a Win32 error read as success");
+        let already: super::Fault = std::io::Error::from_raw_os_error(-5).into();
+        assert_eq!(already.0, -5, "an HRESULT was wrapped a second time");
+    }
+
     use super::{Info, Source, basic_info, fill, guid_bytes, guid_from, wide};
     use std::io;
 

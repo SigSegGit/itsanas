@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-03 — 1569 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 554 are red-team tests.**
+**Last updated: 2026-11-03 — 1583 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 565 are red-team tests.**
 
-**1453 of the 1569 tests have an entry of their own on this page** — an *entry*,
+**1467 of the 1583 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,9 +179,9 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 324 |
-| `itsanas-android` unit | 23 |
-| `itsanas-drive` unit | 9 |
+| `itsanas-cli` unit | 325 |
+| `itsanas-android` unit | 24 |
+| `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 175 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
@@ -214,14 +214,14 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | --- | --- | --- |
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
-| `identity` | keys, accounts, devices, claims, invitations | 80 |
+| `identity` | keys, accounts, devices, claims, invitations | 81 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 65 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
 | `placement-audit` | where copies go, audits, reliability, release | 40 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 54 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 171 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 55 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 180 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1203,7 +1203,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (324)
+# `itsanas-cli` — unit tests (325)
 
 ## `bench` — measuring this machine (4)
 
@@ -1715,6 +1715,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `the_words_alone_decide_the_account` | `user_of`, what the owner checks compare, is the id the words derive. |
 | **`red_team_the_phone_withdraws_only_a_listed_full_id_and_never_itself`** | `devices::withdraw` against a coordinator: an abbreviated id, an id that is no device of the account (the coordinator would file it as withdrawn for ever), another account's device and this phone itself are all refused with nothing withdrawn; the listed full id withdraws exactly that device. Sabotaged three ways (resolve a prefix against the listing; drop the self check in `coordinator::withdraw_device`, shared with the CLI; drop the listing check): red. |
 | **`red_team_an_all_phone_account_at_the_limit_can_free_a_slot_from_the_phone`** | A full account of phones (`MAX_DEVICES_PER_ACCOUNT`) enrolled and never heard from again; one more, not enrolled, sees none of them. Joining answers `atCap` with all their full ids and words naming the screen, not a command; withdrawing one from the unenrolled phone works (what the refusal named counts as shown); joining again takes the slot. Sabotaged two ways (the refusal returned as an error; what it named not remembered): red. |
+| **`red_team_a_list_the_coordinator_cut_short_is_not_called_complete`** | A full page of the coordinator's list may have more behind it, so it is not called complete. |
 | **`red_team_a_device_withdrawn_elsewhere_is_not_offered_from_an_old_refusal`** | Found by `itsanas-redteam`: remembered ids were merged into a complete listing too, so a device withdrawn from another machine kept a Withdraw button. Refused at the limit, then one device withdrawn elsewhere and the phone enrolled by another path: the list is the coordinator's, the withdrawn device absent. Sabotaged by merging regardless: red. |
 | **`red_team_a_refusal_naming_only_some_devices_says_so`** | Found by `itsanas-redteam`: an account above the limit (ten devices, enrolled with the bound off) is named only eight by the coordinator, "and 2 more"; the phone said "already has 8". It now answers `partial` and says the rest are named next time, guessing no count. Sabotaged by `partial = false`: red. |
 | **`red_team_a_phone_that_joined_says_so_for_good`** | `register` writes the `registered` marker the command line writes, so `status` says enrolled and `ensure_enrolled` stays off the network. Sabotaged (no marker): red. |
@@ -2008,7 +2009,7 @@ not read, the pledge kept whatever the free space.
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 
-# `itsanas-android` — the JNI boundary (23)
+# `itsanas-android` — the JNI boundary (24)
 
 `src/lib.rs`. The only crate that relaxes the unsafe lint, and the only one whose
 contract is with another language. What every shell shares (the account, the
@@ -2039,6 +2040,7 @@ from a host over a real socket, and one of them opened.
 | **`red_team_opening_a_phone_finishes_what_a_logout_or_a_removal_left`** | `open_into` withdraws the device a logout with no network could not, and removes an erase cut short, whichever way the node got onto the phone. |
 | **`red_team_a_phone_says_its_files_are_not_safe_yet`** | `status_of` says `safe:false` and `copiesWanted:2` for a file on the phone alone, from the rule the CLI uses, and `safe:true` for an empty account. |
 | **`red_team_a_phone_says_a_machine_failed_its_storage_check`** | `status_of` says `failing:0`, then `failing:1` once a machine fails a storage challenge, from the same `machines_failing` the desktop's snapshot uses. |
+| **`red_team_a_phone_says_its_vault_takes_no_write`** | `status_of` says `vaultRefuses` once a pledged vault refuses the write probe. |
 | **`red_team_a_phone_says_it_has_reached_nobody`** | `silentFor` is null on a first look, which starts the wait, so a phone whose sync never runs still ages; a round with no machine starts it too, and two days later `status_of` says so. A round that reached a machine is recorded (asserted in the budget-of-nothing test). |
 | **`red_team_a_folder_file_reaches_the_account_and_only_then_counts_as_seen`** | A copy that failed is asked for again; a copy that worked is read back from the account at its `Phone/` path and not asked for again. |
 | **`red_team_a_folder_listing_that_makes_no_sense_is_refused`** | Bad JSON, a non-list and a negative size are errors, never a folder with nothing new. |
@@ -2050,7 +2052,7 @@ from a host over a real socket, and one of them opened.
 | `a_phone_with_no_machine_is_told_its_files_are_only_here` | `logoutCheck` with nobody to reach says every piece is only here, and closes nothing. |
 | **`every_kotlin_native_call_has_its_rust_entry_point_and_back`** | Reads `Native.kt` and `lib.rs`: every `external fun` has its `Java_fr_ngas_itsanas_Native_*` and back. A name on one side only compiles on both and fails on the phone at the first tap with `UnsatisfiedLinkError`, and no CI job runs the app. Sabotaged by renaming `withdrawDevice`'s export: red. |
 
-# `itsanas-drive` — the account as a folder (9)
+# `itsanas-drive` — the account as a folder (21)
 
 Two files, and they are tested for two different reasons.
 
@@ -2076,6 +2078,18 @@ an account several machines hold.
 
 | Test | What it proves |
 | --- | --- |
+| **`red_team_a_refusal_reaches_windows_as_a_failure`** | Windows only. A refusal reaches ProjFS as a negative HRESULT: a bare Win32 code reads as success, and no new file could be created in the folder. |
+| **`red_team_recycling_a_file_is_a_deletion_and_restoring_it_a_write`** | A rename to outside the folder deletes, one from outside writes, one inside renames. |
+| `a_directory_alone_is_nothing_to_keep` | A directory created or closed is no change; a file inside one is. |
+| **`red_team_an_editors_scratch_files_never_reach_the_account`** | Office locks, `.tmp`, half a download, `Thumbs.db` and `desktop.ini` stay out; real names that look close do not. |
+| **`red_team_a_file_still_being_written_is_not_read`** | A change waits until its path is quiet, and a file written again waits again. |
+| **`red_team_a_change_never_overtakes_the_one_before_it`** | Changes leave in order, even when the clock steps back. |
+| `a_deleted_file_needs_no_read` | A deletion drops the write waiting before it. |
+| **`red_team_a_wave_of_deletions_is_refused_however_slowly_it_comes`** | Most of the account, at once or a file at a time within an hour, is refused; saves still pass, and an hour later deleting works again. |
+| **`red_team_a_rename_that_cannot_copy_deletes_nothing`** | A file renamed with no machine up to fetch it from stays in the account. |
+| **`red_team_a_file_this_machine_does_not_hold_is_said_once_and_not_retried`** | What the store cannot do is reported once; a file an editor holds open is tried again. |
+| **`red_team_a_save_by_renaming_a_scratch_file_keeps_the_new_bytes`** | Office's save, a scratch file renamed to the real name, reads the bytes from the disk. |
+| `a_folder_renamed_or_deleted_takes_its_files_and_no_neighbours` | `a/` moves its files and leaves `ab/` alone. |
 | **`a_directory_is_a_prefix_several_files_share`** | An account stores paths, not a tree: nothing anywhere records that `Documents` exists, only that `Documents/report.pdf` does. A projection that does not invent the directory shows an account with sub-folders as an empty one. |
 | **`a_file_that_is_not_here_is_still_a_file_with_a_size`** | The whole point of a virtual drive. A placeholder with no size shows as zero bytes, and somebody concludes their file is damaged rather than absent. |
 | `a_name_that_merely_starts_the_same_is_not_inside_it` | `Photos-old` is not inside `Photos`. |

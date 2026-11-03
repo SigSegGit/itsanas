@@ -824,6 +824,7 @@ version = "0.1.16"
 dependencies = [
  "getrandom 0.4.3",
  "itsanas-crypto",
+ "itsanas-folder",
  "itsanas-net",
  "itsanas-node",
  "itsanas-store",

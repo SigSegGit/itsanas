@@ -38,10 +38,14 @@ fn main() {
 
 #[cfg(windows)]
 mod windows {
+    use std::collections::HashMap;
     use std::io::{self, Write};
     use std::path::{Path, PathBuf};
+    use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
+    use itsanas_drive::writes::{self, Change, Deletions, Settling, Target};
     use itsanas_drive::{Entry, Known, listing, logical, projfs};
     use itsanas_node::Node;
     use itsanas_store::Presence;
@@ -49,6 +53,165 @@ mod windows {
     /// Everything the account knows, as the projection needs it.
     struct Account {
         node: Arc<Mutex<Node>>,
+        changes: Mutex<Sender<Change>>,
+    }
+
+    /// How many times a change is tried: a file an editor still holds open
+    /// refuses a read for a moment, and one that always refuses is reported.
+    const TRIES: u32 = 5;
+
+    fn now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs())
+    }
+
+    /// The folder's side of [`Target`]: the bytes on the disk, the account's node.
+    struct Folder {
+        root: PathBuf,
+        account: Account,
+    }
+
+    impl Folder {
+        fn locked(&self) -> io::Result<std::sync::MutexGuard<'_, Node>> {
+            self.account
+                .node
+                .lock()
+                .map_err(|_| io::Error::other("the node lock was poisoned by a panic"))
+        }
+
+        /// Into the store, within the bounds any other write has.
+        fn store(&self, path: &str, size: u64, bytes: impl io::Read) -> io::Result<()> {
+            let node = self.locked()?;
+            node.bound_writes().map_err(io::Error::other)?;
+            node.store
+                .check_room(path, size)
+                .map_err(io::Error::other)?;
+            node.store
+                .write_stream(path, bytes)
+                .map_err(io::Error::other)?;
+            node.store
+                .flush_segment()
+                .map_err(io::Error::other)
+                .map(|_| ())
+        }
+    }
+
+    impl Target for Folder {
+        fn known(&self) -> io::Result<Vec<String>> {
+            Ok(self
+                .account
+                .files()
+                .into_iter()
+                .map(|file| file.0)
+                .collect())
+        }
+
+        fn keep(&self, path: &str) -> io::Result<()> {
+            let real = self.root.join(path.replace('/', "\\"));
+            if real.is_dir() {
+                for entry in std::fs::read_dir(&real)? {
+                    let name = entry?.file_name();
+                    let name = name.to_string_lossy();
+                    let child = format!("{path}/{name}");
+                    if writes::may_keep(&child) {
+                        self.keep(&child)?;
+                    }
+                }
+                return Ok(());
+            }
+            // Copied with no lock held: a read that reaches back into the
+            // projection needs the node.
+            let staged = {
+                let node = self.locked()?;
+                node.home
+                    .join(format!("drive-staged-{}", std::process::id()))
+            };
+            std::fs::copy(&real, &staged)?;
+            let kept = (|| {
+                let file = std::fs::File::open(&staged)?;
+                let size = file.metadata()?.len();
+                self.store(path, size, file)
+            })();
+            let _ = std::fs::remove_file(&staged);
+            kept
+        }
+
+        fn remove(&self, path: &str) -> io::Result<()> {
+            let node = self.locked()?;
+            // The store deletes only what this machine holds. Saying "kept" here
+            // would be a lie: the file stays in the account and on every machine.
+            if !node.store.remove_file(path).map_err(io::Error::other)? {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    format!(
+                        "{path} is not on this machine, so it stays in your account. Open it \
+                         once, then delete it again"
+                    ),
+                ));
+            }
+            node.store
+                .flush_segment()
+                .map_err(io::Error::other)
+                .map(|_| ())
+        }
+
+        fn copy(&self, from: &str, to: &str) -> io::Result<()> {
+            let bytes = self.account.content(from)?;
+            self.store(to, bytes.len() as u64, bytes.as_slice())
+        }
+    }
+
+    /// Apply what the folder reports, once each path has gone quiet. Its own
+    /// thread: the callback must not wait, and a round holds the node for minutes.
+    fn keep_changes(changes: &Receiver<Change>, folder: &Folder) {
+        let mut settling = Settling::default();
+        let mut deletions = Deletions::default();
+        let mut tries: HashMap<Change, u32> = HashMap::new();
+        loop {
+            match changes.recv_timeout(Duration::from_secs(1)) {
+                Ok(change) => settling.push(change, now()),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => return,
+            }
+            for change in settling.due(now()) {
+                let known = match folder.known() {
+                    Ok(known) => known,
+                    Err(error) => {
+                        println!("could not read the account: {error}");
+                        continue;
+                    }
+                };
+                let count = writes::deleted_by(&change, &known);
+                let is_rename = matches!(change, Change::Renamed { .. });
+                if !is_rename && !deletions.allow(count, known.len(), now()) {
+                    println!(
+                        "refused: {change:?} would make too many deletions in an hour. The \
+                         account keeps these files; stop this program if that is not you."
+                    );
+                    continue;
+                }
+                match writes::apply(&change, &known, folder) {
+                    Ok(()) => {
+                        tries.remove(&change);
+                        // Said only of what went in: a scratch file was not kept.
+                        if !matches!(&change, Change::Written(p) if !writes::may_keep(p)) {
+                            println!("kept: {change:?}");
+                        }
+                    }
+                    Err(error) => {
+                        let attempts = tries.entry(change.clone()).or_insert(0);
+                        *attempts += 1;
+                        if *attempts < TRIES && writes::worth_retrying(&error) {
+                            settling.push(change, now());
+                        } else {
+                            println!("NOT KEPT in your account: {change:?}: {error}");
+                            tries.remove(&change);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     impl Account {
@@ -178,6 +341,12 @@ mod windows {
     // global cache. `src/projfs.rs` owns the enumeration cursors, so this is
     // three questions and no state.
     impl projfs::Source for Account {
+        fn changed(&self, change: Change) {
+            if let Ok(changes) = self.changes.lock() {
+                let _ = changes.send(change);
+            }
+        }
+
         fn list(&self, directory: &str) -> io::Result<Vec<projfs::Info>> {
             let directory = logical(directory);
             Ok(self.entries(&directory).iter().map(to_info).collect())
@@ -235,7 +404,8 @@ mod windows {
                         "itsanas-drive [--home <dir>] [--interval <seconds>] <folder>\n\n\
                          Shows the whole account at <folder>. Files that are not on this\n\
                          machine appear with their name, size and date, and download when\n\
-                         opened. Syncs while it is showing, so the daemon must not be running."
+                         opened. A file saved, renamed or deleted here is, on every machine.\n\
+                         Syncs while it is showing, so the daemon must not be running."
                     );
                     return Ok(());
                 }
@@ -265,9 +435,19 @@ mod windows {
         let device = itsanas_crypto::DeviceKeys::from_seed(&node.device.seed());
         let shared = Arc::new(Mutex::new(node));
 
+        let (changes, reported) = channel();
         let account = Account {
             node: Arc::clone(&shared),
+            changes: Mutex::new(changes.clone()),
         };
+        let folder = Folder {
+            root: at.clone(),
+            account: Account {
+                node: Arc::clone(&shared),
+                changes: Mutex::new(changes),
+            },
+        };
+        std::thread::spawn(move || keep_changes(&reported, &folder));
 
         let _mount = projfs::mount(&at, account).map_err(|why| {
             format!(
@@ -280,6 +460,7 @@ mod windows {
 
         println!("showing your account at {}", at.display());
         println!("  every file is listed; opening one that is not here downloads it");
+        println!("  a file saved, renamed or deleted here is, on every machine");
         if peers.is_empty() {
             println!("  no machine is configured, so nothing can be downloaded yet");
         }

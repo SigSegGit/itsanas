@@ -123,6 +123,19 @@ pub fn machines_failing(node: &Node, now: u64) -> Result<usize> {
         .count())
 }
 
+/// Why this node's vault refuses a write, if it does. A node away from its
+/// vault, or pledging nothing, promised nobody. Makes a write, so a shell asks
+/// when a person looks, not on a timer.
+#[must_use]
+pub fn vault_refuses(node: &Node) -> Option<String> {
+    if node.away || node.config.pledge_bytes == 0 {
+        return None;
+    }
+    itsanas_node::pledges::probe_write(&node.vault_dir())
+        .err()
+        .map(|error| error.to_string())
+}
+
 use crate::{
     config::{format_size, parse_size},
     coordinator::{REGISTERED, mark_registered, registered_with},

@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-03 03:30 | ~1 h 30 + CI | fenêtre 5 h 19 % → 40 % ; hebdo 62 % → 65 % ; contexte 494 k | 8.9 | au bout | 🟨 | Dossier du téléphone (#367), écriture dans le lecteur virtuel, deux résidus ; lancés sur ProjFS réel, pas sur Explorer ni Office ; aucun vrai téléphone | #368 |
 | 2026-11-03 03:15 | ~10 min | fenêtre 5 h 18 % → 19 % ; hebdo 62 % ; contexte 300 k | hors §8 | au bout | ✅ | #365 fusionnée ; `preflight.sh` avant chaque push (hook refusé par le contrôle de permissions, à poser par Nicolas), limite de contexte portée à 300 k | #366 |
 | 2026-11-03 01:40 | ~20 min | fenêtre 5 h 3 % → 17 % ; hebdo 60 % → 62 % ; contexte 276 k | 8.0y | au bout | 🟨 | Lot groupé : alertes `failing` et `lowdisk` (bureau, page, téléphone), silence dit par `status` et par le téléphone, plancher de nœuds prouvé par `exposed` ; tests jamais lancés en local, CI à lire | #365 |
 | 2026-11-02 22:10 | ~20 min | fenêtre 5 h 8 % → 12 % ; contexte 260 k | 8.0y | au bout | 🟨 | Lot groupé : verdict de sécurité sur le téléphone, retraits et effacements repris à l'ouverture, ancien chemin de connexion supprimé, contrôle final en clair ; budget disque au login à revérifier | suivante |

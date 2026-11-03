@@ -38,13 +38,12 @@
 //! and reading either returned its contents. Nothing was on that disk before
 //! the read.
 //!
-//! # What it does not do yet
+//! # Writing
 //!
-//! **Reading only.** Files put into the folder by hand are not imported. The
-//! callback exists and is deliberately not bound: honouring it means deciding
-//! what a local edit does to an account several machines hold, and that is a
-//! design question rather than a missing function. `itsanas put` and
-//! `itsanas folder` still work and are how things get in.
+//! A file saved, deleted or renamed in the folder reaches the account, under the
+//! rules in [`writes`].
+//!
+//! # What it does not do yet
 //!
 //! **Whole-file hydration.** A read of an absent file fetches all of it and
 //! blocks until it arrives. Fine for a document, unpleasant for a film over a
@@ -85,6 +84,7 @@
 
 #[cfg(windows)]
 pub mod projfs;
+pub mod writes;
 
 use std::collections::BTreeSet;
 
