@@ -23,7 +23,7 @@ pub(super) const CONFIRM_ATTEMPTS: usize = 3;
 const PASSPHRASE_ATTEMPTS: usize = 3;
 
 /// Why a phone skips the machine and folder steps.
-const NO_FOLDER_ON_A_PHONE: &str = "a phone has no synced folder: its files are in the app";
+const NO_FOLDER_ON_A_PHONE: &str = "a phone picks its folder in the app, under Files";
 
 impl Setup<'_> {
     fn config(&self) -> Option<Config> {

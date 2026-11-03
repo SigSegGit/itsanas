@@ -24,7 +24,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 |---|---|---|---|---|
 | Welcome · `/api/state` · `/api/plan` · `/api/run` · `/api/quit` | ✅ | ✅ | ✅ | ✅ |
 | Your account · `/api/name` · `/api/suggest` (existing account first, a positive check before a new one) | ✅ | ✅ | ✅ | ✅ |
-| Your folder and your space · `/api/free` | ✅ | ✅ | ✅ | ⬜ a phone has no synced folder: its files are in the app |
+| Your folder and your space · `/api/free` | ✅ | ✅ | ✅ | ⬜ a phone picks its folder in the app, under Files |
 | Space you offer (one suggestion rule on every platform) | ✅ | ✅ | ✅ | ✅ |
 | Files kept here | ✅ | ✅ | ✅ | ✅ |
 | Ready · Final check · This page is closed | ✅ | ✅ | ✅ | ✅ |
@@ -41,14 +41,14 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | Sign out · `/api/signout` | ✅ | ✅ | ✅ | ✅ |
 | Account (remove this account from this machine, delete it) · `/api/remove` · `/api/delete` | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ✅ |
 | Language · `/api/language` | ✅ | ✅ | ✅ | ✅ |
-| Open and pin the folder · `/api/open` · `/api/pin` · `/api/pick` | ✅ | ✅ | ✅ | ⬜ a phone has no synced folder to open or add to a file manager |
+| Open and pin the folder · `/api/open` · `/api/pin` · `/api/pick` | ✅ | ✅ | ✅ | ⬜ a phone has no folder path to open or add to a file manager |
 | Another account beside this one · `/api/another` | ✅ | ✅ | ✅ | ⬜ a phone keeps one account; a second is a second install |
 
 ## What a shell has
 
 | Capability | Windows | macOS | Linux | Android |
 |---|---|---|---|---|
-| `feature:folder` | ✅ | ✅ | ✅ | ⬜ a phone has no synced folder: its files are in the app |
+| `feature:folder` | ✅ | ✅ | ✅ | ⬜ a phone picks its folder in the app, under Files |
 | `feature:background_choice` | ✅ | ✅ | ✅ | ⬜ the app's sync service always runs; there is no logon to choose at |
 | `feature:advanced` | ✅ | ✅ | ✅ | ⬜ a phone is built for one network and updates through the app, not the node |
 | `feature:sync_controls` | ✅ | ✅ | ✅ | ⬜ a phone syncs on the policy's schedule |
@@ -93,7 +93,7 @@ app, or it is not done there.
 | `itsanas backup` | ✅ | ✅ | ✅ | ⬜ a phone has no drive to back up to |
 | `itsanas portable` | ✅ | ✅ | ✅ | ⬜ a phone cannot write a program for another system onto a drive |
 | `itsanas copy-to-key` | ✅ | ✅ | ✅ | ⬜ a phone cannot write a program for another system onto a key |
-| `itsanas folder` | ✅ | ✅ | ✅ | ⬜ a phone has no synced folder: its files are in the app |
+| `itsanas folder` | ✅ | ✅ | ✅ | ⬜ a phone picks its folder in the app, under Files |
 | `itsanas scan` | ✅ | ✅ | ✅ | ⬜ terminal only: the app lists the account itself |
 | `itsanas keep` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas space` | ✅ | ✅ | ✅ | ✅ |

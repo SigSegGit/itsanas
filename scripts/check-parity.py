@@ -129,7 +129,7 @@ def main():
                                 'followed by a reason' % (number, first, platform, cell))
             elif len(cell[1:].split()) < 3:
                 problems.append('docs/PARITY.md:%d: "%s", %s: ⬜ with no reason. Say why in a '
-                                'fact, e.g. "a phone has no synced folder"' % (number, first, platform))
+                                'fact, e.g. "a phone keeps one account"' % (number, first, platform))
 
     def named(token):
         return any(token in first for first, _, _ in rows)

@@ -136,6 +136,21 @@
       "file": "crates/itsanas-cli/src/lib.rs",
       "live": "&& now.saturating_sub(record.last_failure_unix) < itsanas_store::holders::LIVE_FOR",
       "dead": "&& now.saturating_sub(record.last_failure_unix) < u64::MAX"
+    },
+    "folder: the path alone decides": {
+      "file": "crates/itsanas-cli/src/phone_folder.rs",
+      "live": "seen.get(&file.path) != Some(&(file.size, file.modified))",
+      "dead": "!seen.contains_key(&file.path)"
+    },
+    "folder: any name enters": {
+      "file": "crates/itsanas-cli/src/phone_folder.rs",
+      "live": "            may_enter(&file.path) && seen.get",
+      "dead": "            seen.get"
+    },
+    "folder: hidden names enter": {
+      "file": "crates/itsanas-cli/src/phone_folder.rs",
+      "live": ".all(|part| !part.is_empty() && !part.starts_with('.'))",
+      "dead": ".all(|part| !part.is_empty() && part != \"..\")"
     }
   }
 }

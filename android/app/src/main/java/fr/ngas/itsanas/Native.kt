@@ -69,6 +69,10 @@ object Native {
     external fun put(path: String, source: String): String
 
     external fun remove(path: String): String
+    /** Which files of the chosen folder to copy: `{"wanted":[...]}`. */
+    external fun folderWanted(listing: String): String
+    /** Put a copied file of the folder into the account, and record it. */
+    external fun folderImport(file: String, source: String): String
 
     external fun sync(metadataOnly: Boolean): String
 

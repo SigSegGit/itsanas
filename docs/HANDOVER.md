@@ -9,8 +9,8 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.9a
-TITLE: A phone folder that syncs by itself (§8 9a)
+NEXT: 8.9b
+TITLE: Writing into the virtual drive (§8 9b)
 WRITTEN-AT: 2026-11-03
 BASE: e55a31a
 -->
@@ -3809,9 +3809,11 @@ Detail and measurements are in ROADMAP.md; this is the map.
 9. **Three features Nicolas chose on 2026-11-03**, when everything else open in §8 waited on
    him. In this order; none has a specification yet, so each starts by reading the code named.
 
-   a. **A phone folder that syncs by itself** (issue 95). The phone picks a folder, such as its
-      photos, and new files reach the account with no action. Not yet read: how the app imports
-      a picked file (`files-add`, `MainActivity.kt`) and `SyncService`.
+   a. 🟨 **A phone folder that syncs by itself** (issue 95). Built 2026-11-03: the Files
+      screen picks a folder, `PhoneFolder.kt` walks it each round that may move content, and
+      `phone_folder.rs` decides what is new and what may enter, under `Phone/`. One way: a
+      deletion on the phone stays there. **Left:** a real phone and its gallery; one segment per
+      file on a first run of thousands (issue 93).
    b. **Writing into the virtual drive.** `crates/itsanas-drive` reads through ProjFS today;
       saving and editing in Explorer is the missing half. Unsafe stays in `projfs.rs`, and it
       needs a real Windows run.

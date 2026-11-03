@@ -131,6 +131,16 @@
       "file": "crates/itsanas-android/src/lib.rs",
       "live": "itsanas_cli::note_phone_contact(&node.home, false, itsanas_discover::now_unix());",
       "dead": ""
+    },
+    "folder: recorded before the store has it": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": "    let answer = put_file(node, &file.in_account(), source)?;\n    phone_folder::imported(&node.home, &file)\n        .map_err(|error| Failure::Usage(format!(\"could not record {}: {error}\", file.path)))?;\n    Ok(answer)",
+      "dead": "    phone_folder::imported(&node.home, &file)\n        .map_err(|error| Failure::Usage(format!(\"could not record {}: {error}\", file.path)))?;\n    let answer = put_file(node, &file.in_account(), source)?;\n    Ok(answer)"
+    },
+    "folder: a bad row is skipped": {
+      "file": "crates/itsanas-android/src/lib.rs",
+      "live": ".map(folder_file)\n        .collect::<Result<Vec<_>, _>>()?;",
+      "dead": ".filter_map(|row| folder_file(row).ok())\n        .collect::<Vec<_>>();"
     }
   }
 }

@@ -160,7 +160,7 @@ pub(crate) fn run(inputs: &Inputs<'_>) -> Report {
         Some(identity) => findings.extend(network_findings(identity, healthy, inputs.phone)),
     }
     findings.push(if inputs.phone {
-        Finding::skipped("the folder syncs", "a phone has no synced folder")
+        Finding::skipped("the folder syncs", "a phone picks its folder in the app")
     } else if healthy {
         canary(inputs, started)
     } else {

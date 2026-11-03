@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -500,6 +501,26 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
         }
     }
 
+    var folderName by remember { mutableStateOf(PhoneFolder.name(context)) }
+    val folderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { tree ->
+        if (tree == null) return@rememberLauncherForActivityResult
+        PhoneFolder.choose(context, tree)
+        folderName = PhoneFolder.name(context)
+        scope.launch {
+            busy = true
+            try {
+                PhoneFolder.sync(context)
+                refresh()
+            } catch (error: Throwable) {
+                complain(error.message ?: "could not read that folder")
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -516,6 +537,12 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                     }
                 },
                 actions = {
+                    IconButton(
+                        { folderPicker.launch(null) },
+                        Modifier.testTag("phone-folder"),
+                    ) {
+                        Icon(Icons.Default.Folder, stringResource(R.string.phone_folder_choose))
+                    }
                     IconButton({
                         scope.launch {
                             busy = true
@@ -550,6 +577,23 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                         stringResource(R.string.not_safe_yet, it.copiesElsewhere, it.copiesWanted),
                         Modifier.fillMaxWidth().padding(16.dp).testTag("not-safe"),
                     )
+                }
+            }
+            folderName?.let {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("phone-folder-line"),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    Text(stringResource(R.string.phone_folder_on, it), Modifier.weight(1f))
+                    TextButton(
+                        {
+                            PhoneFolder.stop(context)
+                            folderName = null
+                        },
+                        Modifier.testTag("phone-folder-stop"),
+                    ) {
+                        Text(stringResource(R.string.phone_folder_stop))
+                    }
                 }
             }
             status?.silentFor?.let {

@@ -12,7 +12,7 @@ window.I18N = {
     'Other machines can reach this one': 'Les autres machines peuvent joindre celle-ci',
     'The folder syncs': 'Le dossier se synchronise',
     'the app does this itself': 'l’application s’en charge elle-même',
-    'a phone has no synced folder': 'un téléphone n’a pas de dossier synchronisé',
+    'a phone picks its folder in the app': 'un téléphone choisit son dossier dans l’application',
     'a phone dials out and is never dialled back': 'un téléphone appelle les autres, on ne le rappelle jamais',
     'no background service was asked for': 'aucun service en arrière-plan n’a été demandé',
     'no coordinator is set': 'aucun coordinateur n’est défini',

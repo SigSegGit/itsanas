@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-03 — 1564 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 550 are red-team tests.**
+**Last updated: 2026-11-03 — 1569 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 554 are red-team tests.**
 
-**1448 of the 1564 tests have an entry of their own on this page** — an *entry*,
+**1453 of the 1569 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,8 +179,8 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 321 |
-| `itsanas-android` unit | 21 |
+| `itsanas-cli` unit | 324 |
+| `itsanas-android` unit | 23 |
 | `itsanas-drive` unit | 9 |
 | `itsanas-node` unit | 175 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 30 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 54 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 167 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 171 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1203,7 +1203,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (321)
+# `itsanas-cli` — unit tests (324)
 
 ## `bench` — measuring this machine (4)
 
@@ -1563,6 +1563,14 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_save_on_a_safe_account_is_unsaid_for_the_grace_and_said_after`** | Safe, then a save: `since` is set and the shortfall is unsaid for `GRACE_INTERVALS` (2) rounds, keeps its age across rounds, is said after, and clears when the copies are back. Sabotaged (a new `since` each round): red. |
 | **`red_team_a_node_that_never_reached_anybody_turns_isolated`** | The review of #345: a node with nothing stored (no `copies`, never `exposed`) that no round ever reached anybody from -- a Mac with an empty folder behind a firewall, or a header from before `reached` -- read green for good. `reached_words` writes `reached never since T` on the first snapshot with no contact, keeps T at the next, and `isolated_for` ages it: `isolated` at six hours; a contact then replaces it with `reached T`. Sabotaged (the wait restarted at every snapshot; `isolated_for` reading only `reached T`): red, both. |
 | **`red_team_a_contact_dated_in_the_future_is_not_kept`** | The review of #345: the larger value wins at every write, so a `reached` stamped with a clock a day ahead (a resumed VM, a dead RTC) stayed for good and the machine read healthy cut off that whole day. A contact later than now, carried or this process's own, and a wait dated later, are dropped; a real past contact is kept. Sabotaged (no filter): red. |
+
+## `phone_folder` — which files of a phone's chosen folder enter the account (3)
+
+| Test | What it proves |
+|---|---|
+| **`red_team_a_folder_file_is_copied_once_and_again_when_it_changes`** | A new file is asked for, a recorded one is not, a changed size or date is, and the newest line of the record wins. |
+| **`red_team_a_folder_name_cannot_climb_or_slip_in_hidden`** | A name with `..`, an empty part, a backslash, a tab or a newline stays out, and so do dotted names such as a photo still being taken. |
+| `a_torn_line_in_the_record_is_not_a_file_seen` | A record cut mid-line reads as not seen, so the file is copied again and nothing is lost. |
 
 ## `daemon` — pacing, a vault whose disk drops, parking on a relay, a router port that reaches another machine, never dialling itself, the snapshot's version, copies and pace, and the enrolment at start (37)
 
@@ -2000,7 +2008,7 @@ not read, the pledge kept whatever the free space.
 | `placement_is_everyone_unless_the_file_says_measured` | `placement = everyone | measured`; absent means `everyone`, and the setting round-trips through the file. |
 | **`red_team_an_unknown_placement_is_refused_naming_the_two_choices`** | Any other value is refused where the file is read, naming both choices. |
 
-# `itsanas-android` — the JNI boundary (21)
+# `itsanas-android` — the JNI boundary (23)
 
 `src/lib.rs`. The only crate that relaxes the unsafe lint, and the only one whose
 contract is with another language. What every shell shares (the account, the
@@ -2032,6 +2040,8 @@ from a host over a real socket, and one of them opened.
 | **`red_team_a_phone_says_its_files_are_not_safe_yet`** | `status_of` says `safe:false` and `copiesWanted:2` for a file on the phone alone, from the rule the CLI uses, and `safe:true` for an empty account. |
 | **`red_team_a_phone_says_a_machine_failed_its_storage_check`** | `status_of` says `failing:0`, then `failing:1` once a machine fails a storage challenge, from the same `machines_failing` the desktop's snapshot uses. |
 | **`red_team_a_phone_says_it_has_reached_nobody`** | `silentFor` is null on a first look, which starts the wait, so a phone whose sync never runs still ages; a round with no machine starts it too, and two days later `status_of` says so. A round that reached a machine is recorded (asserted in the budget-of-nothing test). |
+| **`red_team_a_folder_file_reaches_the_account_and_only_then_counts_as_seen`** | A copy that failed is asked for again; a copy that worked is read back from the account at its `Phone/` path and not asked for again. |
+| **`red_team_a_folder_listing_that_makes_no_sense_is_refused`** | Bad JSON, a non-list and a negative size are errors, never a folder with nothing new. |
 | **`red_team_the_phone_refuses_limits_its_disk_cannot_hold`** | `set_limits_on` with what is free given, because a real disk check would fail on a small runner: a pledge past what is free, and a pair past what the disk holds, are refused naming the Settings sections, and leave the file and the node as they were. Sabotaged twice (each check): red. |
 | **`red_team_a_file_is_fetched_from_a_machine_known_only_from_the_coordinator`** | `get` dials who `sync` dials, through one `targets`: a real sibling that announced itself, nothing typed in, a metadata round that lists the file and a fetch that brings it. It said "no machine configured" beside a running machine, as the round had. Sabotaged (`config.peers` alone): red. |
 | **`red_team_a_round_enrols_the_phone_and_reads_what_its_machines_pledge`** | A round enrols the phone with no step for a person (marker written, device live) and reads what the account's machines pledge, even with nobody to dial, and says so without mentioning an invitation. Sabotaged twice (no `ensure_enrolled`; no `refresh_others_pledged`): red. |
