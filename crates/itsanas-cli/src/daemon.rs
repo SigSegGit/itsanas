@@ -3210,7 +3210,9 @@ mod tests {
         assert_eq!(before.complete_elsewhere, 2, "the setup is not two copies");
 
         let one_machine = save("second.txt", b"saved with one machine off");
-        node.store.record_holders(&one_machine, &on).expect("record");
+        node.store
+            .record_holders(&one_machine, &on)
+            .expect("record");
         let after = node.store.coverage(now).expect("coverage");
         assert_eq!(
             after.complete_elsewhere, 1,
@@ -3218,7 +3220,7 @@ mod tests {
              writes miss their target while a machine is off"
         );
 
-        let safe = crate::safety::Copies {
+        let two_copies = crate::safety::Copies {
             have: before.complete_elsewhere,
             want: crate::SAFE_COPIES,
             since: None,
@@ -3227,7 +3229,7 @@ mod tests {
             after.complete_elsewhere,
             crate::SAFE_COPIES,
             true,
-            Some(safe),
+            Some(two_copies),
             now,
         )
         .expect("something is stored");
