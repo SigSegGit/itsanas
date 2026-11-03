@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0c
 TITLE: Nicolas's hand test on 0.1.16, with Mandarine (§8 0c)
 WRITTEN-AT: 2026-11-03
-BASE: b30dd13
+BASE: 0273ac0
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -81,7 +81,8 @@ failed clippy without its `hostile` feature, so `preflight.sh` on one crate coul
 Read the end-to-end screenshots: they caught a header wrapped by the new button, and a test that
 waited on the account and not the screen. The `-dark` shots of the app's own screens matched the
 `-light` ones because `Thread.sleep` draws no frame under Compose's test clock: `shotBoth` now
-waits for a dark margin, and fails if the screen stays light. #367 was squashed under a stacked branch: check that the two
+waits for a dark margin, and fails if the screen stays light. All fifteen pairs differ now, and
+the native file screens were read at night and are legible. #367 was squashed under a stacked branch: check that the two
 trees match, then `git merge -s ours origin/main`, not a force push.
 
 **2026-11-03: `scripts/preflight.sh` before a push.** #365 went red on clippy, the format,

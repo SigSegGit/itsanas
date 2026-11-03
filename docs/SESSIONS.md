@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-03 ~19:30 | surtout de l'attente de CI, durée active n/d | fenêtre 5 h 47 %, remise à zéro, 3 % ; hebdo 75 % → 76 % ; contexte 170 k | hors §8 | au bout | 🟨 | Captures sombres : `shotBoth` attend une marge sombre, quinze paires distinctes, écrans natifs lus ; pas de sabotage lancé sur le test Android ; #374 fusionnée sans son pointeur par une commande enchaînée, posé ici | #374, #375 |
 | 2026-11-03 19:04 | ~20 min, surtout de l'attente de CI | fenêtre 5 h 46 % → 47 % ; hebdo 75 % ; contexte 120 k | hors §8 | au bout | ✅ | #373 reprise : les huit sabotages de `fleet-update` rougissent, lus dans le run ; pointeur remis à jour, la release 0.1.16 sort de la liste d'attente | #373 |
 | 2026-11-03, après 17:00 | n/d | n/d | hors §8 | interrompue | 🟨 | Release 0.1.16 publiée, Fleet y monte les machines (#372) ; #373 ouverte, ni journal ni pointeur | #372, #373 |
 | 2026-11-03 13:18 | ~3 h 45, surtout de l'attente de CI et de la release | fenêtre 5 h 16 % → 19 %, puis remise à zéro ; hebdo 68 % → 69 % ; contexte 166 k | hors §8 | au bout | 🟨 | #363 et #370 fusionnées ; la release 0.1.16 s'arrête sur le lint de l'APK, le lint passe en CI et la chaîne fautive part ; la release reste à relancer, tailscale v4 non prouvé | #371 |
