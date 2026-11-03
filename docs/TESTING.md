@@ -179,10 +179,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 313 |
-| `itsanas-android` unit | 19 |
+| `itsanas-cli` unit | 318 |
+| `itsanas-android` unit | 20 |
 | `itsanas-drive` unit | 9 |
-| `itsanas-node` unit | 174 |
+| `itsanas-node` unit | 175 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
