@@ -482,14 +482,17 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
 
     // A round now, as the button does: in the background the next one can be two
     // hours away, and a person who adds a file and leaves believes it has left too.
-    suspend fun syncOnce() {
+    // A round nobody asked for says why it failed without stopping them: the first
+    // file on a first device has no machine to reach, and it was added all the same.
+    suspend fun syncOnce(asked: Boolean = false) {
         try {
             val plan = Vault.plan(context, foreground = true)
             Account.syncNow(metadataOnly = !plan.movesContent)
             refresh()
             snackbar.showSnackbar(plan.because)
         } catch (error: Throwable) {
-            complain(error.message ?: "the round failed")
+            val why = error.message ?: "the round failed"
+            if (asked) complain(why) else snackbar.showSnackbar(why)
         }
     }
 
@@ -597,7 +600,7 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
                         scope.launch {
                             busy = true
                             try {
-                                syncOnce()
+                                syncOnce(asked = true)
                             } finally {
                                 busy = false
                             }
