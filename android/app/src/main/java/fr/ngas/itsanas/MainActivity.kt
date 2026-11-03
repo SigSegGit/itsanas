@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.fragment.app.FragmentActivity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -490,6 +491,9 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             Account.syncNow(metadataOnly = !plan.movesContent)
             refresh()
             snackbar.showSnackbar(plan.because)
+        } catch (left: CancellationException) {
+            // The person left this screen mid-round. That is no failure, and the
+            // callers catching everything would put it in a dialog over the next one.
         } catch (error: Throwable) {
             val why = error.message ?: "the round failed"
             if (asked) complain(why) else snackbar.showSnackbar(why)
