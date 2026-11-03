@@ -128,6 +128,14 @@ def main():
         problems.append('NEXT %r is not a §8 item such as 8.1 or 8.1b' % fields['NEXT'])
     else:
         target = item(eight, int(parsed.group(2)))
+        # A parent whose steps are all done is done, whatever its own heading
+        # says: `NEXT: 8.2` passed this gate with nothing left to do under it.
+        steps = re.findall(r'^\s+[a-z]\. (.*)$', target or '', re.M)
+        if target and not parsed.group(3) and steps and all(DONE.search(s) for s in steps):
+            problems.append(
+                'NEXT %s has only finished steps under it; point at a step still open'
+                % fields['NEXT']
+            )
         if target and parsed.group(3):
             target = step(target, parsed.group(3))
         if target is None:
