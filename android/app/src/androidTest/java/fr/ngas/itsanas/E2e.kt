@@ -241,13 +241,20 @@ object E2e {
         shell("screencap -p $SHOTS/$name.png")
     }
 
-    /** The same screen in the phone's light theme, then its dark one, then light again. */
+    /** Whether the screen is dark now, read from a pixel of the margin. */
+    fun dark(): Boolean = brightness(0.03, 0.5) < 110
+
+    /**
+     * The same screen in the phone's light theme, then its dark one, then light again.
+     * A plain sleep draws no frame under the test's clock: the screens this app draws
+     * itself stayed light in every "dark" shot, and nobody could tell from the run.
+     */
     fun shotBoth(name: String) {
         shot("$name-light")
         shell("cmd uimode night yes")
-        Thread.sleep(4000)
+        waitFor("$name stayed light when the phone went to night mode, unreadable at night") { dark() }
         shot("$name-dark")
         shell("cmd uimode night no")
-        Thread.sleep(4000)
+        waitFor("$name stayed dark when the phone went back to day") { !dark() }
     }
 }
