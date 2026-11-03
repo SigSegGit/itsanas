@@ -527,7 +527,13 @@ private fun Files(shared: List<Uri>, onSettings: () -> Unit, complain: (String) 
             TopAppBar(
                 title = {
                     Column {
-                        Text(status?.username ?: "ITSaNAS")
+                        // One line: with three buttons beside it, a long name wrapped
+                        // and the line under it was cut in half (seen on a screenshot).
+                        Text(
+                            status?.username ?: "ITSaNAS",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                         status?.let {
                             Text(
                                 stringResource(R.string.files_summary, it.here, it.notHere, humanSize(it.bytesOnDisk)),

@@ -67,6 +67,10 @@ class FilesTest {
             "a photo still being taken reached the account, and from there every machine",
             !Native.list().contains("pending"),
         )
+        // On the screen too: the account having them proves nothing a person sees.
+        compose.waitUntil(60_000) {
+            compose.onAllNodesWithTag("file-row").fetchSemanticsNodes().size == 2
+        }
         E2e.shotBoth("22-files-folder")
 
         Flows.click(compose, "phone-folder-stop")

@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0c
 TITLE: Nicolas's hand test on 0.1.16, with Mandarine (§8 0c)
 WRITTEN-AT: 2026-11-03
-BASE: e55a31a
+BASE: 4460a70
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -64,6 +64,11 @@ words and translated; what passed shows no detail.
 **2026-11-03: 0.1.16, phone folder and drive writes.** A phone folder syncs by itself (#367), and
 the virtual drive takes writes. `main` already says 0.1.16 and the last release is 0.1.15. `itsanas-coord` alone
 failed clippy without its `hostile` feature, so `preflight.sh` on one crate could fail on it; fixed.
+Read the end-to-end screenshots: they caught a header wrapped by the new button, and a test that
+waited on the account and not the screen. Not known: dark mode on most screens, because the
+`-dark` shots after the first pages match the `-light` ones (`cmd uimode night` against an app
+that sets its own mode, unread). #367 was squashed under a stacked branch: check that the two
+trees match, then `git merge -s ours origin/main`, not a force push.
 
 **2026-11-03: `scripts/preflight.sh` before a push.** #365 went red on clippy, the format,
 rustdoc and the catalogue, one push at a time. It runs the fast part of the gates and collects
