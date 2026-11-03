@@ -12,7 +12,7 @@ contract.
 NEXT: 8.0c
 TITLE: Nicolas's hand test on 0.1.16, with Mandarine (§8 0c)
 WRITTEN-AT: 2026-11-03
-BASE: eb85a01
+BASE: b30dd13
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -65,6 +65,8 @@ words and translated; what passed shows no detail.
 0.1.13 and was green, because row V only asked that the machines agree. Row U now asks each Docker
 machine to go to the latest release (`scripts/fleet/update.sh`), and V fails if they are not on it.
 The CI key can therefore restart containers, a change from "no docker" that Nicolas asked for.
+All eight of its sabotages first said NOTHING WENT RED, because `sabotage.py` reads cargo's
+`test ... FAILED` lines and `check-fleet.sh` printed none; it prints them now and all eight go red.
 
 **2026-11-03: the first try at 0.1.16 stopped at the APK.** `lintVitalRelease` runs only on a
 release build and CI built debug, so a French string with no default, there since #361, first
@@ -107,10 +109,6 @@ image's, rebuilt from `~/itsanas`, and `itsanas update` does not apply there
 of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
-
-0. **Release 0.1.16**, once its PR is merged (check: `gh pr list`):
-
-       cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
 
 1. **The Android release key, before any phone that should keep its
    updates installs the application** (docs/ANDROID-RELEASE.md §1, §1b):

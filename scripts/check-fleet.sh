@@ -36,7 +36,13 @@ trap 'rm -rf "$WORK"' EXIT
 failures=0
 
 ok() { printf '  ok    %s\n' "$*"; }
-bad() { printf '  FAIL  %s\n' "$*"; failures=$((failures + 1)); }
+# The second line is what scripts/sabotage.py reads as a red test, the format
+# cargo prints: without it a sabotage of this script could never count as caught.
+bad() {
+    printf '  FAIL  %s\n' "$*"
+    printf 'test check-fleet: %s ... FAILED\n' "$(printf '%s' "$*" | head -1)"
+    failures=$((failures + 1))
+}
 
 # A machine: an agent configuration, a test folder, a test home with a fresh
 # snapshot (or a stale one), and another account's home.
@@ -486,6 +492,20 @@ before=$(update_calls u_behind | wc -l)
 out=$(update_agent u_behind update)
 [ "${out%% *}" = UPTODATE ] && [ "$(update_calls u_behind | wc -l)" = "$before" ] &&
     ok "asked again, it says UPTODATE and restarts nothing" || bad "asked again it said: $out, docker called again"
+
+# On an agent that can update: the wall above has no checkout, so it refuses every
+# form of `update` and would not notice one that took a version from the request.
+update_machine u_arg
+for request in "update v0.1.1" "update ../../etc/passwd" "update status now"; do
+    # shellcheck disable=SC2086
+    out=$(update_agent u_arg $request 2>&1)
+    status=$?
+    if [ "$status" -eq 64 ] && [ "${out%% *}" = REFUSED ] && [ ! -s "$WORK/u_arg/docker.log" ]; then
+        ok "an agent that can update still refuses: $request"
+    else
+        bad "not refused (exit $status) by an agent that can update: $request -> $out"
+    fi
+done
 
 COORDINATOR=1 update_machine u_coord
 update_agent u_coord update >/dev/null
