@@ -56,6 +56,15 @@ jobs:
           export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           export JAVA_HOME="${JAVA_HOME:-$JAVA_HOME_17_X64}"
           bash scripts/build-apk.sh debug
+      # Only a release build runs this lint, and only the signing machine builds
+      # one: an error here used to surface at the very end of a release, with
+      # the tag pushed and the binaries drafted.
+      - name: The checks a release build runs
+        working-directory: android
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          export JAVA_HOME="${JAVA_HOME:-$JAVA_HOME_17_X64}"
+          gradle --no-daemon :app:lintVitalRelease
       - uses: actions/upload-artifact@v7
         with:
           name: itsanas-debug-apk
