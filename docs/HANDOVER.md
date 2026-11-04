@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0c
-TITLE: Nicolas's hand test on 0.1.16, with Mandarine (§8 0c)
+TITLE: Nicolas's hand test on 0.1.17, with Mandarine (§8 0c)
 WRITTEN-AT: 2026-11-03
-BASE: 0273ac0
+BASE: 9ea9982
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -121,6 +121,13 @@ image's, rebuilt from `~/itsanas`, and `itsanas update` does not apply there
 of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
+
+0. **Release 0.1.17**, then the laptop, which was still on 0.1.12 on 2026-11-03. On the phone, ITSaNAS
+   offers the update when opened, once a day, after the unlock:
+
+       cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
+
+       itsanas update
 
 3. Publish the wiki (once after the wiki-and-board PR merges, then after any
    change to ROADMAP.md or MVP.md). If it says it cannot clone, open the
