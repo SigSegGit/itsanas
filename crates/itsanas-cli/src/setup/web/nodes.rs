@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// The slot a node is held in, shared with `account::logout_into`.
-pub type Slot = Mutex<Option<Node>>;
+pub type Slot = Mutex<Option<std::sync::Arc<Node>>>;
 
 /// The node behind the page.
 pub trait Nodes: Send + Sync {
@@ -124,7 +124,15 @@ impl Nodes for Opened {
             }
             self.restart.store(service.installed(), Ordering::SeqCst);
         }
-        let passphrase = match service.stored_passphrase() {
+        let sealed = || {
+            crate::setup::unlock::is_on(&self.home)
+                .then(|| {
+                    crate::setup::unlock::opened(&self.home, crate::setup::unlock::platform_gate)
+                        .ok()
+                })
+                .flatten()
+        };
+        let passphrase = match service.stored_passphrase().or_else(sealed) {
             Some(stored) => stored,
             None => (self.prompt)()?.passphrase(&sign::account_purpose(
                 &self.home,
@@ -133,7 +141,7 @@ impl Nodes for Opened {
         };
         match Node::open(&self.home, &passphrase) {
             Ok(node) => {
-                *held = Some(node);
+                *held = Some(std::sync::Arc::new(node));
                 Ok(())
             }
             Err(error) => {

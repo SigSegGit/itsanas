@@ -1,0 +1,25 @@
+[package]
+name = "itsanas-touchid"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Asks macOS for the person's fingerprint. Nothing on any other system."
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", features = ["NSError", "NSString"] }
+objc2-local-authentication = { version = "0.3.2", features = ["LAContext", "block2"] }
+
+# The workspace forbids unsafe. `LAContext` is an Objective-C class and every call
+# to it is one, so this crate relaxes the lint and `scripts/check-unsafe.py` holds
+# it to the one file and a SAFETY comment per block.
+[lints.rust]
+unsafe_code = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

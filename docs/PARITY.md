@@ -22,6 +22,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 
 | Capability | Windows | macOS | Linux | Android |
 |---|---|---|---|---|
+| Contribute to the network · `/api/hosting` (the switch and its settings; the battery and mobile-data ones draw on a phone only) | ✅ | ✅ | ✅ | ✅ |
 | Welcome · `/api/state` · `/api/plan` · `/api/run` · `/api/quit` | ✅ | ✅ | ✅ | ✅ |
 | Your account · `/api/name` · `/api/suggest` (existing account first, a positive check before a new one) | ✅ | ✅ | ✅ | ✅ |
 | Your folder and your space · `/api/free` | ✅ | ✅ | ✅ | ⬜ a phone picks its folder in the app, under Files |
@@ -56,7 +57,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 | `feature:usb_key` | ✅ | ✅ | ✅ | ⬜ a phone cannot write a program for another system onto a key |
 | `feature:another_account` | ✅ | ✅ | ✅ | ⬜ a phone keeps one account |
 | `feature:keep_question` | ⬜ a computer keeps everything until Settings says otherwise | ⬜ a computer keeps everything until Settings says otherwise | ⬜ a computer keeps everything until Settings says otherwise | ✅ |
-| `feature:biometric` | ⬜ the computers' windows ask the passphrase; no fingerprint reader is used | ⬜ the computers' windows ask the passphrase; no fingerprint reader is used | ⬜ the computers' windows ask the passphrase; no fingerprint reader is used | ✅ |
+| `feature:biometric` | ⬜ not in `Features::DESKTOP`; `Features::THIS_COMPUTER` adds Windows Hello, optional | ⬜ no reader this program can ask | ⬜ not in `Features::DESKTOP`; `Features::THIS_COMPUTER` adds Touch ID, optional | ✅ |
 | `feature:forgot_in_settings` | ✅ | ✅ | ✅ | ⬜ on a phone the node is open in the app itself and holds the store: "I forgot" is on its Unlock screen, with nothing open |
 | `feature:remove_account` | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ⬜ a computer is removed with `install/clean` and the tray's Remove this machine, which also take the background service away; the page does not yet, so it hides the card | ✅ |
 | `feature:metered` | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ⬜ a computer has no mobile-data choice to make | ✅ |
@@ -99,13 +100,13 @@ app, or it is not done there.
 | `itsanas space` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas pledge` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas device` | ✅ | ✅ | ✅ | ✅ |
-| `itsanas listen` | ✅ | ✅ | ✅ | ⬜ a phone dials out only and hosts nothing for others |
-| `itsanas announce` | ✅ | ✅ | ✅ | ⬜ a phone dials out only and publishes no address |
+| `itsanas listen` | ✅ | ✅ | ✅ | ✅ |
+| `itsanas announce` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas leave` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas rejoin` | ✅ | ✅ | ✅ | ⬜ a phone that left logs in again, with a new device id |
 | `itsanas delete-account` | ✅ | ✅ | ✅ | ✅ |
-| `itsanas serve` | ✅ | ✅ | ✅ | ⬜ a phone dials out only and hosts nothing for others |
-| `itsanas daemon` | ✅ | ✅ | ✅ | ⬜ the app runs its rounds in its own sync service |
+| `itsanas serve` | ✅ | ✅ | ✅ | ✅ |
+| `itsanas daemon` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas sync` | ✅ | ✅ | ✅ | ✅ |
 | `itsanas coordinator` | ✅ | ✅ | ✅ | ⬜ a phone is built for one network |
 | `itsanas invite` | ✅ | ✅ | ✅ | ⬜ terminal only: a phone uses an invitation, it does not make one |

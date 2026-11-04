@@ -472,6 +472,30 @@ window.I18N = {
       'La part des fichiers de votre compte qui reste sur cette machine, pour les ouvrir sans réseau. Le reste est récupéré à l’ouverture. Vide : tout.',
     'Files to keep here, in GB': 'Fichiers à garder ici, en Go',
     'Files kept on this machine, in GB (empty: everything)': 'Fichiers gardés sur cette machine, en Go (vide : tout)',
+    'Contribute to the network': 'Contribuer au réseau',
+    'Legal notice': 'Mentions légales',
+    'Privacy policy': 'Politique de confidentialité',
+    'Terms of use': 'Conditions d’utilisation',
+    'Asked when the session opens. A machine restarted with nobody signed in waits for them.':
+      'Demandé à l’ouverture de session. Une machine redémarrée sans personne de connecté les attend.',
+    'Offer this machine to the network': 'Offrir cette machine au réseau',
+    'Off, this machine takes in nothing and declares no space, and your values below are kept. What it already holds for others stays, and it goes on answering for it.':
+      'Éteint, cette machine ne reçoit plus rien et ne déclare aucun espace, et vos valeurs ci-dessous sont conservées. Ce qu’elle garde déjà pour d’autres reste, et elle continue d’en répondre.',
+    'Minutes between rounds while charging': 'Minutes entre deux tours en charge',
+    'Battery level at or below which it stops working in the background, in percent':
+      'Niveau de batterie auquel ou sous lequel elle s’arrête en arrière-plan, en pourcent',
+    'Mobile data it may use for others, in GB (0: none)':
+      'Données mobiles utilisables pour les autres, en Go (0 : aucune)',
+    'Counted per': 'Compté par',
+    'per hour': 'par heure',
+    'per day': 'par jour',
+    'per week': 'par semaine',
+    'per month': 'par mois',
+    'A connection the system marks as metered counts as mobile data, whatever it is.':
+      'Une connexion que le système marque comme limitée compte comme des données mobiles, quelle qu’elle soit.',
+    'Type a battery level from 0 to 100.': 'Saisissez un niveau de batterie de 0 à 100.',
+    'Type a whole number of minutes, at least 1.': 'Saisissez un nombre entier de minutes, au moins 1.',
+    'Choose hour, day, week or month.': 'Choisissez heure, jour, semaine ou mois.',
     'Download files over mobile data too': 'Télécharger aussi les fichiers en données mobiles',
     'Security': 'Sécurité',
     'Unlock with my fingerprint or face': 'Déverrouiller avec mon empreinte ou mon visage',

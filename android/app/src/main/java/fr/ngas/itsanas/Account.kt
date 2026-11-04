@@ -39,7 +39,16 @@ object Account {
     suspend fun close(context: Context? = null) = withContext(Dispatchers.IO) {
         Native.close()
         open = false
-        context?.let { clearOpened(it, olderThanMillis = 0L) }
+        context?.let {
+            Vault.noteClosedByPerson(it, true)
+            clearOpened(it, olderThanMillis = 0L)
+        }
+    }
+
+    /** Open again what the person left open, for background work after the process died. */
+    suspend fun reopen(context: Context, passphrase: String) = withContext(Dispatchers.IO) {
+        Native.open(Vault.home(context).absolutePath, passphrase)
+        open = true
     }
 
     /**

@@ -15,7 +15,6 @@
 //! and whatever a failed delete leaves is swept by the next login.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use itsanas_crypto::{DeviceId, MasterSecret, PhraseProblem};
 use itsanas_node::node::{Identity, phrase_words};
@@ -85,8 +84,8 @@ const REMOVING_PREFIX: &str = "node.removing-";
 const WITHDRAW_AFTER_LOGIN: &str = "withdraw-after-login";
 
 pub fn lock(
-    slot: &Mutex<Option<Node>>,
-) -> Result<std::sync::MutexGuard<'_, Option<Node>>, Failure> {
+    slot: &crate::shell::Slot,
+) -> Result<std::sync::MutexGuard<'_, Option<std::sync::Arc<Node>>>, Failure> {
     slot.lock()
         .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))
 }
@@ -228,7 +227,10 @@ fn farewell(node: &Node, now: u64) -> Farewell {
 /// Holds the lock to the end: it waits for a running round, and `open_into`
 /// cannot slip a new node into the home on its way out. A coordinator that could
 /// not be told leaves the old id for the next login to withdraw.
-pub fn logout_into(slot: &Mutex<Option<Node>>, home: &Path, now: u64) -> Answer {
+pub fn logout_into(slot: &crate::shell::Slot, home: &Path, now: u64) -> Answer {
+    // Before the lock: the loop holds the store, and would go on answering for
+    // an account that has left this phone.
+    crate::host_run::stop_current();
     let mut guard = lock(slot)?;
     if guard.as_ref().is_none_or(|node| node.home != home) {
         return Err(Failure::Closed);
@@ -254,7 +256,8 @@ pub fn logout_into(slot: &Mutex<Option<Node>>, home: &Path, now: u64) -> Answer 
 
 /// Delete the whole account at the coordinator, then log this phone out. Only
 /// the account's own name, typed, gets this far; a refusal leaves everything.
-pub fn delete_account(slot: &Mutex<Option<Node>>, home: &Path, confirm: &str, now: u64) -> Answer {
+pub fn delete_account(slot: &crate::shell::Slot, home: &Path, confirm: &str, now: u64) -> Answer {
+    crate::host_run::stop_current();
     let mut guard = lock(slot)?;
     if guard.as_ref().is_none_or(|node| node.home != home) {
         return Err(Failure::Closed);
@@ -367,6 +370,7 @@ fn withdraw_pending(node: &Node, now: u64) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
     /// The native screen must flag a misspelt word by its number and accept
     /// only a whole phrase, or a person types 24 words to be told "no".
     /// Sabotage: make `check_words` answer ok whatever it is given.
@@ -522,7 +526,7 @@ mod tests {
             let device = node.store.device_id();
             assert!(live(directory, device), "the fixture is not enrolled");
 
-            let slot = Mutex::new(Some(node));
+            let slot = Mutex::new(Some(std::sync::Arc::new(node)));
             let said = answer(&logout_into(&slot, &home, NOW + 1).expect("logout"));
             assert_eq!(said["withdrawn"], true, "{said}");
             assert_eq!(said["departed"], true, "{said}");
@@ -591,7 +595,7 @@ mod tests {
             let device = node.store.device_id();
             node.config.coordinator = Some("127.0.0.1:1".to_owned());
 
-            let slot = Mutex::new(Some(node));
+            let slot = Mutex::new(Some(std::sync::Arc::new(node)));
             let said = answer(&logout_into(&slot, &home, NOW + 1).expect("logout"));
             assert_eq!(said["withdrawn"], false, "{said}");
             assert_eq!(said["told"], 0, "{said}");
@@ -620,7 +624,7 @@ mod tests {
             assert!(live(directory, device), "no coordinator was asked yet");
 
             // Out again, and a login that reaches the coordinator.
-            *slot.lock().expect("slot") = Some(node);
+            *slot.lock().expect("slot") = Some(std::sync::Arc::new(node));
             let said = answer(&logout_into(&slot, &home, NOW + 3).expect("logout"));
             assert_eq!(said["withdrawn"], false, "{said}");
             let node =
@@ -680,7 +684,7 @@ mod tests {
 
             // The coordinator refuses a deletion dated long ago.
             let now = itsanas_discover::now_unix();
-            let slot = Mutex::new(Some(node));
+            let slot = Mutex::new(Some(std::sync::Arc::new(node)));
             for wrong in ["", "Camille", "voisin"] {
                 let said = usage_of(delete_account(&slot, &home, wrong, now));
                 assert!(said.contains("Nothing was sent"), "{said}");
@@ -709,7 +713,7 @@ mod tests {
         let home = dir.path().join("node");
         let (mut node, _) = Node::create(&home, PASSPHRASE, "camille").expect("create");
         node.config.coordinator = Some("127.0.0.1:1".to_owned());
-        let slot = Mutex::new(Some(node));
+        let slot = Mutex::new(Some(std::sync::Arc::new(node)));
         assert!(
             delete_account(&slot, &home, "camille", NOW).is_err(),
             "an unreachable coordinator counted as deleted"
@@ -725,7 +729,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let home = dir.path().join("node");
         let (node, _) = Node::create(&home, PASSPHRASE, "camille").expect("create");
-        let slot = Mutex::new(Some(node));
+        let slot = Mutex::new(Some(std::sync::Arc::new(node)));
         assert!(matches!(
             logout_into(&slot, &dir.path().join("elsewhere"), NOW),
             Err(Failure::Closed)

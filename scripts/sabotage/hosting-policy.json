@@ -1,0 +1,31 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "-p",
+    "itsanas-policy",
+    "--lib"
+  ],
+  "defences": {
+    "policy: a low battery is not spent": {
+      "file": "crates/itsanas-policy/src/lib.rs",
+      "live": "    if conditions.power == Power::Low {\n        return nothing(\"battery is low\");\n    }\n",
+      "dead": ""
+    },
+    "policy: a data plan needs an allowance": {
+      "file": "crates/itsanas-policy/src/lib.rs",
+      "live": "if settings.metered_allowance == 0 {",
+      "dead": "if false {"
+    },
+    "policy: an allowance can be spent": {
+      "file": "crates/itsanas-policy/src/lib.rs",
+      "live": "} else if facts.metered_used >= settings.metered_allowance {",
+      "dead": "} else if false {"
+    },
+    "policy: switched off still answers": {
+      "file": "crates/itsanas-policy/src/lib.rs",
+      "live": "    if !settings.contribute {\n        return answers(",
+      "dead": "    if false {\n        return answers("
+    }
+  }
+}

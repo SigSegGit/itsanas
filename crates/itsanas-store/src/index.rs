@@ -2293,7 +2293,11 @@ impl Index {
                 .map(|value| postcard::from_bytes::<Reliability>(value.value()))
                 .transpose()?
                 .is_some_and(|record| record.passed > 0);
-            if proved {
+            // And is still about: an audit passed last month says nothing of a
+            // machine wiped last week. Uninstalling a phone tells nobody, and
+            // two such holders must not let the owner drop the last real copy.
+            let audible_since = now.saturating_sub(holders::LIVE_FOR);
+            if proved && last_seen >= audible_since && value.value() >= audible_since {
                 evidence.proved += 1;
             }
         }

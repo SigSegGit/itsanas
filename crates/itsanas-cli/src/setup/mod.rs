@@ -32,6 +32,7 @@ pub(crate) mod secrets;
 pub(crate) mod service;
 pub(crate) mod sign;
 mod steps;
+pub(crate) mod unlock;
 pub(crate) mod verify;
 pub(crate) mod web;
 

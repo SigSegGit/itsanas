@@ -2758,7 +2758,8 @@ fn red_team_a_phone_that_signs_out_locks_at_once() {
     let (node, _) = itsanas_node::Node::create(&home, PASSPHRASE, "camille").expect("create");
     let file = home.with_extension("passphrase");
     std::fs::write(&file, "stand-in\n").expect("stand-in passphrase");
-    let slot: &'static super::Slot = Box::leak(Box::new(Mutex::new(Some(node))));
+    let slot: &'static super::Slot =
+        Box::leak(Box::new(Mutex::new(Some(std::sync::Arc::new(node)))));
     let heard = Heard::default();
     let told = heard.clone();
     let kept = file.clone();
@@ -2846,7 +2847,8 @@ impl ServiceControl for TheApp {
 /// A phone's page over a node it holds open: the Settings of `home`, with the
 /// node in a slot of its own and the shell's events recorded.
 fn phone_page(home: &Path, base: &Path, node: itsanas_node::Node, heard: &Heard) -> Page {
-    let slot: &'static super::Slot = Box::leak(Box::new(Mutex::new(Some(node))));
+    let slot: &'static super::Slot =
+        Box::leak(Box::new(Mutex::new(Some(std::sync::Arc::new(node)))));
     let heard = heard.clone();
     Page::start_with(home, base, Mode::Settings, &Seen::default(), move |b| {
         b.features = Features::PHONE;
@@ -3025,4 +3027,24 @@ fn the_stop_handle_ends_a_server_that_would_otherwise_wait_for_the_idle_exit() {
         "the person left and the page kept answering for an hour"
     );
     let _ = handle.join();
+}
+
+/// The legal texts are in the program, reachable from the first screen and from
+/// Settings, with no network. Sabotage: drop a route; drop a block from a screen.
+#[test]
+fn the_legal_texts_are_served_and_linked_from_both_screens() {
+    for text in [
+        super::LEGAL_NOTICE,
+        super::LEGAL_PRIVACY,
+        super::LEGAL_TERMS,
+    ] {
+        assert!(text.len() > 200, "a legal page is empty");
+    }
+    assert!(super::LEGAL_NOTICE.contains("Nicolas GIRARD"));
+    let html = include_str!("index.html");
+    assert_eq!(
+        html.matches("data-legal=\"/legal/privacy\"").count(),
+        2,
+        "the privacy policy must be one tap away on the first screen and in Settings"
+    );
 }

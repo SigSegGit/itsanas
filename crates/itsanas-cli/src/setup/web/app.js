@@ -739,6 +739,7 @@
     try {
       const state = await api('GET', '/api/state');
       renderSettings(state.settings);
+      await renderHosting();
       return state;
     } catch (e) {
       say(e.message);
@@ -756,6 +757,30 @@
     refreshSettings();
   }
 
+  // What the switch's section showed last, to send only a change.
+  let hostingShown = '';
+
+  function hostingForm() {
+    return {
+      contribute: $('st-contribute').checked ? 'on' : 'off',
+      batteryFloor: $('st-floor').value.trim(),
+      chargingMinutes: $('st-charging').value.trim(),
+      meteredGb: $('st-allowance').value.trim(),
+      meteredPeriod: $('st-period').value,
+    };
+  }
+
+  async function renderHosting() {
+    const values = await api('GET', '/api/hosting');
+    $('st-contribute').checked = values.contribute;
+    $('st-floor').value = values.batteryFloor;
+    $('st-charging').value = values.chargingMinutes;
+    $('st-allowance').value = values.meteredGb;
+    $('st-period').value = values.meteredPeriod;
+    $('st-contribute-fields').disabled = !values.contribute;
+    hostingShown = JSON.stringify(hostingForm());
+  }
+
   function settingsForm() {
     const form = {};
     const pledge = $('st-pledge').value.trim();
@@ -771,13 +796,23 @@
   }
 
   async function apply() {
+    if (JSON.stringify(hostingForm()) !== hostingShown) {
+      try {
+        await api('POST', '/api/hosting', hostingForm());
+        hostingShown = JSON.stringify(hostingForm());
+        $('st-said').textContent = t('Saved.');
+      } catch (e) {
+        $('st-said').textContent = e.message;
+        return;
+      }
+    }
     const form = settingsForm();
     if ($('st-pledge').value.trim() !== '' && !/^\d+$/.test($('st-pledge').value.trim())) {
       $('st-said').textContent = t('Type a whole number of GB.');
       return;
     }
     if (Object.keys(form).length === 0) {
-      $('st-said').textContent = t('Nothing was changed.');
+      if (!$('st-said').textContent) { $('st-said').textContent = t('Nothing was changed.'); }
       return;
     }
     $('apply').disabled = true;
@@ -1257,6 +1292,19 @@
         if ($('st-theme').value === 'system') { document.documentElement.removeAttribute('data-theme'); }
         else { document.documentElement.setAttribute('data-theme', $('st-theme').value); }
       }).catch(function (e) { say(e.message); });
+    });
+    document.querySelectorAll('details[data-legal]').forEach(function (block) {
+      block.addEventListener('toggle', function () {
+        const text = block.querySelector('pre');
+        if (!block.open || text.textContent) { return; }
+        fetch(block.dataset.legal).then(function (r) { return r.text(); }).then(function (body) {
+          text.textContent = body;
+        }).catch(function (e) { text.textContent = e.message; });
+      });
+    });
+    // Grey it at once, without forgetting a value: a disabled field keeps its own.
+    $('st-contribute').addEventListener('change', function () {
+      $('st-contribute-fields').disabled = !this.checked;
     });
     [['st-biometric', 'biometric'], ['st-metered', 'metered']].forEach(function (pair) {
       const box = $(pair[0]);

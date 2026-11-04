@@ -156,6 +156,8 @@ jobs:
       # human noticing, which is not a process. This workspace is the only
       # consumer there is, so a `pub fn` nobody calls is unfinished or forgotten
       # work, and the two look identical from outside.
+      - name: Every sabotage plan can run
+        run: python scripts/check-sabotage-plans.py
       - name: Every public method has a call site
         run: python scripts/check-wired.py
       # A job here once ran for five hours before a person stopped it.

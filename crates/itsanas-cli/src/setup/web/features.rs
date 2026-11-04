@@ -64,7 +64,7 @@ impl Features {
         remove_account: false,
     };
 
-    /// A phone: its files are in the app, it dials out only, and it has the one
+    /// A phone: its files are in the app, its loop runs when the policy says, and it has the one
     /// network the app was built for.
     pub const PHONE: Self = Self {
         folder: false,
@@ -122,6 +122,53 @@ pub trait Host: Send + Sync {
     /// `on` or `off`, or `None` when it does not say.
     fn value(&self, _name: &str) -> Option<String> {
         None
+    }
+}
+
+impl Features {
+    /// [`Features::DESKTOP`] on this computer: Windows Hello and Touch ID exist
+    /// on two of the three systems.
+    pub const THIS_COMPUTER: Self = Self {
+        biometric: cfg!(any(windows, target_os = "macos")),
+        ..Self::DESKTOP
+    };
+}
+
+/// The computer's own: its unlock, when the page turns it on or off.
+#[derive(Debug)]
+pub struct ComputerUnlock {
+    pub home: std::path::PathBuf,
+    pub instance: Option<String>,
+}
+
+impl Host for ComputerUnlock {
+    fn event(&self, name: &str, value: &str) {
+        use crate::setup::unlock;
+        if name != "biometric" {
+            return;
+        }
+        let service: Box<dyn crate::setup::service::ServiceControl> = Box::new(
+            crate::setup::service::Platform::of_this_machine(&self.home, self.instance.as_deref()),
+        );
+        let done = if value == "on" {
+            unlock::enable(&self.home, service.as_ref(), unlock::platform_gate)
+        } else {
+            unlock::disable(&self.home, service.as_ref(), unlock::platform_gate)
+        };
+        if let Err(why) = done {
+            eprintln!("itsanas: the unlock did not change: {why}");
+        }
+    }
+
+    fn value(&self, name: &str) -> Option<String> {
+        (name == "biometric").then(|| {
+            if crate::setup::unlock::is_on(&self.home) {
+                "on"
+            } else {
+                "off"
+            }
+            .to_owned()
+        })
     }
 }
 

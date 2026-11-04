@@ -55,6 +55,7 @@ CRATES = ROOT / "crates"
 MAY_RELAX = {
     "itsanas-android": "the JVM export attribute",
     "itsanas-drive": "the ProjFS callbacks",
+    "itsanas-touchid": "the LAContext call",
 }
 
 # The only files that may write unsafe code, as paths under `crates/`. A file,
@@ -62,6 +63,7 @@ MAY_RELAX = {
 # binding, and the binding is what the exception is for.
 MAY_WRITE_UNSAFE = {
     "itsanas-drive/src/projfs.rs",
+    "itsanas-touchid/src/lib.rs",
 }
 
 PERMITTED_ATTRIBUTES = ("unsafe(no_mangle)", "unsafe(export_name)")

@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-03 — 1594 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 571 are red-team tests.**
+**Last updated: 2026-11-04 — 1611 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 583 are red-team tests.**
 
-**1478 of the 1594 tests have an entry of their own on this page** — an *entry*,
+**1495 of the 1611 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -160,7 +160,7 @@ guarantee and is not one.
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 227 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
-| `itsanas-store` integration (`tests/store.rs`) | 49 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 50 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
@@ -170,19 +170,19 @@ guarantee and is not one.
 | `itsanas-net` eviction (`tests/eviction.rs`) | 2 |
 | `itsanas-net` placement (`tests/placement.rs`) | 17 |
 | `itsanas-placement` unit | 71 |
-| `itsanas-coord` unit | 133 (1 `#[ignore]`d) |
+| `itsanas-coord` unit | 134 (1 `#[ignore]`d) |
 | `itsanas-coord` integration (`tests/coordinator.rs`) | 18 |
 | `itsanas-coordinator` crash (`tests/crash.rs`) | 2 |
 | `itsanas-discover` unit | 51 |
-| `itsanas-policy` unit | 23 |
+| `itsanas-policy` unit | 27 |
 | `itsanas-folder` unit | 32 |
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 333 |
+| `itsanas-cli` unit | 342 |
 | `itsanas-android` unit | 24 |
 | `itsanas-drive` unit | 21 |
-| `itsanas-node` unit | 175 |
+| `itsanas-node` unit | 177 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -215,13 +215,13 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `wire` | peer and coordinator framing, versions, verb numbering | 5 |
 | `tls` | handshakes, session limits | 4 |
 | `identity` | keys, accounts, devices, claims, invitations | 81 |
-| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 65 |
+| `coordinator` | directory, presences, accounting, the coordinator as an adversary | 66 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
-| `placement-audit` | where copies go, audits, reliability, release | 40 |
+| `placement-audit` | where copies go, audits, reliability, release | 46 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 32 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 55 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 184 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 57 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 187 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -730,7 +730,7 @@ holds a copy of.
 
 ---
 
-# `itsanas-store` — integration tests (49)
+# `itsanas-store` — integration tests (50)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -1033,6 +1033,22 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`an_audit_never_asks_about_a_chunk_it_could_not_check`** | Verifying a proof means re-deriving the sealed bytes locally. Challenging on a chunk this device has collected would fail for a reason that is nothing to do with the peer, and would withdraw an honest record. |
 | `an_audit_confirms_a_host_that_is_still_holding_the_data` | The ordinary path: evidence becomes proof, for the moment it is asked. |
 | **`a_metadata_round_makes_the_file_listable_before_it_is_downloaded`** | The behaviour everyone expects from a phone: everything listed, tap one to download it. Before the catalogue, a metadata round left the file invisible — deferred means no index entry, and a client on a metered connection could show nothing at all. |
+| **`red_team_a_phone_hosts_another_account_and_on_battery_only_answers`** | The daemon's loop on a phone's node: another account stores chunks on it and audits them, and on battery it answers the audit and takes in nothing new. |
+| **`red_team_the_coordinator_introduces_hosts_that_offer_space_and_nothing_else`** | A member is told of another account's machine that offers space: not their own, not one offering nothing, no address leading to a private network. |
+| **`red_team_release_does_not_rest_on_silent_low_presence_holders`** | Holders that passed audits and then went silent for over `LIVE_FOR` no longer allow a release. |
+| **`red_team_switching_off_declares_nothing_and_forgets_nothing`** | Switched off, a machine declares no space and keeps the value; every setting survives the file. |
+| `a_default_file_says_nothing_of_the_hosting_settings` | A machine that never touched these writes no line an older version would refuse. |
+| **`red_team_a_refused_form_changes_nothing_and_the_switch_keeps_the_space`** | One bad value keeps the whole form out, and the switch never forgets the space offered. |
+| `the_form_reaches_every_setting` | Each field of the form reaches its setting. |
+| **`red_team_a_sealed_passphrase_opens_for_the_person_and_leaves_no_clear_copy`** | Sealed behind the system's unlock: the clear copy is gone, another key opens nothing, and switching off puts the passphrase back. |
+| **`red_team_a_seal_that_cannot_be_opened_never_replaces_the_passphrase`** | A refusal, or a system answering differently twice, leaves the passphrase where it was. |
+| `the_legal_texts_are_served_and_linked_from_both_screens` | The three texts are in the program, and on the first screen and in Settings. |
+| **`red_team_signing_out_stops_the_loop`** | Signing out on the page ends the loop, whichever shell started it. |
+| **`red_team_a_personal_device_runs_no_loop`** | Switched off with nothing held, the loop stops and no listener stays open. |
+| **`red_team_hosting_never_spends_a_low_battery_or_an_unallowed_data_plan`** | Over every combination of conditions and settings: nothing runs at the battery floor or with no network, and a metered link never takes in or goes past its allowance. |
+| **`red_team_switching_off_keeps_answering_for_what_it_holds`** | Switched off while holding other members' copies, a machine goes on answering for them. |
+| `charging_takes_in_and_a_battery_only_answers` | The two modes: charging on a free connection takes in, on battery it answers only. |
+| `the_floor_decides_low_and_charging_never_is` | The owner's battery floor decides `Low`; charging never is. |
 | **`red_team_a_file_only_listed_here_can_be_deleted_from_the_account`** | A phone that holds only the listing deletes a file: it stops being listed, and the deletion reaches the machine that holds it. |
 | **`red_team_a_delete_of_a_listed_file_loses_to_an_edit_it_did_not_see`** | An edit the phone had not seen survives its deletion on the laptop, and is listed on the phone again. |
 | `deleting_what_the_account_does_not_have_deletes_nothing` | A path nobody has gets no tombstone. |
@@ -1206,7 +1222,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (333)
+# `itsanas-cli` — unit tests (342)
 
 ## `bench` — measuring this machine (4)
 
@@ -1739,7 +1755,7 @@ output of `install/provision.sh`, which pipes `status` into `head` itself.
 | `the_list_marks_this_phone_among_the_account_s_devices` | The devices screen's list: both devices of the account, this phone marked once, `complete` true when enrolled. |
 | **`red_team_the_phone_s_setters_keep_the_split`** | `set_pledge` and `set_keep`, the bodies of `setPledge` and `setKeep`, refuse a pledge under what keep needs and a keep the pledge does not earn, and leave the node file and the node in memory (a process-wide mutex, saved by the next setter) as they were; with no keep, both go through. Reaches the two functions, **not the JNI shims** that lock the node and call them -- those are covered only by reading. Sabotaged five ways (either call dropped; either call moved below its assignments; `check_split` always `Ok`): red. |
 
-# `itsanas-policy` — when to sync, and how much (23)
+# `itsanas-policy` — when to sync, and how much (27)
 
 `src/lib.rs`. A decision table with an argument attached to every row, and no
 dependency on anything — so the phone, the Mac shell and `itsanas daemon` reach
@@ -1784,7 +1800,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (198)
+# `itsanas-node` — a node on disk (200)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -1997,7 +2013,7 @@ not read, the pledge kept whatever the free space.
 | `what_a_phone_already_holds_counts_towards_what_it_can_use` | `phone_usable`: files already here count, since a budget can release them; a small disk keeps the fixed headroom; less free than the headroom is 0, not a wrapped number. |
 | `a_promise_the_disk_cannot_keep_is_refused_with_its_figures` | `disk_refusal` and `overcommitted` as values each shell words itself: fits, does not fit, not known. No limit on keep still owes the pledge. |
 
-## `config` — settings (29)
+## `config` — settings (31)
 
 | Test | What it proves |
 | --- | --- |
@@ -2513,7 +2529,7 @@ is pinned down, which is what these three do.
 | **`a_device_enrolled_by_an_older_binary_is_found_again_at_the_next_start`** | The operation that breaks a repair conditioned on "the index is empty", and it is one that has been performed on the Pi: **downgrading the coordinator binary**. An older build enrols devices by writing the claims table and knowing nothing of the index, so coming back up the index is *stale* rather than empty and the repair would skip. Those machines would be permanently invisible — `claim_for` knows them, they announce, and `peers_of` never returns them. The condition is row counts disagreeing, which covers empty and stale alike. Found by the Rodin audit of 2026-09-18. |
 | **`a_directory_written_before_the_index_existed_is_repaired_on_open`** | The upgrade. A coordinator running since before this table has claims and no index; reading that as "this account has no devices" would be silent and total — every member told their machines are gone, and the only clue being that it started at an upgrade. The file is repaired on open instead, the same rule as the holder ledger's second ordering. |
 
-# `itsanas-coord` — asking whether a member can be reached (12)
+# `itsanas-coord` — asking whether a member can be reached (13)
 
 The one question a machine cannot answer about itself: a node knows it reached
 the coordinator, because it just did, and nothing tells it whether anything can
@@ -2530,6 +2546,7 @@ refuses to do.
 | **`red_team_a_probe_cannot_be_aimed_at_the_coordinators_own_network`** | A coordinator that dials what a caller names is a port scanner with somebody else's address on it. It dials only what the caller **announced**, which carries that device's own signature, and never a private, loopback, link-local or CGNAT address — which would be a scan of the coordinator's own LAN, the one network a member has no business reaching. Checks six ranges a home actually uses, and the three public shapes the feature exists for. |
 | **`red_team_a_device_with_no_account_cannot_make_the_coordinator_dial_anything`** | Device keys are free keypairs, so completing a handshake identifies a caller and vouches for nothing. The refusal has to name *enrolment*: an unenrolled device also has no presence, so "there is nothing to probe" refuses it by accident today and would stop doing so the day anything else writes a presence. |
 | **`a_withdrawn_device_stops_being_probed_for`** | Withdrawal is the account saying a machine no longer speaks for it. A stolen laptop keeps its key, and must stop buying the coordinator's outbound connections with it. |
+| **`red_team_hosts_lists_only_another_accounts_live_offering_machines`** | `Request::Hosts` lists a machine of another account that offers space and was heard within `PRESENCE_TTL`, and no other: not the asker's own, not one withdrawn, offering nothing, silent or of a suspended account. The client filters some of these again, so this reads the coordinator's own list. Sabotaged by dropping each condition of `hosts_for` (`scripts/sabotage/coord.json`). |
 | **`a_device_that_never_announced_is_told_so_rather_than_probed`** | There is nothing to probe, and the alternative — letting the caller supply an address — is the scanner above. |
 | **`red_team_asking_to_be_probed_again_and_again_buys_one_probe_an_hour`** | Without a budget, a member's daemon turns every round into an outbound connection the coordinator pays for, which is the load this design exists to keep off it. Also checks that the window *reopens*: a machine that really did move must be able to find out it is reachable again. |
 | **`red_team_a_probe_that_reaches_a_different_machine_is_not_a_success`** | The reason the probe is a device-authenticated handshake and not a connection. A forward pointing at the wrong host — the other Pi, a printer, a neighbour on the same public address — is an open port, and reporting it as success tells a member their setup works while every peer that dials them is refused by the device pinning. |

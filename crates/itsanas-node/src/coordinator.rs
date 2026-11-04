@@ -336,7 +336,7 @@ pub fn register_with(node: &Node, invite: Option<&Secret>, now: u64) -> Result<(
     let claim = NodeClaim {
         owner: node.store.owner(),
         device: node.store.device_id(),
-        pledged_bytes: node.config.pledge_bytes,
+        pledged_bytes: node.config.offered_bytes(),
         issued_unix: now,
         revoked: false,
     }
@@ -1037,6 +1037,48 @@ pub fn verified_claimed(
         .collect();
     let dropped = offered - kept.len();
     (kept, dropped)
+}
+
+/// Machines of other accounts that offer space, from the coordinator: how a
+/// member with no typed address and nobody on their LAN finds a host at all.
+///
+/// Each row is checked against the account its own claim names, and is dialled
+/// with its device pinned, as a stranger found on a LAN is. Nothing private is
+/// kept, also inside a `relay:` address: a list from outside must not send this
+/// machine to its own network. A coordinator older than this hangs up, which is
+/// an empty list.
+///
+/// # Errors
+///
+/// If the coordinator cannot be reached.
+pub fn hosts(node: &Node) -> Result<Vec<(DeviceId, String)>> {
+    let mut client = dial(node)?;
+    let Ok(Response::Hosts(list)) = client.ask(&Request::Hosts) else {
+        return Ok(Vec::new());
+    };
+    Ok(list
+        .into_iter()
+        .take(itsanas_coord::protocol::MAX_HOSTS_RETURNED)
+        .filter(|row| {
+            let owner = row.claim.claim.owner;
+            owner != node.store.owner()
+                && row.claim.claim.pledged_bytes > 0
+                && row.verify_for(owner).is_ok()
+                && dialable_from_anywhere(&row.presence.presence.address)
+        })
+        .map(|row| (row.presence.presence.device, row.presence.presence.address))
+        .collect())
+}
+
+/// Whether an address could work from another network, looking through a
+/// `relay:` to the address it carries. A relay with none is not.
+fn dialable_from_anywhere(address: &str) -> bool {
+    match address.strip_prefix(crate::contact::RELAY_PREFIX) {
+        Some(relayed) => relayed
+            .split_once('@')
+            .is_some_and(|(_, at)| !at.is_empty() && !is_private_address(at)),
+        None => !is_private_address(address),
+    }
 }
 
 /// Every device enrolled under this account, reachable or not.

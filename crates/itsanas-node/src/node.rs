@@ -374,7 +374,7 @@ impl Node {
         let claim = itsanas_coord::claim::NodeClaim {
             owner: self.store.owner(),
             device: self.store.device_id(),
-            pledged_bytes: self.config.pledge_bytes,
+            pledged_bytes: self.config.offered_bytes(),
             issued_unix: now,
             revoked: false,
         }
@@ -545,7 +545,7 @@ impl Node {
             &self.home,
             crate::pledges::shared_dir().as_deref(),
             &self.store.device_id().to_hex(),
-            self.config.pledge_bytes,
+            self.config.offered_bytes(),
             held,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -562,7 +562,7 @@ impl Node {
             local_ceiling: Self::disk_room(
                 free,
                 if same_volume(&self.home, &self.vault_dir()).unwrap_or(true) {
-                    self.config.pledge_bytes
+                    self.config.offered_bytes()
                 } else {
                     0
                 },

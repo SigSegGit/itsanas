@@ -10,8 +10,8 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0c
-TITLE: Nicolas's hand test on 0.1.17, with Mandarine (§8 0c)
-WRITTEN-AT: 2026-11-03
+TITLE: Nicolas's hand test, with Mandarine, on the version carrying §8 10 (§8 0c)
+WRITTEN-AT: 2026-11-04
 BASE: 9ea9982
 -->
 
@@ -60,6 +60,18 @@ the file list shows the line. Deleting the phone's old login path showed it was 
 caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
+
+**2026-11-04: a phone runs the daemon's loop.** Nicolas moved his hand test (8.0c) to after §8 10.
+`daemon::host_until` is `itsanas daemon`'s own loop, without the signals or the self-update;
+`host_run::tick` starts and stops it as `itsanas_policy::hosting` says; the app only reports what it
+sees (`Native.hostTick`). `daemon.rs` did not move: it is already in the library. The slot now holds
+`Arc<Node>`, because the loop holds the node too: a change through the page and a sign-out stop the
+loop first. Trap, paid for once: a test of this loop with `local_network` on dials the neighbours and
+opens a port on the developer's router (a mapping for an hour). Tests pass `false`.
+
+Then the rest of §8 10 on the same PR. `Request::Hosts` gives a machine that offers space to other
+members, by default: `docs/legal/PRIVACY.md` says so. Not run on a real phone or a real Mac: the
+worker, Windows Hello's and Touch ID's own prompts, a relayed host across two networks.
 
 **2026-11-03: the first real phone (Galaxy S25, Android 17, wireless adb), and folders on the
 Files screen.** The self-update went 0.1.15 to 0.1.16 with the account intact, and a real folder of
@@ -122,7 +134,8 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
 
-0. **Release 0.1.17**, then the laptop, which was still on 0.1.12 on 2026-11-03. On the phone, ITSaNAS
+0. **The one-shot acceptance run of 0.1.17**, in the owner's private notes (`RECETTE-0.1.17.md`): every
+   command in order, and the report to send back. It starts with the release, then the laptop, which was still on 0.1.12 on 2026-11-03. On the phone, ITSaNAS
    offers the update when opened, once a day, after the unlock:
 
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
@@ -3806,6 +3819,41 @@ Detail and measurements are in ROADMAP.md; this is the map.
    the coordinator's swarm-wide marking stays ⬜, and must never feed
    placement (§6). Not before (a): changing
    the default.
+
+10. **The next version, before the hand test (decided by Nicolas, 2026-11-03).** Rule: nothing tells
+    a phone from another machine on the network; it runs the same loop, and only `itsanas-policy`
+    decides when. The study behind it is in the owner's private notes, and its figures are not
+    published. In order:
+
+    a. 🟨 **A phone hosts.** `host_until`, `host_run`, `hosting`, built. **Left:**
+       - Hosts between accounts: built. `Request::Hosts` names up to 8 machines of other accounts
+         that offer space, the same few for one caller; the round dials them pinned, its claim
+         presented. Not run across two real networks.
+       - Marks: only `measured` ever sends `MayEvict`, so in `everyone` a machine switched off keeps
+         what it holds and goes on answering. Nothing is deleted. No manual purge is offered.
+       - Release, relay grouping: built (`holder_evidence`, `network_address`).
+       - Declared space: unchanged on purpose. A claim capped by what is held would earn a new
+         machine nothing and keep it off `Request::Hosts`; a phone is treated as a PC.
+       - `metered_used`: the system's counters between two looks (`Vault.meteredUsed`), all of the
+         app's traffic. `metered` is not cellular, and the page says so.
+    b. ✅ **One switch, "Contribute to the network", on by default**, the same page everywhere: off
+       declares nothing (`Config::offered_bytes`), greys the section and keeps the values. The
+       settings are in `Config`, read through `hosting_settings`; battery and data draw on a phone.
+       Not done: below its floor a phone stops rather than slows (`plan`'s low row).
+    c. 🟨 **Android 15's six hours.** `onTimeout`, `onTaskRemoved`, not sticky; `SyncWorker` carries
+       on every 15 minutes, 9 of them hosting, and reopens only what the person left open. Built,
+       and nothing tests the worker: no scenario runs an app closed.
+    d. 🟨 **Windows Hello and Touch ID**, optional, off by default (`setup/unlock.rs`). The sealed
+       file replaces the passphrase file; the daemon asks at start. Windows needs no `unsafe`; the
+       Mac's `LAContext` call is `itsanas-touchid`. The logic is tested with stand-in gates; neither
+       system's own prompt has run. Left: changing the passphrase while sealed does not reseal.
+    e. ✅ **Legal texts**: `docs/legal/`, embedded, on the first screen and in Settings.
+    f. ✅ **The Android logo**: the launcher's vector drawn and compared with `docs/assets/icon.png`.
+    Nicolas's call, 2026-11-04: `Request::Hosts` stays on by default, knowing that many accounts
+    can list the machines that contribute.
+
+    g. Then 8.0c, Nicolas's hand test with Mandarine, and two modes to measure on it: plugged in on
+       Wi-Fi, and on battery on Wi-Fi answering only.
 
 9. **Three features Nicolas chose on 2026-11-03**, when everything else open in §8 waited on
    him. In this order; none has a specification yet, so each starts by reading the code named.

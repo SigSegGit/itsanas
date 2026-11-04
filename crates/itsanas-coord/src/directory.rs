@@ -1241,6 +1241,27 @@ impl Directory {
         }
     }
 
+    /// Up to `scan` addresses, in device order from just after `after`, going
+    /// round. Device ids are random, so this is an even sample, the same for
+    /// the same `after`, and bounded however many machines there are.
+    ///
+    /// # Errors
+    ///
+    /// If the database cannot be read.
+    pub fn presences_after(&self, after: DeviceId, scan: usize) -> Result<Vec<SignedPresence>> {
+        let txn = self.db.begin_read()?;
+        let presence = txn.open_table(PRESENCE)?;
+        let from = after.to_bytes();
+        let mut out = Vec::new();
+        let later = presence.range(from.as_slice()..)?;
+        let earlier = presence.range(..from.as_slice())?;
+        for row in later.chain(earlier).take(scan) {
+            let (_, value) = row?;
+            out.push(postcard::from_bytes(value.value())?);
+        }
+        Ok(out)
+    }
+
     /// Erase the address and the availability record of every device silent
     /// for longer than `older_than`. Returns how many devices that was.
     ///

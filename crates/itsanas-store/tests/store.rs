@@ -1498,20 +1498,23 @@ fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
 
     let peer = DeviceKeys::generate().expect("device key").device_id();
     let other = DeviceKeys::generate().expect("device key").device_id();
+    // Every stamp below is written in several calls, and a second can tick
+    // between them. Measuring the window from one of them measured the clock
+    // instead: the test failed on Windows runners whenever the tick landed
+    // there. Reproduced every time by sleeping a second between the two calls.
+    // A clock read before all of them is at or behind each one.
+    let before = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs();
     store.record_holders(&chunks, &peer).expect("record");
     store.note_audit(&peer, true).expect("audit");
     store.record_holders(&chunks, &other).expect("record");
     store.note_audit(&other, true).expect("audit");
-    // Two holders are heard from in two calls, and a second can tick between
-    // them. Measuring the window from one of them measured the clock instead:
-    // the test failed on Windows runners whenever the tick landed there, with
-    // the later holder still exactly inside its window. Reproduced every time
-    // by sleeping a second between the two calls.
     let seen = |device| store.last_seen(device).expect("last seen").expect("seen");
-    let earliest = seen(&peer).min(seen(&other));
 
-    // One second before the records go stale, they still count -- for both.
-    let last_moment = earliest + itsanas_store::holders::CONFIRMED_FOR;
+    // A proved holder allows a release for LIVE_FOR, and still does at its end.
+    let last_moment = before + itsanas_store::holders::LIVE_FOR;
     match store.release("notes.txt", last_moment).expect("release") {
         itsanas_store::Release::Gone(_) => {}
         other => panic!("a record inside the window was refused: {other:?}"),
@@ -1584,6 +1587,48 @@ fn releasing_one_file_leaves_a_chunk_another_file_still_uses() {
         store.read_file("copy-two.bin").expect("read"),
         Some(shared),
         "releasing one file destroyed the other"
+    );
+}
+
+/// A holder that once passed its audits and then went silent proves nothing: a
+/// phone uninstalled tells nobody. Sabotage: count `proved` without its age.
+#[test]
+fn red_team_release_does_not_rest_on_silent_low_presence_holders() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let master = MasterSecret::generate().expect("master");
+    let store = store_for(&master, dir.path());
+    store
+        .write_file("only-here.bin", &vec![4u8; 200_000])
+        .expect("write");
+    let chunks = store
+        .stat("only-here.bin")
+        .expect("stat")
+        .expect("here")
+        .chunks;
+    for _ in 0..itsanas_store::holders::SAFE_TO_RELEASE {
+        let peer = DeviceKeys::generate().expect("device key").device_id();
+        store.record_holders(&chunks, &peer).expect("record");
+        store.note_audit(&peer, true).expect("audit");
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs();
+    let silent = now + itsanas_store::holders::LIVE_FOR + 3_600;
+    assert!(
+        matches!(
+            store.release("only-here.bin", silent).expect("release"),
+            itsanas_store::Release::NotSafeYet { .. }
+        ),
+        "the owner dropped its copy on the word of holders silent for over a week: wiped, the \
+         file is gone"
+    );
+    assert!(
+        matches!(
+            store.release("only-here.bin", now).expect("release"),
+            itsanas_store::Release::Gone(_)
+        ),
+        "holders heard from just now must still allow a release"
     );
 }
 

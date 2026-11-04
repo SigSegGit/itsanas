@@ -41,6 +41,7 @@
 //! file (`control.rs`) as the tray's do.
 
 mod features;
+mod hosting;
 mod http;
 mod json;
 mod nodes;
@@ -78,6 +79,10 @@ use crate::{
 
 const INDEX_HTML: &str = include_str!("index.html");
 const APP_CSS: &str = include_str!("app.css");
+const LEGAL_NOTICE: &str = include_str!("../../../../../docs/legal/NOTICE.md");
+const LEGAL_PRIVACY: &str = include_str!("../../../../../docs/legal/PRIVACY.md");
+const LEGAL_TERMS: &str = include_str!("../../../../../docs/legal/TERMS.md");
+const TEXT: &str = "text/plain; charset=utf-8";
 const APP_JS: &str = include_str!("app.js");
 /// The page's other languages, keyed by its English text.
 const I18N_JS: &str = include_str!("i18n.js");
@@ -356,10 +361,13 @@ impl Backends {
                 let running: Running = Box::new(move || matches!(child.try_wait(), Ok(None)));
                 Ok(running)
             }),
-            features: Features::DESKTOP,
+            features: Features::THIS_COMPUTER,
             phone: false,
             fixed_coordinator: None,
-            host: Arc::new(NoHost),
+            host: Arc::new(features::ComputerUnlock {
+                home: home.to_owned(),
+                instance: instance.map(str::to_owned),
+            }),
         }
     }
 }
@@ -700,6 +708,9 @@ fn route(ctx: &Arc<Context>, request: &Request) -> Response {
         ("GET", "/app.js") => Response::new(200, "text/javascript; charset=utf-8", APP_JS),
         ("GET", "/i18n.js") => Response::new(200, "text/javascript; charset=utf-8", I18N_JS),
         ("GET", "/icon.png") => Response::new(200, "image/png", ICON_PNG),
+        ("GET", "/legal/notice") => Response::new(200, TEXT, LEGAL_NOTICE),
+        ("GET", "/legal/privacy") => Response::new(200, TEXT, LEGAL_PRIVACY),
+        ("GET", "/legal/terms") => Response::new(200, TEXT, LEGAL_TERMS),
         (_, path) if path.starts_with("/api/") => api(ctx, request),
         ("GET", _) => Response::refuse(404, "no such page"),
         _ => Response::refuse(405, "not here"),
@@ -799,6 +810,8 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("GET", "/api/plan") => ok_json(plan_json(ctx)),
         ("POST", "/api/run") => start_run(ctx, request),
         ("POST", "/api/control") if ctx.mode == Mode::Settings => steer(ctx, request),
+        ("GET", "/api/hosting") if ctx.mode == Mode::Settings => hosting_values(ctx),
+        ("POST", "/api/hosting") if ctx.mode == Mode::Settings => hosting_save(ctx, request),
         ("POST", "/api/signout") if ctx.mode == Mode::Settings => sign_out(ctx),
         ("POST", "/api/disk") if ctx.mode == Mode::Settings => disk_job(ctx, request),
         ("POST", "/api/name") if ctx.mode == Mode::Setup => check_name(ctx, request),
@@ -1405,9 +1418,12 @@ fn node_call(
     if let Err(failure) = nodes.open() {
         return Response::refuse(409, &failure.message());
     }
+    // A change to the node needs it alone. The service's next look starts the
+    // loop again, on the new values.
+    crate::host_run::stop_current();
     let outcome = {
         let mut held = nodes.slot().lock().unwrap_or_else(PoisonError::into_inner);
-        match held.as_mut() {
+        match held.as_mut().and_then(std::sync::Arc::get_mut) {
             Some(node) => body(node),
             None => Err(Failure::Closed),
         }
@@ -1648,6 +1664,28 @@ fn start_job(
 
 /// Pause, resume, sync now, interval: the control file, through the same
 /// function the commands use, so the page says the commands' words.
+/// The switch and its settings, read from the file: asking must not disturb a
+/// loop that is running.
+fn hosting_values(ctx: &Context) -> Response {
+    match itsanas_node::config::Config::load(&Node::config_path(&ctx.home)) {
+        Ok(config) => ok_json(hosting::to_json(&config)),
+        Err(error) => Response::refuse(409, &error.to_string()),
+    }
+}
+
+/// Save them on the open node, so the next look of the policy reads them.
+fn hosting_save(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    node_call(ctx, |node| {
+        hosting::apply(&mut node.config, &form).map_err(Failure::Usage)?;
+        node.save_config()?;
+        Ok(hosting::to_json(&node.config))
+    })
+}
+
 fn steer(ctx: &Context, request: &Request) -> Response {
     let form = match json::parse_form(&request.body) {
         Ok(form) => form,

@@ -32,6 +32,9 @@
     <!-- ===== Setup: one step at a time ===== -->
     <section data-page="welcome" hidden>
       <h1 tabindex="-1">Welcome</h1>
+        <details class="legal" data-legal="/legal/notice"><summary>Legal notice</summary><pre></pre></details>
+        <details class="legal" data-legal="/legal/privacy"><summary>Privacy policy</summary><pre></pre></details>
+        <details class="legal" data-legal="/legal/terms"><summary>Terms of use</summary><pre></pre></details>
       <p class="lead">ITSaNAS keeps a folder in sync between your machines. Your files are locked with a key only you have, and copies are kept on other members' computers in case yours breaks.</p>
       <p>Three questions, then ITSaNAS sets itself up. If something stops, start again and it picks up where it left off.</p>
       <dl class="facts" data-feature="advanced">
@@ -211,14 +214,38 @@
         </div>
       </section>
 
-      <section class="card" aria-labelledby="st-h-machine">
-        <h2 id="st-h-machine">This machine</h2>
-        <p class="help">Changing these restarts ITSaNAS (a few seconds).</p>
+      <section class="card" aria-labelledby="st-h-contribute">
+        <h2 id="st-h-contribute">Contribute to the network</h2>
+        <div class="field">
+          <label class="choice"><input type="checkbox" id="st-contribute"> Offer this machine to the network</label>
+          <p class="help">Off, this machine takes in nothing and declares no space, and your values below are kept. What it already holds for others stays, and it goes on answering for it.</p>
+        </div>
+        <fieldset id="st-contribute-fields" class="plain">
         <div class="field">
           <label for="st-pledge">Space offered to others, in GB</label>
           <div class="controls"><input id="st-pledge" class="short" type="number" min="0" step="1" inputmode="numeric" aria-describedby="st-pledge-now"></div>
           <p id="st-pledge-now" class="help"></p>
         </div>
+        <div class="field" data-feature="metered">
+          <label for="st-charging">Minutes between rounds while charging</label>
+          <div class="controls"><input id="st-charging" class="short" type="number" min="1" step="1" inputmode="numeric"></div>
+        </div>
+        <div class="field" data-feature="metered">
+          <label for="st-floor">Battery level at or below which it stops working in the background, in percent</label>
+          <div class="controls"><input id="st-floor" class="short" type="number" min="0" max="100" step="1" inputmode="numeric"></div>
+        </div>
+        <div class="field" data-feature="metered">
+          <label for="st-allowance">Mobile data it may use for others, in GB (0: none)</label>
+          <div class="controls"><input id="st-allowance" class="short" type="number" min="0" step="1" inputmode="numeric">
+            <select id="st-period" aria-label="Counted per"><option value="hour">per hour</option><option value="day">per day</option><option value="week">per week</option><option value="month">per month</option></select></div>
+          <p class="help">A connection the system marks as metered counts as mobile data, whatever it is.</p>
+        </div>
+        </fieldset>
+      </section>
+
+      <section class="card" aria-labelledby="st-h-machine">
+        <h2 id="st-h-machine">This machine</h2>
+        <p class="help">Changing these restarts ITSaNAS (a few seconds).</p>
         <div class="field" data-feature="folder">
           <label for="st-folder">Folder</label>
           <div class="controls"><input id="st-folder" spellcheck="false" autocapitalize="none"><button type="button" id="st-folder-browse">Browse&hellip;</button><button type="button" id="st-open-folder">Open</button></div>
@@ -342,6 +369,7 @@
         <h2 id="st-h-security">Security</h2>
         <div class="field" data-feature="biometric">
           <label class="choice"><input type="checkbox" id="st-biometric"> Unlock with my fingerprint or face</label>
+          <p class="help">Asked when the session opens. A machine restarted with nobody signed in waits for them.</p>
         </div>
         <div class="field">
           <span class="label">My 24 recovery words</span>
@@ -403,6 +431,9 @@
       <section class="card" aria-labelledby="st-h-about">
         <h2 id="st-h-about">About and legal</h2>
         <p class="help">ITSaNAS <span id="st-version"></span></p>
+        <details class="legal" data-legal="/legal/notice"><summary>Legal notice</summary><pre></pre></details>
+        <details class="legal" data-legal="/legal/privacy"><summary>Privacy policy</summary><pre></pre></details>
+        <details class="legal" data-legal="/legal/terms"><summary>Terms of use</summary><pre></pre></details>
         <ul class="links">
           <li><a href="https://github.com/SigSegGit/itsanas/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Licence (AGPL-3.0)</a></li>
           <li><a href="https://github.com/SigSegGit/itsanas" target="_blank" rel="noopener noreferrer">Source code</a></li>

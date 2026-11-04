@@ -1,0 +1,15 @@
+{
+  "command": ["cargo", "test", "-p", "itsanas-cli", "--lib", "unlock"],
+  "defences": {
+    "unlock: no clear copy stays": {
+      "file": "crates/itsanas-cli/src/setup/unlock.rs",
+      "live": "    service.forget().map_err(|e| e.to_string())?;\n",
+      "dead": ""
+    },
+    "unlock: read back before the only copy goes": {
+      "file": "crates/itsanas-cli/src/setup/unlock.rs",
+      "live": "    if !opened(home, gate).is_ok_and(|back| back.as_str() == passphrase.as_str()) {",
+      "dead": "    if false {"
+    }
+  }
+}

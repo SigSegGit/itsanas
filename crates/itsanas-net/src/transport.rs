@@ -764,6 +764,8 @@ pub struct PeerClient {
     /// The address the socket reached, for a direct session only: over a
     /// splice it would be the relay's, which says nothing about the peer.
     direct: Option<std::net::IpAddr>,
+    /// The relay this session went through, when it did.
+    via: Option<std::net::IpAddr>,
 }
 
 impl std::fmt::Debug for PeerClient {
@@ -852,9 +854,10 @@ impl PeerClient {
                 });
             }
         }
+        let via = outer.direct;
         let (stream, rest) = outer.connection.into_parts();
         let until = budget.map(|budget| Instant::now() + budget);
-        Self::establish(
+        let mut spliced = Self::establish(
             Budgeted {
                 stream: Box::new(crate::relay::Prefixed::new(rest, stream)),
                 until,
@@ -863,7 +866,9 @@ impl PeerClient {
             owner,
             Some(target),
             None,
-        )
+        )?;
+        spliced.via = via;
+        Ok(spliced)
     }
 
     /// The stream back, and what was read past the last message: a park
@@ -888,6 +893,7 @@ impl PeerClient {
             peer_device: peer,
             spoken: MIN_PROTOCOL_VERSION,
             direct,
+            via: None,
         };
 
         // Version negotiation after authentication, so an incompatible peer
@@ -930,6 +936,18 @@ impl PeerClient {
     #[must_use]
     pub const fn direct_address(&self) -> Option<std::net::IpAddr> {
         self.direct
+    }
+
+    /// The address that says which network this peer counts under: its own
+    /// when dialled directly, its relay's otherwise. Parked machines in one
+    /// house are one household, and ten emulators behind one relay must not
+    /// read as ten networks.
+    #[must_use]
+    pub const fn network_address(&self) -> Option<std::net::IpAddr> {
+        match self.direct {
+            Some(address) => Some(address),
+            None => self.via,
+        }
     }
 
     /// The protocol version both sides settled on.

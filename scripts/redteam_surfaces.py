@@ -79,6 +79,8 @@ SURFACES = [
         'itsanas-store/src/index/placement.rs',
         'itsanas-store/src/reliability.rs',
         'itsanas-cli/src/placing.rs',
+        'itsanas-cli/src/host_run.rs',
+        'itsanas-policy/src/lib.rs',
     ]),
     ('reach', 'LAN discovery, UPnP and NAT-PMP, relays, address classes', [
         'itsanas-discover/src/',

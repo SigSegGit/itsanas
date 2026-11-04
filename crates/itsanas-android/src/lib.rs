@@ -73,7 +73,7 @@ use jni::sys::{jboolean, jstring};
 /// against the same files, and the store's single-writer rule would then
 /// surface as "already open in another process" — from *this* process, which
 /// reads as a bug in the storage engine rather than as what it is.
-static NODE: Mutex<Option<Node>> = Mutex::new(None);
+static NODE: Mutex<Option<Arc<Node>>> = Mutex::new(None);
 
 // The store and the network answer with their own error types, and every one of
 // them already reads as a sentence. Converting through `NodeError` keeps the
@@ -227,7 +227,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_open(
 /// usable. The passphrase is still checked against the keystore: the screen
 /// asking for it is what stands between a person and the account.
 fn open_into(
-    slot: &Mutex<Option<Node>>,
+    slot: &Mutex<Option<Arc<Node>>>,
     home: &Path,
     passphrase: &str,
     network: &Network,
@@ -245,7 +245,7 @@ fn open_into(
     let node = network.pin(Node::open(home, passphrase)?)?;
     itsanas_cli::shell::after_open(&node, now);
     let answer = describe(&node);
-    *guard = Some(node);
+    *guard = Some(Arc::new(node));
     Ok(answer)
 }
 
@@ -256,12 +256,94 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_close(
     _class: JClass,
 ) -> jstring {
     answer(&mut env, || {
+        // The loop holds the node too: it ends before the node can close.
+        itsanas_cli::shell::host_stop();
         let mut guard = NODE
             .lock()
             .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?;
         *guard = None;
         Ok("{}".to_owned())
     })
+}
+
+/// Bring the hosting loop in line with the shared policy, from what the phone
+/// can see. The loop is the daemon's own; the decision is `itsanas_policy`'s.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_hostTick(
+    mut env: JNIEnv,
+    _class: JClass,
+    metered: jboolean,
+    charging: jboolean,
+    percent: jni::sys::jint,
+    content_on_metered: jboolean,
+    metered_used: jni::sys::jlong,
+) -> jstring {
+    answer(&mut env, move || {
+        let node = NODE
+            .lock()
+            .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?
+            .clone()
+            .ok_or_else(|| Failure::Usage("no account is open".to_owned()))?;
+        let settings = node.config.hosting_settings(content_on_metered != 0);
+        let conditions = itsanas_policy::Conditions {
+            network: if metered != 0 {
+                itsanas_policy::Network::Metered
+            } else {
+                itsanas_policy::Network::Unmetered
+            },
+            power: itsanas_policy::Power::of(
+                u8::try_from(percent).unwrap_or(100),
+                charging != 0,
+                settings.battery_floor_percent,
+            ),
+            attention: itsanas_policy::Attention::Background,
+        };
+        let mut host = itsanas_cli::shell::HOST_RUN
+            .lock()
+            .map_err(|_| Failure::Usage("the hosting lock was poisoned by a panic".to_owned()))?;
+        let plan = itsanas_cli::shell::host_tick(
+            &mut host,
+            &node,
+            conditions,
+            settings,
+            u64::try_from(metered_used).unwrap_or(0),
+            true,
+        );
+        Ok(serde_json::json!({
+            "running": itsanas_cli::shell::host_running(&host),
+            "because": plan.because,
+            "periodSeconds": settings.metered_period.seconds(),
+        })
+        .to_string())
+    })
+}
+
+/// Stop the hosting loop and wait for it: the service that kept the process
+/// alive is going.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_hostStop(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    answer(&mut env, || {
+        itsanas_cli::shell::host_stop();
+        Ok("{}".to_owned())
+    })
+}
+
+/// The owner's battery floor, or the default with no account open.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_batteryFloor(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jni::sys::jint {
+    NODE.lock()
+        .ok()
+        .and_then(|node| node.as_ref().map(|node| node.config.battery_floor_percent))
+        .map_or(
+            jni::sys::jint::from(itsanas_policy::Settings::DEFAULT.battery_floor_percent),
+            jni::sys::jint::from,
+        )
 }
 
 /// Set by an instrumented test, and nothing else: see [`use_coordinator`].
@@ -1011,6 +1093,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_plan(
         let settings = itsanas_policy::Settings {
             content_on_metered: content_on_metered != 0,
             background: true,
+            ..itsanas_policy::Settings::default()
         };
 
         let plan = itsanas_policy::plan(conditions, settings);
@@ -1277,7 +1360,7 @@ mod tests {
             coordinator::register_with(&node, None, NOW).unwrap();
             let device = node.store.device_id();
             node.config.coordinator = Some("127.0.0.1:1".to_owned());
-            let slot = Mutex::new(Some(node));
+            let slot = Mutex::new(Some(Arc::new(node)));
             logout_into(&slot, &home, NOW + 1).unwrap();
             assert!(live(directory, device), "the logout had no network to ask");
 
@@ -1763,7 +1846,7 @@ mod tests {
             &official,
         )
         .unwrap();
-        for (what, node) in [("unlocked", opened), ("restored", &restored)] {
+        for (what, node) in [("unlocked", &**opened), ("restored", &restored)] {
             let saved = itsanas_node::Config::load(&Node::config_path(&node.home)).unwrap();
             for config in [&node.config, &saved] {
                 assert_eq!(
@@ -1816,7 +1899,7 @@ mod tests {
                      nothing, and learns to type through it: {check}"
                 );
 
-                let slot = Mutex::new(Some(phone_node));
+                let slot = Mutex::new(Some(Arc::new(phone_node)));
                 let said = answer(&logout_into(&slot, &home, NOW + 1).expect("logout"));
                 assert_eq!(said["withdrawn"], true, "{said}");
                 assert!(said["told"].as_u64() >= Some(1), "{said}");
@@ -1829,9 +1912,9 @@ mod tests {
                     &network_at(address),
                 )
                 .expect("login");
-                *slot.lock().expect("lock") = Some(restored);
+                *slot.lock().expect("lock") = Some(Arc::new(restored));
                 let mut guard = slot.lock().expect("lock");
-                let node = guard.as_mut().expect("held");
+                let node = Arc::get_mut(guard.as_mut().expect("held")).expect("alone");
                 node.config.peers.push(at.to_string());
 
                 crate::run_round(
