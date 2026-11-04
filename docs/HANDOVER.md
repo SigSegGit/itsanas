@@ -61,6 +61,15 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-04: the phone's crashes were Android's limit on a syncing service.** The Galaxy S25 said
+"more than ten crashes". Its crash log on 0.1.16 names two: `ForegroundServiceDidNotStopInTimeException`
+at the limit, then `ForegroundServiceStartNotAllowedException` from `startForeground` in `onCreate` on
+each restart. #378 had already answered the limit (`onTimeout`, not sticky) and left `onCreate` bare.
+`ServiceLimitTest` cuts the limit to 5 seconds with Android's documented setting and starts the service
+again once it is spent: it went red with the phone's own exception before the catch, and with the other one without `onTimeout`. Only 0.1.17 on
+that phone proves it on Android 17; the emulator is API 35. Trap: before an e2e run, `adb disconnect`
+a real phone, which the suite would wipe.
+
 **2026-11-04: a phone runs the daemon's loop.** Nicolas moved his hand test (8.0c) to after §8 10.
 `daemon::host_until` is `itsanas daemon`'s own loop, without the signals or the self-update;
 `host_run::tick` starts and stops it as `itsanas_policy::hosting` says; the app only reports what it
@@ -3841,8 +3850,9 @@ Detail and measurements are in ROADMAP.md; this is the map.
        settings are in `Config`, read through `hosting_settings`; battery and data draw on a phone.
        Not done: below its floor a phone stops rather than slows (`plan`'s low row).
     c. 🟨 **Android 15's six hours.** `onTimeout`, `onTaskRemoved`, not sticky; `SyncWorker` carries
-       on every 15 minutes, 9 of them hosting, and reopens only what the person left open. Built,
-       and nothing tests the worker: no scenario runs an app closed.
+       on every 15 minutes, 9 of them hosting, and reopens only what the person left open.
+       `ServiceLimitTest` runs the limit and a refused restart; nothing tests the worker: no
+       scenario runs an app closed.
     d. 🟨 **Windows Hello and Touch ID**, optional, off by default (`setup/unlock.rs`). The sealed
        file replaces the passphrase file; the daemon asks at start. Windows needs no `unsafe`; the
        Mac's `LAContext` call is `itsanas-touchid`. The logic is tested with stand-in gates; neither
