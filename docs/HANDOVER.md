@@ -10,9 +10,9 @@ contract.
 
 <!-- ITSANAS-STATE
 NEXT: 8.0c
-TITLE: Nicolas's hand test on 0.1.16, with Mandarine (§8 0c)
+TITLE: Nicolas's hand test on 0.1.17, with Mandarine (§8 0c)
 WRITTEN-AT: 2026-11-03
-BASE: 0273ac0
+BASE: 9ea9982
 -->
 
 **Rule (Nicolas, 2026-10-27 and again 2026-10-30, "can't you change this
@@ -60,6 +60,17 @@ the file list shows the line. Deleting the phone's old login path showed it was 
 caller of two behaviours: `open_into` now calls `after_open`, which sweeps an erase cut short
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
+
+**2026-11-03: the first real phone (Galaxy S25, Android 17, wireless adb), and folders on the
+Files screen.** The self-update went 0.1.15 to 0.1.16 with the account intact, and a real folder of
+22 screenshots entered it. The Files screen now reads one folder at a time
+(`crates/itsanas-cli/src/file_tree.rs`, `Native.listAt`), and + adds to the folder on screen. Never
+run the e2e suite on a person's phone: it wipes it. That phone found three more. A file added or a
+folder chosen stayed on it, its next background round being two hours off: a round now follows.
+The update offer sat over the fingerprint, and answering it left a spinner with no way out: it waits
+for an open account, and the spinner has a way to the passphrase. Asked for the install permission,
+the offer vanished for a day: it stays open. No test covers the last two: the emulator has no
+fingerprint and no test reaches an offer, so the next release on that phone is what proves them.
 
 **2026-11-03: a fleet run starts by updating the machines.** A run after the 0.1.16 release tested
 0.1.13 and was green, because row V only asked that the machines agree. Row U now asks each Docker
@@ -111,46 +122,12 @@ of this list said "release, then `itsanas update`", which was wrong. Access:
 `~/.ssh/itsanas_session`, user `itsomeone`, `ngas.fr` port 22010 (Pi) and
 22011 (VM), from his private notes, checked 2026-09-17.
 
-1. **The Android release key, before any phone that should keep its
-   updates installs the application** (docs/ANDROID-RELEASE.md §1, §1b):
-   Android installs an update only when it is signed with the same key as
-   the installed app, so a phone on a debug-signed build has to be
-   uninstalled -- its node deleted -- to move to the release key. PowerShell:
-
-       D:\Android\jdk\bin\keytool -genkeypair -v -keystore D:\Android\itsanas-release.jks -alias itsanas -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=ITSaNAS, O=ITSomething, C=FR"
-
-   then `android\keystore.properties` (git-ignored), with the password just
-   typed, and both files backed up like the 24 words:
-
-       notepad D:\GitHub\itsanas\android\keystore.properties
-
-   holding these four lines:
-
-       storeFile=D:/Android/itsanas-release.jks
-       storePassword=<the password>
-       keyAlias=itsanas
-       keyPassword=<the password>
-
-   From then on every `release.cmd` builds the APK with it and puts it in
-   the release (`sign-release.ps1`); `-NoApk` leaves it out.
-
-2. **The first test of the phone's self-update, end to end** (after item 1).
-   On the laptop, a 0.1.13 APK signed with the release key, onto the phone
-   (USB debugging on: Settings -> About phone -> Software information ->
-   tap Build number 7 times, then Developer options -> USB debugging):
-
-       cd D:\GitHub\itsanas; git switch main; git pull; bash scripts/build-apk.sh release
-
-       D:\Android\Sdk\platform-tools\adb install -r android\app\build\outputs\apk\release\app-release.apk
-
-   (a phone with a debug-signed ITSaNAS refuses it: uninstall it first,
-   the account comes back from its 24 words). Then bump the version to
-   0.1.14 in `Cargo.toml` through a session, merge, and release:
+0. **Release 0.1.17**, then the laptop, which was still on 0.1.12 on 2026-11-03. On the phone, ITSaNAS
+   offers the update when opened, once a day, after the unlock:
 
        cd D:\GitHub\itsanas; git switch main; git pull; .\scripts\release.cmd
 
-   On the phone, opening ITSaNAS shows "ITSaNAS 0.1.14 is available":
-   Install, allow ITSaNAS to install apps the first time, confirm.
+       itsanas update
 
 3. Publish the wiki (once after the wiki-and-board PR merges, then after any
    change to ROADMAP.md or MVP.md). If it says it cannot clone, open the

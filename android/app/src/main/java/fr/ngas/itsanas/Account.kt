@@ -54,10 +54,8 @@ object Account {
         }
     }
 
-    suspend fun files(): List<Known> = withContext(Dispatchers.IO) {
-        Answers.files(Native.list()).sortedWith(
-            compareBy({ it.folder }, { it.name.lowercase() })
-        )
+    suspend fun level(folder: String): Level = withContext(Dispatchers.IO) {
+        Answers.level(Native.listAt(folder))
     }
 
     suspend fun status(): Status = withContext(Dispatchers.IO) {

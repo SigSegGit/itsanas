@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-03 — 1586 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 567 are red-team tests.**
+**Last updated: 2026-11-03 — 1594 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 571 are red-team tests.**
 
-**1470 of the 1586 tests have an entry of their own on this page** — an *entry*,
+**1478 of the 1594 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 325 |
+| `itsanas-cli` unit | 333 |
 | `itsanas-android` unit | 24 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 175 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 32 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 55 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 180 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 184 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1206,7 +1206,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (325)
+# `itsanas-cli` — unit tests (333)
 
 ## `bench` — measuring this machine (4)
 
@@ -1566,6 +1566,19 @@ MVP.md test L: the snapshot's first line carries `copies HAVE of WANT [since T]`
 | **`red_team_a_save_on_a_safe_account_is_unsaid_for_the_grace_and_said_after`** | Safe, then a save: `since` is set and the shortfall is unsaid for `GRACE_INTERVALS` (2) rounds, keeps its age across rounds, is said after, and clears when the copies are back. Sabotaged (a new `since` each round): red. |
 | **`red_team_a_node_that_never_reached_anybody_turns_isolated`** | The review of #345: a node with nothing stored (no `copies`, never `exposed`) that no round ever reached anybody from -- a Mac with an empty folder behind a firewall, or a header from before `reached` -- read green for good. `reached_words` writes `reached never since T` on the first snapshot with no contact, keeps T at the next, and `isolated_for` ages it: `isolated` at six hours; a contact then replaces it with `reached T`. Sabotaged (the wait restarted at every snapshot; `isolated_for` reading only `reached T`): red, both. |
 | **`red_team_a_contact_dated_in_the_future_is_not_kept`** | The review of #345: the larger value wins at every write, so a `reached` stamped with a clock a day ahead (a resumed VM, a dead RTC) stayed for good and the machine read healthy cut off that whole day. A contact later than now, carried or this process's own, and a wait dated later, are dropped; a real past contact is kept. Sabotaged (no filter): red. |
+
+## `file_tree` — an account's flat paths, read one folder at a time (8)
+
+| Test | What it proves |
+|---|---|
+| **`red_team_the_root_shows_folders_and_not_every_file_of_the_account`** | The top of the account lists each folder once and only the files directly in it. |
+| **`red_team_a_folder_counts_everything_below_it`** | The line under a folder counts its files at any depth, their size, and those this device does not hold. |
+| **`red_team_a_folder_with_a_longer_sibling_does_not_take_its_files`** | `Phone2/d.jpg` is not in `Phone`, and a deeper file is not listed one level too high. |
+| **`red_team_a_folder_that_lost_its_last_file_leaves_the_nearest_one_still_there`** | A folder whose last file went answers as the nearest one still there, so the screen is never stranded. |
+| `a_folder_that_never_existed_reads_as_the_root` | A path no file goes through reads as the top of the account. |
+| `an_empty_account_has_an_empty_root` | No file, no folder, whatever was asked. |
+| `a_deep_folder_names_its_whole_path` | A folder two levels down carries the path that opens it. |
+| `a_size_no_real_account_has_does_not_panic` | Sizes that overflow a sum saturate. |
 
 ## `phone_folder` — which files of a phone's chosen folder enter the account (3)
 

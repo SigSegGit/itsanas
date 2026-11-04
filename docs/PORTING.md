@@ -483,7 +483,6 @@ instead of being the first caller of it.
 | A real phone for its folder | The Files screen takes a folder the person grants and walks it each round, one way, under `Phone/` (`phone_folder`, `FilesTest`). Only an emulator has run it, never a gallery of thousands |
 | Doze and the `dataSync` budget | Android 14 caps foreground data-sync at about six hours a day. **Written from memory and still unverified** — the twenty-four-hour measurement now running on three desktops is the first honest number this project will have about idle cost |
 | A signing key of its own | The APK is signed with the debug key, which is fine for installing by hand and not for anything else |
-| Folders in the interface | Every file is listed flat. The paths carry directories and nothing renders them |
 
 ## 5. iOS and iPadOS — a different problem, not attempted
 
