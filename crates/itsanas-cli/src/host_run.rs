@@ -135,13 +135,25 @@ mod tests {
     }
 
     fn owner_round(owner: &Node, address: &str) -> session::AuditReport {
-        let mut client = PeerClient::connect(
-            itsanas_net::AddressList(address),
-            &owner.device,
-            owner.store.owner(),
-            None,
-        )
-        .expect("the phone answers on its listener");
+        // A loop just restarted has not bound its port yet.
+        let deadline = Instant::now() + PATIENCE;
+        let mut client = loop {
+            match PeerClient::connect(
+                itsanas_net::AddressList(address),
+                &owner.device,
+                owner.store.owner(),
+                None,
+            ) {
+                Ok(client) => break client,
+                Err(error) => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "the phone stopped answering on its listener: {error}"
+                    );
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
+        };
         client
             .present_claim(owner.claim_bytes(itsanas_discover::now_unix()))
             .expect("the phone takes the claim");
