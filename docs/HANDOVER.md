@@ -66,7 +66,7 @@ words and translated; what passed shows no detail.
 at the limit, then `ForegroundServiceStartNotAllowedException` from `startForeground` in `onCreate` on
 each restart. #378 had already answered the limit (`onTimeout`, not sticky) and left `onCreate` bare.
 `ServiceLimitTest` cuts the limit to 5 seconds with Android's documented setting and starts the service
-again once it is spent: it went red with the phone's own exception before the catch. Only 0.1.17 on
+again once it is spent: it went red with the phone's own exception before the catch, and with the other one without `onTimeout`. Only 0.1.17 on
 that phone proves it on Android 17; the emulator is API 35. Trap: before an e2e run, `adb disconnect`
 a real phone, which the suite would wipe.
 

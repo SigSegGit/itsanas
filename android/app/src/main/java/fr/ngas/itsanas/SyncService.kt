@@ -52,6 +52,9 @@ class SyncService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     /** Android 15's limit for this kind of service: stop, or the app is killed. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        stopSelf()
+    }
 
     /** The app was swiped away: the worker carries on from here. */
     override fun onTaskRemoved(rootIntent: Intent?) {
