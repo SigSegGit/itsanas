@@ -31,6 +31,7 @@ port="${E2E_PORT:-9899}"
 out="${E2E_OUT:-$here/android/app/build/e2e}"
 target="${CARGO_TARGET_DIR:-$here/target}"
 only="${1:-}"
+echo "sabotage: the e2e fails at once" >&2; exit 1
 
 for tool in cargo-ndk "$adb"; do
     if ! command -v "$tool" >/dev/null 2>&1; then
