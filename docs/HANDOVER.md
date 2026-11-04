@@ -61,6 +61,12 @@ caller of two behaviours: `open_into` now calls `after_open`, which sweeps an er
 and sends the withdrawals an offline logout could not. The final check's lines are in plain
 words and translated; what passed shows no detail.
 
+**2026-11-05: a pull request waits for a Mac only for Mac code.** Nicolas's call, after GitHub's Macs
+took no job through four re-runs of #380. Rejected: a Mac VM on the PC (Apple's licence allows macOS
+VMs only on Apple hardware), and a self-hosted runner, because this repository is public and a fork's
+pull request could run on that machine. `main` keeps the Mac, so a Mac break shows after the merge:
+read the Mac jobs of `main`'s CI when one goes red.
+
 **2026-11-04: the emulator job now counts for a merge.** `android.yml` ran beside `ci.yml`, so the
 one required check passed with the e2e red or still running: #378 merged 25 seconds before its e2e
 failed. That failure is not about folders: on #378 and again on #380, `FilesTest` is the run's first test and stops at account creation, where the Confirm tap on the typed-back words changed nothing while the keyboard first opened (cause inferred, not shown). `Flows` taps again after 5 seconds and logs `the Confirm tap did nothing` with whether the button was enabled: grep that in `logcat.txt`. `ci.yml` calls it now,

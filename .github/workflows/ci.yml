@@ -52,6 +52,7 @@ jobs:
       arm: ${{ steps.plan.outputs.arm }}
       android: ${{ steps.plan.outputs.android }}
       android_app: ${{ steps.plan.outputs.android_app }}
+      platforms: ${{ steps.plan.outputs.platforms }}
       msrv: ${{ steps.plan.outputs.msrv }}
       coverage: ${{ steps.plan.outputs.coverage }}
       smoke: ${{ steps.plan.outputs.smoke }}
@@ -236,17 +237,16 @@ jobs:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: changes
-    # No job-level `if:` here, on purpose. These three legs are required
-    # checks, and a matrix job skipped by `if:` reports under the name
-    # "Test (${{ matrix.os }})", unexpanded, which no required check matches:
-    # the pull request would wait forever. So every step is gated instead, and
-    # the job passes having said why it tested nothing.
+    # No job-level `if:` here, on purpose: a matrix job skipped by `if:` reports
+    # under the name "Test (${{ matrix.os }})", unexpanded. So every step is
+    # gated instead, and the job passes having said why it tested nothing.
     strategy:
       fail-fast: false
       matrix:
-        # The three platforms ITSaNAS actually has to run on, plus macOS as a
-        # cheap check that nothing has quietly become Windows- or Linux-only.
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # The platforms ITSaNAS has to run on. macOS is a check that nothing has
+        # quietly become Windows- or Linux-only: the plan asks for it on `main`
+        # and for Mac code, because GitHub's Macs can stay out of reach for hours.
+        os: ${{ fromJSON(needs.changes.outputs.platforms) }}
     steps:
       - name: What this run tests
         shell: bash
@@ -365,7 +365,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON(needs.changes.outputs.platforms) }}
     # `check-installers.sh` reads these scripts. This one runs them, on a
     # machine of the kind each is written for, and lets each finish with the
     # store-and-read-back it ends in — so "it installs and the result works"
