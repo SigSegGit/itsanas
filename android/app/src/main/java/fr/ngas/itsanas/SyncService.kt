@@ -49,8 +49,19 @@ class SyncService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /** Android 15's limit for this kind of service: stop, or the app is killed. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        stopSelf()
+    }
+
+    /** The app was swiped away: the worker carries on from here. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        stopSelf()
+    }
+
     override fun onCreate() {
         super.onCreate()
+        running = true
         channel()
         startForeground(NOTIFICATION, notification("Starting", "Opening the account"))
     }
@@ -66,9 +77,10 @@ class SyncService : Service() {
         if (loop == null) {
             loop = scope.launch { run() }
         }
-        // Restarted if the system kills it, because a sync tool that silently
-        // stops is the failure this project is least able to notice.
-        return START_STICKY
+        // Not restarted by the system: Android 15 gives this kind of service six
+        // hours a day, and restarting it past them crashes the app. `SyncWorker`
+        // carries on while the app is closed.
+        return START_NOT_STICKY
     }
 
     private suspend fun run() {
@@ -215,6 +227,9 @@ class SyncService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
+        // Off the main thread: the loop's current session has to end first.
+        Thread { runCatching { Native.hostStop() } }.start()
         destroyed = true
         scope.cancel()
         super.onDestroy()
@@ -222,11 +237,32 @@ class SyncService : Service() {
 
     companion object {
         private const val CHANNEL = "sync"
+        /** Whether the service is up, so the worker leaves the work to it. */
+        @Volatile
+        var running = false
+
+        /** At most once a day, for a process that died with a fingerprint between it and the account. */
+        fun sayLocked(context: Context) {
+            if (!Vault.lockedNoticeDue(context)) return
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return
+            manager.notify(
+                NOTIFICATION + 1,
+                NotificationCompat.Builder(context, CHANNEL)
+                    .setContentTitle("Locked")
+                    .setContentText("Open the application once to unlock this account")
+                    .setSmallIcon(R.drawable.ic_stat_itsanas)
+                    .setAutoCancel(true)
+                    .build(),
+            )
+        }
+
         private const val NOTIFICATION = 1
         private const val RETRY_MS = 5 * 60 * 1000L
         private const val HOST_LOOK_MS = 60 * 1000L
 
         fun start(context: Context) {
+            Vault.noteClosedByPerson(context, false)
+            SyncWorker.schedule(context)
             context.startForegroundService(Intent(context, SyncService::class.java))
         }
 

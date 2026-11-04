@@ -819,7 +819,6 @@ impl PeerClient {
             owner,
             expect,
             direct,
-            via: None,
         )
     }
 

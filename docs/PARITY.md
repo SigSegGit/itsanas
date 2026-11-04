@@ -22,6 +22,7 @@ the fingerprint); until the app does, `docs/HANDOVER.md` §8 says where it stand
 
 | Capability | Windows | macOS | Linux | Android |
 |---|---|---|---|---|
+| Contribute to the network · `/api/hosting` (the switch and its settings; the battery and mobile-data ones draw on a phone only) | ✅ | ✅ | ✅ | ✅ |
 | Welcome · `/api/state` · `/api/plan` · `/api/run` · `/api/quit` | ✅ | ✅ | ✅ | ✅ |
 | Your account · `/api/name` · `/api/suggest` (existing account first, a positive check before a new one) | ✅ | ✅ | ✅ | ✅ |
 | Your folder and your space · `/api/free` | ✅ | ✅ | ✅ | ⬜ a phone picks its folder in the app, under Files |

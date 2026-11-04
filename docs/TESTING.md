@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1601 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 576 are red-team tests.**
+**Last updated: 2026-11-04 — 1607 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 580 are red-team tests.**
 
-**1485 of the 1601 tests have an entry of their own on this page** — an *entry*,
+**1491 of the 1607 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -160,7 +160,7 @@ guarantee and is not one.
 | `itsanas-tls` handshake (`tests/handshake.rs`) | 5 |
 | `itsanas-store` unit | 227 |
 | `itsanas-store` keyed chunking (`tests/keyed_chunking.rs`) | 3 |
-| `itsanas-store` integration (`tests/store.rs`) | 49 (1 `#[ignore]`d) |
+| `itsanas-store` integration (`tests/store.rs`) | 50 (1 `#[ignore]`d) |
 | `itsanas-store` packs (`tests/packs.rs`) | 2 |
 | `itsanas-sync` unit | 13 |
 | `itsanas-sync` convergence (`tests/convergence.rs`) | 26 |
@@ -179,10 +179,10 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 336 |
+| `itsanas-cli` unit | 339 |
 | `itsanas-android` unit | 24 |
 | `itsanas-drive` unit | 21 |
-| `itsanas-node` unit | 175 |
+| `itsanas-node` unit | 177 |
 | `itsanas-node` away-from-home (`tests/away_from_home.rs`) | 5 |
 | `itsanas-node` says-what-is-wrong (`tests/says_what_is_wrong.rs`) | 4 |
 | `itsanas-node` five devices (`tests/five_devices.rs`) | 4 |
@@ -217,11 +217,11 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `identity` | keys, accounts, devices, claims, invitations | 81 |
 | `coordinator` | directory, presences, accounting, the coordinator as an adversary | 65 |
 | `host-storage` | what a host stores for whom: pledges, owner caps, eviction | 73 |
-| `placement-audit` | where copies go, audits, reliability, release | 45 |
+| `placement-audit` | where copies go, audits, reliability, release | 46 |
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 32 |
-| `local-store` | the index, packs, folders, the virtual drive, crash | 55 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 184 |
+| `local-store` | the index, packs, folders, the virtual drive, crash | 57 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 185 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -730,7 +730,7 @@ holds a copy of.
 
 ---
 
-# `itsanas-store` — integration tests (49)
+# `itsanas-store` — integration tests (50)
 
 Full path from plaintext to disk and back. `tests/store.rs`.
 
@@ -1036,6 +1036,10 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | **`red_team_a_phone_hosts_another_account_and_on_battery_only_answers`** | The daemon's loop on a phone's node: another account stores chunks on it and audits them, and on battery it answers the audit and takes in nothing new. |
 | **`red_team_the_coordinator_introduces_hosts_that_offer_space_and_nothing_else`** | A member is told of another account's machine that offers space: not their own, not one offering nothing, no address leading to a private network. |
 | **`red_team_release_does_not_rest_on_silent_low_presence_holders`** | Holders that passed audits and then went silent for over `LIVE_FOR` no longer allow a release. |
+| **`red_team_switching_off_declares_nothing_and_forgets_nothing`** | Switched off, a machine declares no space and keeps the value; every setting survives the file. |
+| `a_default_file_says_nothing_of_the_hosting_settings` | A machine that never touched these writes no line an older version would refuse. |
+| **`red_team_a_refused_form_changes_nothing_and_the_switch_keeps_the_space`** | One bad value keeps the whole form out, and the switch never forgets the space offered. |
+| `the_form_reaches_every_setting` | Each field of the form reaches its setting. |
 | **`red_team_signing_out_stops_the_loop`** | Signing out on the page ends the loop, whichever shell started it. |
 | **`red_team_a_personal_device_runs_no_loop`** | Switched off with nothing held, the loop stops and no listener stays open. |
 | **`red_team_hosting_never_spends_a_low_battery_or_an_unallowed_data_plan`** | Over every combination of conditions and settings: nothing runs at the battery floor or with no network, and a metered link never takes in or goes past its allowance. |
@@ -1215,7 +1219,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (336)
+# `itsanas-cli` — unit tests (339)
 
 ## `bench` — measuring this machine (4)
 
@@ -1793,7 +1797,7 @@ swapping the same two files back and forth.
 | `smallest_first_keeps_the_most_files_and_oldest_first_keeps_the_archive` | Same account, same budget, three orders, three different answers — which is the point. A device that ignored the setting would give the same answer to all three. |
 | `an_empty_choice_asks_for_nothing` | No work invented from an empty listing. |
 
-# `itsanas-node` — a node on disk (198)
+# `itsanas-node` — a node on disk (200)
 
 `src/`. Keystore, configuration, and the one sync round that honours what a
 device was told to keep. It lived inside the command-line binary until the
@@ -2006,7 +2010,7 @@ not read, the pledge kept whatever the free space.
 | `what_a_phone_already_holds_counts_towards_what_it_can_use` | `phone_usable`: files already here count, since a budget can release them; a small disk keeps the fixed headroom; less free than the headroom is 0, not a wrapped number. |
 | `a_promise_the_disk_cannot_keep_is_refused_with_its_figures` | `disk_refusal` and `overcommitted` as values each shell words itself: fits, does not fit, not known. No limit on keep still owes the pledge. |
 
-## `config` — settings (29)
+## `config` — settings (31)
 
 | Test | What it proves |
 | --- | --- |

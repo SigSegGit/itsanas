@@ -827,6 +827,11 @@ pub fn run(
     let shutdown = &SHUTDOWN;
 
     let lan = bind_lan(discover);
+    // Switched off, it answers for what it holds and takes in nothing, as a
+    // phone's loop does.
+    local(node)
+        .answers_only
+        .store(!node.config.contribute, Ordering::Relaxed);
 
     println!("itsanas daemon");
     println!("  serving   {bound}");

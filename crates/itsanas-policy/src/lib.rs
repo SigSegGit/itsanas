@@ -172,18 +172,23 @@ pub struct Settings {
     pub metered_period: Period,
 }
 
+impl Settings {
+    /// The defaults, usable in a constant.
+    pub const DEFAULT: Self = Self {
+        content_on_metered: false,
+        background: true,
+        contribute: true,
+        battery_floor_percent: 15,
+        every_charging: SERVICE,
+        every_on_battery: BACKGROUND_FREE,
+        metered_allowance: 0,
+        metered_period: Period::Month,
+    };
+}
+
 impl Default for Settings {
     fn default() -> Self {
-        Self {
-            content_on_metered: false,
-            background: true,
-            contribute: true,
-            battery_floor_percent: 15,
-            every_charging: SERVICE,
-            every_on_battery: BACKGROUND_FREE,
-            metered_allowance: 0,
-            metered_period: Period::Month,
-        }
+        Self::DEFAULT
     }
 }
 
@@ -199,6 +204,23 @@ pub enum Period {
 impl Period {
     /// Every variant. See [`Network::ALL`].
     pub const ALL: [Self; 4] = [Self::Hour, Self::Day, Self::Week, Self::Month];
+
+    /// Its name in a configuration file.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Hour => "hour",
+            Self::Day => "day",
+            Self::Week => "week",
+            Self::Month => "month",
+        }
+    }
+
+    /// The period a configuration file names.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|period| period.name() == name)
+    }
 
     /// Its length. A month is thirty days: an allowance starts when it is first
     /// spent, not on the first of a calendar this crate does not read.

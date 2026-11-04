@@ -276,6 +276,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_hostTick(
     charging: jboolean,
     percent: jni::sys::jint,
     content_on_metered: jboolean,
+    metered_used: jni::sys::jlong,
 ) -> jstring {
     answer(&mut env, move || {
         let node = NODE
@@ -283,11 +284,7 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_hostTick(
             .map_err(|_| Failure::Usage("the node lock was poisoned by a panic".to_owned()))?
             .clone()
             .ok_or_else(|| Failure::Usage("no account is open".to_owned()))?;
-        let settings = itsanas_policy::Settings {
-            content_on_metered: content_on_metered != 0,
-            contribute: node.config.pledge_bytes > 0,
-            ..itsanas_policy::Settings::default()
-        };
+        let settings = node.config.hosting_settings(content_on_metered != 0);
         let conditions = itsanas_policy::Conditions {
             network: if metered != 0 {
                 itsanas_policy::Network::Metered
@@ -304,13 +301,49 @@ pub extern "system" fn Java_fr_ngas_itsanas_Native_hostTick(
         let mut host = itsanas_cli::shell::HOST_RUN
             .lock()
             .map_err(|_| Failure::Usage("the hosting lock was poisoned by a panic".to_owned()))?;
-        let plan = itsanas_cli::shell::host_tick(&mut host, &node, conditions, settings, true);
+        let plan = itsanas_cli::shell::host_tick(
+            &mut host,
+            &node,
+            conditions,
+            settings,
+            u64::try_from(metered_used).unwrap_or(0),
+            true,
+        );
         Ok(serde_json::json!({
             "running": itsanas_cli::shell::host_running(&host),
             "because": plan.because,
+            "periodSeconds": settings.metered_period.seconds(),
         })
         .to_string())
     })
+}
+
+/// Stop the hosting loop and wait for it: the service that kept the process
+/// alive is going.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_hostStop(
+    mut env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    answer(&mut env, || {
+        itsanas_cli::shell::host_stop();
+        Ok("{}".to_owned())
+    })
+}
+
+/// The owner's battery floor, or the default with no account open.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_ngas_itsanas_Native_batteryFloor(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jni::sys::jint {
+    NODE.lock()
+        .ok()
+        .and_then(|node| node.as_ref().map(|node| node.config.battery_floor_percent))
+        .map_or(
+            jni::sys::jint::from(itsanas_policy::Settings::DEFAULT.battery_floor_percent),
+            jni::sys::jint::from,
+        )
 }
 
 /// Set by an instrumented test, and nothing else: see [`use_coordinator`].

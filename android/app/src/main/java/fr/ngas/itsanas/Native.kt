@@ -47,7 +47,14 @@ object Native {
         charging: Boolean,
         percent: Int,
         contentOnMetered: Boolean,
+        meteredUsed: Long,
     ): String
+
+    /** Stop the hosting loop, and wait for it. */
+    external fun hostStop(): String
+
+    /** The battery level at or below which the owner asked for the background to stop. */
+    external fun batteryFloor(): Int
 
     /**
      * Serve the setup engine's page on 127.0.0.1 and answer its address (the

@@ -3829,17 +3829,15 @@ Detail and measurements are in ROADMAP.md; this is the map.
        - Release, relay grouping: built (`holder_evidence`, `network_address`).
        - Declared space: unchanged on purpose. A claim capped by what is held would earn a new
          machine nothing and keep it off `Request::Hosts`; a phone is treated as a PC.
-       - Count bytes for `metered_used` (always 0 in `host_run::tick`), each way, and `metered` is
-         not cellular.
-    b. ⬜ **One switch, "Contribuer au réseau", on by default**, on every platform in the same page:
-       off greys the section and forgets nothing; `contribute` in the config instead of
-       `pledge_bytes > 0` (`Native_hostTick`); off declares no pledge in `claim_bytes`. **Settings in
-       sections**: battery floor, pace charging, Wi-Fi or mobile data, allowance per hour, day, week
-       or month (default 0), all as `itsanas_policy::Settings`. `Vault.batteryLow` still has 15 fixed.
-    c. ⬜ **Android 15's six hours.** `dataSync` stops at 6 h per 24 h: `onTimeout` + `stopSelf`, the
-       service only while the app is open, background work by a `SyncWorker`/`HostWorker`
-       (WorkManager). `onDestroy` must call `Native.hostStop`: today the thread outlives the
-       service. A process killed reopens locked: one notification per 24 h at most.
+       - `metered_used`: the system's counters between two looks (`Vault.meteredUsed`), all of the
+         app's traffic. `metered` is not cellular, and the page says so.
+    b. ✅ **One switch, "Contribute to the network", on by default**, the same page everywhere: off
+       declares nothing (`Config::offered_bytes`), greys the section and keeps the values. The
+       settings are in `Config`, read through `hosting_settings`; battery and data draw on a phone.
+       Not done: below its floor a phone stops rather than slows (`plan`'s low row).
+    c. 🟨 **Android 15's six hours.** `onTimeout`, `onTaskRemoved`, not sticky; `SyncWorker` carries
+       on every 15 minutes, 9 of them hosting, and reopens only what the person left open. Built,
+       and nothing tests the worker: no scenario runs an app closed.
     d. ⬜ **Windows Hello and macOS biometrics**, optional, off by default: the sealed passphrase
        replaces `passphrase.txt` behind `ServiceControl::stored_passphrase`/`store_passphrase`. The
        one `unsafe` exception Nicolas granted: update `scripts/check-unsafe.py`; `cargo deny`.

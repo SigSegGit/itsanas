@@ -39,13 +39,14 @@ pub fn tick(
     node: &Arc<Node>,
     conditions: Conditions,
     settings: Settings,
+    metered_used: u64,
     local_network: bool,
 ) -> HostPlan {
     let facts = HostFacts {
         // Unreadable counts as holding: the cost of answering for nothing is a
         // listener, and of the other way a copy somebody counts on.
         still_holding: node.held_for_others().map_or(true, |held| held > 0),
-        metered_used: 0,
+        metered_used,
     };
     let plan = itsanas_policy::hosting(conditions, settings, facts);
     let scope = itsanas_policy::plan(conditions, settings).scope;
@@ -193,6 +194,7 @@ mod tests {
                 &host,
                 on(Power::Charging),
                 Settings::default(),
+                0,
                 false,
             );
             assert_eq!(plan.work, HostWork::Everything);
@@ -223,6 +225,7 @@ mod tests {
                 &host,
                 on(Power::OnBattery),
                 Settings::default(),
+                0,
                 false,
             );
             assert_eq!(plan.work, HostWork::AnswersOnly);
@@ -266,6 +269,9 @@ mod tests {
             let (idle, _) = phone(&at("idle"), coordinator, "offersnone", None);
             let (mut lan, _) = phone(&at("lan"), coordinator, "onlyprivate", None);
             lan.config.pledge_bytes = 100 << 20;
+            let (mut off, _) = phone(&at("off"), coordinator, "switchedoff", None);
+            off.config.pledge_bytes = 100 << 20;
+            off.config.contribute = false;
             let (mut me, phrase) = phone(&at("me"), coordinator, "asking", None);
             me.config.pledge_bytes = 100 << 20;
             let (mut sibling, _) = phone(&at("sibling"), coordinator, "asking", Some(&phrase));
@@ -275,6 +281,7 @@ mod tests {
             for (node, address) in [
                 (&host, public),
                 (&idle, "203.0.113.6:9797"),
+                (&off, "203.0.113.9:9797"),
                 (&sibling, "203.0.113.7:9797"),
                 (&lan, "192.168.1.20:9797"),
                 (&me, "203.0.113.8:9797"),
@@ -311,6 +318,7 @@ mod tests {
                     &host,
                     on(Power::Charging),
                     Settings::default(),
+                    0,
                     false,
                 );
                 assert!(running(&run));
@@ -339,6 +347,7 @@ mod tests {
                 &host,
                 on(Power::Charging),
                 Settings::default(),
+                0,
                 false,
             );
             assert!(running(&run));
@@ -346,7 +355,7 @@ mod tests {
                 contribute: false,
                 ..Settings::default()
             };
-            let plan = tick(&mut run, &host, on(Power::Charging), off, false);
+            let plan = tick(&mut run, &host, on(Power::Charging), off, 0, false);
             assert_eq!(plan.work, HostWork::Nothing);
             assert!(
                 run.is_none(),

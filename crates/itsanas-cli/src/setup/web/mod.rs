@@ -41,6 +41,7 @@
 //! file (`control.rs`) as the tray's do.
 
 mod features;
+mod hosting;
 mod http;
 mod json;
 mod nodes;
@@ -799,6 +800,8 @@ fn api(ctx: &Arc<Context>, request: &Request) -> Response {
         ("GET", "/api/plan") => ok_json(plan_json(ctx)),
         ("POST", "/api/run") => start_run(ctx, request),
         ("POST", "/api/control") if ctx.mode == Mode::Settings => steer(ctx, request),
+        ("GET", "/api/hosting") if ctx.mode == Mode::Settings => hosting_values(ctx),
+        ("POST", "/api/hosting") if ctx.mode == Mode::Settings => hosting_save(ctx, request),
         ("POST", "/api/signout") if ctx.mode == Mode::Settings => sign_out(ctx),
         ("POST", "/api/disk") if ctx.mode == Mode::Settings => disk_job(ctx, request),
         ("POST", "/api/name") if ctx.mode == Mode::Setup => check_name(ctx, request),
@@ -1651,6 +1654,28 @@ fn start_job(
 
 /// Pause, resume, sync now, interval: the control file, through the same
 /// function the commands use, so the page says the commands' words.
+/// The switch and its settings, read from the file: asking must not disturb a
+/// loop that is running.
+fn hosting_values(ctx: &Context) -> Response {
+    match itsanas_node::config::Config::load(&Node::config_path(&ctx.home)) {
+        Ok(config) => ok_json(hosting::to_json(&config)),
+        Err(error) => Response::refuse(409, &error.to_string()),
+    }
+}
+
+/// Save them on the open node, so the next look of the policy reads them.
+fn hosting_save(ctx: &Context, request: &Request) -> Response {
+    let form = match json::parse_form(&request.body) {
+        Ok(form) => form,
+        Err(why) => return Response::refuse(400, &why),
+    };
+    node_call(ctx, |node| {
+        hosting::apply(&mut node.config, &form).map_err(Failure::Usage)?;
+        node.save_config()?;
+        Ok(hosting::to_json(&node.config))
+    })
+}
+
 fn steer(ctx: &Context, request: &Request) -> Response {
     let form = match json::parse_form(&request.body) {
         Ok(form) => form,

@@ -336,7 +336,7 @@ pub fn register_with(node: &Node, invite: Option<&Secret>, now: u64) -> Result<(
     let claim = NodeClaim {
         owner: node.store.owner(),
         device: node.store.device_id(),
-        pledged_bytes: node.config.pledge_bytes,
+        pledged_bytes: node.config.offered_bytes(),
         issued_unix: now,
         revoked: false,
     }

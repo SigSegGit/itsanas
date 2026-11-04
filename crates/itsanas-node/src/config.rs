@@ -161,6 +161,22 @@ pub struct Config {
     pub username: String,
     /// How much space this node offers to other users, in bytes.
     pub pledge_bytes: u64,
+
+    /// Offer this machine to the network. Off, it declares nothing and takes in
+    /// nothing, and `pledge_bytes` is kept for when it comes back on.
+    pub contribute: bool,
+
+    /// Battery percentage at or below which a phone works only when watched.
+    pub battery_floor_percent: u8,
+
+    /// Minutes between rounds while charging on a free connection.
+    pub every_charging_minutes: u32,
+
+    /// Bytes hosting may move over a metered connection per `metered_period`.
+    pub metered_allowance_bytes: u64,
+
+    /// What `metered_allowance_bytes` is counted over.
+    pub metered_period: itsanas_policy::Period,
     /// How this machine's commitment divides between its owner and the network.
     ///
     /// Local, and only ever stricter than [`Split::DEFAULT`]. It decides what
@@ -251,6 +267,11 @@ impl Default for Config {
         Self {
             username: String::new(),
             pledge_bytes: DEFAULT_PLEDGE_BYTES,
+            contribute: DEFAULT_HOSTING.contribute,
+            battery_floor_percent: DEFAULT_HOSTING.battery_floor_percent,
+            every_charging_minutes: DEFAULT_CHARGING_MINUTES,
+            metered_allowance_bytes: DEFAULT_HOSTING.metered_allowance,
+            metered_period: DEFAULT_HOSTING.metered_period,
             split: Split::DEFAULT,
             listen: DEFAULT_LISTEN.to_owned(),
             announce: None,
@@ -268,7 +289,41 @@ impl Default for Config {
     }
 }
 
+/// The policy's own defaults, so a value has one home.
+const DEFAULT_HOSTING: itsanas_policy::Settings = itsanas_policy::Settings::DEFAULT;
+
+/// [`itsanas_policy::SERVICE`], in the file's unit.
+const DEFAULT_CHARGING_MINUTES: u32 = 5;
+
 impl Config {
+    /// What this machine declares it offers: nothing while switched off, and
+    /// `pledge_bytes` stays for when it comes back on.
+    #[must_use]
+    pub const fn offered_bytes(&self) -> u64 {
+        if self.contribute {
+            self.pledge_bytes
+        } else {
+            0
+        }
+    }
+
+    /// These settings as the policy reads them. A machine offering no space has
+    /// nothing to contribute, whatever the switch says.
+    #[must_use]
+    pub fn hosting_settings(&self, content_on_metered: bool) -> itsanas_policy::Settings {
+        itsanas_policy::Settings {
+            content_on_metered,
+            contribute: self.offered_bytes() > 0,
+            battery_floor_percent: self.battery_floor_percent,
+            every_charging: std::time::Duration::from_secs(
+                u64::from(self.every_charging_minutes) * 60,
+            ),
+            metered_allowance: self.metered_allowance_bytes,
+            metered_period: self.metered_period,
+            ..itsanas_policy::Settings::DEFAULT
+        }
+    }
+
     /// What this device has been told to hold of its own account.
     ///
     /// The three settings that answer one question, gathered so that no caller
@@ -293,6 +348,35 @@ impl Config {
 
         let _ = writeln!(out, "username = {}", self.username);
         let _ = writeln!(out, "pledge_bytes = {}", self.pledge_bytes);
+        // Only what differs: a file with no such line still opens in an older
+        // version, and a machine that never touched these writes none.
+        if self.contribute != DEFAULT_HOSTING.contribute {
+            let _ = writeln!(out, "contribute = {}", self.contribute);
+        }
+        if self.battery_floor_percent != DEFAULT_HOSTING.battery_floor_percent {
+            let _ = writeln!(
+                out,
+                "battery_floor_percent = {}",
+                self.battery_floor_percent
+            );
+        }
+        if self.every_charging_minutes != DEFAULT_CHARGING_MINUTES {
+            let _ = writeln!(
+                out,
+                "every_charging_minutes = {}",
+                self.every_charging_minutes
+            );
+        }
+        if self.metered_allowance_bytes != DEFAULT_HOSTING.metered_allowance {
+            let _ = writeln!(
+                out,
+                "metered_allowance_bytes = {}",
+                self.metered_allowance_bytes
+            );
+        }
+        if self.metered_period != DEFAULT_HOSTING.metered_period {
+            let _ = writeln!(out, "metered_period = {}", self.metered_period.name());
+        }
         let _ = writeln!(out, "split = {}", self.split);
         let _ = writeln!(out, "listen = {}", self.listen);
         if let Some(announce) = &self.announce {
@@ -370,6 +454,57 @@ impl Config {
                     })?;
                     value.clone_into(&mut config.listen);
                 }
+                "contribute" => {
+                    config.contribute = value.parse().map_err(|_| {
+                        NodeError::Config(format!(
+                            "line {}: contribute must be true or false, found {value:?}",
+                            number + 1
+                        ))
+                    })?;
+                }
+                "battery_floor_percent" => {
+                    config.battery_floor_percent = value
+                        .parse()
+                        .ok()
+                        .filter(|percent| *percent <= 100)
+                        .ok_or_else(|| {
+                            NodeError::Config(format!(
+                                "line {}: battery_floor_percent must be 0 to 100, found {value:?}",
+                                number + 1
+                            ))
+                        })?;
+                }
+                "every_charging_minutes" => {
+                    config.every_charging_minutes = value
+                        .parse()
+                        .ok()
+                        .filter(|minutes| *minutes >= 1)
+                        .ok_or_else(|| {
+                            NodeError::Config(format!(
+                                "line {}: every_charging_minutes must be 1 or more, found {value:?}",
+                                number + 1
+                            ))
+                        })?;
+                }
+                "metered_allowance_bytes" => {
+                    config.metered_allowance_bytes = value.parse().map_err(|_| {
+                        NodeError::Config(format!(
+                            "line {}: metered_allowance_bytes must be a whole number of bytes, \
+                             found {value:?}",
+                            number + 1
+                        ))
+                    })?;
+                }
+                "metered_period" => {
+                    config.metered_period =
+                        itsanas_policy::Period::parse(value).ok_or_else(|| {
+                            NodeError::Config(format!(
+                                "line {}: metered_period must be hour, day, week or month, \
+                                 found {value:?}",
+                                number + 1
+                            ))
+                        })?;
+                }
                 "pledge_bytes" => {
                     config.pledge_bytes = value.parse().map_err(|_| {
                         NodeError::Config(format!(
@@ -440,6 +575,8 @@ impl Config {
                         concat!(
                             "line {}: unknown setting {:?}. Known settings: ",
                             "username, pledge_bytes, split, keep_bytes, keep_order, ",
+                            "contribute, battery_floor_percent, every_charging_minutes, ",
+                            "metered_allowance_bytes, metered_period, ",
                             "keep_only, ",
                             "listen, announce, folder, vault, peer, ",
                             "coordinator, coordinator_device, updates, placement"
@@ -1044,6 +1181,58 @@ mod tests {
         assert!(instance_home(&"a".repeat(32)).is_ok());
     }
 
+    /// Switched off and on, nothing is forgotten, and the values survive the
+    /// file. Sabotage: make `offered_bytes` return `pledge_bytes`; zero the
+    /// pledge when switching off; drop a line from the writer.
+    #[test]
+    fn red_team_switching_off_declares_nothing_and_forgets_nothing() {
+        let mut config = Config {
+            pledge_bytes: 20 << 30,
+            contribute: false,
+            battery_floor_percent: 30,
+            every_charging_minutes: 10,
+            metered_allowance_bytes: 1 << 30,
+            metered_period: itsanas_policy::Period::Week,
+            ..Config::default()
+        };
+        assert_eq!(
+            config.offered_bytes(),
+            0,
+            "switched off, it still declared space"
+        );
+        assert!(!config.hosting_settings(false).contribute);
+        let back = Config::parse(&config.render()).expect("parses");
+        assert_eq!(
+            back.pledge_bytes,
+            20 << 30,
+            "switching off forgot the space offered"
+        );
+        assert!(!back.contribute);
+        assert_eq!(back.battery_floor_percent, 30);
+        assert_eq!(back.every_charging_minutes, 10);
+        assert_eq!(back.metered_allowance_bytes, 1 << 30);
+        assert_eq!(back.metered_period, itsanas_policy::Period::Week);
+        config.contribute = true;
+        assert_eq!(
+            config.offered_bytes(),
+            20 << 30,
+            "switched back on, the space did not return"
+        );
+        let settings = config.hosting_settings(true);
+        assert_eq!(settings.every_charging.as_secs(), 600);
+        assert_eq!(settings.metered_allowance, 1 << 30);
+    }
+
+    #[test]
+    fn a_default_file_says_nothing_of_the_hosting_settings() {
+        // An older version refuses a setting it does not know.
+        let written = Config::default().render();
+        assert!(
+            !written.contains("contribute") && !written.contains("metered"),
+            "{written}"
+        );
+    }
+
     #[test]
     fn a_config_round_trips() {
         let config = Config {
@@ -1063,6 +1252,7 @@ mod tests {
             // Not the default, so the round trip covers the line being written.
             updates: Updates::Auto,
             placement: PlacementMode::Measured,
+            ..Config::default()
         };
 
         assert_eq!(Config::parse(&config.render()).unwrap(), config);
