@@ -47,6 +47,8 @@ class SyncService : Service() {
     @Volatile
     private var destroyed = false
 
+    private var refused = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     /** Android 15's limit for this kind of service: stop, or the app is killed. */
@@ -61,16 +63,24 @@ class SyncService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        running = true
         channel()
-        startForeground(NOTIFICATION, notification("Starting", "Opening the account"))
+        try {
+            startForeground(NOTIFICATION, notification("Starting", "Opening the account"))
+        } catch (_: IllegalStateException) {
+            // Android refuses a service past its daily limit while the app is
+            // off the screen, and uncaught that is a crash. `SyncWorker` carries on.
+            refused = true
+            stopSelf()
+            return
+        }
+        running = true
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Restarted by the system after the account was removed: nothing to
         // sync, and a sticky service with nothing to do is a notification that
         // never goes away.
-        if (!Native.exists(Vault.home(this).absolutePath)) {
+        if (refused || !Native.exists(Vault.home(this).absolutePath)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -229,7 +239,8 @@ class SyncService : Service() {
     override fun onDestroy() {
         running = false
         // Off the main thread: the loop's current session has to end first.
-        Thread { runCatching { Native.hostStop() } }.start()
+        // A refused service ran nothing, and the hosting may be the worker's.
+        if (!refused) Thread { runCatching { Native.hostStop() } }.start()
         destroyed = true
         scope.cancel()
         super.onDestroy()
