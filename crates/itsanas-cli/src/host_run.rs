@@ -301,6 +301,13 @@ mod tests {
                 itsanas_node::coordinator::register_with(node, None, now).expect("enrols");
                 itsanas_node::coordinator::announce(node, address, now).expect("announces");
             }
+            // Withdrawn after it announced: its address is still in the table.
+            let (mut gone, _) = phone(&at("gone"), coordinator, "withdrawn", None);
+            gone.config.pledge_bytes = 100 << 20;
+            itsanas_node::coordinator::register_with(&gone, None, now).expect("enrols");
+            itsanas_node::coordinator::announce(&gone, "203.0.113.10:9797", now)
+                .expect("announces");
+            itsanas_node::coordinator::withdraw_self(&gone, now).expect("withdraws");
             let told = itsanas_node::coordinator::hosts(&me).expect("asks");
             assert_eq!(
                 told,

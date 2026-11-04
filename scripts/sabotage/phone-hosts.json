@@ -8,6 +8,12 @@
     "host_run"
   ],
   "defences": {
+    "hosts: not a withdrawn device": {
+      "file": "crates/itsanas-coord/src/service.rs",
+      "live": "if claim.claim.revoked
+                || claim.claim.pledged_bytes == 0",
+      "dead": "if claim.claim.pledged_bytes == 0"
+    },
     "hosts: not one offering nothing": {
       "file": "crates/itsanas-coord/src/service.rs",
       "live": "                || claim.claim.pledged_bytes == 0\n",

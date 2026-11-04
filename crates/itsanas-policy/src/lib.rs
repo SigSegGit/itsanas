@@ -690,6 +690,14 @@ mod tests {
             hosting(battery, settings, facts).work,
             HostWork::AnswersOnly
         );
+        // Two different things to tell a person: not allowed, and spent.
+        let data = at(Network::Metered, Power::OnBattery, Attention::Background);
+        assert!(
+            hosting(data, settings, facts)
+                .because
+                .contains("not allowed"),
+            "a plan that never allowed hosting was said to have spent its allowance"
+        );
     }
 
     #[test]
