@@ -9,8 +9,8 @@ contract.
 ## 0. Resume here after `/clear`
 
 <!-- ITSANAS-STATE
-NEXT: 8.10
-TITLE: The next version: a phone hosts, one switch, Settings; then the hand test (§8 10)
+NEXT: 8.0c
+TITLE: Nicolas's hand test, with Mandarine, on the version carrying §8 10 (§8 0c)
 WRITTEN-AT: 2026-11-04
 BASE: 9ea9982
 -->
@@ -68,6 +68,10 @@ sees (`Native.hostTick`). `daemon.rs` did not move: it is already in the library
 `Arc<Node>`, because the loop holds the node too: a change through the page and a sign-out stop the
 loop first. Trap, paid for once: a test of this loop with `local_network` on dials the neighbours and
 opens a port on the developer's router (a mapping for an hour). Tests pass `false`.
+
+Then the rest of §8 10 on the same PR. `Request::Hosts` gives a machine that offers space to other
+members, by default: `docs/legal/PRIVACY.md` says so. Not run on a real phone or a real Mac: the
+worker, Windows Hello's and Touch ID's own prompts, a relayed host across two networks.
 
 **2026-11-03: the first real phone (Galaxy S25, Android 17, wireless adb), and folders on the
 Files screen.** The self-update went 0.1.15 to 0.1.16 with the account intact, and a real folder of
@@ -3838,12 +3842,12 @@ Detail and measurements are in ROADMAP.md; this is the map.
     c. 🟨 **Android 15's six hours.** `onTimeout`, `onTaskRemoved`, not sticky; `SyncWorker` carries
        on every 15 minutes, 9 of them hosting, and reopens only what the person left open. Built,
        and nothing tests the worker: no scenario runs an app closed.
-    d. ⬜ **Windows Hello and macOS biometrics**, optional, off by default: the sealed passphrase
-       replaces `passphrase.txt` behind `ServiceControl::stored_passphrase`/`store_passphrase`. The
-       one `unsafe` exception Nicolas granted: update `scripts/check-unsafe.py`; `cargo deny`.
-    e. ⬜ **Legal texts**: `docs/legal/NOTICE.md`, `PRIVACY.md`, `TERMS.md`, embedded and linked from
-       the first screen and "About and notices", from the owner's private audit. AGENTS.md rule 1.
-    f. ⬜ **The Android logo**: compare the render with the favicon and `docs/assets`.
+    d. 🟨 **Windows Hello and Touch ID**, optional, off by default (`setup/unlock.rs`). The sealed
+       file replaces the passphrase file; the daemon asks at start. Windows needs no `unsafe`; the
+       Mac's `LAContext` call is `itsanas-touchid`. The logic is tested with stand-in gates; neither
+       system's own prompt has run. Left: changing the passphrase while sealed does not reseal.
+    e. ✅ **Legal texts**: `docs/legal/`, embedded, on the first screen and in Settings.
+    f. ✅ **The Android logo**: the launcher's vector drawn and compared with `docs/assets/icon.png`.
     g. Then 8.0c, Nicolas's hand test with Mandarine, and two modes to measure on it: plugged in on
        Wi-Fi, and on battery on Wi-Fi answering only.
 

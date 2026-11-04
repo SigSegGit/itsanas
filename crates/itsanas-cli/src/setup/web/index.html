@@ -32,6 +32,9 @@
     <!-- ===== Setup: one step at a time ===== -->
     <section data-page="welcome" hidden>
       <h1 tabindex="-1">Welcome</h1>
+        <details class="legal" data-legal="/legal/notice"><summary>Legal notice</summary><pre></pre></details>
+        <details class="legal" data-legal="/legal/privacy"><summary>Privacy policy</summary><pre></pre></details>
+        <details class="legal" data-legal="/legal/terms"><summary>Terms of use</summary><pre></pre></details>
       <p class="lead">ITSaNAS keeps a folder in sync between your machines. Your files are locked with a key only you have, and copies are kept on other members' computers in case yours breaks.</p>
       <p>Three questions, then ITSaNAS sets itself up. If something stops, start again and it picks up where it left off.</p>
       <dl class="facts" data-feature="advanced">
@@ -366,6 +369,7 @@
         <h2 id="st-h-security">Security</h2>
         <div class="field" data-feature="biometric">
           <label class="choice"><input type="checkbox" id="st-biometric"> Unlock with my fingerprint or face</label>
+          <p class="help">Asked when the session opens. A machine restarted with nobody signed in waits for them.</p>
         </div>
         <div class="field">
           <span class="label">My 24 recovery words</span>
@@ -427,6 +431,9 @@
       <section class="card" aria-labelledby="st-h-about">
         <h2 id="st-h-about">About and legal</h2>
         <p class="help">ITSaNAS <span id="st-version"></span></p>
+        <details class="legal" data-legal="/legal/notice"><summary>Legal notice</summary><pre></pre></details>
+        <details class="legal" data-legal="/legal/privacy"><summary>Privacy policy</summary><pre></pre></details>
+        <details class="legal" data-legal="/legal/terms"><summary>Terms of use</summary><pre></pre></details>
         <ul class="links">
           <li><a href="https://github.com/SigSegGit/itsanas/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">Licence (AGPL-3.0)</a></li>
           <li><a href="https://github.com/SigSegGit/itsanas" target="_blank" rel="noopener noreferrer">Source code</a></li>

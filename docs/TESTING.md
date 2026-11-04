@@ -1,9 +1,9 @@
 # Test Catalogue
 
-**Last updated: 2026-11-04 — 1607 test functions across 42 binaries, 20 of them
-`#[ignore]`d, plus 2 doctests. 580 are red-team tests.**
+**Last updated: 2026-11-04 — 1610 test functions across 42 binaries, 20 of them
+`#[ignore]`d, plus 2 doctests. 582 are red-team tests.**
 
-**1491 of the 1607 tests have an entry of their own on this page** — an *entry*,
+**1494 of the 1610 tests have an entry of their own on this page** — an *entry*,
 meaning a row in one of the tables below whose last cell says something, not a
 name dropped into a sentence. Forty-seven of
 the rest are the `itsanas-coord` section that says outright it catalogues by
@@ -179,7 +179,7 @@ guarantee and is not one.
 | `itsanas-folder` integration (`tests/folder.rs`) | 23 |
 | `itsanas-folder` storage-vanished (`tests/storage_vanished.rs`) | 6 |
 | `itsanas-folder` reports (`tests/reports.rs`) | 7 |
-| `itsanas-cli` unit | 339 |
+| `itsanas-cli` unit | 342 |
 | `itsanas-android` unit | 24 |
 | `itsanas-drive` unit | 21 |
 | `itsanas-node` unit | 177 |
@@ -221,7 +221,7 @@ is `peers-sync`, `itsanas-cli/src/lib.rs` is `local-control`.
 | `reach` | LAN discovery, UPnP and NAT-PMP, relays, address classes | 32 |
 | `peers-sync` | two nodes over sockets, logs and convergence | 32 |
 | `local-store` | the index, packs, folders, the virtual drive, crash | 57 |
-| `local-control` | setup, secrets, the control socket, the daemon, updates | 185 |
+| `local-control` | setup, secrets, the control socket, the daemon, updates | 187 |
 
 Every automated test in ITSaNAS is listed here with the property it establishes.
 The rule this project holds itself to: **if you cannot state in one sentence
@@ -1040,6 +1040,9 @@ Real stores, real chunking, real sealing, real signatures, real TCP.
 | `a_default_file_says_nothing_of_the_hosting_settings` | A machine that never touched these writes no line an older version would refuse. |
 | **`red_team_a_refused_form_changes_nothing_and_the_switch_keeps_the_space`** | One bad value keeps the whole form out, and the switch never forgets the space offered. |
 | `the_form_reaches_every_setting` | Each field of the form reaches its setting. |
+| **`red_team_a_sealed_passphrase_opens_for_the_person_and_leaves_no_clear_copy`** | Sealed behind the system's unlock: the clear copy is gone, another key opens nothing, and switching off puts the passphrase back. |
+| **`red_team_a_seal_that_cannot_be_opened_never_replaces_the_passphrase`** | A refusal, or a system answering differently twice, leaves the passphrase where it was. |
+| `the_legal_texts_are_served_and_linked_from_both_screens` | The three texts are in the program, and on the first screen and in Settings. |
 | **`red_team_signing_out_stops_the_loop`** | Signing out on the page ends the loop, whichever shell started it. |
 | **`red_team_a_personal_device_runs_no_loop`** | Switched off with nothing held, the loop stops and no listener stays open. |
 | **`red_team_hosting_never_spends_a_low_battery_or_an_unallowed_data_plan`** | Over every combination of conditions and settings: nothing runs at the battery floor or with no network, and a metered link never takes in or goes past its allowance. |
@@ -1219,7 +1222,7 @@ Linux only**, so Windows and macOS rest on one run by hand on Windows
 
 ---
 
-# `itsanas-cli` — unit tests (339)
+# `itsanas-cli` — unit tests (342)
 
 ## `bench` — measuring this machine (4)
 

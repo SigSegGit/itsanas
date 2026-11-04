@@ -152,8 +152,8 @@ member chooses. There is no analytics, no advertising identifier, no crash
 reporting.
 
 **Privacy policy URL.** Required, even for an application that collects
-nothing — Play asks for a URL, not an argument. It has to be written and
-hosted; it does not exist yet.
+nothing — Play asks for a URL, not an argument. The text is
+`docs/legal/PRIVACY.md`; it has to be hosted at a URL.
 
 **Foreground service justification.** `SyncService` is declared
 `android:foregroundServiceType="dataSync"` and holds

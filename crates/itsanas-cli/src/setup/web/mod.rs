@@ -79,6 +79,10 @@ use crate::{
 
 const INDEX_HTML: &str = include_str!("index.html");
 const APP_CSS: &str = include_str!("app.css");
+const LEGAL_NOTICE: &str = include_str!("../../../../../docs/legal/NOTICE.md");
+const LEGAL_PRIVACY: &str = include_str!("../../../../../docs/legal/PRIVACY.md");
+const LEGAL_TERMS: &str = include_str!("../../../../../docs/legal/TERMS.md");
+const TEXT: &str = "text/plain; charset=utf-8";
 const APP_JS: &str = include_str!("app.js");
 /// The page's other languages, keyed by its English text.
 const I18N_JS: &str = include_str!("i18n.js");
@@ -357,10 +361,13 @@ impl Backends {
                 let running: Running = Box::new(move || matches!(child.try_wait(), Ok(None)));
                 Ok(running)
             }),
-            features: Features::DESKTOP,
+            features: Features::THIS_COMPUTER,
             phone: false,
             fixed_coordinator: None,
-            host: Arc::new(NoHost),
+            host: Arc::new(features::ComputerUnlock {
+                home: home.to_owned(),
+                instance: instance.map(str::to_owned),
+            }),
         }
     }
 }
@@ -701,6 +708,9 @@ fn route(ctx: &Arc<Context>, request: &Request) -> Response {
         ("GET", "/app.js") => Response::new(200, "text/javascript; charset=utf-8", APP_JS),
         ("GET", "/i18n.js") => Response::new(200, "text/javascript; charset=utf-8", I18N_JS),
         ("GET", "/icon.png") => Response::new(200, "image/png", ICON_PNG),
+        ("GET", "/legal/notice") => Response::new(200, TEXT, LEGAL_NOTICE),
+        ("GET", "/legal/privacy") => Response::new(200, TEXT, LEGAL_PRIVACY),
+        ("GET", "/legal/terms") => Response::new(200, TEXT, LEGAL_TERMS),
         (_, path) if path.starts_with("/api/") => api(ctx, request),
         ("GET", _) => Response::refuse(404, "no such page"),
         _ => Response::refuse(405, "not here"),

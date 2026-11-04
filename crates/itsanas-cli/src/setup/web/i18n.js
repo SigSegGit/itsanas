@@ -473,6 +473,11 @@ window.I18N = {
     'Files to keep here, in GB': 'Fichiers à garder ici, en Go',
     'Files kept on this machine, in GB (empty: everything)': 'Fichiers gardés sur cette machine, en Go (vide : tout)',
     'Contribute to the network': 'Contribuer au réseau',
+    'Legal notice': 'Mentions légales',
+    'Privacy policy': 'Politique de confidentialité',
+    'Terms of use': 'Conditions d’utilisation',
+    'Asked when the session opens. A machine restarted with nobody signed in waits for them.':
+      'Demandé à l’ouverture de session. Une machine redémarrée sans personne de connecté les attend.',
     'Offer this machine to the network': 'Offrir cette machine au réseau',
     'Off, this machine takes in nothing and declares no space, and your values below are kept. What it already holds for others stays, and it goes on answering for it.':
       'Éteint, cette machine ne reçoit plus rien et ne déclare aucun espace, et vos valeurs ci-dessous sont conservées. Ce qu’elle garde déjà pour d’autres reste, et elle continue d’en répondre.',

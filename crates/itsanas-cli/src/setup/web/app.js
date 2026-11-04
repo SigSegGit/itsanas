@@ -1293,6 +1293,15 @@
         else { document.documentElement.setAttribute('data-theme', $('st-theme').value); }
       }).catch(function (e) { say(e.message); });
     });
+    document.querySelectorAll('details[data-legal]').forEach(function (block) {
+      block.addEventListener('toggle', function () {
+        const text = block.querySelector('pre');
+        if (!block.open || text.textContent) { return; }
+        fetch(block.dataset.legal).then(function (r) { return r.text(); }).then(function (body) {
+          text.textContent = body;
+        }).catch(function (e) { text.textContent = e.message; });
+      });
+    });
     // Grey it at once, without forgetting a value: a disabled field keeps its own.
     $('st-contribute').addEventListener('change', function () {
       $('st-contribute-fields').disabled = !this.checked;

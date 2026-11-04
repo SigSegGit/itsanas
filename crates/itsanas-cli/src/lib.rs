@@ -4275,7 +4275,17 @@ fn start_daemon(
         return Ok(());
     }
     let interval = interval.map(|seconds| std::time::Duration::from_secs(seconds.max(1)));
-    let passphrase = passphrase(false)?;
+    // Sealed, the system asks now; refused, this stops here and nothing runs on
+    // an empty passphrase.
+    let passphrase = if std::env::var(PASSPHRASE_ENV).map_or(true, |value| value.trim().is_empty())
+        && setup::unlock::is_on(home)
+    {
+        setup::unlock::opened(home, setup::unlock::platform_gate)
+            .map_err(|why| CliError::Usage(format!("the passphrase stays sealed: {why}")))?
+            .to_string()
+    } else {
+        passphrase(false)?
+    };
     jobs::clear_stale(home);
     // A vault on a removable disk comes and goes. Unplugged, this machine is
     // simply away -- its hosts' audits read it as unreachable, never as a

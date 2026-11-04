@@ -124,7 +124,15 @@ impl Nodes for Opened {
             }
             self.restart.store(service.installed(), Ordering::SeqCst);
         }
-        let passphrase = match service.stored_passphrase() {
+        let sealed = || {
+            crate::setup::unlock::is_on(&self.home)
+                .then(|| {
+                    crate::setup::unlock::opened(&self.home, crate::setup::unlock::platform_gate)
+                        .ok()
+                })
+                .flatten()
+        };
+        let passphrase = match service.stored_passphrase().or_else(sealed) {
             Some(stored) => stored,
             None => (self.prompt)()?.passphrase(&sign::account_purpose(
                 &self.home,

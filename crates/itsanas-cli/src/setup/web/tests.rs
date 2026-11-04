@@ -3028,3 +3028,23 @@ fn the_stop_handle_ends_a_server_that_would_otherwise_wait_for_the_idle_exit() {
     );
     let _ = handle.join();
 }
+
+/// The legal texts are in the program, reachable from the first screen and from
+/// Settings, with no network. Sabotage: drop a route; drop a block from a screen.
+#[test]
+fn the_legal_texts_are_served_and_linked_from_both_screens() {
+    for text in [
+        super::LEGAL_NOTICE,
+        super::LEGAL_PRIVACY,
+        super::LEGAL_TERMS,
+    ] {
+        assert!(text.len() > 200, "a legal page is empty");
+    }
+    assert!(super::LEGAL_NOTICE.contains("Nicolas GIRARD"));
+    let html = include_str!("index.html");
+    assert_eq!(
+        html.matches("data-legal=\"/legal/privacy\"").count(),
+        2,
+        "the privacy policy must be one tap away on the first screen and in Settings"
+    );
+}

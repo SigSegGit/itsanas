@@ -370,3 +370,4 @@ button.link {
 }
 fieldset.plain { border: 0; margin: 0; padding: 0; min-width: 0; }
 fieldset.plain:disabled { opacity: 0.5; }
+details.legal pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
