@@ -1498,20 +1498,23 @@ fn a_holder_nobody_has_heard_from_does_not_authorise_letting_go() {
 
     let peer = DeviceKeys::generate().expect("device key").device_id();
     let other = DeviceKeys::generate().expect("device key").device_id();
+    // Every stamp below is written in several calls, and a second can tick
+    // between them. Measuring the window from one of them measured the clock
+    // instead: the test failed on Windows runners whenever the tick landed
+    // there. Reproduced every time by sleeping a second between the two calls.
+    // A clock read before all of them is at or behind each one.
+    let before = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("a clock after 1970")
+        .as_secs();
     store.record_holders(&chunks, &peer).expect("record");
     store.note_audit(&peer, true).expect("audit");
     store.record_holders(&chunks, &other).expect("record");
     store.note_audit(&other, true).expect("audit");
-    // Two holders are heard from in two calls, and a second can tick between
-    // them. Measuring the window from one of them measured the clock instead:
-    // the test failed on Windows runners whenever the tick landed there, with
-    // the later holder still exactly inside its window. Reproduced every time
-    // by sleeping a second between the two calls.
     let seen = |device| store.last_seen(device).expect("last seen").expect("seen");
-    let earliest = seen(&peer).min(seen(&other));
 
-    // One second before the records go stale, they still count -- for both.
-    let last_moment = earliest + itsanas_store::holders::CONFIRMED_FOR;
+    // A proved holder allows a release for LIVE_FOR, and still does at its end.
+    let last_moment = before + itsanas_store::holders::LIVE_FOR;
     match store.release("notes.txt", last_moment).expect("release") {
         itsanas_store::Release::Gone(_) => {}
         other => panic!("a record inside the window was refused: {other:?}"),

@@ -1017,6 +1017,101 @@ mod tests {
         );
     }
 
+    /// A member is introduced to machines of other accounts that offer space
+    /// and were heard lately, and to nothing else. The client filters some of
+    /// this again, so only a test on this side sees the coordinator's own list.
+    /// Sabotage: drop each condition of `hosts_for`.
+    #[test]
+    fn red_team_hosts_lists_only_another_accounts_live_offering_machines() {
+        let directory = directory();
+        let me = user(30);
+        let my_phone = device(30);
+        enrol(&directory, &me, &my_phone);
+        let my_other = device(31);
+        directory
+            .claim(
+                &NodeClaim {
+                    owner: me.user_id(),
+                    device: my_other.device_id(),
+                    pledged_bytes: 1 << 30,
+                    issued_unix: NOW,
+                    revoked: false,
+                }
+                .sign(&me),
+                NOW,
+            )
+            .expect("claim");
+
+        let host_owner = user(32);
+        let host = device(32);
+        enrol(&directory, &host_owner, &host);
+
+        let withdraw = |owner: &itsanas_crypto::UserKeys,
+                        machine: &itsanas_crypto::DeviceKeys,
+                        pledged_bytes,
+                        revoked| {
+            directory
+                .claim(
+                    &NodeClaim {
+                        owner: owner.user_id(),
+                        device: machine.device_id(),
+                        pledged_bytes,
+                        issued_unix: NOW + 1,
+                        revoked,
+                    }
+                    .sign(owner),
+                    NOW + 1,
+                )
+                .expect("claim again");
+        };
+        let gone_owner = user(33);
+        let gone = device(33);
+        enrol(&directory, &gone_owner, &gone);
+        let idle_owner = user(34);
+        let idle = device(34);
+        enrol(&directory, &idle_owner, &idle);
+        let banned_owner = user(35);
+        let banned = device(35);
+        enrol(&directory, &banned_owner, &banned);
+
+        for (owner, machine, address) in [
+            (&me, &my_phone, "203.0.113.1:9797"),
+            (&me, &my_other, "203.0.113.2:9797"),
+            (&host_owner, &host, "203.0.113.3:9797"),
+            (&gone_owner, &gone, "203.0.113.4:9797"),
+            (&idle_owner, &idle, "203.0.113.5:9797"),
+            (&banned_owner, &banned, "203.0.113.6:9797"),
+        ] {
+            announce_address(&directory, owner, machine, address);
+        }
+        // After announcing: their addresses are still in the table. Withdrawn
+        // with its pledge still on the claim, so only `revoked` says so.
+        withdraw(&gone_owner, &gone, 1 << 30, true);
+        withdraw(&idle_owner, &idle, 0, false);
+        directory
+            .suspend(banned_owner.user_id(), NOW)
+            .expect("suspend");
+
+        let service = CoordService::new(&directory);
+        let told = |now| match ask_at(&service, &Request::Hosts, my_phone.device_id(), now) {
+            Response::Hosts(list) => list
+                .into_iter()
+                .map(|row| row.presence.presence.device)
+                .collect::<Vec<_>>(),
+            other => panic!("not a list of hosts: {other:?}"),
+        };
+        assert_eq!(
+            told(NOW + PRESENCE_TTL),
+            vec![host.device_id()],
+            "only another account's machine offering space may be introduced"
+        );
+        assert_eq!(
+            told(NOW + PRESENCE_TTL + 1),
+            Vec::new(),
+            "a machine silent past the presence window was introduced"
+        );
+    }
+
     fn ask(service: &CoordService<'_>, request: &Request, caller: DeviceId) -> Response {
         ask_at(service, request, caller, NOW)
     }

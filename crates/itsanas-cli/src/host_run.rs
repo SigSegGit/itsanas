@@ -269,8 +269,9 @@ mod tests {
 
     /// A member with nobody typed in and nobody on their LAN is told of another
     /// account's machine that offers space: not their own, not one offering
-    /// nothing, nothing that leads to a private network. Sabotage: drop each of
-    /// the coordinator's and the client's three filters in turn.
+    /// nothing, nothing that leads to a private network. Sabotage: drop the
+    /// client's private-address filter. The client checks owner and pledge too,
+    /// so the coordinator's own filters are proved apart, in `itsanas-coord`.
     #[test]
     fn red_team_the_coordinator_introduces_hosts_that_offer_space_and_nothing_else() {
         with_directory(|coordinator, _| {

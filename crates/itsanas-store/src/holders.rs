@@ -411,7 +411,8 @@ pub struct HolderEvidence {
     /// `live` and `fresh` answer "is that machine about, and did it say so
     /// recently" -- both of which a liar satisfies by talking. This one asks
     /// whether it has ever *proved* it stores anything, which costs holding the
-    /// bytes. It is what [`SAFE_TO_RELEASE`] now counts.
+    /// bytes, and was heard from and confirmed the chunk within [`LIVE_FOR`]. It
+    /// is what [`SAFE_TO_RELEASE`] now counts.
     pub proved: usize,
 }
 

@@ -493,7 +493,6 @@ window.I18N = {
     'per month': 'par mois',
     'A connection the system marks as metered counts as mobile data, whatever it is.':
       'Une connexion que le système marque comme limitée compte comme des données mobiles, quelle qu’elle soit.',
-    'Saved.': 'Enregistré.',
     'Type a battery level from 0 to 100.': 'Saisissez un niveau de batterie de 0 à 100.',
     'Type a whole number of minutes, at least 1.': 'Saisissez un nombre entier de minutes, au moins 1.',
     'Choose hour, day, week or month.': 'Choisissez heure, jour, semaine ou mois.',

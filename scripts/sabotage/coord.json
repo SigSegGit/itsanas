@@ -6,6 +6,31 @@
     "itsanas-coord"
   ],
   "defences": {
+    "hosts: not a withdrawn device": {
+      "file": "crates/itsanas-coord/src/service.rs",
+      "live": "if claim.claim.revoked\n                || claim.claim.pledged_bytes == 0",
+      "dead": "if claim.claim.pledged_bytes == 0"
+    },
+    "hosts: not one offering nothing": {
+      "file": "crates/itsanas-coord/src/service.rs",
+      "live": "                || claim.claim.pledged_bytes == 0\n",
+      "dead": ""
+    },
+    "hosts: not the asker's own": {
+      "file": "crates/itsanas-coord/src/service.rs",
+      "live": "                || claim.claim.owner == mine.claim.owner\n",
+      "dead": ""
+    },
+    "hosts: not one silent": {
+      "file": "crates/itsanas-coord/src/service.rs",
+      "live": "                || now.saturating_sub(seen) > PRESENCE_TTL\n                || self.directory.is_suspended(claim.claim.owner)?\n            {\n                continue;\n            }\n            out.push",
+      "dead": "                || self.directory.is_suspended(claim.claim.owner)?\n            {\n                continue;\n            }\n            out.push"
+    },
+    "hosts: not a suspended account": {
+      "file": "crates/itsanas-coord/src/service.rs",
+      "live": "                || now.saturating_sub(seen) > PRESENCE_TTL\n                || self.directory.is_suspended(claim.claim.owner)?\n            {\n                continue;\n            }\n            out.push",
+      "dead": "                || now.saturating_sub(seen) > PRESENCE_TTL\n            {\n                continue;\n            }\n            out.push"
+    },
     "presence: a clock set back erases": {
       "file": "crates/itsanas-coord/src/directory.rs",
       "live": "if now.saturating_sub(heard.max(said)) > older_than {",
