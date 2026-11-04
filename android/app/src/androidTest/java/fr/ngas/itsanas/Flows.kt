@@ -21,6 +21,8 @@ object Flows {
     const val OTHER_PASSPHRASE = "e2e passphrase two"
 
     /** A name the coordinator has not seen: lowercase letters and digits only. */
+    private const val RETAP_NANOS = 5_000_000_000L
+
     fun freshName() = "e2e" + (System.nanoTime() % 100_000_000_000L)
 
     class Made(val name: String, val phrase: String)
@@ -112,7 +114,19 @@ object Flows {
         click(compose, "words-have-them")
         waitTag(compose, "check-confirm", "the typing-back screen never opened")
         typeCheckedWords(compose, ask)
-        waitTag(compose, "new-pass", "the passphrase screen never opened after the words were proved, so no account can be made")
+        // The run's first test types while the keyboard is first opening, and twice
+        // in that spot the Confirm tap changed nothing. It says so in the log, with
+        // whether the button was even enabled, so a real fault stays readable.
+        var tapped = System.nanoTime()
+        E2e.waitFor("the passphrase screen never opened after the words were proved, so no account can be made") {
+            val open = has(compose, "new-pass")
+            if (!open && System.nanoTime() - tapped > RETAP_NANOS && has(compose, "check-confirm") && !has(compose, "secret-error")) {
+                android.util.Log.w("e2e", "the Confirm tap did nothing; enabled=${enabled(compose, "check-confirm")}")
+                click(compose, "check-confirm")
+                tapped = System.nanoTime()
+            }
+            open
+        }
         return ask
     }
 

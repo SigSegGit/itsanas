@@ -63,7 +63,7 @@ words and translated; what passed shows no detail.
 
 **2026-11-04: the emulator job now counts for a merge.** `android.yml` ran beside `ci.yml`, so the
 one required check passed with the e2e red or still running: #378 merged 25 seconds before its e2e
-failed (`FilesTest`, a chosen folder; not reproduced on #379, reason not read). `ci.yml` calls it now,
+failed. That failure is not about folders: on #378 and again on #380, `FilesTest` is the run's first test and stops at account creation, where the Confirm tap on the typed-back words changed nothing while the keyboard first opened (cause inferred, not shown). `Flows` taps again after 5 seconds and logs `the Confirm tap did nothing` with whether the button was enabled: grep that in `logcat.txt`. `ci.yml` calls it now,
 as the planned job `android-app`, whenever `itsanas-android` is affected, which any crate it depends
 on makes it. Seen: with the e2e forced to fail, the required check goes red. That run lost its Mac jobs to GitHub's capacity ("not acquired by Runner", result `abandoned`), which the verdict accepted because it listed bad words; it now accepts only success and planned skips. Cost: such a PR waits
 for the emulator, and a flaky e2e blocks a merge until it is re-run.
