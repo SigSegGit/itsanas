@@ -20,9 +20,9 @@ object Flows {
     const val PASSPHRASE = "e2e passphrase one"
     const val OTHER_PASSPHRASE = "e2e passphrase two"
 
-    /** A name the coordinator has not seen: lowercase letters and digits only. */
     private const val RETAP_NANOS = 5_000_000_000L
 
+    /** A name the coordinator has not seen: lowercase letters and digits only. */
     fun freshName() = "e2e" + (System.nanoTime() % 100_000_000_000L)
 
     class Made(val name: String, val phrase: String)
