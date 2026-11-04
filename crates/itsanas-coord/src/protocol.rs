@@ -684,7 +684,8 @@ mod tests {
                 | Response::SignedPeers(_)
                 | Response::ClaimedPeers(_)
                 | Response::Standing(_)
-                | Response::Deleted(_) => {}
+                | Response::Deleted(_)
+                | Response::Hosts(_) => {}
             }
             assert_eq!(
                 postcard::to_stdvec(response).unwrap()[0],

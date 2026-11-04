@@ -289,6 +289,64 @@ impl Default for Config {
     }
 }
 
+/// One line of the hosting settings, or `false` if it is not one of them.
+fn hosting_line(config: &mut Config, key: &str, value: &str, number: usize) -> Result<bool> {
+    match key {
+        "contribute" => {
+            config.contribute = value.parse().map_err(|_| {
+                NodeError::Config(format!(
+                    "line {}: contribute must be true or false, found {value:?}",
+                    number + 1
+                ))
+            })?;
+        }
+        "battery_floor_percent" => {
+            config.battery_floor_percent = value
+                .parse()
+                .ok()
+                .filter(|percent| *percent <= 100)
+                .ok_or_else(|| {
+                    NodeError::Config(format!(
+                        "line {}: battery_floor_percent must be 0 to 100, found {value:?}",
+                        number + 1
+                    ))
+                })?;
+        }
+        "every_charging_minutes" => {
+            config.every_charging_minutes = value
+                .parse()
+                .ok()
+                .filter(|minutes| *minutes >= 1)
+                .ok_or_else(|| {
+                    NodeError::Config(format!(
+                        "line {}: every_charging_minutes must be 1 or more, found {value:?}",
+                        number + 1
+                    ))
+                })?;
+        }
+        "metered_allowance_bytes" => {
+            config.metered_allowance_bytes = value.parse().map_err(|_| {
+                NodeError::Config(format!(
+                    "line {}: metered_allowance_bytes must be a whole number of bytes, \
+                     found {value:?}",
+                    number + 1
+                ))
+            })?;
+        }
+        "metered_period" => {
+            config.metered_period = itsanas_policy::Period::parse(value).ok_or_else(|| {
+                NodeError::Config(format!(
+                    "line {}: metered_period must be hour, day, week or month, \
+                         found {value:?}",
+                    number + 1
+                ))
+            })?;
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
 /// The policy's own defaults, so a value has one home.
 const DEFAULT_HOSTING: itsanas_policy::Settings = itsanas_policy::Settings::DEFAULT;
 
@@ -454,57 +512,6 @@ impl Config {
                     })?;
                     value.clone_into(&mut config.listen);
                 }
-                "contribute" => {
-                    config.contribute = value.parse().map_err(|_| {
-                        NodeError::Config(format!(
-                            "line {}: contribute must be true or false, found {value:?}",
-                            number + 1
-                        ))
-                    })?;
-                }
-                "battery_floor_percent" => {
-                    config.battery_floor_percent = value
-                        .parse()
-                        .ok()
-                        .filter(|percent| *percent <= 100)
-                        .ok_or_else(|| {
-                            NodeError::Config(format!(
-                                "line {}: battery_floor_percent must be 0 to 100, found {value:?}",
-                                number + 1
-                            ))
-                        })?;
-                }
-                "every_charging_minutes" => {
-                    config.every_charging_minutes = value
-                        .parse()
-                        .ok()
-                        .filter(|minutes| *minutes >= 1)
-                        .ok_or_else(|| {
-                            NodeError::Config(format!(
-                                "line {}: every_charging_minutes must be 1 or more, found {value:?}",
-                                number + 1
-                            ))
-                        })?;
-                }
-                "metered_allowance_bytes" => {
-                    config.metered_allowance_bytes = value.parse().map_err(|_| {
-                        NodeError::Config(format!(
-                            "line {}: metered_allowance_bytes must be a whole number of bytes, \
-                             found {value:?}",
-                            number + 1
-                        ))
-                    })?;
-                }
-                "metered_period" => {
-                    config.metered_period =
-                        itsanas_policy::Period::parse(value).ok_or_else(|| {
-                            NodeError::Config(format!(
-                                "line {}: metered_period must be hour, day, week or month, \
-                                 found {value:?}",
-                                number + 1
-                            ))
-                        })?;
-                }
                 "pledge_bytes" => {
                     config.pledge_bytes = value.parse().map_err(|_| {
                         NodeError::Config(format!(
@@ -565,6 +572,7 @@ impl Config {
                 "peer" => peers.push(value.to_owned()),
                 "updates" => config.updates = parse_updates(value, number + 1)?,
                 "placement" => config.placement = parse_placement(value, number + 1)?,
+                other if hosting_line(&mut config, other, value, number)? => {}
                 other => {
                     // A backslash continuation here reached the repository with
                     // its second continuation eaten, so this line printed

@@ -293,7 +293,7 @@ mod tests {
             assert_eq!(
                 told,
                 vec![(host.store.device_id(), public.to_owned())],
-                "a member must hear of the machine offering space, and not of their own, one                  offering nothing, or an address that sends them into a private network"
+                "a member must hear only of another account's machine offering space, reachable from anywhere"
             );
         });
     }

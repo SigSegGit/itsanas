@@ -1700,13 +1700,16 @@ fn peer_service<'a>(
     .claiming(node.claim_bytes(itsanas_discover::now_unix()))
 }
 
+/// When the coordinator last named hosts, and which.
+type Introduced = (Instant, Vec<(DeviceId, String)>);
+
 /// What outlives a run of the loop, for one machine.
 struct Local {
     owners: itsanas_node::owners::ClaimBook,
     /// Read per offer by the listener and the hosting pull ([`Hosting`]).
     answers_only: AtomicBool,
     /// The hosts the coordinator last named, and when ([`introduced`]).
-    introduced: std::sync::Mutex<Option<(Instant, Vec<(DeviceId, String)>)>>,
+    introduced: std::sync::Mutex<Option<Introduced>>,
 }
 
 /// [`Local`] for `node`. One per device and not one per process: a phone's
@@ -1977,44 +1980,15 @@ fn one_round(
         reconcile_once(node, folder, false);
     }
 
-    // Hosts of other accounts the coordinator names, for a machine with nobody
-    // typed in and nobody on its LAN: what makes offering space reach anyone.
-    for (device, address) in introduced(node) {
-        if halted(node, shutdown) {
-            break;
-        }
-        if reached.contains(&device) {
-            continue;
-        }
-        let through = contact.through(&address);
-        // A relay answers a caller it knows: this presents to it first, so the
-        // splice works from the next round on.
-        if let Some((relay, at)) = through
-            .as_ref()
-            .filter(|(relay, _)| !reached.contains(relay))
-        {
-            if let Some(outcome) = sync_once(node, at, None, Some(*relay), false, false, scope) {
-                reached.insert(outcome.device);
-            }
-        }
-        let outcome = sync_once(
-            node,
-            &address,
-            through.as_ref(),
-            Some(device),
-            false,
-            false,
-            scope,
-        );
-        if let Some(outcome) = outcome {
-            reached.insert(outcome.device);
-            in_touch |= outcome.earned_trust;
-            if outcome.earned_trust {
-                neighbourhood.confirm(outcome.device);
-                hosts.push((outcome.device, address));
-            }
-        }
-    }
+    in_touch |= dial_introduced(
+        node,
+        shutdown,
+        neighbourhood,
+        contact,
+        &mut reached,
+        &mut hosts,
+        scope,
+    );
 
     let mut strangers_dialled = 0usize;
     for candidate in neighbourhood.dial_order(&HouseholdKey::of(&node.user)) {
@@ -2074,6 +2048,57 @@ fn one_round(
     }
 
     (reached, in_touch, announced)
+}
+
+/// Dial the hosts of other accounts the coordinator names, for a machine with
+/// nobody typed in and nobody on its LAN: what makes offering space reach anyone.
+/// Says whether one of them did what only a real host does.
+fn dial_introduced(
+    node: &Node,
+    shutdown: &AtomicBool,
+    neighbourhood: &Neighbourhood,
+    contact: &Contact,
+    reached: &mut BTreeSet<DeviceId>,
+    hosts: &mut Vec<(DeviceId, String)>,
+    scope: PolicyScope,
+) -> bool {
+    let mut in_touch = false;
+    for (device, address) in introduced(node) {
+        if halted(node, shutdown) {
+            break;
+        }
+        if reached.contains(&device) {
+            continue;
+        }
+        let through = contact.through(&address);
+        // A relay answers a caller it knows: this presents to it first, so the
+        // splice works from the next round on.
+        if let Some((relay, at)) = through
+            .as_ref()
+            .filter(|(relay, _)| !reached.contains(relay))
+            && let Some(outcome) = sync_once(node, at, None, Some(*relay), false, false, scope)
+        {
+            reached.insert(outcome.device);
+        }
+        let outcome = sync_once(
+            node,
+            &address,
+            through.as_ref(),
+            Some(device),
+            false,
+            false,
+            scope,
+        );
+        if let Some(outcome) = outcome {
+            reached.insert(outcome.device);
+            in_touch |= outcome.earned_trust;
+            if outcome.earned_trust {
+                neighbourhood.confirm(outcome.device);
+                hosts.push((outcome.device, address));
+            }
+        }
+    }
+    in_touch
 }
 
 /// How long the coordinator's list of hosts is kept: it costs a connection, and
