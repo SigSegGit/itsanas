@@ -111,6 +111,7 @@ JOBS = {
     "acceptance-local": "acceptance",
     "cross-build": "arm",
     "android-core": "android",
+    "android-app": "android_app",
     "minimum-rust-version": "msrv",
     "coverage": "coverage",
 }
@@ -223,6 +224,11 @@ def decide(event, labels, files, packages):
             bool(set(ANDROID_CORE) & affected),
             "a crate android-core checks is affected",
             "none of the crates android-core checks is affected",
+        ),
+        "android-app": job(
+            "itsanas-android" in affected or touched("scripts/build-apk") or touched("scripts/android-e2e"),
+            "the phone app's code or its build is affected",
+            "neither itsanas-android, the Kotlin side nor the APK scripts are affected",
         ),
         "minimum-rust-version": job(rust, "affected crates", nothing),
         # Coverage of a subset is a misleading number, and it gates nothing.
@@ -350,9 +356,7 @@ def check_needs(needs):
         return ["the `changes` job wrote no plan, so no skip in this run is justified"]
     for job, info in needs.items():
         result = info.get("result")
-        if result in ("failure", "cancelled"):
-            problems.append(f"{job}: {result}")
-        elif result == "skipped":
+        if result == "skipped":
             wrote = decided.get(job)
             if wrote is None:
                 problems.append(f"{job}: skipped, and the plan never mentions it")
@@ -360,6 +364,9 @@ def check_needs(needs):
                 problems.append(f"{job}: skipped although the plan said it runs ({wrote.get('why')})")
             elif not wrote.get("why"):
                 problems.append(f"{job}: skipped with no reason written down")
+        elif result != "success":
+            # Not a list of bad words: GitHub also says "abandoned", for a job no runner took.
+            problems.append(f"{job}: {result}")
     return problems
 
 

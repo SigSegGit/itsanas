@@ -2,20 +2,13 @@ name: Android
 
 # The phone app: the Rust core cross-compiled by cargo-ndk, then the Kotlin
 # shell built by Gradle. Nothing else in CI compiles the Kotlin, so a step that
-# touches android/ is only checked here. In its own workflow because ci.yml is
-# protected from remote writes.
+# touches android/ is only checked here. Called from ci.yml, whose last job is
+# the one check `main` requires: run beside it, this workflow could be red, or
+# still running, when a pull request merged. #378 merged that way.
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - android/**
-      - crates/itsanas-android/**
-      - crates/itsanas-cli/src/setup/web/**
-      - crates/itsanas-cli/src/shell.rs
-      - scripts/build-apk.sh
-      - scripts/android-e2e.sh
-      - .github/workflows/android.yml
+  workflow_call:
 
 concurrency:
   group: android-${{ github.ref }}

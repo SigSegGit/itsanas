@@ -40,6 +40,7 @@ Colonnes :
 
 | Début | Durée | Tokens | Étape | Fin | Statut | Focus | PR |
 |---|---|---|---|---|---|---|---|
+| 2026-11-04 ~18:20 | ~1 h, surtout de l'attente de CI | même session ; hebdo ~87 % ; contexte ~230 k | hors §8 | au bout | ✅ | L'e2e Android compte pour la vérification exigée ; un job sans runner n'est plus accepté | #380 |
 | 2026-11-04 12:13 | ~1 h, surtout de l'attente de CI | fenêtre 5 h 2 % → 4 % puis nouvelle fenêtre ; hebdo 86 % ; contexte 170 k | hors §8 | au bout | 🟨 | Plantages du téléphone : limite Android de 6 h puis redémarrage refusé, lus par adb ; test et protection, reste à prouver sur le téléphone avec 0.1.17 | #379 |
 | 2026-11-04 ~01:30 | ~2 h | fenêtre 5 h 30 % → 60 % ; hebdo 80 % → 83 % ; contexte 400 k | 8.10 | au bout | 🟨 | Prochaine version : le téléphone héberge, hôtes présentés entre comptes, interrupteur et réglages, limite Android, biométrie, textes légaux ; rien de lancé sur un vrai téléphone ni un vrai Mac | #378 |
 | 2026-11-03 ~22:30 | ~3 h, surtout de l'attente de CI | fenêtre 5 h 3 % → 27 % ; hebdo 76 % → 80 % ; contexte 365 k | hors §8 | au bout | 🟨 | Premier vrai téléphone : mise à jour 0.1.15 → 0.1.16, 22 captures arrivées sur le portable après une synchro à la main ; dossiers sur l'écran Fichiers, envoi dès l'ajout, offre de mise à jour corrigée (ces deux points sans test, à prouver sur le téléphone en 0.1.17) ; #376 ajoutée au journal ici | #376, #377 |

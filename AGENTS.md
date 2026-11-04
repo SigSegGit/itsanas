@@ -64,7 +64,8 @@ red one is not green. (Nicolas, 2026-10-07; a docs-only PR skips six jobs
 by design and was otherwise never mergeable by a session.)
 
 **Merge without asking: GitHub does it.** `main` requires the single check
-*No warnings anywhere in this run* (which passes only on the rule above), and
+*No warnings anywhere in this run* (which passes only on the rule above, and
+covers the phone app's emulator job, called from `ci.yml`), and
 the repository allows auto-merge (Nicolas, 2026-10-13: no session should be
 woken just to press the button). So a session that opens a PR marks it ready
 and enables auto-merge, squash, in the same breath (`enable_pr_auto_merge`,

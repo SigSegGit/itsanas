@@ -51,6 +51,7 @@ jobs:
       acceptance: ${{ steps.plan.outputs.acceptance }}
       arm: ${{ steps.plan.outputs.arm }}
       android: ${{ steps.plan.outputs.android }}
+      android_app: ${{ steps.plan.outputs.android_app }}
       msrv: ${{ steps.plan.outputs.msrv }}
       coverage: ${{ steps.plan.outputs.coverage }}
       smoke: ${{ steps.plan.outputs.smoke }}
@@ -613,6 +614,12 @@ jobs:
           name: coverage
           path: lcov.info
 
+  android-app:
+    name: The phone app
+    needs: changes
+    if: needs.changes.outputs.android_app == 'true'
+    uses: ./.github/workflows/android.yml
+
   no-warnings:
     name: No warnings anywhere in this run
     runs-on: ubuntu-latest
@@ -636,6 +643,7 @@ jobs:
       - acceptance-local
       - cross-build
       - android-core
+      - android-app
       - minimum-rust-version
       - supply-chain
       - coverage
@@ -667,7 +675,7 @@ jobs:
             [ "$name" = "No warnings anywhere in this run" ] && continue
             gh api "repos/$REPO/check-runs/$id/annotations" \
               -q '.[] | select(.annotation_level != "notice") | .annotation_level + "\t" + (.message | gsub("\n"; " "))' |
-              sed "s/^/$name\t/" >> found.tsv
+              while IFS= read -r line; do printf '%s\t%s\n' "$name" "$line"; done >> found.tsv
           done < runs.tsv
           # The one allowed line, and only it: taiki-e/install-action prints a
           # warning when a Windows runner's bash fails to start and it retries.
