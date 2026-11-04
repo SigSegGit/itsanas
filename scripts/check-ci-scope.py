@@ -190,6 +190,9 @@ needs = {"changes": ok_changes, "test": {"result": "skipped"}}
 check("verdict_refuses_a_skip_the_plan_did_not_decide", scope.check_needs(needs) != [])
 needs = {"changes": ok_changes, "coverage": {"result": "failure"}}
 check("verdict_refuses_a_failure", scope.check_needs(needs) != [])
+# GitHub's word for a job no runner ever took: nothing was tested, whatever else it means.
+needs = {"changes": {"result": "success", "outputs": {"plan": "{}"}}, "test": {"result": "abandoned"}}
+check("verdict_refuses_a_job_no_runner_took", scope.check_needs(needs) != [], scope.check_needs(needs))
 needs = {"changes": {"result": "failure", "outputs": {}}, "coverage": {"result": "skipped"}}
 check("verdict_refuses_any_skip_without_a_plan", scope.check_needs(needs) != [])
 blank = dict(plan, coverage={"run": False, "why": ""})

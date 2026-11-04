@@ -356,9 +356,7 @@ def check_needs(needs):
         return ["the `changes` job wrote no plan, so no skip in this run is justified"]
     for job, info in needs.items():
         result = info.get("result")
-        if result in ("failure", "cancelled"):
-            problems.append(f"{job}: {result}")
-        elif result == "skipped":
+        if result == "skipped":
             wrote = decided.get(job)
             if wrote is None:
                 problems.append(f"{job}: skipped, and the plan never mentions it")
@@ -366,6 +364,9 @@ def check_needs(needs):
                 problems.append(f"{job}: skipped although the plan said it runs ({wrote.get('why')})")
             elif not wrote.get("why"):
                 problems.append(f"{job}: skipped with no reason written down")
+        elif result != "success":
+            # Not a list of bad words: GitHub also says "abandoned", for a job no runner took.
+            problems.append(f"{job}: {result}")
     return problems
 
 
